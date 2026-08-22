@@ -2,172 +2,228 @@
 
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import Link from "@/components/no-prefetch-link";
+import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
-import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { signalTypeLabel } from "./herd-signals-kpis";
-import { fmtBatteryVoltage, fmtCount, fmtMotionDelta, fmtRssi, fmtStaleness, fmtTagTemp } from "./format";
-import type { HerdSignalsItem, HerdSignalsTimelineBucket } from "./types";
+import { Tag } from "@/components/ui-primitives";
+import type { HerdSignalItem, HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
+import { operationalLocationLabel } from "@/lib/operational-location";
+import {
+  BATTERY_LABEL,
+  BATTERY_TONE,
+  MAPPING_LABEL,
+  MAPPING_TONE,
+  MOVEMENT_LABEL,
+  MOVEMENT_TONE,
+  PATTERN_LABEL,
+  PATTERN_TONE,
+  SENSOR_LABEL,
+  SENSOR_TONE,
+  SIGNAL_LABEL,
+  SIGNAL_TONE,
+  fmtAgo,
+  fmtBatteryMv,
+  fmtDelta,
+  fmtRssi,
+  fmtTagTemp,
+} from "./format";
+import { HistoryChart } from "./herd-signals-history-chart";
 
-const RANGE_OPTIONS: Array<{ key: string; label: string; seconds: number; bucketSeconds: number }> = [
-  { key: "1h", label: "1h", seconds: 3600, bucketSeconds: 300 },
-  { key: "6h", label: "6h", seconds: 21600, bucketSeconds: 900 },
-  { key: "24h", label: "24h", seconds: 86400, bucketSeconds: 3600 },
-];
+type RangeKey = "1h" | "6h" | "24h";
+const RANGE_SECONDS: Record<RangeKey, number> = { "1h": 3600, "6h": 6 * 3600, "24h": 24 * 3600 };
+const RANGE_BUCKET_SECONDS: Record<RangeKey, number> = { "1h": 300, "6h": 300, "24h": 3600 };
 
-function rowId(row: HerdSignalsItem): string {
-  return row.tag_id;
+function batteryLifeTone(estimate: string | null): "ok" | "warn" | "dng" | "mut" {
+  if (!estimate) return "mut";
+  const lower = estimate.toLowerCase();
+  if (lower.includes("week")) return "dng";
+  if (lower.includes("1 month") || lower.includes("2 month")) return "warn";
+  return "ok";
 }
 
-async function readTimeline(tagId: string, fromIso: string, toIso: string, bucketSeconds: number) {
+async function readTimeline(tagId: string, range: RangeKey): Promise<{ ok: true; buckets: HerdSignalTimelineBucket[] } | { ok: false; error: string }> {
+  const to = new Date();
+  const from = new Date(to.getTime() - RANGE_SECONDS[range] * 1000);
   try {
     const response = await fetch(
-      `/api/herd-signals/tags/${encodeURIComponent(tagId)}/timeline?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}&bucket_seconds=${bucketSeconds}`,
+      `/api/herd-signals/tags/${encodeURIComponent(tagId)}/timeline?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}&bucket_seconds=${RANGE_BUCKET_SECONDS[range]}`,
       { headers: { Accept: "application/json" }, cache: "no-store" },
     );
-    const payload = (await response.json().catch(() => ({}))) as { buckets?: HerdSignalsTimelineBucket[]; error?: string };
-    if (!response.ok || !payload.buckets) {
-      return { ok: false as const, error: payload.error ?? `timeline_read_${response.status}` };
-    }
-    return { ok: true as const, buckets: payload.buckets };
+    const payload = (await response.json().catch(() => ({}))) as { buckets?: HerdSignalTimelineBucket[]; error?: string };
+    if (!response.ok) return { ok: false, error: payload.error ?? `timeline_read_${response.status}` };
+    return { ok: true, buckets: payload.buckets ?? [] };
   } catch {
-    return { ok: false as const, error: "timeline_unreachable" };
+    return { ok: false, error: "timeline_unreachable" };
   }
-}
-
-function MiniChart({ buckets }: { buckets: HerdSignalsTimelineBucket[] }) {
-  if (buckets.length === 0) {
-    return <div className="hs-chart-empty">{"No history for this range."}</div>;
-  }
-  const max = Math.max(1, ...buckets.map((bucket) => bucket.motion_delta ?? 0));
-  return (
-    <div className="hs-minichart" role="img" aria-label="Motion-count delta over time, packet gaps shown as red bands">
-      {buckets.map((bucket) => {
-        const heightPct = bucket.is_gap ? 100 : Math.max(4, Math.round(((bucket.motion_delta ?? 0) / max) * 100));
-        return (
-          <span
-            key={bucket.bucket_start}
-            className={bucket.is_gap ? "hs-bar hs-bar-gap" : "hs-bar"}
-            style={{ height: `${heightPct}%` }}
-            title={
-              bucket.is_gap
-                ? `Gap at ${new Date(bucket.bucket_start).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })}`
-                : `${new Date(bucket.bucket_start).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })}: delta ${bucket.motion_delta ?? 0}`
-            }
-          />
-        );
-      })}
-    </div>
-  );
 }
 
 export function HerdSignalsDrawer({
-  items,
-  initialSelectedTagId,
+  rows,
+  rowId,
+  initialSelectedId,
   closeHref,
-  pageContract,
-  nowMs,
 }: {
-  items: HerdSignalsItem[];
-  initialSelectedTagId?: string;
+  rows: HerdSignalItem[];
+  rowId: (item: HerdSignalItem) => string;
+  initialSelectedId?: string;
   closeHref: string;
-  pageContract: AdminUiPageContract;
-  nowMs: number;
 }) {
   const { displayedItem, drawerOpen, closeDrawer, closeButtonRef } = useLocalOverlaySelection({
-    items,
+    items: rows,
     itemId: rowId,
     selectionKey: "hs_tag",
-    initialSelectedId: initialSelectedTagId,
+    initialSelectedId,
     closeHref,
   });
-  const [rangeKey, setRangeKey] = useState("1h");
-  const [buckets, setBuckets] = useState<HerdSignalsTimelineBucket[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [range, setRange] = useState<RangeKey>("1h");
+  const [buckets, setBuckets] = useState<HerdSignalTimelineBucket[] | null>(null);
+  const [chartError, setChartError] = useState<string | null>(null);
   const requestId = useRef(0);
 
   useEffect(() => {
     if (!displayedItem) return;
-    const range = RANGE_OPTIONS.find((option) => option.key === rangeKey) ?? RANGE_OPTIONS[0];
-    const myRequest = ++requestId.current;
-    setLoading(true);
-    setLoadError(null);
-    const to = new Date(nowMs).toISOString();
-    const from = new Date(nowMs - range.seconds * 1000).toISOString();
-    readTimeline(displayedItem.tag_id, from, to, range.bucketSeconds).then((result) => {
-      if (requestId.current !== myRequest) return;
-      setLoading(false);
-      if (!result.ok) {
-        setLoadError(result.error);
-        setBuckets([]);
-        return;
-      }
-      setBuckets(result.buckets);
+    const id = ++requestId.current;
+    setBuckets(null);
+    setChartError(null);
+    void readTimeline(displayedItem.tag_id, range).then((result) => {
+      if (requestId.current !== id) return;
+      if (result.ok) setBuckets(result.buckets);
+      else setChartError(result.error);
     });
-  }, [displayedItem, rangeKey, nowMs]);
+  }, [displayedItem, range]);
 
   if (!displayedItem) return null;
   const item = displayedItem;
+  const location = item.operational_location_display
+    ? item.operational_location_display
+    : operationalLocationLabel({ shedName: item.shed_name, partitionLabel: item.partition_label });
+  const expandHref = `${closeHref}${closeHref.includes("?") ? "&" : "?"}hs_history=${encodeURIComponent(item.tag_id)}#hs-history-${encodeURIComponent(item.tag_id)}`;
 
   return (
-    <div className={`drawer-overlay${drawerOpen ? " open" : ""}`} role="presentation">
-      <div className="drawer-scrim" onClick={closeDrawer} aria-hidden="true" />
-      <aside className="drawer hs-drawer" role="dialog" aria-modal="true" aria-label={`Herd signal detail for ${item.display_id ?? item.tag_mac}`}>
-        <header className="drawer-hd">
+    <>
+      <button
+        type="button"
+        className={`scrim${drawerOpen ? " on" : ""}`}
+        aria-label="Close tag detail"
+        aria-hidden={!drawerOpen}
+        tabIndex={drawerOpen ? 0 : -1}
+        onClick={closeDrawer}
+      />
+      <aside className={`drawer${drawerOpen ? " on" : ""}`} aria-label="Tag detail" aria-hidden={!drawerOpen} inert={!drawerOpen}>
+        <div className="dh">
           <div>
-            <div className="hs-drawer-eyebrow">{item.operational_location_display ?? item.shed_name ?? "—"}</div>
-            <h2>{item.display_id ?? item.goat_id ?? "Unmapped tag"}</h2>
+            <div className="mt mono">{item.tag_id}</div>
+            <h2>{item.display_id || item.goat_id || "Unmapped tag"}</h2>
           </div>
-          <button type="button" ref={closeButtonRef} className="drawer-close" onClick={closeDrawer} aria-label="Close">
-            <X size={18} />
+          <span className="sp" style={{ flex: 1 }} />
+          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label="Close tag detail" onClick={closeDrawer}>
+            <X className="ic" />
           </button>
-        </header>
-        <div className="drawer-bd hs-drawer-bd">
-          <section className="hs-drawer-chart" aria-label="Movement history">
-            <div className="hs-drawer-chart-hd">
-              <div className="hs-range" role="group" aria-label="History range">
-                {RANGE_OPTIONS.map((option) => (
-                  <button key={option.key} type="button" className={rangeKey === option.key ? "on" : undefined} onClick={() => setRangeKey(option.key)}>
-                    {option.label}
+        </div>
+        <div className="dc">
+          {/* Movement-history chart FIRST, above the readings, so it needs no scrolling. */}
+          <div className="card">
+            <div className="hd">
+              <h3>Movement history</h3>
+              <div className="sp" style={{ flex: 1 }} />
+              <div className="rangepick" role="group" aria-label="History range">
+                {(["1h", "6h", "24h"] as RangeKey[]).map((key) => (
+                  <button key={key} type="button" className={range === key ? "on" : undefined} onClick={() => setRange(key)}>
+                    {key}
                   </button>
                 ))}
               </div>
-              <Link href={`/herd-signals/history?tag=${encodeURIComponent(item.tag_id)}&range=${rangeKey}`} className="btn hs-expand-btn">
-                Expand
-              </Link>
             </div>
-            {loading ? <div className="hs-chart-loading">Loading…</div> : loadError ? <div className="hs-chart-error">Could not load history: {loadError}</div> : <MiniChart buckets={buckets} />}
-          </section>
+            <div className="bd flush">
+              {chartError ? (
+                <div className="empty">
+                  <p className="muted small" style={{ margin: 0 }}>
+                    Could not load history: {chartError}.
+                  </p>
+                </div>
+              ) : buckets === null ? (
+                <div style={{ padding: 20 }}>
+                  <div className="skelrow" style={{ width: "100%", height: 90 }} />
+                </div>
+              ) : (
+                <HistoryChart buckets={buckets} baseline={item.baseline_delta} />
+              )}
+              <div className="patrow">
+                <LocalOverlayLink href={expandHref} scroll={false} className="btn sm">
+                  Expand
+                </LocalOverlayLink>
+              </div>
+            </div>
+          </div>
 
-          <section className="hs-drawer-readings">
-            <ReadingRow label="Signal strength (RSSI)" value={fmtRssi(item.rssi_dbm)} kind="direct" />
-            <ReadingRow label="Signal state" value={item.signal_state} kind="derived" />
-            <ReadingRow label="Battery voltage" value={fmtBatteryVoltage(item.battery_mv)} kind="direct" />
-            <ReadingRow label="Estimated battery life" value={item.battery_life_estimate ?? "—"} kind="inferred" />
-            <ReadingRow label="Motion count" value={fmtCount(item.motion_count)} kind="direct" />
-            <ReadingRow label="15-minute motion-count delta" value={fmtMotionDelta(item.motion_delta)} kind="derived" />
-            <ReadingRow label="1-hour motion-count delta" value={fmtMotionDelta(item.motion_delta_1h)} kind="derived" />
-            <ReadingRow label="Movement trend" value={item.movement_state} kind="derived" />
-            <ReadingRow label="Pattern (vs baseline)" value={item.pattern_state} kind="correlated" />
-            <ReadingRow label="Tag temperature" value={fmtTagTemp(item.tag_temperature_c)} kind="direct" note="This is the temperature of the tag, not the animal." />
-            <ReadingRow label="Sensor state" value={item.sensor_state} kind="derived" />
-            <ReadingRow label="Last seen" value={fmtStaleness(item.last_seen_at, nowMs)} kind="direct" />
-            <ReadingRow label="Mapping" value={item.mapping_state} kind="direct" />
-          </section>
+          <div className="metagrid">
+            <div>
+              <div className="k">Shed</div>
+              <div className="v">{location || "—"}</div>
+            </div>
+            <div>
+              <div className="k">Gateway</div>
+              <div className="v mono">{item.gateway_id || "—"}</div>
+            </div>
+            <div>
+              <div className="k">BLE MAC</div>
+              <div className="v mono">{item.tag_mac || "—"}</div>
+            </div>
+            <div>
+              <div className="k">Mapping</div>
+              <div className="v">
+                <Tag tone={MAPPING_TONE[item.mapping_state]}>{MAPPING_LABEL[item.mapping_state]}</Tag>
+              </div>
+            </div>
+          </div>
+
+          <div className="muted small" style={{ fontWeight: 700, marginTop: 4 }}>
+            Readings
+          </div>
+          <dl className="kv">
+            <dt>Motion count <span className="srcl direct">Direct</span></dt>
+            <dd>{fmtDelta(item.motion_count)}</dd>
+            <dt>15m motion delta <span className="srcl direct">Direct</span></dt>
+            <dd>{fmtDelta(item.motion_delta)}</dd>
+            <dt>1h motion delta <span className="srcl direct">Direct</span></dt>
+            <dd>{fmtDelta(item.motion_delta_1h)}</dd>
+            <dt>RSSI <span className="srcl direct">Direct</span></dt>
+            <dd>{fmtRssi(item.rssi_dbm)}</dd>
+            <dt>Signal <span className="srcl derived">Derived</span></dt>
+            <dd>{item.signal_state ? <Tag tone={SIGNAL_TONE[item.signal_state]}>{SIGNAL_LABEL[item.signal_state]}</Tag> : "—"}</dd>
+            <dt>Battery voltage <span className="srcl direct">Direct</span></dt>
+            <dd>{fmtBatteryMv(item.battery_mv)}</dd>
+            <dt>Battery state <span className="srcl derived">Derived</span></dt>
+            <dd>{item.battery_state ? <Tag tone={BATTERY_TONE[item.battery_state]}>{BATTERY_LABEL[item.battery_state]}</Tag> : "—"}</dd>
+            <dt>Estimated battery life <span className="srcl inferred">Inferred</span></dt>
+            <dd>
+              {item.battery_life_estimate ? (
+                <Tag tone={batteryLifeTone(item.battery_life_estimate)}>{item.battery_life_estimate}</Tag>
+              ) : (
+                "—"
+              )}
+            </dd>
+            <dt>Tag temperature <span className="srcl direct">Direct</span></dt>
+            <dd>{fmtTagTemp(item.tag_temperature_c)}</dd>
+            <dt>Movement trend <span className="srcl derived">Derived</span></dt>
+            <dd>{item.movement_state ? <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag> : "—"}</dd>
+            <dt>Pattern <span className="srcl correlated">Correlated</span></dt>
+            <dd>{item.pattern_state ? <Tag tone={PATTERN_TONE[item.pattern_state]}>{PATTERN_LABEL[item.pattern_state]}</Tag> : "—"}</dd>
+            <dt>Sensor status <span className="srcl direct">Direct</span></dt>
+            <dd>{item.sensor_state ? <Tag tone={SENSOR_TONE[item.sensor_state]}>{SENSOR_LABEL[item.sensor_state]}</Tag> : "—"}</dd>
+            <dt>Last seen <span className="srcl direct">Direct</span></dt>
+            <dd>{fmtAgo(item.last_seen_at, Date.now())}</dd>
+          </dl>
+          <p className="faint small" style={{ marginTop: 4 }}>
+            Tag temperature is the temperature measured at the tag&apos;s own sensor housing — not the
+            animal&apos;s body temperature.
+          </p>
+        </div>
+        <div className="df">
+          <button type="button" className="btn" onClick={closeDrawer}>
+            Close
+          </button>
         </div>
       </aside>
-    </div>
-  );
-}
-
-function ReadingRow({ label, value, kind, note }: { label: string; value: string; kind: "direct" | "derived" | "correlated" | "inferred"; note?: string }) {
-  return (
-    <div className="hs-reading-row">
-      <span className="hs-reading-label">{label}</span>
-      <span className="hs-reading-value">{value}</span>
-      <span className={`hs-badge hs-sig-${kind}`}>{signalTypeLabel(kind)}</span>
-      {note ? <span className="hs-reading-note">{note}</span> : null}
-    </div>
+    </>
   );
 }

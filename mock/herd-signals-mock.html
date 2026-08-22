@@ -1,0 +1,1415 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mesha — Herd Signals · Live Monitor</title>
+<style>
+  :root{
+    --logo:#7CCB45; --brand-l:#A6E07A;
+    --r:14px; --r2:10px;
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    --bg:#0E1512; --panel:#161F1A; --panel-2:#1D2820; --ink:#E9F1EA; --muted:#94A89A; --faint:#6E8377;
+    --line:#26332B; --line2:#1C261F;
+    --brand:#7CCB45; --brand-d:#69BA37; --brand-soft:rgba(124,203,69,.15);
+    --ok:#7CCB45; --okx:rgba(124,203,69,.17); --warn:#E0A53A; --warnx:rgba(224,165,58,.16); --danger:#F0635F; --dangerx:rgba(240,99,95,.16);
+    --info:#5B9BE8; --infox:rgba(91,155,232,.16); --purple:#A78BF5; --purplex:rgba(167,139,245,.16); --teal:#34C2A6; --tealx:rgba(52,194,166,.16);
+    --amber:#E0A53A; --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.36); --ring:rgba(124,203,69,.32);
+  }
+  :root.light{
+    --bg:#F4F7F2; --panel:#FFFFFF; --panel-2:#F1F5EF; --ink:#16201B; --muted:#5E6E64; --faint:#8A998F;
+    --line:#E2E8E1; --line2:#EEF2ED;
+    --brand:#54A02C; --brand-d:#44831F; --brand-soft:#ECF7E0;
+    --ok:#3F9A28; --okx:#ECF7E0; --warn:#B5791A; --warnx:#FBF1DE; --danger:#CC3D3D; --dangerx:#FBE6E6;
+    --info:#2B66B8; --infox:#E5EFFB; --purple:#7A5BD1; --purplex:#EDE7FB; --teal:#13816F; --tealx:#DEF3EF;
+    --amber:#C9871F; --shadow:0 1px 2px rgba(16,32,24,.04),0 6px 20px rgba(16,32,24,.06); --ring:rgba(84,160,44,.26);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;letter-spacing:.2px}
+  svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  svg.ic.sm{width:14px;height:14px}
+
+  .top{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:14px;padding:0 18px;height:58px;background:color-mix(in srgb,var(--panel) 82%,transparent);backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.2px}
+  .brand .logo{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:1.5px solid var(--brand);background:var(--brand-soft);color:var(--brand);font-weight:800;font-size:16px}
+  .brand b{font-size:16px}.brand small{color:var(--faint);font-weight:600;font-size:11px}
+  .sp{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:7px 12px;font:inherit;font-weight:650;font-size:12.5px;color:var(--ink);cursor:pointer;white-space:nowrap}
+  .btn:hover{border-color:var(--brand);color:var(--brand-d)}
+  .btn.p{background:linear-gradient(100deg,var(--brand-d),var(--brand));color:#08130B;border-color:var(--brand)}
+  .btn.sm{padding:4px 9px;font-size:11.5px;border-radius:7px}
+  .btn[disabled]{opacity:.45;cursor:not-allowed}
+  .btn[disabled]:hover{border-color:var(--line);color:var(--ink)}
+
+  .livebadge{display:inline-flex;align-items:center;gap:7px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--danger);border-radius:999px;padding:5px 13px;font-weight:800;font-size:12px;letter-spacing:.6px;cursor:pointer}
+  .livedot{width:8px;height:8px;border-radius:50%;background:var(--danger);animation:lp 1.4s ease-in-out infinite}
+  @keyframes lp{0%,100%{opacity:1;box-shadow:0 0 0 0 color-mix(in srgb,var(--danger) 55%,transparent)}50%{opacity:.55;box-shadow:0 0 0 5px transparent}}
+  .livebadge.paused{background:var(--panel-2);border-color:var(--line);color:var(--muted)}
+  /* Degraded state lives ON the pill: a separate "Updated 0s ago" readout reads 0s
+     on every healthy poll, which is dead text. */
+  .livebadge.stale{background:var(--warnx);border-color:color-mix(in srgb,var(--warn) 45%,var(--line));color:var(--warn)}
+  .livebadge.stale .livedot{background:var(--warn);animation:none}
+  .livebadge.paused .livedot{background:var(--faint);animation:none}
+  .refreshmeta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;white-space:nowrap}
+  .refreshmeta b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .intervalpick{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px}
+  .intervalpick button{border:0;background:transparent;padding:4px 9px;border-radius:6px;font:inherit;font-weight:650;font-size:11px;color:var(--muted);cursor:pointer}
+  .intervalpick button.on{background:var(--panel);color:var(--brand-d);box-shadow:var(--shadow)}
+
+  /* app shell: sidebar + main, ported from apps/admin-web/app/mesha-theme.css */
+  .layout{display:flex;min-height:calc(100vh - 58px)}
+  .side{width:256px;flex:none;background:var(--sidebar);color:var(--sidebar-ink);padding:12px 12px;display:flex;flex-direction:column;gap:2px;position:sticky;top:58px;height:calc(100vh - 58px);overflow:auto}
+  .nav{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:10px;cursor:pointer;color:var(--sidebar-ink);font-weight:550;font-size:14px}
+  .nav:hover{background:var(--sidebar-2);color:var(--sidebar-ink2)}
+  .nav.on{background:linear-gradient(100deg,var(--brand-d),var(--brand));color:#08130B;box-shadow:0 4px 16px rgba(124,203,69,.3)}
+  .nav.on .ic{color:#08130B}
+  .nav .ic{width:17px;height:17px}
+  .nav .ct{margin-left:auto;font-size:11px;font-weight:700;background:var(--danger);color:var(--danger-badge-ink);padding:1px 7px;border-radius:20px}
+  .ggrp{display:flex;align-items:center;gap:11px;padding:9px 12px;margin-top:6px;border-radius:10px;cursor:pointer;color:var(--sidebar-ink);font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
+  .ggrp:hover{background:var(--sidebar-2);color:var(--sidebar-ink2)}
+  .ggrp .ic{width:16px;height:16px;opacity:.85}
+  .ggrp .chev{margin-left:auto;width:14px;height:14px;opacity:.6;transition:transform .2s}
+  .ggrp.open .chev{transform:rotate(90deg)}
+  .ggrp .gct{margin-left:auto;font-size:10px;font-weight:700;background:var(--danger);color:var(--danger-badge-ink);padding:1px 6px;border-radius:20px}
+  .ggrp.open .gct{margin-left:0}
+  .subnav{display:none;flex-direction:column;gap:1px;margin:1px 0 4px}
+  .subnav.open{display:flex}
+  .leaf{display:flex;align-items:center;gap:9px;padding:7px 12px 7px 40px;border-radius:8px;cursor:pointer;color:var(--sidebar-ink);font-size:13px;font-weight:500;position:relative}
+  .leaf::before{content:"";position:absolute;left:23px;top:50%;width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.32;transform:translateY(-50%)}
+  .leaf:hover{background:var(--sidebar-2);color:var(--sidebar-ink2)}
+  .leaf.on{background:linear-gradient(90deg,var(--brand-soft),transparent);color:var(--sidebar-ink2);font-weight:650;box-shadow:inset 2px 0 0 var(--brand)}
+  .leaf.on::before{background:var(--brand);opacity:1}
+  .sidefoot{font-size:11px;color:var(--sidebar-ink);padding:10px 12px;border-top:1px solid #243a2e;margin-top:8px}
+  .hamb{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer;flex:none}
+  .parkbtn{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:7px 11px;font:inherit;font-weight:650;font-size:12.5px;color:var(--ink);cursor:pointer}
+  .userchip{display:flex;align-items:center;gap:9px;padding:4px 8px;border-radius:10px;cursor:pointer}
+  .userchip:hover{background:var(--bg)}
+  .userchip .av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--brand-soft);border:1px solid var(--line);color:var(--brand-d);font-weight:800;font-size:11px}
+  .userchip b{font-size:12.5px;display:block;line-height:1.2}
+  .userchip small{color:var(--faint);font-size:10.5px}
+  @media(max-width:1080px){.side{position:fixed;left:0;top:58px;z-index:46;transform:translateX(-104%);transition:transform .24s ease;box-shadow:8px 0 34px rgba(0,0,0,.45)}.side.open{transform:none}}
+  .wrap{max-width:1440px;margin:0 auto;padding:18px 18px 60px;flex:1;min-width:0}
+  .phead{display:flex;align-items:flex-start;gap:12px;margin:4px 0 14px;flex-wrap:wrap}
+  .phead h1{margin:0;font-size:21px;letter-spacing:-.4px}
+  .crumb{color:var(--muted);font-size:12px;margin-bottom:3px}
+  .sub{color:var(--muted);font-size:12.5px;margin-top:3px;max-width:820px}
+
+  /* segmented in-page tabs */
+  .segs{display:flex;gap:4px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:4px;margin:0 0 14px}
+  .segs button{border:0;background:transparent;padding:7px 13px;border-radius:8px;font:inherit;font-weight:650;font-size:12.5px;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+  .segs button:hover{color:var(--ink)}
+  .segs button.on{background:var(--brand-soft);color:var(--brand-d)}
+  .segs button .cnt{font-size:10.5px;font-weight:800;background:var(--panel-2);color:var(--muted);border-radius:999px;padding:1px 6px}
+  .segs button.on .cnt{background:color-mix(in srgb,var(--brand) 24%,transparent);color:var(--brand-d)}
+
+  .fbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;margin:0 0 14px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow)}
+  .fsel{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12.5px;color:var(--muted)}
+  .fsel select{border:0;background:transparent;outline:0;font:inherit;font-weight:650;color:var(--ink);cursor:pointer}
+  .fsel select option{background:var(--panel);color:var(--ink)}
+  .fnote{color:var(--faint);font-size:11px;margin-left:auto;white-space:nowrap}
+
+  .banner{display:flex;align-items:flex-start;gap:10px;padding:10px 13px;border-radius:10px;margin:0 0 14px;font-size:12.5px;border:1px solid var(--line)}
+  .banner.warn{background:var(--warnx);border-color:color-mix(in srgb,var(--warn) 40%,var(--line));color:var(--warn)}
+  .banner.dng{background:var(--dangerx);border-color:color-mix(in srgb,var(--danger) 40%,var(--line));color:var(--danger)}
+  .banner.info{background:var(--infox);border-color:color-mix(in srgb,var(--info) 34%,var(--line));color:var(--info)}
+  .banner b{font-weight:800}
+  .banner .sp{flex:1}
+
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:11px;margin-bottom:14px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line);border-radius:var(--r2);padding:11px 13px;box-shadow:var(--shadow);cursor:pointer;min-width:0}
+  .kpi:hover{border-color:var(--brand)}
+  .kpi.active{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft),var(--shadow)}
+  .kpi .act{display:none;font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--brand-d);margin-top:4px}
+  .kpi.active .act{display:block}
+  .kpi .hint{font-size:10px;color:var(--faint);margin-top:4px;opacity:0;transition:opacity .12s}
+  .kpi:hover .hint{opacity:1}
+  .achip{display:inline-flex;gap:6px;align-items:center;background:var(--brand-soft);color:var(--brand-d);border-radius:7px;padding:3px 9px;font-size:11.5px;font-weight:700;cursor:pointer}
+  .achip b{opacity:.65;font-weight:800}
+  .achip:hover b{opacity:1}
+  .kpi .lab{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:6px}
+  .kpi .val{font-size:26px;font-weight:760;letter-spacing:-.5px;margin:2px 0 1px;font-variant-numeric:tabular-nums}
+  .kpi .dl{font-size:11px;color:var(--muted)}
+  .kpi .ty{font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--faint);margin-top:4px}
+  .kpi.k-ok{border-left-color:var(--ok)}.kpi.k-ok .val{color:var(--ok)}
+  .kpi.k-warn{border-left-color:var(--warn)}.kpi.k-warn .val{color:var(--warn)}
+  .kpi.k-info{border-left-color:var(--info)}.kpi.k-info .val{color:var(--info)}
+  .kpi.k-purple{border-left-color:var(--purple)}.kpi.k-purple .val{color:var(--purple)}
+  .kpi.k-dng{border-left-color:var(--danger)}.kpi.k-dng .val{color:var(--danger)}
+  .kpi.k-mut .val{color:var(--muted)}
+
+  .grid{display:grid;grid-template-columns:1fr 340px;gap:14px;align-items:start}
+  @media(max-width:1080px){.grid{grid-template-columns:1fr}}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);min-width:0}
+  .card .hd{display:flex;align-items:center;gap:9px;padding:12px 15px;border-bottom:1px solid var(--line2);flex-wrap:wrap}
+  .card .hd h3{margin:0;font-size:13.5px;font-weight:720}
+  .card .bd{padding:13px 15px}
+  .card .bd.flush{padding:0}
+  .muted{color:var(--muted)}.small{font-size:11.5px}.faint{color:var(--faint)}
+
+  .tag{display:inline-flex;align-items:center;gap:5px;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap}
+  .t-ok{background:var(--okx);color:var(--ok)} .t-warn{background:var(--warnx);color:var(--warn)}
+  .t-dng{background:var(--dangerx);color:var(--danger)} .t-info{background:var(--infox);color:var(--info)}
+  .t-mut{background:var(--panel-2);color:var(--muted)} .t-purple{background:var(--purplex);color:var(--purple)}
+  .t-teal{background:var(--tealx);color:var(--teal)}
+
+  table{width:100%;border-collapse:collapse}
+  th{font-size:10.5px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);text-align:left;padding:9px 12px;border-bottom:1px solid var(--line2);white-space:nowrap;position:sticky;top:0;background:var(--panel);z-index:2}
+  td{padding:9px 12px;border-bottom:1px solid var(--line2);font-size:12.5px;vertical-align:middle}
+  tbody tr{cursor:pointer;transition:background .12s}
+  tbody tr:hover{background:var(--bg)}
+  tbody tr.sel{background:var(--brand-soft)}
+  .num{font-variant-numeric:tabular-nums;text-align:right}
+  th.num{text-align:right}
+  .tblwrap{overflow:auto;max-height:620px}
+  .delta{font-variant-numeric:tabular-nums;font-weight:700}
+  .delta.up{color:var(--ok)} .delta.zero{color:var(--muted)} .delta.warnv{color:var(--warn)}
+
+  .animcell{font-weight:650}
+  .animcell small{display:block;color:var(--faint);font-weight:600;font-size:10.5px}
+
+  /* mobile card table */
+  @media(max-width:860px){
+    table.resp thead{display:none}
+    table.resp tbody tr{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;padding:10px 12px;border-bottom:1px solid var(--line2)}
+    table.resp td{border:0;padding:2px 0;display:flex;justify-content:space-between;gap:8px}
+    table.resp td::before{content:attr(data-l);font-size:10px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--faint)}
+    table.resp td.wide{grid-column:1/-1}
+  }
+
+  /* empty / loading / error states */
+  .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:46px 22px;gap:9px}
+  .empty .eicon{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;background:var(--panel-2);border:1px solid var(--line);color:var(--muted)}
+  .empty .eicon svg.ic{width:22px;height:22px}
+  .empty h4{margin:0;font-size:14px;font-weight:720}
+  .empty p{margin:0;max-width:460px;color:var(--muted);font-size:12.5px}
+  .empty .eact{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:4px}
+  .empty.dngstate .eicon{background:var(--dangerx);border-color:color-mix(in srgb,var(--danger) 38%,var(--line));color:var(--danger)}
+  .empty.warnstate .eicon{background:var(--warnx);border-color:color-mix(in srgb,var(--warn) 38%,var(--line));color:var(--warn)}
+  .skelrow{height:13px;border-radius:6px;background:linear-gradient(90deg,var(--line2),var(--line),var(--line2));background-size:220% 100%;animation:sk 1.15s ease-in-out infinite}
+  @keyframes sk{0%{background-position:120% 0}100%{background-position:-120% 0}}
+
+  /* drawer (row click) — overlay, not a scroll-down section */
+  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);opacity:0;visibility:hidden;transition:opacity .18s,visibility .18s;z-index:60}
+  .scrim.on{opacity:1;visibility:visible}
+  .drawer{position:fixed;top:0;right:0;height:100vh;width:560px;max-width:96vw;background:var(--panel);border-left:1px solid var(--line);box-shadow:-14px 0 44px rgba(0,0,0,.5);z-index:61;transform:translateX(103%);transition:transform .2s ease;display:flex;flex-direction:column}
+  .drawer.on{transform:none}
+  .dhd{display:flex;align-items:center;gap:10px;padding:13px 15px;border-bottom:1px solid var(--line2);flex:none}
+  .dhd b{font-size:14.5px;display:block}
+  .dbd{padding:13px 15px 30px;overflow:auto;flex:1}
+  /* search + pager */
+  .fsel.search{flex:1 1 320px;min-width:220px}
+  .fsel.search input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);flex:1;min-width:0}
+  .fsel.search input::placeholder{color:var(--faint)}
+  .qclr{border:0;background:transparent;color:var(--faint);cursor:pointer;font:inherit;padding:0 2px;display:none}
+  .fsel.search.has .qclr{display:block}
+  .pager{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 15px;border-top:1px solid var(--line2);font-size:12px;color:var(--muted)}
+  .pager b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .pgbtn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:5px 10px;font:inherit;font-size:12px;font-weight:650;cursor:pointer}
+  .pgbtn:hover:not([disabled]){border-color:var(--brand);color:var(--brand-d)}
+  .pgbtn[disabled]{opacity:.4;cursor:not-allowed}
+  .hl{background:color-mix(in srgb,var(--brand) 30%,transparent);border-radius:3px;padding:0 1px}
+  /* full-screen history modal */
+  .fs{position:fixed;inset:0;z-index:70;background:var(--bg);display:none;flex-direction:column}
+  .fs.on{display:flex}
+  .fshd{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel);flex:none;flex-wrap:wrap}
+  .fshd b{font-size:15px}
+  .fsbd{overflow:auto;padding:16px 18px 40px;flex:1}
+  .daterow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--line);border-radius:11px;background:var(--panel);margin-bottom:14px}
+  .daterow input[type=date],.daterow input[type=time]{background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--ink);font:inherit;font-size:12.5px;padding:5px 8px;color-scheme:dark}
+  .evchip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid var(--line);background:var(--panel-2);color:var(--muted);user-select:none}
+  .evchip.on{border-color:currentColor}
+  .evchip i{width:8px;height:8px;border-radius:2px;display:inline-block;background:currentColor}
+  .hchart .evline{stroke-width:1.5;stroke-dasharray:4 3;opacity:.9}
+  .hchart .evflag{font-size:9px;font-weight:700}
+  /* history chart */
+  .rangepick{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px}
+  .rangepick button{border:0;background:transparent;padding:3px 9px;border-radius:6px;font:inherit;font-weight:700;font-size:11px;color:var(--muted);cursor:pointer}
+  .rangepick button.on{background:var(--panel);color:var(--brand-d);box-shadow:var(--shadow)}
+  .hchart{width:100%;display:block}
+  .hchart .b-move{fill:var(--ok)}
+  .hchart .b-low{fill:var(--muted);opacity:.55}
+  .hchart .b-zero{fill:var(--line);}
+  .hchart .b-spike{fill:var(--warn)}
+  .hchart .gap{fill:var(--danger);opacity:.22}
+  .hchart .gapline{fill:var(--danger);opacity:.85}
+  .hchart .gl{stroke:var(--line2);stroke-width:1}
+  .hchart .base{stroke:var(--info);stroke-width:1;stroke-dasharray:3 3;opacity:.7}
+  .hchart text{fill:var(--faint);font-size:9px;font-family:var(--f)}
+  .hchart rect.bar:hover{opacity:.75}
+  .legend{display:flex;flex-wrap:wrap;gap:10px 12px;padding:8px 0 0;font-size:11px;color:var(--muted)}
+  .card .bd.flush .legend,.card .bd.flush .readout{padding-left:15px;padding-right:15px}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .readout{font-size:11.5px;color:var(--muted);padding:8px 0 0;min-height:34px;line-height:1.5}
+  .readout b{color:var(--ink);font-variant-numeric:tabular-nums}
+  .patrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:10px 0 0}
+  /* chart */
+  .chart{width:100%;height:190px;display:block}
+  .chart .bar{fill:var(--brand);opacity:.85}
+  .chart .bar.lo{fill:var(--muted);opacity:.5}
+  .chart .gl{stroke:var(--line2);stroke-width:1}
+  .chart text{fill:var(--faint);font-size:9px;font-family:var(--f)}
+  .chartnote{font-size:11px;color:var(--faint);padding:0 15px 13px}
+
+  /* detail side panel */
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:7px 12px;font-size:12.5px;align-items:baseline}
+  .kv dt{color:var(--muted);white-space:nowrap}
+  .kv dd{margin:0;font-weight:650;text-align:right}
+  .srcl{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;padding:1px 5px;border-radius:4px;margin-left:6px;vertical-align:middle}
+  .srcl.direct{background:var(--tealx);color:var(--teal)}
+  .srcl.derived{background:var(--infox);color:var(--info)}
+  .srcl.inferred{background:var(--purplex);color:var(--purple)}
+  .srcl.correlated{background:var(--warnx);color:var(--warn)}
+
+  .gwcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:13px 14px;box-shadow:var(--shadow)}
+  .gwcard .gwh{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+  .gwcard .gwh b{font-size:13.5px}
+  .gwstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:9px;margin:10px 0 8px}
+  .gwstats div{background:var(--bg);border:1px solid var(--line2);border-radius:8px;padding:7px 9px}
+  .gwstats .v{font-size:17px;font-weight:740;font-variant-numeric:tabular-nums}
+  .gwstats .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:750}
+
+  .insight{background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:13px 14px;box-shadow:var(--shadow)}
+  .insight .ih{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;margin-bottom:3px}
+  .insight .iv{font-size:23px;font-weight:760;font-variant-numeric:tabular-nums;letter-spacing:-.4px}
+  .insight .if{font-size:11.5px;color:var(--muted);margin-top:5px}
+  .insight .idis{font-size:11px;color:var(--faint);margin-top:6px;border-top:1px solid var(--line2);padding-top:6px}
+
+  .rowlist{display:flex;flex-direction:column}
+  .rowitem{display:flex;align-items:center;gap:10px;padding:10px 15px;border-bottom:1px solid var(--line2);font-size:12.5px}
+  .rowitem:last-child{border-bottom:0}
+  .rowitem .rt{font-weight:650}
+  .rowitem .rs{color:var(--muted);font-size:11.5px}
+
+  .hidden{display:none !important}
+</style>
+
+<div class="top">
+  <button class="hamb" onclick="document.getElementById('side').classList.toggle('open')" aria-label="Toggle menu"><svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg></button>
+  <div class="brand"><div class="logo">मे</div><div><b>Mesha</b><br><small>Herd Signals · Live Monitor</small></div></div>
+  <div class="sp"></div>
+  <span class="livebadge" id="liveBadge" onclick="toggleLive()"><span class="livedot"></span><span id="liveTxt">LIVE</span></span>
+  <div class="intervalpick" id="ivp" title="Poll interval — lower is fresher, higher is cheaper across a large fleet">
+    <button data-iv="5" class="on" onclick="setIv(this)">5s</button>
+    <button data-iv="15" onclick="setIv(this)">15s</button>
+    <button data-iv="60" onclick="setIv(this)">60s</button>
+  </div>
+  <button class="btn" onclick="manualRefresh()"><svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></svg> Refresh</button>
+  <button class="btn" disabled title="Export endpoint not built yet">Export</button>
+  <button class="parkbtn"><svg class="ic sm" viewBox="0 0 24 24"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0Z"/><circle cx="12" cy="10" r="3"/></svg> All parks</button>
+  <div class="userchip"><div class="av">CX</div><div><b>CEO / CXO</b><small>tenant scope · 2 active parks</small></div></div>
+</div>
+
+<div class="layout">
+<aside class="side" id="side">
+  <a class="nav"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2v6"/><path d="m8 22 4-10 4 10"/><path d="M5 10h14"/><path d="M7 10 5 22"/><path d="m17 10 2 12"/></svg> Control Tower</a>
+  <a class="nav"><svg class="ic" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z"/></svg> Action Center <span class="ct">58</span></a>
+  <a class="nav"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg> Calendar</a>
+  <a class="nav"><svg class="ic" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> Protocol Adherence</a>
+  <a class="nav"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M14 6h4a2 2 0 0 1 2 2v2"/><path d="M10 18H6a2 2 0 0 1-2-2v-2"/></svg> Workflows</a>
+  <a class="nav"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2v6"/><path d="m8 22 4-10 4 10"/><path d="M5 10h14"/></svg> Approvals</a>
+  <a class="nav"><svg class="ic" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> Verify</a>
+
+  <div class="ggrp" onclick="tgrp(this)"><svg class="ic" viewBox="0 0 24 24"><path d="M19 14c1.5-1.5 2-3.4 2-5a7 7 0 0 0-14 0c0 4 3 7 7 11 1.5-1.5 3-3 5-6Z"/><path d="M12 8v4"/><path d="M10 10h4"/></svg> Preventive Care (PC) <span class="gct">58</span><svg class="ic chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></div>
+  <div class="subnav"><a class="leaf">Vaccination</a><a class="leaf">Live Drive Tracker</a><a class="leaf">Vaccination SOP</a></div>
+
+  <div class="ggrp" onclick="tgrp(this)"><svg class="ic" viewBox="0 0 24 24"><path d="M10 17h4V5H2v12h3"/><path d="M14 9h4l4 4v4h-3"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg> Procurement<svg class="ic chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></div>
+  <div class="subnav"><a class="leaf">Source Entry</a><a class="leaf">Loads</a></div>
+
+  <div class="ggrp" onclick="tgrp(this)"><svg class="ic" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16v-5"/><path d="M12 16V8"/><path d="M17 16v-3"/></svg> Counts<svg class="ic chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></div>
+  <div class="subnav"><a class="leaf">Herd Register</a><a class="leaf">Shifting</a></div>
+
+  <div class="ggrp" onclick="tgrp(this)"><svg class="ic" viewBox="0 0 24 24"><path d="M8 2h8"/><path d="M9 2v4L6 20a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2L15 6V2"/></svg> Milk<svg class="ic chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></div>
+  <div class="subnav"><a class="leaf">Milk Records</a></div>
+
+  <div class="ggrp" onclick="tgrp(this)"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2v6"/><path d="m8 22 4-10 4 10"/><path d="M5 10h14"/></svg> Weighing<svg class="ic chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></div>
+  <div class="subnav"><a class="leaf">Weights</a><a class="leaf">Weighing Tasks</a></div>
+
+  <div class="ggrp" onclick="tgrp(this)"><svg class="ic" viewBox="0 0 24 24"><path d="M2 22c6 0 10-4 10-10"/><path d="M12 12c0-5 4-9 9-9 0 6-4 10-9 10Z"/></svg> Feed<svg class="ic chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></div>
+  <div class="subnav"><a class="leaf">Feed Config</a><a class="leaf">Feed Direction</a></div>
+
+  <div class="ggrp open" onclick="tgrp(this)"><svg class="ic" viewBox="0 0 24 24"><path d="M4.9 19.1a10 10 0 0 1 0-14.2"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4"/><path d="M19.1 4.9a10 10 0 0 1 0 14.2"/></svg> Herd Signals<svg class="ic chev" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></div>
+  <div class="subnav open"><a class="leaf on">Live Monitor</a></div>
+
+  <div class="sidefoot">Mesha<br><span class="faint">BLE gateway telemetry</span></div>
+</aside>
+
+<div class="wrap">
+  <div class="phead">
+    <div>
+      <div class="crumb">Herd Signals / <b>Live Monitor</b></div>
+      <h1>Herd Signals</h1>
+      <div class="sub">BLE ear-tag signals, movement counters, and gateway coverage for mapped animals. Values are read from the tag broadcast — the tag reports a cumulative motion counter, not behaviour.</div>
+    </div>
+  </div>
+
+
+
+  <div class="segs" id="segs">
+    <button class="on" data-tab="live" onclick="setTab(this)"><svg class="ic sm" viewBox="0 0 24 24"><path d="M4.9 19.1a10 10 0 0 1 0-14.2"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4"/><path d="M19.1 4.9a10 10 0 0 1 0 14.2"/></svg> Live Monitor <span class="cnt" id="cLive">0</span></button>
+    <button data-tab="animals" onclick="setTab(this)"><svg class="ic sm" viewBox="0 0 24 24"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0Z"/><circle cx="12" cy="10" r="3"/></svg> Animals <span class="cnt" id="cAnimals">0</span></button>
+    <button data-tab="gateways" onclick="setTab(this)"><svg class="ic sm" viewBox="0 0 24 24"><path d="M5 12.5a7 7 0 0 1 14 0"/><path d="M2 9a11 11 0 0 1 20 0"/><circle cx="12" cy="17" r="2"/></svg> Gateways <span class="cnt" id="cGw">0</span></button>
+    <button data-tab="alerts" onclick="setTab(this)"><svg class="ic sm" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg> Alerts <span class="cnt" id="cAlerts">0</span></button>
+    <button data-tab="mapping" onclick="setTab(this)"><svg class="ic sm" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12.2 19"/></svg> Tag Mapping <span class="cnt" id="cMap">0</span></button>
+    <button data-tab="insights" onclick="setTab(this)"><svg class="ic sm" viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg> Insights</button>
+  </div>
+
+  <div id="staleBanner" class="banner warn hidden">
+    <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    <div><b>Showing stale data.</b> Last successful response was <span id="staleAge">42s</span> ago. Polling keeps retrying; manual refresh still works.</div>
+    <div class="sp"></div>
+    <button class="btn sm" onclick="manualRefresh()">Retry now</button>
+  </div>
+
+  <!-- ================= LIVE MONITOR ================= -->
+  <section id="tab-live">
+    <div class="fbar">
+      <span class="fsel search"><svg class="ic sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="fQ" type="search" placeholder="Search animal, tag ID, BLE MAC, shed or gateway" oninput="onSearch()" autocomplete="off">
+        <button class="qclr" id="qClr" onclick="clearQ()" title="Clear search">✕</button></span>
+      <span class="fsel">Park <select id="fPark" onchange="resetPage()"><option value="">All parks</option><option>Channapatna</option><option>Gandhi</option></select></span>
+      <span class="fsel">Shed <select id="fShed" onchange="resetPage()"><option value="">All sheds</option></select></span>
+      <span class="fsel">Movement <select id="fMove" onchange="resetPage()"><option value="">Any movement state</option><option value="moving">Moving</option><option value="low">Low</option><option value="quiet">Quiet</option><option value="not_moving">No movement</option><option value="stale">Stale</option></select></span>
+      <span class="fsel">Mapping <select id="fMap" onchange="resetPage()"><option value="">Mapped + unmapped</option><option value="mapped">Mapped only</option><option value="unmapped">Unmapped only</option><option value="conflict">Conflicts only</option></select></span>
+      <span class="fsel">Pattern <select id="fPat" onchange="resetPage()"><option value="">Any pattern</option><option value="inactive">Inactive alert</option><option value="quiet_watch">Quiet watch</option><option value="spike">Movement spike</option><option value="recovered">Back to normal</option><option value="missing">Missing signal</option></select></span>
+      <span id="kpiChip"></span>
+      <span class="fnote">Window: last 15 min · thresholds provisional</span>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+    <div class="small faint" style="margin:-6px 0 14px">Counts are whole-filter aggregates. In the product the backend computes them from the same tenant-scoped query as the table — never summed from the rows on the fetched page.</div>
+
+    <div class="card">
+      <div class="hd">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4.9 19.1a10 10 0 0 1 0-14.2"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4"/><path d="M19.1 4.9a10 10 0 0 1 0 14.2"/></svg>
+        <h3>Live tag signals</h3>
+        <span class="tag t-mut" id="rowCount">0 tags</span>
+        <div class="sp"></div>
+        <span class="fsel">Rows <select id="fSize" onchange="resetPage()"><option>25</option><option>50</option><option>100</option></select></span>
+        <span class="small faint">Click a row for tag detail</span>
+      </div>
+      <div id="pagerTop"></div>
+      <div class="bd flush" id="liveBody"></div>
+      <div id="pager"></div>
+    </div>
+  </section>
+
+  <!-- ================= ANIMALS ================= -->
+  <section id="tab-animals" class="hidden">
+    <div class="card">
+      <div class="hd"><svg class="ic" viewBox="0 0 24 24"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0Z"/><circle cx="12" cy="10" r="3"/></svg><h3>Mapped animals</h3><div class="sp"></div><span class="small faint">One row per animal carrying an active smart-tag-capable identifier</span></div>
+      <div class="bd flush" id="animalsBody"></div>
+    </div>
+  </section>
+
+  <!-- ================= GATEWAYS ================= -->
+  <section id="tab-gateways" class="hidden">
+    <div class="grid2" id="gwBody"></div>
+    <div class="grid2" style="margin-top:14px">
+      <div class="card">
+        <div class="hd"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12.5a7 7 0 0 1 14 0"/><path d="M2 9a11 11 0 0 1 20 0"/><circle cx="12" cy="17" r="2"/></svg><h3>Coverage summary</h3></div>
+        <div class="bd" id="gwMini"></div>
+      </div>
+      <div class="card">
+        <div class="hd"><svg class="ic" viewBox="0 0 24 24"><rect x="2" y="7" width="16" height="10" rx="2"/><path d="M22 11v2"/></svg><h3>Battery outlook</h3><div class="sp" style="flex:1"></div><span class="tag t-mut">Provisional</span></div>
+        <div class="bd" id="battBody"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ALERTS ================= -->
+  <section id="tab-alerts" class="hidden">
+    <div class="card">
+      <div class="hd"><svg class="ic" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><h3>Signal alerts</h3><div class="sp"></div><span class="small faint">Signal conditions only — none of these are clinical findings</span></div>
+      <div class="bd flush" id="alertsBody"></div>
+    </div>
+  </section>
+
+  <!-- ================= TAG MAPPING ================= -->
+  <section id="tab-mapping" class="hidden">
+    <div class="fbar">
+      <button class="btn sm" onclick="setMapFilter('',this)">All</button>
+      <button class="btn sm" onclick="setMapFilter('unmapped',this)">Unmapped only</button>
+      <button class="btn sm" onclick="setMapFilter('conflict',this)">Conflicts only</button>
+      <div class="sp"></div>
+      <button class="btn sm p" disabled title="Select a BLE tag row first">Map selected BLE tag</button>
+      <button class="btn sm" disabled title="Select an identifier first">Mark as smart tag</button>
+      <button class="btn sm" disabled title="Select an identifier first">Replace smart tag</button>
+    </div>
+    <div class="card">
+      <div class="hd"><svg class="ic" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12.2 19"/></svg><h3>BLE tag ↔ animal identifier mapping</h3><div class="sp"></div><span class="small faint">Flag lives on the identifier, not the animal — an animal can carry several tags</span></div>
+      <div class="bd flush" id="mappingBody"></div>
+    </div>
+  </section>
+
+  <!-- ================= INSIGHTS ================= -->
+  <section id="tab-insights" class="hidden">
+    <div class="banner info">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+      <div><b>What the tag actually reports:</b> tag ID, BLE MAC, RSSI, battery mV, tag temperature, a cumulative motion counter, sensor-OK bits, gateway ID and timestamps. It does not detect eating, rumination, posture, walking, fever, body temperature or disease. Everything below is labelled Direct, Derived, Correlated or Inferred.</div>
+    </div>
+    <div class="grid2" id="insightsBody"></div>
+    <div class="card" style="margin-top:14px">
+      <div class="hd"><svg class="ic" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg><h3>Vaccination proof — BLE scan flow (design)</h3><div class="sp"></div><span class="tag t-mut">Not built</span></div>
+      <div class="bd">
+        <ol class="muted" style="margin:0 0 10px;padding-left:18px;font-size:12.5px;line-height:1.8">
+          <li>Operator opens the vaccination task.</li>
+          <li>App starts a nearby BLE scan, tags sorted by RSSI.</li>
+          <li>Operator brings the phone close to the ear tag.</li>
+          <li>App highlights the strongest <b>mapped</b> tag.</li>
+          <li>Operator confirms animal ↔ tag.</li>
+          <li>Camera opens.</li>
+          <li>Proof stores animal_id, BLE tag ID, BLE MAC, RSSI, scanner source, timestamp, video proof ID.</li>
+        </ol>
+        <div class="banner dng" style="margin:0 0 10px">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+          <div><b>Safety gate.</b> The camera never auto-opens because a BLE tag is merely visible. Require strongest RSSI ≥ −60 dBm <b>and</b> ≥ 8 dB clear of the next strongest, or an explicit manual operator confirmation.</div>
+        </div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          <span class="tag t-ok">Nearest tag locked</span>
+          <span class="tag t-warn">Multiple tags nearby</span>
+          <span class="tag t-warn">Move closer</span>
+          <span class="tag t-dng">Tag not mapped</span>
+          <span class="tag t-dng">Bluetooth permission required</span>
+          <span class="tag t-mut">Scanner unavailable — manual verification path</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+</div>
+
+<div class="scrim" id="scrim" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-label="Tag detail">
+  <div class="dhd">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M4.9 19.1a10 10 0 0 1 0-14.2"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4"/><path d="M19.1 4.9a10 10 0 0 1 0 14.2"/></svg>
+    <div style="min-width:0"><b id="dTitle">—</b><div class="faint small mono" id="dSub">—</div></div>
+    <div class="sp" style="flex:1"></div>
+    <button class="btn sm" onclick="closeDrawer()" aria-label="Close">✕</button>
+  </div>
+  <div class="dbd" id="detailBody"></div>
+</aside>
+
+<div class="fs" id="fs" role="dialog" aria-label="Full movement history">
+  <div class="fshd">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+    <div style="min-width:0"><b id="fsTitle">—</b><div class="faint small mono" id="fsSub">—</div></div>
+    <div class="sp" style="flex:1"></div>
+    <button class="btn" onclick="closeFs()">✕ Close</button>
+  </div>
+  <div class="fsbd" id="fsBody"></div>
+</div>
+
+<script>
+/* ---------------- icons ---------------- */
+const IC = {
+  radio:'<path d="M4.9 19.1a10 10 0 0 1 0-14.2"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4"/><path d="M19.1 4.9a10 10 0 0 1 0 14.2"/>',
+  activity:'<path d="M3 12h4l3 8 4-16 3 8h4"/>',
+  battery:'<rect x="2" y="7" width="16" height="10" rx="2"/><path d="M22 11v2"/>',
+  wifi:'<path d="M5 12.5a7 7 0 0 1 14 0"/><path d="M2 9a11 11 0 0 1 20 0"/><circle cx="12" cy="17" r="2"/>',
+  alert:'<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  pin:'<path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0Z"/><circle cx="12" cy="10" r="3"/>',
+  phone:'<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>',
+  video:'<path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
+  link:'<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12.2 19"/>',
+  unlink:'<path d="m18.8 13.2 1.7-1.7a5 5 0 0 0-7-7l-1.7 1.7"/><path d="m5.2 10.8-1.7 1.7a5 5 0 0 0 7 7l1.7-1.7"/><path d="m2 2 20 20"/>',
+  refresh:'<path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/>',
+  inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.5 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.5A2 2 0 0 0 16.7 4H7.3a2 2 0 0 0-1.8 1.5Z"/>',
+  filter:'<path d="M22 3H2l8 9.5V19l4 2v-8.5L22 3Z"/>',
+  bt:'<path d="m7 7 10 10-5 5V2l5 5L7 17"/>',
+  therm:'<path d="M14 14.8V4a2 2 0 0 0-4 0v10.8a4 4 0 1 0 4 0Z"/>'
+};
+function svg(p,cls){return '<svg class="ic '+(cls||'')+'" viewBox="0 0 24 24">'+p+'</svg>';}
+
+/* ---------------- mock data ---------------- */
+const SHEDS=[
+  {park:'Channapatna',shed:'Mandela 1 - Part 1',gw:'514060'},
+  {park:'Channapatna',shed:'Yashoda 2',gw:'514060'},
+  {park:'Channapatna',shed:'Yashoda 4',gw:'514061'},
+  {park:'Gandhi',shed:'Gandhi 3 - Part 2',gw:'514072'}
+];
+const BASE=[
+  ['A0002A',-62,3100,24.9,8852,140,3,'Channapatna','Mandela 1 - Part 1','514060','CH-1204'],
+  ['A0002B',-62,3100,25.3,5843,0,0,'Channapatna','Mandela 1 - Part 1','514060','CH-1207'],
+  ['A0002C',-55,3100,25.5,8804,212,12,'Channapatna','Mandela 1 - Part 1','514060','CH-1211'],
+  ['A0002D',-57,3100,25.4,8850,64,6,'Channapatna','Yashoda 2','514060','CH-1288'],
+  ['A0002E',-59,3200,26.1,6992,7,1,'Channapatna','Yashoda 2','514060','CH-1290'],
+  ['A0002F',-69,3100,25.1,7531,0,0,'Channapatna','Yashoda 2','514060','CH-1293'],
+  ['A00030',-55,3100,25.5,8015,188,9,'Channapatna','Yashoda 4','514061','CH-1301'],
+  ['A00031',-61,3100,25.0,9957,121,7,'Channapatna','Yashoda 4','514061','CH-1305'],
+  ['A00033',-57,3100,25.0,8403,44,4,'Channapatna','Yashoda 4','514061','CH-1309'],
+  ['A00034',-57,2740,25.2,8040,15,2,'Channapatna','Yashoda 4','514061','CH-1312'],
+  ['A00035',-58,3100,25.3,8415,3,1,'Gandhi','Gandhi 3 - Part 2','514072','GA-2101'],
+  ['A00036',-63,3100,25.1,11171,940,18,'Gandhi','Gandhi 3 - Part 2','514072','GA-2104'],
+  ['A00038',-58,3100,25.6,6882,0,0,'Gandhi','Gandhi 3 - Part 2','514072','GA-2108'],
+  ['A0003A',-78,3100,25.6,7181,22,3,'Gandhi','Gandhi 3 - Part 2','514072','GA-2110'],
+  ['A0003B',-53,3100,25.1,7485,15,2,'Channapatna','Mandela 1 - Part 1','514060','CH-1215'],
+  ['A0003C',-81,3100,25.5,7020,0,0,'Channapatna','Yashoda 2','514060','CH-1296'],
+  ['A0003E',-68,3100,25.5,6399,9,1,'Channapatna','Yashoda 4','514061',null],
+  ['A0003F',-59,3100,25.4,6893,110,8,'Channapatna','Mandela 1 - Part 1','514060','CH-1219'],
+  ['A00040',-62,3100,25.6,8169,0,0,'Gandhi','Gandhi 3 - Part 2','514072',null],
+  ['A00041',-64,3100,25.3,7366,31,3,'Channapatna','Yashoda 2','514060','CH-1298']
+];
+const TH={move:100,low:10,quiet:1,staleMin:30,weakRssi:-75,weakAvg:-80,lowBattMv:2800,windowSec:900};
+
+/* Scale stand-in: the 20 proven tags plus a deterministic synthetic fleet, so
+   search / filter / pagination are exercised at a realistic row count rather
+   than at 20. The real API pages this server-side with a keyset cursor. */
+const FLEET=1980;
+const SYNTH_SHEDS=[
+  ['Channapatna','Mandela 1 - Part 1','514060'],['Channapatna','Mandela 1 - Part 7','514060'],
+  ['Channapatna','Yashoda 2','514060'],['Channapatna','Yashoda 4','514061'],
+  ['Channapatna','Castro - 1','514061'],['Channapatna','Castro - 2','514061'],
+  ['Gandhi','Gandhi 3 - Part 2','514072'],['Gandhi','Godel 1 - Part 3','514072'],
+  ['Gandhi','Ho Chi Minh 1','514072']
+];
+let ROWCACHE=null;
+function synthRows(){
+  const out=[];
+  for(let i=0;i<FLEET;i++){
+    const tag='A'+(0x00100+i).toString(16).toUpperCase().padStart(5,'0');
+    const h=hash(tag,1), h2=hash(tag,2), h3=hash(tag,3), h4=hash(tag,4);
+    const sh=SYNTH_SHEDS[Math.floor(h*SYNTH_SHEDS.length)%SYNTH_SHEDS.length];
+    const d15 = h2<0.30?0 : h2<0.55?Math.round(h2*18) : h2<0.86?Math.round(h2*150) : Math.round(200+h2*260);
+    const mapped = h3>0.06;
+    const ageSec = h4<0.05? 1800+Math.round(h4*9000) : 5+Math.round(h4*220);
+    out.push({
+      tag, mac:'F0:C9:90:'+tag.slice(1,3)+':'+tag.slice(3,5)+':'+tag.slice(5,6)+'0',
+      rssi: -50-Math.round(h*34), batt: h3<0.03? 2600+Math.round(h3*200) : 3000+Math.round(h*200),
+      temp: 24+h2*3, motion: 5000+Math.round(h*9000),
+      prevMotion:0, d15, d60: d15*(3+Math.round(h*4)),
+      park:sh[0], shed:sh[1], gw:sh[2],
+      display: mapped? (sh[0]==='Gandhi'?'GA-':'CH-')+(3000+i) : null,
+      goatId: mapped? 'g-'+tag.toLowerCase() : null,
+      ageSec, tempOk:true, accelOk:h4>0.02, sensorState:10,
+      mapping: mapped? 'mapped' : (h3<0.02?'conflict':'unmapped')
+    });
+  }
+  return out;
+}
+function mkRows(){
+  if(ROWCACHE) return ROWCACHE;
+  ROWCACHE=baseRowsRaw().concat(synthRows());
+  return ROWCACHE;
+}
+function baseRowsRaw(){
+  return BASE.map((b,i)=>{
+    const [tag,rssi,batt,temp,motion,d15,d60x,park,shed,gw,display]=b;
+    const staleTag = (tag==='A0003C'||tag==='A00038');
+    const ageSec = staleTag? 2400 : 8+ (i*3)%40;
+    return {
+      tag, mac:'F0:C9:90:'+tag.slice(0,2)+':'+tag.slice(2,4)+':'+tag.slice(4,6),
+      rssi, batt, temp, motion,
+      prevMotion: motion-d15, d15, d60:d15+d60x*7,
+      park, shed, gw, display,
+      goatId: display? 'g-'+tag.toLowerCase() : null,
+      ageSec,
+      tempOk:true, accelOk: tag!=='A00040',
+      sensorState:10,
+      mapping: display? 'mapped' : (tag==='A0003E'?'conflict':'unmapped')
+    };
+  });
+}
+function movementState(r){
+  if(r.ageSec>=TH.staleMin*60) return 'stale';
+  if(r.d15>=TH.move) return 'moving';
+  if(r.d15>=TH.low) return 'low';
+  if(r.d15>=TH.quiet) return 'quiet';
+  return 'not_moving';
+}
+function signalState(r){ if(r.rssi>=-65) return 'strong'; if(r.rssi>-75) return 'ok'; return 'weak'; }
+function battState(r){ return r.batt<TH.lowBattMv? 'low':'ok'; }
+/* Remaining-life estimate. PROVISIONAL: derived from voltage alone against an assumed
+   coin-cell discharge curve (3.20 V fresh -> 2.60 V flat) and an assumed ~24 month
+   design life at the current advertising interval. Vendor has not confirmed either the
+   curve or the interval, so this is an order-of-magnitude hint, not a warranty. */
+const BATT_FRESH_MV=3200, BATT_DEAD_MV=2600, BATT_FULL_MONTHS=24;
+function battMonths(mv){
+  const frac=Math.max(0,Math.min(1,(mv-BATT_DEAD_MV)/(BATT_FRESH_MV-BATT_DEAD_MV)));
+  return frac*BATT_FULL_MONTHS;
+}
+function battLife(mv){
+  const m=battMonths(mv);
+  if(m<0.5) return {txt:'< 2 weeks',tone:'t-dng'};
+  if(m<1) return {txt:'~'+Math.round(m*4)+' weeks',tone:'t-dng'};
+  if(m<12) return {txt:'~'+Math.round(m)+' months',tone:m<3?'t-warn':'t-mut'};
+  const y=m/12;
+  return {txt:'~'+(y<1.95?y.toFixed(1):Math.round(y))+' year'+(y>=1.95?'s':''),tone:'t-ok'};
+}
+const MOVE_LABEL={moving:'Moving',low:'Low',quiet:'Quiet',not_moving:'No movement',stale:'Stale',unknown:'Unknown'};
+const MOVE_TONE={moving:'t-ok',low:'t-teal',quiet:'t-mut',not_moving:'t-warn',stale:'t-dng',unknown:'t-mut'};
+
+function fleetLife(r){
+  if(!r.length) return '—';
+  const ms=r.map(x=>battMonths(x.batt)).sort((a,b)=>a-b);
+  const med=ms[Math.floor(ms.length/2)];
+  return battLife(BATT_DEAD_MV+med/BATT_FULL_MONTHS*(BATT_FRESH_MV-BATT_DEAD_MV)).txt;
+}
+/* ---------------- movement history (5-min buckets, 24h) ----------------
+   Mock stand-in for herd_signal_activity_windows. Backend rolls packets into
+   60s / 300s / 3600s tiers; this renders the 300s tier. */
+const BUCKET_SEC=300, DAY_BUCKETS=288;
+function hash(str,i){let h=2166136261;for(const c of (str+':'+i)) h=(h^c.charCodeAt(0))*16777619>>>0;return (h%1000)/1000;}
+/* deterministic per-tag 24h series; each entry: {t (min ago), delta, packets, rssi, seen} */
+function history(tag,days){
+  const r=mkRows().find(x=>x.tag===tag); if(!r) return [];
+  const N=DAY_BUCKETS*(days||1);
+  const out=[]; let motion=r.motion;
+  for(let i=0;i<N;i++){                    // i=0 is the most recent bucket
+    const minAgo=i*5, h=hash(tag,i);
+    let delta;
+    if(h<0.42) delta=0;                              // resting
+    else if(h<0.72) delta=Math.round(h*22);          // quiet / low
+    else if(h<0.95) delta=Math.round(h*160);         // moving
+    else delta=Math.round(180+h*220);                // spike
+    /* long quiet stretch for the animals whose live row reads no-movement */
+    if(r.d15===0 && minAgo<210) delta=(hash(tag,i+900)<0.75)?0:1;
+    /* scripted exemplars so every pattern state is visible in the mock */
+    if(tag==='A00035' && minAgo<130) delta=(hash(tag,i+11)<0.5)?0:2;        // quiet watch: 2h low, not 3h flat
+    if(tag==='A00041'){                                                      // back to normal
+      if(minAgo<15) delta=60+Math.round(h*40);
+      else if(minAgo<90) delta=(hash(tag,i+77)<0.8)?0:1;
+    }
+    if(tag==='A00036' && minAgo<15) delta=300+Math.round(h*120);             // movement spike
+    /* signal gap: no packets at all */
+    const gap = (hash(tag,i+500)<0.03) || (r.ageSec>=1800 && minAgo<Math.round(r.ageSec/60));
+    const packets = gap?0:2+Math.round(h*9);
+    out.push({minAgo, delta:gap?null:delta, packets, rssi: gap?null: r.rssi + Math.round((h-0.5)*10),
+              lastMotion: motion, firstMotion: motion-(gap?0:delta), gap});
+    if(!gap) motion-=delta;
+  }
+  return out.reverse();                              // oldest first
+}
+/* Reference for "normal for THIS animal": the 75th-percentile bucket over 24h.
+   The median is useless here \u2014 a resting animal's median bucket is 0, so every
+   comparison against it fires. p75 describes an ordinary ACTIVE bucket. */
+function baseline(hist){
+  const v=hist.filter(b=>b.delta!==null).map(b=>b.delta).sort((a,b)=>a-b);
+  return v.length? v[Math.floor(v.length*0.75)] : 0;
+}
+/* pattern rules over history, not a single row */
+const PATTERNS={
+  no_movement:{label:'No movement now',tone:'t-warn',why:'delta 0 in the current 15-minute window'},
+  quiet_watch:{label:'Quiet watch',tone:'t-mut',why:'low delta for 1-2 hours'},
+  inactive:{label:'Inactive alert',tone:'t-dng',why:'zero or very low delta for 3+ hours while the tag is still being seen'},
+  missing:{label:'Missing signal',tone:'t-dng',why:'no packets for 30+ minutes'},
+  spike:{label:'Movement spike',tone:'t-warn',why:'current delta far above this animal\u2019s own baseline'},
+  recovered:{label:'Back to normal',tone:'t-ok',why:'activity resumed after a quiet period'},
+  normal:{label:'Normal activity',tone:'t-ok',why:'deltas in line with this animal\u2019s baseline'}
+};
+const HCACHE=new Map(), PCACHE=new Map();
+function historyCached(tag,hours){
+  const days=(hours&&hours>24)?Math.ceil(hours/24):1, key=tag+'|'+days;
+  let h=HCACHE.get(key);
+  if(!h){h=history(tag,days); if(HCACHE.size>60) HCACHE.clear(); HCACHE.set(key,h);}
+  return h;
+}
+/* numbers-only pass over the same generator, so a 2k-row page does not allocate
+   2k × 288 bucket objects just to label patterns */
+function deltaSeries(r){
+  const out=new Array(DAY_BUCKETS); let gapUntil=Math.round(r.ageSec/60);
+  for(let i=0;i<DAY_BUCKETS;i++){
+    const minAgo=i*5, h=hash(r.tag,i);
+    let d = h<0.42?0 : h<0.72?Math.round(h*22) : h<0.95?Math.round(h*160) : Math.round(180+h*220);
+    if(r.d15===0 && minAgo<210) d=(hash(r.tag,i+900)<0.75)?0:1;
+    if(r.tag==='A00035' && minAgo<130) d=(hash(r.tag,i+11)<0.5)?0:2;
+    if(r.tag==='A00041'){ if(minAgo<15) d=60+Math.round(h*40); else if(minAgo<90) d=(hash(r.tag,i+77)<0.8)?0:1; }
+    if(r.tag==='A00036' && minAgo<15) d=300+Math.round(h*120);
+    const gap=(hash(r.tag,i+500)<0.03)||(r.ageSec>=1800 && minAgo<gapUntil);
+    out[DAY_BUCKETS-1-i]= gap? null : d;
+  }
+  return out;
+}
+function baselineOf(series){
+  const v=series.filter(d=>d!==null).sort((a,b)=>a-b);
+  return v.length? v[Math.floor(v.length*0.75)] : 0;
+}
+function patternOf(r){
+  const c=PCACHE.get(r.tag); if(c) return c;
+  const p=computePattern(r); PCACHE.set(r.tag,p); return p;
+}
+function computePattern(r){
+  const h=deltaSeries(r).map(d=>({delta:d})); if(!h.length) return 'normal';
+  if(movementState(r)==='stale') return 'missing';
+  const base=Math.max(5,baselineOf(h.map(b=>b.delta)));  // one ordinary ACTIVE 5-min bucket
+  const normal15=base*3;                              // what an ordinary 15-min window looks like
+  const tail=n=>h.slice(-n).filter(b=>b.delta!==null);
+  const sum=a=>a.reduce((t,b)=>t+b.delta,0);
+  const last3h=tail(36), last2h=tail(24), last15=tail(3), prev=h.slice(-15,-3).filter(b=>b.delta!==null);
+  /* 3+ hours of activity that adds up to less than ONE ordinary bucket, while packets keep arriving */
+  if(last3h.length>=24 && sum(last3h)<=base) return 'inactive';
+  if(r.d15>=Math.max(100,normal15*2)) return 'spike';
+  if(sum(last15)>=normal15*0.5 && prev.length>=8 && sum(prev)<=base) return 'recovered';
+  if(last2h.length>=12 && sum(last2h)<=base*3) return 'quiet_watch';
+  if(r.d15===0) return 'no_movement';
+  return 'normal';
+}
+/* Cross-module events. In the real product these come from the existing Goat OS
+   tables — vaccination_completions, feed_direction_completions (fed_at),
+   weighing observations, health_cases / treatment sessions, shifting_events —
+   joined to the animal (or its shed) by time. Overlaying them on the movement
+   trend is CORRELATION for a human to read, never causation and never a
+   behaviour or clinical inference. */
+const EVENT_TYPES={
+  vaccination:{label:'Vaccination',color:'#A78BF5',src:'vaccination_completions'},
+  feed:{label:'Feed given',color:'#34C2A6',src:'feed_direction_completions.fed_at (shed)'},
+  weighing:{label:'Weighing',color:'#5B9BE8',src:'weighing observations'},
+  treatment:{label:'Treatment',color:'#F0635F',src:'health_cases / treatment sessions'},
+  trimming:{label:'Hoof trimming',color:'#E0A53A',src:'task completions'},
+  shifting:{label:'Shed move',color:'#94A89A',src:'shifting_events (applied)'}
+};
+let EV_ON=Object.fromEntries(Object.keys(EVENT_TYPES).map(k=>[k,true]));
+function eventsFor(tag,hoursBack){
+  const r=mkRows().find(x=>x.tag===tag); if(!r) return [];
+  const kinds=Object.keys(EVENT_TYPES), out=[];
+  for(let i=0;i<26;i++){                       // deterministic scatter over 30 days
+    const h=hash(tag,'ev'+i), k=kinds[Math.floor(hash(tag,'k'+i)*kinds.length)%kinds.length];
+    const minAgo=Math.round(hash(tag,'t'+i)*60*24*30);
+    if(minAgo>hoursBack*60) continue;
+    if(k==='feed' && (minAgo%1440>900 || minAgo%1440<420)) continue;   // feeding happens twice a day
+    out.push({kind:k,minAgo,note:h<0.5?'':''});
+  }
+  /* guarantee a readable story inside 24h for every animal */
+  out.push({kind:'feed',minAgo:135},{kind:'feed',minAgo:600});
+  if(hoursBack>=24) out.push({kind:'weighing',minAgo:1080});
+  if(hoursBack>=24 && hash(tag,'vx')<0.5) out.push({kind:'vaccination',minAgo:900});
+  return out.sort((a,b)=>b.minAgo-a.minAgo);
+}
+/* activity 2h before vs 2h after an event, from the same 5-min buckets */
+function eventImpact(tag,ev){
+  const h=historyCached(tag), n=h.length;         // index 0 = oldest, n-1 = newest
+  const idx=n-1-Math.round(ev.minAgo/5);
+  const win=24;                                   // 24 buckets = 2h
+  const seg=(a,b)=>h.slice(Math.max(0,a),Math.max(0,b)).filter(x=>x.delta!==null);
+  const before=seg(idx-win,idx), after=seg(idx,idx+win);
+  const sum=a=>a.reduce((t,x)=>t+x.delta,0);
+  if(!before.length||!after.length) return null;
+  const b=sum(before), a=sum(after);
+  return {before:b,after:a,pct: b===0? (a>0?100:0) : Math.round((a-b)/b*100), gapsAfter:24-after.length};
+}
+let RANGE_H=6, FS_HOURS=24, FS_FROM=null, FS_TO=null, SEL_BUCKET=null;
+/* ---------------- state ---------------- */
+let MODE='data', TAB='live', LIVE=true, IV=5, SEL=null, MAPF='', KPIF='', Q='', PAGE=0, lastOkSec=3, timer=null;
+/* KPI cards are FILTERS, not modals: clicking one narrows the live table below to
+   exactly the rows the number counted. Click again to clear. */
+const KPI_FILTERS={
+  tags:       {label:'All tags seen',    pred:()=>true},
+  moving:     {label:'Moving',           pred:x=>movementState(x)==='moving'},
+  quiet:      {label:'Quiet / no movement', pred:x=>['quiet','not_moving'].includes(movementState(x))},
+  weak:       {label:'Weak signal',      pred:x=>signalState(x)==='weak'},
+  stale:      {label:'Missing signal',   pred:x=>movementState(x)==='stale'},
+  lowbatt:    {label:'Low battery',      pred:x=>battState(x)==='low'}
+};
+function setKpi(k){KPIF = (KPIF===k||k==='tags')?'':k; render();}
+function rows(){
+  if(MODE!=='data'&&MODE!=='offline') return [];
+  let r=mkRows();
+  if(MODE==='offline') r=r.filter(x=>x.gw!=='514061');
+  const p=val('fPark'),s=val('fShed'),m=val('fMove'),mp=val('fMap'),pat=val('fPat');
+  if(p) r=r.filter(x=>x.park===p);
+  if(s) r=r.filter(x=>x.shed===s);
+  if(m) r=r.filter(x=>movementState(x)===m);
+  if(mp==='mapped') r=r.filter(x=>x.mapping==='mapped');
+  if(mp==='unmapped') r=r.filter(x=>x.mapping==='unmapped');
+  if(mp==='conflict') r=r.filter(x=>x.mapping==='conflict');
+  if(pat) r=r.filter(x=>patternOf(x)===pat);
+  if(Q){const q=Q.toLowerCase();
+    r=r.filter(x=>(x.display||'').toLowerCase().includes(q)||x.tag.toLowerCase().includes(q)||
+                  x.mac.toLowerCase().includes(q)||x.shed.toLowerCase().includes(q)||
+                  x.park.toLowerCase().includes(q)||('gw-'+x.gw).includes(q));}
+  if(KPIF && KPI_FILTERS[KPIF]) r=r.filter(KPI_FILTERS[KPIF].pred);
+  if(MODE==='filtered') r=[];
+  return r;
+}
+function val(id){const e=document.getElementById(id);return e?e.value:'';}
+function anyFilterOn(){return !!(val('fPark')||val('fShed')||val('fMove')||val('fMap')||val('fPat')||KPIF||Q)||MODE==='filtered';}
+function pageSize(){return parseInt(val('fSize')||'25',10);}
+function pageRows(){const all=rows(),sz=pageSize();const max=Math.max(0,Math.ceil(all.length/sz)-1);if(PAGE>max)PAGE=max;return all.slice(PAGE*sz,PAGE*sz+sz);}
+function resetPage(){PAGE=0;render();}
+function goPage(d){PAGE=Math.max(0,PAGE+d);render();document.getElementById('liveBody').scrollIntoView({block:'nearest'});}
+function onSearch(){Q=document.getElementById('fQ').value.trim();
+  document.getElementById('fQ').parentNode.classList.toggle('has',!!Q);PAGE=0;render();}
+function clearQ(){document.getElementById('fQ').value='';onSearch();}
+function mark(txt){ if(!Q||!txt) return txt||'';
+  const i=txt.toLowerCase().indexOf(Q.toLowerCase()); if(i<0) return txt;
+  return txt.slice(0,i)+'<span class="hl">'+txt.slice(i,i+Q.length)+'</span>'+txt.slice(i+Q.length);}
+
+/* ---------------- empty / error / loading blocks ---------------- */
+function emptyBlock(o){
+  return '<div class="empty '+(o.tone||'')+'">'+
+    '<div class="eicon">'+svg(o.icon||IC.inbox)+'</div>'+
+    '<h4>'+o.title+'</h4><p>'+o.body+'</p>'+
+    (o.actions?'<div class="eact">'+o.actions+'</div>':'')+'</div>';
+}
+function loadingBlock(n){
+  let h='<div style="padding:14px 15px;display:flex;flex-direction:column;gap:11px">';
+  for(let i=0;i<(n||6);i++) h+='<div class="skelrow" style="width:'+(96-i*7)+'%"></div>';
+  return h+'</div>';
+}
+function errBlock(what){
+  return emptyBlock({tone:'dngstate',icon:IC.alert,title:'Could not load '+what,
+    body:'The Herd Signals read failed. Nothing is being hidden — no rows were returned at all. Last successful response was 2 min ago.',
+    actions:'<button class="btn sm p" onclick="setState(\'data\')">Retry</button><button class="btn sm" disabled>View request log</button>'});
+}
+/* per-surface empty state, chosen by mode */
+function surfaceState(kind){
+  if(MODE==='loading') return loadingBlock();
+  if(MODE==='error') return errBlock({live:'live signals',animals:'animals',gateways:'gateways',alerts:'alerts',mapping:'tag mapping'}[kind]||kind);
+  if(MODE==='filtered'||(anyFilterOn()&&rows().length===0&&MODE==='data'))
+    return emptyBlock({tone:'warnstate',icon:IC.filter,title:'All tags filtered out',
+      body:'No tag matches the current park / shed / movement / mapping filters. The gateway is still receiving packets.',
+      actions:'<button class="btn sm" onclick="clearFilters()">Clear filters</button>'});
+  const E={
+    live:{icon:IC.radio,title:'No gateway packets yet',body:'No BLE gateway has posted a packet for this tenant. Check that the gateway is powered, on the site network, and configured with the Herd Signals ingest URL and credentials.',actions:'<button class="btn sm" disabled>Gateway setup guide</button>'},
+    animals:{icon:IC.pin,title:'No mapped smart tags',body:'No active identifier is marked smart-tag-capable yet. Mark an animal identifier as a smart tag in Tag Mapping, then its BLE broadcasts will resolve to an animal here.',actions:'<button class="btn sm p" onclick="setTab(document.querySelector(\'[data-tab=mapping]\'))">Open Tag Mapping</button>'},
+    gateways:{icon:IC.wifi,title:'No gateways registered',body:'No gateway has ever posted to this tenant. A gateway registers itself on its first authenticated packet post.',actions:''},
+    alerts:{icon:IC.activity,title:'No signal alerts',body:'Every seen tag is within the provisional thresholds — signal, battery, sensor bits and last-seen all look normal.',actions:''},
+    mapping:{icon:IC.unlink,title:'No unmapped tags',body:'Every BLE tag seen resolves to exactly one active smart-tag-capable identifier. Nothing needs mapping.',actions:''}
+  }[kind];
+  return emptyBlock(E);
+}
+
+/* ---------------- KPIs ---------------- */
+function baseRows(){const k=KPIF;KPIF='';const r=rows();KPIF=k;return r;}
+function renderKpis(){
+  const r=baseRows(), el=document.getElementById('kpis');
+  if(MODE==='loading'){el.innerHTML=Array(6).fill('<div class="kpi"><div class="skelrow" style="width:60%"></div><div class="skelrow" style="width:40%;height:22px;margin-top:8px"></div></div>').join('');return;}
+  const mapped=r.filter(x=>x.mapping==='mapped').length;
+  const unmapped=r.length-mapped;
+  const moving=r.filter(x=>movementState(x)==='moving').length;
+  const quiet=r.filter(x=>['quiet','not_moving'].includes(movementState(x))).length;
+  const weak=r.filter(x=>signalState(x)==='weak').length;
+  const stale=r.filter(x=>movementState(x)==='stale').length;
+  const lowb=r.filter(x=>battState(x)==='low').length;
+  const K=[
+    ['k-info',IC.radio,'Tags seen',r.length,mapped.toLocaleString('en-IN')+' mapped animals, '+unmapped.toLocaleString('en-IN')+' unmapped','Derived','tags'],
+    ['k-ok',IC.activity,'Animals moving',moving,'motion delta ≥ '+TH.move+' in last 15 min','Derived','moving'],
+    ['k-mut',IC.activity,'Quiet animals',quiet,'low or zero delta this window','Inferred','quiet'],
+    ['k-warn',IC.wifi,'Weak signal',weak,'RSSI ≤ '+TH.weakRssi+' dBm','Derived','weak'],
+    ['k-dng',IC.alert,'Missing signal',stale,'not seen for '+TH.staleMin+'+ min — signal, not animal','Inferred','stale'],
+    ['k-purple',IC.battery,'Low battery',lowb,'voltage below '+TH.lowBattMv+' mV · life est. (inferred) median '+fleetLife(r),'Direct + threshold','lowbatt']
+  ];
+  el.innerHTML=K.map(k=>'<div class="kpi '+k[0]+(KPIF===k[6]?' active':'')+'" role="button" tabindex="0" onclick="setKpi(\''+k[6]+'\')" title="Filter the table below to these '+k[2].toLowerCase()+'">'+
+    '<div class="lab">'+svg(k[1],'sm')+k[2]+'</div><div class="val">'+k[3]+'</div><div class="dl">'+k[4]+'</div><div class="ty">'+k[5]+'</div>'+
+    '<div class="act">Filtering table ▾ click to clear</div>'+
+    '<div class="hint">'+(k[6]==='tags'?'Shows every tag':'Click to filter the table below')+'</div></div>').join('');
+}
+
+/* ---------------- live table ---------------- */
+function renderLive(){
+  const all=rows(), el=document.getElementById('liveBody'), pg=document.getElementById('pager'), pgT=document.getElementById('pagerTop');
+  document.getElementById('rowCount').textContent=all.length.toLocaleString('en-IN')+' tags';
+  if((MODE!=='data'&&MODE!=='offline')||all.length===0){el.innerHTML=surfaceState('live');pg.innerHTML='';pgT.innerHTML='';return;}
+  const r=pageRows(), sz=pageSize(), from=PAGE*sz+1, to=PAGE*sz+r.length, pages=Math.ceil(all.length/sz);
+  let h='<div class="tblwrap"><table class="resp"><thead><tr>'+
+    '<th>Animal</th><th>Smart tag</th><th>Shed</th><th>Gateway</th><th>Signal</th><th class="num">Motion count</th><th class="num">15m delta</th><th class="num">1h delta</th><th>Activity</th><th>Pattern</th><th>Battery</th><th>Tag temp</th><th>Last seen</th><th>Status</th>'+
+    '</tr></thead><tbody>';
+  r.forEach(x=>{
+    const ms=movementState(x), ss=signalState(x), bs=battState(x), pat=PATTERNS[patternOf(x)];
+    const status = ms==='stale'?['t-dng','Missing signal']: ss==='weak'?['t-warn','Weak signal']: bs==='low'?['t-purple','Low battery']: !x.accelOk?['t-warn','Sensor abnormal']:['t-ok','Good'];
+    h+='<tr class="'+(x.tag===SEL?'sel':'')+'" onclick="openDrawer(\''+x.tag+'\')">'+
+      '<td data-l="Animal" class="wide"><div class="animcell">'+(x.display?mark(x.display):'<span class="muted">Unmapped</span>')+'<small>'+(x.mapping==='conflict'?'mapping conflict':x.mapping)+'</small></div></td>'+
+      '<td data-l="Smart tag"><span class="mono">'+mark(x.tag)+'</span><br><span class="mono faint">'+mark(x.mac)+'</span></td>'+
+      '<td data-l="Shed">'+mark(x.shed)+'<br><span class="faint small">'+mark(x.park)+'</span></td>'+
+      '<td data-l="Gateway"><span class="mono">'+mark('GW-'+x.gw)+'</span></td>'+
+      '<td data-l="Signal"><span class="tag '+(ss==='weak'?'t-warn':ss==='strong'?'t-ok':'t-mut')+'">'+x.rssi+' dBm</span></td>'+
+      '<td data-l="Motion count" class="num mono">'+x.motion.toLocaleString('en-IN')+'</td>'+
+      '<td data-l="15m delta" class="num"><span class="delta '+(x.d15>=TH.move?'up':x.d15===0?'zero':'warnv')+'">+'+x.d15+'</span></td>'+
+      '<td data-l="1h delta" class="num"><span class="delta '+(x.d60===0?'zero':'up')+'">+'+x.d60+'</span></td>'+
+      '<td data-l="Activity"><span class="tag '+MOVE_TONE[ms]+'">'+MOVE_LABEL[ms]+'</span></td>'+
+      '<td data-l="Pattern"><span class="tag '+pat.tone+'">'+pat.label+'</span></td>'+
+      '<td data-l="Battery">'+(x.batt/1000).toFixed(1)+' V'+(bs==='low'?' <span class="tag t-purple">Low</span>':'')+'<br><span class="faint small" title="Inferred from voltage \u2014 the tag does not report remaining life">est. '+battLife(x.batt).txt+' left \u00b7 inferred</span></td>'+
+      '<td data-l="Tag temp">'+x.temp.toFixed(1)+' C</td>'+
+      '<td data-l="Last seen">'+ago(x.ageSec)+'</td>'+
+      '<td data-l="Status"><span class="tag '+status[0]+'">'+status[1]+'</span></td></tr>';
+  });
+  el.innerHTML=h+'</tbody></table></div>';
+  const pagerHtml='<div class="pager"><button class="pgbtn" onclick="goPage(-1)" '+(PAGE===0?'disabled':'')+'>← Previous</button>'+
+    '<button class="pgbtn" onclick="goPage(1)" '+(PAGE>=pages-1?'disabled':'')+'>Next →</button>'+
+    '<span>Showing <b>'+from.toLocaleString('en-IN')+'–'+to.toLocaleString('en-IN')+'</b> of <b>'+all.length.toLocaleString('en-IN')+'</b> · page <b>'+(PAGE+1)+'</b> of <b>'+pages.toLocaleString('en-IN')+'</b></span>'+
+    '<div class="sp" style="flex:1"></div>'+
+    '<span class="faint">Server-side keyset pagination — filters and search run in the query, never on a fetched page.</span></div>';
+  pg.innerHTML=pagerHtml;
+  pgT.innerHTML=pagerHtml.replace('class="pager"','class="pager" style="border-top:0;border-bottom:1px solid var(--line2)"');
+}
+function ago(s){ if(s<60) return s+'s ago'; const m=Math.round(s/60); return m<60? m+'m ago' : Math.round(m/60)+'h ago'; }
+
+/* ---------------- history chart ---------------- */
+function historyChart(tag,hours,id,height,withEvents){
+  const h=historyCached(tag,hours); if(!h.length) return '';
+  const n=Math.min(h.length,Math.round(hours*60/5));
+  let win=h.slice(-n); const base=baseline(h);
+  /* long ranges roll the 5-min tier up into hourly buckets so the chart stays readable
+     (the API serves the 3600s tier for these ranges) */
+  const agg = hours>72?12*6 : hours>24?12 : 1;
+  if(agg>1){
+    const rolled=[];
+    for(let i=0;i<win.length;i+=agg){
+      const grp=win.slice(i,i+agg), live=grp.filter(b=>!b.gap);
+      rolled.push({minAgo:grp[0].minAgo, gap:live.length===0,
+        delta: live.length? live.reduce((t,b)=>t+b.delta,0):null,
+        packets: grp.reduce((t,b)=>t+b.packets,0),
+        firstMotion: (live[live.length-1]||grp[grp.length-1]).firstMotion,
+        lastMotion: (live[0]||grp[0]).lastMotion,
+        rssi: live.length? Math.round(live.reduce((t,b)=>t+b.rssi,0)/live.length) : null});
+    }
+    win=rolled;
+  }
+  const W=760,H=height||150,padL=28,padB=18,padT=10;
+  const bw=(W-padL-6)/Math.max(1,win.length), plotH=H-padB-padT;
+  const max=Math.max(10,...win.filter(b=>b.delta!==null).map(b=>b.delta));
+  let g='<svg class="hchart" id="'+id+'" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none">';
+  for(let k=0;k<=3;k++){const y=padT+plotH*k/3;
+    g+='<line class="gl" x1="'+padL+'" y1="'+y+'" x2="'+(W-4)+'" y2="'+y+'"/>'+
+       '<text x="2" y="'+(y+3)+'">'+Math.round(max-max*k/3)+'</text>';}
+  /* baseline must be computed in the DISPLAYED bucket grain — multiplying a
+     5-minute p75 by the aggregation factor assumes every sub-bucket sits at p75
+     and puts the line above every real bar */
+  const abase = agg>1 ? baselineOf(win.map(b=>b.delta)) : base;
+  const by=padT+plotH-plotH*Math.min(1,abase/max);
+  g+='<line class="base" x1="'+padL+'" y1="'+by+'" x2="'+(W-4)+'" y2="'+by+'"/><text x="'+(W-58)+'" y="'+(by-3)+'">baseline '+abase+'</text>';
+  win.forEach((b,i)=>{
+    const x=padL+i*bw;
+    const label=(hours>24? fmtDay(b.minAgo)+' ' : '')+fmtIst(b.minAgo);
+    if(b.gap){
+      g+='<rect class="gap" x="'+x+'" y="'+padT+'" width="'+Math.max(1,bw)+'" height="'+plotH+'"/>'+
+         '<rect class="gapline" x="'+x+'" y="'+(padT+plotH-3)+'" width="'+Math.max(1,bw)+'" height="3"/>'+
+         '<rect class="bar" x="'+x+'" y="'+padT+'" width="'+Math.max(1,bw)+'" height="'+plotH+'" fill="transparent" '+
+         'onmousemove="ro(\''+id+'\',\'MISSING\',\''+label+'\',0,0,0,0,0)" onmouseleave="roClear(\''+id+'\')"><title>'+label+' \u2014 missing signal: no packets received</title></rect>';
+      return;
+    }
+    const cls = b.delta===0?'b-zero'
+      : b.delta>=(agg>1? abase*2 : Math.max(180,abase*1.6))?'b-spike'
+      : b.delta>=(agg>1? abase*0.75 : Math.max(10,abase*0.6))?'b-move':'b-low';
+    const bh=Math.max(b.delta===0?2:1, plotH*b.delta/max);
+    g+='<rect class="bar '+cls+'" x="'+(x+1)+'" y="'+(padT+plotH-bh)+'" width="'+Math.max(1,bw-2)+'" height="'+bh+'" rx="1.5" '+
+       'onmousemove="ro(\''+id+'\',\'OK\',\''+(multiLabel(label,agg))+'\','+b.firstMotion+','+b.lastMotion+','+b.delta+','+b.packets+','+b.rssi+')" onmouseleave="roClear(\''+id+'\')">'+
+       '<title>'+label+'\nfirst '+b.firstMotion+' \u2192 last '+b.lastMotion+'\ndelta +'+b.delta+' \u00b7 '+b.packets+' packets \u00b7 avg RSSI '+b.rssi+' dBm</title></rect>';
+  });
+  const multiDay = hours>24;
+  win.forEach((b,i)=>{ if(i%Math.ceil(win.length/(multiDay?7:6))===0)
+    g+='<text x="'+(padL+i*bw)+'" y="'+(H-4)+'">'+(multiDay? fmtDay(b.minAgo) : fmtIst(b.minAgo).split(' ')[0])+'</text>';});
+  if(withEvents){
+    const oldest=win[0].minAgo;
+    eventsFor(tag,hours).filter(e=>EV_ON[e.kind]&&e.minAgo<=oldest).forEach(e=>{
+      const t=EVENT_TYPES[e.kind];
+      const i=win.findIndex(b=>b.minAgo<=e.minAgo);
+      const x=padL+(i<0?win.length-1:i)*bw;
+      g+='<line class="evline" x1="'+x+'" y1="'+padT+'" x2="'+x+'" y2="'+(padT+plotH)+'" stroke="'+t.color+'"/>'+
+         '<circle cx="'+x+'" cy="'+(padT+4)+'" r="3.5" fill="'+t.color+'"><title>'+t.label+' \u00b7 '+fmtIst(e.minAgo)+'</title></circle>';
+    });
+  }
+  return g+'</svg>';
+}
+function fmtDay(minAgo){
+  const d=new Date(2026,7,22,17,10); d.setMinutes(d.getMinutes()-minAgo);
+  const p=n=>String(n).padStart(2,'0');
+  return p(d.getDate())+'/'+p(d.getMonth()+1);
+}
+function fmtIst(minAgo){
+  const base=new Date(2026,7,22,17,10);              // mock clock, IST
+  const d=new Date(base.getTime()-minAgo*60000);
+  const p=n=>String(n).padStart(2,'0');
+  return p(d.getHours())+':'+p(d.getMinutes())+' IST';
+}
+function multiLabel(label,agg){return agg>1? label+' \u00b7 '+(agg*5/60)+'h bucket' : label;}
+function ro(id,kind,label,f,l,d,pk,rssi){
+  const el=document.getElementById(id+'-ro'); if(!el) return;
+  el.innerHTML = kind==='MISSING'
+    ? '<b>'+label+'</b> \u00b7 <span style="color:var(--danger)">Missing signal</span> \u2014 no packets received in this window. Not the same as no movement.'
+    : '<b>'+label+'</b> \u00b7 motion_count <b>'+f+'</b> \u2192 <b>'+l+'</b> \u00b7 delta <b>+'+d+'</b> \u00b7 <b>'+pk+'</b> packets \u00b7 avg RSSI <b>'+rssi+' dBm</b>';
+}
+function roClear(id){const el=document.getElementById(id+'-ro'); if(el) el.innerHTML='<span class="faint">Hover a bucket for motion_count, delta, packet count and avg RSSI.</span>';}
+function chartLegend(){
+  return '<div class="legend">'+
+   '<span><i style="background:var(--ok)"></i> Moving</span>'+
+   '<span><i style="background:var(--muted);opacity:.55"></i> Low / quiet</span>'+
+   '<span><i style="background:var(--line)"></i> No movement (packets seen, delta 0)</span>'+
+   '<span><i style="background:var(--warn)"></i> Movement spike</span>'+
+   '<span><i style="background:var(--danger);opacity:.35"></i> Missing signal (no packets)</span>'+
+   '<span><i style="background:transparent;border-top:2px dashed var(--info);border-radius:0;height:0"></i> Animal baseline</span></div>';
+}
+function rangePick(cur){
+  return '<div class="rangepick">'+[1,6,24].map(hh=>'<button class="'+(hh===cur?'on':'')+'" onclick="setRange('+hh+')">'+hh+'h</button>').join('')+'</div>';
+}
+function setRange(h){RANGE_H=h;render();}
+/* ---------------- full-screen history + cross-module correlation ---------------- */
+const MOCK_NOW=new Date(2026,7,22,17,10);
+const FS_PRESETS=[['1h',1],['6h',6],['12h',12],['24h',24],['3d',72],['7d',168],['30d',720]];
+function openFs(){ if(!SEL) return; document.getElementById('fs').classList.add('on'); renderFs(); }
+function closeFs(){ document.getElementById('fs').classList.remove('on'); }
+function setFs(h){ FS_HOURS=h; FS_FROM=FS_TO=null; renderFs(); }
+function applyCustom(){
+  const f=document.getElementById('fsFrom').value, t=document.getElementById('fsTo').value;
+  if(!f||!t) return;
+  FS_FROM=new Date(f+'T00:00'); FS_TO=new Date(t+'T23:59');
+  FS_HOURS=Math.min(720,Math.max(1,Math.round((FS_TO-FS_FROM)/3600000)));
+  renderFs();
+}
+function toggleEv(k){EV_ON[k]=!EV_ON[k];renderFs();}
+function renderFs(){
+  const x=mkRows().find(r=>r.tag===SEL); if(!x) return;
+  document.getElementById('fsTitle').textContent=(x.display? x.display+' · ':'')+x.tag+' — movement history';
+  document.getElementById('fsSub').textContent=x.mac+' · '+x.shed+' · '+x.park+' · GW-'+x.gw;
+  const pat=PATTERNS[patternOf(x)], evs=eventsFor(x.tag,FS_HOURS).filter(e=>EV_ON[e.kind]);
+  const rangeLabel = FS_FROM? fmtDate(FS_FROM)+' → '+fmtDate(FS_TO) : 'last '+(FS_HOURS<24?FS_HOURS+' hours':(FS_HOURS/24)+' days');
+  const el=document.getElementById('fsBody');
+  el.innerHTML=
+   '<div class="daterow">'+
+     '<span class="small faint" style="font-weight:800;letter-spacing:.4px;text-transform:uppercase">Range</span>'+
+     '<div class="rangepick">'+FS_PRESETS.map(pz=>'<button class="'+(!FS_FROM&&FS_HOURS===pz[1]?'on':'')+'" onclick="setFs('+pz[1]+')">'+pz[0]+'</button>').join('')+'</div>'+
+     '<span class="small muted">or</span>'+
+     '<input type="date" id="fsFrom" value="2026-08-16"> <span class="small muted">to</span> <input type="date" id="fsTo" value="2026-08-22">'+
+     '<button class="btn sm" onclick="applyCustom()">Apply</button>'+
+     '<div class="sp" style="flex:1"></div><span class="small faint">'+rangeLabel+' · Asia/Kolkata</span>'+
+   '</div>'+
+
+   '<div class="daterow" style="gap:7px">'+
+     '<span class="small faint" style="font-weight:800;letter-spacing:.4px;text-transform:uppercase">Overlay activity</span>'+
+     Object.entries(EVENT_TYPES).map(([k,t])=>'<span class="evchip '+(EV_ON[k]?'on':'')+'" style="color:'+(EV_ON[k]?t.color:'var(--muted)')+'" onclick="toggleEv(\''+k+'\')"><i></i>'+t.label+'</span>').join('')+
+     '<div class="sp" style="flex:1"></div><span class="small faint">Overlays are joins onto existing Goat OS records — they are context, not cause.</span>'+
+   '</div>'+
+
+   '<div class="card"><div class="hd"><svg class="ic" viewBox="0 0 24 24">'+IC.activity+'</svg><h3>Movement trend</h3>'+
+     '<span class="tag '+pat.tone+'">'+pat.label+'</span><span class="tag t-mut">baseline '+baseline(historyCached(x.tag,FS_HOURS))+' / 5 min</span>'+
+     '<div class="sp" style="flex:1"></div><span class="small faint">'+(FS_HOURS>72?'6-hour':FS_HOURS>24?'hourly':'5-minute')+' buckets</span></div>'+
+     '<div class="bd flush"><div style="padding:12px 12px 0">'+historyChart(x.tag,FS_HOURS,'fschart',300,true)+'</div>'+
+     chartLegend()+
+     '<div class="legend" style="padding-top:2px">'+Object.entries(EVENT_TYPES).filter(([k])=>EV_ON[k]).map(([k,t])=>'<span><i style="background:'+t.color+'"></i> '+t.label+'</span>').join('')+'</div>'+
+     '<div class="readout" id="fschart-ro"><span class="faint">Hover a bucket for motion_count, delta, packet count and avg RSSI.</span></div>'+
+     '<div class="chartnote">Activity uses motion-count deltas from historical packets. Resting for short periods is normal; alerts use sustained patterns. Overlaid markers are other recorded farm activity for the same animal or its shed — read them as correlation, never as behaviour, cause, or a clinical finding.</div></div></div>'+
+
+   '<div class="grid2" style="margin-top:14px">'+
+     '<div class="card"><div class="hd"><svg class="ic" viewBox="0 0 24 24">'+IC.alert+'</svg><h3>Activity around recorded farm activity</h3>'+
+       '<div class="sp" style="flex:1"></div><span class="tag t-mut">Correlated</span></div>'+
+       '<div class="bd flush">'+impactTable(x,evs)+'</div></div>'+
+     '<div class="card"><div class="hd"><svg class="ic" viewBox="0 0 24 24">'+IC.pin+'</svg><h3>Animal & tag detail</h3></div>'+
+       '<div class="bd">'+fsFacts(x)+'</div></div>'+
+   '</div>';
+  roClear('fschart');
+}
+function fmtDate(d){const p=n=>String(n).padStart(2,'0');return p(d.getDate())+'-'+p(d.getMonth()+1)+'-'+d.getFullYear();}
+function fmtStamp(minAgo){
+  const d=new Date(MOCK_NOW.getTime()-minAgo*60000), p=n=>String(n).padStart(2,'0');
+  return p(d.getDate())+'-'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes())+' IST';
+}
+function impactTable(x,evs){
+  if(!evs.length) return emptyBlock({icon:IC.alert,title:'No farm activity in this range',
+    body:'No vaccination, feed, weighing, treatment, trimming or shed move is recorded for this animal or its shed in the selected window. Widen the range or enable more overlays.'});
+  let h='<div class="tblwrap" style="max-height:360px"><table class="resp"><thead><tr><th>Activity</th><th>When (IST)</th><th class="num">2h before</th><th class="num">2h after</th><th class="num">Change</th><th>Read</th></tr></thead><tbody>';
+  evs.slice(0,40).forEach(e=>{
+    const t=EVENT_TYPES[e.kind], im=eventImpact(x.tag,e);
+    const pct=im?im.pct:null;
+    const tone = pct===null?'t-mut': pct>=40?'t-ok': pct<=-40?'t-warn':'t-mut';
+    h+='<tr><td data-l="Activity" class="wide"><span class="tag" style="background:transparent;color:'+t.color+';border:1px solid currentColor">'+t.label+'</span><br><span class="faint small">'+t.src+'</span></td>'+
+       '<td data-l="When">'+fmtStamp(e.minAgo)+'</td>'+
+       '<td data-l="2h before" class="num mono">'+(im?'+'+im.before:'—')+'</td>'+
+       '<td data-l="2h after" class="num mono">'+(im?'+'+im.after:'—')+'</td>'+
+       '<td data-l="Change" class="num"><span class="tag '+tone+'">'+(pct===null?'no data':(pct>0?'+':'')+pct+'%')+'</span></td>'+
+       '<td data-l="Read"><span class="faint small">'+(im&&im.gapsAfter>6?'partial — signal gaps after':'motion-count delta only')+'</span></td></tr>';
+  });
+  return h+'</tbody></table></div>'+
+    '<div class="chartnote">Change compares the summed motion-count delta in the two hours before and after the recorded activity. A feed correlation is a shed-level response to feeding — it is not eating detection. A post-vaccination or post-treatment change is a watch signal, never a diagnosis or an adverse-event finding.</div>';
+}
+function fsFacts(x){
+  const ms=movementState(x), h=historyCached(x.tag,FS_HOURS);
+  const seen=h.filter(b=>!b.gap).length, gaps=h.length-seen;
+  return '<dl class="kv">'+
+    row('Animal', x.display||'<span class="muted">Unmapped</span>','derived')+
+    row('Tag ID','<span class="mono">'+x.tag+'</span>','direct')+
+    row('BLE MAC','<span class="mono">'+x.mac+'</span>','direct')+
+    row('Park / shed', x.park+' · '+x.shed,'correlated')+
+    row('Gateway','<span class="mono">GW-'+x.gw+'</span>','direct')+
+    row('Motion count', x.motion.toLocaleString('en-IN'),'direct')+
+    row('15m delta','+'+x.d15,'derived')+
+    row('1h delta','+'+x.d60,'derived')+
+    row('Movement state', MOVE_LABEL[ms],'inferred')+
+    row('Pattern', PATTERNS[patternOf(x)].label,'inferred')+
+    row('RSSI', x.rssi+' dBm','direct')+
+    row('Battery voltage',(x.batt/1000).toFixed(1)+' V ('+x.batt+' mV)','direct')+
+    row('Estimated battery life','<span class="tag '+battLife(x.batt).tone+'">'+battLife(x.batt).txt+'</span>','inferred')+
+    row('Tag temp', x.temp.toFixed(1)+' C','direct')+
+    row('Buckets with packets', seen.toLocaleString('en-IN')+' of '+h.length.toLocaleString('en-IN'),'derived')+
+    row('Signal-gap buckets', gaps.toLocaleString('en-IN'),'derived')+
+    row('Sensors', (x.tempOk?'temp OK':'temp abnormal')+' · '+(x.accelOk?'accel OK':'accel abnormal'),'direct')+
+    row('Mapping', x.mapping,'derived')+
+    '</dl>';
+}
+/* ---------------- detail panel ---------------- */
+function renderDetail(){
+  const el=document.getElementById('detailBody');
+  if(MODE==='loading'){el.innerHTML=loadingBlock(5);return;}
+  if(MODE==='error'){el.innerHTML=errBlock('tag detail');return;}
+  const x=mkRows().find(v=>v.tag===SEL);
+  if(!x){el.innerHTML=emptyBlock({icon:IC.radio,title:'No tag selected',body:'Pick a row in the live table to see its readings, movement history and sensor status.'});return;}
+  const ms=movementState(x);
+  const pat=PATTERNS[patternOf(x)];
+  el.innerHTML=
+    '<div class="patrow" style="padding-top:0"><span class="tag '+pat.tone+'">'+pat.label+'</span>'+
+      '<span class="tag t-mut">baseline '+baseline(historyCached(x.tag))+' / 5 min</span>'+
+      '<div class="sp" style="flex:1"></div>'+rangePick(RANGE_H)+
+      '<button class="btn sm" onclick="openFs()" title="Full history, custom date range and farm-activity overlay">'+
+        svg('<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>','sm')+' Expand</button></div>'+
+    '<div style="padding:8px 0 0">'+historyChart(x.tag,RANGE_H,'minichart',150)+'</div>'+
+    chartLegend()+
+    '<div class="readout" id="minichart-ro"><span class="faint">Hover a bucket for motion_count, delta, packet count and avg RSSI.</span></div>'+
+    '<div class="small faint" style="padding:6px 0 12px">'+pat.why.charAt(0).toUpperCase()+pat.why.slice(1)+'. Activity uses motion-count deltas from historical packets; resting for short periods is normal, and alerts use sustained patterns.</div>'+
+    '<dl class="kv">'+
+    row('Tag ID','<span class="mono">'+x.tag+'</span>','direct')+
+    row('BLE MAC','<span class="mono">'+x.mac+'</span>','direct')+
+    row('Animal', x.display||'<span class="muted">Unmapped</span>','derived')+
+    row('Location', x.shed,'correlated')+
+    row('Gateway','<span class="mono">GW-'+x.gw+'</span>','direct')+
+    row('RSSI', x.rssi+' dBm','direct')+
+    row('Battery voltage',(x.batt/1000).toFixed(1)+' V ('+x.batt+' mV)','direct')+
+    row('Estimated battery life','<span class="tag '+battLife(x.batt).tone+'">'+battLife(x.batt).txt+'</span>','inferred')+
+    row('Tag temp', x.temp.toFixed(1)+' C','direct')+
+    row('Motion count', x.motion.toLocaleString('en-IN'),'direct')+
+    row('Motion delta (15m)','+'+x.d15,'derived')+
+    row('Movement state', MOVE_LABEL[ms],'inferred')+
+    row('Last seen', ago(x.ageSec),'direct')+
+    row('Temp sensor', x.tempOk?'OK':'Abnormal','direct')+
+    row('Accelerometer', x.accelOk?'OK':'Abnormal','direct')+
+    row('Mapping state', x.mapping,'derived')+
+    '</dl>'+
+    '<div class="banner info" style="margin:12px 0 0;font-size:11.5px">'+svg(IC.alert)+'<div>Tag temperature is the temperature of the tag, not the animal. No behaviour, posture or clinical state is inferred from these values.</div></div>';
+}
+function row(k,v,src){return '<dt>'+k+'</dt><dd>'+v+'<span class="srcl '+src+'">'+src+'</span></dd>';}
+
+/* ---------------- gateways ---------------- */
+function gateways(){
+  if(MODE!=='data'&&MODE!=='offline') return [];
+  const all=[{id:'514060',label:'Mandela block gateway',loc:'Channapatna · Mandela 1',net:'Wi-Fi',wifi:'A4:CF:12:8B:20:11',ble:'A4:CF:12:8B:20:12',ageSec:6},
+    {id:'514061',label:'Yashoda block gateway',loc:'Channapatna · Yashoda 4',net:'Wi-Fi',wifi:'A4:CF:12:8B:31:04',ble:'A4:CF:12:8B:31:05',ageSec: MODE==='offline'? 5400:11},
+    {id:'514072',label:'Gandhi block gateway',loc:'Gandhi · Block 3',net:'4G',wifi:null,ble:'A4:CF:12:9C:02:77',ageSec:19}];
+  const r=mkRows();
+  return all.map(g=>{
+    const seen=r.filter(x=>x.gw===g.id);
+    return Object.assign({},g,{
+      online:g.ageSec<300,
+      tags:seen.filter(x=>x.ageSec<300).length,
+      weak:seen.filter(x=>signalState(x)==='weak').length,
+      unmapped:seen.filter(x=>x.mapping!=='mapped').length
+    });
+  });
+}
+function renderGateways(){
+  const el=document.getElementById('gwBody'), mini=document.getElementById('gwMini');
+  if(MODE==='loading'){el.innerHTML='<div class="card"><div class="bd">'+loadingBlock(4)+'</div></div>';mini.innerHTML=loadingBlock(3);return;}
+  if(MODE==='error'){el.innerHTML='<div class="card">'+errBlock('gateways')+'</div>';mini.innerHTML=errBlock('gateway coverage');return;}
+  const g=gateways();
+  document.getElementById('cGw').textContent=g.length;
+  if(!g.length){el.innerHTML='<div class="card">'+surfaceState('gateways')+'</div>';mini.innerHTML=surfaceState('gateways');return;}
+  el.innerHTML=g.map(x=>
+    '<div class="gwcard"><div class="gwh">'+svg(IC.wifi)+'<b>GW-'+x.id+'</b>'+
+      '<span class="tag '+(x.online?'t-ok':'t-dng')+'">'+(x.online?'Online':'Offline')+'</span>'+
+      '<div class="sp" style="flex:1"></div><span class="tag t-mut">'+x.net+'</span></div>'+
+    '<div class="muted small">'+x.label+' · '+x.loc+'</div>'+
+    (x.online?'':'<div class="banner dng" style="margin:10px 0 0">'+svg(IC.alert)+'<div><b>Gateway offline.</b> No packet for '+ago(x.ageSec)+'. Tags under it show as missing signal until it reconnects — this does not mean the animals are missing.</div></div>')+
+    '<div class="gwstats">'+
+      '<div><div class="v">'+x.tags+'</div><div class="l">Tags seen</div></div>'+
+      '<div><div class="v">'+x.weak+'</div><div class="l">Weak</div></div>'+
+      '<div><div class="v">'+x.unmapped+'</div><div class="l">Unmapped</div></div>'+
+      '<div><div class="v">'+ago(x.ageSec)+'</div><div class="l">Last packet</div></div></div>'+
+    '<div class="mono faint small">BLE '+x.ble+(x.wifi?' · WiFi '+x.wifi:'')+'</div></div>').join('');
+  mini.innerHTML=g.map(x=>'<div style="display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--line2)">'+
+    svg(IC.wifi,'sm')+'<div style="flex:1"><b class="mono">GW-'+x.id+'</b><div class="faint small">'+x.tags+' tags · '+ago(x.ageSec)+'</div></div>'+
+    '<span class="tag '+(x.online?'t-ok':'t-dng')+'">'+(x.online?'Online':'Offline')+'</span></div>').join('');
+}
+
+/* ---------------- animals ---------------- */
+function renderAnimals(){
+  const el=document.getElementById('animalsBody');
+  if(MODE==='loading'){el.innerHTML=loadingBlock();return;}
+  if(MODE==='error'){el.innerHTML=errBlock('animals');return;}
+  const r=rows().filter(x=>x.mapping==='mapped');
+  document.getElementById('cAnimals').textContent=r.length;
+  if(!r.length){el.innerHTML=surfaceState('animals');return;}
+  let h='<div class="tblwrap"><table class="resp"><thead><tr><th>Animal</th><th>Shed</th><th>Smart tag</th><th class="num">15m delta</th><th class="num">1h delta</th><th>Activity</th><th>Signal</th><th>Battery</th><th>Last seen</th></tr></thead><tbody>';
+  r.forEach(x=>{const ms=movementState(x);
+    h+='<tr onclick="pick(\''+x.tag+'\')"><td data-l="Animal" class="wide"><b>'+x.display+'</b></td>'+
+      '<td data-l="Shed">'+x.shed+'<br><span class="faint small">'+x.park+'</span></td>'+
+      '<td data-l="Smart tag"><span class="mono">'+x.tag+'</span></td>'+
+      '<td data-l="15m delta" class="num delta '+(x.d15?'up':'zero')+'">+'+x.d15+'</td>'+
+      '<td data-l="1h delta" class="num delta '+(x.d60?'up':'zero')+'">+'+x.d60+'</td>'+
+      '<td data-l="Activity"><span class="tag '+MOVE_TONE[ms]+'">'+MOVE_LABEL[ms]+'</span></td>'+
+      '<td data-l="Signal">'+x.rssi+' dBm</td><td data-l="Battery">'+(x.batt/1000).toFixed(1)+' V<br><span class="faint small">est. '+battLife(x.batt).txt+'</span></td>'+
+      '<td data-l="Last seen">'+ago(x.ageSec)+'</td></tr>';});
+  el.innerHTML=h+'</tbody></table></div>';
+}
+
+/* ---------------- alerts ---------------- */
+function renderAlerts(){
+  const el=document.getElementById('alertsBody');
+  if(MODE==='loading'){el.innerHTML=loadingBlock();return;}
+  if(MODE==='error'){el.innerHTML=errBlock('alerts');return;}
+  const r=rows(); const a=[];
+  r.forEach(x=>{
+    const ms=movementState(x), pat=patternOf(x);
+    if(pat==='inactive') a.push(['t-dng','Inactive alert',x,'Zero or very low motion delta for 3+ hours while the tag is still being seen. Duration-based, not a single empty window \u2014 open the tag to read the pattern.']);
+    else if(pat==='quiet_watch') a.push(['t-mut','Quiet watch',x,'Low motion delta for the last 1-2 hours. Short rest is normal; this is a watch item, not an alert.']);
+    if(pat==='spike') a.push(['t-warn','Movement spike',x,'Current 15-minute delta is far above this animal\u2019s own baseline of '+baseline(historyCached(x.tag))+' per 5 min. Unusual counter activity \u2014 not walking, running or distress.']);
+    if(pat==='recovered') a.push(['t-ok','Back to normal',x,'Activity resumed after a quiet period. No action needed; logged so a prior quiet watch can be closed.']);
+    if(ms==='stale') a.push(['t-dng','Missing signal',x,'No packet for '+ago(x.ageSec)+'. Signal missing — not a missing animal. Check gateway coverage before checking the animal.']);
+    if(signalState(x)==='weak') a.push(['t-warn','Weak signal',x,'RSSI '+x.rssi+' dBm is at or below the provisional −75 dBm threshold. Possible distance, obstruction or gateway placement issue.']);
+    if(battState(x)==='low') a.push(['t-purple','Low battery',x,'Battery '+x.batt+' mV is below the provisional '+TH.lowBattMv+' mV placeholder — estimated '+battLife(x.batt).txt+' of life left on an assumed discharge curve. Both the threshold and the curve are pending vendor confirmation.']);
+    if(!x.accelOk) a.push(['t-warn','Sensor abnormal',x,'Accelerometer status bit is not OK. Motion counts from this tag are unreliable.']);
+    if(x.mapping==='conflict') a.push(['t-dng','Mapping conflict',x,'This BLE tag resolves to more than one active smart-tag-capable identifier. Resolve in Tag Mapping.']);
+  });
+  document.getElementById('cAlerts').textContent=a.length;
+  if(!a.length){el.innerHTML=surfaceState('alerts');return;}
+  el.innerHTML='<div class="rowlist">'+a.map(x=>
+    '<div class="rowitem"><span class="tag '+x[0]+'">'+x[1]+'</span>'+
+    '<div style="flex:1"><div class="rt">'+(x[2].display||x[2].tag)+' <span class="mono faint">'+x[2].tag+'</span></div>'+
+    '<div class="rs">'+x[3]+'</div></div>'+
+    '<span class="faint small">'+x[2].shed+'</span></div>').join('')+'</div>';
+}
+
+/* ---------------- mapping ---------------- */
+function renderMapping(){
+  const el=document.getElementById('mappingBody');
+  if(MODE==='loading'){el.innerHTML=loadingBlock();return;}
+  if(MODE==='error'){el.innerHTML=errBlock('tag mapping');return;}
+  let r=rows();
+  if(MAPF==='unmapped') r=r.filter(x=>x.mapping==='unmapped');
+  if(MAPF==='conflict') r=r.filter(x=>x.mapping==='conflict');
+  document.getElementById('cMap').textContent=rows().filter(x=>x.mapping!=='mapped').length;
+  if(!r.length){el.innerHTML=surfaceState('mapping');return;}
+  let h='<div class="tblwrap"><table class="resp"><thead><tr><th>Animal</th><th>Existing tag 1</th><th>Existing tag 2</th><th>Smart tag capable</th><th>BLE tag ID</th><th>BLE MAC</th><th>Source</th><th>Verified by</th><th>Verified at</th><th>Status</th></tr></thead><tbody>';
+  r.forEach(x=>{
+    const st=x.mapping==='mapped'?['t-ok','Mapped']:x.mapping==='conflict'?['t-dng','Conflict']:['t-warn','Unmapped'];
+    h+='<tr><td data-l="Animal" class="wide"><b>'+(x.display||'<span class="muted">— no animal —</span>')+'</b></td>'+
+      '<td data-l="Existing tag 1"><span class="mono">'+(x.display||'—')+'</span></td>'+
+      '<td data-l="Existing tag 2"><span class="mono faint">'+(x.display?'RF-'+x.tag:'—')+'</span></td>'+
+      '<td data-l="Smart tag capable">'+(x.mapping==='mapped'?'<span class="tag t-ok">Yes</span>':'<span class="tag t-mut">No</span>')+'</td>'+
+      '<td data-l="BLE tag ID"><span class="mono">'+x.tag+'</span></td>'+
+      '<td data-l="BLE MAC"><span class="mono faint">'+x.mac+'</span></td>'+
+      '<td data-l="Source">'+(x.gw?'Gateway':'Phone')+'</td>'+
+      '<td data-l="Verified by">'+(x.mapping==='mapped'?'Sagar Mahoor':'<span class="faint">—</span>')+'</td>'+
+      '<td data-l="Verified at">'+(x.mapping==='mapped'?'22-08-2026':'<span class="faint">—</span>')+'</td>'+
+      '<td data-l="Status"><span class="tag '+st[0]+'">'+st[1]+'</span></td></tr>';});
+  el.innerHTML=h+'</tbody></table></div>';
+}
+function setMapFilter(f,btn){MAPF=f;render();}
+
+/* ---------------- insights ---------------- */
+const INSIGHTS=[
+  ['Tags Live Now',IC.radio,'derived',r=>r.filter(x=>x.ageSec<300).length,'distinct tags with last_seen_at within 5 min','A live tag means a received broadcast, nothing about the animal.'],
+  ['Missing Signal',IC.alert,'inferred',r=>r.filter(x=>movementState(x)==='stale').length,'mapped smart-tag animals not seen for 30+ min','Missing SIGNAL, never missing animal. Check gateway first.'],
+  ['Low Movement Watch',IC.activity,'inferred',r=>r.filter(x=>x.d60<20&&movementState(x)!=='stale').length,'60 min motion delta below shed baseline','Not resting, not sick — only a counter that barely moved.'],
+  ['High Movement Spike',IC.activity,'inferred',r=>r.filter(x=>x.d15>=200).length,'15m delta far above the animal/shed baseline','Unusual counter activity. Not walking, running or distress.'],
+  ['Shed Signal Coverage',IC.pin,'correlated',r=>Math.round(100*r.filter(x=>x.ageSec<300&&x.mapping==='mapped').length/Math.max(1,r.filter(x=>x.mapping==='mapped').length))+'%','live mapped tags / smart-tag mapped animals per shed','Coverage of the radio, correlated with animal location.'],
+  ['Weak Signal Tags',IC.wifi,'derived',r=>r.filter(x=>signalState(x)==='weak').length,'RSSI at or below the provisional threshold','A radio measure. Says nothing about the animal.'],
+  ['Battery Attention',IC.battery,'direct',r=>r.filter(x=>battState(x)==='low').length,'battery below configured mV threshold','Threshold is a placeholder until the vendor confirms the curve.'],
+  ['Post-Vaccination Movement Watch',IC.alert,'correlated',()=>4,'0-24h activity delta after vaccination vs prior baseline','Correlation only. Never a diagnosis or an adverse-event finding.'],
+  ['Health Case Activity Trend',IC.activity,'correlated',()=>2,'activity trend before / during an open treatment','Context for the case. Not disease detection.'],
+  ['Feed × Activity',IC.activity,'correlated',()=>3,'shed activity 2h before vs 2h after fed_at','Shed response to feeding. It is not eating detection.'],
+  ['Weight × Activity',IC.activity,'correlated',()=>1,'low ADG or weight drop together with low activity','A growth-risk correlation to review, not a cause.'],
+  ['Unmapped Smart Tags',IC.unlink,'derived',r=>r.filter(x=>x.mapping!=='mapped').length,'BLE tags seen with no active smart-tag-capable identifier','Action: map the tag to an animal identifier.']
+];
+function renderInsights(){
+  const el=document.getElementById('insightsBody');
+  if(MODE==='loading'){el.innerHTML=Array(6).fill('<div class="insight">'+loadingBlock(3)+'</div>').join('');return;}
+  if(MODE==='error'){el.innerHTML='<div class="card">'+errBlock('insights')+'</div>';return;}
+  const r=rows();
+  if(!r.length){el.innerHTML='<div class="card" style="grid-column:1/-1">'+surfaceState('live')+'</div>';return;}
+  el.innerHTML=INSIGHTS.map(i=>'<div class="insight"><div class="ih">'+svg(i[1],'sm')+i[0]+'<span class="srcl '+i[2]+'">'+i[2]+'</span></div>'+
+    '<div class="iv">'+i[3](r)+'</div><div class="if">'+i[4]+'</div><div class="idis">'+i[5]+'</div></div>').join('');
+}
+
+function renderBattery(){
+  const el=document.getElementById('battBody');
+  if(MODE==='loading'){el.innerHTML=loadingBlock(4);return;}
+  if(MODE==='error'){el.innerHTML=errBlock('battery outlook');return;}
+  const r=rows();
+  if(!r.length){el.innerHTML=emptyBlock({icon:IC.battery,title:'No battery readings',
+    body:'Battery voltage arrives with each tag packet. Nothing has been received for the current selection.'});return;}
+  const bands=[['> 1 year','t-ok',x=>battMonths(x.batt)>=12],
+               ['3-12 months','t-mut',x=>{const m=battMonths(x.batt);return m>=3&&m<12;}],
+               ['1-3 months','t-warn',x=>{const m=battMonths(x.batt);return m>=1&&m<3;}],
+               ['< 1 month','t-dng',x=>battMonths(x.batt)<1]];
+  el.innerHTML='<div style="display:flex;flex-direction:column;gap:7px">'+
+    bands.map(b=>{const n=r.filter(b[2]).length,pct=Math.round(100*n/r.length);
+      return '<div style="display:flex;align-items:center;gap:9px"><span class="tag '+b[1]+'" style="min-width:96px">'+b[0]+'</span>'+
+        '<div style="flex:1;height:6px;border-radius:4px;background:var(--line2);overflow:hidden"><i style="display:block;height:100%;width:'+pct+'%;background:var(--brand)"></i></div>'+
+        '<b style="font-variant-numeric:tabular-nums;min-width:22px;text-align:right">'+n+'</b></div>';}).join('')+
+    '</div>'+
+    '<div class="kv" style="margin-top:12px"><dt>Fleet median</dt><dd>'+fleetLife(r)+'<span class="srcl inferred">inferred</span></dd>'+
+    '<dt>Lowest tag</dt><dd>'+battLife(Math.min.apply(null,r.map(x=>x.batt))).txt+'<span class="srcl inferred">inferred</span></dd></div>'+
+    '<div class="banner warn" style="margin:12px 0 0;font-size:11.5px">'+svg(IC.alert)+
+    '<div><b>Estimate only.</b> Life is projected from voltage alone against an assumed '+(BATT_FRESH_MV/1000).toFixed(2)+' V &rarr; '+(BATT_DEAD_MV/1000).toFixed(2)+' V curve and an assumed '+BATT_FULL_MONTHS+'-month design life at the current advertising interval. Coin cells hold voltage flat then drop fast, and cold weather drags voltage down temporarily &mdash; treat this as an order of magnitude until the vendor confirms the discharge curve.</div></div>';
+}
+function tgrp(el){el.classList.toggle('open');const n=el.nextElementSibling;if(n&&n.classList.contains('subnav'))n.classList.toggle('open');}
+/* ---------------- shell ---------------- */
+function pick(t){openDrawer(t);}
+function openDrawer(t){
+  SEL=t; const x=mkRows().find(r=>r.tag===t); if(!x) return;
+  document.getElementById('dTitle').textContent = x.display? x.display+' · '+x.tag : 'Unmapped tag '+x.tag;
+  document.getElementById('dSub').textContent = x.mac+' · '+x.shed+' · GW-'+x.gw;
+  document.getElementById('drawer').classList.add('on');
+  document.getElementById('scrim').classList.add('on');
+  render();
+}
+function closeDrawer(){document.getElementById('drawer').classList.remove('on');document.getElementById('scrim').classList.remove('on');}
+document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;
+  if(document.getElementById('fs').classList.contains('on')) closeFs(); else closeDrawer();});
+function clearFilters(){KPIF='';Q='';PAGE=0;const q=document.getElementById('fQ');if(q){q.value='';q.parentNode.classList.remove('has');}
+  ['fPark','fShed','fMove','fMap','fPat'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});if(MODE==='filtered')MODE='data';render();}
+function setTab(btn){TAB=btn.dataset.tab;
+  [...document.querySelectorAll('#segs button')].forEach(b=>b.classList.toggle('on',b===btn));
+  ['live','animals','gateways','alerts','mapping','insights'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==TAB));
+  document.querySelector('.crumb').innerHTML='Herd Signals / <b>'+btn.textContent.trim().replace(/\s+\d+$/,'')+'</b>';
+  render();}
+function setState(m){MODE=m;lastOkSec=(m==='error')?120:3;
+  try{ if(location.hash.replace('#','')!==m && history.replaceState) history.replaceState(null,'','#'+m); }catch(e){}
+  render();}
+function setIv(btn){IV=+btn.dataset.iv;[...document.querySelectorAll('#ivp button')].forEach(b=>b.classList.toggle('on',b===btn));paintLive();restart();}
+function toggleLive(){LIVE=!LIVE;paintLive();restart();}
+/* One control, three states: healthy \u2192 "LIVE", degraded \u2192 "LIVE \u00b7 42s stale",
+   off \u2192 "PAUSED". Replaces the always-0s "Updated \u2026 ago" readout. */
+function paintLive(){
+  const b=document.getElementById('liveBadge'), t=document.getElementById('liveTxt');
+  const hidden=document.hidden, stale=lastOkSec>30;
+  b.classList.toggle('paused', hidden||!LIVE);
+  b.classList.toggle('stale', LIVE&&!hidden&&stale);
+  t.textContent = hidden? 'PAUSED \u00b7 tab hidden' : !LIVE? 'PAUSED' : stale? 'LIVE \u00b7 '+lastOkSec+'s stale' : 'LIVE';
+  b.title = hidden? 'Polling pauses while the tab is hidden'
+          : !LIVE? 'Polling paused \u2014 click to resume'
+          : stale? 'Last successful response '+lastOkSec+'s ago \u2014 still retrying; manual refresh works'
+          : 'Polling every '+IV+'s \u2014 click to pause';
+}
+function manualRefresh(){ if(MODE!=='error'&&MODE!=='loading') lastOkSec=0; render(); }
+function restart(){clearInterval(timer);if(LIVE)timer=setInterval(()=>{if(document.hidden)return;lastOkSec+= (MODE==='error'?IV:0); if(MODE!=='error')lastOkSec=0; render();},IV*1000);}
+document.addEventListener('visibilitychange',paintLive);
+
+function render(){
+  paintLive();
+  const stale=lastOkSec>30;
+  document.getElementById('staleBanner').classList.toggle('hidden',!stale);
+  document.getElementById('staleAge').textContent=lastOkSec+'s';
+  const kc=document.getElementById('kpiChip');
+  if(kc) kc.innerHTML = KPIF? '<span class="achip" onclick="setKpi(\''+KPIF+'\')">'+KPI_FILTERS[KPIF].label+' <b>✕</b></span>' : '';
+  document.getElementById('cLive').textContent=rows().length;
+  renderKpis();renderLive();renderDetail();renderGateways();renderBattery();renderAnimals();renderAlerts();renderMapping();renderInsights();
+}
+/* State switching for review is NOT screen chrome — it is a URL/keyboard affordance:
+   #empty #filtered #error #loading #offline #data, or Alt+1..6. */
+const STATE_KEYS=['data','empty','filtered','error','loading','offline'];
+function stateFromUrl(){
+  const h=(location.hash||'').replace('#','');
+  if(STATE_KEYS.includes(h)) MODE=h;
+}
+window.addEventListener('hashchange',()=>{stateFromUrl();lastOkSec=MODE==='error'?120:3;render();});
+document.addEventListener('keydown',e=>{
+  if(!e.altKey) return;
+  const n=parseInt(e.key,10); if(!n||n>STATE_KEYS.length) return;
+  location.hash=STATE_KEYS[n-1];
+});
+stateFromUrl();
+(function fillSheds(){
+  const sel=document.getElementById('fShed'); if(!sel) return;
+  [...new Set(mkRows().map(r=>r.shed))].sort().forEach(sh=>{const o=document.createElement('option');o.textContent=sh;sel.appendChild(o);});
+})();
+setInterval(()=>{if(MODE==='error'){lastOkSec+=1;render();}},1000);
+render();restart();
+</script>

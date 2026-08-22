@@ -3434,7 +3434,7 @@ export async function request<T>(fn: () => Promise<T>): Promise<ApiResult<T>> {
   }
 }
 
-async function withApiTimeout<T>(ms: number, fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+export async function withApiTimeout<T>(ms: number, fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ms);
   try {
