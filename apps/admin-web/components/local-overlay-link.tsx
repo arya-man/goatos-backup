@@ -7,8 +7,22 @@ export const LOCAL_OVERLAY_URL_CHANGE_EVENT = "mesha:local-overlay-url-change";
 const LOCAL_OVERLAY_HISTORY_KEY = "__meshaLocalOverlay";
 const rememberedOverlaySelections = new Map<string, string>();
 
-export function notifyLocalOverlayUrlChange(): void {
-  window.dispatchEvent(new Event(LOCAL_OVERLAY_URL_CHANGE_EVENT));
+type LocalOverlayUrlChangeDetail = {
+  selections: Record<string, string>;
+};
+
+function overlaySelectionsFromUrl(url: URL): Record<string, string> {
+  const selections: Record<string, string> = {};
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+  for (const key of ["hs_tag", "hs_history"]) {
+    const value = hashParams.get(key) ?? url.searchParams.get(key);
+    if (value) selections[key] = value;
+  }
+  return selections;
+}
+
+export function notifyLocalOverlayUrlChange(detail?: LocalOverlayUrlChangeDetail): void {
+  window.dispatchEvent(new CustomEvent(LOCAL_OVERLAY_URL_CHANGE_EVENT, { detail }));
 }
 
 export function currentHistoryEntryIsLocalOverlay(): boolean {
@@ -22,20 +36,21 @@ export function replaceLocalOverlayUrl(href: string): void {
   void _overlay;
   rememberOverlaySelectionsFromHref(href, true);
   window.history.replaceState(nextState, "", href);
-  notifyLocalOverlayUrlChange();
+  notifyLocalOverlayUrlChange({ selections: overlaySelectionsFromUrl(new URL(href, window.location.href)) });
 }
 
 export function pushLocalOverlayUrl(href: string): boolean {
   const nextUrl = new URL(href, window.location.href);
   if (nextUrl.origin !== window.location.origin || nextUrl.pathname !== window.location.pathname) return false;
   rememberOverlaySelectionsFromUrl(nextUrl, false);
+  const detail = { selections: overlaySelectionsFromUrl(nextUrl) };
   if (nextUrl.href === window.location.href) {
-    notifyLocalOverlayUrlChange();
+    notifyLocalOverlayUrlChange(detail);
     return true;
   }
   const state = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
   window.history.pushState({ ...state, [LOCAL_OVERLAY_HISTORY_KEY]: true }, "", nextUrl);
-  notifyLocalOverlayUrlChange();
+  notifyLocalOverlayUrlChange(detail);
   return true;
 }
 
@@ -130,10 +145,15 @@ export function useLocalOverlaySelection<T>({
   }, [transitionMs]);
 
   useEffect(() => {
-    function syncSelectionFromUrl(): void {
+    function syncSelectionFromUrl(event?: Event): void {
       const url = new URL(window.location.href);
       const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+      const eventSelection =
+        event instanceof CustomEvent && event.detail && typeof event.detail === "object"
+          ? (event.detail as LocalOverlayUrlChangeDetail).selections?.[selectionKey]
+          : undefined;
       const selectedId =
+        eventSelection ??
         hashParams.get(selectionKey) ??
         url.searchParams.get(selectionKey) ??
         (currentHistoryEntryIsLocalOverlay() ? rememberedOverlaySelection(selectionKey) : undefined);
@@ -144,7 +164,7 @@ export function useLocalOverlaySelection<T>({
     window.addEventListener("popstate", syncSelectionFromUrl);
     window.addEventListener("hashchange", syncSelectionFromUrl);
     window.addEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncSelectionFromUrl);
-    const initialFrame = window.requestAnimationFrame(syncSelectionFromUrl);
+    const initialFrame = window.requestAnimationFrame(() => syncSelectionFromUrl());
     return () => {
       window.cancelAnimationFrame(initialFrame);
       window.removeEventListener("popstate", syncSelectionFromUrl);
