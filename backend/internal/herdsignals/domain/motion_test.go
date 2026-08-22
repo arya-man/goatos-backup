@@ -193,16 +193,16 @@ func TestPatternStateFromHistory(t *testing.T) {
 	fiveMinutesAgo := now.Add(-5 * time.Minute)
 
 	tests := []struct {
-		name           string
-		currentDelta   int64
-		lastPacketAt   *time.Time
-		recentWindows  []ActivityWindow
-		expectedState  string
+		name          string
+		currentDelta  int64
+		lastPacketAt  *time.Time
+		recentWindows []ActivityWindow
+		expectedState string
 	}{
 		{
-			name:         "missing signal (no recent packets)",
-			currentDelta: 0,
-			lastPacketAt: timePtr(now.Add(-time.Hour)),
+			name:          "missing signal (no recent packets)",
+			currentDelta:  0,
+			lastPacketAt:  timePtr(now.Add(-time.Hour)),
 			recentWindows: []ActivityWindow{},
 			expectedState: string(PatternMissingSignal),
 		},
@@ -216,16 +216,16 @@ func TestPatternStateFromHistory(t *testing.T) {
 			expectedState: string(PatternNoMovement),
 		},
 		{
-			name:         "quiet watch (sustained low delta 1-2h)",
-			currentDelta: 5,
-			lastPacketAt: &fiveMinutesAgo,
+			name:          "quiet watch (sustained low delta 1-2h)",
+			currentDelta:  5,
+			lastPacketAt:  &fiveMinutesAgo,
 			recentWindows: generateQuietWindows(100, 60), // 100 min > 90 min threshold
 			expectedState: string(PatternQuietWatch),
 		},
 		{
-			name:         "inactive (sustained low delta 3+ hours with packets)",
-			currentDelta: 5,
-			lastPacketAt: &fiveMinutesAgo,
+			name:          "inactive (sustained low delta 3+ hours with packets)",
+			currentDelta:  5,
+			lastPacketAt:  &fiveMinutesAgo,
 			recentWindows: generateQuietWindows(190, 60), // 190 min > 180 min threshold
 			expectedState: string(PatternInactive),
 		},
@@ -275,10 +275,10 @@ func TestPercentile75(t *testing.T) {
 }
 
 // Helper functions for test pointers
-func int16Ptr(v int16) *int16       { return &v }
-func int64Ptr(v int64) *int64       { return &v }
-func intPtr(v int) *int             { return &v }
-func float64Ptr(v float64) *float64 { return &v }
+func int16Ptr(v int16) *int16        { return &v }
+func int64Ptr(v int64) *int64        { return &v }
+func intPtr(v int) *int              { return &v }
+func float64Ptr(v float64) *float64  { return &v }
 func timePtr(v time.Time) *time.Time { return &v }
 
 // generateQuietWindows creates N minutes worth of quiet windows (delta < 10).

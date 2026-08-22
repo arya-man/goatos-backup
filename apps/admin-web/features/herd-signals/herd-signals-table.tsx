@@ -23,9 +23,11 @@ import {
   fmtRssi,
   fmtTagTemp,
 } from "./format";
+import { one } from "@/lib/search-params";
 import { herdSignalsHref, type HerdSignalsParams } from "./params";
 import { matchesResidualKpi } from "./herd-signals-row-filter";
 import { HerdSignalsDrawer } from "./herd-signals-drawer";
+import { HerdSignalsHistoryFullscreen } from "./herd-signals-history-fullscreen";
 
 function rowTagId(item: HerdSignalItem): string {
   return item.tag_id;
@@ -190,7 +192,13 @@ export function HerdSignalsTable({
         )}
       </div>
 
-      <HerdSignalsDrawer rows={visible} rowId={rowTagId} initialSelectedId={undefined} closeHref={drawerCloseHref} />
+      <HerdSignalsDrawer
+        rows={visible}
+        rowId={rowTagId}
+        initialSelectedId={one(params.sp, "hs_tag")}
+        closeHref={drawerCloseHref}
+      />
+      <HerdSignalsHistoryFullscreen rows={visible} closeHref={drawerCloseHref} />
     </>
   );
 }
