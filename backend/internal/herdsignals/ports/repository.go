@@ -24,9 +24,10 @@ type Repository interface {
 	GetTagLatest(ctx context.Context, tenantID, tagID string) (*domain.TagLatest, error)
 
 	// ListTagsLatest fetches tags with optional filters, keyset pagination, and summary counts.
-	// parkID, shedID: optional location filters. movementState: filter by "moving", "low", "quiet", "not_moving", "stale".
-	// mapped: if true, only mapped tags; if false, only unmapped; nil = both.
-	ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState *string, mapped *bool, cursor string, limit int) (
+	// parkID, shedID: optional location filters. movementState: filter by "moving", "low", "quiet",
+	// "not_moving", "stale". mappingState: filter by "mapped", "unmapped", "conflict". pattern:
+	// filter by pattern_state. q: free-text search over display id, tag id, MAC, shed, gateway.
+	ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int) (
 		items []domain.TagLatest,
 		summary domain.Summary,
 		nextCursor *string,
@@ -56,12 +57,6 @@ type Repository interface {
 		err error,
 	)
 
-	// GetLocationsByIDs fetches shed and partition info for multiple location IDs.
-	GetLocationsByIDs(ctx context.Context, tenantID string, locationIDs []string) (
-		locData map[string]LocationData,
-		err error,
-	)
-
 	// ResolveTagsBatch resolves many tag_id/tag_mac values to goat_id in ONE query (never N+1
 	// per row on GET /herd-signals/live -- AGENTS.md operational read model contract). The map
 	// key is the normalized_value (tag_id or tag_mac as presented); values with no active
@@ -73,6 +68,12 @@ type Repository interface {
 	// ResolveTagsBatch: GET /herd-signals/live and /herd-signals/gateways must never issue one
 	// query per row.
 	GetShedLocations(ctx context.Context, tenantID string, shedIDs []string) (map[string]ShedLocation, error)
+
+	// GetBaselineDeltas computes the p75 24h/300s-tier baseline motion_delta for many tags in
+	// ONE windowed query (never a per-row 24h scan on GET /herd-signals/live -- the batch this
+	// belongs alongside is exactly why ResolveTagsBatch/GetShedLocations exist). A tag absent
+	// from the result has no non-gap 24h history yet.
+	GetBaselineDeltas(ctx context.Context, tenantID string, tagIDs []string) (map[string]int64, error)
 
 	// GetInsightsData computes the raw counts/values behind the 12 GET /herd-signals/insights
 	// cards. Each field is produced by its own bounded, indexed, tenant-scoped query -- see
@@ -119,11 +120,4 @@ type GoatData struct {
 	DisplayID string
 	ShedID    *string
 	ParkID    *string
-}
-
-// LocationData is shed/partition info for a location.
-type LocationData struct {
-	ShedName       string
-	PartitionLabel *string
-	ParkID         *string
 }

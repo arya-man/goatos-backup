@@ -158,13 +158,19 @@ type ActivityWindow struct {
 type PatternState string
 
 const (
-	PatternNoMovement    PatternState = "no_movement"
-	PatternQuietWatch    PatternState = "quiet_watch"
-	PatternInactive      PatternState = "inactive"
-	PatternMissingSignal PatternState = "missing_signal"
+	PatternNoMovement PatternState = "no_movement"
+	PatternQuietWatch PatternState = "quiet_watch"
+	PatternInactive   PatternState = "inactive"
+	// PatternMissingSignal serializes as "missing" (not "missing_signal") to match the
+	// admin-web contract fixed at dispatch (apps/admin-web/lib/api/herd-signals.ts
+	// HerdSignalPatternState). The Go const name stays descriptive; only the wire value moved.
+	PatternMissingSignal PatternState = "missing"
 	PatternSpike         PatternState = "spike"
 	PatternRecovered     PatternState = "recovered"
-	PatternUnknown       PatternState = "unknown"
+	// PatternUnknown serializes as "normal" (not "unknown"): the frontend contract's resting/
+	// default state is called "normal", not "unknown" -- this is the state of a tag with no
+	// watch condition, which is the common case, not an error condition.
+	PatternUnknown PatternState = "normal"
 )
 
 // IngestRequest is the payload for POST /herd-signals/packets.
@@ -199,35 +205,42 @@ type IngestResponse struct {
 
 // LiveItem is a single tag in the live view response.
 type LiveItem struct {
-	TagID                      string   `json:"tag_id"`
-	TagMAC                     string   `json:"tag_mac"`
-	GoatID                     *string  `json:"goat_id"`
-	DisplayID                  *string  `json:"display_id"`
-	ParkID                     *string  `json:"park_id"`
-	ParkName                   *string  `json:"park_name"`
-	ShedID                     *string  `json:"shed_id"`
-	ShedName                   *string  `json:"shed_name"`
-	PartitionLabel             *string  `json:"partition_label"`
-	OperationalLocationDisplay *string  `json:"operational_location_display"`
-	GatewayID                  *string  `json:"gateway_id"`
-	LastSeenAt                 string   `json:"last_seen_at"` // RFC3339
-	RSSIdbm                    *int16   `json:"rssi_dbm"`
-	SignalState                string   `json:"signal_state"`
-	BatteryMV                  *int     `json:"battery_mv"`
-	BatteryState               string   `json:"battery_state"`
-	BatteryLifeEstimate        string   `json:"battery_life_estimate"`
-	TagTemperatureC            *float64 `json:"tag_temperature_c"`
-	MotionCount                *int64   `json:"motion_count"`
-	MotionDelta                *int64   `json:"motion_delta"`
-	MotionDelta1h              *int64   `json:"motion_delta_1h"`
-	MotionWindowSeconds        *int     `json:"motion_window_seconds"`
-	MovementState              string   `json:"movement_state"`
-	PatternState               string   `json:"pattern_state"`
-	BaselineDelta              *int64   `json:"baseline_delta"`
-	SensorState                *int16   `json:"sensor_state"`
-	TemperatureSensorOK        *bool    `json:"temperature_sensor_ok"`
-	AccelerometerSensorOK      *bool    `json:"accelerometer_sensor_ok"`
-	MappingState               string   `json:"mapping_state"`
+	TagID                      string  `json:"tag_id"`
+	TagMAC                     string  `json:"tag_mac"`
+	GoatID                     *string `json:"goat_id"`
+	DisplayID                  *string `json:"display_id"`
+	ParkID                     *string `json:"park_id"`
+	ParkName                   *string `json:"park_name"`
+	ShedID                     *string `json:"shed_id"`
+	ShedName                   *string `json:"shed_name"`
+	PartitionLabel             *string `json:"partition_label"`
+	OperationalLocationDisplay *string `json:"operational_location_display"`
+	GatewayID                  *string `json:"gateway_id"`
+	LastSeenAt                 string  `json:"last_seen_at"` // RFC3339
+	RSSIdbm                    *int16  `json:"rssi_dbm"`
+	// SignalState/BatteryState/MovementState/PatternState/SensorState/BatteryLifeEstimate are
+	// all nullable per the admin-web contract fixed at dispatch (HerdSignalItem in
+	// apps/admin-web/lib/api/herd-signals.ts): "unknown"/unset must serialize as JSON null, not
+	// as a string value the frontend's enum types do not declare.
+	SignalState         *string  `json:"signal_state"`
+	BatteryMV           *int     `json:"battery_mv"`
+	BatteryState        *string  `json:"battery_state"`
+	BatteryLifeEstimate *string  `json:"battery_life_estimate"`
+	TagTemperatureC     *float64 `json:"tag_temperature_c"`
+	MotionCount         *int64   `json:"motion_count"`
+	MotionDelta         *int64   `json:"motion_delta"`
+	MotionDelta1h       *int64   `json:"motion_delta_1h"`
+	MotionWindowSeconds *int     `json:"motion_window_seconds"`
+	MovementState       *string  `json:"movement_state"`
+	PatternState        *string  `json:"pattern_state"`
+	BaselineDelta       *int64   `json:"baseline_delta"`
+	// SensorState is a COMPUTED "ok"/"abnormal" summary (contract type HerdSignalSensorState),
+	// never the raw device sensor_state int -- that raw value is stored but intentionally not
+	// exposed on this endpoint; see herd_signal_tag_latest / herd_signal_packets for the raw bits.
+	SensorState           *string `json:"sensor_state"`
+	TemperatureSensorOK   *bool   `json:"temperature_sensor_ok"`
+	AccelerometerSensorOK *bool   `json:"accelerometer_sensor_ok"`
+	MappingState          string  `json:"mapping_state"`
 }
 
 // LiveResponse is the response to GET /herd-signals/live.
@@ -252,9 +265,13 @@ type Summary struct {
 }
 
 // TimelineResponse is the response to GET /herd-signals/tags/{tag_id}/timeline.
+// TimelineResponse is the response to GET /herd-signals/tags/{tag_id}/timeline. The wire shape
+// is {"buckets": [...]} with no tag_id envelope field -- the admin-web contract fixed at
+// dispatch (HerdSignalTimelineResponse in apps/admin-web/lib/api/herd-signals.ts) reads the tag
+// from the request path, not the response body.
 type TimelineResponse struct {
-	TagID   string           `json:"tag_id"`
-	Windows []TimelineWindow `json:"windows"`
+	TagID   string           `json:"-"`
+	Buckets []TimelineWindow `json:"buckets"`
 }
 
 // TimelineWindow is a bucketed motion aggregate in a timeline.
