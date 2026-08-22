@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import type { HerdSignalItem, HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
-import { fmtDateTime } from "@/lib/format";
-import { fmtClockIst, fmtDelta, fmtRssi } from "./format";
-import { HistoryChart, historyChartLegend, gapWindowForReconnect } from "./herd-signals-history-chart";
+import { operationalLocationLabel } from "@/lib/operational-location";
+import { fmtBleMac } from "./format";
+import { ChartReadout, HistoryChart, historyChartLegend } from "./herd-signals-history-chart";
 
 type RangeKey = "1h" | "6h" | "12h" | "24h" | "3d" | "7d" | "30d" | "custom";
 const RANGE_LABEL: Record<RangeKey, string> = {
@@ -27,12 +27,16 @@ const RANGE_SECONDS: Partial<Record<RangeKey, number>> = {
   "7d": 7 * 24 * 3600,
   "30d": 30 * 24 * 3600,
 };
-// 5-minute / hourly / 6-hourly buckets by range (per herd-signals module spec).
-function bucketSecondsFor(range: RangeKey): number {
-  if (range === "1h" || range === "6h") return 300;
-  if (range === "12h" || range === "24h") return 3600;
-  return 21600;
+// 5-minute / hourly / 6-hourly buckets by range, matching the mock's own roll-up thresholds:
+// up to 24h stays on the 300s tier (288 readable bars), 24h-72h rolls to hourly, beyond that to
+// 6-hourly. Rolling 24h up to hourly would leave 24 fat bars and break the per-5-minute baseline.
+function bucketSecondsFor(range: RangeKey, seconds: number): number {
+  if (range === "custom") return seconds <= 24 * 3600 ? 300 : seconds <= 72 * 3600 ? 3600 : 21600;
+  if (range === "3d") return 3600;
+  if (range === "7d" || range === "30d") return 21600;
+  return 300;
 }
+const BUCKET_LABEL: Record<number, string> = { 300: "5-minute", 3600: "hourly", 21600: "6-hourly" };
 
 // The six farm-activity overlays. None of these has a data endpoint in the fixed contract this
 // page was built against (GET /herd-signals/live|tags/{id}/timeline|gateways|insights only) — so
@@ -79,12 +83,18 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
   const bounds = useMemo(() => {
     if (range === "custom") {
       if (!customFrom || !customTo) return null;
-      return { from: new Date(customFrom).toISOString(), to: new Date(customTo).toISOString() };
+      const fromDate = new Date(customFrom);
+      const toDate = new Date(customTo);
+      return {
+        from: fromDate.toISOString(),
+        to: toDate.toISOString(),
+        seconds: Math.max(300, Math.round((toDate.getTime() - fromDate.getTime()) / 1000)),
+      };
     }
     const seconds = RANGE_SECONDS[range] ?? 3600;
     const to = new Date();
     const from = new Date(to.getTime() - seconds * 1000);
-    return { from: from.toISOString(), to: to.toISOString() };
+    return { from: from.toISOString(), to: to.toISOString(), seconds };
   }, [range, customFrom, customTo]);
 
   // Reset-on-key-change happens DURING RENDER (React's sanctioned alternative to an Effect that
@@ -104,7 +114,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
     if (!displayedItem || !bounds) return;
     let active = true;
     const key = `${displayedItem.tag_id}|${bounds.from}|${bounds.to}|${range}`;
-    void readTimeline(displayedItem.tag_id, bounds.from, bounds.to, bucketSecondsFor(range)).then((result) => {
+    void readTimeline(displayedItem.tag_id, bounds.from, bounds.to, bucketSecondsFor(range, bounds.seconds)).then((result) => {
       if (!active) return;
       if (result.ok) setChart((prev) => (prev.key === key ? { ...prev, buckets: result.buckets } : prev));
       else setChart((prev) => (prev.key === key ? { ...prev, error: result.error } : prev));
@@ -117,6 +127,18 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
 
   if (!displayedItem) return null;
   const item = displayedItem;
+  const location = item.operational_location_display
+    ? item.operational_location_display
+    : operationalLocationLabel({ shedName: item.shed_name, partitionLabel: item.partition_label });
+  const bucketSeconds = bucketSecondsFor(range, bounds?.seconds ?? 3600);
+  const rangeSummary =
+    range === "custom"
+      ? bounds
+        ? `${new Date(bounds.from).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} → ${new Date(bounds.to).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`
+        : "Pick a from and a to"
+      : `last ${RANGE_LABEL[range]}`;
+  const titleLine = `${item.display_id ? `${item.display_id} · ` : "Unmapped tag "}${item.tag_id} — movement history`;
+  const subtitleLine = [fmtBleMac(item.tag_mac), location || null, item.gateway_id || null].filter(Boolean).join(" · ");
 
   return (
     <div className={`fs${drawerOpen ? " on" : ""}`} role="dialog" aria-label="Full movement history" aria-hidden={!drawerOpen}>
@@ -125,8 +147,8 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
           <path d="M3 12h4l3 8 4-16 3 8h4" />
         </svg>
         <div style={{ minWidth: 0 }}>
-          <b>{item.display_id || item.goat_id || "Unmapped tag"}</b>
-          <div className="faint small mono">{item.tag_id}</div>
+          <b>{titleLine}</b>
+          <div className="faint small mono">{subtitleLine || "—"}</div>
         </div>
         <span className="sp" style={{ flex: 1 }} />
         <button type="button" className="btn" onClick={closeDrawer}>
@@ -135,6 +157,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
       </div>
       <div className="fsbd">
         <div className="daterow">
+          <span className="small faint rowlabel">Range</span>
           <div className="rangepick" role="group" aria-label="History range">
             {(Object.keys(RANGE_LABEL) as RangeKey[])
               .filter((key) => key !== "custom")
@@ -144,7 +167,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                 </button>
               ))}
           </div>
-          <span className="muted small">or custom range:</span>
+          <span className="muted small">or</span>
           <input
             type="datetime-local"
             value={customFrom}
@@ -164,31 +187,35 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
             }}
             aria-label="To"
           />
+          <span className="sp" style={{ flex: 1 }} />
+          <span className="small faint">{rangeSummary} · Asia/Kolkata</span>
+        </div>
+
+        <div className="daterow" style={{ gap: 7 }}>
+          <span className="small faint rowlabel">Overlay activity</span>
+          {OVERLAYS.map((overlay) => (
+            <button
+              key={overlay}
+              type="button"
+              className={`evchip${overlaysOn[overlay] ? " on" : ""}`}
+              disabled
+              title="No activity-overlay read endpoint is available yet — this toggle is wired but has nothing to fetch."
+              onClick={() => setOverlaysOn((current) => ({ ...current, [overlay]: !current[overlay] }))}
+            >
+              <i aria-hidden="true" /> {overlay}
+            </button>
+          ))}
+          <span className="sp" style={{ flex: 1 }} />
+          <span className="small faint">Overlays are joins onto existing Goat OS records — they are context, not cause.</span>
         </div>
 
         <div className="card">
           <div className="hd">
-            <h3>Motion-count delta history</h3>
+            <h3>Movement trend</h3>
             <div className="sp" style={{ flex: 1 }} />
-            <span className="small faint">{RANGE_LABEL[range]} · {bucketSecondsFor(range) / 60}min buckets</span>
+            <span className="small faint">{BUCKET_LABEL[bucketSeconds] ?? `${bucketSeconds / 60}-minute`} buckets</span>
           </div>
           <div className="bd flush">
-            <div style={{ padding: "12px 15px 0" }}>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {OVERLAYS.map((overlay) => (
-                  <button
-                    key={overlay}
-                    type="button"
-                    className={`evchip${overlaysOn[overlay] ? " on" : ""}`}
-                    disabled
-                    title="No activity-overlay read endpoint is available yet — this toggle is wired but has nothing to fetch."
-                    onClick={() => setOverlaysOn((current) => ({ ...current, [overlay]: !current[overlay] }))}
-                  >
-                    <i aria-hidden="true" /> {overlay}
-                  </button>
-                ))}
-              </div>
-            </div>
             {error ? (
               <div className="empty dngstate">
                 <div className="eicon">
@@ -206,7 +233,9 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                 <div className="skelrow" style={{ width: "100%", height: 240 }} />
               </div>
             ) : (
-              <HistoryChart buckets={buckets} baseline={item.baseline_delta} height={240} onHover={setHovered} />
+              <div style={{ padding: "12px 12px 0" }}>
+                <HistoryChart buckets={buckets} baseline={item.baseline_delta} height={240} onHover={setHovered} />
+              </div>
             )}
             <div className="legend">
               {historyChartLegend().map((entry) =>
@@ -222,75 +251,109 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
               )}
             </div>
             <div className="readout" aria-live="polite">
-              {hovered ? (
-                hovered.is_gap ? (
-                  <>
-                    <b>{fmtDateTime(hovered.bucket_start)}</b> — no packets received in this window (gap), not zero
-                    movement.
-                  </>
-                ) : hovered.gap_delta ? (
-                  (() => {
-                    const index = buckets?.findIndex((bucket) => bucket.bucket_start === hovered.bucket_start) ?? -1;
-                    const window = buckets && index >= 0 ? gapWindowForReconnect(buckets, index) : null;
-                    return (
-                      <>
-                        <b>+{fmtDelta(hovered.motion_delta)}</b> accumulated while no packets were received
-                        {window ? (
-                          <>
-                            {" "}
-                            (<b>{fmtClockIst(window.startIso)}</b> - <b>{fmtClockIst(window.endIso)}</b> IST)
-                          </>
-                        ) : null}
-                        ; when inside that window it happened is not known.
-                      </>
-                    );
-                  })()
-                ) : (
-                  <>
-                    <b>{fmtDateTime(hovered.bucket_start)}</b> · motion_count <b>{fmtDelta(hovered.first_motion_count)}</b>{" "}
-                    → <b>{fmtDelta(hovered.last_motion_count)}</b> · delta <b>{fmtDelta(hovered.motion_delta)}</b> ·{" "}
-                    {hovered.packet_count} packets · avg RSSI <b>{fmtRssi(hovered.avg_rssi_dbm)}</b>
-                  </>
-                )
-              ) : (
-                "Hover a bar for its window."
-              )}
+              <ChartReadout buckets={buckets} hovered={hovered} />
             </div>
+            <p className="chartnote">
+              Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained
+              patterns. Overlaid markers are other recorded farm activity for the same animal or its shed — read them as
+              correlation, never as behaviour, cause, or a clinical finding.
+            </p>
           </div>
         </div>
 
-        <div className="card" style={{ marginTop: 14 }}>
-          <div className="hd">
-            <h3>Activity around recorded farm activity</h3>
-          </div>
-          <div className="bd flush">
-            <div className="empty">
-              <div className="eicon">
-                <svg className="ic" viewBox="0 0 24 24">
-                  <rect x="3" y="4" width="18" height="18" rx="2" />
-                  <path d="M16 2v4" />
-                  <path d="M8 2v4" />
-                  <path d="M3 10h18" />
-                </svg>
+        <div className="grid2" style={{ marginTop: 14 }}>
+          <div className="card">
+            <div className="hd">
+              <h3>Activity around recorded farm activity</h3>
+              <div className="sp" style={{ flex: 1 }} />
+              <span className="tag t-mut">Correlated</span>
+            </div>
+            <div className="bd flush">
+              <div className="tblwrap">
+                <table className="resp">
+                  <thead>
+                    <tr>
+                      <th>Activity</th>
+                      <th>When (IST)</th>
+                      <th className="num">2h before</th>
+                      <th className="num">2h after</th>
+                      <th className="num">Change</th>
+                      <th>Read</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td colSpan={6}>
+                        <div className="empty">
+                          <h4>No recorded farm activity available</h4>
+                          <p>
+                            The overlay read endpoints (vaccination, feed given, weighing, treatment, hoof trimming, shed
+                            move) are not built yet, so this table has nothing to join against the motion history above.
+                          </p>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-              <h4>No recorded farm activity available</h4>
-              <p>
-                The overlay read endpoints (vaccination, feed, weighing, treatment, hoof trimming,
-                shed move) are not built yet, so this table has nothing to join against the motion
-                history above.
+              <p className="chartnote">
+                Change compares the summed motion-count delta in the two hours before and after the recorded activity. A
+                feed correlation is a shed-level response to feeding — it is not eating detection. A post-vaccination or
+                post-treatment change is a watch signal, never a diagnosis or an adverse-event finding.
               </p>
             </div>
           </div>
-        </div>
 
-        <p className="muted small" style={{ marginTop: 14 }}>
-          Activity uses motion-count deltas from historical packets. Quiet periods are normal;
-          alerts use sustained patterns.
-        </p>
-        <p className="faint small">
-          Overlaid markers are other recorded farm activity for the same animal or its shed. Read
-          them as correlation, never as behaviour, cause, or a clinical finding.
-        </p>
+          <div className="card">
+            <div className="hd">
+              <h3>Animal &amp; tag detail</h3>
+            </div>
+            <div className="bd">
+              <dl className="kv">
+                <dt>Animal</dt>
+                <dd>
+                  {item.display_id || <span className="muted">Unmapped</span>}
+                  <span className="srcl derived">Derived</span>
+                </dd>
+                <dt>Tag ID</dt>
+                <dd className="mono">
+                  {item.tag_id}
+                  <span className="srcl direct">Direct</span>
+                </dd>
+                <dt>BLE MAC</dt>
+                <dd className="mono">
+                  {fmtBleMac(item.tag_mac)}
+                  <span className="srcl direct">Direct</span>
+                </dd>
+                <dt>Location</dt>
+                <dd>
+                  {location || "—"}
+                  <span className="srcl derived">Derived</span>
+                </dd>
+                <dt>Gateway</dt>
+                <dd className="mono">
+                  {item.gateway_id || "—"}
+                  <span className="srcl direct">Direct</span>
+                </dd>
+                <dt>Buckets in range</dt>
+                <dd>
+                  {buckets === null ? "—" : buckets.length.toLocaleString("en-IN")}
+                  <span className="srcl derived">Derived</span>
+                </dd>
+                <dt>Buckets with packets</dt>
+                <dd>
+                  {buckets === null ? "—" : buckets.filter((bucket) => !bucket.is_gap).length.toLocaleString("en-IN")}
+                  <span className="srcl derived">Derived</span>
+                </dd>
+                <dt>Signal-gap buckets</dt>
+                <dd>
+                  {buckets === null ? "—" : buckets.filter((bucket) => bucket.is_gap).length.toLocaleString("en-IN")}
+                  <span className="srcl derived">Derived</span>
+                </dd>
+              </dl>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
