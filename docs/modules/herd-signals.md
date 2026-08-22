@@ -513,3 +513,46 @@ detection (Section 13) rather than leaving new contract text unguarded.
   "Lens / anti-pattern skills" table so it is discoverable the same way as
   the other Herd Signals-adjacent lenses.
 
+## Unmapped tags are the NORMAL state, not a degraded one
+
+BLE tags are commissioned and powered up before they are attached to animals.
+On staging today **no tag is mapped to any animal**, and the module must be
+fully useful in exactly that state. An unmapped tag is a first-class row, not
+an error and not a placeholder.
+
+**Renders for every tag, mapped or not** — all of it comes from the packet, so
+none of it may be gated on an animal:
+
+tag ID · BLE MAC · gateway · RSSI and signal state · battery mV and battery
+state · tag temperature · cumulative motion_count · 15m and 1h motion delta ·
+movement state · pattern state · last seen · sensor-OK bits · the full
+movement-history timeline at every bucket tier · gateway coverage and health.
+
+**Empty only when no animal is mapped** — these are genuinely animal-derived:
+
+display id · park / shed / operational location · the four correlated insights
+(post-vaccination movement watch, health-case activity trend, feed x activity,
+weight x activity).
+
+Rules that follow, and that tests must pin:
+
+- KPI aggregates are packet-derived and **count unmapped tags**. `tags_seen`,
+  `moving`, `quiet`, `not_moving`, `stale`, `weak_signal`, `low_battery` and
+  `sensor_abnormal` must never sit behind a join that drops unmapped rows —
+  a staging dashboard would read all zeros. `mapped_animals` is the only
+  mapped-only count; `unmapped_tags` is its complement.
+- The live query is **tag-first with LEFT JOINs** to `goat_identifiers` →
+  `goats` → `locations`. An inner join anywhere on that path silently empties
+  the screen on staging.
+- Park and shed filters cannot match an unmapped tag, which is correct — but
+  the DEFAULT must be "every tag", never "every tag that resolved".
+- The correlated insight cards return an explicit empty result with a stated
+  reason ("no mapped animals in scope"). Never an error, never a zero that
+  reads as a measurement, never a card that disappears.
+- Tag Mapping is where an unmapped tag becomes actionable. It is the intended
+  destination for these rows, not a warning surface.
+
+The regression test for this is: ingest packets for a tag with no matching
+`goat_identifier`, then assert the live row carries every packet-derived field,
+the summary counts it, and the timeline returns its buckets.
+
