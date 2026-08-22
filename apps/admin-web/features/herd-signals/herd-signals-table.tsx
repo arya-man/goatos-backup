@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore, type MouseEvent } from "react";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import Link from "@/components/no-prefetch-link";
 import { Tag } from "@/components/ui-primitives";
@@ -38,6 +39,41 @@ function rowTagId(item: HerdSignalItem): string {
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 
+// Keyset pagination carries no server-side page index, so the position readout is derived from the
+// cursors this page has actually walked through -- never guessed from a cursor string. `stack` holds
+// the cursor of every page BEFORE the current one (the first entry is "" for the uncursored first
+// page), so stack.length is the current zero-based page index and popping it is a real "Previous".
+//
+// This lives in a module store rather than component state because every navigation on this screen
+// re-renders the server component behind a Suspense boundary, which unmounts the table -- component
+// state would be wiped on the very click that needs to record it. Read through
+// useSyncExternalStore so the server render and the hydrating client render agree (both see the
+// empty walk), instead of reading a mutable module value straight out of render.
+type PagerWalk = { signature: string; stack: string[] };
+const EMPTY_WALK: PagerWalk = { signature: "", stack: [] };
+let pagerWalk: PagerWalk = EMPTY_WALK;
+const pagerWalkListeners = new Set<() => void>();
+
+function subscribePagerWalk(onChange: () => void): () => void {
+  pagerWalkListeners.add(onChange);
+  return () => {
+    pagerWalkListeners.delete(onChange);
+  };
+}
+
+function readPagerWalk(): PagerWalk {
+  return pagerWalk;
+}
+
+function readServerPagerWalk(): PagerWalk {
+  return EMPTY_WALK;
+}
+
+function writePagerWalk(next: PagerWalk): void {
+  pagerWalk = next;
+  for (const listener of pagerWalkListeners) listener();
+}
+
 export function HerdSignalsTable({
   items,
   nextCursor,
@@ -55,6 +91,11 @@ export function HerdSignalsTable({
   tagsSeen: number;
 }) {
   const { isPending, navigate } = useHerdSignalsNav();
+  // Hooks must run before the empty-state early returns below.
+  // Any filter change rewrites this signature, which resets the walk to page 1.
+  const filterSignature = herdSignalsHref(params, {});
+  const walk = useSyncExternalStore(subscribePagerWalk, readPagerWalk, readServerPagerWalk);
+  const stack = walk.signature === filterSignature ? walk.stack : [];
   const visible = items.filter((item) => matchesResidualKpi(item, params.kpi));
   const drawerCloseHref = herdSignalsHref(params, {});
   const rowHref = (item: HerdSignalItem) => `${herdSignalsHref(params, { hs_tag: item.tag_id })}#hs-tag-${encodeURIComponent(item.tag_id)}`;
@@ -80,10 +121,95 @@ export function HerdSignalsTable({
     );
   }
 
-  const pager = (
-    <div className="pager herd-signals-pager" aria-busy={isPending}>
+  // A cold load on a ?hs_cursor= URL has no walk behind it, so the page index is genuinely unknown
+  // and is left out rather than invented.
+  const positionKnown = Boolean(params.cursor) === (stack.length > 0);
+  const pageIndex = stack.length;
+  const rangeFrom = pageIndex * params.limit + 1;
+  const rangeTo = rangeFrom + visible.length - 1;
+  // Total row count for the readout. Keyset pagination gives none, so there are exactly two sources
+  // that are TRUE, and no total is shown when neither applies:
+  //
+  //  1. summary.tags_seen -- the tenant-scoped aggregate the KPI strip already reports, never a
+  //     count of the fetched page. The backend narrows it by shed/mapping/search but NOT by
+  //     movement state, pattern, or the client-side KPI filter (verified against the running API:
+  //     hs_move=moving returns 1 row while tags_seen stays 20), so it is only the row total when
+  //     none of those three are active.
+  //  2. The end of a walk -- once we are on the last page (no next cursor) with a known position,
+  //     rangeTo IS the exact total, whatever the filters were.
+  const summaryIsRowTotal = tagsSeen > 0 && !params.movementState && !params.pattern && !params.kpi;
+  const walkedToEnd = positionKnown && !nextCursor;
+  const total = summaryIsRowTotal ? tagsSeen : walkedToEnd ? rangeTo : undefined;
+  const pageCount = total ? Math.max(1, Math.ceil(total / params.limit)) : undefined;
+  const nf = (value: number) => value.toLocaleString("en-IN");
+
+  const prevHref = positionKnown && pageIndex > 0 ? herdSignalsHref(params, { hs_cursor: stack[pageIndex - 1] || undefined }) : null;
+  const nextHref = nextCursor ? herdSignalsHref(params, { hs_cursor: nextCursor }) : null;
+
+  function plainClick(event: MouseEvent): boolean {
+    return !(event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey);
+  }
+
+  function goPrev(event: MouseEvent) {
+    if (!prevHref || !plainClick(event)) return;
+    event.preventDefault();
+    writePagerWalk({ signature: filterSignature, stack: stack.slice(0, -1) });
+    navigate(prevHref);
+  }
+
+  function goNext(event: MouseEvent) {
+    if (!nextHref || !plainClick(event)) return;
+    event.preventDefault();
+    writePagerWalk({ signature: filterSignature, stack: [...stack, params.cursor ?? ""] });
+    navigate(nextHref);
+  }
+
+  const pager = (variant: "top" | "bottom") => (
+    <div className={`pager herd-signals-pager${variant === "top" ? " pager-top" : ""}`} aria-busy={isPending}>
       {isPending ? <span className="wfspin" aria-hidden="true" title="Loading" /> : null}
-      <span className="muted">{visible.length} rows on this page</span>
+      {prevHref ? (
+        <Link href={prevHref} className="pgbtn" onClick={goPrev}>
+          &larr; Previous
+        </Link>
+      ) : (
+        <button type="button" className="pgbtn" disabled>
+          &larr; Previous
+        </button>
+      )}
+      {nextHref ? (
+        <Link href={nextHref} className="pgbtn" onClick={goNext}>
+          Next &rarr;
+        </Link>
+      ) : (
+        <button type="button" className="pgbtn" disabled>
+          Next &rarr;
+        </button>
+      )}
+      {/* Every clause here is omitted rather than guessed when its source is unknown: no range
+          without a known walk position, no total without a source that is actually the row total,
+          no "of N pages" without that total. */}
+      <span>
+        Showing <b>{positionKnown ? `${nf(rangeFrom)}\u2013${nf(rangeTo)}` : nf(visible.length)}</b>
+        {positionKnown ? null : " rows"}
+        {total ? (
+          <>
+            {" of "}
+            <b>{nf(total)}</b>
+          </>
+        ) : null}
+        {positionKnown ? (
+          <>
+            {" \u00b7 page "}
+            <b>{nf(pageIndex + 1)}</b>
+            {pageCount ? (
+              <>
+                {" of "}
+                <b>{nf(pageCount)}</b>
+              </>
+            ) : null}
+          </>
+        ) : null}
+      </span>
       <span className="sp" style={{ flex: 1 }} />
       <span className="fsel">
         Rows
@@ -98,29 +224,12 @@ export function HerdSignalsTable({
           ))}
         </select>
       </span>
-      {nextCursor ? (
-        <Link
-          href={herdSignalsHref(params, { hs_cursor: nextCursor })}
-          className="pgbtn"
-          onClick={(event) => {
-            if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-            event.preventDefault();
-            navigate(herdSignalsHref(params, { hs_cursor: nextCursor }));
-          }}
-        >
-          Next page
-        </Link>
-      ) : (
-        <button type="button" className="pgbtn" disabled>
-          Next page
-        </button>
-      )}
     </div>
   );
 
   return (
     <>
-      {pager}
+      {pager("top")}
       <div className={`tblwrap${isPending ? " wfbusy" : ""}`}>
         <table className="resp herd-signals-table">
           <thead>
@@ -191,7 +300,7 @@ export function HerdSignalsTable({
                     <span className={`delta ${delta15.tone}`}>{delta15.text}</span>
                     {item.gap_delta ? <sup title="Gap total">*</sup> : null}
                   </td>
-                  <td data-l="1h delta" className="num" title="Backend currently aliases this to the 15m window; shown as — until it is a real 1h read">
+                  <td data-l="1h delta" className="num">
                     <span className={`delta ${delta1h.tone}`}>{delta1h.text}</span>
                   </td>
                   <td data-l="Activity">
@@ -228,7 +337,7 @@ export function HerdSignalsTable({
         </table>
       </div>
 
-      {pager}
+      {pager("bottom")}
 
       <HerdSignalsDrawer
         rows={visible}
