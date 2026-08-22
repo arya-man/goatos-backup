@@ -3142,6 +3142,11 @@ select:disabled { opacity: .45; }
 .herd-signals-page .evchip[disabled]{cursor:not-allowed;opacity:.6}
 
 .herd-signals-page .fs .btn,.herd-signals-page .hs-mapping-tab .btn{background:var(--panel);font-size:12.5px;font-weight:650;padding:7px 12px}
+/* The mock's mapping-tab filter buttons are `.btn.sm`, not the plain `.btn` size above: 4px 9px
+   padding, 11.5px font, 7px radius. Same reasoning as the `.fs`/`.hs-mapping-tab .btn` rule right
+   above it -- scoped to this feature's own wrapper class rather than the shared `.btn.sm` rule
+   (used by 80+ other screens). */
+.herd-signals-page .hs-mapping-tab .btn.sm{padding:4px 9px;font-size:11.5px;border-radius:7px}
 .herd-signals-page .fs .tag{display:inline-flex}
 /* Above: .btn and .tag are app-wide shared classes (.btn: 82 other admin-web files; .tag: 32)
    this feature has never locally overridden to the mock's own look; changing the global rule, or
@@ -3262,6 +3267,19 @@ select:disabled { opacity: .45; }
 .herd-signals-page .cnt{background:var(--panel-2);color:var(--muted)}
 .herd-signals-page aside.drawer{background:var(--panel)}
 .herd-signals-page .card .hd h3{font-size:13.5px;font-weight:720}
+/* The app-wide `.card{...}` carries `margin-top:16px` and `.card .hd{...}` carries 13px/16px
+   padding with a `border-bottom` of the lighter --line token (mesha-theme.css ~line 2171, which
+   loads after the ~line 521 `.card .hd` rule and wins the cascade for both). The mock's own
+   `.card` has no margin and its `.hd` uses 12px/15px padding with the darker --line2 border --
+   same root cause and same fix shape as the `.grid2>.card` margin override a few lines up. */
+.herd-signals-page .card{margin-top:0}
+.herd-signals-page .card .hd{padding:12px 15px;border-bottom-color:var(--line2)}
+/* Two bare `.tag{...}` rules exist app-wide (mesha-theme.css ~472 sets display:inline-flex, ~2175
+   loads after it and resets to display:inline-block at the same specificity, so 2175 wins the
+   cascade for every `.tag` on every screen). The mock's own `.tag` is inline-flex with a 5px gap
+   (its icon/em-dash chips need the flex row). Scoped to `.card .hd .tag` -- the row-count chip and
+   every other hd-level status chip on this page -- rather than touching the shared bare rule. */
+.herd-signals-page .card .hd .tag{display:inline-flex;align-items:center;gap:5px}
 
 /* Mock parity (Insights / History fullscreen / Drawer, pixel judge 2026-08-22-23): a bare
    `.muted{color:var(--muted)}` rule already exists page-wide, but an unrelated Calendar rule
