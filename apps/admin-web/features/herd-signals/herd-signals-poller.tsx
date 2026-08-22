@@ -147,13 +147,22 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
   // A tag-detail drawer or the full-screen history view open over the board must not be fought by a
   // refresh: both are client-local overlays (never a route navigation, per
   // make admin-web-local-overlay-guard), and their identity lives in the URL hash.
+  //
+  // Check BOTH the URL parameters AND the history state: the URL params might be transient or lost
+  // during router.refresh(), but the history.state LOCAL_OVERLAY_HISTORY_KEY flag survives and is
+  // the authoritative marker that an overlay is currently open and being managed by the client.
   const overlayOpen = useCallback(() => {
+    // Check history state first -- this is the most reliable indicator that an overlay is open
+    const state = window.history.state;
+    if (state && typeof state === "object" && state["__meshaLocalOverlay"]) {
+      return true;
+    }
+    // Fall back to URL check for cases where state isn't reliable
     const url = new URL(window.location.href);
     const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
-    return Boolean(
-      (hashParams.get("hs_tag") ?? url.searchParams.get("hs_tag")) ||
-        (hashParams.get("hs_history") ?? url.searchParams.get("hs_history")),
-    );
+    const hs_tag = hashParams.get("hs_tag") ?? url.searchParams.get("hs_tag");
+    const hs_history = hashParams.get("hs_history") ?? url.searchParams.get("hs_history");
+    return Boolean(hs_tag || hs_history);
   }, []);
 
   useEffect(() => {
