@@ -576,7 +576,11 @@ the summary counts it, and the timeline returns its buckets.
 | `gateway_seen_at` | the gateway's own clock, stored verbatim | **no** | diagnostics only |
 
 The observed HoneyComm gateway runs **+02:30:00 ahead of real IST** — measured
-across the capture, not assumed. The two clocks are never reconciled by
+across the capture, not assumed: mean skew 8,999.84 s over 18,355 rows, first
+vs last quartile 8,999.64 s vs 9,000.02 s. The offset is **constant, with no
+drift**, which points at a timezone misconfiguration (the clock is set to
+UTC+8) rather than a failing NTP sync. A drifting offset would need a different
+remedy; a constant one is a device setting. The two clocks are never reconciled by
 shifting one onto the other: the skew *is* the signal that a gateway's NTP or
 timezone is misconfigured, and averaging it away hides a real fault. All UI
 times are `received_at` rendered in Asia/Kolkata.
@@ -639,9 +643,18 @@ API responses. Rules that follow:
 
 Ask, verbatim:
 
-> Does the gateway buffer BLE scan reports during a WAN outage and upload them
-> later with their original scan timestamps? If yes, how many packets / how many
-> hours, and where is this documented?
+> 1. Does the gateway buffer BLE scan reports during a WAN outage and upload
+>    them later with their original scan timestamps? If yes, how many packets /
+>    how many hours, and where is this documented?
+> 2. The gateway clock reads exactly +02:30:00 ahead of IST, constant with no
+>    drift across a 3-hour capture. Which timezone setting produces this, and
+>    how do we configure the device for IST (UTC+5:30) with NTP?
+> 3. `pkt_sn` increments per report and we have observed a sequence reset — is
+>    it monotonic per boot, and does a reset always mean a reboot?
+> 4. The heartbeat (`sta_gw_hb`) carries `ticks_cnt` every 5 minutes. Is that
+>    uptime, and does it reset only on reboot?
+> 5. `sensor_state` reads 10 (`0b00001010`) on every packet we have captured.
+>    What do the remaining six bits mean, and under what conditions do they set?
 
 Until that is answered in writing, treat the gateway as having **no reliable
 offline storage**. If the answer turns out to be yes, the reconnect-delta model
