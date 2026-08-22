@@ -1,6 +1,7 @@
 import type { Tone } from "@/components/ui-primitives";
 import type {
   HerdSignalBatteryState,
+  HerdSignalBatteryTrend,
   HerdSignalMappingState,
   HerdSignalMovementState,
   HerdSignalPatternState,
@@ -52,14 +53,32 @@ export const MAPPING_TONE: Record<HerdSignalMappingState, Tone> = {
 };
 
 export const BATTERY_LABEL: Record<HerdSignalBatteryState, string> = {
-  ok: "OK",
+  healthy: "OK",
+  watch: "Watch",
   low: "Low battery",
+  critical: "Critical",
 };
 
 export const BATTERY_TONE: Record<HerdSignalBatteryState, Tone> = {
-  ok: "mut",
+  healthy: "mut",
+  watch: "warn",
   low: "warn",
+  critical: "dng",
 };
+
+// battery_trend is a short, packet-derived voltage direction (Derived — rising/falling/flat over
+// the given window), never re-adding the removed life-estimate: it states a direction observed in
+// recent readings, not a forecast of remaining time.
+export function fmtBatteryTrend(trend: HerdSignalBatteryTrend | null): string {
+  if (!trend) return "—";
+  const windowLabel = trend.window_seconds >= 3600 ? `${Math.round(trend.window_seconds / 3600)}h` : `${Math.round(trend.window_seconds / 60)}m`;
+  const arrow = trend.direction === "rising" ? "up" : trend.direction === "falling" ? "down" : "flat";
+  const range =
+    trend.first_mv !== null && trend.last_mv !== null
+      ? ` (${(trend.first_mv / 1000).toFixed(2)} V \u2192 ${(trend.last_mv / 1000).toFixed(2)} V)`
+      : "";
+  return `${arrow} over ${windowLabel}${range}`;
+}
 
 export const SENSOR_LABEL: Record<HerdSignalSensorState, string> = {
   ok: "OK",
@@ -90,6 +109,28 @@ export const PATTERN_TONE: Record<HerdSignalPatternState, Tone> = {
   recovered: "ok",
   normal: "ok",
 };
+
+// Plain-English reason for the current pattern classification, shown under the movement-history
+// chart (drawer and full-screen). Text ported from the mock's PATTERNS.<key>.why.
+export const PATTERN_WHY: Record<HerdSignalPatternState, string> = {
+  no_movement: "delta 0 in the current 15-minute window",
+  quiet_watch: "low delta for 1-2 hours",
+  inactive: "zero or very low delta for 3+ hours while the tag is still being seen",
+  missing: "no packets for 30+ minutes",
+  spike: "current delta far above this animal's own baseline",
+  recovered: "activity resumed after a quiet period",
+  normal: "deltas in line with this animal's baseline",
+};
+
+// Signed, tone-coloured delta for the live table ("+140" green, "+0" muted) — matches the mock's
+// `.delta.up/.zero/.warnv` treatment instead of a bare unsigned number.
+export function fmtSignedDelta(delta: number | null | undefined, moveThreshold = 100): { text: string; tone: "up" | "zero" | "warn" } {
+  if (delta === null || delta === undefined) return { text: "—", tone: "zero" };
+  const text = `${delta >= 0 ? "+" : ""}${delta.toLocaleString("en-IN")}`;
+  if (delta === 0) return { text, tone: "zero" };
+  if (delta >= moveThreshold) return { text, tone: "up" };
+  return { text, tone: "warn" };
+}
 
 export function fmtRssi(dbm: number | null | undefined): string {
   if (dbm === null || dbm === undefined) return "—";
@@ -160,4 +201,15 @@ export function fmtClockSeconds(iso: string): string {
     second: "2-digit",
     hour12: false,
   }).format(date);
+}
+
+/** The mock renders a BLE MAC as F0:C9:90:A0:00:2A. The gateway sends it bare and
+    lowercase (f0c990a0002a), which is unreadable at a glance and does not match any
+    other MAC rendered in this product. Normalise for display only; the stored value
+    stays exactly as the device sent it. */
+export function fmtBleMac(mac: string | null | undefined): string {
+  if (!mac) return "—";
+  const bare = mac.replace(/[^0-9a-fA-F]/g, "").toUpperCase();
+  if (bare.length !== 12) return mac.toUpperCase();
+  return bare.match(/.{2}/g)!.join(":");
 }

@@ -11,6 +11,7 @@ import {
 } from "@/lib/api/herd-signals";
 import type { ApiResult } from "@/lib/api/server";
 import { HerdSignalsPoller } from "./herd-signals-poller";
+import { HerdSignalsNavProvider } from "./herd-signals-nav-context";
 import { HerdSignalsKpis, HerdSignalsKpiChip } from "./herd-signals-kpis";
 import { HerdSignalsFilters, type ShedOption } from "./herd-signals-filters";
 import { HerdSignalsTable } from "./herd-signals-table";
@@ -118,46 +119,51 @@ export async function HerdSignalsBoard({
 
   return (
     <div className="herd-signals-page">
-      <div className="phead">
-        <div>
-          <div className="crumb">
-            Herd Signals / <b>{TAB_LABEL[params.tab]}</b>
+      {/* One shared pending-transition flag for the poller, the KPI cards, the filter bar and every
+          pagination control on this tab — see herd-signals-nav-context.tsx for why a plain <Link>
+          per control was the "clicking a filter reloads the whole page" defect. */}
+      <HerdSignalsNavProvider>
+        <div className="phead">
+          <div>
+            <div className="crumb">
+              Herd Signals / <b>{TAB_LABEL[params.tab]}</b>
+            </div>
+            <h1>{copy(pageContract, "page.title", "Herd Signals")}</h1>
+            <div className="sub">
+              {copy(
+                pageContract,
+                "page.subtitle",
+                "BLE ear-tag signals, movement counters, and gateway coverage for mapped animals. Values are read from the tag broadcast — the tag reports a cumulative motion counter, not behaviour.",
+              )}
+            </div>
           </div>
-          <h1>{copy(pageContract, "page.title", "Herd Signals")}</h1>
-          <div className="sub">
-            {copy(
-              pageContract,
-              "page.subtitle",
-              "BLE ear-tag signals, movement counters, and gateway coverage for mapped animals. Values are read from the tag broadcast — the tag reports a cumulative motion counter, not behaviour.",
-            )}
-          </div>
+          <div className="sp" style={{ flex: 1 }} />
+          {liveResult.ok ? <HerdSignalsPoller generatedAt={new Date(nowMs).toISOString()} /> : null}
         </div>
-        <div className="sp" style={{ flex: 1 }} />
-        {liveResult.ok ? <HerdSignalsPoller generatedAt={new Date(nowMs).toISOString()} /> : null}
-      </div>
 
-      <div className="segs">
-        {HERD_SIGNALS_TABS.map((tab) => (
-          <Link key={tab} href={herdSignalsHref(params, { hs_tab: tab === "live" ? undefined : tab })} className={params.tab === tab ? "on" : undefined}>
-            {TAB_LABEL[tab]}
-            {tabCounts[tab] !== undefined ? <span className="cnt">{tabCounts[tab]}</span> : null}
-          </Link>
-        ))}
-      </div>
+        <div className="segs">
+          {HERD_SIGNALS_TABS.map((tab) => (
+            <Link key={tab} href={herdSignalsHref(params, { hs_tab: tab === "live" ? undefined : tab })} className={params.tab === tab ? "on" : undefined}>
+              {TAB_LABEL[tab]}
+              {tabCounts[tab] !== undefined ? <span className="cnt">{tabCounts[tab]}</span> : null}
+            </Link>
+          ))}
+        </div>
 
-      {params.tab === "live" ? (
-        <LiveMonitorTab params={params} result={liveResult} nowMs={nowMs} />
-      ) : params.tab === "animals" ? (
-        <FilteredTableTab params={params} result={liveResult} nowMs={nowMs} title="Mapped animals" note="One row per animal carrying an active smart-tag-capable identifier" />
-      ) : params.tab === "mapping" ? (
-        <MappingTab params={params} result={liveResult} nowMs={nowMs} />
-      ) : params.tab === "alerts" ? (
-        <AlertsTab params={params} result={liveResult} nowMs={nowMs} />
-      ) : params.tab === "gateways" ? (
-        <GatewaysTab result={gatewaysResult} nowMs={nowMs} />
-      ) : (
-        <InsightsTab result={insightsResult} />
-      )}
+        {params.tab === "live" ? (
+          <LiveMonitorTab params={params} result={liveResult} nowMs={nowMs} />
+        ) : params.tab === "animals" ? (
+          <FilteredTableTab params={params} result={liveResult} nowMs={nowMs} title="Mapped animals" note="One row per animal carrying an active smart-tag-capable identifier" />
+        ) : params.tab === "mapping" ? (
+          <MappingTab params={params} result={liveResult} nowMs={nowMs} />
+        ) : params.tab === "alerts" ? (
+          <AlertsTab params={params} result={liveResult} nowMs={nowMs} />
+        ) : params.tab === "gateways" ? (
+          <GatewaysTab result={gatewaysResult} nowMs={nowMs} />
+        ) : (
+          <InsightsTab result={insightsResult} />
+        )}
+      </HerdSignalsNavProvider>
     </div>
   );
 }

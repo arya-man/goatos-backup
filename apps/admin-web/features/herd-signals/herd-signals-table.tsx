@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import Link from "@/components/no-prefetch-link";
 import { Tag } from "@/components/ui-primitives";
+import { useHerdSignalsNav } from "./herd-signals-nav-context";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import type { HerdSignalItem } from "@/lib/api/herd-signals";
 import {
@@ -16,12 +16,14 @@ import {
   PATTERN_LABEL,
   PATTERN_TONE,
   SIGNAL_LABEL,
+  fmtBleMac,
   SIGNAL_TONE,
   fmtAgo,
   fmtBatteryMv,
   fmtDelta,
   fmtDelta1h,
   fmtRssi,
+  fmtSignedDelta,
   fmtTagTemp,
 } from "./format";
 import { one } from "@/lib/search-params";
@@ -52,7 +54,7 @@ export function HerdSignalsTable({
   // asserting reception the page has not actually evidenced.
   tagsSeen: number;
 }) {
-  const [sizeChanging, setSizeChanging] = useState(false);
+  const { isPending, navigate } = useHerdSignalsNav();
   const visible = items.filter((item) => matchesResidualKpi(item, params.kpi));
   const drawerCloseHref = herdSignalsHref(params, {});
   const rowHref = (item: HerdSignalItem) => `${herdSignalsHref(params, { hs_tag: item.tag_id })}#hs-tag-${encodeURIComponent(item.tag_id)}`;
@@ -78,9 +80,48 @@ export function HerdSignalsTable({
     );
   }
 
+  const pager = (
+    <div className="pager herd-signals-pager" aria-busy={isPending}>
+      {isPending ? <span className="wfspin" aria-hidden="true" title="Loading" /> : null}
+      <span className="muted">{visible.length} rows on this page</span>
+      <span className="sp" style={{ flex: 1 }} />
+      <span className="fsel">
+        Rows
+        <select
+          value={params.limit}
+          onChange={(event) => navigate(herdSignalsHref(params, { hs_limit: event.target.value }))}
+        >
+          {PAGE_SIZE_OPTIONS.map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+        </select>
+      </span>
+      {nextCursor ? (
+        <Link
+          href={herdSignalsHref(params, { hs_cursor: nextCursor })}
+          className="pgbtn"
+          onClick={(event) => {
+            if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            navigate(herdSignalsHref(params, { hs_cursor: nextCursor }));
+          }}
+        >
+          Next page
+        </Link>
+      ) : (
+        <button type="button" className="pgbtn" disabled>
+          Next page
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <>
-      <div className="tblwrap">
+      {pager}
+      <div className={`tblwrap${isPending ? " wfbusy" : ""}`}>
         <table className="resp herd-signals-table">
           <thead>
             <tr>
@@ -105,36 +146,54 @@ export function HerdSignalsTable({
               const location = item.operational_location_display
                 ? item.operational_location_display
                 : operationalLocationLabel({ shedName: item.shed_name, partitionLabel: item.partition_label });
+              const parkName = item.park_name;
+              const delta15 = fmtSignedDelta(item.motion_delta);
+              const delta1hText = fmtDelta1h(item.motion_delta_1h, item.motion_delta);
+              const delta1h = delta1hText === "—" ? { text: "—", tone: "zero" as const } : fmtSignedDelta(item.motion_delta_1h);
               return (
                 <tr key={item.tag_id}>
-                  <td data-l="Animal" className="animcell">
+                  <td data-l="Animal" className="animcell wide">
                     <LocalOverlayLink href={rowHref(item)} scroll={false} title="Open tag detail">
                       {item.display_id || item.goat_id || "Unmapped"}
                     </LocalOverlayLink>
-                    <small>{item.mapping_state === "mapped" ? item.tag_id : "no animal identifier"}</small>
+                    <small>{item.mapping_state === "conflict" ? "mapping conflict" : MAPPING_LABEL[item.mapping_state].toLowerCase()}</small>
                   </td>
-                  <td data-l="Smart tag" className="mono">{item.tag_id}</td>
-                  <td data-l="Shed">{location || "—"}</td>
+                  <td data-l="Smart tag">
+                    <span className="mono">{item.tag_id}</span>
+                    <br />
+                    <span className="mono faint">{fmtBleMac(item.tag_mac)}</span>
+                  </td>
+                  <td data-l="Shed">
+                    {location || "—"}
+                    {parkName ? (
+                      <>
+                        <br />
+                        <span className="faint small">{parkName}</span>
+                      </>
+                    ) : null}
+                  </td>
                   <td data-l="Gateway" className="mono">{item.gateway_id || "—"}</td>
                   <td data-l="Signal">
                     {item.signal_state ? (
-                      <Tag tone={SIGNAL_TONE[item.signal_state]} title={fmtRssi(item.rssi_dbm)}>
-                        {SIGNAL_LABEL[item.signal_state]}
+                      <Tag tone={SIGNAL_TONE[item.signal_state]} title={SIGNAL_LABEL[item.signal_state]}>
+                        {fmtRssi(item.rssi_dbm)}
                       </Tag>
                     ) : (
                       "—"
                     )}
                   </td>
-                  <td data-l="Motion count" className="num">{fmtDelta(item.motion_count)}</td>
+                  <td data-l="Motion count" className="num mono">{fmtDelta(item.motion_count)}</td>
                   <td
                     data-l="15m delta"
-                    className={`num delta${item.gap_delta ? " gapdelta" : ""}`}
+                    className="num"
                     title={item.gap_delta ? "Accumulated across a reception gap — timing within the gap is unknown, not a normal 15m reading" : undefined}
                   >
-                    {fmtDelta(item.motion_delta)}
+                    <span className={`delta ${delta15.tone}`}>{delta15.text}</span>
                     {item.gap_delta ? <sup title="Gap total">*</sup> : null}
                   </td>
-                  <td data-l="1h delta" className="num delta" title="Backend currently aliases this to the 15m window; shown as — until it is a real 1h read">{fmtDelta1h(item.motion_delta_1h, item.motion_delta)}</td>
+                  <td data-l="1h delta" className="num" title="Backend currently aliases this to the 15m window; shown as — until it is a real 1h read">
+                    <span className={`delta ${delta1h.tone}`}>{delta1h.text}</span>
+                  </td>
                   <td data-l="Activity">
                     {item.movement_state ? (
                       <Tag tone={MOVEMENT_TONE[item.movement_state]}>{MOVEMENT_LABEL[item.movement_state]}</Tag>
@@ -150,13 +209,10 @@ export function HerdSignalsTable({
                     )}
                   </td>
                   <td data-l="Battery">
-                    {item.battery_state ? (
-                      <Tag tone={BATTERY_TONE[item.battery_state]} title={fmtBatteryMv(item.battery_mv)}>
-                        {BATTERY_LABEL[item.battery_state]}
-                      </Tag>
-                    ) : (
-                      "—"
-                    )}
+                    {fmtBatteryMv(item.battery_mv)}
+                    {item.battery_state && item.battery_state !== "healthy" ? (
+                      <Tag tone={BATTERY_TONE[item.battery_state]}>{BATTERY_LABEL[item.battery_state]}</Tag>
+                    ) : null}
                   </td>
                   <td data-l="Tag temp" className="num" title="Tag housing temperature, not the animal's body temperature">
                     {fmtTagTemp(item.tag_temperature_c)}
@@ -172,36 +228,7 @@ export function HerdSignalsTable({
         </table>
       </div>
 
-      <div className="pager herd-signals-pager">
-        <span className="muted">{visible.length} rows on this page</span>
-        <span className="sp" style={{ flex: 1 }} />
-        <span className="fsel">
-          Rows
-          <select
-            value={params.limit}
-            disabled={sizeChanging}
-            onChange={(event) => {
-              setSizeChanging(true);
-              window.location.href = herdSignalsHref(params, { hs_limit: event.target.value });
-            }}
-          >
-            {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </span>
-        {nextCursor ? (
-          <Link href={herdSignalsHref(params, { hs_cursor: nextCursor })} className="pgbtn">
-            Next page
-          </Link>
-        ) : (
-          <button type="button" className="pgbtn" disabled>
-            Next page
-          </button>
-        )}
-      </div>
+      {pager}
 
       <HerdSignalsDrawer
         rows={visible}

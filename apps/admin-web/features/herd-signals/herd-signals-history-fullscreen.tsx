@@ -203,17 +203,23 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
               </div>
             ) : buckets === null ? (
               <div style={{ padding: 20 }}>
-                <div className="skelrow" style={{ width: "100%", height: 190 }} />
+                <div className="skelrow" style={{ width: "100%", height: 240 }} />
               </div>
             ) : (
-              <HistoryChart buckets={buckets} baseline={item.baseline_delta} height={190} onHover={setHovered} />
+              <HistoryChart buckets={buckets} baseline={item.baseline_delta} height={240} onHover={setHovered} />
             )}
             <div className="legend">
-              {historyChartLegend().map((entry) => (
-                <span key={entry.label}>
-                  <i className={entry.className} style={{ background: "currentColor" }} /> {entry.label}
-                </span>
-              ))}
+              {historyChartLegend().map((entry) =>
+                entry.dashed ? (
+                  <span key={entry.label}>
+                    <i className={`${entry.className} dashed`} /> {entry.label}
+                  </span>
+                ) : (
+                  <span key={entry.label}>
+                    <i className={entry.className} style={{ background: "currentColor" }} /> {entry.label}
+                  </span>
+                ),
+              )}
             </div>
             <div className="readout" aria-live="polite">
               {hovered ? (
