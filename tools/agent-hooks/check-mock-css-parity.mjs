@@ -1,100 +1,75 @@
 #!/usr/bin/env node
-// check-mock-css-parity — a class the implementation RENDERS must actually be STYLED, and
-// where the app DOES style it, the styling must actually MATCH the mock.
+// check-mock-css-parity — compares RENDERED, BROWSER-COMPUTED styles between the approved mock
+// (mock/herd-signals-mock.html) and the live app (http://127.0.0.1:3318/herd-signals), instead of
+// statically parsing CSS text.
 //
-// WHY THIS EXISTS
-// ---------------
-// Herd Signals was built mock-first: mock/herd-signals-mock.html is the approved design and the
-// React components were ported from it, reusing its class names. But porting the MARKUP without
-// porting the CSS is silent. `.grid2` is the worked example: the Gateways and Insights tabs both
-// render <div className="grid2">, the mock defines
-//     .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
-// and the app theme defined NOTHING. No error, no warning, no failing test — the tabs just
-// stacked as full-width blocks and looked nothing like the design.
+// WHY THIS REWRITE (v4) HAPPENED
+// -------------------------------
+// The previous version (kept in git history) resolved selectors itself: it parsed both
+// stylesheets, computed CSS specificity by hand, and picked a "winning" declaration per class. It
+// could not see DOM ancestry, so it treated rules belonging to OTHER admin screens as competing
+// with ours whenever specificity tied. Worked example: Action Center defines
+//     .task-ac .tag{font-size:12px}
+// and Herd Signals defines
+//     .herd-signals-page .tag{font-size:11px}
+// Both are two-class-selector specificity, so the old guard's tie-break (source order) picked
+// whichever rule happened to load later in the bundled stylesheet and reported a mismatch against
+// whichever one it didn't pick — even though `.task-ac` never wraps anything on this page, and a
+// real browser on this page resolves `.tag` to 11px, correctly, every time. It reported 76
+// findings on a clean tree and nobody could tell which (if any) were real without checking each
+// by hand in devtools. That ambiguity already cost real work once: an agent "fixed" phantom
+// findings by adding bare-classname duplicate rules to the SHARED global stylesheet, which had to
+// be reverted because it changed behaviour for every other screen that also uses `.tag`.
 //
-// That "missing entirely" case was the guard's first version. It shipped, and the Live Monitor
-// screen STILL looked visibly wrong to the maintainer a fifth time: KPI icons absent, active-KPI
-// state copy/styling different, removable filter chips replaced by a plain "Clear filters"
-// button, per-card tier badges collapsed to one value, filter-bar order and wrapping different.
-// The guard passed clean through all of it, because every class involved DID exist in the app
-// stylesheet — its DECLARATIONS just diverged from the mock's. A class that exists but is styled
-// wrong is exactly as broken, visually, as a class that was never styled at all, and the first
-// version of this guard was blind to that whole failure class.
+// A real browser already does ancestry, specificity and the cascade correctly, so this version
+// stops re-implementing a CSS engine and asks Chromium instead. It launches Playwright
+// (`chromium.launch({ channel: 'chrome' })`, resolved from apps/admin-web so the workspace
+// install is found), loads the live app and the mock side by side, walks a curated, deliberately
+// paired set of elements per Herd Signals surface, and diffs `getComputedStyle(...)` between the
+// two. This is also just closer to the truth: computed style IS what the maintainer sees: no
+// separate "did we resolve the cascade correctly" question, because the browser resolved it.
 //
-// THE RULE (now two rules)
-// -------------------------
-// 1. Missing: a component renders a class the mock defines; the app stylesheet must define it
-//    too (unchanged from v1).
-// 2. Diverged: a component renders a class BOTH the mock and the app stylesheet define; the
-//    app's resolved declarations for a tracked set of visually load-bearing properties (colour,
-//    background, border, border-radius, font-size, font-weight, padding, margin, gap, display,
-//    grid-template*) must match the mock's, after normalising away non-meaningful noise (colour
-//    format, shorthand vs. longhand where resolvable, whitespace, declaration order, equivalent
-//    zero units, and CSS custom properties that resolve to the mock's literal via :root).
-//
-// SCOPED RESOLUTION (v3) — the app side of rule 2 is now scope-aware
+// PAIRING RULE (state this before trusting any output of this file)
 // --------------------------------------------------------------------
-// This app's CSS is deliberately written scoped: `.herd-signals-page .fbar`,
-// `.herd-signals-page .drawer .hchart`, because bare classes like `.btn`/`.tag`/`.kpi` are shared
-// by dozens of other admin screens and restyling the bare class would break them. v2 only ever
-// resolved a selector that was EXACTLY `.classname`, so every correctly-scoped app rule was
-// invisible to it — it reported mismatches that were not real, and (once, in this file's own
-// history) invited "fixing" a false finding by adding a bare `.classname` duplicate purely so the
-// guard could see it, which pollutes a shared global stylesheet just to satisfy a checker. v3
-// (getScopedClassRules / resolveScopedProps) instead gathers every APP rule whose selector's
-// most specific (rightmost) compound includes the target class — `.foo`, `.a .foo`, `.a .b .foo`
-// all count — and resolves the winning declaration the way a browser would: real CSS specificity
-// ([ids, classes, elements]) decides, and among equal-specificity rules, later source order wins
-// UNLESS the tied rules have different selector text AND disagree on a property's value — that
-// specific shape (e.g. `.drawer .hchart` vs `.fs .hchart` sizing the same class differently in
-// different places) is legitimate context-dependent styling, not a defect, and is reported as a
-// NOTE, never as a mismatch or a failure. A compound like `.btn.dng` only attaches to `dng` (the
-// LAST-written class token in its last compound) — never to `btn` — because it only matches
-// elements that carry BOTH classes, so its declarations are conditional on the modifier class,
-// not something plain `.btn` resolution may borrow. The mock side of the comparison is
-// intentionally left on the v1/v2 exact-`.classname` resolver — the mock is one flat page, not a
-// multi-screen shared stylesheet, so it has no scoping problem to solve.
+// Elements are paired DELIBERATELY, not by matching class name alone: each entry in
+// ELEMENT_REGISTRY below names a tab, a human label, a mock CSS selector and an app CSS selector,
+// chosen by class name AND (for anything that repeats — rows, cards, chips, tabs) POSITION within
+// its container ("first data row", "first tab button", "the Live-tab KPI card", etc.) or ROLE
+// (aria-label / data-tab). A registry entry is only added when its pairing is unambiguous: one
+// specific element in the mock's static fixture markup, matched to one specific element in the
+// app's live-rendered markup, both reachable by a stable selector that does not depend on
+// fixture text or row count. Content is NEVER part of the pairing or the comparison — the mock
+// has invented fixture data (fake tag IDs, fake battery numbers) and the app has ~20 real tags;
+// comparing text or counting elements would be comparing two different datasets, not two
+// implementations of the same design. When a pairing would require guessing (e.g. the mock's
+// alert-type filter chips do not have a stable 1:1 counterpart in the app's unified Alerts list —
+// see herd-signals-board.tsx's comment on this), the registry SKIPS it rather than pair blind and
+// print a confident but meaningless number. Skipped surfaces are listed explicitly in the run
+// output, not silently dropped.
 //
-// WHAT IT STILL DOES NOT CLAIM (read this before trusting a clean run)
-// ----------------------------------------------------------------------
-// - No media queries. Only top-level rules are read; @media/@supports/@keyframes blocks are
-//   stripped before parsing, so a class styled differently at a breakpoint is invisible here.
-// - No pseudo-classes, pseudo-elements, or attribute selectors, in either resolver. A mock-side
-//   selector is only used when it is EXACTLY `.name` with nothing else attached. An app-side
-//   selector is dropped from scoped resolution entirely if it contains `:` or `[` anywhere —
-//   `.foo:hover`, `.foo::before`, `.btn[disabled]` are conditional on state or markup this guard
-//   cannot evaluate statically, so they are left out of scope rather than guessed at (the
-//   single-token existence check below still half-sees `.foo` and `.bar` inside a compound
-//   selector regardless of pseudo/attribute parts — see the compound-selector note).
-// - No runtime-computed values. Anything set via inline `style={{...}}`, styled-components,
-//   CSS-in-JS, or JS-computed class names is invisible.
-// - No Tailwind or other utility classes — only classes the MOCK defines are ever in scope,
-//   because the mock is not the authority on classes it doesn't mention.
-// - Class names built by string concatenation or template interpolation are invisible. Static
-//   className literals and the static parts of template literals are covered.
-// - Shorthand resolution is best-effort, not a real CSS engine: padding/margin/border-radius
-//   1-4-value expansion and a simple border-shorthand splitter are implemented; anything odder
-//   (calc(), custom properties nested inside functions, logical properties like
-//   padding-inline) is treated as opaque text and compared literally, which can both
-//   under-report (misses a real divergence hidden in calc()) and over-report (flags a
-//   spacing/timing artefact it can't actually resolve) — those cases are called out per-run as
-//   "unresolved" rather than silently passed or silently failed.
-// - Compound selectors: the EXISTENCE check (v1, kept) uses a regex that pulls every class TOKEN
-//   out of a selector, so `.srcl.inferred{...}` registers both `srcl` and `inferred` as "defined"
-//   even though neither is separately selectable. The mock-side DECLARATION check does not have
-//   this hole — it only resolves declarations for selectors that are exactly one class, so
-//   `inferred` alone resolves to no declarations from that rule and is never compared on
-//   manufactured data. The app-side scoped resolver attaches a compound rule like `.a.foo{...}`
-//   only to `foo` (the last class token), per the scoped-resolution rule above.
-// - This is not a substitute for actually opening both screens side by side. It catches the
-//   mechanical class of defect (markup ported, CSS not, or CSS drifted) — it does not catch a
-//   mock element being dropped from the markup entirely (no icon rendered at all, a chip
-//   component swapped for a different component, a badge collapsed to a single value) unless
-//   that swap also drops or renames the class name. Structural fidelity is still a visual review
-//   job, not this guard's job.
+// WHAT THIS STILL CANNOT SEE (read before trusting a clean run)
+// -------------------------------------------------------------------
+// - Hover / focus / active states. This script never dispatches a real hover or focus event, so
+//   `:hover`/`:focus`/`:focus-visible`/`:active` styling on either side is invisible. A control
+//   that looks right at rest but diverges on hover would pass clean here.
+// - Media queries / responsive breakpoints. The browser viewport is fixed for the whole run (see
+//   VIEWPORT below); a rule that only applies at a different width is never exercised.
+// - Anything gated behind an interaction this script does not drive: this run opens the six
+//   tabs, the row-click drawer, and the drawer's Expand into full-screen history — but not, say,
+//   a tooltip, a dropdown's open state, a modal other than the drawer/fullscreen, or an
+//   error/loading/empty state that only renders when the API call fails or is slow. Those are
+//   still a manual side-by-side job.
+// - Animation/transition end states, `prefers-reduced-motion`, print styles, or anything else
+//   conditional on a media feature or timing this script does not simulate.
+// - Elements outside ELEMENT_REGISTRY. This is a curated anchor set (headers, filter bar,
+//   buttons, tags/badges, KPI tiles, grid layout, one representative data row/card per list
+//   surface, the drawer, the full-screen history) chosen to cover every visually load-bearing
+//   pattern on each tab — it is not literally every DOM node. A one-off inline style on some
+//   element never added to the registry is invisible here, same as it always would be to any
+//   selector-driven check.
 //
-// DELIBERATE MOCK DIVERGENCES (banned reintroductions, not CSS bugs)
-// ---------------------------------------------------------------------
+// DELIBERATE MOCK DIVERGENCES (banned reintroductions, not CSS bugs) — UNCHANGED FROM v1-v3
+// ---------------------------------------------------------------------------------------------
 // Some mock content is intentionally NOT ported, by maintainer decision, for reasons that have
 // nothing to do with CSS. The battery-life estimate ("est. ~1.7 year left", "median ~1.6 year")
 // is the current case: GoatOS has no vendor-confirmed discharge curve, so any life estimate is
@@ -102,36 +77,37 @@
 // apps/admin-web/features/herd-signals/herd-signals-animals-table.tsx). The danger is specific:
 // the app's stylesheet already carries `.srcl.inferred` (ported for other Derived/Inferred
 // fields), so if the estimate text were reintroduced verbatim it would render CORRECTLY STYLED —
-// invisible to both checks above. DELIBERATE_MOCK_DIVERGENCES below is a third, independent scan
-// that greps herd-signals component source for the patterns that would signal that specific
-// reintroduction, so this stays a machine-enforced fact instead of something only remembered by
-// whoever was in the room. Add to this list — do not silently work around a divergence finding.
+// invisible to a computed-style diff exactly the same way it was invisible to the old static-CSS
+// diff. DELIBERATE_MOCK_DIVERGENCES below is a third, independent scan that greps herd-signals
+// component source for the patterns that would signal that specific reintroduction, so this stays
+// a machine-enforced fact instead of something only remembered by whoever was in the room. This
+// grep-based check is the only thing that has caught its reintroduction twice already — add to
+// this list, do not remove or silently work around a divergence finding.
 //
 // USAGE
-//   node tools/agent-hooks/check-mock-css-parity.mjs            # check every registered module
-//   node tools/agent-hooks/check-mock-css-parity.mjs --self-test
-import { readFileSync, existsSync } from "node:fs";
+//   node tools/agent-hooks/check-mock-css-parity.mjs            # rendered-style comparison (needs
+//                                                                 both dev servers running)
+//   node tools/agent-hooks/check-mock-css-parity.mjs --self-test   # pure-function unit tests, no browser
+import { existsSync, readFileSync } from "node:fs";
 import { readdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const adminWebDir = join(repoRoot, "apps/admin-web");
 
-// Modules built mock-first. Add an entry when a new screen is ported from a mock.
-const MODULES = [
-  {
-    name: "herd-signals",
-    componentsDir: "apps/admin-web/features/herd-signals",
-    mock: "mock/herd-signals-mock.html",
-    stylesheets: ["apps/admin-web/app/mesha-theme.css"],
-  },
-];
+// Servers this guard drives. Both must already be running (see AGENTS/CLAUDE.md worktree notes —
+// this guard never starts or stops a dev server itself, it only fails clearly if one is down).
+const APP_TAB_URL = (tab) => `http://127.0.0.1:3318/herd-signals${tab === "live" ? "" : `?hs_tab=${tab}`}`;
+const MOCK_URL = "http://127.0.0.1:8917/herd-signals-mock.html";
+const VIEWPORT = { width: 1440, height: 900 };
 
 // Divergences the app is DELIBERATELY allowed to have from the mock, for non-CSS reasons.
 // Each entry's `forbiddenInComponents` patterns must never match herd-signals component source —
 // if one does, that's the banned content creeping back in, not a parity bug to "fix" toward the
-// mock. This is intentionally a separate scan from the CSS declaration comparison: the whole
-// point is that the CSS comparison would not catch this (see header).
+// mock. This is intentionally a separate scan from the computed-style comparison: the whole point
+// is that the CSS comparison would not catch this (see header).
 const DELIBERATE_MOCK_DIVERGENCES = [
   {
     id: "battery-life-estimate",
@@ -139,9 +115,9 @@ const DELIBERATE_MOCK_DIVERGENCES = [
       "No vendor-confirmed battery discharge curve exists for GoatOS smart tags, so a life " +
       "estimate ('est. ~1.7 year left', 'median ~1.6 year') is invented data. The maintainer " +
       "ordered the mock's battery-life-estimate text permanently deleted, not reintroduced " +
-      "(see apps/admin-web/features/herd-signals/herd-signals-animals-table.tsx). It will not " +
-      "trip the CSS checks above because `.srcl.inferred` is already ported for other " +
-      "Derived/Inferred fields, so reintroduced text would render styled and clean.",
+      "(see apps/admin-web/features/herd-signals/herd-signals-animals-table.tsx). It would not " +
+      "trip the computed-style checks above because `.srcl.inferred` is already ported for " +
+      "other Derived/Inferred fields, so reintroduced text would render styled and clean.",
     forbiddenInComponents: [
       // NOTE: a bare `srcl inferred` is NOT banned -- Movement state and Pattern legitimately
       // carry an Inferred marker, and the mock shows them that way. Only an Inferred marker
@@ -157,592 +133,493 @@ const DELIBERATE_MOCK_DIVERGENCES = [
 ];
 
 // ---------------------------------------------------------------------------------------------
-// Existence check (v1, unchanged): class names appearing in className="..." / className={`...`}.
+// Computed-style properties compared per element. This is the "visually load-bearing" set named
+// in the task: colour, background, border (colour/width/radius), font, spacing, layout.
 // ---------------------------------------------------------------------------------------------
-function classesUsedIn(source) {
-  const found = new Set();
-  const attr = /className\s*=\s*(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\}|\{"([^"]*)"\}|\{'([^']*)'\})/g;
-  let m;
-  while ((m = attr.exec(source)) !== null) {
-    const raw = m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? "";
-    // Drop ${...} interpolations; keep the static tokens around them.
-    for (const token of raw.replace(/\$\{[^}]*\}/g, " ").split(/\s+/)) {
-      const cleaned = token.trim();
-      if (cleaned && /^[a-zA-Z][\w-]*$/.test(cleaned)) found.add(cleaned);
-    }
-  }
-  return found;
-}
-
-/** Class names that appear as selectors (.foo{...}) in a stylesheet or a mock's <style>. */
-function classesDefinedIn(source) {
-  const found = new Set();
-  const selector = /\.([a-zA-Z][\w-]*)(?=[^{}]*\{)/g;
-  let m;
-  while ((m = selector.exec(source)) !== null) found.add(m[1]);
-  return found;
-}
-
-// ---------------------------------------------------------------------------------------------
-// Declaration check (v2): resolve, per class, the properties set by rules whose selector is
-// EXACTLY that one class (no combinators, no pseudo, no compounding) — this deliberately does
-// NOT see `.srcl.inferred`-style compound rules as belonging to `srcl` or `inferred` alone.
-// ---------------------------------------------------------------------------------------------
-
-/**
- * Strip /* ... *\/ comments. Required BEFORE rule parsing: the rule regex captures everything
- * between the previous '}' and the next '{' as the selector, so a comment sitting directly above
- * a rule (e.g. "/* Mock's .chartnote: the small print ... *\/\n.foo{...}") gets swallowed into
- * that selector text. A stray ':' inside prose like that ("chartnote:") then trips the
- * pseudo-selector exclusion and silently drops an otherwise-correct rule — this bit a real class
- * (.chartnote) during development of this guard and is exactly the kind of silent miss this file
- * exists to prevent, so it gets fixed at the source rather than special-cased per class.
- */
-function stripComments(source) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "");
-}
-
-/** Strip @media/@supports/@keyframes/@font-face blocks (brace-depth aware) — declared blind spot. */
-function stripAtRuleBlocks(rawSource) {
-  const source = stripComments(rawSource);
-  let out = "";
-  let depth = 0;
-  let atDepthStart = -1;
-  let i = 0;
-  while (i < source.length) {
-    const ch = source[i];
-    if (ch === "@" && depth === 0) {
-      // Find the following '{' — everything from '@' to the matching '}' is dropped.
-      const braceIdx = source.indexOf("{", i);
-      if (braceIdx === -1) {
-        out += source.slice(i);
-        break;
-      }
-      let d = 1;
-      let j = braceIdx + 1;
-      while (j < source.length && d > 0) {
-        if (source[j] === "{") d++;
-        else if (source[j] === "}") d--;
-        j++;
-      }
-      i = j;
-      continue;
-    }
-    out += ch;
-    i++;
-  }
-  return out;
-}
-
-/** Parse `:root{ --x: value; ... }` (all top-level :root blocks, later overrides earlier). */
-function parseRootVars(source) {
-  const vars = {};
-  const rootRe = /:root\s*\{([^}]*)\}/g;
-  let m;
-  while ((m = rootRe.exec(source)) !== null) {
-    for (const decl of m[1].split(";")) {
-      const idx = decl.indexOf(":");
-      if (idx === -1) continue;
-      const name = decl.slice(0, idx).trim();
-      const value = decl.slice(idx + 1).trim();
-      if (name.startsWith("--") && value) vars[name] = value;
-    }
-  }
-  return vars;
-}
-
-/** Resolve var(--x[, fallback]) recursively against a var map. Returns {value, unresolved}. */
-function resolveVars(rawValue, varMap, depth = 0) {
-  if (depth > 8 || !rawValue) return { value: rawValue, unresolved: false };
-  let unresolved = false;
-  const varRe = /var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*(?:\([^()]*\)[^()]*)*))?\)/;
-  let value = rawValue;
-  let m;
-  let iterations = 0;
-  while ((m = varRe.exec(value)) !== null && iterations < 20) {
-    iterations++;
-    const [full, name, fallback] = m;
-    if (Object.prototype.hasOwnProperty.call(varMap, name)) {
-      const resolved = resolveVars(varMap[name], varMap, depth + 1);
-      if (resolved.unresolved) unresolved = true;
-      value = value.slice(0, m.index) + resolved.value + value.slice(m.index + full.length);
-    } else if (fallback !== undefined) {
-      const resolved = resolveVars(fallback.trim(), varMap, depth + 1);
-      if (resolved.unresolved) unresolved = true;
-      value = value.slice(0, m.index) + resolved.value + value.slice(m.index + full.length);
-    } else {
-      unresolved = true;
-      break; // leave the var(...) text in place so the caller can report it verbatim
-    }
-  }
-  return { value, unresolved };
-}
-
-/** classname -> [{selectorText, body}] for rules whose selector is exactly `.classname`. */
-function getSimpleClassRules(source) {
-  const stripped = stripAtRuleBlocks(source);
-  const map = new Map();
-  const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
-  let m;
-  while ((m = ruleRe.exec(stripped)) !== null) {
-    const selectors = m[1].split(",").map((s) => s.trim());
-    for (const sel of selectors) {
-      const single = /^\.([a-zA-Z][\w-]*)$/.exec(sel);
-      if (!single) continue; // combinator, pseudo, compound, id, tag, attr — out of scope
-      const cls = single[1];
-      if (!map.has(cls)) map.set(cls, []);
-      map.get(cls).push(m[2]);
-    }
-  }
-  return map;
-}
-
-// ---------------------------------------------------------------------------------------------
-// Scoped resolution (v3, app stylesheet only): this app's CSS is deliberately written scoped —
-// `.herd-signals-page .fbar`, `.herd-signals-page .drawer .hchart` — because bare classes like
-// `.btn`, `.tag`, `.kpi` are shared by dozens of other admin screens and restyling the bare class
-// globally would break them. getSimpleClassRules() above only ever sees an EXACT `.classname`
-// selector, so every correctly-scoped app rule was invisible to it — it reported ~300 mismatches
-// that were not real, and an earlier pass "fixed" some of them by adding bare `.classname`
-// duplicates purely so this guard could see them, which pollutes a global stylesheet just to
-// satisfy a checker. This resolver instead gathers every rule whose selector's MOST SPECIFIC
-// (rightmost) compound includes the target class — `.foo`, `.a .foo`, `.a .b .foo` all count,
-// but a compound like `.a.foo` counts only for `foo` (the last-written class token), never for
-// `a`, because it only matches elements that carry BOTH classes — and resolves declarations the
-// way a browser would: higher specificity wins; among rules of EQUAL specificity, later source
-// order wins UNLESS the tied rules have different selector text and disagree on a property's
-// value, in which case that is a legitimate context-dependent split (e.g. `.drawer .hchart` vs
-// `.fs .hchart` sizing the same class differently in different places) and is reported as a NOTE,
-// never a mismatch or a failure.
-//
-// Excluded, same as the existing declared blind spots: any selector containing a pseudo-class /
-// pseudo-element (`:`) or an attribute selector (`[`) — those are conditional on state or markup
-// this guard cannot evaluate statically, so they are left out of scope rather than guessed at.
-
-/** Split a selector into its compound-selector chain, e.g. "a.b > c.d" -> ["a.b", "c.d"]. */
-function splitCompounds(selectorText) {
-  return selectorText
-    .replace(/[>+~]/g, " ")
-    .split(/\s+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-/** Real CSS specificity as [ids, classes-ish, elements], for the small subset of selectors we support. */
-function selectorSpecificity(selectorText) {
-  const ids = (selectorText.match(/#[\w-]+/g) || []).length;
-  const classes = (selectorText.match(/\.[\w-]+/g) || []).length;
-  let elements = 0;
-  for (const compound of splitCompounds(selectorText)) {
-    if (/^[a-zA-Z]/.test(compound)) elements += 1; // compound starts with a tag name, not . or #
-  }
-  return [ids, classes, elements];
-}
-
-function cmpSpecificity(a, b) {
-  for (let i = 0; i < 3; i++) {
-    if (a[i] !== b[i]) return a[i] - b[i];
-  }
-  return 0;
-}
-
-/**
- * classname -> [{ props, specificity, order, selectorText }] for every app rule whose selector's
- * rightmost compound includes that class, excluding pseudo/attribute-conditioned selectors.
- */
-function getScopedClassRules(source) {
-  const stripped = stripAtRuleBlocks(source);
-  const map = new Map();
-  const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
-  let m;
-  let order = 0;
-  while ((m = ruleRe.exec(stripped)) !== null) {
-    const selectors = m[1].split(",").map((s) => s.trim());
-    const body = m[2];
-    for (const sel of selectors) {
-      if (!sel || sel.includes(":") || sel.includes("[")) continue; // pseudo/attr — out of scope
-      const compounds = splitCompounds(sel);
-      if (compounds.length === 0) continue;
-      const last = compounds[compounds.length - 1];
-      const lastClasses = (last.match(/\.[a-zA-Z][\w-]*/g) || []).map((c) => c.slice(1));
-      if (lastClasses.length === 0) continue; // last compound has no class at all — id/tag only
-      // A compound like `.a.foo` only matches elements that carry BOTH classes, so its
-      // declarations are conditional on the OTHER class(es) too — e.g. `.btn.dng` and
-      // `.btn.ghost` must never bleed into plain `.btn` resolution (each requires a modifier
-      // class `.btn` alone doesn't have). Only the last-written class token in the last compound
-      // is "the most specific class" this rule resolves for; earlier tokens in the same compound
-      // are a condition on that class, not a class this rule is a candidate for on their own.
-      const cls = lastClasses[lastClasses.length - 1];
-      const props = resolveDeclProps([body]);
-      const specificity = selectorSpecificity(sel);
-      order += 1;
-      if (!map.has(cls)) map.set(cls, []);
-      map.get(cls).push({ props, specificity, order, selectorText: sel });
-    }
-  }
-  return map;
-}
-
-/**
- * Resolve one class's cascade from its scoped rule entries. Returns the winning prop -> value
- * map plus the set of properties where equal-specificity rules disagreed across different
- * selector contexts (legitimate context-dependent styling — report as a NOTE, not a mismatch).
- */
-function resolveScopedProps(entries) {
-  const byProp = new Map();
-  for (const entry of entries) {
-    for (const [prop, value] of Object.entries(entry.props)) {
-      if (!byProp.has(prop)) byProp.set(prop, []);
-      byProp.get(prop).push({ value, specificity: entry.specificity, order: entry.order, selectorText: entry.selectorText });
-    }
-  }
-  const props = {};
-  const ambiguousProps = new Set();
-  for (const [prop, candidates] of byProp) {
-    let maxSpec = candidates[0].specificity;
-    for (const c of candidates) {
-      if (cmpSpecificity(c.specificity, maxSpec) > 0) maxSpec = c.specificity;
-    }
-    const top = candidates.filter((c) => cmpSpecificity(c.specificity, maxSpec) === 0);
-    const uniqueValues = new Set(top.map((c) => c.value.trim()));
-    if (uniqueValues.size === 1) {
-      props[prop] = top[0].value;
-      continue;
-    }
-    const uniqueSelectors = new Set(top.map((c) => c.selectorText));
-    if (uniqueSelectors.size > 1) {
-      // Same specificity, different scope, genuinely different values — context-dependent, not a bug.
-      ambiguousProps.add(prop);
-    } else {
-      // Same selector repeated (e.g. duplicated rule) — real cascade: latest source order wins.
-      top.sort((a, b) => a.order - b.order);
-      props[prop] = top[top.length - 1].value;
-    }
-  }
-  return { props, ambiguousProps };
-}
-
-/** Flatten a class's ordered declaration bodies into a single prop -> raw value map (cascade). */
-function resolveDeclProps(bodies) {
-  const props = {};
-  for (const body of bodies) {
-    for (const decl of body.split(";")) {
-      const idx = decl.indexOf(":");
-      if (idx === -1) continue;
-      const name = decl.slice(0, idx).trim().toLowerCase();
-      const value = decl.slice(idx + 1).trim();
-      if (name && value) props[name] = value; // later declarations win, like the cascade
-    }
-  }
-  return props;
-}
-
-// ---- normalisation helpers -------------------------------------------------------------------
-
-const NAMED_COLORS = {
-  transparent: "0,0,0,0",
-  white: "255,255,255,1",
-  black: "0,0,0,1",
-};
-
-function hexToRgba(hex) {
-  let h = hex.replace("#", "");
-  if (h.length === 3 || h.length === 4) h = h.split("").map((c) => c + c).join("");
-  if (h.length !== 6 && h.length !== 8) return null;
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  const a = h.length === 8 ? Math.round((parseInt(h.slice(6, 8), 16) / 255) * 1000) / 1000 : 1;
-  if ([r, g, b].some((n) => Number.isNaN(n))) return null;
-  return `${r},${g},${b},${a}`;
-}
-
-function rgbFnToRgba(value) {
-  const m = /^rgba?\(\s*([\d.]+)\s*,?\s*([\d.]+)\s*,?\s*([\d.]+)\s*(?:[,/]\s*([\d.]+%?))?\s*\)$/i.exec(
-    value.trim(),
-  );
-  if (!m) return null;
-  const [, r, g, b, aRaw] = m;
-  let a = 1;
-  if (aRaw !== undefined) a = aRaw.endsWith("%") ? parseFloat(aRaw) / 100 : parseFloat(aRaw);
-  return `${Math.round(+r)},${Math.round(+g)},${Math.round(+b)},${Math.round(a * 1000) / 1000}`;
-}
-
-/** Normalise a colour-ish CSS value to "r,g,b,a", or null if it can't be parsed as a pure colour. */
-function normalizeColor(value) {
-  const v = value.trim();
-  if (!v) return null;
-  if (v.toLowerCase() === "currentcolor" || v.toLowerCase() === "inherit") return v.toLowerCase();
-  if (NAMED_COLORS[v.toLowerCase()]) return NAMED_COLORS[v.toLowerCase()];
-  if (/^#[0-9a-f]{3,8}$/i.test(v)) return hexToRgba(v);
-  if (/^rgba?\(/i.test(v)) return rgbFnToRgba(v);
-  return null; // gradients, url(), keywords we don't map — treated as unresolved, not failed
-}
-
-/** Generic value normaliser for non-colour tracked props: resolve vars, collapse ws, zero-unit. */
-function normalizeGeneric(rawValue, varMap) {
-  const { value, unresolved } = resolveVars(rawValue, varMap);
-  let v = value.replace(/\s+/g, " ").trim().toLowerCase();
-  v = v.replace(/\b0(px|em|rem|%|vh|vw|pt)\b/g, "0"); // 0px === 0 etc.
-  return { value: v, unresolved };
-}
-
-/** Resolve+normalise a value that MIGHT be a colour; falls back to generic text compare. */
-function normalizeMaybeColor(rawValue, varMap) {
-  const { value, unresolved } = resolveVars(rawValue, varMap);
-  if (unresolved) return { value: value.trim().toLowerCase(), unresolved: true, isColor: false };
-  const color = normalizeColor(value);
-  if (color) return { value: color, unresolved: false, isColor: true };
-  return { value: value.replace(/\s+/g, " ").trim().toLowerCase(), unresolved: false, isColor: false };
-}
-
-const BOX_SIDES = ["top", "right", "bottom", "left"]; // also used for radius corner order (tl,tr,br,bl)
-
-function expand4Value(rawValue) {
-  const parts = rawValue.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 1) return [parts[0], parts[0], parts[0], parts[0]];
-  if (parts.length === 2) return [parts[0], parts[1], parts[0], parts[1]];
-  if (parts.length === 3) return [parts[0], parts[1], parts[2], parts[1]];
-  if (parts.length >= 4) return [parts[0], parts[1], parts[2], parts[3]];
-  return [null, null, null, null];
-}
-
-/** Resolve a box property (padding/margin/border-radius) to normalised [top,right,bottom,left]. */
-function resolveBox(props, shorthandName, longhandPrefix, varMap) {
-  const result = [null, null, null, null];
-  let anyResolved = false;
-  let anyUnresolved = false;
-  if (props[shorthandName]) {
-    const { value: resolvedShorthand, unresolved } = resolveVars(props[shorthandName], varMap);
-    if (unresolved) anyUnresolved = true;
-    const sides = expand4Value(resolvedShorthand);
-    for (let i = 0; i < 4; i++) {
-      if (sides[i] != null) {
-        result[i] = normalizeGeneric(sides[i], varMap).value;
-        anyResolved = true;
-      }
-    }
-  }
-  BOX_SIDES.forEach((side, i) => {
-    const longhand = `${longhandPrefix}-${side}`;
-    if (props[longhand] !== undefined) {
-      const { value, unresolved } = normalizeGeneric(props[longhand], varMap);
-      if (unresolved) anyUnresolved = true;
-      result[i] = value;
-      anyResolved = true;
-    }
-  });
-  if (!anyResolved) return null;
-  return { sides: result, unresolved: anyUnresolved };
-}
-
-/** border-radius uses tl/tr/br/bl longhands rather than top/right/bottom/left. */
-function resolveRadius(props, varMap) {
-  const longhandNames = [
-    "border-top-left-radius",
-    "border-top-right-radius",
-    "border-bottom-right-radius",
-    "border-bottom-left-radius",
-  ];
-  const result = [null, null, null, null];
-  let anyResolved = false;
-  let anyUnresolved = false;
-  if (props["border-radius"]) {
-    const { value: resolvedShorthand, unresolved } = resolveVars(props["border-radius"], varMap);
-    if (unresolved) anyUnresolved = true;
-    const sides = expand4Value(resolvedShorthand);
-    for (let i = 0; i < 4; i++) {
-      if (sides[i] != null) {
-        result[i] = normalizeGeneric(sides[i], varMap).value;
-        anyResolved = true;
-      }
-    }
-  }
-  longhandNames.forEach((name, i) => {
-    if (props[name] !== undefined) {
-      const { value, unresolved } = normalizeGeneric(props[name], varMap);
-      if (unresolved) anyUnresolved = true;
-      result[i] = value;
-      anyResolved = true;
-    }
-  });
-  if (!anyResolved) return null;
-  return { sides: result, unresolved: anyUnresolved };
-}
-
-const BORDER_STYLES = new Set([
-  "none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset",
-]);
-
-/** Best-effort border shorthand splitter: {width, style, color}, longhands override shorthand. */
-function resolveBorder(props, varMap) {
-  const parts = { width: null, style: null, color: null };
-  let anyResolved = false;
-  let anyUnresolved = false;
-  if (props.border) {
-    const { value: resolved, unresolved } = resolveVars(props.border, varMap);
-    if (unresolved) anyUnresolved = true;
-    for (const token of resolved.split(/\s+/).filter(Boolean)) {
-      if (BORDER_STYLES.has(token.toLowerCase())) parts.style = token.toLowerCase();
-      else if (/^\d/.test(token) || token === "0") parts.width = normalizeGeneric(token, varMap).value;
-      else parts.color = normalizeMaybeColor(token, varMap).value;
-    }
-    if (parts.width || parts.style || parts.color) anyResolved = true;
-  }
-  for (const [prop, key] of [
-    ["border-width", "width"],
-    ["border-style", "style"],
-    ["border-color", "color"],
-  ]) {
-    if (props[prop] !== undefined) {
-      const norm = key === "color" ? normalizeMaybeColor(props[prop], varMap) : normalizeGeneric(props[prop], varMap);
-      if (norm.unresolved) anyUnresolved = true;
-      parts[key] = norm.value;
-      anyResolved = true;
-    }
-  }
-  if (!anyResolved) return null;
-  return { parts, unresolved: anyUnresolved };
-}
-
-const TRACKED_COLOR_PROPS = ["color", "background", "background-color", "border-color"];
-const TRACKED_TEXT_PROPS = [
-  "font-size", "font-weight", "display", "gap", "row-gap", "column-gap",
-  "grid-template", "grid-template-columns", "grid-template-rows", "grid-template-areas",
+const TRACKED_PROPS = [
+  "color",
+  "backgroundColor",
+  "borderTopColor",
+  "borderRightColor",
+  "borderBottomColor",
+  "borderLeftColor",
+  "borderTopWidth",
+  "borderRightWidth",
+  "borderBottomWidth",
+  "borderLeftWidth",
+  "borderTopLeftRadius",
+  "borderTopRightRadius",
+  "borderBottomRightRadius",
+  "borderBottomLeftRadius",
+  "fontSize",
+  "fontWeight",
+  "fontFamily",
+  "paddingTop",
+  "paddingRight",
+  "paddingBottom",
+  "paddingLeft",
+  "marginTop",
+  "marginRight",
+  "marginBottom",
+  "marginLeft",
+  "gap",
+  "display",
+  "gridTemplateColumns",
+  "boxShadow",
 ];
 
-/**
- * Compare one class's resolved declarations between mock and app. Only properties the MOCK
- * actually sets are compared — the mock is authoritative on what matters for that class; if the
- * app additionally sets something the mock doesn't mention, that's not this guard's concern.
- */
-function compareClassDeclarations(cls, mockProps, appProps, mockVars, appVars, ambiguousProps = new Set()) {
-  const mismatches = [];
-  const unresolvedNotes = [];
+// ---------------------------------------------------------------------------------------------
+// ELEMENT_REGISTRY — the curated, deliberately-paired anchor set. See "PAIRING RULE" above.
+//
+// `tab` picks which app URL / mock setTab(...) click to load before selecting. `setupMock` and
+// `setupApp` are optional extra steps (open a drawer, click Expand) run AFTER the tab is showing
+// and BEFORE the selector is queried. `optional: true` means: if either side's selector matches
+// zero elements, SKIP this entry (report it, don't fail on it) — used only where the element's
+// presence is itself data-dependent in a way neither side controls set-and-forget-solid.
+// ---------------------------------------------------------------------------------------------
+const ELEMENT_REGISTRY = [
+  // ---- Global chrome (present on every tab; checked once on Live Monitor) --------------------
+  { tab: "live", label: "page title (h1)", mockSelector: ".phead h1", appSelector: ".herd-signals-page .phead h1" },
+  { tab: "live", label: "page sub-copy", mockSelector: ".phead .sub", appSelector: ".herd-signals-page .phead .sub" },
+  { tab: "live", label: "tab strip container", mockSelector: "#segs", appSelector: ".herd-signals-page .segs" },
+  { tab: "live", label: "active tab button (Live Monitor)", mockSelector: "#segs [data-tab='live']", appSelector: ".herd-signals-page .segs a.on" },
+  { tab: "live", label: "inactive tab button (Animals)", mockSelector: "#segs [data-tab='animals']", appSelector: ".herd-signals-page .segs a:not(.on)" },
+  { tab: "live", label: "tab count badge", mockSelector: "#segs [data-tab='live'] .cnt", appSelector: ".herd-signals-page .segs a.on .cnt" },
 
-  for (const prop of TRACKED_COLOR_PROPS) {
-    if (mockProps[prop] === undefined) continue;
-    if (ambiguousProps.has(prop)) {
-      unresolvedNotes.push(
-        `${cls}.${prop}: context-dependent in the app (equal-specificity rules under different scopes disagree) — not compared, not a mismatch`,
-      );
-      continue;
-    }
-    const mockNorm = normalizeMaybeColor(mockProps[prop], mockVars);
-    if (appProps[prop] === undefined) {
-      mismatches.push({ prop, mock: mockProps[prop], app: "(not set)" });
-      continue;
-    }
-    const appNorm = normalizeMaybeColor(appProps[prop], appVars);
-    if (mockNorm.unresolved || appNorm.unresolved) {
-      unresolvedNotes.push(`${cls}.${prop}: could not fully resolve var() — mock="${mockProps[prop]}" app="${appProps[prop]}"`);
-      continue;
-    }
-    if (mockNorm.value !== appNorm.value) {
-      mismatches.push({ prop, mock: mockProps[prop], app: appProps[prop] });
-    }
-  }
+  // ---- Live Monitor -------------------------------------------------------------------------
+  { tab: "live", label: "filter bar", mockSelector: "#tab-live .fbar", appSelector: ".herd-signals-page .fbar" },
+  { tab: "live", label: "filter-bar search field wrapper", mockSelector: "#tab-live .fbar .fsel.search", appSelector: ".herd-signals-page .fbar .fsel.search" },
+  { tab: "live", label: "filter-bar select wrapper", mockSelector: "#tab-live .fbar .fsel:not(.search)", appSelector: ".herd-signals-page .fbar .fsel:not(.search)" },
+  { tab: "live", label: "KPI row container", mockSelector: "#kpis", appSelector: ".herd-signals-page .kpis" },
+  { tab: "live", label: "first KPI tile", mockSelector: "#kpis .kpi:nth-child(1)", appSelector: ".herd-signals-page .kpis .kpi:nth-child(1)" },
+  { tab: "live", label: "KPI tile value", mockSelector: "#kpis .kpi:nth-child(1) .val", appSelector: ".herd-signals-page .kpis .kpi:nth-child(1) .val" },
+  { tab: "live", label: "KPI tile label", mockSelector: "#kpis .kpi:nth-child(1) .lab", appSelector: ".herd-signals-page .kpis .kpi:nth-child(1) .lab" },
+  { tab: "live", label: "live table card", mockSelector: "#tab-live > .card", appSelector: ".herd-signals-page .card" },
+  { tab: "live", label: "live table card header", mockSelector: "#tab-live > .card .hd", appSelector: ".herd-signals-page .card .hd" },
+  { tab: "live", label: "row-count chip", mockSelector: "#rowCount", appSelector: ".herd-signals-page .card .hd .tag" },
+  {
+    tab: "live",
+    label: "first data row (live table)",
+    mockSelector: "#liveBody table tbody tr:nth-child(1)",
+    appSelector: ".herd-signals-page table tbody tr:nth-child(1)",
+    optional: true, // depends on at least one row having loaded on both sides
+  },
+  { tab: "live", label: "pager", mockSelector: "#pager", appSelector: ".herd-signals-page .pager", optional: true },
 
-  for (const prop of TRACKED_TEXT_PROPS) {
-    if (mockProps[prop] === undefined) continue;
-    if (ambiguousProps.has(prop)) {
-      unresolvedNotes.push(
-        `${cls}.${prop}: context-dependent in the app (equal-specificity rules under different scopes disagree) — not compared, not a mismatch`,
-      );
-      continue;
-    }
-    const mockNorm = normalizeGeneric(mockProps[prop], mockVars);
-    if (appProps[prop] === undefined) {
-      mismatches.push({ prop, mock: mockProps[prop], app: "(not set)" });
-      continue;
-    }
-    const appNorm = normalizeGeneric(appProps[prop], appVars);
-    if (mockNorm.unresolved || appNorm.unresolved) {
-      unresolvedNotes.push(`${cls}.${prop}: could not fully resolve var() — mock="${mockProps[prop]}" app="${appProps[prop]}"`);
-      continue;
-    }
-    if (mockNorm.value !== appNorm.value) {
-      mismatches.push({ prop, mock: mockProps[prop], app: appProps[prop] });
-    }
-  }
+  // ---- Animals --------------------------------------------------------------------------------
+  { tab: "animals", label: "Animals card", mockSelector: "#tab-animals .card", appSelector: ".herd-signals-page .card" },
+  { tab: "animals", label: "Animals card header", mockSelector: "#tab-animals .card .hd", appSelector: ".herd-signals-page .card .hd" },
+  {
+    tab: "animals",
+    label: "first data row (animals table)",
+    mockSelector: "#animalsBody table tbody tr:nth-child(1)",
+    appSelector: ".herd-signals-page table tbody tr:nth-child(1)",
+    optional: true,
+  },
 
-  for (const [box, shorthand, prefix] of [
-    ["padding", "padding", "padding"],
-    ["margin", "margin", "margin"],
-  ]) {
-    const mockBox = resolveBox(mockProps, shorthand, prefix, mockVars);
-    if (!mockBox) continue;
-    if ([shorthand, ...BOX_SIDES.map((s) => `${prefix}-${s}`)].some((p) => ambiguousProps.has(p))) {
-      unresolvedNotes.push(`${cls}.${box}: context-dependent in the app — not compared, not a mismatch`);
-      continue;
-    }
-    const appBox = resolveBox(appProps, shorthand, prefix, appVars);
-    if (!appBox) {
-      mismatches.push({ prop: box, mock: mockProps[shorthand] ?? "(longhand)", app: "(not set)" });
-      continue;
-    }
-    if (mockBox.unresolved || appBox.unresolved) {
-      unresolvedNotes.push(`${cls}.${box}: could not fully resolve var() on one side`);
-      continue;
-    }
-    for (let i = 0; i < 4; i++) {
-      if (mockBox.sides[i] == null) continue;
-      if (mockBox.sides[i] !== appBox.sides[i]) {
-        mismatches.push({ prop: `${box}-${BOX_SIDES[i]}`, mock: mockBox.sides[i], app: appBox.sides[i] ?? "(not set)" });
-      }
-    }
-  }
+  // ---- Gateways -------------------------------------------------------------------------------
+  { tab: "gateways", label: "gateway grid container", mockSelector: "#gwBody", appSelector: ".herd-signals-page .grid2:nth-of-type(1)" },
+  {
+    tab: "gateways",
+    label: "first gateway card",
+    mockSelector: "#gwBody .gwcard:nth-child(1)",
+    appSelector: ".herd-signals-page .grid2:nth-of-type(1) .gwcard:nth-child(1)",
+    optional: true,
+  },
+  { tab: "gateways", label: "second grid row (coverage + battery)", mockSelector: "#tab-gateways .grid2:nth-of-type(2)", appSelector: ".herd-signals-page .grid2:nth-of-type(2)" },
+  { tab: "gateways", label: "coverage-summary card", mockSelector: "#tab-gateways .grid2:nth-of-type(2) .card:nth-child(1)", appSelector: ".herd-signals-page .grid2:nth-of-type(2) .card:nth-child(1)" },
+  { tab: "gateways", label: "battery-outlook card", mockSelector: "#tab-gateways .grid2:nth-of-type(2) .card:nth-child(2)", appSelector: ".herd-signals-page .grid2:nth-of-type(2) .card:nth-child(2)" },
 
-  const RADIUS_PROPS = [
-    "border-radius",
-    "border-top-left-radius",
-    "border-top-right-radius",
-    "border-bottom-right-radius",
-    "border-bottom-left-radius",
-  ];
-  const mockRadius = resolveRadius(mockProps, mockVars);
-  if (mockRadius && RADIUS_PROPS.some((p) => ambiguousProps.has(p))) {
-    unresolvedNotes.push(`${cls}.border-radius: context-dependent in the app — not compared, not a mismatch`);
-  } else if (mockRadius) {
-    const appRadius = resolveRadius(appProps, appVars);
-    if (!appRadius) {
-      mismatches.push({ prop: "border-radius", mock: mockProps["border-radius"] ?? "(longhand)", app: "(not set)" });
-    } else if (mockRadius.unresolved || appRadius.unresolved) {
-      unresolvedNotes.push(`${cls}.border-radius: could not fully resolve var() on one side`);
-    } else {
-      const corners = ["top-left", "top-right", "bottom-right", "bottom-left"];
-      for (let i = 0; i < 4; i++) {
-        if (mockRadius.sides[i] == null) continue;
-        if (mockRadius.sides[i] !== appRadius.sides[i]) {
-          mismatches.push({ prop: `border-radius-${corners[i]}`, mock: mockRadius.sides[i], app: appRadius.sides[i] ?? "(not set)" });
-        }
-      }
-    }
-  }
+  // ---- Alerts ---------------------------------------------------------------------------------
+  { tab: "alerts", label: "Alerts card", mockSelector: "#tab-alerts .card", appSelector: ".herd-signals-page .card" },
+  { tab: "alerts", label: "Alerts card header", mockSelector: "#tab-alerts .card .hd", appSelector: ".herd-signals-page .card .hd" },
+  {
+    tab: "alerts",
+    label: "first alert row",
+    mockSelector: "#alertsBody .rowlist > *:nth-child(1)",
+    appSelector: ".herd-signals-page .card .bd.flush > *:nth-child(1)",
+    optional: true,
+  },
 
-  const BORDER_PROPS = ["border", "border-width", "border-style", "border-color"];
-  const mockBorder = resolveBorder(mockProps, mockVars);
-  if (mockBorder && BORDER_PROPS.some((p) => ambiguousProps.has(p))) {
-    unresolvedNotes.push(`${cls}.border: context-dependent in the app — not compared, not a mismatch`);
-  } else if (mockBorder) {
-    const appBorder = resolveBorder(appProps, appVars);
-    if (!appBorder) {
-      mismatches.push({ prop: "border", mock: mockProps.border ?? "(longhand)", app: "(not set)" });
-    } else if (mockBorder.unresolved || appBorder.unresolved) {
-      unresolvedNotes.push(`${cls}.border: could not fully resolve var() on one side`);
-    } else {
-      for (const part of ["width", "style", "color"]) {
-        if (mockBorder.parts[part] == null) continue;
-        if (mockBorder.parts[part] !== appBorder.parts[part]) {
-          mismatches.push({ prop: `border-${part}`, mock: mockBorder.parts[part], app: appBorder.parts[part] ?? "(not set)" });
-        }
-      }
-    }
-  }
+  // ---- Tag Mapping ----------------------------------------------------------------------------
+  { tab: "mapping", label: "mapping filter bar", mockSelector: "#tab-mapping .fbar", appSelector: ".herd-signals-page .fbar.herd-signals-fbar, .herd-signals-page .hs-mapping-tab .fbar" },
+  { tab: "mapping", label: "mapping filter-bar button", mockSelector: "#tab-mapping .fbar .btn:nth-of-type(1)", appSelector: ".herd-signals-page .fbar .btn:nth-of-type(1)" },
+  { tab: "mapping", label: "mapping card", mockSelector: "#tab-mapping .card", appSelector: ".herd-signals-page .card" },
+  {
+    tab: "mapping",
+    label: "first mapping row",
+    mockSelector: "#mappingBody table tbody tr:nth-child(1)",
+    appSelector: ".herd-signals-page table tbody tr:nth-child(1)",
+    optional: true,
+  },
 
-  return { mismatches, unresolvedNotes };
+  // ---- Insights -------------------------------------------------------------------------------
+  { tab: "insights", label: "info banner", mockSelector: "#tab-insights .banner.info", appSelector: ".herd-signals-page .banner.info" },
+  { tab: "insights", label: "insights grid", mockSelector: "#insightsBody", appSelector: ".herd-signals-page .grid2" },
+  {
+    tab: "insights",
+    label: "first insight card",
+    mockSelector: "#insightsBody .card:nth-child(1), #insightsBody .insight:nth-child(1)",
+    appSelector: ".herd-signals-page .grid2 .card:nth-child(1), .herd-signals-page .grid2 .insight:nth-child(1)",
+    optional: true,
+  },
+
+  // ---- Row-click drawer (opened from Live Monitor's first row) --------------------------------
+  {
+    tab: "live",
+    label: "drawer panel",
+    mockSelector: ".drawer.on, .drawer",
+    appSelector: ".drawer",
+    setupMock: "openDrawer",
+    setupApp: "openDrawer",
+    optional: true, // needs a real first row to click on both sides
+  },
+  {
+    tab: "live",
+    label: "drawer header (dh)",
+    mockSelector: ".dh",
+    appSelector: ".dh",
+    setupMock: "openDrawer",
+    setupApp: "openDrawer",
+    optional: true,
+  },
+  {
+    tab: "live",
+    label: "drawer control row (patrow)",
+    mockSelector: ".patrow",
+    appSelector: ".patrow",
+    setupMock: "openDrawer",
+    setupApp: "openDrawer",
+    optional: true,
+  },
+  {
+    tab: "live",
+    label: "drawer range picker",
+    mockSelector: ".drawer .rangepick",
+    appSelector: ".drawer .rangepick",
+    setupMock: "openDrawer",
+    setupApp: "openDrawer",
+    optional: true,
+  },
+
+  // ---- Full-screen history (reached via the drawer's Expand) ----------------------------------
+  {
+    tab: "live",
+    label: "full-screen history panel",
+    mockSelector: ".fs.on, .fs",
+    appSelector: ".fs.on",
+    setupMock: "openFullscreen",
+    setupApp: "openFullscreen",
+    optional: true,
+  },
+  {
+    tab: "live",
+    label: "full-screen header (fshd)",
+    mockSelector: ".fshd",
+    appSelector: ".fs.on .fshd",
+    setupMock: "openFullscreen",
+    setupApp: "openFullscreen",
+    optional: true,
+  },
+  {
+    tab: "live",
+    label: "full-screen body (fsbd)",
+    mockSelector: ".fsbd",
+    appSelector: ".fs.on .fsbd",
+    setupMock: "openFullscreen",
+    setupApp: "openFullscreen",
+    optional: true,
+  },
+];
+
+// ---------------------------------------------------------------------------------------------
+// Normalisation — a real browser already resolved the cascade, so all that's left is comparing
+// two already-computed values fairly (colour formats, "0px" vs "0", trailing decimals).
+// ---------------------------------------------------------------------------------------------
+function normalizeComputedValue(prop, value) {
+  if (value == null) return "";
+  let v = String(value).trim();
+  if (prop === "boxShadow" && v === "none") return "none";
+  // getComputedStyle always returns colours as rgb()/rgba() already, so no hex/name handling is
+  // needed here (unlike the old static-CSS resolver) — just collapse whitespace.
+  v = v.replace(/\s+/g, " ");
+  if (/^0(px)?$/.test(v)) return "0px";
+  return v;
 }
 
+// A browser reports a border-*-color for EVERY element regardless of whether that border is
+// actually visible (border-*-width: 0px) — the colour is resolved (often to `currentcolor`'s
+// computed value) even when nothing will ever paint with it. Comparing that colour when the
+// corresponding width is 0 on BOTH sides is pure noise: neither side draws a border there, so a
+// "different invisible colour" is not a design divergence. Only compare a border side's colour
+// when at least one side actually has a non-zero width for that side.
+const BORDER_COLOR_TO_WIDTH_PROP = {
+  borderTopColor: "borderTopWidth",
+  borderRightColor: "borderRightWidth",
+  borderBottomColor: "borderBottomWidth",
+  borderLeftColor: "borderLeftWidth",
+};
+
+// grid-template-columns on an `auto-fit`/`minmax` track (this app's `.grid2`/`.kpis` layout)
+// resolves to literal pixel track widths that depend on the CONTAINER's rendered width, which can
+// differ a few px between the mock's static page and the app's live layout (e.g. a scrollbar, a
+// sidebar) for reasons that have nothing to do with either page's CSS. What is actually
+// load-bearing here is the number of tracks (does it wrap into the same column count) and whether
+// the tracks are still an equal-width `Nfr`-style split, not the literal px. Compare track COUNT
+// instead of literal px for this one property; the literal string is still shown for reference.
+function summarizeGridTemplateColumns(value) {
+  if (!value || value === "none") return value;
+  const tracks = value.trim().split(/\s+/).filter(Boolean);
+  return `${tracks.length} track(s)`;
+}
+
+function diffComputedStyles(mockStyle, appStyle) {
+  const mismatches = [];
+  for (const prop of TRACKED_PROPS) {
+    if (prop in BORDER_COLOR_TO_WIDTH_PROP) {
+      const widthProp = BORDER_COLOR_TO_WIDTH_PROP[prop];
+      const mockWidth = normalizeComputedValue(widthProp, mockStyle[widthProp]);
+      const appWidth = normalizeComputedValue(widthProp, appStyle[widthProp]);
+      if (mockWidth === "0px" && appWidth === "0px") continue; // invisible on both sides — not a divergence
+    }
+    if (prop === "gridTemplateColumns") {
+      const mockTracks = summarizeGridTemplateColumns(mockStyle[prop]);
+      const appTracks = summarizeGridTemplateColumns(appStyle[prop]);
+      if (mockTracks !== appTracks) {
+        mismatches.push({ prop: "gridTemplateColumns (track count)", mock: mockTracks, app: appTracks });
+      }
+      continue;
+    }
+    const mockV = normalizeComputedValue(prop, mockStyle[prop]);
+    const appV = normalizeComputedValue(prop, appStyle[prop]);
+    if (mockV !== appV) mismatches.push({ prop, mock: mockV, app: appV });
+  }
+  return mismatches;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Browser driving
+// ---------------------------------------------------------------------------------------------
+async function loadPlaywright() {
+  const require = createRequire(join(adminWebDir, "package.json"));
+  try {
+    return require("@playwright/test");
+  } catch (err) {
+    throw new Error(
+      `mock-css-parity: could not load @playwright/test from ${adminWebDir} (${err.message}). ` +
+        "Run this guard from a tree with apps/admin-web dependencies installed (npm install).",
+    );
+  }
+}
+
+async function assertServerUp(url, label) {
+  try {
+    const res = await fetch(url, { method: "GET" });
+    if (!res.ok && res.status >= 500) {
+      throw new Error(`${label} responded with HTTP ${res.status}`);
+    }
+  } catch (err) {
+    throw new Error(
+      `mock-css-parity: ${label} is not reachable at ${url} (${err.message}). ` +
+        "This guard needs both the admin-web dev server (:3318) and the mock static server " +
+        "(:8917) already running -- it never starts them itself. Start them, then re-run.",
+    );
+  }
+}
+
+async function gotoAppTab(page, tab) {
+  await page.goto(APP_TAB_URL(tab), { waitUntil: "networkidle" });
+  await page.waitForSelector(".herd-signals-page", { timeout: 15000 });
+  // Next.js streams this page (Suspense boundaries for the per-tab data fetch resolve after the
+  // initial HTML/JS is already "networkidle"), so content can still swap in a beat after the
+  // selector above first appears. A short settle avoids a false "not found" race.
+  await page.waitForTimeout(400);
+}
+
+async function gotoMockTab(page, tab, { forceReload = false } = {}) {
+  if (!page.__mockLoaded || forceReload) {
+    await page.goto(MOCK_URL, { waitUntil: "networkidle" });
+    page.__mockLoaded = true;
+  }
+  if (tab !== "live") {
+    await page.click(`#segs [data-tab='${tab}']`);
+  } else {
+    // Reset to Live Monitor in case a previous entry navigated the mock's own SPA-style tabs.
+    const onLive = await page.$("#segs [data-tab='live'].on");
+    if (!onLive) await page.click("#segs [data-tab='live']");
+  }
+  await page.waitForTimeout(50); // mock's setTab() is synchronous DOM toggling, not async — small settle margin only
+}
+
+async function openMockDrawer(page) {
+  // Fresh page load first: the mock keeps drawer/scrim in the DOM (just hidden) once opened once,
+  // and a stale `.scrim.on` from an earlier setup call intercepts the row click. Reloading here
+  // guarantees the row is actually clickable, at the cost of one extra full page load per setup.
+  await gotoMockTab(page, "live", { forceReload: true });
+  const row = await page.$("#liveBody table tbody tr:nth-child(1)");
+  if (!row) return false;
+  await row.click();
+  const drawer = await page.waitForSelector(".drawer.on", { timeout: 3000 }).catch(() => null);
+  return Boolean(drawer);
+}
+
+async function openAppDrawer(page) {
+  const row = await page.$(".herd-signals-page table tbody tr:nth-child(1)");
+  if (!row) return false;
+  await row.click();
+  const drawer = await page.waitForSelector(".drawer", { timeout: 5000 }).catch(() => null);
+  return Boolean(drawer);
+}
+
+async function openMockFullscreen(page) {
+  const opened = await openMockDrawer(page);
+  if (!opened) return false;
+  const expand = await page.$(".drawer .hs-btn, .drawer button:has-text('Expand'), .drawer a:has-text('Expand')");
+  if (!expand) return false;
+  await expand.click();
+  const fs = await page.waitForSelector(".fs.on", { timeout: 3000 }).catch(() => null);
+  return Boolean(fs);
+}
+
+async function openAppFullscreen(page) {
+  const opened = await openAppDrawer(page);
+  if (!opened) return false;
+  const expand = await page.$(".drawer .hs-btn, .drawer a:has-text('Expand')");
+  if (!expand) return false;
+  await expand.click();
+  const fs = await page.waitForSelector(".fs.on", { timeout: 5000 }).catch(() => null);
+  return Boolean(fs);
+}
+
+const SETUPS = {
+  openDrawer: { mock: openMockDrawer, app: openAppDrawer },
+  openFullscreen: { mock: openMockFullscreen, app: openAppFullscreen },
+};
+
+async function getComputedStyleOf(page, selector) {
+  return page.evaluate(
+    ([sel, props]) => {
+      const commaSelectors = sel.split(",").map((s) => s.trim());
+      let el = null;
+      for (const s of commaSelectors) {
+        el = document.querySelector(s);
+        if (el) break;
+      }
+      if (!el) return null;
+      const cs = window.getComputedStyle(el);
+      const out = {};
+      for (const p of props) out[p] = cs[p];
+      return out;
+    },
+    [selector, TRACKED_PROPS],
+  );
+}
+
+async function runRenderedComparison() {
+  const { chromium } = await loadPlaywright();
+  await assertServerUp(APP_TAB_URL("live"), "admin-web dev server (:3318)");
+  await assertServerUp(MOCK_URL, "mock static server (:8917)");
+
+  const browser = await chromium.launch({ channel: "chrome" });
+  const mismatches = [];
+  const skipped = [];
+  try {
+    const mockPage = await browser.newPage({ viewport: VIEWPORT });
+    const appPage = await browser.newPage({ viewport: VIEWPORT });
+
+    const tabsLoaded = new Set();
+    const setupsDone = new Set(); // `${tab}:${setupKey}` -> already applied on this page load
+
+    for (const entry of ELEMENT_REGISTRY) {
+      const mockTabKey = `mock:${entry.tab}`;
+      const appTabKey = `app:${entry.tab}`;
+      if (!tabsLoaded.has(mockTabKey) && !entry.setupMock) {
+        await gotoMockTab(mockPage, entry.tab);
+      }
+      if (!tabsLoaded.has(appTabKey) && !entry.setupApp) {
+        await gotoAppTab(appPage, entry.tab);
+        tabsLoaded.add(appTabKey);
+      }
+      if (!entry.setupMock) tabsLoaded.add(mockTabKey);
+
+      if (entry.setupMock) {
+        const setupKey = `mock:${entry.tab}:${entry.setupMock}`;
+        if (!setupsDone.has(setupKey)) {
+          await gotoMockTab(mockPage, entry.tab);
+          const ok = await SETUPS[entry.setupMock].mock(mockPage);
+          if (ok) setupsDone.add(setupKey);
+          else if (!entry.optional) {
+            mismatches.push({
+              tab: entry.tab,
+              label: entry.label,
+              prop: "(setup)",
+              mock: "could not reach this element via the mock's UI (row click / Expand)",
+              app: "",
+            });
+            continue;
+          } else {
+            skipped.push({ tab: entry.tab, label: entry.label, reason: "mock-side setup interaction did not produce the element (no row to click, or Expand not found)" });
+            continue;
+          }
+        }
+      }
+      if (entry.setupApp) {
+        const setupKey = `app:${entry.tab}:${entry.setupApp}`;
+        if (!setupsDone.has(setupKey)) {
+          await gotoAppTab(appPage, entry.tab);
+          const ok = await SETUPS[entry.setupApp].app(appPage);
+          if (ok) setupsDone.add(setupKey);
+          else if (!entry.optional) {
+            mismatches.push({
+              tab: entry.tab,
+              label: entry.label,
+              prop: "(setup)",
+              mock: "",
+              app: "could not reach this element via the app's UI (row click / Expand)",
+            });
+            continue;
+          } else {
+            skipped.push({ tab: entry.tab, label: entry.label, reason: "app-side setup interaction did not produce the element (no row loaded, or Expand not found)" });
+            continue;
+          }
+        }
+      }
+
+      const mockStyle = await getComputedStyleOf(mockPage, entry.mockSelector);
+      const appStyle = await getComputedStyleOf(appPage, entry.appSelector);
+
+      if (!mockStyle || !appStyle) {
+        if (entry.optional) {
+          skipped.push({
+            tab: entry.tab,
+            label: entry.label,
+            reason: !mockStyle && !appStyle ? "element not found on either side" : !mockStyle ? "element not found in mock" : "element not found in app",
+          });
+          continue;
+        }
+        mismatches.push({
+          tab: entry.tab,
+          label: entry.label,
+          prop: "(existence)",
+          mock: mockStyle ? "present" : `NOT FOUND (selector: ${entry.mockSelector})`,
+          app: appStyle ? "present" : `NOT FOUND (selector: ${entry.appSelector})`,
+        });
+        continue;
+      }
+
+      for (const d of diffComputedStyles(mockStyle, appStyle)) {
+        mismatches.push({ tab: entry.tab, label: entry.label, prop: d.prop, mock: d.mock, app: d.app });
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+  return { mismatches, skipped };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Banned-reintroduction scan (unchanged from v1-v3) — plain source grep, no browser needed.
+// ---------------------------------------------------------------------------------------------
 function walkTsx(dir, out = []) {
   if (!existsSync(dir)) return out;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -753,40 +630,12 @@ function walkTsx(dir, out = []) {
   return out;
 }
 
-function checkModule(mod) {
-  const missing = [];
-  const mismatches = [];
-  const unresolvedNotes = [];
+function scanBannedDivergences(componentsDir) {
   const banned = [];
-
-  const mockPath = join(repoRoot, mod.mock);
-  if (!existsSync(mockPath)) return { missing, mismatches, unresolvedNotes, banned, scanned: 0 };
-  const mockSource = readFileSync(mockPath, "utf8");
-
-  const mockClasses = classesDefinedIn(mockSource);
-  const mockVars = parseRootVars(mockSource);
-  const mockRules = getSimpleClassRules(mockSource);
-
-  const styled = new Set();
-  const appVars = {};
-  const appScopedRules = new Map(); // cls -> [{props, specificity, order, selectorText}], scope-aware (v3)
-  for (const sheet of mod.stylesheets) {
-    const p = join(repoRoot, sheet);
-    if (!existsSync(p)) continue;
-    const sheetSource = readFileSync(p, "utf8");
-    for (const c of classesDefinedIn(sheetSource)) styled.add(c);
-    Object.assign(appVars, parseRootVars(sheetSource));
-    for (const [cls, entries] of getScopedClassRules(sheetSource)) {
-      if (!appScopedRules.has(cls)) appScopedRules.set(cls, []);
-      appScopedRules.get(cls).push(...entries);
-    }
-  }
-
-  const files = walkTsx(join(repoRoot, mod.componentsDir));
+  const files = walkTsx(join(repoRoot, componentsDir));
   for (const file of files) {
     const relFile = file.replace(`${repoRoot}/`, "");
     const source = readFileSync(file, "utf8");
-
     for (const divergence of DELIBERATE_MOCK_DIVERGENCES) {
       for (const pattern of divergence.forbiddenInComponents) {
         if (pattern.test(source)) {
@@ -794,179 +643,89 @@ function checkModule(mod) {
         }
       }
     }
-
-    const used = classesUsedIn(source);
-    for (const cls of used) {
-      if (!mockClasses.has(cls)) continue; // mock is not the authority on this class
-      if (!styled.has(cls)) {
-        missing.push({ file: relFile, cls, mock: mod.mock });
-        continue;
-      }
-      const mockProps = mockRules.has(cls) ? resolveDeclProps(mockRules.get(cls)) : null;
-      if (!mockProps || Object.keys(mockProps).length === 0) continue; // no simple-selector rule to compare (e.g. compound-only)
-      const { props: appProps, ambiguousProps } = appScopedRules.has(cls)
-        ? resolveScopedProps(appScopedRules.get(cls))
-        : { props: {}, ambiguousProps: new Set() };
-      const { mismatches: found, unresolvedNotes: notes } = compareClassDeclarations(
-        cls,
-        mockProps,
-        appProps,
-        mockVars,
-        appVars,
-        ambiguousProps,
-      );
-      for (const f of found) {
-        mismatches.push({ file: relFile, cls, mockFile: mod.mock, prop: f.prop, mockValue: f.mock, appValue: f.app });
-      }
-      unresolvedNotes.push(...notes);
-    }
   }
-  return { missing, mismatches, unresolvedNotes: [...new Set(unresolvedNotes)], banned, scanned: files.length };
+  return { banned, scanned: files.length };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Self-test — pure-function checks only (normalisation, banned-pattern scan). Does NOT launch a
+// browser and does NOT require either dev server, so it can run in any environment/CI shell.
+// ---------------------------------------------------------------------------------------------
 function selfTest() {
   const problems = [];
 
-  const usedOk = classesUsedIn('<div className="grid2 card" />');
-  const usedTpl = classesUsedIn("<div className={`kpi ${tone}`} />");
-  const defined = classesDefinedIn(".grid2{display:grid}\n.kpi .val{font-weight:700}");
-  if (!usedOk.has("grid2") || !usedOk.has("card")) problems.push("static className not parsed");
-  if (!usedTpl.has("kpi")) problems.push("template-literal static part not parsed");
-  if (usedTpl.has("tone")) problems.push("interpolation leaked into class list");
-  if (!defined.has("grid2") || !defined.has("kpi") || !defined.has("val")) problems.push("selector parse failed");
-
-  // Declaration comparison: FAIL case — same class name, genuinely different colour.
+  // normalizeComputedValue: colours from getComputedStyle are already rgb()/rgba() text — must
+  // compare equal when identical, and whitespace/zero-unit noise must not cause false positives.
   {
-    const mockCss = ".badge{color:#ff0000;padding:4px 8px}";
-    const appCss = ".badge{color:#00ff00;padding:4px 8px}";
-    const mockRules = getSimpleClassRules(mockCss);
-    const appRules = getSimpleClassRules(appCss);
-    const mockProps = resolveDeclProps(mockRules.get("badge"));
-    const appProps = resolveDeclProps(appRules.get("badge"));
-    const { mismatches } = compareClassDeclarations("badge", mockProps, appProps, {}, {});
-    if (!mismatches.some((m) => m.prop === "color")) problems.push("declaration diff did not catch a real colour mismatch");
+    const a = normalizeComputedValue("color", "rgb(255, 0, 0)");
+    const b = normalizeComputedValue("color", "rgb(255,   0, 0)");
+    if (a !== b) problems.push("normalizeComputedValue did not collapse whitespace noise in an identical colour");
+  }
+  {
+    const a = normalizeComputedValue("paddingTop", "0px");
+    const b = normalizeComputedValue("paddingTop", "0");
+    if (a !== b) problems.push("normalizeComputedValue did not treat '0px' and '0' as equal");
+  }
+  {
+    const mismatches = diffComputedStyles(
+      { color: "rgb(255, 0, 0)", fontSize: "11px" },
+      { color: "rgb(0, 255, 0)", fontSize: "11px" },
+    );
+    if (!mismatches.some((m) => m.prop === "color")) problems.push("diffComputedStyles did not catch a real colour divergence");
+    if (mismatches.some((m) => m.prop === "fontSize")) problems.push("diffComputedStyles false-positived on an identical fontSize");
+  }
+  {
+    // Every tracked prop absent on both sides (e.g. undefined key) must not be reported as a diff
+    // (both normalise to the empty string) — this guards against every entry accidentally
+    // reporting every untouched TRACKED_PROPS key as a mismatch.
+    const mismatches = diffComputedStyles({}, {});
+    if (mismatches.length) problems.push("diffComputedStyles reported mismatches for two empty style objects");
   }
 
-  // Declaration comparison: PASS case — hex vs rgb() of the same colour must not fire.
+  // Zero-width border noise: identical zero widths on both sides must suppress a colour diff, but
+  // a REAL colour divergence on a border that is actually drawn (non-zero width somewhere) must
+  // still be caught.
   {
-    const mockCss = ".chip{color:#ff0000}";
-    const appCss = ".chip{color:rgb(255, 0, 0)}";
-    const mockProps = resolveDeclProps(getSimpleClassRules(mockCss).get("chip"));
-    const appProps = resolveDeclProps(getSimpleClassRules(appCss).get("chip"));
-    const { mismatches } = compareClassDeclarations("chip", mockProps, appProps, {}, {});
-    if (mismatches.length) problems.push("declaration diff false-positived on hex vs rgb() of the same colour");
+    const invisible = diffComputedStyles(
+      { borderTopColor: "rgb(1,1,1)", borderTopWidth: "0px" },
+      { borderTopColor: "rgb(2,2,2)", borderTopWidth: "0px" },
+    );
+    if (invisible.some((m) => m.prop === "borderTopColor")) problems.push("a border colour diff was reported for a border that is 0px wide on both sides");
+  }
+  {
+    const visible = diffComputedStyles(
+      { borderTopColor: "rgb(1,1,1)", borderTopWidth: "1px" },
+      { borderTopColor: "rgb(2,2,2)", borderTopWidth: "1px" },
+    );
+    if (!visible.some((m) => m.prop === "borderTopColor")) problems.push("a real border colour divergence on a visibly-drawn border was suppressed");
   }
 
-  // Declaration comparison: PASS case — var() resolving to the mock's literal must not fire.
+  // grid-template-columns: compare track COUNT, not literal px (container-width layout noise).
   {
-    const mockCss = ".pill{background:#7ccb45}";
-    const appCss = ".pill{background:var(--brand)}";
-    const appVars = { "--brand": "#7ccb45" };
-    const mockProps = resolveDeclProps(getSimpleClassRules(mockCss).get("pill"));
-    const appProps = resolveDeclProps(getSimpleClassRules(appCss).get("pill"));
-    const { mismatches, unresolvedNotes } = compareClassDeclarations("pill", mockProps, appProps, {}, appVars);
-    if (mismatches.length) problems.push("declaration diff false-positived on var() resolving to the mock's literal");
-    if (unresolvedNotes.length) problems.push("var() that resolves cleanly was reported as unresolved");
+    const sameCount = diffComputedStyles(
+      { gridTemplateColumns: "182px 182px 182px" },
+      { gridTemplateColumns: "179.5px 179.5px 179.5px" },
+    );
+    if (sameCount.some((m) => m.prop.startsWith("gridTemplateColumns"))) problems.push("gridTemplateColumns compared literal px instead of track count, false-positiving on layout-width noise");
+  }
+  {
+    const diffCount = diffComputedStyles({ gridTemplateColumns: "182px 182px 182px" }, { gridTemplateColumns: "179.5px 179.5px" });
+    if (!diffCount.some((m) => m.prop.startsWith("gridTemplateColumns"))) problems.push("gridTemplateColumns did not catch a real track-count divergence (3 columns vs 2)");
   }
 
-  // Declaration comparison: an unresolvable var() must be reported, not silently passed or failed.
-  {
-    const mockCss = ".ghost{color:#111111}";
-    const appCss = ".ghost{color:var(--not-defined-anywhere)}";
-    const mockProps = resolveDeclProps(getSimpleClassRules(mockCss).get("ghost"));
-    const appProps = resolveDeclProps(getSimpleClassRules(appCss).get("ghost"));
-    const { mismatches, unresolvedNotes } = compareClassDeclarations("ghost", mockProps, appProps, {}, {});
-    if (mismatches.length) problems.push("unresolvable var() was reported as a hard mismatch instead of unresolved");
-    if (!unresolvedNotes.length) problems.push("unresolvable var() was silently dropped instead of being reported");
-  }
-
-  // Compound-selector classes (e.g. `.srcl.inferred`) must not manufacture a declaration to compare.
-  {
-    const mockCss = ".srcl.inferred{background:#a78bf5}";
-    const mockRules = getSimpleClassRules(mockCss);
-    if (mockRules.has("inferred")) problems.push("compound selector leaked into the simple-class-rule map");
-  }
-
-  // Scoped resolution (v3): a scoped app rule matching the mock must PASS — this is the exact
-  // shape (`.herd-signals-page .fbar`) the guard used to be blind to and would false-positive on.
-  {
-    const mockCss = ".fbar{display:flex;gap:8px;padding:10px 14px}";
-    const appCss = ".herd-signals-page .fbar{display:flex;gap:8px;padding:10px 14px}";
-    const mockProps = resolveDeclProps(getSimpleClassRules(mockCss).get("fbar"));
-    const scoped = getScopedClassRules(appCss).get("fbar") || [];
-    const { props: appProps, ambiguousProps } = resolveScopedProps(scoped);
-    const { mismatches } = compareClassDeclarations("fbar", mockProps, appProps, {}, {}, ambiguousProps);
-    if (mismatches.length) problems.push("scoped resolution false-positived on a correctly-scoped rule matching the mock");
-  }
-
-  // Scoped resolution: a scoped app rule that genuinely diverges from the mock must FAIL.
-  {
-    const mockCss = ".fbar{padding:10px 14px}";
-    const appCss = ".herd-signals-page .fbar{padding:4px 4px}";
-    const mockProps = resolveDeclProps(getSimpleClassRules(mockCss).get("fbar"));
-    const scoped = getScopedClassRules(appCss).get("fbar") || [];
-    const { props: appProps, ambiguousProps } = resolveScopedProps(scoped);
-    const { mismatches } = compareClassDeclarations("fbar", mockProps, appProps, {}, {}, ambiguousProps);
-    if (!mismatches.length) problems.push("scoped resolution did not catch a real divergence in a scoped rule");
-  }
-
-  // Scoped resolution: a bare app-wide rule must lose to a same-feature scoped override.
-  {
-    const mockCss = ".btn{padding:7px 12px}";
-    const appCss = ".btn{padding:8px 13px}\n.herd-signals-page .fs .btn{padding:7px 12px}";
-    const mockProps = resolveDeclProps(getSimpleClassRules(mockCss).get("btn"));
-    const scoped = getScopedClassRules(appCss).get("btn") || [];
-    const { props: appProps, ambiguousProps } = resolveScopedProps(scoped);
-    const { mismatches } = compareClassDeclarations("btn", mockProps, appProps, {}, {}, ambiguousProps);
-    if (mismatches.length) problems.push("scoped resolution let a lower-specificity bare rule beat a higher-specificity scoped override");
-  }
-
-  // Scoped resolution: a compound modifier rule (`.btn.dng`) must never bleed into the BASE
-  // class's resolution — it only matches elements that also carry the modifier class.
-  {
-    const appCss = ".btn{color:#111}\n.btn.dng{color:#f00}";
-    const scoped = getScopedClassRules(appCss).get("btn") || [];
-    const { props } = resolveScopedProps(scoped);
-    if (props.color !== "#111") problems.push("a compound modifier rule (.btn.dng) leaked into the base class (.btn) resolution");
-    const dngScoped = getScopedClassRules(appCss).get("dng") || [];
-    if (!dngScoped.length) problems.push("a compound modifier rule (.btn.dng) did not attach to its own last-class token (dng)");
-  }
-
-  // Scoped resolution: equal-specificity rules under DIFFERENT scopes that disagree on a property
-  // (e.g. `.drawer .hchart` vs `.fs .hchart`) must be reported as a NOTE, never a FAIL — this is
-  // the maintainer's explicit example of legitimate context-dependent styling.
-  {
-    const appCss = ".herd-signals-page .drawer .hchart{height:110px}\n.herd-signals-page .fs .hchart{height:240px}";
-    const scoped = getScopedClassRules(appCss).get("hchart") || [];
-    const { ambiguousProps } = resolveScopedProps(scoped);
-    if (!ambiguousProps.has("height")) problems.push("equal-specificity, different-scope divergence was not flagged as context-dependent");
-
-    // height isn't in the tracked-props list; use a tracked one (gap) to prove the end-to-end NOTE path.
-    const mockCss2 = ".x{gap:8px}";
-    const appCss2 = ".herd-signals-page .drawer .x{gap:4px}\n.herd-signals-page .fs .x{gap:12px}";
-    const mockProps2 = resolveDeclProps(getSimpleClassRules(mockCss2).get("x"));
-    const scoped2 = getScopedClassRules(appCss2).get("x") || [];
-    const { props: appProps2, ambiguousProps: amb2 } = resolveScopedProps(scoped2);
-    const { mismatches: m2, unresolvedNotes: notes2 } = compareClassDeclarations("x", mockProps2, appProps2, {}, {}, amb2);
-    if (m2.length) problems.push("context-dependent equal-specificity divergence was reported as a mismatch instead of a note");
-    if (!notes2.some((n) => n.includes("context-dependent"))) problems.push("context-dependent divergence produced no NOTE");
-  }
-
-  // Scoped resolution: pseudo-class / attribute-conditioned selectors stay out of scope.
-  {
-    const appCss = ".herd-signals-page .btn:hover{color:red}\n.herd-signals-page .btn[disabled]{color:blue}";
-    const scoped = getScopedClassRules(appCss).get("btn") || [];
-    if (scoped.length) problems.push("pseudo-class/attribute selector leaked into scoped rule resolution");
-  }
-
-  // Regression: a comment sitting directly above a rule, whose prose happens to contain a colon
-  // (e.g. "chartnote:"), must not get swallowed into the selector text and trip the pseudo
-  // exclusion — this silently dropped a real, correctly-scoped .chartnote rule during development.
-  {
-    const appCss =
-      "/* Mock's .chartnote: the small print under a chart. */\n.herd-signals-page .chartnote{color:#111}";
-    const scoped = getScopedClassRules(appCss).get("chartnote") || [];
-    if (!scoped.length) problems.push("a comment containing ':' directly above a rule was swallowed into the selector and dropped the rule");
+  // Registry sanity: every entry must name a tab, a label, and both selectors; optional entries
+  // must be explicitly marked, not implied. This catches a copy-paste registry entry missing a
+  // field, which would otherwise only surface as a confusing runtime error mid-way through a run.
+  for (const entry of ELEMENT_REGISTRY) {
+    if (!entry.tab || !entry.label || !entry.mockSelector || !entry.appSelector) {
+      problems.push(`ELEMENT_REGISTRY entry missing a required field: ${JSON.stringify(entry)}`);
+    }
+    if ((entry.setupMock && !entry.setupApp) || (!entry.setupMock && entry.setupApp)) {
+      problems.push(`ELEMENT_REGISTRY entry "${entry.label}" sets setupMock/setupApp on only one side — pairing must apply the same interaction to both`);
+    }
+    if (entry.setupMock && !SETUPS[entry.setupMock]) {
+      problems.push(`ELEMENT_REGISTRY entry "${entry.label}" references unknown setup "${entry.setupMock}"`);
+    }
   }
 
   // Banned-divergence scan: the literal battery-life text must be caught even though its class
@@ -986,61 +745,54 @@ function selfTest() {
     console.error(`check-mock-css-parity self-test: FAIL\n- ${problems.join("\n- ")}`);
     process.exit(1);
   }
-  console.log("check-mock-css-parity self-test: PASS");
+  console.log("check-mock-css-parity self-test: PASS (pure-function checks only -- run without --self-test to drive the real browser comparison)");
   process.exit(0);
 }
 
 if (process.argv.includes("--self-test")) selfTest();
 
-let totalMissing = 0;
-let totalMismatches = 0;
-let totalBanned = 0;
-let scanned = 0;
-const allUnresolved = [];
+// ---------------------------------------------------------------------------------------------
+// Main: rendered-style comparison + banned-reintroduction scan.
+// ---------------------------------------------------------------------------------------------
+const MODULE_COMPONENTS_DIR = "apps/admin-web/features/herd-signals";
 
-for (const mod of MODULES) {
-  const { missing, mismatches, unresolvedNotes, banned, scanned: n } = checkModule(mod);
-  scanned += n;
-  allUnresolved.push(...unresolvedNotes);
+const { banned, scanned } = scanBannedDivergences(MODULE_COMPONENTS_DIR);
 
-  for (const f of missing) {
-    if (totalMissing === 0) console.error("mock-css-parity: a rendered class has no rule in the app stylesheet");
-    console.error(
-      `- ${f.file}: class "${f.cls}" is defined in ${f.mock} but has NO rule in the app stylesheet — port the mock's CSS, do not ship the markup alone`,
-    );
-    totalMissing += 1;
+const { mismatches, skipped } = await runRenderedComparison().catch((err) => {
+  console.error(err.message || String(err));
+  process.exit(2);
+});
+
+if (skipped.length) {
+  console.error("mock-css-parity: skipped (ambiguous or unreachable pairing, not compared, not a failure):");
+  for (const s of skipped) console.error(`- [${s.tab}] ${s.label}: ${s.reason}`);
+}
+
+let total = 0;
+if (mismatches.length) {
+  console.error("\nmock-css-parity: computed-style divergence between the mock and the live app:");
+  for (const m of mismatches) {
+    console.error(`- [${m.tab}] ${m.label} — ${m.prop}: mock="${m.mock}" live="${m.app}"`);
+    total += 1;
   }
+}
 
-  for (const f of mismatches) {
-    if (totalMismatches === 0) console.error("mock-css-parity: a rendered class is styled, but its declarations diverge from the mock");
-    console.error(
-      `- ${f.file}: class "${f.cls}" property "${f.prop}" — mock (${f.mockFile}) has "${f.mockValue}", app has "${f.appValue}"`,
-    );
-    totalMismatches += 1;
-  }
-
+if (banned.length) {
+  console.error("\nmock-css-parity: a deliberately-deleted mock element has reappeared:");
   for (const f of banned) {
-    if (totalBanned === 0) console.error("mock-css-parity: a deliberately-deleted mock element has reappeared");
     console.error(`- ${f.file}: matched banned pattern ${f.pattern} for divergence "${f.id}" — ${f.reason}`);
-    totalBanned += 1;
+    total += 1;
   }
 }
 
-if (allUnresolved.length) {
-  console.error("\nmock-css-parity: could not fully resolve the following (not counted as failures — reported so the gap is visible):");
-  for (const note of allUnresolved) console.error(`- ${note}`);
-}
-
-const total = totalMissing + totalMismatches + totalBanned;
 if (total > 0) {
   console.error(
-    `\n${totalMissing} missing-style finding(s), ${totalMismatches} declaration-mismatch finding(s), ${totalBanned} banned-reintroduction finding(s).`,
-  );
-  console.error(
-    "Porting markup from a mock without porting (or matching) its CSS renders unstyled or wrong, not broken: no type error, no test failure, just a screen that does not match the design.",
+    `\n${mismatches.length} rendered-style mismatch(es), ${banned.length} banned-reintroduction finding(s), ` +
+      `${skipped.length} pairing(s) skipped as ambiguous/unreachable (not counted as failures).`,
   );
   process.exit(1);
 }
 console.log(
-  `mock-css-parity: ok (${scanned} component file(s) scanned against ${MODULES.length} mock(s); ${allUnresolved.length} unresolved value(s) noted above)`,
+  `mock-css-parity: ok (${ELEMENT_REGISTRY.length - skipped.length} rendered-style comparison(s) across ${new Set(ELEMENT_REGISTRY.map((e) => e.tab)).size} tab(s), ` +
+    `${skipped.length} skipped as ambiguous/unreachable, ${scanned} component file(s) scanned for banned reintroductions).`,
 );
