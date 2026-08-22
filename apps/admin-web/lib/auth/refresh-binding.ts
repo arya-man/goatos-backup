@@ -4,7 +4,7 @@
 // The id-token cookie is verified (the session route audits it through the
 // backend, which checks the Firebase signature). The long-lived refresh token is
 // the DURABLE credential — after the ~1h id token lapses, SSR mints new id tokens
-// from it for up to 14 days. An unbound refresh token lets a caller pair account
+// from it for up to 90 days. An unbound refresh token lets a caller pair account
 // A's (verified) id token with account B's refresh token: the session starts as A
 // and silently becomes B once the id token expires. So the refresh token must be
 // proven to belong to the same user before it is persisted.
