@@ -39,6 +39,11 @@ type AppService interface {
 	GetTimeline(ctx context.Context, actor domain.Actor, tagID, from, to string, bucketSeconds int) (domain.TimelineResponse, error)
 	ListGateways(ctx context.Context, actor domain.Actor) (domain.GatewaysResponse, error)
 	GetInsights(ctx context.Context, actor domain.Actor) (domain.InsightsResponse, error)
+	// The mapping WRITES (see mapping_http.go): the module's first write surface beyond ingest.
+	BindTagMapping(ctx context.Context, actor domain.Actor, req domain.BindTagMappingRequest) (domain.TagMappingResponse, error)
+	SetSmartTagCapable(ctx context.Context, actor domain.Actor, identifierID string, req domain.SetSmartTagCapableRequest) (domain.TagMappingResponse, error)
+	ReplaceTagMapping(ctx context.Context, actor domain.Actor, req domain.ReplaceTagMappingRequest) (domain.TagMappingResponse, error)
+	RecordGatewayHeartbeat(ctx context.Context, actor domain.Actor, req domain.GatewayHeartbeatRequest) (domain.GatewayHeartbeatResponse, error)
 	ExportCSV(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, q *string, w io.Writer) error
 	GetTagActivity(ctx context.Context, actor domain.Actor, tagID, from, to string) (domain.ActivityResponse, error)
 }
@@ -65,6 +70,12 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /herd-signals/tags/{tag_id}/timeline", h.GetTimeline)
 	mux.HandleFunc("GET /herd-signals/gateways", h.ListGateways)
 	mux.HandleFunc("GET /herd-signals/insights", h.GetInsights)
+	// Mapping writes. Permission-gated separately from the reads above (herd_signals.map).
+	mux.HandleFunc("POST /herd-signals/tag-mappings", h.BindTagMapping)
+	mux.HandleFunc("POST /herd-signals/tag-mappings/replace", h.ReplaceTagMapping)
+	mux.HandleFunc("POST /herd-signals/identifiers/{identifier_id}/smart-tag", h.SetSmartTagCapable)
+	// Gateway heartbeat ingest: a device write, gated with the ingest permission.
+	mux.HandleFunc("POST /herd-signals/heartbeats", h.RecordGatewayHeartbeat)
 	mux.HandleFunc("GET /herd-signals/export.csv", h.ExportCSV)
 	mux.HandleFunc("GET /herd-signals/tags/{tag_id}/activity", h.GetTagActivity)
 }

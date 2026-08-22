@@ -117,8 +117,12 @@ type Gateway struct {
 	NetworkMode string
 	Status      string // "active" (default), "inactive", "error"
 	LastSeenAt  *time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// LastPktSN is the highest scan-report sequence number carried by the batch being ingested.
+	// The repository compares it to the stored value to accrue packet loss (forward jump) or
+	// count a reboot (decrease) -- see migration 000197.
+	LastPktSN *int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Packet represents a raw BLE advertisement packet.
@@ -145,9 +149,16 @@ type Packet struct {
 	SensorState           *int16
 	TemperatureSensorOK   *bool
 	AccelerometerSensorOK *bool
-	RawAdv                *string
-	RawPayload            map[string]interface{}
-	CreatedAt             time.Time
+	// PktSN is the GATEWAY's per-report sequence number for the scan report this packet arrived
+	// in -- the ONLY packet-loss instrument this protocol gives us (nothing else says "there was
+	// a report between these two you never received"). Previously only stashed inside RawPayload
+	// jsonb, where it can neither be aggregated nor compared across process restarts. A DECREASE
+	// means the gateway rebooted, handled like the motion counter reset: re-anchor, never a
+	// negative loss.
+	PktSN      *int64
+	RawAdv     *string
+	RawPayload map[string]interface{}
+	CreatedAt  time.Time
 }
 
 // TagLatest represents the per-tag snapshot (latest state).
@@ -249,8 +260,12 @@ type IngestPacket struct {
 	SensorState           *int16   `json:"sensor_state"`
 	TemperatureSensorOK   *bool    `json:"temperature_sensor_ok"`
 	AccelerometerSensorOK *bool    `json:"accelerometer_sensor_ok"`
-	RawAdv                *string  `json:"raw_adv"`
-	SeenAt                string   `json:"seen_at"` // RFC3339 timestamp (server-relevant capture time; received_at is derived from server processing, this is what the caller asserts as when the tag was heard)
+	// PktSN is the gateway scan report's sequence number (see domain.Packet.PktSN). Optional:
+	// older firmware and the CSV replay path do not carry one, and a packet with no sequence
+	// number is still real sensor data -- it simply cannot contribute to loss accounting.
+	PktSN  *int64  `json:"pkt_sn"`
+	RawAdv *string `json:"raw_adv"`
+	SeenAt string  `json:"seen_at"` // RFC3339 timestamp (server-relevant capture time; received_at is derived from server processing, this is what the caller asserts as when the tag was heard)
 	// GatewaySeenAt is this PACKET's own gateway-clock timestamp (RFC3339, uncorrected -- the
 	// gateway payload audit found one gateway running a constant +02:30:00 ahead of real IST).
 	// Optional: older firmware may only send the envelope-level batch timestamp
