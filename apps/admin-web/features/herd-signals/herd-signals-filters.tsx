@@ -6,6 +6,7 @@ import { useHerdSignalsNav } from "./herd-signals-nav-context";
 import { herdSignalsHref, herdSignalsResetHref, type HerdSignalsParams } from "./params";
 
 export type ShedOption = { id: string; label: string };
+export type ParkOption = { id: string; label: string };
 
 const MOVEMENT_OPTIONS = Object.entries(MOVEMENT_LABEL) as [keyof typeof MOVEMENT_LABEL, string][];
 const MAPPING_OPTIONS = Object.entries(MAPPING_LABEL) as [keyof typeof MAPPING_LABEL, string][];
@@ -18,9 +19,11 @@ const PATTERN_OPTIONS: [string, string][] = (["inactive", "quiet_watch", "spike"
 export function HerdSignalsFilters({
   params,
   sheds,
+  parks,
 }: {
   params: HerdSignalsParams;
   sheds: ShedOption[];
+  parks: ParkOption[];
 }) {
   const { isPending, navigate } = useHerdSignalsNav();
   // Synced from the URL's own hs_q on every navigation, using React's "adjust state during render"
@@ -76,6 +79,22 @@ export function HerdSignalsFilters({
             ✕
           </button>
         ) : null}
+      </span>
+
+      <span className="fsel">
+        Park
+        <select
+          aria-label="Park"
+          value={params.parkId ?? ""}
+          onChange={(event) => go(herdSignalsHref(params, { park: event.target.value || undefined }))}
+        >
+          <option value="">All parks</option>
+          {parks.map((park) => (
+            <option key={park.id} value={park.id}>
+              {park.label}
+            </option>
+          ))}
+        </select>
       </span>
 
       <span className="fsel">
