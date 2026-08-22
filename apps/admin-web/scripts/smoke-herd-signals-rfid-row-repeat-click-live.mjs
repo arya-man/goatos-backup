@@ -23,14 +23,18 @@ try {
   }
   if (rowIndex < 0) throw new Error("No RFID-first live row found");
 
-  const row = rows.nth(rowIndex);
-  const smartTag = (await row.locator("td[data-l='Smart tag'] .mono").first().textContent())?.trim() ?? "";
+  const initialRow = rows.nth(rowIndex);
+  const smartTag = (await initialRow.locator("td[data-l='Smart tag'] .mono").first().textContent())?.trim() ?? "";
+  if (!smartTag) throw new Error("RFID-first live row did not include a smart tag");
+  const rfid = animal.split("\n")[0];
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const row = rows.filter({ hasText: smartTag }).filter({ hasText: rfid }).first();
+    await row.waitFor({ state: "visible", timeout: 5_000 });
     await row.click({ position: { x: 18, y: 18 } });
     await page.waitForSelector("aside.drawer.on", { timeout: 5_000 });
     const title = (await page.locator("aside.drawer.on .dh b").first().innerText()).trim();
-    if (!title.startsWith(`${animal.split("\n")[0]} · ${smartTag}`)) {
+    if (!title.startsWith(`${rfid} · ${smartTag}`)) {
       throw new Error(`Attempt ${attempt} opened wrong drawer title: ${JSON.stringify(title)}`);
     }
     await page.locator("aside.drawer.on button[aria-label='Close tag detail']").click();
@@ -43,6 +47,7 @@ try {
     JSON.stringify(
       {
         animal,
+        rfid,
         smartTag,
         rowIndex,
         repeatedClicksOpenedDrawer: true,
