@@ -189,21 +189,37 @@ variables/templates — see the guard's own header comment for its full,
 explicit blind-spot list. Review still has to read for paraphrase; the
 guard only catches the literal terms.
 
-**The lesson underneath this guard's three review rounds, worth keeping in
-mind for any future edit to it:** every real defect found was never about
-the banned-word list — it was about the SCOPE the negation is judged in.
-Round 1 judged negation per physical LINE, and failed the product's own
-mandatory disclaimer the moment JSX wrapped it across two lines. Round 2
-widened that to a flat N-line WINDOW, which fixed the wrap but then let an
-unrelated "no"/"not" in a fully-unrelated, already-ended PRIOR sentence
-silently suppress a genuine claim just by being nearby. Round 3 replaced
-the line/window scope with a SENTENCE scope (walk outward until a real
-sentence boundary — punctuation+capital, blank line, JSX tag edge, list
-item — including boundaries that fall mid-line, not just at line ends). If
-this guard grows a fourth defect, look first at whether the negation-scope
-boundary logic in `buildSentenceWindow`/`splitIntoSentenceFragments` is
-wrong for some new shape of prose, before touching the banned-term list —
-that is where every prior bug actually lived.
+**The lesson underneath this guard's review rounds, worth keeping in mind
+for any future edit to it:** every real defect found was never about the
+banned-word list — it was about the SCOPE the negation is judged in, and
+that scope bug has appeared at FOUR different granularities in turn:
+
+1. Physical LINE (round 1) — failed the product's own mandatory disclaimer
+   the moment JSX wrapped it across two lines.
+2. A flat N-line WINDOW (round 2) — fixed the wrap, but then let an
+   unrelated "no"/"not" in a fully-unrelated, already-ended PRIOR sentence
+   silently suppress a genuine claim just by being nearby.
+3. The SENTENCE, but only at line granularity (round 3) — walking outward
+   until a real sentence boundary (punctuation+capital, blank line, JSX tag
+   edge, list item) fixed cross-line wrapping, but a boundary was only ever
+   looked for at line ENDS, so two independent sentences sharing one
+   physical line were still treated as a single blob.
+4. The LINE, even after mid-line splitting (round 4) — sentences on a line
+   were correctly split into fragments, but the code still only looked at
+   the FIRST banned-term occurrence per line, so a denial fragment anywhere
+   on a line silently licensed a later, unrelated claim fragment on that
+   SAME line ("the tag does not detect eating. The gateway confirms the
+   animal is eating now." → only the first "eating" was ever judged).
+
+The general statement, which is what actually needed fixing: **the unit of
+judgement is the individual term OCCURRENCE and the sentence ENCLOSING IT**
+— never the line, never a fixed window, never "does this broader span
+contain a denial anywhere." Every prior version of this guard failed by
+judging something LARGER than that unit. If this guard grows a fifth
+defect, look first at whether `buildSentenceWindow` /
+`splitIntoSentenceFragments` / `fragmentOrdinalForOffset` correctly isolate
+one occurrence's own sentence before touching the banned-term list — that
+is where every prior bug actually lived.
 
 ## Escape hatch (used sparingly, must be complete)
 
