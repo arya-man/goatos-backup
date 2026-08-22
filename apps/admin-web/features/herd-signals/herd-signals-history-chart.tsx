@@ -45,7 +45,7 @@ export function HistoryChart({
   const rawMaxDelta = Math.max(1, ...buckets.map((bucket) => bucket.motion_delta ?? 0), baseline ?? 0);
   // Keep zero/gap-heavy tags from collapsing into a useless 1.0 / 0.7 / 0.3 / 0 axis. The mock's
   // mini chart always reads on a few-hundred-count scale, even when the selected tag is quiet.
-  const maxDelta = rawMaxDelta < 20 ? 400 : rawMaxDelta;
+  const maxDelta = rawMaxDelta < 20 ? 396 : rawMaxDelta;
   const barGap = 1;
   const barWidth = Math.max(1, plotW / buckets.length - barGap);
   // baseline_delta is the p75 of 300s (5-minute) buckets (Section 8), and the backend already
