@@ -268,3 +268,56 @@ func TestNonRepeatObligationsKeepDueDateIdentity(t *testing.T) {
 		t.Fatal("different due date suppressed: non-repeat identity regressed")
 	}
 }
+
+// P7: the SICK-animal path must survive suppression by cause.
+//
+// A deferred insert that is refused looks the existing row up to reconcile it. That lookup
+// was by idempotency key alone -- but a repeat cycle is suppressed by its CAUSE, so the row
+// already holding it can sit under an entirely different key: the date it had before it
+// moved, or the key a booster-minted successor was created with. The lookup then found
+// nothing and the whole generation pass failed for that animal, every pass, for as long as
+// it stayed held.
+func TestDeferredRepeatCycleFindsTheRowItWasSuppressedAgainst(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	f := seedRepeatCycleFixture(t, ctx, pool, "deferred_repeat_cycle")
+
+	administered := time.Date(2026, 3, 4, 0, 0, 0, 0, time.UTC)
+	cause := func() *domain.RepeatCycleSource {
+		at := administered
+		return &domain.RepeatCycleSource{
+			Source:    domain.RepeatCycleSourceTrustedHistory,
+			SourceRef: domain.RepeatCycleRef("ET_TT", administered, 2),
+			AnchorAt:  &at,
+		}
+	}
+
+	// The cycle already exists, under the key and date it had before the date moved.
+	existing, applied := f.insert(t, ctx, f.ruleA, "cycle-old-key", administered.AddDate(0, 0, 180), cause())
+	if !applied {
+		t.Fatal("seed the existing open cycle: want applied")
+	}
+
+	// The animal is now held, and generation recomputes the same cycle on a later date --
+	// so a NEW idempotency key, and a deferred insert.
+	id, applied, err := f.repo.InsertDeferredObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: f.versionID, RuleID: f.ruleA,
+		TargetType: "goat", TargetID: f.goat, ScopeType: "park", ScopeID: cbePark,
+		DueAt: administered.AddDate(0, 0, 187), Status: "deferred",
+		IdempotencyKey: "cycle-new-key", Sequence: 2, RepeatCycle: cause(),
+	}, "sick", administered.AddDate(0, 0, 100))
+	if err != nil {
+		t.Fatalf("deferred insert for a cycle that already exists: %v", err)
+	}
+	if applied {
+		t.Fatal("a second row was created for one cycle")
+	}
+	if id != existing {
+		t.Fatalf("returned obligation %q, want the row it was suppressed against %q", id, existing)
+	}
+	if got := f.openCount(t, ctx, pool, f.ruleA); got != 1 {
+		t.Fatalf("open rows = %d, want 1", got)
+	}
+}
