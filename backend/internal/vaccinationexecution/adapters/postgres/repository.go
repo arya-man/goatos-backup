@@ -5307,7 +5307,7 @@ shed_dose_obligations AS (
     loc.name as shed_name,
     CASE
       WHEN sp.shed_id IS NULL OR lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
-      ELSE btrim(gsp.partition_label)
+      ELSE btrim(sp.partition_label)
     END AS partition_label,
     pr.dose_code,
     CASE
@@ -5325,7 +5325,11 @@ shed_dose_obligations AS (
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
   LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = oi.scope_id
-  LEFT JOIN shed_partitions sp ON sp.tenant_id = oi.tenant_id AND sp.shed_id = oi.scope_id AND sp.partition_label = gsp.partition_label AND sp.status = 'active'
+  LEFT JOIN shed_partitions sp
+    ON sp.tenant_id = oi.tenant_id
+   AND sp.shed_id = oi.scope_id
+   AND sp.normalized_label = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+   AND sp.status = 'active'
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
   LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
   WHERE oi.tenant_id = $1::uuid
@@ -5434,7 +5438,7 @@ SELECT
   COALESCE(shed.name, '') AS shed_name,
   CASE
     WHEN sp.shed_id IS NULL OR lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
-    ELSE btrim(gsp.partition_label)
+    ELSE btrim(sp.partition_label)
   END AS partition_label,
   COALESCE(park.name, '') AS park_name,
   d.vaccine_code,
@@ -5466,7 +5470,11 @@ FROM obligation_instances oi
 JOIN protocol_rule_dimensions d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
 JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
 LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = oi.scope_id
-LEFT JOIN shed_partitions sp ON sp.tenant_id = oi.tenant_id AND sp.shed_id = oi.scope_id AND sp.partition_label = gsp.partition_label AND sp.status = 'active'
+LEFT JOIN shed_partitions sp
+  ON sp.tenant_id = oi.tenant_id
+ AND sp.shed_id = oi.scope_id
+ AND sp.normalized_label = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+ AND sp.status = 'active'
 LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
 JOIN locations shed ON shed.location_id = oi.scope_id AND shed.tenant_id = oi.tenant_id
 LEFT JOIN locations park ON park.location_id = shed.parent_location_id AND park.tenant_id = shed.tenant_id
@@ -5602,7 +5610,7 @@ SELECT DISTINCT ON (
   oi.scope_id,
   CASE
     WHEN scope_sp.shed_id IS NULL OR lower(btrim(COALESCE(scope_gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
-    ELSE btrim(scope_gsp.partition_label)
+    ELSE btrim(scope_sp.partition_label)
   END,
   d.vaccine_code,
   g.goat_id
@@ -5610,7 +5618,7 @@ SELECT DISTINCT ON (
   oi.scope_id::text AS shed_id,
   CASE
     WHEN scope_sp.shed_id IS NULL OR lower(btrim(COALESCE(scope_gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
-    ELSE btrim(scope_gsp.partition_label)
+    ELSE btrim(scope_sp.partition_label)
   END AS scope_partition_label,
   d.vaccine_code,
   g.goat_id::text,
@@ -5640,6 +5648,7 @@ SELECT DISTINCT ON (
   -- "Godel 1" when the animal is standing in "Godel 1 - Part 3", which on a partitioned shed is a
   -- different pen and a wasted trip. Same source the closed-without-dose drawer already uses.
   CASE
+    WHEN current_sp.shed_id IS NOT NULL THEN btrim(current_sp.partition_label)
     WHEN lower(btrim(COALESCE(current_gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
     ELSE btrim(current_gsp.partition_label)
   END AS partition_label,
@@ -5654,8 +5663,17 @@ LEFT JOIN locations park ON park.location_id = shed.parent_location_id AND park.
 LEFT JOIN locations current_shed ON current_shed.location_id = g.shed_id AND current_shed.tenant_id = g.tenant_id
 LEFT JOIN locations current_park ON current_park.location_id = current_shed.parent_location_id AND current_park.tenant_id = current_shed.tenant_id
 LEFT JOIN goat_shed_partitions scope_gsp ON scope_gsp.tenant_id = g.tenant_id AND scope_gsp.goat_id = g.goat_id AND scope_gsp.shed_id = oi.scope_id
-LEFT JOIN shed_partitions scope_sp ON scope_sp.tenant_id = oi.tenant_id AND scope_sp.shed_id = oi.scope_id AND scope_sp.partition_label = scope_gsp.partition_label AND scope_sp.status = 'active'
+LEFT JOIN shed_partitions scope_sp
+  ON scope_sp.tenant_id = oi.tenant_id
+ AND scope_sp.shed_id = oi.scope_id
+ AND scope_sp.normalized_label = regexp_replace(lower(btrim(COALESCE(scope_gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+ AND scope_sp.status = 'active'
 LEFT JOIN goat_shed_partitions current_gsp ON current_gsp.tenant_id = g.tenant_id AND current_gsp.goat_id = g.goat_id AND current_gsp.shed_id = g.shed_id
+LEFT JOIN shed_partitions current_sp
+  ON current_sp.tenant_id = g.tenant_id
+ AND current_sp.shed_id = g.shed_id
+ AND current_sp.normalized_label = regexp_replace(lower(btrim(COALESCE(current_gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+ AND current_sp.status = 'active'
 WHERE oi.tenant_id = $1::uuid
   AND oi.scope_type = 'shed'
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
@@ -5933,7 +5951,7 @@ SELECT
   loc.name as shed_name,
   CASE
     WHEN sp.shed_id IS NULL OR lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
-    ELSE btrim(gsp.partition_label)
+    ELSE btrim(sp.partition_label)
   END AS partition_label,
   pr.dose_code,
   COUNT(DISTINCT vc.completion_id) as awaiting_count,
@@ -5944,7 +5962,11 @@ FROM obligation_instances oi
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
 JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
 LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = oi.scope_id
-LEFT JOIN shed_partitions sp ON sp.tenant_id = oi.tenant_id AND sp.shed_id = oi.scope_id AND sp.partition_label = gsp.partition_label AND sp.status = 'active'
+LEFT JOIN shed_partitions sp
+  ON sp.tenant_id = oi.tenant_id
+ AND sp.shed_id = oi.scope_id
+ AND sp.normalized_label = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+ AND sp.status = 'active'
 LEFT JOIN vaccination_completions vc ON oi.obligation_id = vc.obligation_id AND vc.status = 'recorded' AND vc.verified_at IS NULL
 LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
 WHERE oi.tenant_id = $1::uuid
