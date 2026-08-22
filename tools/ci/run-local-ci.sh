@@ -432,6 +432,7 @@ run_common() {
   step "agent: refresh-binding"   node tools/agent-hooks/check-refresh-binding.mjs
   step "agent: UI vaccine labels" make ui-vaccine-labels-guard
   step "agent: notification specificity" make notification-specificity-guard
+  step "agent: mock css parity"          make mock-css-parity-guard
   step "agent: herd signals language"    make herd-signals-language-guard
   step "agent: vaccination shared source sync" make vaccination-shared-source-sync-guard
   step "agent: calendar endpoint grain" make calendar-endpoint-grain-guard
