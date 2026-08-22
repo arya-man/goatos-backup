@@ -13,9 +13,9 @@ export const GOOGLE_REDIRECT_CREDENTIAL_MAX_AGE_SECONDS = 60;
 // Long-lived Firebase refresh token. Persisted httpOnly so SSR can mint a fresh
 // ID token after the short-lived id-token cookie lapses — this is what removes
 // the ~1h "always bounced to /login" cliff. Firebase refresh tokens stay valid
-// until revoked; we cap the cookie at 14 days and let the client re-issue it.
+// until revoked; we cap the cookie at 90 days and let the client re-issue it.
 export const FIREBASE_REFRESH_TOKEN_COOKIE = "goatos_firebase_refresh_token";
-export const FIREBASE_REFRESH_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 14;
+export const FIREBASE_REFRESH_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
 
 // Refresh the SSR ID token proactively once it is within this window of expiry,
 // so a request never forwards an about-to-expire Bearer to the backend.
