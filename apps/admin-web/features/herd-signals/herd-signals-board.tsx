@@ -75,7 +75,14 @@ const TAB_ICON: Record<HerdSignalsTab, ReactNode> = {
   insights: <path d="M3 12h4l3 8 4-16 3 8h4" />,
 };
 
-const ALERT_PATTERNS = ["missing", "inactive", "spike", "quiet_watch", "recovered"] as const;
+// What the Alerts tab lists: every tag whose pattern classification is anything other than
+// "normal". pattern_state is a single, always-populated classification (the backend computes it on
+// every read), so "not normal" is a partition, which is what lets the tab badge below be a real
+// server-side aggregate (fleet total minus the tenant-wide `normal` count) instead of a count of
+// the rows that happen to be on the fetched page.
+function isAlerting(item: HerdSignalItem): boolean {
+  return (item.pattern_state ?? "normal") !== "normal";
+}
 
 export function loadHerdSignalsLive(searchParams: RouteSearchParams | undefined): Promise<ApiResult<HerdSignalsLiveResponse>> {
   const params = parseHerdSignalsParams(searchParams);
@@ -97,7 +104,11 @@ function fetchForTab(params: HerdSignalsParams): Promise<ApiResult<HerdSignalsLi
     return getHerdSignalsLive({ ...common, mappingState: params.mappingState });
   }
   if (params.tab === "alerts") {
-    return getHerdSignalsLive({ ...common, pattern: params.pattern ?? "inactive" });
+    // No pattern filter. The mock's Alerts tab is ONE unified list of every alerting tag, with no
+    // type-filter row at all; defaulting this to `inactive` (a pattern no tag is currently in) is
+    // what made the tab read "No tags in this alert state" while twenty missing-signal alerts
+    // existed. The alerting subset is selected from the fetched page by `isAlerting` below.
+    return getHerdSignalsLive({ ...common });
   }
   // live tab
   return getHerdSignalsLive({
@@ -150,24 +161,43 @@ export async function HerdSignalsBoard({
   // eslint-disable-next-line react-hooks/purity -- see comment above.
   const nowMs = Date.now();
 
-  const [liveResult, gatewaysResult, insightsResult] = await Promise.all([
+  // The tab badges are WHOLE-FLEET counts on every tab, exactly as the mock keeps them. The
+  // summary on the active tab's own /live response cannot supply them: the backend narrows that
+  // summary by the same mapping_state / pattern the tab asked for (verified against the running
+  // API -- `?pattern=inactive` returns a summary of all zeroes, `?mapping_state=mapped` returns
+  // tags_seen 18 instead of 20). Reading badges off it is what made every badge render 0 on
+  // ?hs_tab=alerts. So the badges come from their own scope-only aggregate reads -- park / shed /
+  // search only, never a tab's narrowing filter and never a count of the fetched rows
+  // (AGENTS.md operational read model contract).
+  const scopeOnly = { parkId: params.parkId, shedId: params.shedId, q: params.q, limit: 1 };
+  // Skipped when the active tab already asked for exactly the scope-only summary, so the common
+  // case costs no extra read.
+  const tabNarrowsSummary = params.tab === "animals" || Boolean(params.mappingState) || Boolean(params.pattern);
+
+  const [liveResult, fleetOwnResult, normalResult, gatewaysResult, insightsResult] = await Promise.all([
     fetchForTab(params),
-    params.tab === "gateways" ? getHerdSignalsGateways() : Promise.resolve(null),
+    tabNarrowsSummary ? getHerdSignalsLive(scopeOnly) : Promise.resolve(null),
+    // The tenant-wide "normal pattern" count. Alerting = fleet total - normal, both server-side
+    // aggregates over the same scope, which is the only honest source for the Alerts badge.
+    getHerdSignalsLive({ ...scopeOnly, pattern: "normal" }),
+    getHerdSignalsGateways(),
     params.tab === "insights" ? getHerdSignalsInsights() : Promise.resolve(null),
   ]);
 
-  // Every count below comes from the tenant-wide `summary` on the SAME /live response this board
-  // already fetched for whichever tab is active -- these fields exist on every response regardless
-  // of which tab requested it, so a tab's count is visible without having to click into it first.
+  const fleetResult = fleetOwnResult ?? liveResult;
   const tabCounts: Partial<Record<HerdSignalsTab, number>> = {};
-  if (liveResult.ok) {
-    tabCounts.live = liveResult.data.summary.tags_seen;
-    tabCounts.animals = liveResult.data.summary.mapped_animals;
+  if (fleetResult.ok) {
+    const fleet = fleetResult.data.summary;
+    tabCounts.live = fleet.tags_seen;
+    tabCounts.animals = fleet.mapped_animals;
     // Tag Mapping lists every tag (mapped, unmapped and conflict), so its count is the same
     // tenant-wide tag total as Live Monitor's, not the mapped-only or unmapped-only subset.
-    tabCounts.mapping = liveResult.data.summary.tags_seen;
+    tabCounts.mapping = fleet.tags_seen;
+    if (normalResult.ok) {
+      tabCounts.alerts = Math.max(0, fleet.tags_seen - normalResult.data.summary.tags_seen);
+    }
   }
-  if (gatewaysResult?.ok) tabCounts.gateways = gatewaysResult.data.gateways.length;
+  if (gatewaysResult.ok) tabCounts.gateways = gatewaysResult.data.gateways.length;
 
   return (
     <div className="herd-signals-page">
@@ -212,7 +242,7 @@ export async function HerdSignalsBoard({
         ) : params.tab === "mapping" ? (
           <MappingTab params={params} result={liveResult} />
         ) : params.tab === "alerts" ? (
-          <AlertsTab params={params} result={liveResult} nowMs={nowMs} />
+          <AlertsTab params={params} result={liveResult} nowMs={nowMs} alertingTotal={tabCounts.alerts} />
         ) : params.tab === "gateways" ? (
           <GatewaysTab result={gatewaysResult} nowMs={nowMs} />
         ) : (
@@ -348,7 +378,7 @@ function FilteredTableTab({
         <span className="small faint">{note}</span>
       </div>
       <div className="bd flush">
-        <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} />
+        <HerdSignalsTable items={items} nextCursor={next_cursor} params={params} nowMs={nowMs} tagsSeen={summary.tags_seen} variant="animals" />
       </div>
     </div>
   );
@@ -373,14 +403,22 @@ function AlertsTab({
   params,
   result,
   nowMs,
+  alertingTotal,
 }: {
   params: HerdSignalsParams;
   result: ApiResult<HerdSignalsLiveResponse>;
   nowMs: number;
+  // Tenant-wide count of alerting tags (server aggregate, computed in the board above). Used for
+  // the "N of M" readout only -- never recomputed from the rows on this page.
+  alertingTotal: number | undefined;
 }) {
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
-  const { items, next_cursor, summary } = result.data;
-  const activePattern = params.pattern ?? "inactive";
+  const { items, next_cursor } = result.data;
+  // The mock has NO alert-type filter row: `renderAlerts` builds ONE `.rowlist` holding every
+  // alerting tag, whatever its type. The row of missing/inactive/spike/quiet-watch/recovered
+  // buttons this tab used to carry defaulted to `inactive`, so the tab opened on an empty list
+  // while twenty missing-signal alerts were live.
+  const alerting = items.filter(isAlerting);
   return (
     <div className="card">
       <div className="hd">
@@ -389,14 +427,7 @@ function AlertsTab({
         <span className="small faint">Signal conditions only — none of these are clinical findings</span>
       </div>
       <div className="bd flush">
-        <div className="fbar" style={{ borderRadius: 0, borderLeft: "none", borderRight: "none", borderTop: "none" }}>
-          {ALERT_PATTERNS.map((pattern) => (
-            <Link key={pattern} href={herdSignalsHref(params, { hs_pattern: pattern })} className={`btn sm${activePattern === pattern ? " p" : ""}`}>
-              {pattern.replace("_", " ")}
-            </Link>
-          ))}
-        </div>
-        {items.length === 0 ? (
+        {alerting.length === 0 ? (
           <div className="empty">
             <div className="eicon">
               <svg className="ic" viewBox="0 0 24 24">
@@ -405,8 +436,8 @@ function AlertsTab({
                 <path d="M12 17h.01" />
               </svg>
             </div>
-            <h4>No tags in this alert state</h4>
-            <p>Every tag is within thresholds for this pattern — a healthy outcome, not an error.</p>
+            <h4>No tags in an alert state</h4>
+            <p>Every tag in scope is reading within thresholds — a healthy outcome, not an error.</p>
           </div>
         ) : (
           <>
@@ -414,7 +445,7 @@ function AlertsTab({
                 signal condition, severity chip first, the explanation in prose, shed right-aligned.
                 A table here re-states fourteen telemetry columns the reader did not ask for. */}
             <div className="rowlist">
-              {items.map((item) => (
+              {alerting.map((item) => (
                 <AlertRow key={item.tag_id} item={item} nowMs={nowMs} />
               ))}
             </div>
@@ -424,7 +455,14 @@ function AlertsTab({
                   Next &rarr;
                 </Link>
                 <span>
-                  Showing <b>{items.length.toLocaleString("en-IN")}</b> of <b>{summary.tags_seen.toLocaleString("en-IN")}</b> tags in scope
+                  Showing <b>{alerting.length.toLocaleString("en-IN")}</b>
+                  {alertingTotal !== undefined ? (
+                    <>
+                      {" of "}
+                      <b>{alertingTotal.toLocaleString("en-IN")}</b>
+                    </>
+                  ) : null}{" "}
+                  alerting tags in scope
                 </span>
               </div>
             ) : null}
@@ -443,7 +481,7 @@ function AlertRow({ item, nowMs }: { item: HerdSignalItem; nowMs: number }) {
   // path first, and the row must not read as "this animal is missing".
   const missing = pattern === "missing" || item.movement_state === "stale";
   const explanation = missing
-    ? `Gateway ${item.gateway_id ?? "coverage for this tag"} has delivered no packet for ${fmtAgo(item.last_seen_at, nowMs)}. Missing signal — never a missing animal. Check the gateway before checking the animal.`
+    ? `Gateway ${item.gateway_id ?? "coverage for this tag"} last delivered a packet for this tag ${fmtAgo(item.last_seen_at, nowMs)}. Missing signal — never a missing animal. Check the gateway before checking the animal.`
     : `${PATTERN_WHY[pattern].charAt(0).toUpperCase()}${PATTERN_WHY[pattern].slice(1)}.`;
   const location = item.operational_location_display ?? item.shed_name ?? item.park_name ?? "—";
   return (

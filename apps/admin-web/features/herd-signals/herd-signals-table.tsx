@@ -32,6 +32,7 @@ import { herdSignalsHref, type HerdSignalsParams } from "./params";
 import { matchesResidualKpi } from "./herd-signals-row-filter";
 import { HerdSignalsDrawer } from "./herd-signals-drawer";
 import { HerdSignalsHistoryFullscreen } from "./herd-signals-history-fullscreen";
+import { HerdSignalsAnimalsHead, HerdSignalsAnimalsRow } from "./herd-signals-animals-table";
 
 function rowTagId(item: HerdSignalItem): string {
   return item.tag_id;
@@ -80,6 +81,7 @@ export function HerdSignalsTable({
   params,
   nowMs,
   tagsSeen,
+  variant = "live",
 }: {
   items: HerdSignalItem[];
   nextCursor: string | null;
@@ -89,6 +91,12 @@ export function HerdSignalsTable({
   // state can honestly say whether the gateway is receiving anything at all in scope, rather than
   // asserting reception the page has not actually evidenced.
   tagsSeen: number;
+  // Which column set to render. "live" is the fourteen-column radio/telemetry table; "animals"
+  // is the mock's own nine-column animal-first set (herd-signals-animals-table.tsx). Only the
+  // <thead>/<tbody> differ -- the keyset pager walk, the rows-per-page control, the drawer and
+  // the history full-screen are shared, which is why this is a variant here rather than a second
+  // component that would need its own copy of the pager store.
+  variant?: "live" | "animals";
 }) {
   const { isPending, navigate } = useHerdSignalsNav();
   // Hooks must run before the empty-state early returns below.
@@ -231,8 +239,11 @@ export function HerdSignalsTable({
     <>
       {pager("top")}
       <div className={`tblwrap${isPending ? " wfbusy" : ""}`}>
-        <table className="resp herd-signals-table">
+        <table className={`resp herd-signals-table${variant === "animals" ? " herd-signals-animals-table" : ""}`}>
           <thead>
+            {variant === "animals" ? (
+              <HerdSignalsAnimalsHead />
+            ) : (
             <tr>
               <th>Animal</th>
               <th>Smart tag</th>
@@ -249,9 +260,13 @@ export function HerdSignalsTable({
               <th>Last seen</th>
               <th>Status</th>
             </tr>
+            )}
           </thead>
           <tbody>
             {visible.map((item) => {
+              if (variant === "animals") {
+                return <HerdSignalsAnimalsRow key={item.tag_id} item={item} nowMs={nowMs} href={rowHref(item)} />;
+              }
               const location = item.operational_location_display
                 ? item.operational_location_display
                 : operationalLocationLabel({ shedName: item.shed_name, partitionLabel: item.partition_label });
