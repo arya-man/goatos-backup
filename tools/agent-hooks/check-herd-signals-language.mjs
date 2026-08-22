@@ -56,8 +56,17 @@
 //     by scanning between a `herd-signals` / `HerdSignals` marker and the
 //     next top-level path/schema marker at the same indentation depth (a
 //     single shared file, so this guard must not flag unrelated slices).
-//   docs/modules/herd-signals.md
+//   docs/modules/herd-signals*.md — a GLOB, not a single hardcoded filename
+//     (docs/modules/herd-signals-system-design.md landed after the original
+//     hardcoded path was written and would otherwise have been invisible to
+//     this guard). Every matching file is allowlisted -- see
+//     ALLOWLISTED_FILES / isAllowlistedHerdSignalsDoc -- because stating the
+//     boundary legitimately requires using the banned vocabulary.
 //   mock/herd-signals-mock.html
+//   .agents/skills/goatos-herd-signals/SKILL.md — scanned AND explicitly
+//     allowlisted (not silently out of scope): it legitimately states the
+//     claim boundary too, and an unlisted file is indistinguishable from an
+//     oversight to the next reader.
 //
 // Modes:
 //   (default)     scan the tree, fail on any violation.
@@ -68,20 +77,24 @@
 // Exception (must be COMPLETE — owner, issue, scope, expiry all present):
 //   herd-signals-language:ignore: owner=<name> issue=<url|id> scope=<why> expiry=<YYYY-MM-DD>
 //
-// REMAINING BLIND SPOTS (documented, cannot be caught by this static scan):
+// REMAINING BLIND SPOTS (documented honestly; five review rounds closed the
+// scope-of-judgement bugs below this line -- see the "CLOSED (round N)"
+// notes for what each round fixed and why):
 // - Composition across variables/helpers: `label := "eat" + "ing"` or a
 //   claim assembled from a template/i18n table keyed by a code that is
 //   itself innocuous (e.g. `t("hs.behavior.1")` resolving elsewhere to
 //   "Eating detected") is invisible to a line-level regex scan.
 // - Non-literal runtime strings: an LLM-, config-, or CMS-driven copy
 //   string is not visible to a static scan of source files.
-// - Semantic paraphrase: "grazing", "browsing", "chewing", "resting",
-//   "sleeping", "napping" and similar synonyms are NOT in the banned-term
-//   list below (only the literal terms named in Section 3 are), so a
-//   paraphrase that avoids the literal banned words entirely will pass.
-//   docs/modules/herd-signals.md Section 4 ("Approved product vocabulary")
-//   is the human-authority backstop for this gap; review must still check
-//   for paraphrase, this guard cannot.
+// - Semantic paraphrase BEYOND the named posture family: the banned-term
+//   list (BANNED_TERMS) now includes the gait/posture paraphrase family
+//   (resting, grazing, dozing, sleeping, idle-as-behaviour) after a live
+//   "Resting for short periods is normal" leak into shipped copy proved
+//   this gap was not hypothetical -- but "browsing", "napping", "chewing",
+//   and any other synonym NOT in that list still passes. Section 4
+//   ("Approved product vocabulary") of docs/modules/herd-signals.md is the
+//   human-authority backstop for whatever paraphrase this guard cannot
+//   yet name; review must still read for paraphrase, this guard cannot.
 // - The contracts/openapi/app-api.yaml slice detection is a best-effort
 //   marker scan of one large shared file; a herd-signals schema fragment
 //   that does not contain any of the marker strings this guard looks for
@@ -89,60 +102,147 @@
 // - It cannot verify negation phrasing is TRUE (i.e. that a denial like
 //   "does not detect eating" accurately reflects the code) — only that the
 //   sentence is grammatically a denial, not a claim.
-// - Negation scope is SENTENCE-scoped, not line-scoped and not a flat
-//   line-count window. A denial is recognized only if the negation word and
-//   the banned term/"body temp" fall in the SAME sentence, with the negation
-//   BEFORE the term. "Same sentence" is found by walking outward from the
-//   candidate line (bounded by WINDOW_BEFORE/WINDOW_AFTER lines, see the
-//   constants below) and stopping at a real sentence boundary: end-of-line
-//   punctuation (. ! ? ;), a blank line, a JSX tag boundary (a line ending in
-//   `>` or starting with `<`), or a list-item start (`-`, `*`, `1.`). A
-//   newline INSIDE a sentence (no boundary punctuation yet) is NOT a
-//   boundary, which is what makes wrapped prose/JSX text still read as one
-//   sentence ("... own sensor housing -- not the\n  animal's body
-//   temperature." stays one denial). This closes the earlier flat-window
-//   false negative where an unrelated "no"/"not" on a PRIOR, already-ended
-//   sentence (e.g. a preceding comment ending in a period, "// There is no
-//   cursor on the first page.") could silently suppress a genuine claim on
-//   the next sentence merely by being nearby.
-//   Sentence boundaries are also detected MID-LINE, not just at line ends:
-//   each line is first split into sentence fragments on `. `/`! `/`? `
-//   (punctuation followed by whitespace and then a capital letter, quote, or
-//   end-of-string), so two sentences sharing one physical line ("No cursor
-//   here. The gateway confirms the animal is eating right now.") are judged
-//   as two separate sentences, not one blob -- this closes the earlier
-//   same-line exploit where an unrelated denial and a genuine claim shared
-//   a line. The splitter deliberately does NOT split on a decimal number
-//   (`25.1 C`), a dotted identifier/call (`item.motion_count`,
-//   `Number(x).toFixed(2)`) -- both lack whitespace right after the dot, so
-//   they never match the split pattern -- or a short list of known
-//   abbreviations (e.g., i.e., etc., vs., approx., fig., mr., dr., ...).
-//   Residual blind spots (static heuristic, not a parser):
-//   - An abbreviation NOT in the ABBREVIATIONS list, or any other
-//     punctuation-then-capital-letter sequence that a human would not read
-//     as a sentence break, can still be mis-split; this only degrades to
-//     narrower sentence scope (more conservative denial matching), not to a
-//     wrong claim/denial verdict on unrelated content the way the two prior
-//     defects did.
-//   - It caps how far outward it will walk at WINDOW_BEFORE/WINDOW_AFTER
-//     lines even if no boundary is found in that span, so a genuinely
-//     boundary-free multi-page run-on comment could still merge unrelated
-//     context past that cap; widen the constants or use the
-//     `herd-signals-language:ignore:` escape hatch for that rare shape.
-//   - It cannot verify that a mid-line split point is semantically correct
-//     beyond the punctuation/capitalization/abbreviation heuristic above —
-//     an unusual style (all-lowercase sentence starts, sentences ending in
-//     a closing quote before the period, etc.) can fool it in either
-//     direction.
-// - CLOSED (round 4): every banned-term and "body temp" OCCURRENCE on a
-//   line is now judged independently, in the specific sentence fragment
-//   that contains it (see fragmentOrdinalForOffset), not just "the first
-//   occurrence on this line" and not "does this line contain a denial
-//   anywhere". A denial sentence sharing a line with an unrelated claim
-//   sentence ("the tag does not detect eating. The gateway confirms the
-//   animal is eating now.") used to have the denial's verdict silently
-//   cover the later, unrelated claim; each occurrence now gets its own
-//   fragment-scoped sentence window and its own verdict.
+//
+// Negation/claim SCOPE — the actual history of every real defect found in
+// this guard across five review rounds, in order:
+//   Round 1 (line): negation was judged per PHYSICAL LINE and failed the
+//     product's own mandatory disclaimer the moment JSX wrapped it across
+//     two lines. CLOSED by SENTENCE-scoped judgement (below).
+//   Round 2 (flat window): a flat N-line window fixed the wrap, but let an
+//     unrelated negation in a fully-unrelated, already-ended PRIOR sentence
+//     silently suppress a genuine claim just by being nearby. CLOSED by
+//     replacing the line-count window with real sentence-BOUNDARY walking:
+//     end-of-line `.`/`!`/`?`/`;` punctuation, a blank line, a JSX tag edge
+//     (a line ending in `>` or starting with `<`), or a list-item start
+//     (`-`, `*`, `1.`). A newline INSIDE a sentence (no boundary yet) is
+//     NOT a boundary — this is what keeps a denial wrapped across lines
+//     ("... own sensor housing -- not the\n  animal's body temperature.")
+//     reading as one sentence.
+//   Round 3 (line-granularity sentences): the boundary walk above only
+//     looked for boundaries at line ENDS, so two independent sentences
+//     sharing ONE physical line ("No cursor here. The gateway confirms the
+//     animal is eating right now.") were still judged as a single blob.
+//     CLOSED by MID-LINE sentence splitting (splitIntoSentenceFragments):
+//     each line is split on `. `/`! `/`? ` (punctuation followed by
+//     whitespace and then a capital letter, quote, or end-of-string)
+//     BEFORE the boundary walk runs. Deliberately does NOT split a decimal
+//     number (`25.1 C`) or a dotted identifier/call (`item.motion_count`,
+//     `Number(x).toFixed(2)`) -- neither has whitespace right after the
+//     dot -- or a short list of known abbreviations (e.g., i.e., etc., vs.,
+//     approx., fig., mr., dr., ...).
+//   Round 4 (first-occurrence-per-line): even after mid-line splitting,
+//     the outer scan only judged the FIRST banned-term occurrence per
+//     line, so a denial fragment anywhere on a line silently licensed a
+//     later, unrelated claim fragment on that SAME line ("the tag does not
+//     detect eating. The gateway confirms the animal is eating now." only
+//     ever judged the first "eating"). CLOSED by judging every occurrence
+//     independently via a global regex scan plus fragmentOrdinalForOffset,
+//     which maps each occurrence's exact character offset to the specific
+//     sentence fragment (by ordinal, not by re-searching for the term's
+//     text) that contains it.
+//   Round 5 (four more scope/subject bugs, found by adversarial product
+//     review, all CLOSED):
+//     (a) Bare JSX text claims: `<th>Eating</th>` / `<Tag>Ruminating</Tag>`
+//         passed because quotedClaim required quote characters and JSX
+//         text children have none. Closed by jsxTextClaim (a `>...<`
+//         text-run match).
+//     (b) Trailing unrelated negation: isClaimShaped used to return
+//         "not a claim" whenever ANY negation existed anywhere in the text
+//         and no "detect" verb was present, regardless of order --
+//         "The animal is eating, but the battery is not low" passed.
+//         Closed by making negationPrecedesTerm (order relative to THIS
+//         term, and ONLY this term) the sole negation test.
+//     (c) Affirming idioms read as negation: NEGATION_RE's bare "no"
+//         matched "no doubt"/"no question"/"no longer", so "There is no
+//         doubt this tag detected eating today" read as a denial. Closed
+//         by excluding those specific idioms from "no" via a negative
+//         lookahead; "no ... sensor" (a genuine denial shape used
+//         elsewhere in this codebase) still matches.
+//     (d) body-temp-mislabel's own extra `|| !NEGATION_RE.test(window)`
+//         fallback let ANY negation anywhere in the window excuse
+//         non-field prose regardless of order -- "Body temperature rose
+//         above baseline, though the signal is not weak." passed. Closed
+//         by dropping that fallback; only order-based negationPrecedesTerm
+//         may excuse a body-temp occurrence, identical to (b).
+//   Round 5, word-boundary tightening (a fifth, adjacent bug, also
+//     CLOSED): BANNED_TERM_RE previously matched each alternative as a bare
+//     SUBSTRING with no boundary at all, so "before treating any row" and
+//     "in any interesting way" matched "eating"/"resting" as pure noise
+//     inside unrelated English words. Closed by wrapping the WHOLE
+//     alternation in one `\b...\b` (JS regex backtracking then tries
+//     longer alternatives automatically until the boundary holds, so the
+//     old "longest-form-first" ordering trick is no longer load-bearing).
+//     Trade-off reintroduced ON PURPOSE: a glued identifier (`is_eating`,
+//     `IsEating`, `body_temperature_c`) has no real `\b` between its parts
+//     either, so BANNED_TERM_RE alone can no longer see it -- covered by
+//     the separate, narrower IDENTIFIER_CLAIM_RE pass instead (see
+//     coreTermFromIdentifierMatch), which is NOT boundary-anchored on the
+//     glued term itself but IS boundary-anchored as a whole compound.
+//   Round 5, SUBJECT bug (found live on the real tree, also CLOSED): even
+//     with the word-boundary fix, the GAIT/POSTURE family (run, walk,
+//     stand, lie, sit, eat, graze, rest, and — added after two more live
+//     false positives — idle, sleeping, dozing) has ordinary, innocent
+//     TECHNICAL meanings: queries run, sweepers run, tests stand up a
+//     container, a connection pool is idle, a goroutine is sleeping. Fully
+//     word-bounded, genuinely-technical prose like "filters and search run
+//     in the query" matched stateClaim ("is/was <term>") exactly like a
+//     real "the animal is running" claim. Closed by requiring an
+//     animal-subject cue (animal/goat/herd/tag, or it/they -- a documented
+//     over-approximation) OR an explicit assertion verb
+//     (detects/confirms/shows) in the same sentence before a GAIT_TERMS
+//     stateClaim match is trusted; a bare detection verb alone (with NO
+//     subject at all, e.g. "detects grazing") remains sufficient on its
+//     own, matching detectClaim's existing leniency. Non-gait terms
+//     (rumination, fever, disease, diagnos*) have no innocent technical
+//     meaning and are NOT subject-gated -- they stay strict.
+//
+// The general lesson across ALL of the above, restated once: the unit of
+// judgement is the individual term OCCURRENCE, the SENTENCE enclosing it
+// (found by real boundaries, not a line or a line-count window), and — for
+// terms with an innocent technical meaning — the SUBJECT that sentence
+// attaches the term to. Every version of this guard before the current one
+// failed by judging something LARGER or narrower than that.
+//
+// Residual blind spots on the CURRENT sentence/occurrence/subject logic
+// (static heuristics, not a parser):
+// - Sentence-boundary detection: an abbreviation NOT in the ABBREVIATIONS
+//   list, or any other punctuation-then-capital-letter sequence a human
+//   would not read as a sentence break, can still be mis-split; this only
+//   degrades to narrower sentence scope (more conservative matching), not
+//   to a wrong verdict on unrelated content. A sentence boundary that falls
+//   MID-LINE via a period immediately followed by more prose on the SAME
+//   physical line (not the dotted-identifier/decimal case, which the
+//   splitter already excludes) is handled; an unusual style (all-lowercase
+//   sentence starts, a sentence ending in a closing quote before the
+//   period) can still fool the heuristic in either direction.
+// - buildSentenceWindow caps how far outward it will walk at
+//   WINDOW_BEFORE/WINDOW_AFTER lines even if no boundary is found in that
+//   span, so a genuinely boundary-free multi-page run-on comment could
+//   still merge unrelated context past that cap; widen the constants or
+//   use the `herd-signals-language:ignore:` escape hatch for that rare
+//   shape.
+// - SUBJECT_CUE_RE's "it"/"they" are generic pronouns, not animal-specific
+//   on their own -- "the query runs, it caches results" could in principle
+//   false-positive if "it" is later judged to refer to the query rather
+//   than an animal in some future sentence shape. Not observed in practice
+//   during this review; documented as a known over-approximation rather
+//   than removed, per explicit product-review guidance.
+// - DETECTION_VERB_RE alone (with no subject cue at all) is sufficient to
+//   treat a gait/posture term as claim-shaped, mirroring detectClaim's
+//   existing leniency -- so "the dashboard shows the job running" (a
+//   non-animal subject) could in principle still false-positive if it ever
+//   appears in a scanned file. Accepted deliberately: a detection verb
+//   co-occurring with a banned term is a narrow, sentence-scoped
+//   co-occurrence, not a bare substring match, and product review judged
+//   this an acceptable residual risk versus reopening the false-negative
+//   this exists to close ("detects grazing" with no subject at all must
+//   still flag).
+// - GAIT_TERMS is a fixed, named list (run/walk/stand/lie/sit/eat/graze/
+//   rest plus idle/sleeping/dozing, extended twice already after live
+//   false positives). A future banned term with its own innocent technical
+//   meaning that is NOT added to this set will be judged strictly (no
+//   subject gate) and could false-positive the same way "idle"/"sleeping"
+//   did before they were added -- extend GAIT_TERMS, don't work around it.
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join, relative, resolve, extname } from "node:path";
@@ -158,31 +258,96 @@ const IGNORE_RE =
 // denials to a human, but this guard does not line-scan them for the
 // banned-claim check at all -- they are the source of truth for the boundary,
 // not a surface the boundary protects.
+// Docs allowlisted by GLOB (docs/modules/herd-signals*.md), not a single
+// hardcoded filename -- a sibling design doc
+// (docs/modules/herd-signals-system-design.md) landed after the original
+// hardcoded path was written and was invisible to this guard until the glob
+// replaced it, so the next sibling doc is covered automatically instead of
+// depending on someone remembering to add it here.
+const DOCS_GLOB_PREFIX = "docs/modules/herd-signals";
+const DOCS_GLOB_SUFFIX = ".md";
+
+// Explicitly allowlisted, not silently out of scope: this skill file
+// legitimately states the claim boundary (and quotes banned words while
+// doing so, same as docs/modules/herd-signals*.md), and an unlisted file is
+// indistinguishable from an oversight to the next reader -- naming it here
+// makes the exemption a decision, not an accident.
 const ALLOWLISTED_FILES = [
-  "docs/modules/herd-signals.md",
   "tools/agent-hooks/check-herd-signals-language.mjs",
+  ".agents/skills/goatos-herd-signals/SKILL.md",
 ];
 
-// Banned behavior/health terms (docs/modules/herd-signals.md Section 3).
-// Word-boundary matched, singular/plural/participle forms.
-// Longest-form-first within each family: JS regex alternation picks the
-// FIRST alternative that matches at a given starting position, not the
-// longest, so "eat" ahead of "eating" would match only the "eat" prefix of
-// "Eating" and break every downstream claim-shape regex built from that
-// short match. Order matters here.
+function isAllowlistedHerdSignalsDoc(rel) {
+  return (
+    rel.startsWith(DOCS_GLOB_PREFIX) &&
+    rel.endsWith(DOCS_GLOB_SUFFIX) &&
+    rel.slice(0, rel.lastIndexOf("/") + 1) === "docs/modules/"
+  );
+}
+
+// Banned behavior/health terms (docs/modules/herd-signals.md Section 3),
+// PLUS the posture-paraphrase family that the module doc's Section 4
+// already bans as a renaming of "active/quiet/no movement" (resting,
+// grazing, dozing, sleeping, idle-as-behaviour) -- added round 5 after a
+// live "Resting for short periods is normal" leak into shipped copy.
+// Every entry is a bare word/word-family; BANNED_TERM_RE below wraps the
+// WHOLE alternation in a single \b...\b, not each entry individually --
+// see that constant's own comment for why per-entry escaping was replaced.
 const BANNED_TERMS = [
-  "eating", "eats", "\\beat\\b",
+  "eating", "eats", "eat",
   "rumination", "ruminating", "ruminate",
-  "sitting", "sits", "\\bsit\\b",
-  "standing", "stands", "\\bstand\\b",
-  "lying", "lies", "\\blie\\b", "\\blay\\b",
-  "walking", "walks", "\\bwalk\\b",
-  "running", "runs", "\\brun\\b",
+  "sitting", "sits", "sit",
+  "standing", "stands", "stand",
+  "lying", "lies", "lie", "lay",
+  "walking", "walks", "walk",
+  "running", "runs", "run",
   "feverish", "fever",
   "diseased", "disease",
   "diagnos\\w*",
+  "resting", "rests", "rest",
+  "grazing", "grazes", "graze",
+  "dozing", "dozes", "doze",
+  "sleeping", "sleeps",
+  "idle",
 ];
-const BANNED_TERM_RE = new RegExp(`(${BANNED_TERMS.join("|")})`, "i");
+
+// Whole-alternation word-boundary wrapping (round 5, coordinator-reported
+// bypass): per-entry escaping like "eating" with no boundary at all used to
+// match as a bare SUBSTRING anywhere -- "before treating any row" and "in
+// any interesting way" both matched "eating"/"resting" as pure noise inside
+// unrelated words (treating, interesting), and would have been real false
+// positives the moment a scanned file used those ordinary English words.
+// Wrapping the ENTIRE alternation in one \b...\b, rather than escaping
+// each alternative, is what makes JS regex backtracking do the right thing
+// regardless of alternative order: at a given start position it tries each
+// alternative, and if the trailing \b assertion fails (e.g. "eat" matched
+// inside "Eating" with a word character immediately after), it backtracks
+// into the alternation and tries the next, longer alternative ("eating")
+// until the boundary holds -- so the old "longest-form-first" ordering
+// hack is no longer load-bearing (kept only for readability, not
+// correctness).
+// Trade-off this reintroduces on purpose: an identifier or field name that
+// GLUES the term to adjacent letters/underscores with no real word break
+// (`is_eating`, `IsEating`, `body_temperature_c`) no longer matches this
+// boundary-anchored regex at all, because `_` and camelCase letters are all
+// \w -- there is no `\b` between "is" and "Eating" in "IsEating". That
+// case is NOT abandoned: IDENTIFIER_CLAIM_RE below is a SEPARATE, narrower
+// pass specifically for the compound is_/_detected/_flag/_status shape, so
+// field/key names are still caught without reopening the substring-noise
+// hole for ordinary prose.
+const BANNED_TERM_RE = new RegExp(`\\b(?:${BANNED_TERMS.join("|")})\\b`, "i");
+
+// Compound identifier/field-name shape (is_eating, IsEating, eating_detected,
+// fever_flag, disease_status, ...) -- deliberately NOT boundary-anchored on
+// the banned-term portion itself (an identifier glues words together with
+// no `\b` between them), but the identifier AS A WHOLE is boundary-anchored
+// so it doesn't itself become substring noise. This is what still catches
+// `IsEating bool \`json:"is_eating"\`` as a claim after BANNED_TERM_RE was
+// tightened to real word boundaries above.
+const IDENTIFIER_CLAIM_RE = new RegExp(
+  `\\b(?:is_?(?:${BANNED_TERMS.join("|")})|(?:${BANNED_TERMS.join("|")})_?(?:detected|flag|status))\\b`,
+  "i"
+);
 
 // "body temp[erature]" specifically, for the body-temp-mislabel check.
 const BODY_TEMP_RE = /\bbody[\s_-]?temp(?:erature)?\b/i;
@@ -190,8 +355,17 @@ const BODY_TEMP_RE = /\bbody[\s_-]?temp(?:erature)?\b/i;
 // Constructions that mark a line as a DENIAL rather than a claim. If any of
 // these match near the banned term, the line is a negation and must NOT be
 // flagged (this is the "match the assertion, not the word" requirement).
+// Genuine denial words only. `no` is excluded when it is part of an
+// AFFIRMING idiom rather than a real negation of a claim -- "no doubt",
+// "no question", and "no longer" all read as certainty/completion markers
+// in ordinary English, not as a denial of whatever claim follows (round-5
+// fix, bypass 3: "There is no doubt this tag detected eating today" used to
+// read as a denial purely because bare "no" preceded "eating", regardless
+// of what "no" was actually negating). Bare "no" immediately before a noun
+// (e.g. "no animal-contact sensor", "no direct temperature sensor")
+// remains a genuine denial trigger.
 const NEGATION_RE =
-  /\b(?:not|never|no|cannot|can't|does not|doesn't|isn't|is not|without)\b/i;
+  /\b(?:not|never|cannot|can't|does\s+not|doesn't|isn't|is\s+not|must\s+not|without|no(?!\s+(?:doubt|question|longer)\b))\b/i;
 
 // Hard cap on how far outward buildSentenceWindow will walk looking for a
 // sentence boundary, even if none is found. This is a safety bound, not the
@@ -428,16 +602,70 @@ const VOCAB_LIST_RE =
 //     ("Eating detected", "Currently ruminating")
 //   - a field/key/column name encoding the concept: is_eating, isEating,
 //     eating_detected, body_temperature_c, fever_flag, etc.
+// Given a matched IDENTIFIER_CLAIM_RE compound (e.g. "is_eating",
+// "IsEating", "eating_detected", "fever_flag", "disease_status"), strip the
+// is_/is prefix or the _detected/_flag/_status suffix to recover the bare
+// banned term for negation-window lookup and for re-checking claim shape.
+function coreTermFromIdentifierMatch(matched) {
+  const withoutPrefix = matched.replace(/^is_?/i, "");
+  if (withoutPrefix !== matched) return withoutPrefix;
+  return matched.replace(/_?(?:detected|flag|status)$/i, "");
+}
+
+// The GAIT/POSTURE family has ordinary, innocent TECHNICAL meanings outside
+// animal behavior: queries run, jobs run, sweepers run, tests stand up a
+// container, code walks a cursor/index, a cache rests idle, a batch is
+// "eating" memory. Word-boundary anchoring (above) fixes substring noise
+// ("interesting" != "resting") but not this: "filters and search run in the
+// query" is fully word-bounded, genuinely-technical prose that must NOT be
+// flagged, and "the test suite is standing up a container" matches the
+// EXACT stateClaim shape ("is standing") used to correctly flag "the animal
+// is standing." (round-5 fix.) Terms in this family require either an
+// animal-subject cue in the same sentence or an explicit detection verb
+// before stateClaim (or the gait-specific detection co-occurrence check
+// below) may treat them as claim-shaped. Terms with NO innocent technical
+// meaning (rumination, fever, disease, diagnos*, sleeping, dozing, idle,
+// and "body temperature" via its own separate check) are NOT gated this
+// way -- they stay strict, because there is no legitimate non-animal
+// sentence that would use them.
+const GAIT_TERMS = new Set([
+  "run", "running", "runs",
+  "walk", "walking", "walks",
+  "stand", "standing", "stands",
+  "lie", "lying", "lies", "lay",
+  "sit", "sitting", "sits",
+  "eat", "eating", "eats",
+  "graze", "grazing", "grazes",
+  "rest", "resting", "rests",
+  // Added after empirical testing found the same shape of false positive:
+  // "the connection pool is idle between polls" and "the goroutine is
+  // sleeping between polls" are both ordinary Go/infra prose that live in
+  // this exact module's backend surface (gateway polling, connection
+  // handling), and both matched stateClaim ("is idle"/"is sleeping")
+  // exactly like the run/stand/eat cases the coordinator demonstrated.
+  "idle", "sleeping", "sleeps", "dozing", "dozes", "doze",
+]);
+
+// A cue that the SUBJECT of the sentence is an animal (or the tag standing
+// in for one) rather than a query, job, sweeper, cursor, cache, or batch.
+// "it"/"they" are included per product-review guidance even though they are
+// not animal-specific on their own -- a known, documented over-approximation
+// (see the guard's header blind-spot list).
+const SUBJECT_CUE_RE = /\b(?:animal|animals|goat|goats|herd|tag|tags|it|they|its|their)\b/i;
+
+// An explicit assertion verb: on its own (with NO subject cue at all,
+// e.g. "detects grazing") this is still sufficient to read as a claim --
+// matches the existing detectClaim shape's own leniency.
+const DETECTION_VERB_RE = /\b(?:detects?|detected|detecting|confirms?|confirmed|shows?|showed)\b/i;
+
 function isClaimShaped(text, term) {
-  if (NEGATION_RE.test(text) && !/detect(?:s|ed|ion)?\s+\w*/i.test(text)) {
-    // Negation present and this isn't a "detects X" construction that
-    // could still be a claim despite an unrelated "not" elsewhere in the
-    // window (rare; err toward treating bare negation as a denial).
-    return false;
-  }
-  // Even with a "detect" verb present, if the negation precedes the term
-  // anywhere in the window (the common denial shape: "does not detect
-  // eating", including when wrapped across lines), treat as denial.
+  // The ONLY negation test: does a genuine denial word precede this SPECIFIC
+  // term's first occurrence in `text`? (round-5 fix, bypass 2/4): an earlier
+  // version returned "not a claim" whenever ANY negation existed anywhere in
+  // the text and no "detect" verb was present -- so a trailing, UNRELATED
+  // negation ("The animal is eating, but the battery is not low") silently
+  // excused a real claim that had nothing to do with that negation. Order
+  // relative to THIS term is the only thing that may excuse a claim.
   if (negationPrecedesTerm(text, term)) return false;
   const detectClaim = new RegExp(
     `detect(?:s|ed|ion)?\\s+(?:\\w+\\s+){0,2}${term}|${term}\\s+detect(?:s|ed|ion)?`,
@@ -449,9 +677,50 @@ function isClaimShaped(text, term) {
     "i"
   );
   const quotedClaim = new RegExp(`["'\`][^"'\`]*\\b${term}\\b[^"'\`]*["'\`]`, "i");
-  if (detectClaim.test(text) || stateClaim.test(text) || fieldNameClaim.test(text)) {
-    return true;
+  // Bare JSX text content -- a column header, a status chip, or any other
+  // literal text between tags carries no quotes at all (round-5 fix, bypass
+  // 1: `<th>Eating</th>` and `<Tag tone="ok">Ruminating</Tag>` both used to
+  // pass zero findings, because quotedClaim requires quote characters and
+  // JSX text children have none). Matches the term inside a `>...<` text
+  // run with no nested tag boundary in between.
+  const jsxTextClaim = new RegExp(`>[^<>{}]*\\b${term}\\b[^<>{}]*<`, "i");
+
+  // fieldNameClaim and jsxTextClaim are inherently product-facing labels/
+  // identifiers -- there is no "sentence subject" to require, a chip
+  // literally labeled "Running" or a field literally named `is_running` IS
+  // the claim regardless of gait-term ambiguity. Unconditional, same as
+  // before this round.
+  if (fieldNameClaim.test(text) || jsxTextClaim.test(text)) return true;
+
+  // detectClaim already REQUIRES an explicit detect verb by construction,
+  // which satisfies "or an explicit detection verb" on its own -- no
+  // additional subject-cue gate needed even for gait terms ("detects
+  // grazing" must still flag with no subject present at all).
+  if (detectClaim.test(text)) return true;
+
+  const isGaitTerm = GAIT_TERMS.has(term.toLowerCase());
+
+  if (isGaitTerm) {
+    // A gait/posture term co-occurring with an explicit assertion verb
+    // (confirms/shows/...) in the same sentence, even without the exact
+    // "is <term>" shape stateClaim requires -- covers constructions like
+    // "the gateway confirms the goat is walking" and "tag A0003B shows the
+    // animal standing" that detectClaim/stateClaim alone would miss.
+    if (DETECTION_VERB_RE.test(text) && new RegExp(`\\b${term}\\b`, "i").test(text)) {
+      return true;
+    }
+    // stateClaim ("is/was <term>") is exactly the shape ordinary technical
+    // prose also produces ("the test suite is standing up a container",
+    // "the batch is eating memory") -- require an animal-subject cue before
+    // trusting it for this family.
+    if (stateClaim.test(text)) return SUBJECT_CUE_RE.test(text);
+  } else {
+    // Non-gait banned terms (rumination, fever, disease, diagnos*,
+    // sleeping, dozing, idle) have no innocent technical meaning -- stay
+    // strict, no subject-cue gate.
+    if (stateClaim.test(text)) return true;
   }
+
   // A quoted literal containing the term is only a claim if it is not
   // itself a denial sentence (already excluded above) and not a
   // vocabulary/allowlist entry.
@@ -508,6 +777,30 @@ function findingsForSource(source, relPath) {
           });
         }
       }
+
+      // Compound identifier/field-name occurrences (is_eating, IsEating,
+      // eating_detected, ...) -- BANNED_TERM_RE's boundary anchoring above
+      // deliberately cannot see these (no \\b between glued word parts), so
+      // this is a SEPARATE pass over the SAME line using IDENTIFIER_CLAIM_RE.
+      const globalIdentifierRe = new RegExp(IDENTIFIER_CLAIM_RE.source, "gi");
+      let im;
+      while ((im = globalIdentifierRe.exec(stripped)) !== null) {
+        if (im[0] === "") {
+          globalIdentifierRe.lastIndex++;
+          continue;
+        }
+        const matched = im[0];
+        const term = coreTermFromIdentifierMatch(matched);
+        const fragIdx2 = fragmentOrdinalForOffset(stripped, lineFragments, im.index);
+        const window2 = buildSentenceWindow(lines, i, WINDOW_BEFORE, WINDOW_AFTER, fragIdx2);
+        if (!VOCAB_LIST_RE.test(window2) && isClaimShaped(window2, term)) {
+          findings.push({
+            line: lineNo,
+            rule: "banned-claim",
+            message: `claim-shaped use of banned term "${matched}" — Herd Signals cannot detect/classify behavior; deny it explicitly ("does not detect ...") or remove the claim`,
+          });
+        }
+      }
     }
 
     // body-temp-mislabel -- same per-occurrence treatment as banned-claim
@@ -528,12 +821,17 @@ function findingsForSource(source, relPath) {
         const term = tm[0];
         const fragIdx = fragmentOrdinalForOffset(stripped, lineFragments, tm.index);
         const window = buildSentenceWindow(lines, i, WINDOW_BEFORE, WINDOW_AFTER, fragIdx);
+        // The ONLY excuse is a genuine denial that precedes THIS specific
+        // occurrence (round-5 fix, bypass 4): an earlier version also
+        // excused any non-field-shaped prose whenever the window contained
+        // ANY negation at all, anywhere -- so "Body temperature rose above
+        // baseline, though the signal is not weak." passed, because a
+        // trailing, unrelated "not weak" satisfied `!NEGATION_RE.test`
+        // even though nothing actually denied the body-temperature claim.
+        // Order-based negationPrecedesTerm is the single source of truth
+        // here, exactly like the banned-claim check above.
         const isDenial = negationPrecedesTerm(window, term);
-        const looksLikeFieldOrLabel =
-          /["'`][^"'`]*body[\s_-]?temp/i.test(text) || // quoted UI label
-          /\bbody_?temp(?:erature)?_?\w*\s*[:=]/i.test(text) || // field/key assignment
-          /\b(?:type|struct|Body_?Temp|BodyTemp)\b.*body[\s_-]?temp/i.test(text);
-        if (!VOCAB_LIST_RE.test(window) && !isDenial && (looksLikeFieldOrLabel || !NEGATION_RE.test(window))) {
+        if (!VOCAB_LIST_RE.test(window) && !isDenial) {
           findings.push({
             line: lineNo,
             rule: "body-temp-mislabel",
@@ -638,6 +936,29 @@ function findingsForYamlSlice(source) {
           });
         }
       }
+
+      // Compound identifier/property-name occurrences (is_eating,
+      // eating_detected, ...) -- an OpenAPI schema `properties:` block
+      // commonly uses exactly this snake_case shape.
+      const globalIdentifierRe = new RegExp(IDENTIFIER_CLAIM_RE.source, "gi");
+      let im;
+      while ((im = globalIdentifierRe.exec(stripped)) !== null) {
+        if (im[0] === "") {
+          globalIdentifierRe.lastIndex++;
+          continue;
+        }
+        const matched = im[0];
+        const term = coreTermFromIdentifierMatch(matched);
+        const fragIdx2 = fragmentOrdinalForOffset(stripped, lineFragments, im.index);
+        const window2 = buildSentenceWindow(sliceLines, idx, WINDOW_BEFORE, WINDOW_AFTER, fragIdx2);
+        if (!VOCAB_LIST_RE.test(window2) && isClaimShaped(window2, term)) {
+          findings.push({
+            line: lineNo,
+            rule: "banned-claim",
+            message: `claim-shaped use of banned term "${matched}" in the herd-signals OpenAPI slice`,
+          });
+        }
+      }
     }
 
     if (!lineIsVocabList) {
@@ -707,14 +1028,30 @@ function collectTargets() {
     targets.push({ abs, rel, kind: "source" });
   }
 
-  const docsFile = join(repo, "docs/modules/herd-signals.md");
-  if (existsSync(docsFile)) {
-    targets.push({ abs: docsFile, rel: "docs/modules/herd-signals.md", kind: "allowlisted" });
+  // Glob, not a hardcoded single filename -- see DOCS_GLOB_PREFIX comment.
+  const docsDir = join(repo, "docs/modules");
+  if (existsSync(docsDir)) {
+    for (const entry of readdirSync(docsDir, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      if (!entry.name.startsWith("herd-signals") || !entry.name.endsWith(".md")) continue;
+      const abs = join(docsDir, entry.name);
+      const rel = relative(repo, abs);
+      targets.push({ abs, rel, kind: "allowlisted" });
+    }
   }
 
   const mockFile = join(repo, "mock/herd-signals-mock.html");
   if (existsSync(mockFile)) {
     targets.push({ abs: mockFile, rel: "mock/herd-signals-mock.html", kind: "source" });
+  }
+
+  const skillFile = join(repo, ".agents/skills/goatos-herd-signals/SKILL.md");
+  if (existsSync(skillFile)) {
+    targets.push({
+      abs: skillFile,
+      rel: ".agents/skills/goatos-herd-signals/SKILL.md",
+      kind: "allowlisted",
+    });
   }
 
   return targets;
@@ -730,7 +1067,7 @@ function scanTree() {
     } catch {
       continue;
     }
-    if (ALLOWLISTED_FILES.includes(rel)) continue;
+    if (ALLOWLISTED_FILES.includes(rel) || isAllowlistedHerdSignalsDoc(rel)) continue;
     for (const f of findingsForSource(source, rel)) findings.push({ ...f, rel });
   }
 
@@ -943,6 +1280,113 @@ function selfTest() {
   console.log(`  denial-then-claim-same-line (inverse) fixture -> ${denialThenClaimFindings.length} finding(s): ${denialThenClaimFindings.map((f) => f.rule).join(", ")}`);
   console.log(`  denial-then-innocent-prose-same-line fixture -> ${denialThenInnocentFindings.length} finding(s)`);
   console.log(`  two-denials-same-line fixture -> ${twoDenialsFindings.length} finding(s)`);
+
+  // Round 5, bypass 1: bare JSX text claims (no quotes) must be caught.
+  const bareJsxFindings = findingsForSource(
+    readFixture("Bad_BareJsxTextClaim.tsx"),
+    "apps/admin-web/features/herd-signals/live-panel.tsx"
+  );
+  if (!bareJsxFindings.some((f) => f.rule === "banned-claim")) {
+    throw new Error(
+      `self-test: expected banned-claim on bare-JSX-text-claim fixture (<th>Eating</th> / <Tag>Ruminating</Tag> with no quotes), got: ${JSON.stringify(bareJsxFindings)}`
+    );
+  }
+
+  // Round 5, bypass 2: a trailing, unrelated negation must not excuse a
+  // genuine claim earlier in the sentence.
+  const trailingNegationFindings = findingsForSource(
+    readFixture("Bad_TrailingUnrelatedNegation.ts"),
+    "apps/admin-web/features/herd-signals/format.ts"
+  );
+  if (!trailingNegationFindings.some((f) => f.rule === "banned-claim")) {
+    throw new Error(
+      `self-test: expected banned-claim on trailing-unrelated-negation fixture ("is eating, but ... is not low"), got: ${JSON.stringify(trailingNegationFindings)}`
+    );
+  }
+
+  // Round 5, bypass 3: "no doubt" is an affirmation, not a denial.
+  const noDoubtFindings = findingsForSource(
+    readFixture("Bad_NoDoubtAffirmation.ts"),
+    "apps/admin-web/features/herd-signals/format.ts"
+  );
+  if (!noDoubtFindings.some((f) => f.rule === "banned-claim")) {
+    throw new Error(
+      `self-test: expected banned-claim on "no doubt" affirmation fixture, got: ${JSON.stringify(noDoubtFindings)}`
+    );
+  }
+
+  // Round 5, bypass 4: same trailing-unrelated-negation bug, in the
+  // body-temp-mislabel check specifically.
+  const bodyTempTrailingFindings = findingsForSource(
+    readFixture("Bad_BodyTempTrailingNegation.ts"),
+    "apps/admin-web/features/herd-signals/format.ts"
+  );
+  if (!bodyTempTrailingFindings.some((f) => f.rule === "body-temp-mislabel")) {
+    throw new Error(
+      `self-test: expected body-temp-mislabel on body-temp trailing-negation fixture, got: ${JSON.stringify(bodyTempTrailingFindings)}`
+    );
+  }
+
+  // Round 5: word-boundary noise (interesting/treating/arrested/restore/
+  // restart/wrestling) must produce zero findings.
+  const wordBoundaryNoiseFindings = findingsForSource(
+    readFixture("Good_WordBoundaryNoise.ts"),
+    "apps/admin-web/features/herd-signals/format.ts"
+  );
+  if (wordBoundaryNoiseFindings.length) {
+    throw new Error(
+      `self-test: false positive on word-boundary-noise fixture: ${JSON.stringify(wordBoundaryNoiseFindings)}`
+    );
+  }
+
+  // Round 5: gait/posture terms in ordinary technical prose (no animal
+  // subject, no detection verb) must produce zero findings.
+  const gaitTechnicalFindings = findingsForSource(
+    readFixture("Good_GaitTermsTechnicalProse.ts"),
+    "apps/admin-web/features/herd-signals/format.ts"
+  );
+  if (gaitTechnicalFindings.length) {
+    throw new Error(
+      `self-test: false positive on gait-terms-technical-prose fixture: ${JSON.stringify(gaitTechnicalFindings)}`
+    );
+  }
+
+  // Round 5: the SAME gait/posture terms, now with an animal subject or
+  // detection verb, must all be caught.
+  const gaitAnimalFindings = findingsForSource(
+    readFixture("Bad_GaitTermsAnimalSubject.ts"),
+    "apps/admin-web/features/herd-signals/format.ts"
+  );
+  if (!gaitAnimalFindings.some((f) => f.rule === "banned-claim")) {
+    throw new Error(
+      `self-test: expected banned-claim finding(s) on gait-terms-animal-subject fixture, got: ${JSON.stringify(gaitAnimalFindings)}`
+    );
+  }
+  if (gaitAnimalFindings.length < 6) {
+    throw new Error(
+      `self-test: expected all 6 lines of gait-terms-animal-subject fixture to be flagged, got only ${gaitAnimalFindings.length}: ${JSON.stringify(gaitAnimalFindings)}`
+    );
+  }
+
+  // Round 5: the posture-paraphrase family, genuinely denied, must pass.
+  const postureParaphraseDenialFindings = findingsForSource(
+    readFixture("Good_PostureParaphraseDenial.go"),
+    "backend/internal/herdsignals/app/fixture.go"
+  );
+  if (postureParaphraseDenialFindings.length) {
+    throw new Error(
+      `self-test: false positive on posture-paraphrase-denial fixture: ${JSON.stringify(postureParaphraseDenialFindings)}`
+    );
+  }
+
+  console.log(`  bare-JSX-text-claim fixture -> ${bareJsxFindings.length} finding(s): ${bareJsxFindings.map((f) => f.rule).join(", ")}`);
+  console.log(`  trailing-unrelated-negation fixture -> ${trailingNegationFindings.length} finding(s): ${trailingNegationFindings.map((f) => f.rule).join(", ")}`);
+  console.log(`  "no doubt" affirmation fixture -> ${noDoubtFindings.length} finding(s): ${noDoubtFindings.map((f) => f.rule).join(", ")}`);
+  console.log(`  body-temp trailing-negation fixture -> ${bodyTempTrailingFindings.length} finding(s): ${bodyTempTrailingFindings.map((f) => f.rule).join(", ")}`);
+  console.log(`  word-boundary-noise fixture -> ${wordBoundaryNoiseFindings.length} finding(s)`);
+  console.log(`  gait-terms-technical-prose fixture -> ${gaitTechnicalFindings.length} finding(s)`);
+  console.log(`  gait-terms-animal-subject fixture -> ${gaitAnimalFindings.length} finding(s)`);
+  console.log(`  posture-paraphrase-denial fixture -> ${postureParaphraseDenialFindings.length} finding(s)`);
 }
 
 if (process.argv.includes("--self-test")) {
