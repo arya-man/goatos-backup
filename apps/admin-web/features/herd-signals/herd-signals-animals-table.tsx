@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { LocalOverlayLink } from "@/components/local-overlay-link";
+import { LocalOverlayLink, pushLocalOverlayUrl } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import type { HerdSignalItem } from "@/lib/api/herd-signals";
@@ -16,6 +16,10 @@ import {
   fmtRssi,
   fmtSignedDelta,
 } from "./format";
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest("a,button,input,select,textarea,[role='button']"));
+}
 
 // The Animals tab is NOT the Live Monitor table with a different heading. The mock
 // (mock/herd-signals-mock.html `renderAnimals`) gives it its own NINE-column set, in its own
@@ -72,7 +76,22 @@ export function HerdSignalsAnimalsRow({
   const delta1hText = fmtDelta1h(item.motion_delta_1h, item.motion_delta);
   const delta1h = delta1hText === "—" ? { text: "—", tone: "zero" as const } : fmtSignedDelta(item.motion_delta_1h);
   return (
-    <tr>
+    <tr
+      className="hs-selectable"
+      tabIndex={0}
+      role="button"
+      aria-label={`Open tag detail for ${item.display_id || item.tag_id}`}
+      onClick={(event) => {
+        if (isInteractiveTarget(event.target)) return;
+        pushLocalOverlayUrl(href);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        if (isInteractiveTarget(event.target)) return;
+        event.preventDefault();
+        pushLocalOverlayUrl(href);
+      }}
+    >
       <td data-l="Animal" className="wide">
         <LocalOverlayLink href={href} scroll={false} title="Open tag detail">
           <b>{item.display_id || item.goat_id || "—"}</b>
