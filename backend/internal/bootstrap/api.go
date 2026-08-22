@@ -54,6 +54,9 @@ import (
 	healthhttp "github.com/vgoats/goatos/backend/internal/health/adapters/http"
 	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
+	herdsignalshttp "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/http"
+	herdsignalspg "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/postgres"
+	herdsignalsapp "github.com/vgoats/goatos/backend/internal/herdsignals/app"
 	identityhttp "github.com/vgoats/goatos/backend/internal/identity/adapters/http"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/identity/adapters/salesbridge"
@@ -548,6 +551,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	healthRepo := healthpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	healthService := healthapp.NewService(healthRepo)
 	healthHandler := healthhttp.NewHandler(healthService, log)
+	// Herd Signals: BLE ear-tag telemetry ingest + live/timeline/gateways/insights read model.
+	// Owns its own four tables (herd_signal_gateways/packets/tag_latest/activity_windows) and
+	// reads goat_identifiers/goats/locations/shed_partitions read-only to resolve a tag to an
+	// animal and operational location -- it writes to none of them.
+	herdSignalsRepo := herdsignalspg.NewRepository(pool)
+	herdSignalsService := herdsignalsapp.NewService(herdSignalsRepo, log)
+	herdSignalsHandler := herdsignalshttp.NewHandler(herdSignalsService, log)
 	// The authored treatment rulebook behind /health/config. Same repository, because the
 	// protocol tables belong to the Health module and a second package writing them would be the
 	// cross-module table write AGENTS.md bans -- the authoring surface is a different API over
@@ -1226,6 +1236,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	taskshttp.Register(protectedMux, tasksWorkflowHandler)
 	healthhttp.Register(protectedMux, healthHandler)
 	healthhttp.RegisterConfig(protectedMux, healthConfigHandler)
+	herdsignalshttp.Register(protectedMux, herdSignalsHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	feedconfighttp.Register(protectedMux, feedConfigHandler)
 	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)

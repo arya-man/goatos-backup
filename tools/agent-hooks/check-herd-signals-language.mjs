@@ -25,7 +25,11 @@
 //     detect eating", "not rumination", "never claims fever") or listed
 //     inside a banned-terms/vocabulary table (this file, and
 //     docs/modules/herd-signals.md Section 3/4 itself, are allowlisted by
-//     path — see ALLOWLISTED_FILES).
+//     path — see ALLOWLISTED_FILES). Denial detection is WINDOW-based, not
+//     single-line: a negation on the line(s) before or after the term is
+//     recognized too, so a denial sentence wrapped by JSX/prose line breaks
+//     ("... own sensor housing — not the\n  animal's body temperature.") is
+//     still read as one sentence — see WINDOW_BEFORE/WINDOW_AFTER below.
 //   body-temp-mislabel
 //     "body temp" / "body temperature" used as a FIELD LABEL/VALUE where
 //     "tag temperature" is meant (e.g. a struct field, JSON key, UI label,
@@ -80,14 +84,18 @@
 // - It cannot verify negation phrasing is TRUE (i.e. that a denial like
 //   "does not detect eating" accurately reflects the code) — only that the
 //   sentence is grammatically a denial, not a claim.
-// - Negation scope is LINE-LOCAL. A denial sentence split across multiple
-//   Go/TS string-concatenation lines ("does not detect eating, ..." + "\n"
-//   "rumination, ..." on the next literal) only has its negation recognized
-//   on the line that contains the negation word itself; a banned term on a
-//   later continuation line, with no negation word of its own on that same
-//   line, can false-positive. Keep denial sentences that list banned terms
-//   on one line (see the fixture) or accept the occasional false positive
-//   and use the `herd-signals-language:ignore:` escape hatch.
+// - Negation scope is a WINDOW, not the whole file: a denial is recognized if
+//   the negation word and the banned term/"body temp" fall within
+//   WINDOW_BEFORE lines before / WINDOW_AFTER lines after each other (see the
+//   constants below the imports), after whitespace-normalizing and joining
+//   that span into one string -- this is what makes JSX text wrapped across
+//   lines ("... own sensor housing -- not the\n  animal's body temperature.")
+//   correctly read as a denial instead of false-positiving on the second
+//   line alone. A denial whose negation sits FURTHER than WINDOW_BEFORE lines
+//   before the term, or WINDOW_AFTER lines after it (an intervening
+//   paragraph, a closing JSX tag and a new element, etc.) is still outside
+//   the window and can false-positive; widen the constants or use the
+//   `herd-signals-language:ignore:` escape hatch for that rare shape.
 // - Only the FIRST banned-term match per line is evaluated by the
 //   banned-claim check (one `.match()` call, not a global scan); a line
 //   with multiple distinct banned terms only has its first one judged
