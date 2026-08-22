@@ -192,16 +192,47 @@
 //     (detects/confirms/shows) in the same sentence before a GAIT_TERMS
 //     stateClaim match is trusted; a bare detection verb alone (with NO
 //     subject at all, e.g. "detects grazing") remains sufficient on its
-//     own, matching detectClaim's existing leniency. Non-gait terms
-//     (rumination, fever, disease, diagnos*) have no innocent technical
-//     meaning and are NOT subject-gated -- they stay strict.
+//     own, matching detectClaim's existing leniency. Non-gated terms
+//     (rumination, fever, disease) have no innocent technical meaning and
+//     are NOT subject-gated -- they stay strict.
+//   Round 6 (found live on the real tree, CLOSED): "diagnos*" was left out
+//     of the round-5 gate as a "no innocent technical meaning" term -- that
+//     assumption was WRONG. "diagnostic"/"diagnostics" describing a DATA
+//     FIELD is ordinary engineering vocabulary (a diagnostic value, kept
+//     for diagnostics only, a diagnostic field), and it is now load-bearing
+//     in this exact module: the gateway's own clock is untrusted (a
+//     constant +02:30:00 offset from real IST) and is stored ONLY as
+//     diagnostic data, never rendered -- backend/internal/herdsignals/
+//     app/service.go:68 documents exactly this and matched stateClaim ("is
+//     diagnostic") the moment the module was written. Closed by folding
+//     "diagnos*" into the same subject-gated set (checked by PREFIX, since
+//     it is a wildcard family, not a single GAIT_TERMS entry) -- with one
+//     addition the gait family didn't need: "diagnoses"/"diagnosed"/
+//     "diagnose"/"diagnosing" are VERB forms that themselves ARE the
+//     assertion ("the tag diagnoses the animal"), unlike "diagnostic"/
+//     "diagnosis" (adjective/noun, almost always the field sense), so
+//     those verb forms are flagged on ANY subject cue at all, not gated
+//     behind stateClaim's "is/was" shape.
+//   The policy this round establishes, stated plainly because it will
+//     recur: ANY newly banned root needs an innocent-technical-usage
+//     review before it ships, not just before it is found broken.
+//     Engineering prose reuses clinical and physical vocabulary
+//     constantly (diagnostic, monitor, signal, symptom, sensor, temp,
+//     alert, trigger, ...); assuming a new banned term has "no innocent
+//     technical meaning" without checking is exactly the assumption that
+//     produced this round's live false positive on a mandatory comment.
+//     When adding a term to BANNED_TERMS, grep the actual scanned
+//     surfaces for it first, or add it straight to the gated
+//     (isInnocentTechnicalTerm) path if there is any doubt.
 //
 // The general lesson across ALL of the above, restated once: the unit of
 // judgement is the individual term OCCURRENCE, the SENTENCE enclosing it
 // (found by real boundaries, not a line or a line-count window), and — for
-// terms with an innocent technical meaning — the SUBJECT that sentence
+// terms with an innocent technical meaning — the SUBJECT (or, for a verb
+// form that is itself the assertion, any subject at all) that sentence
 // attaches the term to. Every version of this guard before the current one
-// failed by judging something LARGER or narrower than that.
+// failed by judging something LARGER or narrower than that, or by assuming
+// a term had no innocent meaning without checking.
 //
 // Residual blind spots on the CURRENT sentence/occurrence/subject logic
 // (static heuristics, not a parser):
@@ -698,26 +729,45 @@ function isClaimShaped(text, term) {
   // grazing" must still flag with no subject present at all).
   if (detectClaim.test(text)) return true;
 
-  const isGaitTerm = GAIT_TERMS.has(term.toLowerCase());
+  // "diagnos*" (diagnostic/diagnosis/diagnosed/diagnoses) is a wildcard
+  // family, not a single GAIT_TERMS entry -- checked by prefix instead of
+  // set membership. Added to the subject-gated set after a live false
+  // positive: "received_at ... is truth for ordering/gaps regardless --
+  // this is diagnostic only" (backend/internal/herdsignals/app/service.go,
+  // documenting that the gateway's own clock runs a constant +02:30:00
+  // offset from real IST and is stored ONLY as diagnostic data, never
+  // rendered) matched stateClaim ("is diagnostic") exactly like the
+  // run/walk/rest cases -- "diagnostic" describing a DATA FIELD is not the
+  // banned claim that the SYSTEM diagnoses an ANIMAL's disease.
+  const isInnocentTechnicalTerm = GAIT_TERMS.has(term.toLowerCase()) || /^diagnos/i.test(term);
 
-  if (isGaitTerm) {
-    // A gait/posture term co-occurring with an explicit assertion verb
-    // (confirms/shows/...) in the same sentence, even without the exact
-    // "is <term>" shape stateClaim requires -- covers constructions like
-    // "the gateway confirms the goat is walking" and "tag A0003B shows the
-    // animal standing" that detectClaim/stateClaim alone would miss.
+  if (isInnocentTechnicalTerm) {
+    // A gait/posture/diagnostic term co-occurring with an explicit
+    // assertion verb (confirms/shows/...) in the same sentence, even
+    // without the exact "is <term>" shape stateClaim requires -- covers
+    // constructions like "the gateway confirms the goat is walking" and
+    // "tag A0003B shows the animal standing" that detectClaim/stateClaim
+    // alone would miss.
     if (DETECTION_VERB_RE.test(text) && new RegExp(`\\b${term}\\b`, "i").test(text)) {
+      return true;
+    }
+    // "diagnoses"/"diagnosed"/"diagnose"/"diagnosing" are VERB forms that
+    // themselves ARE the assertion ("the tag diagnoses the animal",
+    // "disease diagnosed by the tag") -- unlike "diagnostic"/"diagnosis"
+    // (adjective/noun, almost always the innocent data-field sense), a
+    // verb form co-occurring with ANY subject cue at all is the banned
+    // claim itself, not a technical description of a field.
+    if (/^diagnos(?:e|es|ed|ing)$/i.test(term) && SUBJECT_CUE_RE.test(text)) {
       return true;
     }
     // stateClaim ("is/was <term>") is exactly the shape ordinary technical
     // prose also produces ("the test suite is standing up a container",
-    // "the batch is eating memory") -- require an animal-subject cue before
-    // trusting it for this family.
+    // "the batch is eating memory", "this is diagnostic only") -- require
+    // an animal-subject cue before trusting it for this family.
     if (stateClaim.test(text)) return SUBJECT_CUE_RE.test(text);
   } else {
-    // Non-gait banned terms (rumination, fever, disease, diagnos*,
-    // sleeping, dozing, idle) have no innocent technical meaning -- stay
-    // strict, no subject-cue gate.
+    // Non-gated banned terms (rumination, fever, disease) have no innocent
+    // technical meaning -- stay strict, no subject-cue gate.
     if (stateClaim.test(text)) return true;
   }
 
@@ -1379,6 +1429,37 @@ function selfTest() {
     );
   }
 
+  // Round 6: "diagnostic"/"diagnostics" in ordinary engineering usage (a
+  // data field, kept for troubleshooting) must pass -- this is now
+  // load-bearing vocabulary (the gateway clock's untrusted +02:30:00 IST
+  // offset is documented as "diagnostic only" in real backend code).
+  const diagnosticTechnicalFindings = findingsForSource(
+    readFixture("Good_DiagnosticTechnicalUsage.go"),
+    "backend/internal/herdsignals/app/fixture.go"
+  );
+  if (diagnosticTechnicalFindings.length) {
+    throw new Error(
+      `self-test: false positive on diagnostic-technical-usage fixture: ${JSON.stringify(diagnosticTechnicalFindings)}`
+    );
+  }
+
+  // Round 6: the VERB forms of "diagnos*" (diagnoses/diagnosed) attaching
+  // to an animal subject ARE the banned claim and must still be caught.
+  const diagnosisAnimalFindings = findingsForSource(
+    readFixture("Bad_DiagnosisAnimalClaim.go"),
+    "backend/internal/herdsignals/app/fixture.go"
+  );
+  if (!diagnosisAnimalFindings.some((f) => f.rule === "banned-claim")) {
+    throw new Error(
+      `self-test: expected banned-claim finding(s) on diagnosis-animal-claim fixture, got: ${JSON.stringify(diagnosisAnimalFindings)}`
+    );
+  }
+  if (diagnosisAnimalFindings.length < 3) {
+    throw new Error(
+      `self-test: expected all 3 lines of diagnosis-animal-claim fixture to be flagged, got only ${diagnosisAnimalFindings.length}: ${JSON.stringify(diagnosisAnimalFindings)}`
+    );
+  }
+
   console.log(`  bare-JSX-text-claim fixture -> ${bareJsxFindings.length} finding(s): ${bareJsxFindings.map((f) => f.rule).join(", ")}`);
   console.log(`  trailing-unrelated-negation fixture -> ${trailingNegationFindings.length} finding(s): ${trailingNegationFindings.map((f) => f.rule).join(", ")}`);
   console.log(`  "no doubt" affirmation fixture -> ${noDoubtFindings.length} finding(s): ${noDoubtFindings.map((f) => f.rule).join(", ")}`);
@@ -1387,6 +1468,8 @@ function selfTest() {
   console.log(`  gait-terms-technical-prose fixture -> ${gaitTechnicalFindings.length} finding(s)`);
   console.log(`  gait-terms-animal-subject fixture -> ${gaitAnimalFindings.length} finding(s)`);
   console.log(`  posture-paraphrase-denial fixture -> ${postureParaphraseDenialFindings.length} finding(s)`);
+  console.log(`  diagnostic-technical-usage fixture -> ${diagnosticTechnicalFindings.length} finding(s)`);
+  console.log(`  diagnosis-animal-claim fixture -> ${diagnosisAnimalFindings.length} finding(s)`);
 }
 
 if (process.argv.includes("--self-test")) {
