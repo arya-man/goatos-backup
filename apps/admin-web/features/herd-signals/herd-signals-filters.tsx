@@ -3,7 +3,8 @@
 import { useRef, useState } from "react";
 import { MOVEMENT_LABEL, MAPPING_LABEL, PATTERN_LABEL } from "./format";
 import { useHerdSignalsNav } from "./herd-signals-nav-context";
-import { herdSignalsHref, herdSignalsResetHref, type HerdSignalsParams } from "./params";
+import { HerdSignalsKpiChip } from "./herd-signals-kpis";
+import { herdSignalsHref, type HerdSignalsParams } from "./params";
 
 export type ShedOption = { id: string; label: string };
 export type ParkOption = { id: string; label: string };
@@ -55,8 +56,6 @@ export function HerdSignalsFilters({
       go(herdSignalsHref(params, { hs_q: value.trim() || undefined }));
     }, 300);
   }
-
-  const hasNarrowing = params.hasFilter || Boolean(params.parkId);
 
   return (
     <div className="fbar herd-signals-fbar" aria-busy={isPending}>
@@ -168,18 +167,11 @@ export function HerdSignalsFilters({
         </select>
       </span>
 
-      {hasNarrowing ? (
-        <a
-          href={herdSignalsResetHref(params)}
-          className="achip clr"
-          onClick={(event) => {
-            event.preventDefault();
-            go(herdSignalsResetHref(params));
-          }}
-        >
-          Clear filters
-        </a>
-      ) : null}
+      {/* mock/herd-signals-mock.html `#kpiChip` — the ONLY chip the fbar carries is the active KPI
+          filter, one per active KPI, independently removable via its own ✕. The mock has no
+          generic "Clear filters" control in the filter bar (`clearFilters()` is only wired to the
+          empty-state action button) — do not invent one here. */}
+      <HerdSignalsKpiChip params={params} />
 
       <span className="fnote">Window: last 15 min &middot; thresholds provisional</span>
     </div>

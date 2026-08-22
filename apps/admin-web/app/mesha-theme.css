@@ -2913,7 +2913,10 @@ select:disabled { opacity: .45; }
    kpiCard/kpiLabel/kpiValue): 3px left accent + 1px border, radius 10 not 12, tighter padding, and
    the label/value weights the judge flagged as drifted (11/600 -> 10.5/800, 800/-0.6 -> 760/-0.5). */
 .herd-signals-page .kpi{border-left-width:3px;border-radius:10px;padding:11px 13px}
-.herd-signals-page .kpi .lab{font-size:10.5px;font-weight:800;letter-spacing:.5px}
+.herd-signals-page .kpi .lab{font-size:10.5px;font-weight:800;letter-spacing:.5px;display:flex;align-items:center;gap:6px}
+/* mock/herd-signals-mock.html `.achip{font-weight:700}` — the shared global `.achip` rule above is
+   600 for other screens; scope the mock's exact weight to this page only. */
+.herd-signals-page .fbar .achip{font-weight:700}
 .herd-signals-page .kpi .val{font-size:26px;font-weight:760;letter-spacing:-.5px;margin:2px 0 1px}
 .herd-signals-page .kpi .dl{font-size:11px;font-weight:400;color:var(--muted);margin-top:0}
 /* Chips: mock .tag is a small rounded-rect label in the full tone colour, not a muted-bordered
