@@ -155,7 +155,8 @@ export async function PeopleBoard({
               ))}
             </select>
           </div>
-          <button type="submit" className="btn">
+          {/* Nudged up so the button lines up with the input row, not the row's baseline. */}
+          <button type="submit" className="btn" style={{ marginBottom: 4 }}>
             {copy(pageContract, "filter.apply", "Apply")}
           </button>
         </div>
