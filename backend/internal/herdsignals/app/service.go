@@ -111,7 +111,7 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 			TemperatureSensorOK:   p.TemperatureSensorOK,
 			AccelerometerSensorOK: p.AccelerometerSensorOK,
 			RawAdv:                p.RawAdv,
-			RawPayload:            map[string]interface{}{},
+			RawPayload:            rawPayloadOrEmpty(p.RawPayload),
 		})
 	}
 
@@ -649,4 +649,13 @@ func gatewayStatus(lastSeenAt *time.Time, thresholds domain.Thresholds) string {
 		return "offline"
 	}
 	return "online"
+}
+
+// rawPayloadOrEmpty defaults a packet's optional diagnostic RawPayload to an empty object
+// (previous behaviour) rather than storing a JSON null.
+func rawPayloadOrEmpty(p map[string]interface{}) map[string]interface{} {
+	if p == nil {
+		return map[string]interface{}{}
+	}
+	return p
 }
