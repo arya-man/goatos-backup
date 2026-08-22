@@ -173,9 +173,28 @@ async function startVersion() {
 await mkdir(OUT, { recursive: true });
 const browser = await chromium.launch();
 page = await browser.newPage({ viewport: { width: 1512, height: 950 } });
+// Console errors count toward the verdict, so what is deliberately ignored has to be
+// matched precisely. In local bearer mode the app asks for a Firebase config that does not
+// exist and handles the 503 itself -- but the console message for it is the generic
+// "Failed to load resource", which names no URL. Filtering on the message text alone
+// therefore either lets that noise fail every green run, or (matching loosely) hides real
+// resource failures. The failing RESPONSE is what identifies it.
 const consoleErrors = [];
+const ignorableFailures = [/\/api\/auth\/firebase-config/];
+const failedResponses = [];
+page.on("response", (r) => {
+  if (r.status() >= 400) failedResponses.push(r.url());
+});
 page.on("console", (m) => {
-  if (m.type() === "error" && !m.text().includes("firebase-config")) consoleErrors.push(m.text());
+  if (m.type() !== "error") return;
+  const text = m.text();
+  if (text.includes("firebase-config")) return;
+  if (/Failed to load resource/i.test(text)) {
+    // Attributable to a response we already know about, and all of those are ignorable.
+    const unexplained = failedResponses.filter((u) => !ignorableFailures.some((re) => re.test(u)));
+    if (failedResponses.length > 0 && unexplained.length === 0) return;
+  }
+  consoleErrors.push(text);
 });
 
 await runCase("C01", "List screen reads the live plan from the database", async () => {
