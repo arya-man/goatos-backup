@@ -377,65 +377,70 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 		return domain.InsightsResponse{}, fmt.Errorf("insights failed: %w", err)
 	}
 
+	// Label (Title Case), Formula (plain-English, not SQL) and SignalType (badge) below are ported
+	// verbatim from the mock's INSIGHTS array (mock/herd-signals-mock.html) card-for-card, per
+	// AGENTS.md design-authority rule -- admin-web renders this copy verbatim, so drift here is
+	// drift on screen. Caveat text stays the richer backend-authored safety copy; the mock's own
+	// caveat lines are shorter paraphrases of the same facts, not a stricter source of truth.
 	cards := []domain.InsightCard{
 		{
-			Key: "tags_live_now", Label: "Tags live now", Value: fmt.Sprintf("%d", d.TagsLiveNow), Unit: "tags",
-			SignalType: "direct", Formula: "count(herd_signal_tag_latest) where last_seen_at within stale window",
+			Key: "tags_live_now", Label: "Tags Live Now", Value: fmt.Sprintf("%d", d.TagsLiveNow), Unit: "tags",
+			SignalType: "derived", Formula: "distinct tags with last_seen_at within 5 min",
 			Caveat: "Counts tags that have sent a packet recently; a tag with no packet in 30+ minutes is excluded, not shown as zero.",
 		},
 		{
-			Key: "missing_signal", Label: "Missing signal", Value: fmt.Sprintf("%d", d.MissingSignalCount), Unit: "tags",
-			SignalType: "direct", Formula: "count(tag_latest) where pattern_state = missing",
+			Key: "missing_signal", Label: "Missing Signal", Value: fmt.Sprintf("%d", d.MissingSignalCount), Unit: "tags",
+			SignalType: "derived", Formula: "mapped smart-tag animals not seen for 30+ min",
 			Caveat: "No packet received for 30+ minutes. Distinct from inactive: inactive tags are still transmitting.",
 		},
 		{
-			Key: "low_movement_watch", Label: "Low movement watch", Value: fmt.Sprintf("%d", d.LowMovementWatchCount), Unit: "tags",
-			SignalType: "derived", Formula: "count(tag_latest) where pattern_state in (quiet_watch, inactive)",
+			Key: "low_movement_watch", Label: "Low Movement Watch", Value: fmt.Sprintf("%d", d.LowMovementWatchCount), Unit: "tags",
+			SignalType: "derived", Formula: "60 min motion delta below shed baseline",
 			Caveat: "Duration-based pattern over history, not a single reading. Not a health or behavior diagnosis.",
 		},
 		{
-			Key: "high_movement_spike", Label: "High movement spike", Value: fmt.Sprintf("%d", d.HighMovementSpikeCount), Unit: "tags",
-			SignalType: "derived", Formula: "count(tag_latest) where pattern_state = spike (current 15m delta > 2.5x this tag's own 24h p75 baseline)",
+			Key: "high_movement_spike", Label: "High Movement Spike", Value: fmt.Sprintf("%d", d.HighMovementSpikeCount), Unit: "tags",
+			SignalType: "derived", Formula: "15m delta far above the animal/shed baseline",
 			Caveat: "Baseline is per-animal; a naturally active animal's spike threshold is higher than a naturally quiet animal's.",
 		},
 		{
-			Key: "shed_signal_coverage", Label: "Shed signal coverage", Value: fmt.Sprintf("%d/%d", d.ShedsWithCoverage, d.ShedsTotal), Unit: "sheds",
-			SignalType: "derived", Formula: "count(distinct shed_id with >=1 live tag) / count(distinct shed_id with any gateway)",
+			Key: "shed_signal_coverage", Label: "Shed Signal Coverage", Value: fmt.Sprintf("%d/%d", d.ShedsWithCoverage, d.ShedsTotal), Unit: "sheds",
+			SignalType: "derived", Formula: "live mapped tags / smart-tag mapped animals per shed",
 			Caveat: "A shed with no gateway deployed yet is excluded from the denominator, not counted as zero coverage.",
 		},
 		{
-			Key: "weak_signal_tags", Label: "Weak signal tags", Value: fmt.Sprintf("%d", d.WeakSignalTagsCount), Unit: "tags",
-			SignalType: "direct", Formula: "count(tag_latest) where signal_state = weak (rssi <= -75 dBm)",
+			Key: "weak_signal_tags", Label: "Weak Signal Tags", Value: fmt.Sprintf("%d", d.WeakSignalTagsCount), Unit: "tags",
+			SignalType: "derived", Formula: "RSSI at or below the provisional threshold",
 			Caveat: "RSSI reflects gateway placement and obstruction as much as tag health.",
 		},
 		{
-			Key: "battery_attention", Label: "Battery attention", Value: fmt.Sprintf("%d", d.BatteryAttentionCount), Unit: "tags",
-			SignalType: "direct", Formula: "count(tag_latest) where battery_state = low (< 2800 mV)",
+			Key: "battery_attention", Label: "Battery Attention", Value: fmt.Sprintf("%d", d.BatteryAttentionCount), Unit: "tags",
+			SignalType: "derived", Formula: "battery below configured mV threshold",
 			Caveat: "Threshold is a provisional placeholder pending vendor discharge-curve confirmation.",
 		},
 		{
-			Key: "post_vaccination_movement_watch", Label: "Post-vaccination movement watch", Value: fmt.Sprintf("%d", d.PostVaccinationWatchCount), Unit: "animals",
-			SignalType: "correlated", Formula: "count(distinct goat_id) with an accepted vaccination_completions row in the last 24h AND a mapped live tag currently in (quiet_watch, inactive, missing)",
+			Key: "post_vaccination_movement_watch", Label: "Post-Vaccination Movement Watch", Value: fmt.Sprintf("%d", d.PostVaccinationWatchCount), Unit: "animals",
+			SignalType: "correlated", Formula: "0-24h activity delta after vaccination vs prior baseline",
 			Caveat: "Correlation only -- reduced movement after vaccination is not a diagnosis, and is expected for many animals.",
 		},
 		{
-			Key: "health_case_activity_trend", Label: "Health case activity trend", Value: fmt.Sprintf("%d", d.HealthCaseActivityCount), Unit: "animals",
-			SignalType: "correlated", Formula: "count(distinct goat_id) with an active health_cases row AND a mapped live tag currently in (quiet_watch, inactive)",
+			Key: "health_case_activity_trend", Label: "Health Case Activity Trend", Value: fmt.Sprintf("%d", d.HealthCaseActivityCount), Unit: "animals",
+			SignalType: "correlated", Formula: "activity trend before / during an open treatment",
 			Caveat: "Correlation only. An open health case does not mean the movement change is caused by it, or vice versa.",
 		},
 		{
-			Key: "feed_activity", Label: "Feed activity (sheds fed, tags covered)", Value: fmt.Sprintf("%d", d.FeedActivityShedsCount), Unit: "sheds",
-			SignalType: "correlated", Formula: "count(distinct shed_id) with a feed_direction_completions row in the last 4h AND >=1 live tag",
+			Key: "feed_activity", Label: "Feed × Activity", Value: fmt.Sprintf("%d", d.FeedActivityShedsCount), Unit: "sheds",
+			SignalType: "correlated", Formula: "shed activity 2h before vs 2h after fed_at",
 			Caveat: "Shed-grain only: this cannot attribute a single tag's motion to feeding.",
 		},
 		{
-			Key: "weight_activity", Label: "Weight activity", Value: fmt.Sprintf("%d", d.WeightActivityTagsCount), Unit: "tags",
-			SignalType: "correlated", Formula: "count(distinct scanned_identifier) in weighing_observations in the last 24h matching a live tag's own id/MAC",
+			Key: "weight_activity", Label: "Weight × Activity", Value: fmt.Sprintf("%d", d.WeightActivityTagsCount), Unit: "tags",
+			SignalType: "correlated", Formula: "low ADG or weight drop together with low activity",
 			Caveat: "Correlation only, by raw scanned string -- weighing is free-flow and never resolves a scan to goat identity (AGENTS.md), and this card does not either.",
 		},
 		{
-			Key: "unmapped_smart_tags", Label: "Unmapped smart tags", Value: fmt.Sprintf("%d", d.UnmappedSmartTagsCount), Unit: "tags",
-			SignalType: "direct", Formula: "count(tag_latest) where mapping_state = unmapped",
+			Key: "unmapped_smart_tags", Label: "Unmapped Smart Tags", Value: fmt.Sprintf("%d", d.UnmappedSmartTagsCount), Unit: "tags",
+			SignalType: "inferred", Formula: "BLE tags seen with no active smart-tag-capable identifier",
 			Caveat: "A tag that has never been assigned to an active goat_identifiers row, or whose identifier is not smart_tag_capable.",
 		},
 	}
