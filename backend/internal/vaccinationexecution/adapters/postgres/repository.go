@@ -5306,7 +5306,7 @@ shed_dose_obligations AS (
     oi.scope_id as shed_id,
     loc.name as shed_name,
     CASE
-      WHEN lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
+      WHEN sp.shed_id IS NULL OR lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
       ELSE btrim(gsp.partition_label)
     END AS partition_label,
     pr.dose_code,
@@ -5324,7 +5324,8 @@ shed_dose_obligations AS (
   FROM obligation_instances oi
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
   JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
-  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = oi.scope_id
+  LEFT JOIN shed_partitions sp ON sp.tenant_id = oi.tenant_id AND sp.shed_id = oi.scope_id AND sp.partition_label = gsp.partition_label AND sp.status = 'active'
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
   LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
   WHERE oi.tenant_id = $1::uuid
@@ -5432,7 +5433,7 @@ SELECT
   shed.location_id::text AS shed_id,
   COALESCE(shed.name, '') AS shed_name,
   CASE
-    WHEN lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
+    WHEN sp.shed_id IS NULL OR lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
     ELSE btrim(gsp.partition_label)
   END AS partition_label,
   COALESCE(park.name, '') AS park_name,
@@ -5464,7 +5465,8 @@ SELECT
 FROM obligation_instances oi
 JOIN protocol_rule_dimensions d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
 JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = oi.scope_id
+LEFT JOIN shed_partitions sp ON sp.tenant_id = oi.tenant_id AND sp.shed_id = oi.scope_id AND sp.partition_label = gsp.partition_label AND sp.status = 'active'
 LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
 JOIN locations shed ON shed.location_id = oi.scope_id AND shed.tenant_id = oi.tenant_id
 LEFT JOIN locations park ON park.location_id = shed.parent_location_id AND park.tenant_id = shed.tenant_id
@@ -5477,7 +5479,7 @@ WHERE oi.tenant_id = $1::uuid
   AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
     SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
   ))
-GROUP BY shed.location_id, shed.name, partition_label, park.name, d.vaccine_code
+GROUP BY shed.location_id, shed.name, 3, park.name, d.vaccine_code
 `
 	shedVaccineRows, err := r.pool.Query(ctx, shedVaccineSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 	if err != nil {
@@ -5599,13 +5601,17 @@ WITH comp AS (
 SELECT DISTINCT ON (
   oi.scope_id,
   CASE
-    WHEN lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
-    ELSE btrim(gsp.partition_label)
+    WHEN scope_sp.shed_id IS NULL OR lower(btrim(COALESCE(scope_gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
+    ELSE btrim(scope_gsp.partition_label)
   END,
   d.vaccine_code,
   g.goat_id
 )
   oi.scope_id::text AS shed_id,
+  CASE
+    WHEN scope_sp.shed_id IS NULL OR lower(btrim(COALESCE(scope_gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
+    ELSE btrim(scope_gsp.partition_label)
+  END AS scope_partition_label,
   d.vaccine_code,
   g.goat_id::text,
   g.display_id,
@@ -5628,14 +5634,14 @@ SELECT DISTINCT ON (
   ), '') AS tag2,
   oi.status,
   oi.due_at,
-  COALESCE(park.name, '') AS park_name,
-  COALESCE(shed.name, '') AS shed_name,
+  COALESCE(current_park.name, park.name, '') AS park_name,
+  COALESCE(current_shed.name, shed.name, '') AS shed_name,
   -- Ground location is park + physical shed + PARTITION. The shed name alone sends a person to
   -- "Godel 1" when the animal is standing in "Godel 1 - Part 3", which on a partitioned shed is a
   -- different pen and a wasted trip. Same source the closed-without-dose drawer already uses.
   CASE
-    WHEN lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
-    ELSE btrim(gsp.partition_label)
+    WHEN lower(btrim(COALESCE(current_gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
+    ELSE btrim(current_gsp.partition_label)
   END AS partition_label,
   COALESCE(comp.has_recorded_unverified, false) AS awaiting_verification,
   comp.recorded_at
@@ -5645,7 +5651,11 @@ JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
 LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
 LEFT JOIN locations shed ON shed.location_id = oi.scope_id AND shed.tenant_id = oi.tenant_id
 LEFT JOIN locations park ON park.location_id = shed.parent_location_id AND park.tenant_id = shed.tenant_id
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+LEFT JOIN locations current_shed ON current_shed.location_id = g.shed_id AND current_shed.tenant_id = g.tenant_id
+LEFT JOIN locations current_park ON current_park.location_id = current_shed.parent_location_id AND current_park.tenant_id = current_shed.tenant_id
+LEFT JOIN goat_shed_partitions scope_gsp ON scope_gsp.tenant_id = g.tenant_id AND scope_gsp.goat_id = g.goat_id AND scope_gsp.shed_id = oi.scope_id
+LEFT JOIN shed_partitions scope_sp ON scope_sp.tenant_id = oi.tenant_id AND scope_sp.shed_id = oi.scope_id AND scope_sp.partition_label = scope_gsp.partition_label AND scope_sp.status = 'active'
+LEFT JOIN goat_shed_partitions current_gsp ON current_gsp.tenant_id = g.tenant_id AND current_gsp.goat_id = g.goat_id AND current_gsp.shed_id = g.shed_id
 WHERE oi.tenant_id = $1::uuid
   AND oi.scope_type = 'shed'
   AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
@@ -5665,7 +5675,7 @@ WHERE oi.tenant_id = $1::uuid
   AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
     SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
   ))
-ORDER BY oi.scope_id, partition_label, d.vaccine_code, g.goat_id, oi.due_at ASC NULLS LAST
+ORDER BY oi.scope_id, scope_partition_label, d.vaccine_code, g.goat_id, oi.due_at ASC NULLS LAST
 )
 -- The cap is a GLOBAL budget across every behind cell, so the order that decides who survives it
 -- has to be applied HERE, over the whole set, and not inside the DISTINCT ON. Ordering by due date
@@ -5683,11 +5693,11 @@ LIMIT $5
 	}
 	defer behindRows.Close()
 	for behindRows.Next() {
-		var shedID, vaccineCode, goatID, displayID, tag1, tag2, status string
+		var shedID, scopePartitionLabel, vaccineCode, goatID, displayID, tag1, tag2, status string
 		var parkName, shedName, partitionLabel string
 		var dueAt, recordedAt pgtype.Timestamptz
 		var awaitingVerification bool
-		if err := behindRows.Scan(&shedID, &vaccineCode, &goatID, &displayID, &tag1, &tag2, &status, &dueAt,
+		if err := behindRows.Scan(&shedID, &scopePartitionLabel, &vaccineCode, &goatID, &displayID, &tag1, &tag2, &status, &dueAt,
 			&parkName, &shedName, &partitionLabel, &awaitingVerification, &recordedAt); err != nil {
 			return resp, fmt.Errorf("vaccination command board: shed vaccine animals scan: %w", err)
 		}
@@ -5718,7 +5728,7 @@ LIMIT $5
 			due := dueAt.Time
 			animal.DueAt = &due
 		}
-		key := shedVaccineKey{shedID, partitionLabel, vaccineCode}
+		key := shedVaccineKey{shedID, scopePartitionLabel, vaccineCode}
 		behindAnimals[key] = append(behindAnimals[key], animal)
 	}
 	if err := behindRows.Err(); err != nil {
@@ -5922,7 +5932,7 @@ SELECT
   oi.scope_id as shed_id,
   loc.name as shed_name,
   CASE
-    WHEN lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
+    WHEN sp.shed_id IS NULL OR lower(btrim(COALESCE(gsp.partition_label, 'whole'))) IN ('', 'whole') THEN ''
     ELSE btrim(gsp.partition_label)
   END AS partition_label,
   pr.dose_code,
@@ -5933,7 +5943,8 @@ SELECT
 FROM obligation_instances oi
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
 JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = oi.scope_id
+LEFT JOIN shed_partitions sp ON sp.tenant_id = oi.tenant_id AND sp.shed_id = oi.scope_id AND sp.partition_label = gsp.partition_label AND sp.status = 'active'
 LEFT JOIN vaccination_completions vc ON oi.obligation_id = vc.obligation_id AND vc.status = 'recorded' AND vc.verified_at IS NULL
 LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
 WHERE oi.tenant_id = $1::uuid
@@ -5947,7 +5958,7 @@ WHERE oi.tenant_id = $1::uuid
   )
   AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
   AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $4::uuid)
-GROUP BY oi.scope_id, loc.name, partition_label, pr.dose_code
+GROUP BY oi.scope_id, loc.name, 3, pr.dose_code
 ORDER BY shed_name, partition_label, pr.dose_code
 `
 	verifyRows, err := r.pool.Query(ctx, verifyQueueSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
