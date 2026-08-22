@@ -150,6 +150,35 @@ func (s *PeopleService) CreatePerson(ctx context.Context, tenantID, actorID, ide
 		displayName = firstName + " " + lastName
 	}
 
+	preflight, err := s.repo.PreflightCreatePerson(ctx, ports.PreflightCreatePersonCommand{
+		TenantID:         tenantID,
+		IdempotencyKey:   idempotencyKey,
+		NormalizedEmail:  email,
+		FirstName:        firstName,
+		LastName:         lastName,
+		Role:             role,
+		ScopeType:        spec.ScopeType,
+		ScopeID:          scopeID,
+		DepartmentID:     departmentID,
+		DesignationGrade: grade,
+	})
+	if err != nil {
+		if errors.Is(err, ports.ErrDuplicateEmail) {
+			return nil, &Error{Code: "duplicate_email", Message: "a person with this email already exists", HTTPStatus: 409, Retryable: false}
+		}
+		if errors.Is(err, ports.ErrIdempotencyConflict) {
+			return nil, &Error{Code: "idempotency_conflict", Message: "this request key was already used with different details", HTTPStatus: 409, Retryable: false}
+		}
+		return nil, mapRepoErr(err)
+	}
+	if preflight.Replay != nil {
+		return &domain.PersonResponse{
+			Person:  *preflight.Replay,
+			Login:   domain.PersonLogin{Email: email, AccountStatus: "existing"},
+			TraceID: traceID,
+		}, nil
+	}
+
 	if s.identity == nil {
 		return nil, &Error{Code: "identity_unavailable", Message: "login account service is not configured in this environment", HTTPStatus: 503, Retryable: false}
 	}

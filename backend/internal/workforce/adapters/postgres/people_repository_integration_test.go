@@ -159,6 +159,32 @@ INSERT INTO verification_items (
 	if stats.ProofRejectionPct == nil || *stats.ProofRejectionPct != 50 {
 		t.Fatalf("rejection pct = %v, want 50 (1 rejected of 2 decided)", stats.ProofRejectionPct)
 	}
+
+	deactivated, err := repo.SetOperatorStatus(ctx, ports.StatusCommand{
+		TenantID:   peopleTenant,
+		ActorID:    peopleActor,
+		OperatorID: first.PersonID,
+		Reason:     "people_hrms_admin_action",
+		RowVersion: first.RowVersion,
+		Status:     "inactive",
+	})
+	if err != nil {
+		t.Fatalf("deactivate person: %v", err)
+	}
+	if deactivated.Status != "inactive" {
+		t.Fatalf("deactivated status = %q, want inactive", deactivated.Status)
+	}
+	var activeGrants, activeAllowlist int
+	if err := pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM user_scope_grants WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND status = 'active'),
+  (SELECT count(*) FROM auth_allowed_emails WHERE tenant_id = $1::uuid AND normalized_email = 'idem-check@mesha.sg' AND status = 'active')`,
+		peopleTenant, peopleUser).Scan(&activeGrants, &activeAllowlist); err != nil {
+		t.Fatalf("count active access after deactivate: %v", err)
+	}
+	if activeGrants != 0 || activeAllowlist != 0 {
+		t.Fatalf("deactivate must remove active grants and allowlist access, got grants=%d allowlist=%d", activeGrants, activeAllowlist)
+	}
 }
 
 // TestListPeopleKeysetPagesInNameOrderWithDockerPostgres pins the directory's

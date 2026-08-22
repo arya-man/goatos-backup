@@ -236,6 +236,58 @@ ORDER BY label`, tenantID)
 	return catalog, rows.Err()
 }
 
+// PreflightCreatePerson claims the request idempotency key and rejects duplicate
+// emails BEFORE the app service calls Firebase. This keeps rejected requests
+// from creating orphan login accounts outside Postgres.
+func (r *Repository) PreflightCreatePerson(ctx context.Context, cmd ports.PreflightCreatePersonCommand) (ports.PreflightCreatePersonResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return ports.PreflightCreatePersonResult{}, err
+	}
+	defer rollback(ctx, tx)
+
+	fingerprint := personCreateFingerprint(cmd.TenantID, cmd.NormalizedEmail, cmd.FirstName, cmd.LastName, cmd.Role, cmd.ScopeType, cmd.ScopeID, cmd.DepartmentID, cmd.DesignationGrade)
+	reservation, err := reserveIdempotency(ctx, tx, cmd.TenantID, "create_person", cmd.IdempotencyKey, fingerprint)
+	if err != nil {
+		return ports.PreflightCreatePersonResult{}, err
+	}
+	if !reservation.proceed {
+		person, ok, err := replayPerson(reservation)
+		if err != nil {
+			return ports.PreflightCreatePersonResult{}, err
+		}
+		if !ok {
+			person, err = txPerson(ctx, tx, cmd.TenantID, reservation.resultID)
+			if err != nil {
+				return ports.PreflightCreatePersonResult{}, err
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return ports.PreflightCreatePersonResult{}, err
+		}
+		return ports.PreflightCreatePersonResult{Replay: &person}, nil
+	}
+
+	var existingID string
+	err = tx.QueryRow(ctx, `
+SELECT workforce_member_id::text
+FROM workforce_members
+WHERE tenant_id = $1::uuid AND lower(email) = $2
+LIMIT 1`, cmd.TenantID, cmd.NormalizedEmail).Scan(&existingID)
+	if err == nil {
+		return ports.PreflightCreatePersonResult{}, ports.ErrDuplicateEmail
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return ports.PreflightCreatePersonResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ports.PreflightCreatePersonResult{}, err
+	}
+	return ports.PreflightCreatePersonResult{}, nil
+}
+
 // CreatePerson runs the whole onboarding write as ONE transaction: idempotency
 // reservation, workforce_members insert, active user_scope_grants row,
 // auth_allowed_emails admission, and audit. A failure at any step rolls the
@@ -255,10 +307,7 @@ func (r *Repository) CreatePerson(ctx context.Context, cmd ports.CreatePersonCom
 	}
 	defer rollback(ctx, tx)
 
-	fingerprint := requestFingerprint(
-		cmd.TenantID, cmd.NormalizedEmail, cmd.FirstName, cmd.LastName,
-		cmd.Role, cmd.ScopeType, cmd.ScopeID, cmd.DepartmentID, cmd.DesignationGrade,
-	)
+	fingerprint := personCreateFingerprint(cmd.TenantID, cmd.NormalizedEmail, cmd.FirstName, cmd.LastName, cmd.Role, cmd.ScopeType, cmd.ScopeID, cmd.DepartmentID, cmd.DesignationGrade)
 	reservation, err := reserveIdempotency(ctx, tx, cmd.TenantID, "create_person", cmd.IdempotencyKey, fingerprint)
 	if err != nil {
 		return domain.PersonSummary{}, err
@@ -368,6 +417,13 @@ ON CONFLICT (tenant_id, normalized_email) WHERE status = 'active' DO NOTHING`,
 		return domain.PersonSummary{}, err
 	}
 	return person, nil
+}
+
+func personCreateFingerprint(tenantID, normalizedEmail, firstName, lastName, role, scopeType, scopeID, departmentID, designationGrade string) string {
+	return requestFingerprint(
+		tenantID, normalizedEmail, firstName, lastName,
+		role, scopeType, scopeID, departmentID, designationGrade,
+	)
 }
 
 // txPerson reads one person INSIDE the write transaction so the idempotency

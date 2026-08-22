@@ -51,10 +51,28 @@ type CreatePersonCommand struct {
 	DepartmentID     string // "" = none
 }
 
+type PreflightCreatePersonCommand struct {
+	TenantID         string
+	IdempotencyKey   string
+	NormalizedEmail  string
+	FirstName        string
+	LastName         string
+	Role             string
+	ScopeType        string
+	ScopeID          string
+	DepartmentID     string
+	DesignationGrade string
+}
+
+type PreflightCreatePersonResult struct {
+	Replay *domain.PersonSummary
+}
+
 // PeopleRepository is the People/HRMS directory port, implemented by the same
 // postgres Repository as the operator port.
 type PeopleRepository interface {
 	ListPeople(ctx context.Context, params ListPeopleParams) ([]domain.PersonSummary, string, error)
 	PeopleCatalog(ctx context.Context, tenantID string) (domain.PeopleCatalog, error)
+	PreflightCreatePerson(ctx context.Context, cmd PreflightCreatePersonCommand) (PreflightCreatePersonResult, error)
 	CreatePerson(ctx context.Context, cmd CreatePersonCommand) (domain.PersonSummary, error)
 }
