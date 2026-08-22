@@ -54,6 +54,7 @@ WITH ranked AS (
   FROM protocol_versions
   WHERE status = 'draft'
 )
+-- seed-migration-guard:ignore owner=ravi issue=vaccination-plan-console reason=no-seed-impact-retires-only-duplicate-DRAFT-rows-and-a-seeded-plan-creates-at-most-one-draft expiry=2026-11-30
 UPDATE protocol_versions pv
 SET status = 'retired',
     retired_at = now(),

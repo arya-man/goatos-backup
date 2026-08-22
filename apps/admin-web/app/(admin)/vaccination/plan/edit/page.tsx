@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { VaccinationPlanEditor } from "@/features/vaccination-plan/plan-editor";
-import { fromRuleDsl } from "@/features/vaccination-plan/editor-model";
+import { fromRuleDsl, VaccinationPlanEditor } from "@/features/vaccination-plan";
 import {
   getProtocolVersion,
   listProtocolConfigs,
