@@ -75,6 +75,12 @@ type Repository interface {
 	// from the result has no non-gap 24h history yet.
 	GetBaselineDeltas(ctx context.Context, tenantID string, tagIDs []string) (map[string]int64, error)
 
+	// GetBatteryHistory computes the first/last battery_mv reading (and their timestamps) within
+	// the configured trend window for many tags in ONE query, mirroring GetBaselineDeltas: never
+	// a per-row historical scan on GET /herd-signals/live. A tag absent from the result has no
+	// battery_mv readings in the window (unknown, not stable/falling).
+	GetBatteryHistory(ctx context.Context, tenantID string, tagIDs []string, windowDays int) (map[string]BatteryHistoryPoint, error)
+
 	// GetInsightsData computes the raw counts/values behind the 12 GET /herd-signals/insights
 	// cards. Each field is produced by its own bounded, indexed, tenant-scoped query -- see
 	// the Postgres implementation -- never a single compute-on-read god query
@@ -93,6 +99,14 @@ type GatewayTagStats struct {
 	TagsSeenRecently int
 	WeakTags         int
 	UnmappedTags     int
+}
+
+// BatteryHistoryPoint is the first/last battery_mv reading within the trend window for one tag.
+type BatteryHistoryPoint struct {
+	FirstMV int
+	FirstAt time.Time
+	LastMV  int
+	LastAt  time.Time
 }
 
 // ShedLocation is the batched form of oploc.OperationalLocation keyed by shed id.
