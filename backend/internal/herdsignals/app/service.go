@@ -68,7 +68,7 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 
 	packets := make([]domain.Packet, 0, len(req.Packets))
 	for _, p := range req.Packets {
-		// The caller's own claimed capture time is kept ONLY as a diagnostic (DeviceSeenAt) and
+		// The caller's own claimed capture time is kept only for troubleshooting (DeviceSeenAt) and
 		// as the dedup key's identity of "the same physical packet" (see migration 000195) --
 		// never for a staleness/gap/ordering decision. A malformed or absent value degrades to
 		// "no diagnostic timestamp available", not a reason to drop real sensor data: dropping
