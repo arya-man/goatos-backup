@@ -202,6 +202,12 @@ func (s *Service) GetTimeline(ctx context.Context, actor domain.Actor, tagID, fr
 				FirstSeenAt:      w.FirstSeenAt,
 				LastSeenAt:       w.LastSeenAt,
 				IsGap:            w.PacketCount == 0,
+				// Three distinct facts, never collapsed (maintainer decision on offline
+				// behaviour): a GAP bucket (this branch is false, the OTHER branch below fires
+				// instead -- no row at all), a ZERO-delta bucket (packets arrived, no movement:
+				// IsGap=false, GapDelta=false, MotionDelta=0), and a RECONNECT bucket (packets
+				// arrived carrying a TOTAL across a prior gap: IsGap=false, GapDelta=true).
+				GapDelta: w.GapDelta,
 			})
 			continue
 		}
@@ -484,6 +490,7 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 			TemperatureSensorOK:   tag.TemperatureSensorOK,
 			AccelerometerSensorOK: tag.AccelerometerSensorOK,
 			MappingState:          tag.MappingState,
+			GapDelta:              tag.GapDelta,
 		}
 
 		if baseline, ok := baselines[tag.TagID]; ok {

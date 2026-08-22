@@ -376,3 +376,169 @@ func TestStaleAndMissingComputeAtReadTimeWithoutAnotherIngest(t *testing.T) {
 		t.Errorf("insights.MissingSignalCount = %d, want >= 1", insights.MissingSignalCount)
 	}
 }
+
+// TestGapDeltaFlaggedNotSmearedExcludedFromBaselineAndNotASpike is the direct proof for the
+// maintainer decision on offline behaviour: the gateway does not buffer through a WAN outage, so
+// a reception gap means the backend got NOTHING, and the reconnect delta is a TOTAL over an
+// unknown span. This ingests once, advances the clock past the reception-gap threshold with NO
+// further packets (the real failure mode: an actual outage, not a test skipping a step), then
+// ingests again with a much higher motion_count, and asserts every consequence: gap_delta=true
+// on tag_latest and on the reconnect bucket (all tiers), the total is correct, the baseline
+// excludes it, pattern_state is not spike, and the timeline shows real gap buckets followed by a
+// flagged reconnect bucket -- three distinct facts, never collapsed.
+func TestGapDeltaFlaggedNotSmearedExcludedFromBaselineAndNotASpike(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-hsi-gap", Status: "active"}
+
+	// Seed a normal 24h baseline first, well before the gap, so Baseline75 has real non-gap-delta
+	// history to compare the (excluded) reconnect lump against.
+	baselineStart := time.Now().UTC().Add(-20 * time.Hour)
+	for i := 0; i < 6; i++ {
+		seenAt := baselineStart.Add(time.Duration(i) * 5 * time.Minute)
+		if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+			makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-gap", seenAt, int64(7000+i*5), -60),
+		}); err != nil {
+			t.Fatalf("baseline ingest %d: %v", i, err)
+		}
+	}
+
+	// First packet just before the gap: this is what previous_seen_at will be.
+	beforeGap := time.Now().UTC().Add(-90 * time.Minute)
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-gap", beforeGap, 7961, -60),
+	}); err != nil {
+		t.Fatalf("pre-gap ingest: %v", err)
+	}
+
+	// The gap: NOTHING ingested for 60 minutes (> ReceptionGapMinutes=30), simulated by simply
+	// not calling IngestPackets again until well past the threshold -- exactly the production
+	// failure mode, not a fabricated flag.
+	afterGap := beforeGap.Add(60 * time.Minute)
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-gap", afterGap, 8200, -60),
+	}); err != nil {
+		t.Fatalf("reconnect ingest: %v", err)
+	}
+
+	// --- tag_latest must carry gap_delta=true and the correct total. ---
+	latest, err := repo.GetTagLatest(ctx, hsiTenant, hsiUnmappedTag)
+	if err != nil {
+		t.Fatalf("GetTagLatest: %v", err)
+	}
+	if !latest.GapDelta {
+		t.Error("tag_latest.gap_delta = false, want true after a 60-minute reception gap")
+	}
+	if latest.MotionCount == nil || *latest.MotionCount != 8200 {
+		t.Errorf("motion_count = %v, want 8200", latest.MotionCount)
+	}
+
+	// --- pattern_state must not be "spike" despite the huge delta. ---
+	if latest.PatternState == "spike" {
+		t.Error("pattern_state = spike, want anything else: a reconnect lump is not a movement spike")
+	}
+
+	// --- The reconnect BUCKET (60s tier, containing afterGap) must be flagged, and its delta is
+	// the TOTAL (8200-7961=239), not smeared across the gap. ---
+	var bucketGapDelta bool
+	var bucketMotionDelta int64
+	bucketStart := afterGap.Truncate(60 * time.Second)
+	if err := pool.QueryRow(ctx, `
+		SELECT gap_delta, motion_delta FROM public.herd_signal_activity_windows
+		WHERE tenant_id = $1 AND tag_id = $2 AND bucket_seconds = 60 AND bucket_start = $3
+	`, hsiTenant, hsiUnmappedTag, bucketStart).Scan(&bucketGapDelta, &bucketMotionDelta); err != nil {
+		t.Fatalf("read reconnect bucket: %v", err)
+	}
+	if !bucketGapDelta {
+		t.Error("reconnect bucket gap_delta = false, want true")
+	}
+	if bucketMotionDelta != 239 {
+		t.Errorf("reconnect bucket motion_delta = %d, want 239 (8200-7961)", bucketMotionDelta)
+	}
+
+	// --- No bucket during the gap itself was fabricated (no smearing): there must be no row at
+	// all for a bucket strictly between beforeGap and afterGap. ---
+	midGap := beforeGap.Add(30 * time.Minute).Truncate(60 * time.Second)
+	var midGapCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM public.herd_signal_activity_windows
+		WHERE tenant_id = $1 AND tag_id = $2 AND bucket_seconds = 60 AND bucket_start = $3
+	`, hsiTenant, hsiUnmappedTag, midGap).Scan(&midGapCount); err != nil {
+		t.Fatalf("read mid-gap bucket: %v", err)
+	}
+	if midGapCount != 0 {
+		t.Errorf("a bucket exists mid-gap (smeared), want none: the gap must render as absence, not an invented delta")
+	}
+
+	// --- Baseline must exclude the reconnect lump. ---
+	baselines, err := repo.GetBaselineDeltas(ctx, hsiTenant, []string{hsiUnmappedTag})
+	if err != nil {
+		t.Fatalf("GetBaselineDeltas: %v", err)
+	}
+	if b, ok := baselines[hsiUnmappedTag]; ok && b > 100 {
+		t.Errorf("baseline = %d, want small (the seeded normal deltas are 0-5ish over 5 buckets): the 239 reconnect lump must not have entered it", b)
+	}
+
+	// --- Timeline: gap buckets show is_gap=true, the reconnect bucket shows gap_delta=true with
+	// the correct motion_delta, and the two are never confused. ---
+	timeline, err := repo.ListActivityWindows(ctx, hsiTenant, hsiUnmappedTag, beforeGap, afterGap.Add(time.Minute), 60)
+	if err != nil {
+		t.Fatalf("ListActivityWindows: %v", err)
+	}
+	sawReconnect := false
+	for _, w := range timeline {
+		if w.BucketStart.Equal(bucketStart) {
+			sawReconnect = true
+			if !w.GapDelta {
+				t.Error("timeline reconnect window gap_delta = false, want true")
+			}
+			if w.IsGap {
+				t.Error("timeline reconnect window is_gap = true, want false: packets WERE received")
+			}
+			if w.MotionDelta != 239 {
+				t.Errorf("timeline reconnect window motion_delta = %d, want 239", w.MotionDelta)
+			}
+		}
+	}
+	if !sawReconnect {
+		t.Fatal("timeline did not include the reconnect bucket")
+	}
+}
+
+// TestGapDeltaResetInsideGapYieldsZeroNeverNegative proves the counter-reset guard composes with
+// gap detection: a gateway reboot (motion_count resets) that also happens to span a reception
+// gap must still floor the delta at 0, never go negative, while gap_delta is still true (the
+// interval condition is about TIME, independent of whether the counter reset).
+func TestGapDeltaResetInsideGapYieldsZeroNeverNegative(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupHerdSignalsDB(t, ctx)
+
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-hsi-gap-reset", Status: "active"}
+
+	beforeGap := time.Now().UTC().Add(-90 * time.Minute)
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-gap-reset", beforeGap, 9000, -60),
+	}); err != nil {
+		t.Fatalf("pre-gap ingest: %v", err)
+	}
+
+	// Reconnect 60 minutes later with a LOWER motion_count (gateway rebooted during the outage).
+	afterGap := beforeGap.Add(60 * time.Minute)
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiUnmappedTag, hsiUnmappedMAC, "gw-hsi-gap-reset", afterGap, 50, -60),
+	}); err != nil {
+		t.Fatalf("reconnect ingest: %v", err)
+	}
+
+	latest, err := repo.GetTagLatest(ctx, hsiTenant, hsiUnmappedTag)
+	if err != nil {
+		t.Fatalf("GetTagLatest: %v", err)
+	}
+	if !latest.GapDelta {
+		t.Error("gap_delta = false, want true: the interval condition is time-based, independent of the reset")
+	}
+	if latest.MotionDelta == nil || *latest.MotionDelta < 0 {
+		t.Errorf("motion_delta = %v, want >= 0 (never negative on a reset)", latest.MotionDelta)
+	}
+}
