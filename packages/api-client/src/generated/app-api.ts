@@ -156,7 +156,8 @@ export interface paths {
         /**
          * Release a tag's binding with no replacement.
          * @description Requires herd_signals.map. For a tag that was lost, an animal that was sold, or a mapping made in error.
-         *     The tag returns to unmapped and its packets keep flowing as device telemetry: nothing is deleted and its stored history stays intact, it simply stops being attributed to an animal. Its monitoring period ends, so no further animal-attributed value is produced for it -- not a zero, not a default.
+         *     RELEASES THE WHOLE BINDING, not the value you name. A map claims one identifier per value the tag reports -- its printed id AND its MAC -- so tag_id and tag_mac here IDENTIFY the animal, and every identifier of that animal's live smart tag is released in the one transaction. Unmapping by id and unmapping by MAC do the same complete thing. A partial release would leave the animal pinned to a binding no read path can see and no endpoint can release, which makes it impossible to ever re-tag through the product.
+         *     The tag returns to unmapped and its packets keep flowing as device telemetry: nothing is deleted and its stored history stays intact, it simply stops being attributed to an animal. Its monitoring period ends, so no further animal-attributed value is produced for it -- not a zero, not a default. A later map to the same animal starts a NEW monitoring period: the tag was off the animal in between.
          *     There is no "mark as smart tag" counterpart anywhere in this API. Every tag the gateway reports is already a smart tag; smart_tag_capable is an internal consequence of binding, never a user action.
          */
         post: operations["unmapHerdSignalTagMapping"];
@@ -4482,7 +4483,7 @@ export interface components {
         };
         HerdSignalsUnmapTagMappingRequest: {
             tag_id: string;
-            /** @description Optional. Released alongside the id when the tag claimed both values. */
+            /** @description Optional. Either value on its own identifies the binding and releases all of it, so this is never required to fully unmap a tag that claimed both. */
             tag_mac?: string;
         };
         HerdSignalsTagMappingResponse: {
