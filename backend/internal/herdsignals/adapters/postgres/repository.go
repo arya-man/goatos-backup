@@ -352,7 +352,7 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 	patternStateComputed := domain.PatternStateFromHistory(windowDelta, &seenAt, time.Now().UTC(), history, previousPattern, gapDelta, thresholds)
 
 	signalState := domain.SignalStateFromRSSI(latestPkt.RSSIdbm, nil, thresholds)
-	batteryState := domain.BatteryStateFromMillivolts(latestPkt.BatteryMV, thresholds)
+	batteryState := domain.BatteryStateFromVoltage(latestPkt.BatteryMV, thresholds)
 
 	// Tag->animal mapping is resolved on ingest so live/timeline reads never pay for the join.
 	// Re-resolved on every ingest (cheap point lookup) rather than only once, since
@@ -928,6 +928,52 @@ func (r *Repository) GetShedLocations(ctx context.Context, tenantID string, shed
 // windowed query (mirrors domain.Baseline75's definition: p75 over non-gap buckets, never
 // median -- a resting animal's median bucket is 0). Bounded to the tag_id list the caller
 // already fetched (a single live page), so this never scans the whole tenant's tag population.
+// GetBatteryHistory computes the first/last battery_mv reading (and timestamps) within the
+// trend window for many tags in ONE query, using a LATERAL + LIMIT 1 per tag (same pattern as
+// tagLocationJoin/ResolveTagsBatch) against herd_signal_packets' existing
+// (tenant_id, tag_id, received_at DESC) index -- never a per-row historical scan.
+func (r *Repository) GetBatteryHistory(ctx context.Context, tenantID string, tagIDs []string, windowDays int) (map[string]ports.BatteryHistoryPoint, error) {
+	result := make(map[string]ports.BatteryHistoryPoint)
+	if len(tagIDs) == 0 {
+		return result, nil
+	}
+	rows, err := r.db.Query(ctx, `
+		WITH tags AS (SELECT unnest($2::text[]) AS tag_id)
+		SELECT t.tag_id, first_pkt.battery_mv, first_pkt.received_at, last_pkt.battery_mv, last_pkt.received_at
+		FROM tags t
+		LEFT JOIN LATERAL (
+			SELECT battery_mv, received_at
+			FROM public.herd_signal_packets
+			WHERE tenant_id = $1 AND tag_id = t.tag_id AND battery_mv IS NOT NULL
+			      AND received_at >= now() - make_interval(days => $3::int)
+			ORDER BY received_at ASC
+			LIMIT 1
+		) first_pkt ON true
+		LEFT JOIN LATERAL (
+			SELECT battery_mv, received_at
+			FROM public.herd_signal_packets
+			WHERE tenant_id = $1 AND tag_id = t.tag_id AND battery_mv IS NOT NULL
+			      AND received_at >= now() - make_interval(days => $3::int)
+			ORDER BY received_at DESC
+			LIMIT 1
+		) last_pkt ON true
+		WHERE first_pkt.battery_mv IS NOT NULL
+	`, tenantID, tagIDs, windowDays)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tagID string
+		var p ports.BatteryHistoryPoint
+		if err := rows.Scan(&tagID, &p.FirstMV, &p.FirstAt, &p.LastMV, &p.LastAt); err != nil {
+			return nil, err
+		}
+		result[tagID] = p
+	}
+	return result, rows.Err()
+}
+
 func (r *Repository) GetBaselineDeltas(ctx context.Context, tenantID string, tagIDs []string) (map[string]int64, error) {
 	result := make(map[string]int64)
 	if len(tagIDs) == 0 {

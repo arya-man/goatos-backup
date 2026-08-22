@@ -153,7 +153,7 @@ func TestSignalStateFromRSSI(t *testing.T) {
 	}
 }
 
-func TestBatteryStateFromMillivolts(t *testing.T) {
+func TestBatteryStateFromVoltage(t *testing.T) {
 	thresholds := DefaultThresholds()
 
 	tests := []struct {
@@ -161,27 +161,114 @@ func TestBatteryStateFromMillivolts(t *testing.T) {
 		mv   *int
 		want string
 	}{
-		{
-			name: "ok battery",
-			mv:   intPtr(3000),
-			want: "ok",
-		},
-		{
-			name: "low battery",
-			mv:   intPtr(2500),
-			want: "low",
-		},
-		{
-			name: "unknown",
-			want: "unknown",
-		},
+		{name: "healthy at 3.10V", mv: intPtr(3100), want: "healthy"},
+		{name: "healthy at exactly 3.00V", mv: intPtr(3000), want: "healthy"},
+		{name: "watch at 2.90V", mv: intPtr(2900), want: "watch"},
+		{name: "watch at exactly 2.80V", mv: intPtr(2800), want: "watch"},
+		{name: "low at 2.70V", mv: intPtr(2700), want: "low"},
+		{name: "critical at 2.50V", mv: intPtr(2500), want: "critical"},
+		{name: "critical below exactly 2.60V", mv: intPtr(2599), want: "critical"},
+		{name: "low at exactly 2.60V (not yet critical)", mv: intPtr(2600), want: "low"},
+		{name: "unknown when nil", want: "unknown"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state := BatteryStateFromMillivolts(tt.mv, thresholds)
+			state := BatteryStateFromVoltage(tt.mv, thresholds)
 			if state != tt.want {
 				t.Errorf("state = %s, want %s", state, tt.want)
+			}
+		})
+	}
+}
+
+func TestBatteryTrendFromHistory(t *testing.T) {
+	thresholds := DefaultThresholds()
+	now := time.Date(2026, 1, 30, 0, 0, 0, 0, time.UTC)
+
+	t.Run("nil when any endpoint is missing", func(t *testing.T) {
+		if got := BatteryTrendFromHistory(nil, intPtr(3000), nil, &now, thresholds); got != nil {
+			t.Errorf("got %+v, want nil", got)
+		}
+	})
+
+	t.Run("nil when span is too short (noise, not a trend)", func(t *testing.T) {
+		firstAt := now.Add(-2 * time.Hour) // < BatteryTrendMinSpanHours (24h)
+		got := BatteryTrendFromHistory(intPtr(3180), intPtr(3100), &firstAt, &now, thresholds)
+		if got != nil {
+			t.Errorf("got %+v, want nil: two packets a couple hours apart must not invent a trend", got)
+		}
+	})
+
+	t.Run("falling when the drop meets BatteryFallMV over a real window", func(t *testing.T) {
+		firstAt := now.Add(-30 * 24 * time.Hour)
+		got := BatteryTrendFromHistory(intPtr(3180), intPtr(3100), &firstAt, &now, thresholds) // -80mV, >= BatteryFallMV(80)
+		if got == nil {
+			t.Fatal("got nil, want a trend")
+		}
+		if got.Direction != "falling" {
+			t.Errorf("direction = %s, want falling", got.Direction)
+		}
+		if got.FirstMV != 3180 || got.LastMV != 3100 {
+			t.Errorf("endpoints = %d -> %d, want 3180 -> 3100", got.FirstMV, got.LastMV)
+		}
+	})
+
+	t.Run("stable when the drop is below BatteryFallMV (ordinary noise)", func(t *testing.T) {
+		firstAt := now.Add(-30 * 24 * time.Hour)
+		got := BatteryTrendFromHistory(intPtr(3120), intPtr(3100), &firstAt, &now, thresholds) // -20mV
+		if got == nil {
+			t.Fatal("got nil, want a trend")
+		}
+		if got.Direction != "stable" {
+			t.Errorf("direction = %s, want stable", got.Direction)
+		}
+	})
+
+	t.Run("stable when voltage rises", func(t *testing.T) {
+		firstAt := now.Add(-30 * 24 * time.Hour)
+		got := BatteryTrendFromHistory(intPtr(3050), intPtr(3100), &firstAt, &now, thresholds)
+		if got == nil || got.Direction != "stable" {
+			t.Errorf("got %+v, want stable (voltage went up, never falling)", got)
+		}
+	})
+}
+
+func TestBatteryStateWithTrend(t *testing.T) {
+	falling := &BatteryTrend{Direction: "falling"}
+	stable := &BatteryTrend{Direction: "stable"}
+
+	tests := []struct {
+		name      string
+		absolute  string
+		trend     *BatteryTrend
+		isMissing bool
+		want      string
+	}{
+		{name: "healthy stays healthy with no trend", absolute: "healthy", trend: nil, want: "healthy"},
+		{name: "healthy escalates to watch on a relative fall", absolute: "healthy", trend: falling, want: "watch"},
+		{name: "healthy stays healthy on a stable trend", absolute: "healthy", trend: stable, want: "healthy"},
+		{name: "watch stays watch on a fall (already there)", absolute: "watch", trend: falling, want: "watch"},
+		{
+			name:     "critical-on-silence: missing signal + falling trend escalates to critical",
+			absolute: "watch", trend: falling, isMissing: true, want: "critical",
+		},
+		{
+			name:     "missing signal ALONE (stable trend) does not escalate -- silence alone says nothing about the battery",
+			absolute: "healthy", trend: stable, isMissing: true, want: "healthy",
+		},
+		{
+			name:     "missing signal with NO trend at all does not escalate",
+			absolute: "healthy", trend: nil, isMissing: true, want: "healthy",
+		},
+		{name: "low stays low with no trend", absolute: "low", trend: nil, want: "low"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BatteryStateWithTrend(tt.absolute, tt.trend, tt.isMissing)
+			if got != tt.want {
+				t.Errorf("state = %s, want %s", got, tt.want)
 			}
 		})
 	}
@@ -387,20 +474,6 @@ func TestIsSupportedBucketSeconds(t *testing.T) {
 		if IsSupportedBucketSeconds(b) {
 			t.Errorf("IsSupportedBucketSeconds(%d) = true, want false", b)
 		}
-	}
-}
-
-func TestBatteryLifeEstimate(t *testing.T) {
-	thresholds := DefaultThresholds()
-
-	if got := BatteryLifeEstimate(nil, thresholds); got != "" {
-		t.Errorf("nil battery = %q, want empty", got)
-	}
-	if got := BatteryLifeEstimate(intPtr(2700), thresholds); got != "< 1 day (provisional)" {
-		t.Errorf("below-low battery = %q, want '< 1 day (provisional)'", got)
-	}
-	if got := BatteryLifeEstimate(intPtr(3000), thresholds); got == "" {
-		t.Errorf("full battery should produce a non-empty estimate")
 	}
 }
 

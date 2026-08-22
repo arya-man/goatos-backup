@@ -14,13 +14,32 @@ type Thresholds struct {
 	SignalWeak    int16 // -75 dBm
 	SignalAvgWeak int16 // -80 dBm for average
 
-	// Battery thresholds (millivolts).
-	// < 2800 mV is low battery. Provisional; pending vendor confirmation.
-	BatteryLowMV int
-	// BatteryNominalFullMV / BatteryNominalLifeDays anchor the linear, PROVISIONAL
-	// battery_life_estimate shown on the live view. Pending vendor discharge-curve data.
-	BatteryNominalFullMV   int
-	BatteryNominalLifeDays int
+	// Battery thresholds (millivolts). ALL PROVISIONAL, pending vendor confirmation of the
+	// discharge curve. Replaces a removed remaining-life estimate ("~90 days") that computed
+	// fake precision against an assumed discharge curve and advertising interval, and presented
+	// it next to real device readings (maintainer decision). The tag reports VOLTAGE only, so the
+	// model here is a voltage TREND: an absolute band plus a relative fall against the tag's own
+	// history -- the same per-animal-baseline discipline used for motion (compare a tag to
+	// itself, not the fleet). See BatteryStateFromVoltage / BatteryTrendFromHistory.
+	//
+	//   healthy  >= 3.00 V
+	//   watch     2.80-2.99 V, OR voltage falling against the tag's own history
+	//   low      <  2.80 V
+	//   critical <  2.60 V, or the tag went quiet (missing) after voltage was falling
+	BatteryHealthyMV  int // >= this is healthy
+	BatteryWatchMV    int // >= this (and < BatteryHealthyMV) is watch by absolute band
+	BatteryCriticalMV int // < this is critical
+	// BatteryFallMV is the minimum drop (mV) over the trend window to call a tag "falling"
+	// against its own history -- the RELATIVE half of watch, and the point of this model: a tag
+	// drifting 3.18V -> 3.10V is informative long before it crosses BatteryWatchMV. PROVISIONAL:
+	// coin-cell voltage is noisy and temperature-sensitive, so this must be large enough that
+	// ordinary sensor noise across a day does not read as "falling".
+	BatteryFallMV int
+	// BatteryTrendWindowDays is the window BatteryTrendFromHistory reads over. Below
+	// BatteryTrendMinSpanHours of actual reading span within that window, the trend is
+	// null/absent rather than invented from two adjacent, noisy packets.
+	BatteryTrendWindowDays   int
+	BatteryTrendMinSpanHours float64
 
 	// Motion state thresholds (cumulative motion_count delta over window). Not-moving is
 	// hardcoded as delta==0 in MovementStateFromDelta -- there is no lower threshold to
@@ -66,9 +85,12 @@ func DefaultThresholds() Thresholds {
 		SignalStrong:              -65,
 		SignalWeak:                -75,
 		SignalAvgWeak:             -80,
-		BatteryLowMV:              2800,
-		BatteryNominalFullMV:      3000, // provisional: fresh CR2032-class coin cell
-		BatteryNominalLifeDays:    90,   // provisional: pending vendor discharge-curve data
+		BatteryHealthyMV:          3000, // provisional
+		BatteryWatchMV:            2800, // provisional
+		BatteryCriticalMV:         2600, // provisional
+		BatteryFallMV:             80,   // provisional: minimum drop over the trend window to call it "falling"
+		BatteryTrendWindowDays:    30,   // provisional
+		BatteryTrendMinSpanHours:  24,   // provisional: require at least a day of real spread between first/last reading
 		MotionActiveDelta:         100,
 		MotionLowDelta:            10,
 		MotionQuietDelta:          1,
@@ -256,22 +278,25 @@ type LiveItem struct {
 	GatewayID                  *string `json:"gateway_id"`
 	LastSeenAt                 string  `json:"last_seen_at"` // RFC3339
 	RSSIdbm                    *int16  `json:"rssi_dbm"`
-	// SignalState/BatteryState/MovementState/PatternState/SensorState/BatteryLifeEstimate are
+	// SignalState/BatteryState/MovementState/PatternState/SensorState are
 	// all nullable per the admin-web contract fixed at dispatch (HerdSignalItem in
 	// apps/admin-web/lib/api/herd-signals.ts): "unknown"/unset must serialize as JSON null, not
 	// as a string value the frontend's enum types do not declare.
-	SignalState         *string  `json:"signal_state"`
-	BatteryMV           *int     `json:"battery_mv"`
-	BatteryState        *string  `json:"battery_state"`
-	BatteryLifeEstimate *string  `json:"battery_life_estimate"`
-	TagTemperatureC     *float64 `json:"tag_temperature_c"`
-	MotionCount         *int64   `json:"motion_count"`
-	MotionDelta         *int64   `json:"motion_delta"`
-	MotionDelta1h       *int64   `json:"motion_delta_1h"`
-	MotionWindowSeconds *int     `json:"motion_window_seconds"`
-	MovementState       *string  `json:"movement_state"`
-	PatternState        *string  `json:"pattern_state"`
-	BaselineDelta       *int64   `json:"baseline_delta"`
+	SignalState  *string `json:"signal_state"`
+	BatteryMV    *int    `json:"battery_mv"` // Direct reading. Must stay first among the battery fields.
+	BatteryState *string `json:"battery_state"`
+	// BatteryTrendResponse is the compact voltage trend (direction + the two endpoint readings
+	// that justify it), null when there is not enough history to say anything. Never a
+	// remaining-life estimate in any unit -- see domain.BatteryTrendFromHistory's doc comment.
+	BatteryTrend        *BatteryTrendResponse `json:"battery_trend"`
+	TagTemperatureC     *float64              `json:"tag_temperature_c"`
+	MotionCount         *int64                `json:"motion_count"`
+	MotionDelta         *int64                `json:"motion_delta"`
+	MotionDelta1h       *int64                `json:"motion_delta_1h"`
+	MotionWindowSeconds *int                  `json:"motion_window_seconds"`
+	MovementState       *string               `json:"movement_state"`
+	PatternState        *string               `json:"pattern_state"`
+	BaselineDelta       *int64                `json:"baseline_delta"`
 	// SensorState is a COMPUTED "ok"/"abnormal" summary (contract type HerdSignalSensorState),
 	// never the raw device sensor_state int -- that raw value is stored but intentionally not
 	// exposed on this endpoint; see herd_signal_tag_latest / herd_signal_packets for the raw bits.
@@ -283,6 +308,18 @@ type LiveItem struct {
 	// decision on offline behaviour), not this window's own movement. A client must render this
 	// distinctly (e.g. "+239 since reconnect, timing unknown"), never as a normal delta.
 	GapDelta bool `json:"gap_delta"`
+}
+
+// BatteryTrendResponse is the wire form of domain.BatteryTrend: a direction plus the two
+// endpoint readings that justify it, and the window they were read over. No remaining-life
+// estimate in any unit belongs here or anywhere else on this response (maintainer decision).
+type BatteryTrendResponse struct {
+	Direction  string    `json:"direction"` // "stable" | "falling"
+	WindowDays int       `json:"window_days"`
+	FirstMV    int       `json:"first_mv"`
+	FirstAt    time.Time `json:"first_at"`
+	LastMV     int       `json:"last_mv"`
+	LastAt     time.Time `json:"last_at"`
 }
 
 // LiveResponse is the response to GET /herd-signals/live.
