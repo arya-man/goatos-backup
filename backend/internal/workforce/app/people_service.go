@@ -7,8 +7,8 @@ import (
 	"unicode"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
-	"github.com/vgoats/goatos/backend/internal/platform/authallow"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
+	"github.com/vgoats/goatos/backend/internal/platform/authallow"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
