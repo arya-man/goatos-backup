@@ -627,8 +627,21 @@ func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, mappi
 		// entirely non-alerting, so selecting the alerting subset client-side from one fetched
 		// page is wrong at scale — see herd-signals-board.tsx AlertsTab). Every other value is
 		// still an exact pattern_state match.
+		//
+		// The partition is NOT simply "pattern_state <> normal": bare no_movement (delta 0 in the
+		// CURRENT 15-minute window) is the ordinary state of a resting animal and is not itself
+		// alert-worthy (mock/herd-signals-mock.html renderAlerts never emits a row for it alone —
+		// only the duration-based inactive/quiet_watch patterns, a spike, or a recovery do), so it
+		// is excluded here. Conversely pattern_state alone cannot see a weak radio, a low/critical
+		// battery, an abnormal accelerometer, or a mapping conflict — those are independent per-tag
+		// conditions the Alerts tab must also surface (herd-signals-board.tsx buildAlertConditions),
+		// so they are OR'd in explicitly rather than left for pattern_state to (fail to) express.
 		if *pattern == "not_normal" {
-			whereClause += " AND (" + effectivePatternStateExpr + ") <> 'normal'"
+			whereClause += " AND ((" + effectivePatternStateExpr + ") NOT IN ('normal', 'no_movement')" +
+				" OR tl.signal_state = 'weak'" +
+				" OR tl.battery_state IN ('low', 'critical')" +
+				" OR tl.accelerometer_sensor_ok IS FALSE" +
+				" OR tl.mapping_state = 'conflict')"
 		} else {
 			whereClause += fmt.Sprintf(" AND ("+effectivePatternStateExpr+") = $%d", argIndex)
 			args = append(args, *pattern)

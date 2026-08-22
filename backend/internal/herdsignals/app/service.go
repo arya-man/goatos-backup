@@ -390,22 +390,22 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 		},
 		{
 			Key: "missing_signal", Label: "Missing Signal", Value: fmt.Sprintf("%d", d.MissingSignalCount), Unit: "tags",
-			SignalType: "derived", Formula: "mapped smart-tag animals not seen for 30+ min",
+			SignalType: "inferred", Formula: "mapped smart-tag animals not seen for 30+ min",
 			Caveat: "No packet received for 30+ minutes. Distinct from inactive: inactive tags are still transmitting.",
 		},
 		{
 			Key: "low_movement_watch", Label: "Low Movement Watch", Value: fmt.Sprintf("%d", d.LowMovementWatchCount), Unit: "tags",
-			SignalType: "derived", Formula: "60 min motion delta below shed baseline",
+			SignalType: "inferred", Formula: "60 min motion delta below shed baseline",
 			Caveat: "Duration-based pattern over history, not a single reading. Not a health or behavior diagnosis.",
 		},
 		{
 			Key: "high_movement_spike", Label: "High Movement Spike", Value: fmt.Sprintf("%d", d.HighMovementSpikeCount), Unit: "tags",
-			SignalType: "derived", Formula: "15m delta far above the animal/shed baseline",
+			SignalType: "inferred", Formula: "15m delta far above the animal/shed baseline",
 			Caveat: "Baseline is per-animal; a naturally active animal's spike threshold is higher than a naturally quiet animal's.",
 		},
 		{
 			Key: "shed_signal_coverage", Label: "Shed Signal Coverage", Value: fmt.Sprintf("%d/%d", d.ShedsWithCoverage, d.ShedsTotal), Unit: "sheds",
-			SignalType: "derived", Formula: "live mapped tags / smart-tag mapped animals per shed",
+			SignalType: "correlated", Formula: "live mapped tags / smart-tag mapped animals per shed",
 			Caveat: "A shed with no gateway deployed yet is excluded from the denominator, not counted as zero coverage.",
 		},
 		{
@@ -415,7 +415,7 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 		},
 		{
 			Key: "battery_attention", Label: "Battery Attention", Value: fmt.Sprintf("%d", d.BatteryAttentionCount), Unit: "tags",
-			SignalType: "derived", Formula: "battery below configured mV threshold",
+			SignalType: "direct", Formula: "battery below configured mV threshold",
 			Caveat: "Threshold is a provisional placeholder pending vendor discharge-curve confirmation.",
 		},
 		{
@@ -440,7 +440,7 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 		},
 		{
 			Key: "unmapped_smart_tags", Label: "Unmapped Smart Tags", Value: fmt.Sprintf("%d", d.UnmappedSmartTagsCount), Unit: "tags",
-			SignalType: "inferred", Formula: "BLE tags seen with no active smart-tag-capable identifier",
+			SignalType: "derived", Formula: "BLE tags seen with no active smart-tag-capable identifier",
 			Caveat: "A tag that has never been assigned to an active goat_identifiers row, or whose identifier is not smart_tag_capable.",
 		},
 	}
