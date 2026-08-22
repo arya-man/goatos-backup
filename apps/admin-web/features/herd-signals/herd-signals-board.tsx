@@ -21,7 +21,7 @@ import { HerdSignalsGateways } from "./herd-signals-gateways";
 import { HerdSignalsInsights } from "./herd-signals-insights";
 import { Tag } from "@/components/ui-primitives";
 import type { HerdSignalItem } from "@/lib/api/herd-signals";
-import { PATTERN_LABEL, PATTERN_TONE, PATTERN_WHY, fmtAgo } from "./format";
+import { PATTERN_LABEL, PATTERN_TONE, PATTERN_WHY, fmtAgo, fmtRssi } from "./format";
 import { HERD_SIGNALS_TABS, herdSignalsHref, kpiToMovementState, parseHerdSignalsParams, type HerdSignalsParams, type HerdSignalsTab } from "./params";
 
 const TAB_LABEL: Record<HerdSignalsTab, string> = {
@@ -430,6 +430,10 @@ function AlertsTab({
   // page, so `items` IS the alerting set.
   const { items, next_cursor } = result.data;
   const alerting = items;
+  // Flattened (item, condition) pairs — a tag with three independent alert conditions renders
+  // three rows, and a tag whose only "not normal" pattern is bare no_movement (not itself
+  // alert-worthy, see buildAlertConditions) renders none.
+  const rows = alerting.flatMap((item) => buildAlertConditions(item, nowMs).map((condition) => ({ item, condition })));
   return (
     <div className="card">
       <div className="hd">
@@ -438,7 +442,7 @@ function AlertsTab({
         <span className="small faint">Signal conditions only — none of these are clinical findings</span>
       </div>
       <div className="bd flush">
-        {alerting.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="empty">
             <div className="eicon">
               <svg className="ic" viewBox="0 0 24 24">
@@ -456,8 +460,8 @@ function AlertsTab({
                 signal condition, severity chip first, the explanation in prose, shed right-aligned.
                 A table here re-states fourteen telemetry columns the reader did not ask for. */}
             <div className="rowlist">
-              {alerting.map((item) => (
-                <AlertRow key={item.tag_id} item={item} nowMs={nowMs} />
+              {rows.map(({ item, condition }, index) => (
+                <AlertRow key={`${item.tag_id}-${condition.label}-${index}`} item={item} condition={condition} />
               ))}
             </div>
             {next_cursor ? (
@@ -484,27 +488,106 @@ function AlertsTab({
   );
 }
 
-// One alert row. The severity chip is the pattern's own approved tone/label (features/herd-signals/
-// format.ts) — this row never invents a synonym or a severity of its own.
-function AlertRow({ item, nowMs }: { item: HerdSignalItem; nowMs: number }) {
+type AlertCondition = { tone: Tone; label: string; explanation: string };
+
+// One tag can be alerting for SEVERAL independent reasons at once (its motion pattern, its radio,
+// its battery, its accelerometer, its mapping) and each reason is its own row — exactly the mock's
+// renderAlerts, which pushes a separate array entry per condition instead of collapsing a tag down
+// to one badge. pattern_state alone (a movement-only classification) cannot say "weak signal" or
+// "low battery" or "mapping conflict"; those come from the tag's OWN signal_state/battery_state/
+// accelerometer_sensor_ok/mapping_state fields, checked independently of the motion pattern.
+//
+// "No movement now" (pattern_state === "no_movement") is deliberately NOT one of these conditions:
+// it is the ordinary state of a resting animal in any given 15-minute window and the mock's
+// renderAlerts never emits a row for it alone — only the DURATION-based inactive/quiet_watch
+// patterns, a spike, a recovery, or a genuinely different signal/battery/sensor/mapping condition
+// are alert-worthy.
+function buildAlertConditions(item: HerdSignalItem, nowMs: number): AlertCondition[] {
+  const conditions: AlertCondition[] = [];
   const pattern = item.pattern_state ?? "normal";
+
+  if (pattern === "inactive") {
+    conditions.push({
+      tone: PATTERN_TONE.inactive,
+      label: PATTERN_LABEL.inactive,
+      explanation:
+        "Zero or very low motion delta for 3+ hours while the tag is still being seen. Duration-based, not a single empty window — open the tag to read the pattern.",
+    });
+  } else if (pattern === "quiet_watch") {
+    conditions.push({
+      tone: PATTERN_TONE.quiet_watch,
+      label: PATTERN_LABEL.quiet_watch,
+      explanation: "Low motion delta for the last 1-2 hours. Short rest is normal; this is a watch item, not an alert.",
+    });
+  }
+  if (pattern === "spike") {
+    conditions.push({
+      tone: PATTERN_TONE.spike,
+      label: PATTERN_LABEL.spike,
+      explanation: "Current 15-minute delta is far above this animal's own baseline. Unusual counter activity — not walking, running or distress.",
+    });
+  }
+  if (pattern === "recovered") {
+    conditions.push({
+      tone: PATTERN_TONE.recovered,
+      label: PATTERN_LABEL.recovered,
+      explanation: "Activity resumed after a quiet period. No action needed; logged so a prior quiet watch can be closed.",
+    });
+  }
   // Missing signal names the GATEWAY before the animal, always: the reader must check the radio
   // path first, and the row must not read as "this animal is missing".
-  const missing = pattern === "missing" || item.movement_state === "stale";
-  const explanation = missing
-    ? `Gateway ${item.gateway_id ?? "coverage for this tag"} last delivered a packet for this tag ${fmtAgo(item.last_seen_at, nowMs)}. Missing signal — never a missing animal. Check the gateway before checking the animal.`
-    : `${PATTERN_WHY[pattern].charAt(0).toUpperCase()}${PATTERN_WHY[pattern].slice(1)}.`;
+  if (pattern === "missing" || item.movement_state === "stale") {
+    conditions.push({
+      tone: PATTERN_TONE.missing,
+      label: PATTERN_LABEL.missing,
+      explanation: `Gateway ${item.gateway_id ?? "coverage for this tag"} last delivered a packet for this tag ${fmtAgo(item.last_seen_at, nowMs)}. Missing signal — never a missing animal. Check the gateway before checking the animal.`,
+    });
+  }
+  if (item.signal_state === "weak") {
+    conditions.push({
+      tone: "warn",
+      label: "Weak signal",
+      explanation: `RSSI ${fmtRssi(item.rssi_dbm)} is at or below the provisional −75 dBm threshold. Possible distance, obstruction or gateway placement issue.`,
+    });
+  }
+  if (item.battery_state === "low" || item.battery_state === "critical") {
+    conditions.push({
+      tone: "purple",
+      label: "Low battery",
+      // Deliberately no "est. ~N left" life estimate here (removed twice already — no vendor
+      // discharge curve exists). Voltage threshold only, same wording as the KPI card.
+      explanation: `Battery ${fmtBatteryMv(item.battery_mv)} is below the provisional 2800 mV placeholder.`,
+    });
+  }
+  if (item.sensor_state === "abnormal" || item.accelerometer_sensor_ok === false) {
+    conditions.push({
+      tone: "warn",
+      label: "Sensor abnormal",
+      explanation: "Accelerometer status bit is not OK. Motion counts from this tag are unreliable.",
+    });
+  }
+  if (item.mapping_state === "conflict") {
+    conditions.push({
+      tone: "dng",
+      label: "Mapping conflict",
+      explanation: "This BLE tag resolves to more than one active smart-tag-capable identifier. Resolve in Tag Mapping.",
+    });
+  }
+  return conditions;
+}
+
+// One alert row per condition (see buildAlertConditions) — the severity chip is that condition's
+// own approved tone/label, never a synonym invented here.
+function AlertRow({ item, condition }: { item: HerdSignalItem; condition: AlertCondition }) {
   const location = item.operational_location_display ?? item.shed_name ?? item.park_name ?? "—";
   return (
     <div className="rowitem">
-      <Tag tone={missing ? PATTERN_TONE.missing : PATTERN_TONE[pattern]}>
-        {missing ? PATTERN_LABEL.missing : PATTERN_LABEL[pattern]}
-      </Tag>
+      <Tag tone={condition.tone}>{condition.label}</Tag>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="rt">
           {item.display_id ?? "No animal mapped to this tag"} <span className="mono faint">{item.tag_id}</span>
         </div>
-        <div className="rs">{explanation}</div>
+        <div className="rs">{condition.explanation}</div>
       </div>
       <span className="faint small">{location}</span>
     </div>
