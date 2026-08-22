@@ -38,7 +38,7 @@ func (f *fakeService) IngestPackets(_ context.Context, _ domain.Actor, req domai
 	return f.ingestResp, f.ingestErr
 }
 
-func (f *fakeService) ListLive(_ context.Context, _ domain.Actor, _, _, _ *string, _ *bool, _ string, _ int) (domain.LiveResponse, error) {
+func (f *fakeService) ListLive(_ context.Context, _ domain.Actor, _, _, _, _, _, _ *string, _ string, _ int) (domain.LiveResponse, error) {
 	return f.liveResp, f.liveErr
 }
 

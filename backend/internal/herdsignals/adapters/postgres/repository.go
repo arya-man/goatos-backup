@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -445,14 +446,19 @@ const tagLocationJoin = `
 		LIMIT 1
 	) mapped_goat ON true
 	LEFT JOIN public.goats g ON g.tenant_id = tl.tenant_id AND g.goat_id = mapped_goat.goat_id
+	LEFT JOIN public.locations shed_loc ON shed_loc.tenant_id = tl.tenant_id AND shed_loc.location_id = g.shed_id
 `
 
 // ListTagsLatest fetches tags with optional filters, keyset pagination, and a whole-filter
 // server-side summary aggregate (never summed from the returned page -- AGENTS.md operational
 // read model contract rule 3).
-func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState *string, mapped *bool, cursor string, limit int) (
-	[]domain.TagLatest, domain.Summary, *string, error,
-) {
+// herdSignalsLiveFilter builds the shared WHERE clause + args for GET /herd-signals/live's row
+// query AND its summary aggregate, so the two can never drift (AGENTS.md operational read
+// model contract rule 3: summary must be a whole-filter aggregate, never derived from the page).
+// movementState is nil for the summary call: the summary reports the BREAKDOWN across movement
+// states for the current park/shed/mapping/pattern/q filter, so movement_state itself must not
+// also be a predicate.
+func herdSignalsLiveFilter(tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string) (string, []interface{}, int) {
 	whereClause := "WHERE tl.tenant_id = $1"
 	args := []interface{}{tenantID}
 	argIndex := 2
@@ -475,13 +481,35 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 		argIndex++
 	}
 
-	if mapped != nil {
-		if *mapped {
-			whereClause += " AND tl.mapping_state = 'mapped'"
-		} else {
-			whereClause += " AND tl.mapping_state = 'unmapped'"
-		}
+	if mappingState != nil && *mappingState != "" {
+		whereClause += fmt.Sprintf(" AND tl.mapping_state = $%d", argIndex)
+		args = append(args, *mappingState)
+		argIndex++
 	}
+
+	if pattern != nil && *pattern != "" {
+		whereClause += fmt.Sprintf(" AND tl.pattern_state = $%d", argIndex)
+		args = append(args, *pattern)
+		argIndex++
+	}
+
+	if q != nil && strings.TrimSpace(*q) != "" {
+		needle := "%" + strings.TrimSpace(*q) + "%"
+		whereClause += fmt.Sprintf(` AND (
+			tl.tag_id ILIKE $%d OR tl.tag_mac ILIKE $%d OR tl.gateway_id ILIKE $%d
+			OR g.display_id ILIKE $%d OR shed_loc.name ILIKE $%d
+		)`, argIndex, argIndex, argIndex, argIndex, argIndex)
+		args = append(args, needle)
+		argIndex++
+	}
+
+	return whereClause, args, argIndex
+}
+
+func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int) (
+	[]domain.TagLatest, domain.Summary, *string, error,
+) {
+	whereClause, args, argIndex := herdSignalsLiveFilter(tenantID, parkID, shedID, movementState, mappingState, pattern, q)
 
 	if cursor != "" {
 		whereClause += fmt.Sprintf(" AND (tl.last_seen_at, tl.tag_id) < (SELECT last_seen_at, tag_id FROM public.herd_signal_tag_latest WHERE tenant_id = $1 AND tag_id = $%d)", argIndex)
@@ -534,28 +562,10 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 		nextCursor = &lastTag.TagID
 	}
 
-	// Summary: the SAME filter (park/shed/mapped), WITHOUT the movement_state predicate or the
-	// cursor/limit, aggregated server-side in one query -- never derived from the returned page.
-	summaryWhere := "WHERE tl.tenant_id = $1"
-	summaryArgs := []interface{}{tenantID}
-	sArgIndex := 2
-	if parkID != nil && *parkID != "" {
-		summaryWhere += fmt.Sprintf(" AND g.park_id = $%d", sArgIndex)
-		summaryArgs = append(summaryArgs, *parkID)
-		sArgIndex++
-	}
-	if shedID != nil && *shedID != "" {
-		summaryWhere += fmt.Sprintf(" AND g.shed_id = $%d", sArgIndex)
-		summaryArgs = append(summaryArgs, *shedID)
-		sArgIndex++
-	}
-	if mapped != nil {
-		if *mapped {
-			summaryWhere += " AND tl.mapping_state = 'mapped'"
-		} else {
-			summaryWhere += " AND tl.mapping_state = 'unmapped'"
-		}
-	}
+	// Summary: the SAME filter (park/shed/mapping_state/pattern/q), WITHOUT the movement_state
+	// predicate or the cursor/limit, aggregated server-side in one query -- never derived from
+	// the returned page (AGENTS.md operational read model contract rule 3).
+	summaryWhere, summaryArgs, _ := herdSignalsLiveFilter(tenantID, parkID, shedID, nil, mappingState, pattern, q)
 
 	summary, err := r.computeSummary(ctx, tagLocationJoin, summaryWhere, summaryArgs)
 	if err != nil {
@@ -729,40 +739,6 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 	return result, rows.Err()
 }
 
-// GetLocationsByIDs fetches shed and partition info for multiple locations.
-func (r *Repository) GetLocationsByIDs(ctx context.Context, tenantID string, locationIDs []string) (map[string]ports.LocationData, error) {
-	if len(locationIDs) == 0 {
-		return make(map[string]ports.LocationData), nil
-	}
-
-	query := `
-		SELECT location_id, name, partition_label, park_id
-		FROM public.locations
-		WHERE tenant_id = $1 AND location_id = ANY($2)
-	`
-	rows, err := r.db.Query(ctx, query, tenantID, locationIDs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[string]ports.LocationData)
-	for rows.Next() {
-		var locID, shedName string
-		var partitionLabel *string
-		var parkID *string
-		if err := rows.Scan(&locID, &shedName, &partitionLabel, &parkID); err != nil {
-			return nil, err
-		}
-		result[locID] = ports.LocationData{
-			ShedName:       shedName,
-			PartitionLabel: partitionLabel,
-			ParkID:         parkID,
-		}
-	}
-	return result, rows.Err()
-}
-
 // ResolveTagsBatch resolves many tag_id/tag_mac values to goat_id in ONE query so
 // GET /herd-signals/live never issues one identifier lookup per returned row (AGENTS.md
 // operational read model contract). Callers with a conflicting (multi-goat) value must have
@@ -838,6 +814,38 @@ func (r *Repository) GetShedLocations(ctx context.Context, tenantID string, shed
 	return result, rows.Err()
 }
 
+// GetBaselineDeltas computes the p75 24h/300s-tier baseline motion_delta for many tags in ONE
+// windowed query (mirrors domain.Baseline75's definition: p75 over non-gap buckets, never
+// median -- a resting animal's median bucket is 0). Bounded to the tag_id list the caller
+// already fetched (a single live page), so this never scans the whole tenant's tag population.
+func (r *Repository) GetBaselineDeltas(ctx context.Context, tenantID string, tagIDs []string) (map[string]int64, error) {
+	result := make(map[string]int64)
+	if len(tagIDs) == 0 {
+		return result, nil
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT tag_id, percentile_disc(0.75) WITHIN GROUP (ORDER BY motion_delta)
+		FROM public.herd_signal_activity_windows
+		WHERE tenant_id = $1 AND tag_id = ANY($2)
+		      AND bucket_seconds = 300 AND packet_count > 0
+		      AND bucket_start >= now() - interval '24 hours'
+		GROUP BY tag_id
+	`, tenantID, tagIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tagID string
+		var baseline int64
+		if err := rows.Scan(&tagID, &baseline); err != nil {
+			return nil, err
+		}
+		result[tagID] = baseline
+	}
+	return result, rows.Err()
+}
+
 // GetInsightsData computes the raw counts behind the 12 GET /herd-signals/insights cards. Each
 // card is its own small, tenant-scoped, indexed, time-bounded query -- never one
 // compute-on-read god CTE across every table (AGENTS.md scale anti-patterns).
@@ -849,7 +857,7 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 	err := r.db.QueryRow(ctx, `
 		SELECT
 			count(*) FILTER (WHERE movement_state <> 'stale'),
-			count(*) FILTER (WHERE pattern_state = 'missing_signal'),
+			count(*) FILTER (WHERE pattern_state = 'missing'),
 			count(*) FILTER (WHERE pattern_state IN ('quiet_watch', 'inactive')),
 			count(*) FILTER (WHERE pattern_state = 'spike'),
 			count(*) FILTER (WHERE signal_state = 'weak'),
@@ -896,7 +904,7 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 		WHERE vc.tenant_id = $1
 		  AND vc.status = 'accepted'
 		  AND vc.administered_at >= now() - interval '24 hours'
-		  AND tl.pattern_state IN ('quiet_watch', 'inactive', 'missing_signal')
+		  AND tl.pattern_state IN ('quiet_watch', 'inactive', 'missing')
 	`, tenantID).Scan(&d.PostVaccinationWatchCount)
 	if err != nil {
 		return d, fmt.Errorf("insights post-vaccination watch: %w", err)
