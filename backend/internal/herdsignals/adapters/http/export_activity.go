@@ -88,7 +88,7 @@ func (h *Handler) GetTagActivity(w http.ResponseWriter, r *http.Request) {
 				err)
 			return
 		}
-		if errors.Is(err, domain.ErrNotFound) {
+		if errors.Is(err, domain.ErrTagNotFound) {
 			httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
 				map[string]interface{}{"code": "tag_not_found", "message": "no such tag for this tenant"},
 				nil)
