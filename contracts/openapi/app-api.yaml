@@ -34,7 +34,166 @@ tags:
   - name: Counts
   - name: Weighing
   - name: Sales
+  - name: Herd Signals
 paths:
+  /herd-signals/packets:
+    post:
+      tags:
+        - Herd Signals
+      operationId: ingestHerdSignalPackets
+      summary: Ingest a batch of BLE ear-tag packets from one gateway.
+      description: >-
+        Gateway device write path (backend/internal/herdsignals). Never anonymous: requires the
+        herd_signals.ingest permission. Packet insert, gateway last_seen_at upsert, activity-window
+        rollup (60s/300s/3600s tiers), and tag_latest state recompute all happen in ONE
+        transaction. Idempotent: a replayed packet (same tenant, tag, received_at, motion_count) is
+        silently deduplicated and does not double-count. Out-of-order safe: the "latest" snapshot
+        only advances when a packet's seen_at is strictly newer than the currently stored
+        last_seen_at for that tag.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HerdSignalsIngestRequest'
+      responses:
+        '200':
+          description: Packets accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HerdSignalsIngestResponse'
+        '400':
+          description: Invalid request body.
+        '401':
+          description: Authentication required.
+  /herd-signals/live:
+    get:
+      tags:
+        - Herd Signals
+      operationId: listHerdSignalsLive
+      summary: Live tag status, tag-first (an unmapped tag is the normal case, not a degraded one).
+      description: >-
+        Every packet-derived field (id, MAC, gateway, RSSI/signal, battery, temperature, motion
+        count and deltas, movement_state, pattern_state, last_seen_at, sensor bits) renders for a
+        tag with no animal mapped behind it. Only goat_id/display_id/park/shed/location are
+        animal-derived and may be null. `summary` is a whole-filter server-side aggregate over the
+        same tenant-scoped query as `items` -- never summed from the returned page.
+      parameters:
+        - name: park_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: Filters to animals resolved to this park. An unmapped tag has no park and never matches.
+        - name: shed_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: Filters to animals resolved to this shed. An unmapped tag has no shed and never matches.
+        - name: movement_state
+          in: query
+          schema: { $ref: '#/components/schemas/HerdSignalMovementState' }
+        - name: mapping_state
+          in: query
+          schema: { $ref: '#/components/schemas/HerdSignalMappingState' }
+        - name: pattern
+          in: query
+          schema: { $ref: '#/components/schemas/HerdSignalPatternState' }
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Free-text search over display id, tag id, MAC, shed name, gateway id.
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 25, minimum: 1, maximum: 200 }
+      responses:
+        '200':
+          description: Live tag list with a whole-filter summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HerdSignalsLiveResponse'
+        '401':
+          description: Authentication required.
+  /herd-signals/tags/{tag_id}/timeline:
+    get:
+      tags:
+        - Herd Signals
+      operationId: getHerdSignalsTagTimeline
+      summary: Bucketed motion history for one tag.
+      description: >-
+        Bucket tier auto-selects from the range (<=1h -> 60s, <=24h -> 300s, >24h -> 3600s) unless
+        `bucket_seconds` is given, in which case it must be one of 60/300/3600 or the request is
+        rejected. The response is DENSE: a window with no packets is an explicit gap
+        (`is_gap: true`), which must never collapse with a window that received packets but had
+        zero movement (`packet_count > 0`, `motion_delta: 0`) -- that distinction is the whole
+        product requirement. Bounded to at most 2000 buckets per request.
+      parameters:
+        - name: tag_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+        - name: bucket_seconds
+          in: query
+          schema: { type: integer, enum: [60, 300, 3600] }
+      responses:
+        '200':
+          description: Dense bucketed motion history.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HerdSignalTimelineResponse'
+        '400':
+          description: Missing from/to, to before from, unsupported bucket_seconds, or the range spans too many buckets at the requested resolution.
+        '401':
+          description: Authentication required.
+  /herd-signals/gateways:
+    get:
+      tags:
+        - Herd Signals
+      operationId: listHerdSignalsGateways
+      summary: Gateway registration, location, and coverage health.
+      responses:
+        '200':
+          description: Gateway list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HerdGatewaysResponse'
+        '401':
+          description: Authentication required.
+  /herd-signals/insights:
+    get:
+      tags:
+        - Herd Signals
+      operationId: getHerdSignalsInsights
+      summary: 12 backend-computed insight cards (direct/derived/correlated/inferred signal types).
+      description: >-
+        Must not error when zero tags are mapped (the STG day-one state): the direct/derived cards
+        (tags_live_now, weak_signal_tags, battery_attention, missing_signal, unmapped_smart_tags,
+        shed_signal_coverage) still compute from packet-derived data alone. The four correlated
+        cards (post_vaccination_movement_watch, health_case_activity_trend, feed_activity,
+        weight_activity) return an honest zero/empty result rather than an error when no tags are
+        mapped. Label/unit/signal_type/formula/caveat text is backend-owned copy; render it
+        verbatim.
+      responses:
+        '200':
+          description: Insight cards.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HerdInsightsResponse'
+        '401':
+          description: Authentication required.
   /admin/tasks/review-fanouts/retry:
     post:
       tags:
@@ -10496,6 +10655,201 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorEnvelope"
   schemas:
+    HerdSignalMovementState:
+      type: string
+      enum: [moving, low, quiet, not_moving, stale]
+    HerdSignalMappingState:
+      type: string
+      enum: [mapped, unmapped, conflict]
+    HerdSignalPatternState:
+      type: string
+      enum: [no_movement, quiet_watch, inactive, missing, spike, recovered, normal]
+    HerdSignalTone:
+      type: string
+      enum: [strong, ok, weak]
+    HerdSignalBatteryState:
+      type: string
+      enum: [ok, low]
+    HerdSignalSensorState:
+      type: string
+      description: Computed "ok"/"abnormal" summary of temperature_sensor_ok/accelerometer_sensor_ok. Never the raw device sensor_state bitfield.
+      enum: [ok, abnormal]
+    HerdSignalsSummary:
+      type: object
+      description: Whole-filter server-side aggregate; never derived from the returned page.
+      properties:
+        tags_seen: { type: integer }
+        mapped_animals: { type: integer }
+        unmapped_tags: { type: integer }
+        moving: { type: integer }
+        quiet: { type: integer }
+        not_moving: { type: integer }
+        stale: { type: integer }
+        weak_signal: { type: integer }
+        low_battery: { type: integer }
+        sensor_abnormal: { type: integer }
+      required: [tags_seen, mapped_animals, unmapped_tags, moving, quiet, not_moving, stale, weak_signal, low_battery, sensor_abnormal]
+    HerdSignalItem:
+      type: object
+      properties:
+        tag_id: { type: string }
+        tag_mac: { type: string }
+        goat_id: { type: string, format: uuid, nullable: true }
+        display_id: { type: string, nullable: true }
+        park_id: { type: string, format: uuid, nullable: true }
+        park_name: { type: string, nullable: true }
+        shed_id: { type: string, format: uuid, nullable: true }
+        shed_name: { type: string, nullable: true }
+        partition_label: { type: string, nullable: true }
+        operational_location_display: { type: string, nullable: true }
+        gateway_id: { type: string, nullable: true }
+        last_seen_at: { type: string, format: date-time, nullable: true }
+        rssi_dbm: { type: integer, nullable: true }
+        signal_state: { allOf: [{ $ref: '#/components/schemas/HerdSignalTone' }], nullable: true }
+        battery_mv: { type: integer, nullable: true }
+        battery_state: { allOf: [{ $ref: '#/components/schemas/HerdSignalBatteryState' }], nullable: true }
+        battery_life_estimate:
+          type: string
+          nullable: true
+          description: PROVISIONAL coarse estimate ("~12 days (provisional)"), pending vendor discharge-curve data.
+        tag_temperature_c:
+          type: number
+          nullable: true
+          description: Measured at the tag's own sensor housing, never the animal's body temperature.
+        motion_count: { type: integer, format: int64, nullable: true }
+        motion_delta: { type: integer, format: int64, nullable: true, description: 15-minute window delta. }
+        motion_delta_1h: { type: integer, format: int64, nullable: true, description: Real 1-hour (3600s-tier) delta -- distinct from motion_delta. }
+        motion_window_seconds: { type: integer, nullable: true }
+        movement_state: { allOf: [{ $ref: '#/components/schemas/HerdSignalMovementState' }], nullable: true }
+        pattern_state: { allOf: [{ $ref: '#/components/schemas/HerdSignalPatternState' }], nullable: true }
+        baseline_delta: { type: integer, format: int64, nullable: true, description: Per-animal p75 24h baseline delta (300s tier). }
+        sensor_state: { allOf: [{ $ref: '#/components/schemas/HerdSignalSensorState' }], nullable: true }
+        temperature_sensor_ok: { type: boolean, nullable: true }
+        accelerometer_sensor_ok: { type: boolean, nullable: true }
+        mapping_state: { $ref: '#/components/schemas/HerdSignalMappingState' }
+      required: [tag_id, tag_mac, goat_id, display_id, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, gateway_id, last_seen_at, rssi_dbm, signal_state, battery_mv, battery_state, battery_life_estimate, tag_temperature_c, motion_count, motion_delta, motion_delta_1h, motion_window_seconds, movement_state, pattern_state, baseline_delta, sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, mapping_state]
+    HerdSignalsLiveResponse:
+      type: object
+      properties:
+        summary: { $ref: '#/components/schemas/HerdSignalsSummary' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/HerdSignalItem' }
+        next_cursor: { type: string, nullable: true }
+      required: [summary, items, next_cursor]
+    HerdSignalTimelineBucket:
+      type: object
+      properties:
+        bucket_start: { type: string, format: date-time }
+        bucket_seconds: { type: integer }
+        first_motion_count: { type: integer, format: int64, nullable: true }
+        last_motion_count: { type: integer, format: int64, nullable: true }
+        motion_delta: { type: integer, format: int64, nullable: true }
+        packet_count: { type: integer }
+        avg_rssi_dbm: { type: number, nullable: true }
+        min_rssi_dbm: { type: integer, nullable: true }
+        max_rssi_dbm: { type: integer, nullable: true }
+        is_gap:
+          type: boolean
+          description: True when the window has NO packets. Never collapsed with packet_count>0/motion_delta=0.
+      required: [bucket_start, bucket_seconds, first_motion_count, last_motion_count, motion_delta, packet_count, avg_rssi_dbm, min_rssi_dbm, max_rssi_dbm, is_gap]
+    HerdSignalTimelineResponse:
+      type: object
+      properties:
+        buckets:
+          type: array
+          items: { $ref: '#/components/schemas/HerdSignalTimelineBucket' }
+      required: [buckets]
+    HerdGatewayStatus:
+      type: string
+      description: Computed "online"/"offline" from last_seen_at freshness, not the raw stored gateway status text.
+      enum: [online, offline]
+    HerdGatewayNetworkMode:
+      type: string
+      enum: [wifi, ble, wifi_ble]
+    HerdGateway:
+      type: object
+      properties:
+        gateway_id: { type: string }
+        label: { type: string, nullable: true }
+        park_name: { type: string, nullable: true }
+        shed_name: { type: string, nullable: true }
+        network_mode: { allOf: [{ $ref: '#/components/schemas/HerdGatewayNetworkMode' }], nullable: true }
+        wifi_mac: { type: string, nullable: true }
+        ble_mac: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/HerdGatewayStatus' }
+        last_seen_at: { type: string, format: date-time, nullable: true }
+        tags_seen_recently: { type: integer }
+        weak_tags: { type: integer }
+        unmapped_tags: { type: integer }
+      required: [gateway_id, label, park_name, shed_name, network_mode, wifi_mac, ble_mac, status, last_seen_at, tags_seen_recently, weak_tags, unmapped_tags]
+    HerdGatewaysResponse:
+      type: object
+      properties:
+        gateways:
+          type: array
+          items: { $ref: '#/components/schemas/HerdGateway' }
+      required: [gateways]
+    HerdSignalType:
+      type: string
+      enum: [direct, derived, correlated, inferred]
+    HerdInsightCard:
+      type: object
+      description: Label/formula/caveat are backend-owned copy; render verbatim (AGENTS.md backend-owns-labels rule).
+      properties:
+        key: { type: string }
+        label: { type: string }
+        value:
+          nullable: true
+          oneOf:
+            - type: string
+            - type: number
+        unit: { type: string, nullable: true }
+        signal_type: { $ref: '#/components/schemas/HerdSignalType' }
+        formula: { type: string }
+        caveat: { type: string, nullable: true }
+      required: [key, label, value, unit, signal_type, formula, caveat]
+    HerdInsightsResponse:
+      type: object
+      properties:
+        cards:
+          type: array
+          items: { $ref: '#/components/schemas/HerdInsightCard' }
+      required: [cards]
+    HerdSignalsIngestPacket:
+      type: object
+      additionalProperties: false
+      properties:
+        tag_id: { type: string }
+        tag_mac: { type: string }
+        rssi_dbm: { type: integer, nullable: true }
+        battery_mv: { type: integer, nullable: true }
+        tag_temperature_c: { type: number, nullable: true }
+        motion_count: { type: integer, format: int64, nullable: true, description: Cumulative on the tag. }
+        sensor_state: { type: integer, nullable: true }
+        temperature_sensor_ok: { type: boolean, nullable: true }
+        accelerometer_sensor_ok: { type: boolean, nullable: true }
+        raw_adv: { type: string, nullable: true }
+        seen_at: { type: string, format: date-time }
+      required: [tag_id, tag_mac, seen_at]
+    HerdSignalsIngestRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        gateway_id: { type: string }
+        gateway_seen_at: { type: string, format: date-time }
+        packets:
+          type: array
+          items: { $ref: '#/components/schemas/HerdSignalsIngestPacket' }
+      required: [gateway_id, gateway_seen_at, packets]
+    HerdSignalsIngestResponse:
+      type: object
+      properties:
+        accepted: { type: integer }
+        stored: { type: integer }
+        latest_updated: { type: integer }
+        trace_id: { type: string }
+      required: [accepted, stored, latest_updated, trace_id]
     CeoConversationCreateRequest:
       type: object
       additionalProperties: false
