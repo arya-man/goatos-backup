@@ -3466,10 +3466,12 @@ select:disabled { opacity: .45; }
   display:block;
   min-width:0;
   margin:0;
+  font-family:-apple-system,system-ui,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
   font-weight:650;
   font-size:12.5px;
   line-height:1.45;
   text-align:right;
+  letter-spacing:0;
   overflow-wrap:anywhere;
 }
 .herd-signals-page aside.drawer .srcl{
@@ -3478,6 +3480,7 @@ select:disabled { opacity: .45; }
   padding:1px 5px;
   border-radius:4px;
   vertical-align:middle;
+  font-family:-apple-system,system-ui,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
 }
 .herd-signals-page aside.drawer .hs-drawer-note{
   margin:12px 0 0;
