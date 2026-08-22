@@ -2,7 +2,18 @@ package domain
 
 import (
 	"fmt"
+	"strings"
 	"time"
+)
+
+// patternWindowSeconds is the window PatternStateFromHistory's currentDelta is computed over
+// (the 15-minute movement-state window; see postgres.updateTagLatest). baselineBucketSeconds is
+// the tier the p75 baseline is computed from (the 300s/5-minute activity-window tier; see
+// postgres.GetBaselineDeltas). Kept here, next to the one place that compares them, so the two
+// numbers cannot drift apart silently the way the un-scaled comparison did (defect 3).
+const (
+	patternWindowSeconds  = 900
+	baselineBucketSeconds = 300
 )
 
 // MotionDelta computes the motion delta between current and previous motion count.
@@ -102,11 +113,18 @@ func PatternStateFromHistory(
 		return string(PatternMissingSignal)
 	}
 
-	// Compute baseline (p75) from 24h non-gap windows
+	// Compute baseline (p75) from 24h non-gap windows. The baseline is computed over the 300s
+	// (5-minute) activity-window tier -- see the postgres adapter's GetBaselineDeltas -- while
+	// currentDelta is a 900s (15-minute) window sum. Comparing a 15-minute value directly
+	// against a 5-minute baseline (maintainer correctness review, defect 3: "like grain to like
+	// grain") makes spike fire at ~0.83x the animal's normal rate, i.e. constantly. Scale the
+	// baseline up by the grain ratio (patternWindowSeconds / baselineBucketSeconds = 3) before
+	// applying the spike multiplier, so both sides of the comparison cover the same span.
 	baseline := Baseline75(recentWindows)
+	grainRatio := float64(patternWindowSeconds) / float64(baselineBucketSeconds)
 
-	// Check for spike (current far above baseline)
-	if baseline > 0 && float64(currentDelta) > float64(baseline)*thresholds.SpikeThresholdMultiplier {
+	// Check for spike (current far above baseline, at matching grain)
+	if baseline > 0 && float64(currentDelta) > float64(baseline)*grainRatio*thresholds.SpikeThresholdMultiplier {
 		return string(PatternSpike)
 	}
 
@@ -251,16 +269,40 @@ func BatteryLifeEstimate(batteryMV *int, thresholds Thresholds) string {
 	return fmt.Sprintf("~%d days (provisional)", days)
 }
 
-// countConsecutiveQuietWindows counts how long the tail of windows is "quiet" (delta < threshold).
-// Returns duration by summing bucket_seconds of consecutive quiet windows from the end.
+// countConsecutiveQuietWindows counts how long the tail of windows is "quiet" (delta < threshold)
+// AND CONTINUOUSLY RECEIVING PACKETS. Returns duration by summing bucket_seconds of consecutive
+// quiet windows from the end.
+//
+// windows is the SPARSE result of a SQL range query: a bucket with zero packets has no row at
+// all (there is nothing to upsert for it), it is not a row with IsGap=true. Walking the slice by
+// INDEX alone (as this function originally did) therefore cannot see a reception gap between two
+// stored buckets -- a tag that went quiet for 40 minutes then resumed reads as one unbroken
+// quiet run bridging the gap, even though "inactive" is explicitly defined as low movement WHILE
+// PACKETS STILL ARRIVE (maintainer correctness review, defect 7). This walks by TIME instead:
+// each step must be exactly one bucket_seconds earlier than the one after it, or the run breaks.
 func countConsecutiveQuietWindows(windows []ActivityWindow, quietThreshold int64) time.Duration {
 	var duration time.Duration
+	var expectedStart time.Time
 	for i := len(windows) - 1; i >= 0; i-- {
 		w := windows[i]
 		if w.IsGap || w.MotionDelta >= quietThreshold {
 			break // Stop at first non-quiet or gap
 		}
+		if i != len(windows)-1 && !w.BucketStart.Add(time.Duration(w.BucketSeconds)*time.Second).Equal(expectedStart) {
+			break // A reception gap sits between this bucket and the one after it: run ends here.
+		}
 		duration += time.Duration(w.BucketSeconds) * time.Second
+		expectedStart = w.BucketStart
 	}
 	return duration
+}
+
+// NormalizeTagIdentifier mirrors the canonical identifier normalizer
+// (backend/internal/identity/app/service.go: strings.ToUpper(strings.TrimSpace(...))) exactly.
+// BLE tag_id/tag_mac values must be compared against goat_identifiers.normalized_value using
+// this SAME transform, or a lowercase device MAC ("f0:c9:90:...", the capture's own convention)
+// silently never matches an uppercase-stored identifier and every tag reads unmapped
+// (maintainer scale/correctness review, defect 2).
+func NormalizeTagIdentifier(v string) string {
+	return strings.ToUpper(strings.TrimSpace(v))
 }

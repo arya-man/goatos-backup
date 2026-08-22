@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -204,6 +205,16 @@ func (h *Handler) GetTimeline(w http.ResponseWriter, r *http.Request) {
 	// Call service
 	resp, err := h.service.GetTimeline(ctx, actor, tagID, from, to, bucketSeconds)
 	if err != nil {
+		// Defect 7 fix: a caller-input validation failure (bad range, unsupported
+		// bucket_seconds, too many buckets) previously mapped to 500 like a real backend
+		// failure. domain.ErrValidation distinguishes the two.
+		if errors.Is(err, domain.ErrValidation) {
+			h.log.Warn("get_timeline_invalid_request", "tag_id", tagID, "error", err.Error())
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+				map[string]interface{}{"code": "invalid_request", "message": err.Error()},
+				err)
+			return
+		}
 		h.log.Error("get_timeline_failed", "tag_id", tagID, "error", err.Error())
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
 			map[string]interface{}{"code": "timeline_failed", "message": "failed to get timeline"},

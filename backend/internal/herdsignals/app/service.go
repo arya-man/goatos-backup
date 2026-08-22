@@ -140,16 +140,16 @@ func (s *Service) GetTimeline(ctx context.Context, actor domain.Actor, tagID, fr
 
 	fromTime, err := time.Parse(time.RFC3339, from)
 	if err != nil {
-		return domain.TimelineResponse{}, fmt.Errorf("invalid from timestamp: %w", err)
+		return domain.TimelineResponse{}, fmt.Errorf("invalid from timestamp: %v: %w", err, domain.ErrValidation)
 	}
 
 	toTime, err := time.Parse(time.RFC3339, to)
 	if err != nil {
-		return domain.TimelineResponse{}, fmt.Errorf("invalid to timestamp: %w", err)
+		return domain.TimelineResponse{}, fmt.Errorf("invalid to timestamp: %v: %w", err, domain.ErrValidation)
 	}
 
 	if toTime.Before(fromTime) {
-		return domain.TimelineResponse{}, fmt.Errorf("to must not be before from")
+		return domain.TimelineResponse{}, fmt.Errorf("to must not be before from: %w", domain.ErrValidation)
 	}
 
 	// Defect fix: the timeline used to hardcode bucket_seconds=60 regardless of range. Select
@@ -159,14 +159,14 @@ func (s *Service) GetTimeline(ctx context.Context, actor domain.Actor, tagID, fr
 	if bucketSeconds == 0 {
 		bucketSeconds = domain.SelectBucketTier(fromTime, toTime)
 	} else if !domain.IsSupportedBucketSeconds(bucketSeconds) {
-		return domain.TimelineResponse{}, fmt.Errorf("unsupported bucket_seconds %d: must be one of %v", bucketSeconds, domain.SupportedBucketSeconds)
+		return domain.TimelineResponse{}, fmt.Errorf("unsupported bucket_seconds %d: must be one of %v: %w", bucketSeconds, domain.SupportedBucketSeconds, domain.ErrValidation)
 	}
 
 	// Bound the bucket count regardless of range/tier combination (AGENTS.md scale
 	// anti-patterns: never serve an unbounded range).
 	requestedBuckets := int(toTime.Sub(fromTime)/(time.Duration(bucketSeconds)*time.Second)) + 1
 	if requestedBuckets > domain.MaxTimelineBuckets {
-		return domain.TimelineResponse{}, fmt.Errorf("requested range spans %d buckets at %ds resolution, exceeds max %d: narrow the range or request a coarser bucket_seconds", requestedBuckets, bucketSeconds, domain.MaxTimelineBuckets)
+		return domain.TimelineResponse{}, fmt.Errorf("requested range spans %d buckets at %ds resolution, exceeds max %d: narrow the range or request a coarser bucket_seconds: %w", requestedBuckets, bucketSeconds, domain.MaxTimelineBuckets, domain.ErrValidation)
 	}
 
 	windows, err := s.repo.ListActivityWindows(ctx, actor.TenantID, tagID, fromTime, toTime, bucketSeconds)
@@ -246,6 +246,12 @@ func (s *Service) ListGateways(ctx context.Context, actor domain.Actor) (domain.
 		locations = map[string]ports.ShedLocation{}
 	}
 
+	tagStats, err := s.repo.GetGatewayTagStats(ctx, actor.TenantID)
+	if err != nil {
+		s.log.Warn("failed to compute gateway tag stats", "error", err)
+		tagStats = map[string]ports.GatewayTagStats{}
+	}
+
 	items := make([]domain.GatewayItem, len(gws))
 	for i, gw := range gws {
 		label := gw.Label
@@ -290,9 +296,9 @@ func (s *Service) ListGateways(ctx context.Context, actor domain.Actor) (domain.
 			// that stopped heartbeating 2 hours ago is "offline" to an operator regardless of
 			// what its last-known stored status string was.
 			Status:           gatewayStatus(gw.LastSeenAt, s.thresholds),
-			TagsSeenRecently: 0, // TODO: not yet computed; requires a per-gateway tag_latest aggregate.
-			WeakTags:         0,
-			UnmappedTags:     0,
+			TagsSeenRecently: tagStats[gw.GatewayID].TagsSeenRecently,
+			WeakTags:         tagStats[gw.GatewayID].WeakTags,
+			UnmappedTags:     tagStats[gw.GatewayID].UnmappedTags,
 		}
 	}
 
@@ -365,9 +371,9 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 			Caveat: "Shed-grain only: this cannot attribute a single tag's motion to feeding.",
 		},
 		{
-			Key: "weight_activity", Label: "Weight activity", Value: fmt.Sprintf("%d", d.WeightActivityTagsCount), Unit: "animals",
-			SignalType: "correlated", Formula: "count(distinct animal_id) with a weighing_observations row in the last 24h AND a mapped live tag",
-			Caveat: "Correlation only; a weighing event does not imply the tag's motion reading around that time is weighing-related.",
+			Key: "weight_activity", Label: "Weight activity", Value: fmt.Sprintf("%d", d.WeightActivityTagsCount), Unit: "tags",
+			SignalType: "correlated", Formula: "count(distinct scanned_identifier) in weighing_observations in the last 24h matching a live tag's own id/MAC",
+			Caveat: "Correlation only, by raw scanned string -- weighing is free-flow and never resolves a scan to goat identity (AGENTS.md), and this card does not either.",
 		},
 		{
 			Key: "unmapped_smart_tags", Label: "Unmapped smart tags", Value: fmt.Sprintf("%d", d.UnmappedSmartTagsCount), Unit: "tags",
@@ -470,7 +476,7 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 			TagTemperatureC:       tag.TagTemperatureC,
 			MotionCount:           tag.MotionCount,
 			MotionDelta:           tag.MotionDelta,
-			MotionDelta1h:         tag.MotionDelta, // motion_window_seconds now reflects the 15m window used for movement_state; see TagLatest.MotionWindowSeconds
+			MotionDelta1h:         tag.MotionDelta1h, // real 1h (3600s-tier) delta -- defect 4 fix, was wrongly aliased to the 15m value
 			MotionWindowSeconds:   tag.MotionWindowSeconds,
 			MovementState:         nullableEnum(tag.MovementState),
 			PatternState:          nullableEnum(tag.PatternState),
@@ -489,11 +495,13 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 			item.TagMAC = *tag.TagMAC
 		}
 
+		// ResolveTagsBatch's result map is keyed by the NORMALIZED value (defect 2), so the
+		// lookup key must go through the same normalizer as the raw tag_id/tag_mac.
 		var goatID string
-		if id, ok := goatByValue[tag.TagID]; ok {
+		if id, ok := goatByValue[domain.NormalizeTagIdentifier(tag.TagID)]; ok {
 			goatID = id
 		} else if tag.TagMAC != nil {
-			if id, ok := goatByValue[*tag.TagMAC]; ok {
+			if id, ok := goatByValue[domain.NormalizeTagIdentifier(*tag.TagMAC)]; ok {
 				goatID = id
 			}
 		}
