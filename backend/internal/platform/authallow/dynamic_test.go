@@ -1,0 +1,65 @@
+package authallow
+
+import (
+	"context"
+	"testing"
+)
+
+type staticDynamic map[string]bool
+
+func (s staticDynamic) EmailAllowed(_ context.Context, email string) bool { return s[email] }
+
+func boolPtr(v bool) *bool { return &v }
+
+func TestAllowsWithDynamicUnionsEnvAndDB(t *testing.T) {
+	envSet, err := NewEmailSet([]string{"env@mesha.sg"})
+	if err != nil {
+		t.Fatalf("NewEmailSet: %v", err)
+	}
+	dynamic := staticDynamic{"db@mesha.sg": true}
+	ctx := context.Background()
+
+	if !AllowsWithDynamic(ctx, envSet, dynamic, "env@mesha.sg", boolPtr(true)) {
+		t.Fatalf("env email must pass")
+	}
+	if !AllowsWithDynamic(ctx, envSet, dynamic, "DB@mesha.sg", boolPtr(true)) {
+		t.Fatalf("DB-allowlisted email must pass (normalized)")
+	}
+	if AllowsWithDynamic(ctx, envSet, dynamic, "other@mesha.sg", boolPtr(true)) {
+		t.Fatalf("email in neither set must be refused")
+	}
+}
+
+func TestAllowsWithDynamicKeepsVerificationRequirement(t *testing.T) {
+	envSet, _ := NewEmailSet([]string{"env@mesha.sg"})
+	dynamic := staticDynamic{"db@mesha.sg": true}
+	ctx := context.Background()
+
+	if AllowsWithDynamic(ctx, envSet, dynamic, "db@mesha.sg", boolPtr(false)) {
+		t.Fatalf("unverified email must be refused even when DB-allowlisted")
+	}
+	if AllowsWithDynamic(ctx, envSet, dynamic, "db@mesha.sg", nil) {
+		t.Fatalf("unknown verification state must be refused")
+	}
+}
+
+// Enforcement stays keyed on the ENV set: an empty env allowlist means
+// "allowlist disabled" (local dev) — the dynamic source must not silently turn
+// enforcement on.
+func TestAllowsWithDynamicDisabledWhenEnvSetEmpty(t *testing.T) {
+	dynamic := staticDynamic{"db@mesha.sg": true}
+	if !AllowsWithDynamic(context.Background(), nil, dynamic, "anyone@example.com", nil) {
+		t.Fatalf("empty env set must keep allow-all semantics")
+	}
+}
+
+func TestAllowsWithDynamicNilSourceMatchesEnvOnly(t *testing.T) {
+	envSet, _ := NewEmailSet([]string{"env@mesha.sg"})
+	ctx := context.Background()
+	if !AllowsWithDynamic(ctx, envSet, nil, "env@mesha.sg", boolPtr(true)) {
+		t.Fatalf("env email must pass without a dynamic source")
+	}
+	if AllowsWithDynamic(ctx, envSet, nil, "db@mesha.sg", boolPtr(true)) {
+		t.Fatalf("non-env email must be refused without a dynamic source")
+	}
+}

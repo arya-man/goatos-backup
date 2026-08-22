@@ -18,6 +18,7 @@
 -- The partial unique index tolerates historical duplicates only by excluding
 -- NULLs; two ACTIVE-or-not rows may never share a login email inside a tenant,
 -- because the create-person flow resolves the Firebase account by email.
+-- seed-migration-guard:ignore owner=maintainer issue=people-hrms-rewrite reason=purely-additive-nullable-columns;-existing-seed-commands-insert-without-them-and-stay-valid expiry=2026-11-30
 ALTER TABLE public.workforce_members
   ADD COLUMN IF NOT EXISTS first_name text,
   ADD COLUMN IF NOT EXISTS last_name  text,
@@ -29,6 +30,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS workforce_members_tenant_email_uq
 
 -- +goose Down
 DROP INDEX IF EXISTS workforce_members_tenant_email_uq;
+-- seed-migration-guard:ignore owner=maintainer issue=people-hrms-rewrite reason=down-drops-the-same-additive-columns expiry=2026-11-30
 ALTER TABLE public.workforce_members
   DROP COLUMN IF EXISTS first_name,
   DROP COLUMN IF EXISTS last_name,

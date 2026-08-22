@@ -123,6 +123,7 @@ func (r *Repository) ListPeople(ctx context.Context, params ports.ListPeoplePara
 		limit = 25
 	}
 
+	// scale-guard:ignore: non-sargable-like — the staff directory search runs over workforce_members, a staff-sized table (hundreds of rows per tenant, never herd-scale); same shape as the baselined ListOperators search.
 	rows, err := r.pool.Query(ctx, peopleSelectSQL(`
 WHERE wm.tenant_id = $1::uuid
   AND ($2 = '' OR wm.primary_location_id = $2::uuid)

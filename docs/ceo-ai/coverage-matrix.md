@@ -485,6 +485,43 @@ table, read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool — the
 leadership assistant read surface is unchanged. No coverage-matrix mapping is
 required; this is an explicit documented exclusion.
 
+## Explicit exclusion: People/HRMS directory + in-app onboarding (2026-08-22)
+
+The People/HRMS rewrite (admin-web `/people`) adds the staff directory read
+`GET /admin/workforce/people` (`func:ListPeople`, `func:PeopleCatalog`,
+`func:NewPeopleHandler`, `func:RegisterPeople`) and the in-app onboarding write
+`POST /admin/workforce/people` (`func:CreatePerson`, `func:NewPeopleService`,
+`func:ConventionPassword`), the Firebase Identity Toolkit adapter
+(`func:EnsureEmailUser`, `func:New`, `func:WithBaseURL`, `func:WithHTTPClient`,
+`func:WithTokenSource`, `func:ProjectIDFromIssuer`), and the DB-backed auth
+email allowlist (`table:auth_allowed_emails`, `func:NewAllowedEmailSource`,
+`func:EmailAllowed`, `func:AllowsWithDynamic`,
+`func:WithDynamicAllowedEmails`).
+
+All of it is ADMIN/AUTH infrastructure, not a leadership business fact:
+
+- `auth_allowed_emails` and the allowlist source/union functions are login
+  admission plumbing (who may sign in), the DB twin of the
+  `GOATOS_AUTH_ALLOWED_EMAILS` env secret — the same category as the excluded
+  auth/session surfaces. Exposing the login allowlist to the assistant adds no
+  KPI and would leak account-admin detail.
+- The Identity Toolkit adapter creates Firebase accounts on the write path; it
+  reads no business data.
+- The directory read lists `workforce_members` rows (name, park, department,
+  designation, login email) — the same HRMS roster admin surface as the
+  already-excluded `/admin/roster/*` config reads, at member grain with login
+  emails attached, which is account administration rather than an operational
+  KPI. Leadership workforce answers (who executed/verified work, operator
+  capacity, coverage) stay on the existing covered vaccination/roster
+  execution surfaces. If leadership later asks a headcount-by-park/department
+  trend question, that becomes a real coverage row against an aggregate view —
+  not this login-bearing admin list.
+
+No new Cube metric, `ceo_ai.*` view, MCP Toolbox tool, or read-only SQL
+fallback surface.
+
+| workforce_people_directory | table:auth_allowed_emails, func:NewAllowedEmailSource, func:EmailAllowed, func:AllowsWithDynamic, func:WithDynamicAllowedEmails, func:ProjectIDFromIssuer, func:WithBaseURL, func:WithHTTPClient, func:WithTokenSource, func:New, func:EnsureEmailUser, func:NewPeopleHandler, func:RegisterPeople, func:ListPeople, func:CreatePerson, func:PeopleCatalog, func:NewPeopleService, func:ConventionPassword | Explicit exclusion: admin/auth onboarding infrastructure; leadership workforce answers stay on the existing covered execution/roster surfaces. |
+
 ## Explicit exclusion: weighing verification enqueue bridge (2026-07-30)
 
 The weighing verification bridge
