@@ -10846,6 +10846,16 @@ components:
         accelerometer_sensor_ok: { type: boolean, nullable: true }
         raw_adv: { type: string, nullable: true }
         seen_at: { type: string, format: date-time }
+        gateway_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            This PACKET's own gateway-clock timestamp, uncorrected (a real gateway has been
+            observed running a constant +02:30:00 ahead of IST -- a timezone misconfiguration).
+            Optional: falls back to the envelope's gateway_seen_at (relay time) when absent.
+            Diagnostic only -- never used for ordering or gap detection, which use seen_at
+            (server-relevant capture time) exclusively.
       required: [tag_id, tag_mac, seen_at]
     HerdSignalsIngestRequest:
       type: object
