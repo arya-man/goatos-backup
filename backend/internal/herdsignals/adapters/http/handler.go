@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -38,6 +39,8 @@ type AppService interface {
 	GetTimeline(ctx context.Context, actor domain.Actor, tagID, from, to string, bucketSeconds int) (domain.TimelineResponse, error)
 	ListGateways(ctx context.Context, actor domain.Actor) (domain.GatewaysResponse, error)
 	GetInsights(ctx context.Context, actor domain.Actor) (domain.InsightsResponse, error)
+	ExportCSV(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, q *string, w io.Writer) error
+	GetTagActivity(ctx context.Context, actor domain.Actor, tagID, from, to string) (domain.ActivityResponse, error)
 }
 
 // Handler handles HTTP requests for herd signals.
@@ -62,6 +65,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /herd-signals/tags/{tag_id}/timeline", h.GetTimeline)
 	mux.HandleFunc("GET /herd-signals/gateways", h.ListGateways)
 	mux.HandleFunc("GET /herd-signals/insights", h.GetInsights)
+	mux.HandleFunc("GET /herd-signals/export.csv", h.ExportCSV)
+	mux.HandleFunc("GET /herd-signals/tags/{tag_id}/activity", h.GetTagActivity)
 }
 
 // IngestPackets handles POST /herd-signals/packets.
