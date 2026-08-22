@@ -23,7 +23,7 @@ func actorID(r *http.Request) string {
 // AppService defines the interface the handler expects from the app service.
 type AppService interface {
 	IngestPackets(ctx context.Context, actor domain.Actor, req domain.IngestRequest) (domain.IngestResponse, error)
-	ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState *string, mapped *bool, cursor string, limit int) (domain.LiveResponse, error)
+	ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int) (domain.LiveResponse, error)
 	GetTimeline(ctx context.Context, actor domain.Actor, tagID, from, to string, bucketSeconds int) (domain.TimelineResponse, error)
 	ListGateways(ctx context.Context, actor domain.Actor) (domain.GatewaysResponse, error)
 	GetInsights(ctx context.Context, actor domain.Actor) (domain.InsightsResponse, error)
@@ -113,16 +113,12 @@ func (h *Handler) ListLive(w http.ResponseWriter, r *http.Request) {
 	parkID := r.URL.Query().Get("park_id")
 	shedID := r.URL.Query().Get("shed_id")
 	movementState := r.URL.Query().Get("movement_state")
-
-	mappedStr := r.URL.Query().Get("mapped")
-	var mapped *bool
-	if mappedStr != "" {
-		v := mappedStr == "true"
-		mapped = &v
-	}
+	mappingState := r.URL.Query().Get("mapping_state")
+	pattern := r.URL.Query().Get("pattern")
+	q := r.URL.Query().Get("q")
 
 	cursor := r.URL.Query().Get("cursor")
-	limit := 50 // default
+	limit := 25 // default per contract; max 200
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 200 {
 			limit = l
@@ -130,7 +126,7 @@ func (h *Handler) ListLive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Convert empty strings to nil pointers
-	var parkIDPtr, shedIDPtr, movementStatePtr *string
+	var parkIDPtr, shedIDPtr, movementStatePtr, mappingStatePtr, patternPtr, qPtr *string
 	if parkID != "" {
 		parkIDPtr = &parkID
 	}
@@ -140,9 +136,18 @@ func (h *Handler) ListLive(w http.ResponseWriter, r *http.Request) {
 	if movementState != "" {
 		movementStatePtr = &movementState
 	}
+	if mappingState != "" {
+		mappingStatePtr = &mappingState
+	}
+	if pattern != "" {
+		patternPtr = &pattern
+	}
+	if q != "" {
+		qPtr = &q
+	}
 
 	// Call service
-	resp, err := h.service.ListLive(ctx, actor, parkIDPtr, shedIDPtr, movementStatePtr, mapped, cursor, limit)
+	resp, err := h.service.ListLive(ctx, actor, parkIDPtr, shedIDPtr, movementStatePtr, mappingStatePtr, patternPtr, qPtr, cursor, limit)
 	if err != nil {
 		h.log.Error("list_live_failed", "error", err.Error())
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,

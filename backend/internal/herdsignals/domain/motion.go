@@ -30,7 +30,10 @@ func MovementStateFromDelta(delta int64, windowSeconds int, thresholds Threshold
 	case delta == 0:
 		return "not_moving"
 	default:
-		return "unknown"
+		// Unreachable in practice: domain.MotionDelta floors a counter reset at 0, so delta is
+		// never negative here. Falls back to not_moving rather than an "unknown" value the
+		// frontend contract (HerdSignalMovementState) does not declare.
+		return "not_moving"
 	}
 }
 

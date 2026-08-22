@@ -110,13 +110,13 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 }
 
 // ListLive fetches the current tag status with optional filters and pagination.
-func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState *string, mapped *bool, cursor string, limit int) (domain.LiveResponse, error) {
+func (s *Service) ListLive(ctx context.Context, actor domain.Actor, parkID, shedID, movementState, mappingState, pattern, q *string, cursor string, limit int) (domain.LiveResponse, error) {
 	if actor.TenantID == "" {
 		return domain.LiveResponse{}, fmt.Errorf("actor tenant_id required")
 	}
 
 	tags, summary, nextCursor, err := s.repo.ListTagsLatest(
-		ctx, actor.TenantID, parkID, shedID, movementState, mapped, cursor, limit,
+		ctx, actor.TenantID, parkID, shedID, movementState, mappingState, pattern, q, cursor, limit,
 	)
 	if err != nil {
 		s.log.Error("failed to list tags latest", "error", err)
@@ -214,7 +214,7 @@ func (s *Service) GetTimeline(ctx context.Context, actor domain.Actor, tagID, fr
 
 	return domain.TimelineResponse{
 		TagID:   tagID,
-		Windows: tlWindows,
+		Buckets: tlWindows,
 	}, nil
 }
 
@@ -273,19 +273,23 @@ func (s *Service) ListGateways(ctx context.Context, actor domain.Actor) (domain.
 		}
 
 		items[i] = domain.GatewayItem{
-			GatewayID:        gw.GatewayID,
-			Label:            &label,
-			ParkID:           parkID,
-			ParkName:         parkName,
-			ShedID:           gw.ShedID,
-			ShedName:         shedName,
-			PartitionLabel:   partitionLabel,
-			LocationDisplay:  &locDisplay,
-			NetworkMode:      &networkMode,
-			WifiMAC:          &wifiMAC,
-			BLEMAC:           &bleMAC,
-			LastSeenAt:       gw.LastSeenAt,
-			Status:           gw.Status,
+			GatewayID:       gw.GatewayID,
+			Label:           &label,
+			ParkID:          parkID,
+			ParkName:        parkName,
+			ShedID:          gw.ShedID,
+			ShedName:        shedName,
+			PartitionLabel:  partitionLabel,
+			LocationDisplay: &locDisplay,
+			NetworkMode:     &networkMode,
+			WifiMAC:         &wifiMAC,
+			BLEMAC:          &bleMAC,
+			LastSeenAt:      gw.LastSeenAt,
+			// Status is computed "online"/"offline" from last_seen_at freshness (contract type
+			// HerdGatewayStatus), not the raw stored active/inactive/error text -- a gateway
+			// that stopped heartbeating 2 hours ago is "offline" to an operator regardless of
+			// what its last-known stored status string was.
+			Status:           gatewayStatus(gw.LastSeenAt, s.thresholds),
 			TagsSeenRecently: 0, // TODO: not yet computed; requires a per-gateway tag_latest aggregate.
 			WeakTags:         0,
 			UnmappedTags:     0,
@@ -317,7 +321,7 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 		},
 		{
 			Key: "missing_signal", Label: "Missing signal", Value: fmt.Sprintf("%d", d.MissingSignalCount), Unit: "tags",
-			SignalType: "direct", Formula: "count(tag_latest) where pattern_state = missing_signal",
+			SignalType: "direct", Formula: "count(tag_latest) where pattern_state = missing",
 			Caveat: "No packet received for 30+ minutes. Distinct from inactive: inactive tags are still transmitting.",
 		},
 		{
@@ -347,7 +351,7 @@ func (s *Service) GetInsights(ctx context.Context, actor domain.Actor) (domain.I
 		},
 		{
 			Key: "post_vaccination_movement_watch", Label: "Post-vaccination movement watch", Value: fmt.Sprintf("%d", d.PostVaccinationWatchCount), Unit: "animals",
-			SignalType: "correlated", Formula: "count(distinct goat_id) with an accepted vaccination_completions row in the last 24h AND a mapped live tag currently in (quiet_watch, inactive, missing_signal)",
+			SignalType: "correlated", Formula: "count(distinct goat_id) with an accepted vaccination_completions row in the last 24h AND a mapped live tag currently in (quiet_watch, inactive, missing)",
 			Caveat: "Correlation only -- reduced movement after vaccination is not a diagnosis, and is expected for many animals.",
 		},
 		{
@@ -438,27 +442,47 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 		shedLocations = map[string]ports.ShedLocation{}
 	}
 
+	// baseline_delta: one windowed query for the whole page (defect fix -- it was always nil
+	// because the only alternative was a per-row 24h scan, which AGENTS.md's scale
+	// anti-patterns forbid).
+	tagIDs := make([]string, 0, len(tags))
 	for _, tag := range tags {
+		tagIDs = append(tagIDs, tag.TagID)
+	}
+	baselines, err := s.repo.GetBaselineDeltas(ctx, tenantID, tagIDs)
+	if err != nil {
+		s.log.Warn("failed to batch-fetch baseline deltas", "error", err)
+		baselines = map[string]int64{}
+	}
+
+	for _, tag := range tags {
+		batteryEstimate := domain.BatteryLifeEstimate(tag.BatteryMV, s.thresholds)
+
 		item := domain.LiveItem{
 			TagID:                 tag.TagID,
 			GatewayID:             tag.GatewayID,
 			LastSeenAt:            tag.LastSeenAt.Format(time.RFC3339),
 			RSSIdbm:               tag.LastRSSIdbm,
-			SignalState:           tag.SignalState,
+			SignalState:           nullableEnum(tag.SignalState),
 			BatteryMV:             tag.BatteryMV,
-			BatteryState:          tag.BatteryState,
-			BatteryLifeEstimate:   domain.BatteryLifeEstimate(tag.BatteryMV, s.thresholds),
+			BatteryState:          nullableEnum(tag.BatteryState),
+			BatteryLifeEstimate:   nullableEnum(batteryEstimate),
 			TagTemperatureC:       tag.TagTemperatureC,
 			MotionCount:           tag.MotionCount,
 			MotionDelta:           tag.MotionDelta,
 			MotionDelta1h:         tag.MotionDelta, // motion_window_seconds now reflects the 15m window used for movement_state; see TagLatest.MotionWindowSeconds
 			MotionWindowSeconds:   tag.MotionWindowSeconds,
-			MovementState:         tag.MovementState,
-			PatternState:          tag.PatternState,
-			SensorState:           nil,
+			MovementState:         nullableEnum(tag.MovementState),
+			PatternState:          nullableEnum(tag.PatternState),
+			SensorState:           sensorStateSummary(tag.TemperatureSensorOK, tag.AccelerometerSensorOK),
 			TemperatureSensorOK:   tag.TemperatureSensorOK,
 			AccelerometerSensorOK: tag.AccelerometerSensorOK,
 			MappingState:          tag.MappingState,
+		}
+
+		if baseline, ok := baselines[tag.TagID]; ok {
+			b := baseline
+			item.BaselineDelta = &b
 		}
 
 		if tag.TagMAC != nil {
@@ -510,4 +534,43 @@ func (s *Service) enrichTagsBatch(ctx context.Context, tenantID string, tags []d
 	}
 
 	return items
+}
+
+// nullableEnum converts a computed state string to a pointer, treating "" and the domain
+// "unknown"-equivalent sentinel as JSON null rather than a literal value the admin-web
+// contract's TS enum types (HerdSignalTone, HerdSignalBatteryState, HerdSignalMovementState,
+// HerdSignalPatternState, ...) do not declare.
+func nullableEnum(v string) *string {
+	if v == "" || v == "unknown" {
+		return nil
+	}
+	out := v
+	return &out
+}
+
+// sensorStateSummary computes the "ok"/"abnormal" summary the contract's sensor_state field
+// carries (HerdSignalSensorState) -- never the raw device sensor_state bitfield, which is
+// stored but not exposed on this endpoint. Unknown (both flags nil) reports nil, matching the
+// nullable contract field rather than guessing "ok".
+func sensorStateSummary(temperatureOK, accelerometerOK *bool) *string {
+	if temperatureOK == nil && accelerometerOK == nil {
+		return nil
+	}
+	ok := (temperatureOK == nil || *temperatureOK) && (accelerometerOK == nil || *accelerometerOK)
+	state := "abnormal"
+	if ok {
+		state = "ok"
+	}
+	return &state
+}
+
+// gatewayStatus computes the contract's "online"/"offline" status from last_seen_at freshness.
+func gatewayStatus(lastSeenAt *time.Time, thresholds domain.Thresholds) string {
+	if lastSeenAt == nil {
+		return "offline"
+	}
+	if time.Since(*lastSeenAt) > time.Duration(thresholds.StalePacketMinutes)*time.Minute {
+		return "offline"
+	}
+	return "online"
 }
