@@ -1723,11 +1723,20 @@ Purpose:
   the same `sop-library` table contract over `/admin/sops`, scoped by SOP code
   prefix; the full-page SOP builder lives at `<module page>?compose=1`. There is
   no `/sops` route, redirect, or nav leaf any more, and `/config` stays the
-  single generic authority screen. Any OTHER nested `*/sops` route still needs
-  its own recorded maintainer decision — the three routes are named in
+  single generic authority screen.
+  **SOP split EXTENSION (maintainer decision 2026-08-22): `/milk/sops` (Milk
+  SOP: preparation / feeding) and `/weighing/sops` (Weighing SOP: the
+  scan-and-submit session) join the same shape** — the same `sop-library`
+  contract over `/admin/sops`, scoped by the `milk.` and `weighing.` code
+  prefixes, with the library documents seeded by migration
+  `000186_sop_library_milk_and_weighing.sql` (`milk.preparation`,
+  `milk.feeding`, `weighing.session`; library documents only, never a second
+  execution engine — sop_tasks stay vaccination.drive-only per the 000175
+  precedent). Any OTHER nested `*/sops` route still needs
+  its own recorded maintainer decision — the five routes are named in
   `check-ia-guard.mjs` `MODULE_SURFACE_ROUTE_EXCEPTIONS`.
   The machine guard carries the same allowlist — the two Config entries plus
-  the three SOP-split routes — in `apps/admin-web/scripts/check-ia-guard.mjs`;
+  the five SOP-split routes — in `apps/admin-web/scripts/check-ia-guard.mjs`;
   widening it needs a new recorded maintainer decision here first.
 - Config / Protocol Rules is a generic Admin / Data Ops authority screen
   (`/config`) for CEO/COO/superadmin users. It is not owned by Preventive Care (PC) / Vaccination.
