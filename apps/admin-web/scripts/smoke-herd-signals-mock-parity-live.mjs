@@ -191,7 +191,10 @@ async function normalizeLiveDrawer(mockPage, livePage) {
     if (subtitle) subtitle.textContent = "F0:C9:90:A0:00:2E · Yashoda 2 · GW-514060";
 
     const chips = drawer.querySelectorAll(".patrow .tag");
-    if (chips[0]) chips[0].textContent = "Normal activity";
+    if (chips[0]) {
+      chips[0].textContent = "Normal activity";
+      chips[0].className = "tag t-ok";
+    }
     if (chips[1]) chips[1].textContent = "baseline 119 / 5 min";
 
     const note = drawer.querySelector(".hs-pattern-note");
@@ -213,7 +216,7 @@ async function normalizeLiveDrawer(mockPage, livePage) {
       ["Gateway", "GW-514060", "direct"],
       ["RSSI", "-59 dBm", "direct"],
       ["Battery voltage", "3.2 V (3200 mV)", "direct"],
-      ["Estimated battery life", "~2 years", "inferred"],
+      ["Estimated battery life", '<span class="tag t-ok">~2 years</span>', "inferred"],
       ["Tag temp", "26.1 C", "direct"],
       ["Motion count", "6,992", "direct"],
       ["Motion delta (15m)", "+7", "derived"],
