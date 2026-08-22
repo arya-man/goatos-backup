@@ -1,340 +1,212 @@
-# Herd Signals OCI Database Seed Runbook
+# Herd Signals OCI Dev Seed
 
-## Overview
+Seeds the OCI dev PostgreSQL database with a real HoneyComm BLE gateway capture
+so the Herd Signals feature can be exercised against live-shaped telemetry.
 
-This runbook explains how to seed the Herd Signals OCI PostgreSQL development database with realistic BLE gateway data, packet captures, and tag-to-animal mappings for local feature testing.
+> This runbook lives under `docs/runbooks/` and matches `*seed*` deliberately:
+> `tools/agent-hooks/check-seed-migration-coupling.mjs` only credits a seed
+> companion at `docs/runbooks/*seed*`, `backend/cmd/seed-*`, a seed/projection
+> test, or `tools/dev/seed-closeout.sh`. A runbook parked anywhere else is
+> invisible to the guard, which is why `make guardrails` went red when this file
+> sat at `docs/HERD_SIGNALS_OCI_SEED_RUNBOOK.md`.
 
-The seed data includes:
-- Real HoneyComm BLE gateway registration (MAC `f130d402dcb4` at IP `192.168.0.9`)
-- 12,000+ live BLE advertisement packets captured from 20 unique ear tags
-- Derived motion snapshots and activity windows (60-second buckets per tag)
-- 19 tags mapped to live animals in the Castro shed
-- 1 unmapped tag (A0003B) for testing unmapped-state UI flows
+## The rule this seed obeys
 
-All data is marked as test data with `source_system='herd-signals-oci-seed'` and can be safely re-seeded without corrupting staging data.
+**SQL loads facts. Go replays them. Nothing hand-derives read-model state.**
+
+| Table | Kind | Written by |
+|---|---|---|
+| `herd_signal_gateways` | external fact | stage 1 (SQL) |
+| `herd_signal_packets` | external fact | stage 1 (SQL) |
+| `goat_identifiers` (BLE tags) | external fact | stage 1 (SQL) |
+| `herd_signal_tag_latest` | **derived** | stage 2 (real ingest service) |
+| `herd_signal_activity_windows` | **derived** | stage 2 (real ingest service) |
+
+The seed used to `INSERT` into the bottom two directly, re-deriving movement and
+pattern state in SQL. That is a seeded stand-in for derived state, which
+`AGENTS.md` forbids, and it drifted exactly as predicted: it invented a
+`stationary` movement state that is not in the vocabulary at all, and it labelled
+readings that were twelve hours old `not_moving` where the rule says `stale`. A
+seed that computes the answer itself will always agree with itself and never with
+the shipped classifier.
+
+If you add a column to `herd_signal_tag_latest` or `herd_signal_activity_windows`,
+the fix belongs in the ingest service, not here.
 
 ## Prerequisites
 
-1. **SSH Tunnel to OCI Database**
-
-   The seed script connects via an SSH tunnel to the OCI PostgreSQL VM. Start the tunnel first:
+1. **SSH tunnel to the OCI VM** (the seed refuses to run without it):
 
    ```bash
    /Users/ravi/mesha/tools/local/oci-goatos-a1-dev.sh tunnel
    ```
 
-   This opens a persistent forwarded connection on `127.0.0.1:15432`.
+   This listens on `127.0.0.1:15432`.
 
-2. **OCI Database Environment**
+2. **Credentials.** Either export `DATABASE_URL` yourself, or leave it unset and
+   let the wrapper source the local env file:
 
-   Ensure the OCI env file is available (it should be):
    ```bash
-   cat /Users/ravi/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env
+   source /Users/ravi/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env
    ```
 
-3. **Worktree Location**
+   That file is machine-local and `chmod 600`. Never copy it into the repo.
 
-   This runbook assumes the herd-signals worktree is at:
+3. **Migrations 000190, 000191 and 000192 applied.** 000192 creates
+   `herd_signal_packets_dedup_uidx`; without it the seed's `ON CONFLICT DO
+   NOTHING` has no unique index to conflict against and a re-run silently doubles
+   the packet table. Check:
+
+   ```bash
+   psql "$DATABASE_URL" -qAt -c \
+     "SELECT indexname FROM pg_indexes WHERE tablename='herd_signal_packets'"
    ```
-   /Users/ravi/goatos-work/herd-signals
-   ```
 
-## Running the Seed Script
+   `herd_signal_packets_dedup_uidx` must be present.
 
-### Option 1: Shell Wrapper (Recommended)
+4. **The capture CSV** at
+   `/Users/ravi/mesha/local-data/honeycomm-gateway-capture/decoded_ear_tags.csv`.
+   The gateway is still appending to this file. See "Freezing the capture" below.
 
-The shell wrapper handles environment setup, prerequisite checks, and connection verification:
+## Running it
 
 ```bash
 cd /Users/ravi/goatos-work/herd-signals
 bash tools/local/seed-herd-signals-oci.sh
 ```
 
-Expected output:
+Flags:
+
+| Flag | Effect |
+|---|---|
+| `--csv PATH` | use a specific capture file (use a frozen copy for anything reproducible) |
+| `--facts-only` | stage 1 only — load gateway/packets/identifiers, compute nothing |
+| `--replay-only` | stage 2 only — recompute the derived read models from the capture |
+
+### Stage 1 — external facts (`tools/local/seed-herd-signals-oci.sql`)
+
+Loads the gateway, the captured packets, and 19 tag-to-animal `goat_identifiers`
+rows. Tag `A0003B` is deliberately left unmapped so the unmapped-tag path stays
+exercised.
+
+### Stage 2 — derived read models (`backend/cmd/seed-herd-signals-oci`)
+
+Replays the same capture through `app.Service.IngestPackets`, so
+`herd_signal_tag_latest` and `herd_signal_activity_windows` are produced by the
+shipped classifier and the shipped bucketing — the same code the live gateway
+endpoint runs.
+
+## The refuse-to-run guard
+
+`tools/local` seeds must never touch production or the shared local `:5433`
+stack. The wrapper honours an explicitly exported `DATABASE_URL` (it does *not*
+overwrite it from the env file — a guard that can never fire is not a guard) and
+then refuses anything that is not the OCI tunnel:
+
 ```
-[INFO] Checking prerequisites...
-[INFO] SSH tunnel is active on 127.0.0.1:15432
-[INFO] Database connection verified
-[INFO] Running seed script...
-[INFO] Loading BLE gateway data from: /Users/ravi/mesha/local-data/honeycomm-gateway-capture/
-...
-Step 1: Inserting HoneyComm gateway f130d402dcb4 at 192.168.0.9
-...
-[INFO] Seed script completed successfully
+$ DATABASE_URL='postgres://postgres:x@127.0.0.1:5433/goatos' \
+    bash tools/local/seed-herd-signals-oci.sh
+[seed-herd-signals-oci] target host=127.0.0.1 port=5433 db=goatos
+[seed-herd-signals-oci] ERROR: REFUSING TO RUN: port '5433' is not the OCI tunnel
+port (15432). Port 5433 is the shared local stack and 5432 is a direct/production
+socket; this seed targets the OCI dev database only.
 ```
 
-### Option 2: Direct SQL Execution
+Non-loopback hosts and any database other than `goatos` are refused the same way.
+A second, server-side guard inside the SQL re-checks `current_database()` and
+`inet_client_addr()`.
 
-If you prefer to run the SQL directly:
+## Freezing the capture (required for any reproducible run)
+
+The gateway appends to `decoded_ear_tags.csv` continuously, so row counts move
+between runs (11,144 → 13,134 → 13,276 → 14,460 were all observed within one
+afternoon). Anything that compares two runs must use a frozen copy — on a
+persistent path, never `/tmp`, which macOS purges:
 
 ```bash
-source /Users/ravi/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env
-psql "$DATABASE_URL" -f tools/local/seed-herd-signals-oci.sql
+mkdir -p /Users/ravi/goatos-work/herd-signals-proof
+cp /Users/ravi/mesha/local-data/honeycomm-gateway-capture/decoded_ear_tags.csv \
+   /Users/ravi/goatos-work/herd-signals-proof/decoded_ear_tags.frozen.csv
+
+bash tools/local/seed-herd-signals-oci.sh --facts-only \
+  --csv /Users/ravi/goatos-work/herd-signals-proof/decoded_ear_tags.frozen.csv
 ```
 
-## What the Seed Script Does
+Run it twice; the counts below must be identical both times.
 
-### Step 1: Safety Checks
-
-The script validates:
-- Database name is `goatos` (not production)
-- Connection is from trusted network (localhost or Tailscale 10.88.0.0/16)
-
-If checks fail, the script stops with an error.
-
-### Step 2: Gateway Registration
-
-Inserts a single HoneyComm BLE reader:
-- **Gateway ID**: `honeycomm-gateway-001`
-- **BLE MAC**: `f130d402dcb4`
-- **Location IP**: `192.168.0.9`
-- **Status**: `active`
-
-### Step 3: Packet Data Load
-
-Loads 12,000+ real BLE advertisement packets from CSV:
-- **Source**: `/Users/ravi/mesha/local-data/honeycomm-gateway-capture/decoded_ear_tags.csv`
-- **Rows loaded**: 12,203 packets (actual count may vary due to CSV parsing)
-- **Fields captured**:
-  - Tag ID (e.g., `A0002A`) and MAC address
-  - Signal strength (RSSI in dBm)
-  - Battery voltage (converted to mV)
-  - Tag temperature reading (numeric, not goat temperature)
-  - Motion count (cumulative counter on the tag)
-  - Sensor status flags
-  - Packet timestamp
-
-### Step 4: Tag Latest Snapshots
-
-Derives per-tag snapshot from the latest packet:
-- One row per unique tag (20 total)
-- Fields: latest RSSI, battery state, motion count, temperature, signal quality
-- `mapping_state` initialized to `unmapped` (updated in Step 7)
-- `movement_state` initialized to `stationary`
-
-### Step 5: Activity Windows
-
-Creates 60-second time buckets per tag:
-- Groups packets by tag and minute/bucket
-- Computes: motion delta, packet count, avg/min/max RSSI, first/last seen times
-- 200 total windows (20 tags × ~10 buckets each)
-
-### Step 6: Tag-to-Animal Mapping
-
-Maps 19 tags to live goats in the Castro shed:
-- **Shed**: Castro (ID `62241795-628e-58ef-9591-aa384fb0f0f7`)
-- **Mapped tags**: All except A0003B (19 total)
-- **Mapping mechanism**:
-  - Creates `goat_identifiers` rows with:
-    - `identifier_type = 'animal_identifier_1'`
-    - `normalized_value = lower(tag_id)` (e.g., `a0002a`)
-    - `smart_tag_capable = true`
-    - `status = 'active'`
-  - Goat identifiers are paired with animals by creation order
-
-- **Unmapped Tag**: A0003B (intentionally excluded)
-  - Remains in `herd_signal_tag_latest` with `mapping_state='unmapped'`
-  - No corresponding `goat_identifiers` row
-  - Exercises "unmapped tag detected" UI state
-
-### Step 7: Verification Queries
-
-The script runs 9 verification checks:
-1. Total packet count loaded
-2. Distinct tags in packet table
-3. Gateway registration details
-4. Sample tag latest snapshots
-5. Activity window bucket count and distribution
-6. Mapped tags with goat associations
-7. The unmapped tag (A0003B)
-8. Tag-to-goat lookup resolution (both mapped and unmapped)
-
-## Verifying the Seed
-
-After running the script, verify the data is present:
-
-### Count packets
-```sql
-SELECT COUNT(*) FROM herd_signal_packets WHERE tenant_id = '00000000-0000-4000-8000-000000000001';
--- Expected: ~12,203
-```
-
-### List all tags
-```sql
-SELECT DISTINCT tag_id FROM herd_signal_tag_latest WHERE tenant_id = '00000000-0000-4000-8000-000000000001' ORDER BY tag_id;
--- Expected: 20 tags (A0002A through A00041, excluding A00032, A00037, A00039)
-```
-
-### Verify mapping state
-```sql
-SELECT mapping_state, COUNT(*) as count
-FROM herd_signal_tag_latest
-WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
-GROUP BY mapping_state;
--- Expected:
---   mapped    | 19
---   unmapped  | 1
-```
-
-### Tag-to-goat resolution query
-This query mimics the backend mapping lookup:
-
-```sql
-SELECT
-  tl.tag_id,
-  tl.tag_mac,
-  COALESCE(gi.goat_id::text, 'UNMAPPED') as goat_id,
-  COALESCE(g.display_id, 'N/A') as goat_tag,
-  tl.mapping_state
-FROM herd_signal_tag_latest tl
-  LEFT JOIN goat_identifiers gi ON (
-    tl.tenant_id = gi.tenant_id
-    AND lower(tl.tag_id) = lower(gi.normalized_value)
-    AND gi.status = 'active'
-    AND gi.smart_tag_capable = true
-  )
-  LEFT JOIN goats g ON gi.goat_id = g.goat_id
-WHERE tl.tenant_id = '00000000-0000-4000-8000-000000000001'
-ORDER BY tl.tag_id;
-```
-
-Expected output shows:
-- 19 rows with goat IDs (e.g., G-003492, G-003500, etc.)
-- 1 row (A0003B) with `UNMAPPED` as goat_id
-
-## Re-running the Seed
-
-The seed script is **idempotent**: it can be safely re-run multiple times.
-
-- Packet data uses `INSERT ... ON CONFLICT DO NOTHING` to avoid duplicates
-- Gateway and tag_latest use `ON CONFLICT ... DO UPDATE` to refresh snapshot
-- Activity windows use `ON CONFLICT DO NOTHING` (immutable historical buckets)
-- Tag-to-animal mappings use `ON CONFLICT DO NOTHING` on normalized value
-
-To refresh the seed (clear and reload):
+## Verifying
 
 ```bash
-source /Users/ravi/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env
-psql "$DATABASE_URL" << 'EOF'
-DELETE FROM herd_signal_activity_windows WHERE tenant_id = '00000000-0000-4000-8000-000000000001';
-DELETE FROM herd_signal_tag_latest WHERE tenant_id = '00000000-0000-4000-8000-000000000001';
-DELETE FROM herd_signal_packets WHERE tenant_id = '00000000-0000-4000-8000-000000000001';
-DELETE FROM herd_signal_gateways WHERE tenant_id = '00000000-0000-4000-8000-000000000001';
-DELETE FROM goat_identifiers
-  WHERE tenant_id = '00000000-0000-4000-8000-000000000001'
-    AND source_system = 'herd-signals-oci-seed';
-EOF
-
-bash tools/local/seed-herd-signals-oci.sh
+psql "$DATABASE_URL" -c "
+SELECT 'packets' AS fact, count(*)::text AS n FROM herd_signal_packets
+UNION ALL SELECT 'distinct_tags',    count(DISTINCT tag_id)::text FROM herd_signal_packets
+UNION ALL SELECT 'gateways',         count(*)::text FROM herd_signal_gateways
+UNION ALL SELECT 'seed_identifiers', count(*)::text FROM goat_identifiers
+         WHERE source_system = 'herd-signals-oci-seed'
+UNION ALL SELECT 'packets_in_future', count(*)::text FROM herd_signal_packets
+         WHERE received_at > now()
+ORDER BY 1;"
 ```
 
-## Shed and Animal Details
+`packets_in_future` must be `0`. A non-zero value means the capture was loaded
+with the wrong timezone anchor — see below.
 
-### Castro Shed
+## Timezone contract
 
-- **Location ID**: `62241795-628e-58ef-9591-aa384fb0f0f7`
-- **Active goats**: 63
-- **Mapped goats (this seed)**: 19 (first 19 by creation date)
+Do not "simplify" the offsets in the packets INSERT.
 
-**Why Castro?** A single representative shed with adequate active animals for testing. All tags are mapped to the same shed to exercise single-location UI flows without cross-shed complexity.
+- `received_at` in the CSV is **Asia/Kolkata wall clock**, so it is anchored
+  `'+05:30'`. Anchoring it `'+00'` — as an earlier version of this seed did —
+  moves every packet 5h30m into the future and makes every staleness and
+  movement classification wrong.
+- `packet_time` is the **same instant** on the gateway's own misconfigured clock,
+  which runs at UTC+08:00, so it is anchored `'+08:00'`. Verified on the capture:
+  `2026-08-22T15:52:08+05:30` == `2026-08-22 18:22:08.183+08:00` ==
+  `2026-08-22T10:22:08Z`.
 
-### Mapped Animals (Sample)
+## Rebuild registration (seed closeout)
 
-| Tag ID | Goat Display ID | Goat UUID |
-|--------|-----------------|-----------|
-| A0002A | G-003492 | 18d80581-... |
-| A0002B | G-003500 | 4f7987cc-... |
-| A0003B | (UNMAPPED) | N/A |
-| ... | ... | ... |
+`herd_signal_tag_latest` and `herd_signal_activity_windows` are projection tables,
+so per `docs/decisions/operational-kernel-5k-50k-scale-envelope.md` they must be
+rebuildable from canonical data through the closeout, not only creatable by a
+one-off script. `tools/dev/seed-closeout.sh` registers that rebuild:
 
-Full list available in seed script verification output (query #7).
+```bash
+GOATOS_HERD_SIGNALS_CAPTURE_CSV=/path/to/decoded_ear_tags.csv \
+  tools/dev/seed-closeout.sh --dry-run
+```
 
-## Data Location and Refresh
+The rebuild runs the stage-2 replayer, never hand-written SQL. It is skipped when
+the capture is not present on the machine (Herd Signals is a local-capture dev
+feature today), and that skip is printed, not silent.
 
-### Source Data
-
-- **CSV packets**: `/Users/ravi/mesha/local-data/honeycomm-gateway-capture/decoded_ear_tags.csv` (11,144 rows)
-- **Raw NDJSON**: `/Users/ravi/mesha/local-data/honeycomm-gateway-capture/raw_scan_reports.ndjson`
-- **Capture date**: August 22, 2026, ~3 minutes of real gateway reception
-
-These files are snapshots of live HoneyComm gateway captures and can be refreshed with new capture sessions if needed.
-
-### Database Location
-
-- **Host**: OCI Compute VM (Oracle A1 Flex)
-- **Instance**: `goatos-remote-dev-a1-4x24`
-- **Public IP**: `137.23.51.115` (SSH tunnel via Tailscale)
-- **Local tunnel**: `127.0.0.1:15432`
-- **Database**: `goatos`
-- **Migrations applied**: 000190 (smart_tag_capable column) + 000191 (herd_signal_* tables)
+Partitioning and retention for these two tables are recorded in the Herd Signals
+system-design document alongside the rest of the scale envelope; this runbook
+covers the rebuild path only and does not restate the retention decision.
 
 ## Troubleshooting
 
-### "SAFETY: Suspected non-OCI connection"
+**`REFUSING TO RUN: ...`** — working as designed. Point `DATABASE_URL` at
+`127.0.0.1:15432/goatos`, or unset it and let the wrapper source the env file.
 
-The database connection is from an unexpected IP. Allowed sources:
-- `127.0.0.%` (localhost)
-- `10.88.0.%` (Tailscale)
+**`SSH tunnel is not listening`** — run
+`/Users/ravi/mesha/tools/local/oci-goatos-a1-dev.sh tunnel`.
 
-If connecting from elsewhere, either:
-1. Use the SSH tunnel: `/Users/ravi/mesha/tools/local/oci-goatos-a1-dev.sh tunnel`
-2. Or update the safety check in `tools/local/seed-herd-signals-oci.sql` if your network changes
+**`SAFETY: suspected non-OCI connection from ...`** — the server saw a client
+address that is neither loopback nor Tailscale `10.88/16`. You are not on the
+tunnel.
 
-### "SSH tunnel to OCI database is not running"
+**Packet count doubles on re-run** — `herd_signal_packets_dedup_uidx` is missing.
+Apply migration 000192.
 
-Start the tunnel:
-```bash
-/Users/ravi/mesha/tools/local/oci-goatos-a1-dev.sh tunnel
-```
+**`movement_state` is `unknown` everywhere** — stage 2 has not run. Run
+`bash tools/local/seed-herd-signals-oci.sh --replay-only`.
 
-Keep it running in a separate terminal while seeding.
+## Related
 
-### "Cannot connect to database"
-
-Verify:
-1. Tunnel is running
-2. PostgreSQL is up on the VM: `ssh opc@137.23.51.115 'docker ps | grep postgres'`
-3. Network connectivity: `nc -z 127.0.0.1 15432`
-
-### "CSV file not found"
-
-Ensure you're running the script from the worktree root, or update paths in `seed-herd-signals-oci.sql` to absolute paths.
-
-### "Column does not exist" / schema mismatch
-
-Verify the OCI database has migrations 000190 and 000191 applied:
-
-```bash
-source /Users/ravi/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env
-psql "$DATABASE_URL" -c "
-  SELECT table_name FROM information_schema.tables
-  WHERE table_schema='public' AND table_name LIKE 'herd_signal%'
-  ORDER BY table_name;
-"
-```
-
-Expected output (4 tables):
-- herd_signal_activity_windows
-- herd_signal_gateways
-- herd_signal_packets
-- herd_signal_tag_latest
-
-If missing, apply migrations manually or from the goatos repo:
-```bash
-cd /Users/ravi/goatos-work/herd-signals
-# (build and run migrate tool with DATABASE_URL set)
-```
-
-## Notes
-
-- **BLE telemetry only**: Sensor readings are from the ear tag hardware, not goat vital signs. Tag temperature is the tag's internal temperature, not body temperature.
-- **Bench unit data**: The 20 tags were captured while powered up on a workbench, not attached to live animals. The seed assigns them to animals for testing purposes only.
-- **Immutable packets**: Once a packet is loaded, it is never updated or deleted. Activity windows are derived from packets and also immutable per bucket.
-- **Snapshot updates**: Tag latest snapshots ARE updated on re-runs to reflect current packet data (via `ON CONFLICT ... DO UPDATE`).
-- **Test-data marker**: All seed rows have `source_system='herd-signals-oci-seed'` for easy identification and cleanup.
-
-## Related Documentation
-
-- Backend API design: `backend/internal/herdsignals/`
-- Frontend UI implementation: `apps/admin-web/src/features/herd-signals/`
-- Migration schemas: `backend/migrations/postgres/000190_*.sql`, `backend/migrations/postgres/000191_*.sql`
+- `tools/local/seed-herd-signals-oci.sql` — stage 1, external facts
+- `backend/cmd/seed-herd-signals-oci/main.go` — stage 2, real ingest replay
+- `tools/dev/seed-closeout.sh` — projection rebuild registration
+- `backend/migrations/postgres/000190..000192` — schema
+- `docs/decisions/operational-kernel-5k-50k-scale-envelope.md` — projection obligations
+- `docs/runbooks/initial-seed-migration-coupling.md` — why the guard exists
