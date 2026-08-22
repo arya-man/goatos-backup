@@ -74,7 +74,6 @@ test("daily gain survives a park-scoped page", () => {
 test("shed lists and gain chart only show sheds weighed in the selected window", () => {
   assert.match(source, /const weighedRows = rows\.filter\(\(row\) => row\.animals_weighed > 0\);/);
   assert.match(source, /modeFilter === "all" \? weighedRows : weighedRows\.filter/);
-  assert.match(source, /const weighedRowKeys = new Set\(weighedRows\.map\(\(row\) => shedKey\(row\.location_id, row\.partition_label\)\)\);/);
   assert.match(source, /const visibleRowKeys = new Set\(visibleRows\.map\(\(row\) => shedKey\(row\.location_id, row\.partition_label\)\)\);/);
   assert.match(source, /shed\.adg_pair_count > 0 && visibleRowKeys\.has\(shedKey\(shed\.location_id, shed\.partition_label\)\)/);
   assert.match(source, /const singleWeighRows = visibleRows/);

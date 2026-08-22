@@ -12,7 +12,7 @@ test("module SOP pages author into their own slice", () => {
   assert.match(modulePageSource, /<SopBuilder[^>]+domain=\{slice\}/);
   assert.match(builderSource, /domain: SopSliceDomain;/);
   assert.doesNotMatch(builderSource, /const domain: SopSliceDomain = "vaccination"/);
-  assert.match(deriveSource, /export type SopSliceDomain = "vaccination" \| "counts" \| "feed";/);
+  assert.match(deriveSource, /export type SopSliceDomain = "vaccination" \| "counts" \| "feed" \| "milk" \| "weighing";/);
   assert.match(deriveSource, /const prefix = input\.domain;/);
   assert.match(actionsSource, /SOP_SLICE_LABEL\[input\.domain\]/);
 });
