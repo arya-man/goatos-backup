@@ -13,7 +13,7 @@ import {
 import { listLocations, type ApiResult } from "@/lib/api/server";
 import { HerdSignalsPoller } from "./herd-signals-poller";
 import { HerdSignalsNavProvider } from "./herd-signals-nav-context";
-import { HerdSignalsKpis, HerdSignalsKpiChip } from "./herd-signals-kpis";
+import { HerdSignalsKpis } from "./herd-signals-kpis";
 import { HerdSignalsFilters, type ParkOption, type ShedOption } from "./herd-signals-filters";
 import { HerdSignalsTable } from "./herd-signals-table";
 import { HerdSignalsMappingTable } from "./herd-signals-mapping-table";
@@ -318,7 +318,6 @@ function LiveMonitorTab({
           <h3>Live tag signals</h3>
           <span className="tag t-mut">{summary.tags_seen} tags</span>
           <div className="sp" style={{ flex: 1 }} />
-          <HerdSignalsKpiChip params={params} />
           <span className="small faint">Click a row for tag detail</span>
         </div>
         <div className="bd flush">
