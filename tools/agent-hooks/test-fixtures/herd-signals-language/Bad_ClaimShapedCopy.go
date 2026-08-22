@@ -10,7 +10,7 @@ type AnimalStatus struct {
 	// A field name that directly encodes a banned behavior claim.
 	IsEating bool `json:"is_eating"`
 
-	// A mislabeled temperature field: the tag has no animal-contact sensor.
+	// A mislabeled temperature field; the correct name is tag temperature.
 	BodyTemperature float64 `json:"body_temperature_c"`
 }
 

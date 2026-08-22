@@ -152,6 +152,52 @@ const BODY_TEMP_RE = /\bbody[\s_-]?temp(?:erature)?\b/i;
 const NEGATION_RE =
   /\b(?:not|never|no|cannot|can't|does not|doesn't|isn't|is not|without)\b/i;
 
+// How many lines of context to fold into the "denial window" around a
+// candidate line, before whitespace-normalizing and joining into one string.
+// JSX/HTML text nodes and hand-wrapped prose commonly break a single
+// sentence across lines ("... own sensor housing — not the\n  animal's body
+// temperature."); a denial must be recognized as ONE sentence, not judged
+// line-by-line, or the guard fails the exact disclaimer copy it exists to
+// protect. Backward-weighted because the reported real-world shape (and the
+// product's own required disclaimer, docs/modules/herd-signals.md Section 3)
+// puts the negation before the term far more often than after it, but a
+// couple of forward lines are kept too for wrapped claims that lead with the
+// term and trail with the negation. A negation or term further away than
+// these bounds is a documented blind spot (see header comment).
+const WINDOW_BEFORE = 3;
+const WINDOW_AFTER = 2;
+
+// Strip a line's leading comment/JSX-text noise so joined window text reads
+// as plain prose instead of "// foo /* bar" — improves negation/term
+// adjacency matching across the joined span without changing which words are
+// present.
+function stripLineNoise(line) {
+  return line.replace(/^\s*(?:\{\/\*|\/\*|\*\/|\/\/|\*)\s?/, "").trim();
+}
+
+// Whitespace-normalized join of lines[i-before..i+after] (clamped to the
+// file's bounds) into one string, so a multi-line sentence can be tested for
+// negation/claim shape as a single unit. This is the fix for the reported
+// false positive: a denial split across lines is still one sentence.
+function buildWindow(lines, i, before, after) {
+  const start = Math.max(0, i - before);
+  const end = Math.min(lines.length - 1, i + after);
+  const parts = [];
+  for (let k = start; k <= end; k++) parts.push(stripLineNoise(lines[k]));
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+// Does a negation word precede the given term's first occurrence anywhere in
+// `text` (a single line OR a joined window)? Shared by the banned-claim and
+// body-temp-mislabel checks so both use identical denial-scope logic.
+function negationPrecedesTerm(text, term) {
+  if (!NEGATION_RE.test(text)) return false;
+  const lower = text.toLowerCase();
+  const negIdx = lower.search(NEGATION_RE);
+  const termIdx = lower.indexOf(term.toLowerCase());
+  return negIdx !== -1 && termIdx !== -1 && negIdx < termIdx;
+}
+
 // A line that is a banned-terms list / vocabulary enumeration (comma or
 // pipe separated list of the banned words themselves), rather than prose
 // making a claim. Conservative: only matches an actual list literal.
@@ -159,29 +205,29 @@ const VOCAB_LIST_RE =
   /BANNED_TERMS|banned[\s_-]?terms?|forbidden[\s_-]?terms?|\[\s*["'`][a-z]+["'`]\s*,/i;
 
 // CLAIM-SHAPED constructions: the banned term appearing as an assertion,
-// not a denial. Matches:
+// not a denial. `text` is a DENIAL WINDOW (see buildWindow) for the
+// banned-claim check, not necessarily a single raw line -- a multi-line
+// denial sentence is joined into one string before this function ever sees
+// it, so the negation-scope logic below works the same whether the negation
+// and the term were on the same physical line or several lines apart within
+// the window. Matches:
 //   - "<subject> detect(s|ed) <term>" / "<term> detect(ed|ion)"
 //   - "is/was <term>ing" (e.g. "animal is eating")
 //   - a quoted UI-string literal containing the term as a headline claim
 //     ("Eating detected", "Currently ruminating")
 //   - a field/key/column name encoding the concept: is_eating, isEating,
 //     eating_detected, body_temperature_c, fever_flag, etc.
-function isClaimShaped(line, term) {
-  const lower = line.toLowerCase();
-  if (NEGATION_RE.test(line) && !/detect(?:s|ed|ion)?\s+\w*/i.test(line)) {
+function isClaimShaped(text, term) {
+  if (NEGATION_RE.test(text) && !/detect(?:s|ed|ion)?\s+\w*/i.test(text)) {
     // Negation present and this isn't a "detects X" construction that
-    // could still be a claim despite an unrelated "not" elsewhere on the
-    // line (rare; err toward treating bare negation as a denial).
+    // could still be a claim despite an unrelated "not" elsewhere in the
+    // window (rare; err toward treating bare negation as a denial).
     return false;
   }
-  if (NEGATION_RE.test(line)) {
-    // Even with a "detect" verb present, if the negation sits between the
-    // subject and the term (the common denial shape: "does not detect
-    // eating"), treat as denial.
-    const negIdx = lower.search(NEGATION_RE);
-    const termIdx = lower.indexOf(term.toLowerCase());
-    if (negIdx !== -1 && termIdx !== -1 && negIdx < termIdx) return false;
-  }
+  // Even with a "detect" verb present, if the negation precedes the term
+  // anywhere in the window (the common denial shape: "does not detect
+  // eating", including when wrapped across lines), treat as denial.
+  if (negationPrecedesTerm(text, term)) return false;
   const detectClaim = new RegExp(
     `detect(?:s|ed|ion)?\\s+(?:\\w+\\s+){0,2}${term}|${term}\\s+detect(?:s|ed|ion)?`,
     "i"
@@ -192,13 +238,13 @@ function isClaimShaped(line, term) {
     "i"
   );
   const quotedClaim = new RegExp(`["'\`][^"'\`]*\\b${term}\\b[^"'\`]*["'\`]`, "i");
-  if (detectClaim.test(line) || stateClaim.test(line) || fieldNameClaim.test(line)) {
+  if (detectClaim.test(text) || stateClaim.test(text) || fieldNameClaim.test(text)) {
     return true;
   }
   // A quoted literal containing the term is only a claim if it is not
   // itself a denial sentence (already excluded above) and not a
   // vocabulary/allowlist entry.
-  if (quotedClaim.test(line) && !VOCAB_LIST_RE.test(line)) return true;
+  if (quotedClaim.test(text) && !VOCAB_LIST_RE.test(text)) return true;
   return false;
 }
 
@@ -216,11 +262,18 @@ function findingsForSource(source, relPath) {
     const trimmed = text.trim();
     if (!trimmed) return;
 
+    // Denial window: this line plus WINDOW_BEFORE lines before and
+    // WINDOW_AFTER lines after, whitespace-normalized and joined -- a
+    // multi-line JSX/prose/comment sentence is one unit of meaning, not one
+    // fact per physical line.
+    const window = buildWindow(lines, i, WINDOW_BEFORE, WINDOW_AFTER);
+    const windowIsVocabList = VOCAB_LIST_RE.test(window);
+
     // banned-claim
     const bannedMatch = text.match(BANNED_TERM_RE);
-    if (bannedMatch && !VOCAB_LIST_RE.test(text)) {
+    if (bannedMatch && !VOCAB_LIST_RE.test(text) && !windowIsVocabList) {
       const term = bannedMatch[1];
-      if (isClaimShaped(text, term.replace(/\\b/g, ""))) {
+      if (isClaimShaped(window, term.replace(/\\b/g, ""))) {
         findings.push({
           line: lineNo,
           rule: "banned-claim",
@@ -230,20 +283,19 @@ function findingsForSource(source, relPath) {
     }
 
     // body-temp-mislabel: "body temp[erature]" used as a label/field, not
-    // inside a denial sentence.
-    if (BODY_TEMP_RE.test(text) && !VOCAB_LIST_RE.test(text)) {
-      const isDenial = NEGATION_RE.test(text) && (() => {
-        const lower = text.toLowerCase();
-        const negIdx = lower.search(NEGATION_RE);
-        const termMatch = text.match(BODY_TEMP_RE);
-        const termIdx = termMatch ? lower.indexOf(termMatch[0].toLowerCase()) : -1;
-        return negIdx !== -1 && termIdx !== -1 && negIdx < termIdx;
-      })();
+    // inside a denial sentence. The term itself is matched on THIS line (so
+    // the reported line number is precise); whether it is a denial is
+    // judged over the window, so a negation on an adjacent wrapped line
+    // (the real-world defect this fix addresses) is still recognized.
+    if (BODY_TEMP_RE.test(text) && !VOCAB_LIST_RE.test(text) && !windowIsVocabList) {
+      const termMatch = text.match(BODY_TEMP_RE);
+      const term = termMatch ? termMatch[0] : "body temperature";
+      const isDenial = negationPrecedesTerm(window, term);
       const looksLikeFieldOrLabel =
         /["'`][^"'`]*body[\s_-]?temp/i.test(text) || // quoted UI label
         /\bbody_?temp(?:erature)?_?\w*\s*[:=]/i.test(text) || // field/key assignment
         /\b(?:type|struct|Body_?Temp|BodyTemp)\b.*body[\s_-]?temp/i.test(text);
-      if (!isDenial && (looksLikeFieldOrLabel || !NEGATION_RE.test(text))) {
+      if (!isDenial && (looksLikeFieldOrLabel || !NEGATION_RE.test(window))) {
         findings.push({
           line: lineNo,
           rule: "body-temp-mislabel",
@@ -316,12 +368,18 @@ function extractHerdSignalsYamlSlice(source) {
 
 function findingsForYamlSlice(source) {
   const slice = extractHerdSignalsYamlSlice(source);
+  const sliceLines = slice.map((s) => s.text);
   const findings = [];
-  for (const { text, lineNo } of slice) {
+  slice.forEach(({ text, lineNo }, idx) => {
+    // Same denial-window treatment as findingsForSource: a YAML `description:`
+    // block can wrap a denial sentence across adjacent lines too.
+    const window = buildWindow(sliceLines, idx, WINDOW_BEFORE, WINDOW_AFTER);
+    const windowIsVocabList = VOCAB_LIST_RE.test(window);
+
     const bannedMatch = text.match(BANNED_TERM_RE);
-    if (bannedMatch && !VOCAB_LIST_RE.test(text)) {
+    if (bannedMatch && !VOCAB_LIST_RE.test(text) && !windowIsVocabList) {
       const term = bannedMatch[1];
-      if (isClaimShaped(text, term.replace(/\\b/g, ""))) {
+      if (isClaimShaped(window, term.replace(/\\b/g, ""))) {
         findings.push({
           line: lineNo,
           rule: "banned-claim",
@@ -329,8 +387,10 @@ function findingsForYamlSlice(source) {
         });
       }
     }
-    if (BODY_TEMP_RE.test(text) && !VOCAB_LIST_RE.test(text)) {
-      const isDenial = NEGATION_RE.test(text);
+    if (BODY_TEMP_RE.test(text) && !VOCAB_LIST_RE.test(text) && !windowIsVocabList) {
+      const termMatch = text.match(BODY_TEMP_RE);
+      const term = termMatch ? termMatch[0] : "body temperature";
+      const isDenial = negationPrecedesTerm(window, term);
       if (!isDenial) {
         findings.push({
           line: lineNo,
@@ -339,7 +399,7 @@ function findingsForYamlSlice(source) {
         });
       }
     }
-  }
+  });
   return findings;
 }
 
@@ -475,11 +535,55 @@ function selfTest() {
     );
   }
 
+  // Wrapped-denial regression fixtures (the reported real-world defect:
+  // herd-signals-drawer.tsx:218's mandatory "not the animal's body
+  // temperature" disclaimer, split across two JSX text lines, used to
+  // false-positive as body-temp-mislabel). Each of these MUST produce zero
+  // findings -- a denial split across lines is still a denial.
+  const wrappedDenialFixtures = [
+    ["Good_WrappedDenialJSX.tsx", "apps/admin-web/features/herd-signals/herd-signals-drawer.tsx"],
+    ["Good_WrappedDenial3Lines.tsx", "apps/admin-web/features/herd-signals/herd-signals-drawer.tsx"],
+    ["Good_WrappedDenial.go", "backend/internal/herdsignals/app/fixture.go"],
+    ["Good_WrappedDenial.md", "docs/modules/herd-signals-wrapped-denial-fixture.md"],
+  ];
+  const wrappedDenialResults = [];
+  for (const [file, relPath] of wrappedDenialFixtures) {
+    const findingsHere = findingsForSource(readFixture(file), relPath);
+    if (findingsHere.length) {
+      throw new Error(
+        `self-test: false positive on wrapped-denial fixture ${file} (denial split across lines must still pass): ${JSON.stringify(findingsHere)}`
+      );
+    }
+    wrappedDenialResults.push([file, findingsHere.length]);
+  }
+
+  // Inverse: a genuine claim split across lines (no negation anywhere) must
+  // still be caught. Fixing the false positive above must not weaken the
+  // check into missing a wrapped claim.
+  const wrappedClaimFindings = findingsForSource(
+    readFixture("Bad_WrappedClaim.tsx"),
+    "apps/admin-web/features/herd-signals/herd-signals-drawer.tsx"
+  );
+  if (!wrappedClaimFindings.some((f) => f.rule === "body-temp-mislabel")) {
+    throw new Error(
+      `self-test: expected body-temp-mislabel on wrapped-claim fixture, got: ${JSON.stringify(wrappedClaimFindings)}`
+    );
+  }
+  if (!wrappedClaimFindings.some((f) => f.rule === "banned-claim")) {
+    throw new Error(
+      `self-test: expected banned-claim on wrapped-claim fixture, got: ${JSON.stringify(wrappedClaimFindings)}`
+    );
+  }
+
   console.log("check-herd-signals-language self-test: PASS");
   console.log(`  FAIL fixture -> ${failFindings.length} finding(s): ${failFindings.map((f) => f.rule).join(", ")}`);
   console.log(`  PASS fixture (same words, denial context) -> ${passFindings.length} finding(s)`);
   console.log(`  admin-web mock-language fixture -> ${mockFindings.length} finding(s): ${mockFindings.map((f) => f.rule).join(", ")}`);
   console.log(`  admin-web clean fixture -> ${mockFindingsGood.length} finding(s)`);
+  for (const [file, count] of wrappedDenialResults) {
+    console.log(`  wrapped-denial fixture ${file} -> ${count} finding(s)`);
+  }
+  console.log(`  wrapped-claim (inverse) fixture -> ${wrappedClaimFindings.length} finding(s): ${wrappedClaimFindings.map((f) => f.rule).join(", ")}`);
 }
 
 if (process.argv.includes("--self-test")) {
