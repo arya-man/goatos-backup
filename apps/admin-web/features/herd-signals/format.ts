@@ -135,6 +135,21 @@ export function fmtAgo(iso: string | null | undefined, nowMs: number): string {
   return `${days}d ago`;
 }
 
+// HH:MM in IST, for the reconnect-bar readout's gap window ("14:05 - 16:20 IST"). Always fed a
+// received_at value (server clock) — never gateway_seen_at (docs/modules/herd-signals.md "Time,
+// clocks, and what happens during a network outage": the gateway's clock runs +02:30:00 ahead of
+// real IST and is diagnostics-only).
+export function fmtClockIst(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 export function fmtClockSeconds(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "—";

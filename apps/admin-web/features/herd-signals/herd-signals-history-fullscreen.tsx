@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import type { HerdSignalItem, HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
 import { fmtDateTime } from "@/lib/format";
-import { fmtDelta, fmtRssi } from "./format";
-import { HistoryChart, historyChartLegend } from "./herd-signals-history-chart";
+import { fmtClockIst, fmtDelta, fmtRssi } from "./format";
+import { HistoryChart, historyChartLegend, gapWindowForReconnect } from "./herd-signals-history-chart";
 
 type RangeKey = "1h" | "6h" | "12h" | "24h" | "3d" | "7d" | "30d" | "custom";
 const RANGE_LABEL: Record<RangeKey, string> = {
@@ -222,6 +222,23 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                     <b>{fmtDateTime(hovered.bucket_start)}</b> — no packets received in this window (gap), not zero
                     movement.
                   </>
+                ) : hovered.gap_delta ? (
+                  (() => {
+                    const index = buckets?.findIndex((bucket) => bucket.bucket_start === hovered.bucket_start) ?? -1;
+                    const window = buckets && index >= 0 ? gapWindowForReconnect(buckets, index) : null;
+                    return (
+                      <>
+                        <b>+{fmtDelta(hovered.motion_delta)}</b> accumulated while no packets were received
+                        {window ? (
+                          <>
+                            {" "}
+                            (<b>{fmtClockIst(window.startIso)}</b> - <b>{fmtClockIst(window.endIso)}</b> IST)
+                          </>
+                        ) : null}
+                        ; when inside that window it happened is not known.
+                      </>
+                    );
+                  })()
                 ) : (
                   <>
                     <b>{fmtDateTime(hovered.bucket_start)}</b> · motion_count <b>{fmtDelta(hovered.first_motion_count)}</b>{" "}
