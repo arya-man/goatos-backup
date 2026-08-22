@@ -25,6 +25,21 @@ type PersonSummary struct {
 	DepartmentLabel  *string `json:"department_label"`
 	CreatedAt        string  `json:"created_at"`
 	RowVersion       int     `json:"row_version"`
+
+	// Proof-work statistics from the verification queue, at VERIFICATION ITEM
+	// grain: one item = one submitted proof set (a lump-sum submission's several
+	// clips are still ONE item). Withdrawn/superseded items are excluded from
+	// every number — the work was redone, so neither side of a rate should count
+	// it. Uploads = approved + rejected + pending by construction.
+	ProofUploads  int `json:"proof_uploads"`
+	ProofApproved int `json:"proof_approved"`
+	ProofRejected int `json:"proof_rejected"`
+	ProofPending  int `json:"proof_pending"`
+	// ProofRejectionPct = rejected / (approved + rejected), rounded to a whole
+	// percent — the share of REVIEWED proofs that were rejected. Nil until at
+	// least one verdict exists, so a new operator shows "no reviews yet" rather
+	// than a fabricated 0%.
+	ProofRejectionPct *int `json:"proof_rejection_pct"`
 }
 
 // PeopleCatalog carries the business-managed vocabularies the directory's

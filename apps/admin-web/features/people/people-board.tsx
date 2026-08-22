@@ -155,10 +155,14 @@ export async function PeopleBoard({
               ))}
             </select>
           </div>
-          {/* Nudged up so the button lines up with the input row, not the row's baseline. */}
-          <button type="submit" className="btn" style={{ marginBottom: 4 }}>
-            {copy(pageContract, "filter.apply", "Apply")}
-          </button>
+          {/* Wrapped in a .fld with a spacer label so the button top-aligns with the
+              selects instead of hanging at the row baseline. */}
+          <div className="fld">
+            <label aria-hidden="true">&nbsp;</label>
+            <button type="submit" className="btn">
+              {copy(pageContract, "filter.apply", "Apply")}
+            </button>
+          </div>
         </div>
       </form>
 

@@ -23,8 +23,19 @@ import (
 //   producer unique columns:  workforce_members (tenant_id, workforce_member_id PK)
 //   consumer match columns:   LEFT JOIN locations ON (tenant_id, location_id PK)   -> 1:1
 //                             LEFT JOIN departments ON (tenant_id, department_id PK) -> 1:1
-//   No aggregate/ratio: both joins land on their target's primary key, so the
-//   list can never fan out or collapse members.
+//   Both joins land on their target's primary key, so the list can never fan
+//   out or collapse members.
+//   Proof-stat aggregate: LEFT JOIN LATERAL over verification_items pre-
+//   aggregates the many side to ONE row per member BEFORE the join (GROUP-free
+//   FILTER counts over vi.tenant_id = wm.tenant_id AND vi.operator_id =
+//   wm.user_id, served by the partial index
+//   verification_items_operator_status_idx, migration 000189). Grain of the
+//   counts = verification ITEM (one item = one submitted proof set), withdrawn
+//   excluded everywhere, so uploads = approved + rejected + pending and the
+//   rejection ratio's numerator and denominator range over the same key set
+//   (this member's non-withdrawn items). operator_id carries the USER id (the
+//   auth actor recorded at enqueue), which is why the join key is wm.user_id
+//   and never wm.workforce_member_id.
 
 const peopleCursorSeparator = "\x1f"
 
@@ -61,12 +72,26 @@ SELECT
   wm.department_id::text,
   d.label,
   wm.created_at,
-  wm.row_version
+  wm.row_version,
+  COALESCE(proof.uploads, 0),
+  COALESCE(proof.approved, 0),
+  COALESCE(proof.rejected, 0),
+  COALESCE(proof.pending, 0)
 FROM workforce_members wm
 LEFT JOIN locations l
   ON l.tenant_id = wm.tenant_id AND l.location_id = wm.primary_location_id
 LEFT JOIN departments d
   ON d.tenant_id = wm.tenant_id AND d.department_id = wm.department_id
+LEFT JOIN LATERAL (
+  SELECT
+    count(*) FILTER (WHERE vi.status <> 'withdrawn') AS uploads,
+    count(*) FILTER (WHERE vi.status = 'approved')   AS approved,
+    count(*) FILTER (WHERE vi.status = 'rejected')   AS rejected,
+    count(*) FILTER (WHERE vi.status = 'pending')    AS pending
+  FROM verification_items vi
+  WHERE vi.tenant_id = wm.tenant_id
+    AND vi.operator_id = wm.user_id
+) proof ON true
 ` + where
 }
 
@@ -94,10 +119,18 @@ func scanPeople(rows pgx.Rows) ([]domain.PersonSummary, error) {
 			&p.DepartmentLabel,
 			&createdAt,
 			&p.RowVersion,
+			&p.ProofUploads,
+			&p.ProofApproved,
+			&p.ProofRejected,
+			&p.ProofPending,
 		); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		if decided := p.ProofApproved + p.ProofRejected; decided > 0 {
+			pct := int((float64(p.ProofRejected)/float64(decided))*100 + 0.5)
+			p.ProofRejectionPct = &pct
+		}
 		items = append(items, p)
 	}
 	return items, rows.Err()

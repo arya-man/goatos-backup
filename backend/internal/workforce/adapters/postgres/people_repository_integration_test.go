@@ -124,6 +124,41 @@ SELECT
 		t.Fatalf("duplicate email must return ErrDuplicateEmail, got %v", err)
 	}
 	assertCounts("after duplicate email attempt")
+
+	// Proof statistics: verification-item grain, keyed on operator_id =
+	// workforce_members.user_id, withdrawn excluded from EVERY number, and the
+	// rejection rate over decided items only (1 rejected / 2 decided = 50%).
+	for i, status := range []string{"approved", "rejected", "pending", "withdrawn"} {
+		reason := ""
+		if status == "rejected" {
+			reason = "blurred clip"
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO verification_items (
+  tenant_id, vertical, module, category, source_module, source_ref_type, source_ref_id,
+  media_refs, status, verdict_reason, operator_id, captured_at, idempotency_key
+) VALUES (
+  $1::uuid, 'weighing', 'weighing', 'weighing_proof', 'weighing', 'weighing_observation',
+  gen_random_uuid(), '["media"]'::jsonb, $2, nullif($3, ''), $4::uuid, now(), 'people-stats-' || $5::int::text
+)`, peopleTenant, status, reason, peopleUser, i); err != nil {
+			t.Fatalf("seed verification item %s: %v", status, err)
+		}
+	}
+	listed, _, err := repo.ListPeople(ctx, ports.ListPeopleParams{TenantID: peopleTenant, Search: "idem-check", Limit: 5})
+	if err != nil {
+		t.Fatalf("ListPeople for stats: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("want the one created person, got %d rows", len(listed))
+	}
+	stats := listed[0]
+	if stats.ProofUploads != 3 || stats.ProofApproved != 1 || stats.ProofRejected != 1 || stats.ProofPending != 1 {
+		t.Fatalf("stats = uploads %d approved %d rejected %d pending %d; want 3/1/1/1 (withdrawn excluded)",
+			stats.ProofUploads, stats.ProofApproved, stats.ProofRejected, stats.ProofPending)
+	}
+	if stats.ProofRejectionPct == nil || *stats.ProofRejectionPct != 50 {
+		t.Fatalf("rejection pct = %v, want 50 (1 rejected of 2 decided)", stats.ProofRejectionPct)
+	}
 }
 
 // TestListPeopleKeysetPagesInNameOrderWithDockerPostgres pins the directory's

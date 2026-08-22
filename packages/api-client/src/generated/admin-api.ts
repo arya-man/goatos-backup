@@ -1993,6 +1993,11 @@ export interface components {
             department_label: string | null;
             created_at: string;
             row_version: number;
+            proof_uploads: number;
+            proof_approved: number;
+            proof_rejected: number;
+            proof_pending: number;
+            proof_rejection_pct: number | null;
         };
         PeopleCatalogOption: {
             /** Format: uuid */
