@@ -1,4 +1,5 @@
 import type { HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
+import { fmtClockIst } from "./format";
 
 // Shared bucket-chart renderer for the drawer's mini chart and the full-screen history view.
 //
@@ -13,7 +14,7 @@ import type { HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
 export function HistoryChart({
   buckets,
   baseline,
-  height = 120,
+  height = 130,
   width = 900,
   onHover,
 }: {
@@ -33,9 +34,17 @@ export function HistoryChart({
     );
   }
 
+  // Left/bottom padding for the y-axis max label and the x-axis time labels — without it those
+  // labels either get clipped by the viewBox edge or sit on top of the bars they're labelling.
+  const padL = 30;
+  const padB = 16;
+  const padT = 6;
+  const plotW = width - padL - 4;
+  const plotH = height - padT - padB;
+
   const maxDelta = Math.max(1, ...buckets.map((bucket) => bucket.motion_delta ?? 0));
   const barGap = 1;
-  const barWidth = Math.max(1, width / buckets.length - barGap);
+  const barWidth = Math.max(1, plotW / buckets.length - barGap);
   // baseline_delta is the p75 of 300s (5-minute) buckets (Section 8), and the backend already
   // excludes every gap_delta reading from that p75 (a gap total is not an "ordinary active bucket").
   // Comparing it unscaled against a 3600s or 21600s bucket always reads "spike" (a bigger window
@@ -45,71 +54,106 @@ export function HistoryChart({
   const scaledBaseline = (bucketSeconds: number) => (baseline ? baseline * (bucketSeconds / 300) : null);
   const chartBucketSeconds = buckets[0]?.bucket_seconds || 300;
   const lineBaseline = scaledBaseline(chartBucketSeconds);
-  const baselineY = lineBaseline ? height - (Math.min(lineBaseline, maxDelta) / maxDelta) * (height - 14) : null;
+  const baselineY = lineBaseline ? padT + plotH - (Math.min(lineBaseline, maxDelta) / maxDelta) * plotH : null;
+
+  // x-axis time labels: roughly six evenly-spaced ticks, IST, received_at-sourced (per the
+  // two-clocks rule — bucket_start already comes from the server clock, never gateway_seen_at).
+  const tickEvery = Math.max(1, Math.ceil(buckets.length / 6));
 
   return (
-    <svg
-      className="hchart"
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-      role="img"
-      aria-label="Motion-count delta history"
-      onMouseLeave={() => onHover?.(null)}
-    >
-      <line x1={0} y1={height - 1} x2={width} y2={height - 1} className="gl" />
-      {baselineY !== null ? <line x1={0} y1={baselineY} x2={width} y2={baselineY} className="base" /> : null}
-      {buckets.map((bucket, index) => {
-        const x = index * (barWidth + barGap);
-        if (bucket.is_gap) {
+    <div className="hchartwrap" style={{ width: "100%", height }}>
+      {/* Explicit width/height ATTRIBUTES (not just CSS) on the svg root, plus a matching inline
+          style: this chart previously collapsed to a sliver because it relied entirely on a CSS
+          class rule for height inside a flex ancestor, which lost out to the SVG's intrinsic
+          aspect-ratio sizing from viewBox alone. Inline style has the highest cascade specificity
+          short of !important, so it cannot be silently overridden by an ancestor rule again. */}
+      <svg
+        className="hchart"
+        viewBox={`0 0 ${width} ${height}`}
+        width={width}
+        height={height}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label="Motion-count delta history"
+        style={{ width: "100%", height: `${height}px`, display: "block" }}
+        onMouseLeave={() => onHover?.(null)}
+      >
+        {[0, 1, 2, 3].map((k) => {
+          const y = padT + (plotH * k) / 3;
+          return (
+            <g key={k}>
+              <line x1={padL} y1={y} x2={width - 4} y2={y} className="gl" />
+              <text x={2} y={y + 3}>{Math.round(maxDelta - (maxDelta * k) / 3)}</text>
+            </g>
+          );
+        })}
+        {baselineY !== null ? (
+          <>
+            <line x1={padL} y1={baselineY} x2={width - 4} y2={baselineY} className="base" />
+            <text x={width - 66} y={baselineY - 3}>baseline {Math.round(lineBaseline ?? 0)}</text>
+          </>
+        ) : null}
+        {buckets.map((bucket, index) => {
+          const x = padL + index * (barWidth + barGap);
+          if (bucket.is_gap) {
+            return (
+              <rect
+                key={bucket.bucket_start}
+                x={x}
+                y={padT}
+                width={barWidth}
+                height={plotH}
+                className="gap"
+                onMouseEnter={() => onHover?.(bucket)}
+              />
+            );
+          }
+          const delta = bucket.motion_delta ?? 0;
+          const barHeight = Math.max(delta > 0 ? 1.5 : 1, (delta / maxDelta) * plotH);
+          // A reconnect delta is a recovered TOTAL across an unknown span of time inside the gap,
+          // not a normal reading — it must never be classified as "spike" (a burst claim this data
+          // cannot support) and never compared against the per-bucket baseline like an ordinary bar.
+          let cls: string;
+          if (bucket.gap_delta) {
+            cls = "b-reconnect";
+          } else {
+            const bucketBaseline = scaledBaseline(bucket.bucket_seconds);
+            const spike = delta > maxDelta * 0.85 && delta > (bucketBaseline ?? 0) * 3;
+            cls = delta === 0 ? "b-zero" : delta < (bucketBaseline ?? 999999) ? "b-low" : spike ? "b-spike" : "b-move";
+          }
           return (
             <rect
               key={bucket.bucket_start}
               x={x}
-              y={0}
+              y={padT + plotH - barHeight}
               width={barWidth}
-              height={height}
-              className="gap"
+              height={barHeight}
+              className={cls}
               onMouseEnter={() => onHover?.(bucket)}
             />
           );
-        }
-        const delta = bucket.motion_delta ?? 0;
-        const barHeight = Math.max(delta > 0 ? 1.5 : 1, (delta / maxDelta) * (height - 14));
-        // A reconnect delta is a recovered TOTAL across an unknown span of time inside the gap, not
-        // a normal reading — it must never be classified as "spike" (a burst claim this data cannot
-        // support) and never compared against the per-bucket baseline like an ordinary bar.
-        let cls: string;
-        if (bucket.gap_delta) {
-          cls = "b-reconnect";
-        } else {
-          const bucketBaseline = scaledBaseline(bucket.bucket_seconds);
-          const spike = delta > maxDelta * 0.85 && delta > (bucketBaseline ?? 0) * 3;
-          cls = delta === 0 ? "b-zero" : delta < (bucketBaseline ?? 999999) ? "b-low" : spike ? "b-spike" : "b-move";
-        }
-        return (
-          <rect
-            key={bucket.bucket_start}
-            x={x}
-            y={height - barHeight}
-            width={barWidth}
-            height={barHeight}
-            className={cls}
-            onMouseEnter={() => onHover?.(bucket)}
-          />
-        );
-      })}
-    </svg>
+        })}
+        {buckets.map((bucket, index) =>
+          index % tickEvery === 0 ? (
+            <text key={bucket.bucket_start} x={padL + index * (barWidth + barGap)} y={height - 4}>
+              {fmtClockIst(bucket.bucket_start)}
+            </text>
+          ) : null,
+        )}
+      </svg>
+    </div>
   );
 }
 
-export function historyChartLegend(): { label: string; className: string }[] {
+export function historyChartLegend(): { label: string; className: string; dashed?: boolean }[] {
   return [
     { label: "Moving", className: "b-move" },
-    { label: "Low", className: "b-low" },
-    { label: "No movement (0, packets received)", className: "b-zero" },
-    { label: "Spike", className: "b-spike" },
+    { label: "Low / quiet", className: "b-low" },
+    { label: "No movement (packets seen, delta 0)", className: "b-zero" },
+    { label: "Movement spike", className: "b-spike" },
     { label: "Reconnect — gap total, timing unknown", className: "b-reconnect" },
-    { label: "Gap — no packets received", className: "gap" },
+    { label: "Missing signal (no packets)", className: "gap" },
+    { label: "Animal baseline", className: "base", dashed: true },
   ];
 }
 

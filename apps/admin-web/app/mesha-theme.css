@@ -2904,6 +2904,9 @@ select:disabled { opacity: .45; }
 .herd-signals-page .animcell a:hover{color:var(--brand-d);border-color:var(--brand-d)}
 .herd-signals-page .animcell small{display:block;color:var(--faint);font-weight:600;font-size:10.5px}
 .herd-signals-page .delta{font-variant-numeric:tabular-nums;font-weight:700}
+.herd-signals-page .delta.up{color:var(--ok)}
+.herd-signals-page .delta.zero{color:var(--muted)}
+.herd-signals-page .delta.warn{color:var(--warn)}
 .herd-signals-page table.resp td.num,.herd-signals-page table.resp th.num{text-align:right}
 @media(max-width:860px){
   .herd-signals-page table.resp thead{display:none}
@@ -2945,7 +2948,7 @@ select:disabled { opacity: .45; }
 .herd-signals-page .kv{display:grid;grid-template-columns:auto 1fr;gap:7px 12px;font-size:12.5px;align-items:baseline}
 .herd-signals-page .kv dt{color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:6px}
 .herd-signals-page .kv dd{margin:0;font-weight:650;text-align:right}
-.herd-signals-page .srcl{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;padding:1px 5px;border-radius:4px;vertical-align:middle}
+.herd-signals-page .srcl{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;padding:1px 5px;border-radius:4px;vertical-align:middle;margin-left:6px}
 .herd-signals-page .srcl.direct{background:var(--tealx);color:var(--teal)}
 .herd-signals-page .srcl.derived{background:var(--infox);color:var(--info)}
 .herd-signals-page .srcl.inferred{background:var(--purplex);color:var(--purple)}
@@ -2971,7 +2974,14 @@ select:disabled { opacity: .45; }
 .herd-signals-page .readout{font-size:11.5px;color:var(--muted);padding:8px 15px 13px;min-height:34px;line-height:1.5}
 .herd-signals-page .readout b{color:var(--ink);font-variant-numeric:tabular-nums}
 
-.herd-signals-page .hchart{width:100%;display:block}
+.herd-signals-page .hchart{width:100%;display:block;height:120px}
+.herd-signals-page .drawer .hchart{height:110px}
+.herd-signals-page .fs .hchart{height:240px}
+/* The metagrid cells must grow to their content: a fixed row height plus the
+   grid's overflow:hidden clipped 'Ho Chi Minh 1' mid-glyph in the drawer. */
+.herd-signals-page .metagrid{align-items:stretch}
+.herd-signals-page .metagrid div{min-height:0;overflow:visible}
+.herd-signals-page .metagrid .v{overflow-wrap:anywhere;line-height:1.35}
 .herd-signals-page .hchart .b-move{fill:var(--ok)}
 .herd-signals-page .hchart .b-low{fill:var(--muted);opacity:.55}
 .herd-signals-page .hchart .b-zero{fill:var(--line)}

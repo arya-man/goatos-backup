@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "@/components/no-prefetch-link";
 import type { HerdSignalsSummary } from "@/lib/api/herd-signals";
+import { useHerdSignalsNav } from "./herd-signals-nav-context";
 import { herdSignalsHref, type HerdSignalsParams, type KpiFilterKey } from "./params";
 
 type KpiDef = {
@@ -78,9 +81,15 @@ const KPI_DEFS: KpiDef[] = [
 // The tenant-scoped summary drives every KPI number here — never a count of the fetched page's
 // rows. "Tags seen" duplicates the first slot deliberately (Section 8, insight #1) but keeps a
 // distinct filter key so a click on it does not collide with "Animals moving".
+//
+// Clicking a card is a filter change, so it goes through the SAME shared transition as the filter
+// bar (useHerdSignalsNav) rather than a plain <Link> navigation — a plain Link here was the
+// "clicking a KPI reloads the whole page" defect: no pending affordance, table just blanked and
+// reappeared.
 export function HerdSignalsKpis({ summary, params }: { summary: HerdSignalsSummary; params: HerdSignalsParams }) {
+  const { isPending, navigate } = useHerdSignalsNav();
   return (
-    <div className="kpis herd-signals-kpis">
+    <div className={`kpis herd-signals-kpis${isPending ? " wfbusy" : ""}`} aria-busy={isPending}>
       {KPI_DEFS.map((def, index) => {
         const filterKey = index === 0 ? undefined : def.key;
         const active = filterKey ? params.kpi === filterKey : false;
@@ -97,7 +106,16 @@ export function HerdSignalsKpis({ summary, params }: { summary: HerdSignalsSumma
         );
         if (!href) return <div key={def.label}>{card}</div>;
         return (
-          <Link key={def.label} href={href} aria-pressed={active}>
+          <Link
+            key={def.label}
+            href={href}
+            aria-pressed={active}
+            onClick={(event) => {
+              if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              navigate(href);
+            }}
+          >
             {card}
           </Link>
         );
@@ -107,11 +125,22 @@ export function HerdSignalsKpis({ summary, params }: { summary: HerdSignalsSumma
 }
 
 export function HerdSignalsKpiChip({ params }: { params: HerdSignalsParams }) {
+  const { navigate } = useHerdSignalsNav();
   if (!params.kpi) return null;
   const def = KPI_DEFS.find((item) => item.key === params.kpi);
   if (!def) return null;
+  const href = herdSignalsHref(params, { hs_kpi: undefined });
   return (
-    <Link href={herdSignalsHref(params, { hs_kpi: undefined })} className="achip" title="Clear this KPI filter">
+    <Link
+      href={href}
+      className="achip"
+      title="Clear this KPI filter"
+      onClick={(event) => {
+        if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        navigate(href);
+      }}
+    >
       {def.label} <b>✕</b>
     </Link>
   );
