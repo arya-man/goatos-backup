@@ -1,0 +1,511 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
+)
+
+// Postgres-backed proofs of the three mapping verbs -- MAP, REPLACE, UNMAP -- against the REAL
+// migration schema, and of the monitoring boundary they stamp.
+//
+// EVERY assertion about "is it mapped" goes through the READ PATH (ResolveTagMapping /
+// ListTagsLatest / GetTagLatest), never by inspecting the goat_identifiers row the write just
+// made. A write that produced a row satisfying some other predicate than the one the live view
+// actually uses would still pass a row-inspection test and would still leave the dashboard
+// saying "unmapped".
+
+const (
+	hsmGoatB   = "45000000-0000-4000-8000-000000002002"
+	hsmTagA    = "hsm-tag-a"
+	hsmTagAMAC = "AA:BB:CC:DD:EF:01"
+	hsmTagB    = "hsm-tag-b"
+	hsmTagBMAC = "AA:BB:CC:DD:EF:02"
+)
+
+// setupMappingDB provides the migrated Postgres these proofs run against.
+//
+// Default: the repo's own containerised harness (setupHerdSignalsDB), same as every other
+// integration test here. Escape hatch: GOATOS_HERD_SIGNALS_TEST_DSN points at an already-migrated
+// database instead -- used to run these proofs against the OCI dev instance, which carries ~46k
+// REAL gateway packets, when a local container engine is unavailable. The DSN path scrubs the
+// synthetic test tenant first so a re-run starts from the same state a fresh container would:
+// goat_identifiers_lifetime_value_unique claims a tag value for the tenant's LIFETIME, so a
+// second run would otherwise collide with its own first run's bindings. The goats themselves are
+// NOT deleted -- goat_hard_delete_blocked forbids it, correctly -- they are re-seeded idempotently.
+func setupMappingDB(t *testing.T, ctx context.Context) (*Repository, *pgxpool.Pool) {
+	t.Helper()
+	dsn := strings.TrimSpace(os.Getenv("GOATOS_HERD_SIGNALS_TEST_DSN"))
+	if dsn == "" {
+		return setupHerdSignalsDB(t, ctx)
+	}
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect to GOATOS_HERD_SIGNALS_TEST_DSN: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	// Scoped to the synthetic test tenant ONLY. Never widen this.
+	for _, table := range []string{
+		"herd_signal_activity_windows", "herd_signal_packets", "herd_signal_tag_latest",
+		"herd_signal_gateways", "goat_identifiers",
+	} {
+		if _, err := pool.Exec(ctx, "DELETE FROM public."+table+" WHERE tenant_id = $1::uuid", hsiTenant); err != nil {
+			t.Fatalf("scrub %s for the test tenant: %v", table, err)
+		}
+	}
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v\nsql: %s", err, sql)
+		}
+	}
+	exec(`INSERT INTO tenants (tenant_id, name, status) VALUES ($1::uuid, 'Herd Signals Test', 'active') ON CONFLICT (tenant_id) DO NOTHING`, hsiTenant)
+	exec(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'HSI', 'HSI Park', 'active') ON CONFLICT (location_id) DO NOTHING`, hsiTenant, hsiPark)
+	exec(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($2::uuid, $1::uuid, 'shed', 'HSI-SHED', 'HSI Shed', $3::uuid, 'active') ON CONFLICT (location_id) DO NOTHING`, hsiTenant, hsiShed, hsiPark)
+	exec(`INSERT INTO parties (party_id, party_type, display_name, status)
+VALUES ($1::uuid, 'org', 'Herd Signals Test Custodian', 'active') ON CONFLICT (party_id) DO NOTHING`, hsiParty)
+	exec(`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, current_location_id, park_id, shed_id, breed, sex)
+VALUES ($2::uuid, $1::uuid, 'alive', 'goat', $3::uuid, $4::uuid, $5::uuid, $4::uuid, 'Synthetic Boer', 'female')
+ON CONFLICT (goat_id) DO NOTHING`, hsiTenant, hsiGoat, hsiParty, hsiShed, hsiPark)
+	exec(`INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', $3, UPPER(BTRIM($3)), 'global', true, 'active', now(), 'test_v1', true)`, hsiTenant, hsiGoat, hsiMappedTag)
+	return NewRepository(pool), pool
+}
+
+// seedSecondGoat adds an animal with NO identifiers, so a bind against it starts from the real
+// staging state: a tag broadcasting, an animal on the ground, and nothing joining them.
+func seedSecondGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	mustExec(t, ctx, pool, "second goat",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, current_location_id, park_id, shed_id, breed, sex)
+		 VALUES ($2::uuid, $1::uuid, 'alive', 'goat', $3::uuid, $4::uuid, $5::uuid, $4::uuid, 'Synthetic Boer', 'male')
+		 ON CONFLICT (goat_id) DO NOTHING`,
+		hsiTenant, hsmGoatB, hsiParty, hsiShed, hsiPark)
+}
+
+func ingestTag(t *testing.T, ctx context.Context, repo *Repository, gatewayID, tagID, tagMAC string, at time.Time, motion int64) {
+	t.Helper()
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: gatewayID, Status: "active"}
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, tagID, tagMAC, gatewayID, at, motion, -60),
+	}); err != nil {
+		t.Fatalf("ingest %s at %s: %v", tagID, at, err)
+	}
+}
+
+func mappingStateFromLive(t *testing.T, ctx context.Context, repo *Repository, tagID string) string {
+	t.Helper()
+	tags, _, _, err := repo.ListTagsLatest(ctx, hsiTenant, nil, nil, nil, nil, nil, nil, "", 200)
+	if err != nil {
+		t.Fatalf("ListTagsLatest: %v", err)
+	}
+	for _, tag := range tags {
+		if tag.TagID == tagID {
+			return tag.MappingState
+		}
+	}
+	t.Fatalf("tag %q is missing from the live view entirely", tagID)
+	return ""
+}
+
+// TestMapTagToAnimalFlipsTheLiveReadToMapped is the primary proof: the action the Tag Mapping
+// screen could not perform at all now makes the live view say "mapped", through the read path's
+// own predicate.
+func TestMapTagToAnimalFlipsTheLiveReadToMapped(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupMappingDB(t, ctx)
+	seedSecondGoat(t, ctx, pool)
+
+	ingestTag(t, ctx, repo, "gw-hsm-1", hsmTagA, hsmTagAMAC, time.Now().UTC().Add(-2*time.Minute), 100)
+	if got := mappingStateFromLive(t, ctx, repo, hsmTagA); got != "unmapped" {
+		t.Fatalf("before mapping: live mapping_state = %q, want unmapped (this is the staging day-one state)", got)
+	}
+
+	resp, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{
+		GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC,
+	})
+	if err != nil {
+		t.Fatalf("BindTagMapping: %v", err)
+	}
+	if resp.MappingState != "mapped" || resp.MonitoringSince == nil {
+		t.Fatalf("bind response = %+v, want mapped with a monitoring boundary stamped", resp)
+	}
+	if len(resp.IdentifierIDs) != 2 {
+		t.Errorf("bind claimed %d identifiers, want 2 (the tag id AND its distinct MAC -- the read path matches either, so claiming one would leave half this tag's packets resolving to nothing)", len(resp.IdentifierIDs))
+	}
+
+	// THE ACTUAL PROOF: the read path, not the row.
+	if got := mappingStateFromLive(t, ctx, repo, hsmTagA); got != "mapped" {
+		t.Errorf("after mapping: live mapping_state = %q, want mapped", got)
+	}
+	state, goatID, err := repo.ResolveTagMapping(ctx, hsiTenant, sp(hsmTagA), sp(hsmTagAMAC))
+	if err != nil {
+		t.Fatalf("ResolveTagMapping: %v", err)
+	}
+	if state != "mapped" || goatID == nil || *goatID != hsmGoatB {
+		t.Errorf("ResolveTagMapping = (%q, %v), want (mapped, %s)", state, goatID, hsmGoatB)
+	}
+	// A lowercase MAC from a device must resolve too: normalization is the identity module's
+	// canonical one, not hand-rolled per call site.
+	byLowerMAC, err := repo.ResolveTagsBatch(ctx, hsiTenant, []string{"aa:bb:cc:dd:ef:01"})
+	if err != nil {
+		t.Fatalf("ResolveTagsBatch: %v", err)
+	}
+	if len(byLowerMAC) != 1 {
+		t.Errorf("a lowercase device MAC resolved to %d identifiers, want 1", len(byLowerMAC))
+	}
+
+	// And a subsequent packet keeps it mapped: the ingest path re-resolves and must agree with
+	// what the write did, including the denormalised boundary.
+	ingestTag(t, ctx, repo, "gw-hsm-1", hsmTagA, hsmTagAMAC, time.Now().UTC().Add(-time.Minute), 120)
+	latest, err := repo.GetTagLatest(ctx, hsiTenant, hsmTagA)
+	if err != nil || latest == nil {
+		t.Fatalf("GetTagLatest: %v", err)
+	}
+	if latest.MappingState != "mapped" {
+		t.Errorf("after a post-mapping packet, mapping_state = %q, want mapped", latest.MappingState)
+	}
+}
+
+// TestBindRefusesTheStatesItExistsToPrevent: a tag on another animal, and an animal that already
+// carries a live tag. Both are 409-class refusals, not silent reconciliations.
+func TestBindRefusesTheStatesItExistsToPrevent(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupMappingDB(t, ctx)
+	seedSecondGoat(t, ctx, pool)
+
+	if _, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA}); err != nil {
+		t.Fatalf("first bind: %v", err)
+	}
+
+	// Same tag, different animal -- this is exactly the "conflict" state the UI renders.
+	_, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsiGoat, TagID: hsmTagA})
+	if !errors.Is(err, domain.ErrMappingConflict) {
+		t.Errorf("binding a tag already on another animal returned %v, want a conflict", err)
+	}
+
+	// Same animal, a second tag -- that is REPLACE, not MAP.
+	_, err = repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagB})
+	if !errors.Is(err, domain.ErrMappingConflict) {
+		t.Errorf("binding a second live tag to the same animal returned %v, want a conflict directing the caller to replace", err)
+	}
+
+	// An animal that does not exist is a 404-class failure, not a conflict and not a 500.
+	_, err = repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{
+		GoatID: "45000000-0000-4000-8000-0000000029ff", TagID: "hsm-tag-nobody",
+	})
+	if !errors.Is(err, domain.ErrMappingNotFound) {
+		t.Errorf("binding to an unknown animal returned %v, want not-found", err)
+	}
+
+	// Re-binding the SAME tag to the SAME animal is idempotent, not a conflict: an operator who
+	// double-taps must not be told they broke something.
+	if _, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA}); err != nil {
+		t.Errorf("re-binding the same tag to the same animal returned %v, want an idempotent success", err)
+	}
+}
+
+// TestReplaceLeavesExactlyOneLiveBinding is the re-tagging proof: a tag falls off, a new one goes
+// on. The animal must never end up with two live smart tags (ambiguous telemetry) or none
+// (silently unmonitored), and the old tag must go back to being an ordinary broadcasting device.
+func TestReplaceLeavesExactlyOneLiveBinding(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupMappingDB(t, ctx)
+	seedSecondGoat(t, ctx, pool)
+
+	ingestTag(t, ctx, repo, "gw-hsm-2", hsmTagA, hsmTagAMAC, time.Now().UTC().Add(-3*time.Minute), 100)
+	ingestTag(t, ctx, repo, "gw-hsm-2", hsmTagB, hsmTagBMAC, time.Now().UTC().Add(-3*time.Minute), 200)
+
+	first, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC})
+	if err != nil {
+		t.Fatalf("bind old tag: %v", err)
+	}
+
+	// A replace to a tag the animal does not have yet.
+	time.Sleep(5 * time.Millisecond) // so the new monitoring period is distinguishable from the old
+	second, err := repo.ReplaceTagMapping(ctx, hsiTenant, domain.ReplaceTagMappingRequest{
+		GoatID: hsmGoatB, NewTagID: hsmTagB, NewTagMAC: hsmTagBMAC,
+	})
+	if err != nil {
+		t.Fatalf("ReplaceTagMapping: %v", err)
+	}
+	if len(second.UnboundIdentifierIDs) != 2 {
+		t.Errorf("replace released %d identifiers, want the old tag's 2 (id and MAC)", len(second.UnboundIdentifierIDs))
+	}
+	if second.MonitoringSince == nil || !second.MonitoringSince.After(*first.MonitoringSince) {
+		t.Errorf("replace monitoring_since = %v, want a NEW period strictly after the old one (%v): the replacement tag's bench history is not this animal's history",
+			second.MonitoringSince, first.MonitoringSince)
+	}
+
+	// Exactly one live binding, through the read path.
+	if got := mappingStateFromLive(t, ctx, repo, hsmTagB); got != "mapped" {
+		t.Errorf("new tag live mapping_state = %q, want mapped", got)
+	}
+	if got := mappingStateFromLive(t, ctx, repo, hsmTagA); got != "unmapped" {
+		t.Errorf("old tag live mapping_state = %q, want unmapped: a tag that fell off must stop being attributed to the animal", got)
+	}
+
+	var liveBindings int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM goat_identifiers
+		WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND status = 'active' AND smart_tag_capable IS TRUE
+	`, hsiTenant, hsmGoatB).Scan(&liveBindings); err != nil {
+		t.Fatalf("count live bindings: %v", err)
+	}
+	if liveBindings != 2 {
+		t.Errorf("animal carries %d live smart-tag identifier rows, want 2 (the new tag's id and MAC, and NOTHING from the old tag)", liveBindings)
+	}
+
+	// The old tag's history is intact -- it was unbound, never deleted.
+	oldLatest, err := repo.GetTagLatest(ctx, hsiTenant, hsmTagA)
+	if err != nil || oldLatest == nil {
+		t.Fatalf("old tag lost its snapshot after replace: %v", err)
+	}
+	if oldLatest.MotionCount == nil {
+		t.Error("old tag's motion history was cleared by the replace; unbinding must not delete device telemetry")
+	}
+
+	// Replacing when there is nothing to replace is a refusal, not an accidental bind: an
+	// operator who reaches for REPLACE on an unmapped animal must be told to MAP instead.
+	const hsmGoatC = "45000000-0000-4000-8000-000000002003"
+	mustExec(t, ctx, pool, "third goat",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, current_location_id, park_id, shed_id, breed, sex)
+		 VALUES ($2::uuid, $1::uuid, 'alive', 'goat', $3::uuid, $4::uuid, $5::uuid, $4::uuid, 'Synthetic Boer', 'male')
+		 ON CONFLICT (goat_id) DO NOTHING`,
+		hsiTenant, hsmGoatC, hsiParty, hsiShed, hsiPark)
+	if _, err := repo.ReplaceTagMapping(ctx, hsiTenant, domain.ReplaceTagMappingRequest{GoatID: hsmGoatC, NewTagID: "hsm-tag-c"}); !errors.Is(err, domain.ErrMappingConflict) {
+		t.Errorf("replace on an animal with no live smart tag returned %v, want a conflict directing the caller to map", err)
+	}
+}
+
+// TestUnmapReturnsTheTagToDeviceTelemetry: released, not deleted.
+func TestUnmapReturnsTheTagToDeviceTelemetry(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupMappingDB(t, ctx)
+	seedSecondGoat(t, ctx, pool)
+
+	ingestTag(t, ctx, repo, "gw-hsm-3", hsmTagA, hsmTagAMAC, time.Now().UTC().Add(-2*time.Minute), 100)
+	if _, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC}); err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+
+	resp, err := repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagA, TagMAC: hsmTagAMAC})
+	if err != nil {
+		t.Fatalf("UnmapTagMapping: %v", err)
+	}
+	if resp.MappingState != "unmapped" || resp.MonitoringSince != nil {
+		t.Errorf("unmap response = %+v, want unmapped with NO monitoring boundary", resp)
+	}
+	if got := mappingStateFromLive(t, ctx, repo, hsmTagA); got != "unmapped" {
+		t.Errorf("after unmap, live mapping_state = %q, want unmapped", got)
+	}
+
+	// Packets keep flowing and keep rendering: the tag is still a real device.
+	ingestTag(t, ctx, repo, "gw-hsm-3", hsmTagA, hsmTagAMAC, time.Now().UTC().Add(-time.Minute), 150)
+	latest, err := repo.GetTagLatest(ctx, hsiTenant, hsmTagA)
+	if err != nil || latest == nil {
+		t.Fatalf("GetTagLatest after unmap: %v", err)
+	}
+	if latest.MotionCount == nil || *latest.MotionCount != 150 {
+		t.Errorf("motion_count after unmap = %v, want 150: an unmapped tag is still fully rendered device telemetry", latest.MotionCount)
+	}
+	var boundary *time.Time
+	if err := pool.QueryRow(ctx, `SELECT animal_monitoring_since FROM herd_signal_tag_latest WHERE tenant_id = $1::uuid AND tag_id = $2`, hsiTenant, hsmTagA).Scan(&boundary); err != nil {
+		t.Fatalf("read boundary: %v", err)
+	}
+	if boundary != nil {
+		t.Errorf("animal_monitoring_since = %v after unmap, want NULL: NULL is what makes 'no animal-attributed value' enforceable", boundary)
+	}
+
+	// Unmapping something that is not mapped is a named refusal, not a silent no-op -- the
+	// operator believes they just released a binding.
+	if _, err := repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagA}); !errors.Is(err, domain.ErrMappingConflict) {
+		t.Errorf("unmapping an unmapped tag returned %v, want a conflict", err)
+	}
+}
+
+// TestMonitoringBoundaryKeepsBenchHistoryOutOfTheAnimalsBaseline is the boundary proof, and the
+// reason migration 000196 exists at all.
+//
+// A tag is commissioned, powered up and broadcasting long before it goes on an animal. If the
+// 24h p75 baseline is allowed to reach back past the mapping instant, the first thing the system
+// tells a farm about a newly tagged goat is derived from a tag rattling in a box.
+func TestMonitoringBoundaryKeepsBenchHistoryOutOfTheAnimalsBaseline(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupMappingDB(t, ctx)
+	seedSecondGoat(t, ctx, pool)
+
+	// BENCH PERIOD: the tag is on a desk, being carried and jostled. Big motion deltas, real
+	// packets, hours before anyone maps it.
+	benchBase := time.Now().UTC().Add(-6 * time.Hour)
+	for i, motion := range []int64{1000, 1500, 2000, 2500} {
+		ingestTag(t, ctx, repo, "gw-hsm-4", hsmTagA, hsmTagAMAC, benchBase.Add(time.Duration(i)*10*time.Minute), motion)
+	}
+
+	// An UNMAPPED tag has no animal, so it has no baseline at all -- not a zero, not a default.
+	baselines, err := repo.GetBaselineDeltas(ctx, hsiTenant, []string{hsmTagA})
+	if err != nil {
+		t.Fatalf("GetBaselineDeltas (unmapped): %v", err)
+	}
+	if _, ok := baselines[hsmTagA]; ok {
+		t.Errorf("an UNMAPPED tag was given a baseline (%d); with no animal behind it there is nothing to attribute a baseline to", baselines[hsmTagA])
+	}
+
+	// MAP IT. Animal monitoring starts now; everything above is device history.
+	bind, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC})
+	if err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+
+	baselines, err = repo.GetBaselineDeltas(ctx, hsiTenant, []string{hsmTagA})
+	if err != nil {
+		t.Fatalf("GetBaselineDeltas (just mapped): %v", err)
+	}
+	if b, ok := baselines[hsmTagA]; ok {
+		t.Errorf("baseline = %d immediately after mapping, want NONE: every bucket on record predates the boundary and is bench movement, so there is nothing yet to build this animal's baseline from", b)
+	}
+
+	// REAL ANIMAL PERIOD: modest movement, well after the boundary.
+	postBase := bind.MonitoringSince.Add(10 * time.Minute)
+	for i, motion := range []int64{2502, 2504, 2506} {
+		ingestTag(t, ctx, repo, "gw-hsm-4", hsmTagA, hsmTagAMAC, postBase.Add(time.Duration(i)*10*time.Minute), motion)
+	}
+
+	baselines, err = repo.GetBaselineDeltas(ctx, hsiTenant, []string{hsmTagA})
+	if err != nil {
+		t.Fatalf("GetBaselineDeltas (mapped, with post-boundary history): %v", err)
+	}
+	b, ok := baselines[hsmTagA]
+	if !ok {
+		t.Fatal("no baseline after post-boundary packets arrived; a mapped tag with its own history must have one")
+	}
+	// The bench buckets carried deltas of ~500. The animal's own buckets carry ~2. If the
+	// boundary were not enforced the p75 would be in the hundreds.
+	if b > 10 {
+		t.Errorf("baseline = %d, want a small value derived ONLY from post-mapping buckets; a value in the hundreds means bench movement leaked into this animal's baseline", b)
+	}
+
+	// And the boundary is on the hot read path too, not only in the identifier table.
+	var boundary *time.Time
+	if err := pool.QueryRow(ctx, `SELECT animal_monitoring_since FROM herd_signal_tag_latest WHERE tenant_id = $1::uuid AND tag_id = $2`, hsiTenant, hsmTagA).Scan(&boundary); err != nil {
+		t.Fatalf("read denormalised boundary: %v", err)
+	}
+	if boundary == nil {
+		t.Fatal("animal_monitoring_since is NULL on the live row of a mapped tag; the read path would have to join to decide whether a number may be attributed to an animal")
+	}
+
+	// UNMAP ends the period: the baseline goes away again, because there is no animal.
+	if _, err := repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagA, TagMAC: hsmTagAMAC}); err != nil {
+		t.Fatalf("unmap: %v", err)
+	}
+	baselines, err = repo.GetBaselineDeltas(ctx, hsiTenant, []string{hsmTagA})
+	if err != nil {
+		t.Fatalf("GetBaselineDeltas (after unmap): %v", err)
+	}
+	if _, ok := baselines[hsmTagA]; ok {
+		t.Error("an unmapped tag still has a baseline; ending the monitoring period must end animal attribution")
+	}
+}
+
+// TestGatewayHeartbeatAndPacketLossAccounting proves the two payload-audit findings: heartbeats
+// are recorded (so "up but hearing no tags" is distinguishable from "down"), and pkt_sn accrues
+// loss on a forward jump while a decrease is a REBOOT, never a negative.
+func TestGatewayHeartbeatAndPacketLossAccounting(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupMappingDB(t, ctx)
+
+	const gwID = "gw-hsm-hb"
+	base := time.Now().UTC().Add(-10 * time.Minute)
+
+	ingestWithPktSN := func(at time.Time, motion, pktSN int64) {
+		t.Helper()
+		p := makePacket(hsiTenant, hsmTagA, hsmTagAMAC, gwID, at, motion, -60)
+		sn := pktSN
+		p.PktSN = &sn
+		gw := domain.Gateway{TenantID: hsiTenant, GatewayID: gwID, Status: "active", LastSeenAt: &at, LastPktSN: &sn}
+		if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{p}); err != nil {
+			t.Fatalf("ingest pkt_sn=%d: %v", pktSN, err)
+		}
+	}
+
+	ingestWithPktSN(base, 10, 100)
+	ingestWithPktSN(base.Add(time.Minute), 20, 101)   // contiguous: no loss
+	ingestWithPktSN(base.Add(2*time.Minute), 30, 105) // jumped 4 ahead: 3 reports never arrived
+	ingestWithPktSN(base.Add(3*time.Minute), 40, 2)   // DECREASED: the gateway rebooted
+
+	var missed, reboots int64
+	var lastSN *int64
+	if err := pool.QueryRow(ctx, `
+		SELECT packets_missed_total, pkt_sn_reboot_count, last_pkt_sn
+		FROM herd_signal_gateways WHERE tenant_id = $1::uuid AND gateway_id = $2
+	`, hsiTenant, gwID).Scan(&missed, &reboots, &lastSN); err != nil {
+		t.Fatalf("read gateway loss counters: %v", err)
+	}
+	if missed != 3 {
+		t.Errorf("packets_missed_total = %d, want 3 (105 - 101 - 1); this is the only packet-loss instrument the protocol gives us", missed)
+	}
+	if reboots != 1 {
+		t.Errorf("pkt_sn_reboot_count = %d, want 1: a DECREASE is a gateway reboot, not negative loss", reboots)
+	}
+	if missed < 0 {
+		t.Error("loss went negative; a reboot must re-anchor, never subtract")
+	}
+
+	// The sequence number is a real column now, not a crumb inside raw_payload jsonb.
+	var storedSNs int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM herd_signal_packets WHERE tenant_id = $1::uuid AND tag_id = $2 AND pkt_sn IS NOT NULL`, hsiTenant, hsmTagA).Scan(&storedSNs); err != nil {
+		t.Fatalf("count stored pkt_sn: %v", err)
+	}
+	if storedSNs != 4 {
+		t.Errorf("stored pkt_sn on %d packets, want 4", storedSNs)
+	}
+
+	// HEARTBEATS. A gateway with fresh heartbeats and no tag packets is "up but hearing
+	// nothing" -- previously indistinguishable from "down", because these were discarded.
+	hbAt := time.Now().UTC()
+	ticks := int64(5000)
+	rebooted, err := repo.RecordGatewayHeartbeat(ctx, hsiTenant, domain.GatewayHeartbeatRequest{
+		GatewayID: gwID, State: domain.GatewayHeartbeatState, TicksCnt: &ticks,
+	}, hbAt)
+	if err != nil {
+		t.Fatalf("RecordGatewayHeartbeat: %v", err)
+	}
+	if rebooted {
+		t.Error("first heartbeat reported a reboot; there was no previous ticks_cnt to fall from")
+	}
+
+	lower := int64(12)
+	rebooted, err = repo.RecordGatewayHeartbeat(ctx, hsiTenant, domain.GatewayHeartbeatRequest{
+		GatewayID: gwID, State: domain.GatewayHeartbeatState, TicksCnt: &lower,
+	}, hbAt.Add(5*time.Minute))
+	if err != nil {
+		t.Fatalf("RecordGatewayHeartbeat (reboot): %v", err)
+	}
+	if !rebooted {
+		t.Error("ticks_cnt fell from 5000 to 12 and no reboot was reported; that is exactly the reboot signal")
+	}
+
+	var lastHeartbeat *time.Time
+	var hbReboots int
+	if err := pool.QueryRow(ctx, `
+		SELECT last_heartbeat_at, heartbeat_reboot_count
+		FROM herd_signal_gateways WHERE tenant_id = $1::uuid AND gateway_id = $2
+	`, hsiTenant, gwID).Scan(&lastHeartbeat, &hbReboots); err != nil {
+		t.Fatalf("read heartbeat columns: %v", err)
+	}
+	if lastHeartbeat == nil {
+		t.Fatal("last_heartbeat_at is NULL after two heartbeats; without it a silent gateway and a deaf one look identical")
+	}
+	if hbReboots != 1 {
+		t.Errorf("heartbeat_reboot_count = %d, want 1", hbReboots)
+	}
+}
