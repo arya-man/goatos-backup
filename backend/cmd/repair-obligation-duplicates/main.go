@@ -73,8 +73,15 @@ func parseFlags(args []string) (repair.Config, time.Duration, error) {
 	fs.DurationVar(&timeout, "timeout", 10*time.Minute, "overall run timeout")
 	// Applying is opt-in. A repair job that mutates by default is one mistyped flag away from
 	// retiring live work.
+	//
+	// Two spellings, because both are in use: -dry-run=false is what the tests and earlier
+	// runbooks say, and -apply is what migration 000190 tells an operator to type. A deploy
+	// instruction that the binary rejects is worse than either spelling on its own, so both
+	// work and mean exactly one thing.
 	var dryRun bool
+	var apply bool
 	fs.BoolVar(&dryRun, "dry-run", true, "report what would change without changing it")
+	fs.BoolVar(&apply, "apply", false, "actually make the changes (equivalent to -dry-run=false)")
 	if err := fs.Parse(args); err != nil {
 		return repair.Config{}, 0, err
 	}
@@ -84,7 +91,22 @@ func parseFlags(args []string) (repair.Config, time.Duration, error) {
 	if !repair.ValidMode(cfg.Mode) {
 		return repair.Config{}, 0, fmt.Errorf("unknown -mode %q: want one of %s", cfg.Mode, strings.Join(repair.Modes(), ", "))
 	}
-	cfg.Apply = !dryRun
+	// Contradicting yourself is refused rather than resolved by precedence: someone typing
+	// both meant one of them, and guessing which would either skip a repair they asked for or
+	// mutate when they asked not to.
+	dryRunSet, applySet := false, false
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "dry-run":
+			dryRunSet = true
+		case "apply":
+			applySet = true
+		}
+	})
+	if dryRunSet && applySet && apply == dryRun {
+		return repair.Config{}, 0, fmt.Errorf("-apply=%v and -dry-run=%v contradict each other: pass one", apply, dryRun)
+	}
+	cfg.Apply = apply || !dryRun
 	if cfg.Limit <= 0 {
 		return repair.Config{}, 0, errors.New("-limit must be positive")
 	}
