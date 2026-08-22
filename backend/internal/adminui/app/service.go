@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/adminui/domain"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
 type Service struct {
@@ -5236,21 +5237,50 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		// The module tab strip on /people (maintainer decision 2026-08-22):
 		// `all` is the general directory, `vaccination` hosts the former
 		// vaccination-operators screen, and the remaining module views are
-		// backend-declared disabled placeholders — the `mut` tone marks an
-		// option the client renders disabled, with the page's
-		// `tab.disabled_reason` copy as its reason. Adding a real module tab
+		// backend-declared DISABLED placeholders carrying their reason — the
+		// client renders them inert with that copy. Adding a real module tab
 		// later is a backend change only.
-		return withGenericOptionGroups([]domain.OptionGroup{{
-			ID: "people_view_tabs",
-			Options: []domain.Option{
-				option("all", "All People", "", ""),
-				option("vaccination", "Vaccination", "", ""),
-				option("weighing", "Weighing", "", "mut"),
-				option("feed", "Feed", "", "mut"),
-				option("counts", "Herd Operations", "", "mut"),
-				option("health", "Health", "", "mut"),
+		soonTab := func(key, label string) domain.Option {
+			return domain.Option{Key: key, Label: label, Enabled: false, DisabledReason: "This staffing view is coming soon."}
+		}
+		return withGenericOptionGroups([]domain.OptionGroup{
+			{
+				ID: "people_view_tabs",
+				Options: []domain.Option{
+					option("all", "All People", "", ""),
+					option("vaccination", "Vaccination", "", ""),
+					soonTab("weighing", "Weighing"),
+					soonTab("feed", "Feed"),
+					soonTab("counts", "Herd Operations"),
+					soonTab("health", "Health"),
+				},
 			},
-		}})
+			{
+				// The roles the Add Person form may grant — the same closed set the
+				// backend enforces (workforce/app.grantablePersonRoles). Title carries
+				// the grant's SCOPE SHAPE ("park" or "tenant") so the form knows when
+				// the park select is required; it is a machine hint, not display copy.
+				ID: "people_roles",
+				Options: []domain.Option{
+					option(permissions.RoleOperator, "Operator", "park", ""),
+					option(permissions.RoleParkHead, "Park Head", "park", ""),
+					option(permissions.RoleVerifier, "Verifier", "tenant", ""),
+					option(permissions.RolePCDirector, "PC Director", "tenant", ""),
+					option(permissions.RoleGrowthDirector, "Growth Director", "tenant", ""),
+					option(permissions.RoleFeedDirector, "Feed Director", "tenant", ""),
+					option(permissions.RoleHealthDirector, "Health Director", "tenant", ""),
+				},
+			},
+			{
+				ID: "people_designation_grades",
+				Options: []domain.Option{
+					option("cxo", "CXO", "", ""),
+					option("director", "Director", "", ""),
+					option("manager", "Manager", "", ""),
+					option("assistant_manager", "Assistant Manager", "", ""),
+				},
+			},
+		})
 	case "sales":
 		return withGenericOptionGroups(salesOptionGroups())
 	case "health-config":
