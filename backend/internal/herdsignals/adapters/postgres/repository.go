@@ -164,9 +164,9 @@ func (r *Repository) updateTagLatest(ctx context.Context, tenantID, tagID string
 			tenant_id, tag_id, tag_mac, gateway_id, source, last_seen_at,
 			last_rssi_dbm, signal_state, battery_mv, battery_state, tag_temperature_c,
 			motion_count, motion_delta, previous_motion_count, previous_seen_at,
-			motion_window_seconds, movement_state, temperature_sensor_ok,
+			motion_window_seconds, movement_state, pattern_state, temperature_sensor_ok,
 			accelerometer_sensor_ok, mapping_state, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, now())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, now())
 		ON CONFLICT (tenant_id, tag_id) DO UPDATE
 		SET tag_mac = COALESCE($3, tag_mac),
 		    gateway_id = COALESCE($4, gateway_id),
@@ -183,12 +183,14 @@ func (r *Repository) updateTagLatest(ctx context.Context, tenantID, tagID string
 		    previous_seen_at = CASE WHEN motion_count != $12 THEN last_seen_at ELSE previous_seen_at END,
 		    motion_window_seconds = COALESCE($16, motion_window_seconds),
 		    movement_state = $17,
-		    temperature_sensor_ok = COALESCE($18, temperature_sensor_ok),
-		    accelerometer_sensor_ok = COALESCE($19, accelerometer_sensor_ok),
+		    pattern_state = $18,
+		    temperature_sensor_ok = COALESCE($19, temperature_sensor_ok),
+		    accelerometer_sensor_ok = COALESCE($20, accelerometer_sensor_ok),
 		    updated_at = now()
 	`
 
 	// TODO: Compute motion_delta, signal_state, battery_state based on thresholds
+	// TODO: Fetch 24h activity windows and compute pattern_state via domain.PatternStateFromHistory
 
 	_, err := r.db.Exec(ctx, query,
 		tenantID, tagID, latestPkt.TagMAC, latestPkt.GatewayID, latestPkt.Source, latestPkt.ReceivedAt,
@@ -198,6 +200,7 @@ func (r *Repository) updateTagLatest(ctx context.Context, tenantID, tagID string
 		latestPkt.MotionCount, 0, // motion_delta
 		nil, nil, // previous_motion_count, previous_seen_at
 		60, "unknown", // motion_window_seconds, movement_state
+		"unknown", // pattern_state (TODO: compute from 24h history)
 		latestPkt.TemperatureSensorOK, latestPkt.AccelerometerSensorOK, "unmapped",
 	)
 	return err
@@ -209,7 +212,7 @@ func (r *Repository) GetTagLatest(ctx context.Context, tenantID, tagID string) (
 		SELECT tenant_id, tag_id, tag_mac, gateway_id, source, last_seen_at,
 		       last_rssi_dbm, signal_state, battery_mv, battery_state, tag_temperature_c,
 		       motion_count, motion_delta, previous_motion_count, previous_seen_at,
-		       motion_window_seconds, movement_state, temperature_sensor_ok,
+		       motion_window_seconds, movement_state, pattern_state, temperature_sensor_ok,
 		       accelerometer_sensor_ok, mapping_state, updated_at
 		FROM public.herd_signal_tag_latest
 		WHERE tenant_id = $1 AND tag_id = $2
@@ -219,7 +222,7 @@ func (r *Repository) GetTagLatest(ctx context.Context, tenantID, tagID string) (
 		&tag.TenantID, &tag.TagID, &tag.TagMAC, &tag.GatewayID, &tag.Source, &tag.LastSeenAt,
 		&tag.LastRSSIdbm, &tag.SignalState, &tag.BatteryMV, &tag.BatteryState, &tag.TagTemperatureC,
 		&tag.MotionCount, &tag.MotionDelta, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
-		&tag.MotionWindowSeconds, &tag.MovementState, &tag.TemperatureSensorOK,
+		&tag.MotionWindowSeconds, &tag.MovementState, &tag.PatternState, &tag.TemperatureSensorOK,
 		&tag.AccelerometerSensorOK, &tag.MappingState, &tag.UpdatedAt,
 	)
 	if err == pgx.ErrNoRows {
@@ -277,7 +280,7 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 		SELECT tenant_id, tag_id, tag_mac, gateway_id, source, last_seen_at,
 		       last_rssi_dbm, signal_state, battery_mv, battery_state, tag_temperature_c,
 		       motion_count, motion_delta, previous_motion_count, previous_seen_at,
-		       motion_window_seconds, movement_state, temperature_sensor_ok,
+		       motion_window_seconds, movement_state, pattern_state, temperature_sensor_ok,
 		       accelerometer_sensor_ok, mapping_state, updated_at
 		FROM public.herd_signal_tag_latest
 		%s
@@ -299,7 +302,7 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 			&tag.TenantID, &tag.TagID, &tag.TagMAC, &tag.GatewayID, &tag.Source, &tag.LastSeenAt,
 			&tag.LastRSSIdbm, &tag.SignalState, &tag.BatteryMV, &tag.BatteryState, &tag.TagTemperatureC,
 			&tag.MotionCount, &tag.MotionDelta, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
-			&tag.MotionWindowSeconds, &tag.MovementState, &tag.TemperatureSensorOK,
+			&tag.MotionWindowSeconds, &tag.MovementState, &tag.PatternState, &tag.TemperatureSensorOK,
 			&tag.AccelerometerSensorOK, &tag.MappingState, &tag.UpdatedAt,
 		); err != nil {
 			return nil, domain.Summary{}, nil, err
