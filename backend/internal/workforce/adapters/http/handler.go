@@ -361,6 +361,12 @@ func (h *Handler) HeartbeatDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) respond(w http.ResponseWriter, r *http.Request, payload any, err error) {
+	writeServiceResponse(w, r, h.log, payload, err)
+}
+
+// writeServiceResponse is the shared success/error envelope writer for every
+// workforce HTTP handler (operator, roster, people).
+func writeServiceResponse(w http.ResponseWriter, r *http.Request, log *slog.Logger, payload any, err error) {
 	if err != nil {
 		status := http.StatusInternalServerError
 		envelope := domain.ErrorEnvelope{
@@ -377,7 +383,7 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, payload any, e
 			envelope.Message = appErr.Message
 			envelope.Retryable = appErr.Retryable
 		}
-		httpresponse.WriteError(w, r, h.log, status, envelope, err)
+		httpresponse.WriteError(w, r, log, status, envelope, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, payload)

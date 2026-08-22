@@ -87,6 +87,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/authaudit"
 	"github.com/vgoats/goatos/backend/internal/platform/buildinfo"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"github.com/vgoats/goatos/backend/internal/platform/firebaseidentity"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/migrationguard"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
@@ -139,6 +140,7 @@ import (
 	workforcehttp "github.com/vgoats/goatos/backend/internal/workforce/adapters/http"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
+	workforceports "github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
 
 type Config struct {
@@ -450,6 +452,21 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workforceRepo := workforcepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	workforceService := workforceapp.NewService(workforceRepo)
 	workforceHandler := workforcehttp.NewHandler(workforceService, log)
+	// People/HRMS directory + in-app onboarding. The Firebase identity adapter
+	// activates only when a Firebase project can be resolved (explicit env or a
+	// securetoken issuer); local dev-headers/HS256 environments run without it
+	// and the create-person route fails closed with identity_unavailable.
+	var workforceIdentity workforceports.IdentityProvider
+	if projectID := firebaseIdentityProjectID(cfg.Auth.Issuer); projectID != "" {
+		identityClient, err := firebaseidentity.New(projectID)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+		workforceIdentity = identityClient
+	}
+	peopleService := workforceapp.NewPeopleService(workforceRepo, workforceIdentity, cfg.Auth.Issuer)
+	peopleHandler := workforcehttp.NewPeopleHandler(peopleService, log)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	rosterHandler := workforcehttp.NewRosterHandler(rosterService, log)
 	proofStorage, err := buildProofStorage()
@@ -1086,11 +1103,15 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	passportHandler := passporthttp.NewHandler(passportService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
 	authAuditRecorder := authaudit.NewPostgresRecorder(pool, cfg.Postgres.QueryTimeout)
+	// DB-backed email allowlist: written by the workforce create-person flow,
+	// consulted in union with the GOATOS_AUTH_ALLOWED_EMAILS env list by both
+	// the auth middleware and the session-events handler.
+	allowedEmailSource := permissionspg.NewAllowedEmailSource(pool, cfg.Postgres.QueryTimeout, log)
 	authAuditOptions = append(authAuditOptions, authaudit.WithPendingEmailGrantClaimer(
 		permissionspg.NewPendingEmailGrantClaimer(pool, cfg.Postgres.QueryTimeout),
-	))
+	), authaudit.WithDynamicAllowedEmails(allowedEmailSource))
 	authAuditHandler := authaudit.NewHandler(verifier, authAuditRecorder, log, authAuditOptions...)
-	authz, err := buildAuthMiddleware(cfg.Auth, verifier, appCheckVerifier, grantSource, log)
+	authz, err := buildAuthMiddleware(cfg.Auth, verifier, appCheckVerifier, grantSource, allowedEmailSource, log)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -1167,6 +1188,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	locationshttp.Register(protectedMux, locationsHandler)
 	workforcehttp.Register(protectedMux, workforceHandler)
 	workforcehttp.RegisterRoster(protectedMux, rosterHandler)
+	workforcehttp.RegisterPeople(protectedMux, peopleHandler)
 	proofhttp.Register(protectedMux, proofHandler)
 	sophttp.Register(protectedMux, sopHandler)
 	protocolhttp.Register(protectedMux, protocolHandler)
@@ -1346,7 +1368,7 @@ func buildAppCheckVerifier(cfg AuthConfig) (httpmiddleware.TokenVerifier, error)
 	})
 }
 
-func buildAuthMiddleware(cfg AuthConfig, verifier, appCheckVerifier httpmiddleware.TokenVerifier, grants permissions.GrantSource, log *slog.Logger) (*httpmiddleware.AuthMiddleware, error) {
+func buildAuthMiddleware(cfg AuthConfig, verifier, appCheckVerifier httpmiddleware.TokenVerifier, grants permissions.GrantSource, dynamicEmails authallow.DynamicEmailSource, log *slog.Logger) (*httpmiddleware.AuthMiddleware, error) {
 	mode := strings.TrimSpace(cfg.Mode)
 	if mode == "" {
 		mode = httpmiddleware.AuthModeBearer
@@ -1365,10 +1387,23 @@ func buildAuthMiddleware(cfg AuthConfig, verifier, appCheckVerifier httpmiddlewa
 		AppCheckMode:     cfg.AppCheckMode,
 		AppCheckVerifier: appCheckVerifier,
 
-		DevHeadersAllowed: cfg.DevHeadersAllowed,
-		Environment:       cfg.Environment,
-		AllowedEmails:     cfg.AllowedEmails,
+		DevHeadersAllowed:    cfg.DevHeadersAllowed,
+		Environment:          cfg.Environment,
+		AllowedEmails:        cfg.AllowedEmails,
+		DynamicAllowedEmails: dynamicEmails,
 	}, verifier, grants, log)
+}
+
+// firebaseIdentityProjectID resolves the Firebase project the create-person
+// flow mints login accounts in: an explicit GOATOS_FIREBASE_PROJECT_ID wins,
+// else it is derived from a securetoken.google.com auth issuer. Empty means
+// "no Firebase in this environment" (local HS256 dev) and the identity adapter
+// is not constructed.
+func firebaseIdentityProjectID(issuer string) string {
+	if explicit := strings.TrimSpace(os.Getenv("GOATOS_FIREBASE_PROJECT_ID")); explicit != "" {
+		return explicit
+	}
+	return firebaseidentity.ProjectIDFromIssuer(issuer)
 }
 
 func buildAuthAuditOptions(cfg AuthConfig) ([]authaudit.Option, error) {

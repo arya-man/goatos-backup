@@ -122,6 +122,13 @@ var protectedRoutes = []Route{
 	{OperationID: "listOperatorDevices", Method: "GET", Pattern: "/admin/operators/{operator_id}/devices", Permissions: []string{OperatorsManageDevice}},
 	{OperationID: "revokeOperatorDevice", Method: "POST", Pattern: "/admin/operators/{operator_id}/devices/{device_id}/revoke", Permissions: []string{OperatorsManageDevice}},
 
+	// People/HRMS directory (admin-web /people). The create is the in-app
+	// onboarding write (Firebase account + grant + allowlist), so it carries the
+	// high-privilege OperatorsWrite (ceo_internal today), while the directory
+	// read shares the OperatorsRead the admin tiers already hold.
+	{OperationID: "listWorkforcePeople", Method: "GET", Pattern: "/admin/workforce/people", Permissions: []string{OperatorsRead}},
+	{OperationID: "createWorkforcePerson", Method: "POST", Pattern: "/admin/workforce/people", Permissions: []string{OperatorsWrite}},
+
 	{OperationID: "appMe", Method: "GET", Pattern: "/app/me", Permissions: []string{AppBootstrap}},
 	{OperationID: "appBootstrap", Method: "GET", Pattern: "/app/bootstrap", Permissions: []string{AppBootstrap}},
 	{OperationID: "adminWebBootstrap", Method: "GET", Pattern: "/admin-web/bootstrap", Permissions: []string{AdminWebBootstrap}},
