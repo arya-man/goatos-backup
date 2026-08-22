@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ComponentProps, type Mou
 
 export const LOCAL_OVERLAY_URL_CHANGE_EVENT = "mesha:local-overlay-url-change";
 const LOCAL_OVERLAY_HISTORY_KEY = "__meshaLocalOverlay";
+const rememberedOverlaySelections = new Map<string, string>();
 
 export function notifyLocalOverlayUrlChange(): void {
   window.dispatchEvent(new Event(LOCAL_OVERLAY_URL_CHANGE_EVENT));
@@ -19,8 +20,40 @@ export function replaceLocalOverlayUrl(href: string): void {
   const state = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
   const { [LOCAL_OVERLAY_HISTORY_KEY]: _overlay, ...nextState } = state;
   void _overlay;
+  rememberOverlaySelectionsFromHref(href, true);
   window.history.replaceState(nextState, "", href);
   notifyLocalOverlayUrlChange();
+}
+
+export function pushLocalOverlayUrl(href: string): boolean {
+  const nextUrl = new URL(href, window.location.href);
+  if (nextUrl.origin !== window.location.origin || nextUrl.pathname !== window.location.pathname) return false;
+  rememberOverlaySelectionsFromUrl(nextUrl, false);
+  if (nextUrl.href === window.location.href) {
+    notifyLocalOverlayUrlChange();
+    return true;
+  }
+  const state = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
+  window.history.pushState({ ...state, [LOCAL_OVERLAY_HISTORY_KEY]: true }, "", nextUrl);
+  notifyLocalOverlayUrlChange();
+  return true;
+}
+
+function rememberOverlaySelectionsFromHref(href: string, clearMissing: boolean): void {
+  rememberOverlaySelectionsFromUrl(new URL(href, window.location.href), clearMissing);
+}
+
+function rememberOverlaySelectionsFromUrl(url: URL, clearMissing: boolean): void {
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+  for (const key of ["hs_tag", "hs_history"]) {
+    const value = hashParams.get(key) ?? url.searchParams.get(key);
+    if (value) rememberedOverlaySelections.set(key, value);
+    else if (clearMissing) rememberedOverlaySelections.delete(key);
+  }
+}
+
+function rememberedOverlaySelection(selectionKey: string): string | undefined {
+  return rememberedOverlaySelections.get(selectionKey);
 }
 
 type LocalOverlayLinkProps = ComponentProps<typeof Link>;
@@ -35,17 +68,8 @@ export function LocalOverlayLink({ onClick, ...props }: LocalOverlayLinkProps) {
     onClick?.(event);
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 
-    const nextUrl = new URL(event.currentTarget.href, window.location.href);
-    if (nextUrl.origin !== window.location.origin || nextUrl.pathname !== window.location.pathname) return;
-
+    if (!pushLocalOverlayUrl(event.currentTarget.href)) return;
     event.preventDefault();
-    if (nextUrl.href === window.location.href) {
-      notifyLocalOverlayUrlChange();
-      return;
-    }
-    const state = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
-    window.history.pushState({ ...state, [LOCAL_OVERLAY_HISTORY_KEY]: true }, "", nextUrl);
-    notifyLocalOverlayUrlChange();
   }
 
   return <Link {...props} data-local-overlay-navigation="true" onClick={openLocally} />;
@@ -109,7 +133,10 @@ export function useLocalOverlaySelection<T>({
     function syncSelectionFromUrl(): void {
       const url = new URL(window.location.href);
       const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
-      const selectedId = hashParams.get(selectionKey) ?? url.searchParams.get(selectionKey) ?? undefined;
+      const selectedId =
+        hashParams.get(selectionKey) ??
+        url.searchParams.get(selectionKey) ??
+        (currentHistoryEntryIsLocalOverlay() ? rememberedOverlaySelection(selectionKey) : undefined);
       const item = items.find((candidate) => itemId(candidate) === selectedId);
       if (item) showDrawer(item);
       else hideDrawer();
@@ -129,11 +156,7 @@ export function useLocalOverlaySelection<T>({
   }, [hideDrawer, itemId, items, selectionKey, showDrawer]);
 
   useEffect(() => {
-    if (drawerOpen) {
-      const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-      return () => window.cancelAnimationFrame(frame);
-    }
-    previousFocusRef.current?.focus();
+    if (!drawerOpen) previousFocusRef.current?.focus();
   }, [drawerOpen]);
 
   const closeDrawer = useCallback((): void => {

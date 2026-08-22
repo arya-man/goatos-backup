@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore, type MouseEvent } from "react";
-import { LocalOverlayLink } from "@/components/local-overlay-link";
+import { LocalOverlayLink, pushLocalOverlayUrl } from "@/components/local-overlay-link";
 import Link from "@/components/no-prefetch-link";
 import { Tag } from "@/components/ui-primitives";
 import { useHerdSignalsNav } from "./herd-signals-nav-context";
@@ -36,6 +36,10 @@ import { HerdSignalsAnimalsHead, HerdSignalsAnimalsRow } from "./herd-signals-an
 
 function rowTagId(item: HerdSignalItem): string {
   return item.tag_id;
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest("a,button,input,select,textarea,[role='button']"));
 }
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
@@ -274,10 +278,27 @@ export function HerdSignalsTable({
               const delta15 = fmtSignedDelta(item.motion_delta);
               const delta1hText = fmtDelta1h(item.motion_delta_1h, item.motion_delta);
               const delta1h = delta1hText === "—" ? { text: "—", tone: "zero" as const } : fmtSignedDelta(item.motion_delta_1h);
+              const href = rowHref(item);
               return (
-                <tr key={item.tag_id}>
+                <tr
+                  key={item.tag_id}
+                  className="hs-selectable"
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Open tag detail for ${item.display_id || item.tag_id}`}
+                  onClick={(event) => {
+                    if (isInteractiveTarget(event.target)) return;
+                    pushLocalOverlayUrl(href);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    if (isInteractiveTarget(event.target)) return;
+                    event.preventDefault();
+                    pushLocalOverlayUrl(href);
+                  }}
+                >
                   <td data-l="Animal" className="animcell wide">
-                    <LocalOverlayLink href={rowHref(item)} scroll={false} title="Open tag detail">
+                    <LocalOverlayLink href={href} scroll={false} title="Open tag detail">
                       {item.display_id || item.goat_id || "Unmapped"}
                     </LocalOverlayLink>
                     <small>{item.mapping_state === "conflict" ? "mapping conflict" : MAPPING_LABEL[item.mapping_state].toLowerCase()}</small>
