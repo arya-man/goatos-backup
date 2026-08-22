@@ -8,6 +8,16 @@ doc. **Date:** 2026-08-22.
 > vendor specs or observed ground truth. Treat every number as a starting
 > configuration value, not a fact about the hardware or the animal.
 
+> **Companion document — system design and scalability:**
+> [`herd-signals-system-design.md`](./herd-signals-system-design.md) holds the
+> serving shape rather than the product boundary: the derived load model
+> (packets/s, rows/day, bytes/day at 5k–50k tags), storage tiering and the
+> partitioning/retention decisions, per-endpoint read budgets against the
+> repo's sub-500ms p95 policy, polling fan-out cost, failure modes and
+> backpressure, the scale-out ladder with its trigger metrics, and an explicit
+> built-vs-designed-not-built ledger. This document stays the authority for
+> what the module may claim; that one is the authority for how it is served.
+
 ## 0. What this module is
 
 Herd Signals ingests BLE advertisement telemetry broadcast by HoneyComm
@@ -380,7 +390,7 @@ shipped UI** — in the product each state is entered by real conditions.
 | Empty — no unmapped tags | every seen tag resolves to one identifier | stated as a healthy outcome, not an error |
 | Empty — no alerts | every tag within thresholds | stated as a healthy outcome |
 | Empty — no battery / no history | no readings or no activity windows in scope | explain that buckets are written as packets arrive |
-| Filtered to nothing | filters/search exclude every row | say the gateway is still receiving, offer "clear filters" |
+| Filtered to nothing | filters/search exclude every row | offer "clear filters"; claim the gateway is still receiving only when tags_seen > 0 proves it |
 | Read failed | API error | say the read failed, offer retry; never render an empty table as if it were zero rows |
 | Stale | last successful response older than 30s | degraded state on the live control, stale banner, manual refresh still works |
 | Paused | operator paused polling, or tab hidden | polling stops, state is visible on the live control |
