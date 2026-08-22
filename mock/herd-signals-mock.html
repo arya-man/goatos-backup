@@ -681,7 +681,7 @@ function history(tag,days){
   return out.reverse();                              // oldest first
 }
 /* Reference for "normal for THIS animal": the 75th-percentile bucket over 24h.
-   The median is useless here \u2014 a resting animal's median bucket is 0, so every
+   The median is useless here \u2014 an animal's quiet stretches put the median at 0, so every
    comparison against it fires. p75 describes an ordinary ACTIVE bucket. */
 function baseline(hist){
   const v=hist.filter(b=>b.delta!==null).map(b=>b.delta).sort((a,b)=>a-b);
@@ -884,10 +884,10 @@ function renderKpis(){
   const K=[
     ['k-info',IC.radio,'Tags seen',r.length,mapped.toLocaleString('en-IN')+' mapped animals, '+unmapped.toLocaleString('en-IN')+' unmapped','Derived','tags'],
     ['k-ok',IC.activity,'Animals moving',moving,'motion delta ≥ '+TH.move+' in last 15 min','Derived','moving'],
-    ['k-mut',IC.activity,'Quiet animals',quiet,'low or zero delta this window','Inferred','quiet'],
+    ['k-mut',IC.activity,'Quiet animals',quiet,'low or zero delta this window','Derived','quiet'],
     ['k-warn',IC.wifi,'Weak signal',weak,'RSSI ≤ '+TH.weakRssi+' dBm','Derived','weak'],
-    ['k-dng',IC.alert,'Missing signal',stale,'not seen for '+TH.staleMin+'+ min — signal, not animal','Inferred','stale'],
-    ['k-purple',IC.battery,'Low battery',lowb,'voltage below '+TH.lowBattMv+' mV · life est. (inferred) median '+fleetLife(r),'Direct + threshold','lowbatt']
+    ['k-dng',IC.alert,'Missing signal',stale,'not seen for '+TH.staleMin+'+ min — signal, not animal','Derived','stale'],
+    ['k-purple',IC.battery,'Low battery',lowb,'voltage below '+TH.lowBattMv+' mV','Derived','lowbatt']
   ];
   el.innerHTML=K.map(k=>'<div class="kpi '+k[0]+(KPIF===k[6]?' active':'')+'" role="button" tabindex="0" onclick="setKpi(\''+k[6]+'\')" title="Filter the table below to these '+k[2].toLowerCase()+'">'+
     '<div class="lab">'+svg(k[1],'sm')+k[2]+'</div><div class="val">'+k[3]+'</div><div class="dl">'+k[4]+'</div><div class="ty">'+k[5]+'</div>'+
@@ -928,7 +928,7 @@ function renderLive(){
     '<button class="pgbtn" onclick="goPage(1)" '+(PAGE>=pages-1?'disabled':'')+'>Next →</button>'+
     '<span>Showing <b>'+from.toLocaleString('en-IN')+'–'+to.toLocaleString('en-IN')+'</b> of <b>'+all.length.toLocaleString('en-IN')+'</b> · page <b>'+(PAGE+1)+'</b> of <b>'+pages.toLocaleString('en-IN')+'</b></span>'+
     '<div class="sp" style="flex:1"></div>'+
-    '<span class="faint">Server-side keyset pagination — filters and search run in the query, never on a fetched page.</span></div>';
+    '<span class="faint">Server-side keyset pagination — filters and search execute in the query, never on a fetched page.</span></div>';
   pg.innerHTML=pagerHtml;
   pgT.innerHTML=pagerHtml.replace('class="pager"','class="pager" style="border-top:0;border-bottom:1px solid var(--line2)"');
 }
@@ -1077,7 +1077,7 @@ function renderFs(){
      chartLegend()+
      '<div class="legend" style="padding-top:2px">'+Object.entries(EVENT_TYPES).filter(([k])=>EV_ON[k]).map(([k,t])=>'<span><i style="background:'+t.color+'"></i> '+t.label+'</span>').join('')+'</div>'+
      '<div class="readout" id="fschart-ro"><span class="faint">Hover a bucket for motion_count, delta, packet count and avg RSSI.</span></div>'+
-     '<div class="chartnote">Activity uses motion-count deltas from historical packets. Resting for short periods is normal; alerts use sustained patterns. Overlaid markers are other recorded farm activity for the same animal or its shed — read them as correlation, never as behaviour, cause, or a clinical finding.</div></div></div>'+
+     '<div class="chartnote">Activity uses motion-count deltas from historical packets. Quiet periods are normal; alerts use sustained patterns. Overlaid markers are other recorded farm activity for the same animal or its shed — read them as correlation, never as behaviour, cause, or a clinical finding.</div></div></div>'+
 
    '<div class="grid2" style="margin-top:14px">'+
      '<div class="card"><div class="hd"><svg class="ic" viewBox="0 0 24 24">'+IC.alert+'</svg><h3>Activity around recorded farm activity</h3>'+
@@ -1123,8 +1123,8 @@ function fsFacts(x){
     row('Motion count', x.motion.toLocaleString('en-IN'),'direct')+
     row('15m delta','+'+x.d15,'derived')+
     row('1h delta','+'+x.d60,'derived')+
-    row('Movement state', MOVE_LABEL[ms],'inferred')+
-    row('Pattern', PATTERNS[patternOf(x)].label,'inferred')+
+    row('Movement state', MOVE_LABEL[ms],'derived')+
+    row('Pattern', PATTERNS[patternOf(x)].label,'derived')+
     row('RSSI', x.rssi+' dBm','direct')+
     row('Battery voltage',(x.batt/1000).toFixed(1)+' V ('+x.batt+' mV)','direct')+
     row('Estimated battery life','<span class="tag '+battLife(x.batt).tone+'">'+battLife(x.batt).txt+'</span>','inferred')+
@@ -1166,13 +1166,13 @@ function renderDetail(){
     row('Tag temp', x.temp.toFixed(1)+' C','direct')+
     row('Motion count', x.motion.toLocaleString('en-IN'),'direct')+
     row('Motion delta (15m)','+'+x.d15,'derived')+
-    row('Movement state', MOVE_LABEL[ms],'inferred')+
+    row('Movement state', MOVE_LABEL[ms],'derived')+
     row('Last seen', ago(x.ageSec),'direct')+
     row('Temp sensor', x.tempOk?'OK':'Abnormal','direct')+
     row('Accelerometer', x.accelOk?'OK':'Abnormal','direct')+
     row('Mapping state', x.mapping,'derived')+
     '</dl>'+
-    '<div class="banner info" style="margin:12px 0 0;font-size:11.5px">'+svg(IC.alert)+'<div>Tag temperature is the temperature of the tag, not the animal. No behaviour, posture or clinical state is inferred from these values.</div></div>';
+    '';
 }
 function row(k,v,src){return '<dt>'+k+'</dt><dd>'+v+'<span class="srcl '+src+'">'+src+'</span></dd>';}
 
@@ -1247,7 +1247,7 @@ function renderAlerts(){
   r.forEach(x=>{
     const ms=movementState(x), pat=patternOf(x);
     if(pat==='inactive') a.push(['t-dng','Inactive alert',x,'Zero or very low motion delta for 3+ hours while the tag is still being seen. Duration-based, not a single empty window \u2014 open the tag to read the pattern.']);
-    else if(pat==='quiet_watch') a.push(['t-mut','Quiet watch',x,'Low motion delta for the last 1-2 hours. Short rest is normal; this is a watch item, not an alert.']);
+    else if(pat==='quiet_watch') a.push(['t-mut','Quiet watch',x,'Low motion delta for the last 1-2 hours. A short quiet stretch is normal; this is a watch item, not an alert.']);
     if(pat==='spike') a.push(['t-warn','Movement spike',x,'Current 15-minute delta is far above this animal\u2019s own baseline of '+baseline(historyCached(x.tag))+' per 5 min. Unusual counter activity \u2014 not walking, running or distress.']);
     if(pat==='recovered') a.push(['t-ok','Back to normal',x,'Activity resumed after a quiet period. No action needed; logged so a prior quiet watch can be closed.']);
     if(ms==='stale') a.push(['t-dng','Missing signal',x,'No packet for '+ago(x.ageSec)+'. Signal missing — not a missing animal. Check gateway coverage before checking the animal.']);
@@ -1295,17 +1295,17 @@ function setMapFilter(f,btn){MAPF=f;render();}
 /* ---------------- insights ---------------- */
 const INSIGHTS=[
   ['Tags Live Now',IC.radio,'derived',r=>r.filter(x=>x.ageSec<300).length,'distinct tags with last_seen_at within 5 min','A live tag means a received broadcast, nothing about the animal.'],
-  ['Missing Signal',IC.alert,'inferred',r=>r.filter(x=>movementState(x)==='stale').length,'mapped smart-tag animals not seen for 30+ min','Missing SIGNAL, never missing animal. Check gateway first.'],
-  ['Low Movement Watch',IC.activity,'inferred',r=>r.filter(x=>x.d60<20&&movementState(x)!=='stale').length,'60 min motion delta below shed baseline','Not resting, not sick — only a counter that barely moved.'],
-  ['High Movement Spike',IC.activity,'inferred',r=>r.filter(x=>x.d15>=200).length,'15m delta far above the animal/shed baseline','Unusual counter activity. Not walking, running or distress.'],
-  ['Shed Signal Coverage',IC.pin,'correlated',r=>Math.round(100*r.filter(x=>x.ageSec<300&&x.mapping==='mapped').length/Math.max(1,r.filter(x=>x.mapping==='mapped').length))+'%','live mapped tags / smart-tag mapped animals per shed','Coverage of the radio, correlated with animal location.'],
+  ['Missing Signal',IC.alert,'derived',r=>r.filter(x=>movementState(x)==='stale').length,'mapped smart-tag animals not seen for 30+ min','Missing SIGNAL, never missing animal. Check gateway first.'],
+  ['Low Movement Watch',IC.activity,'derived',r=>r.filter(x=>x.d60<20&&movementState(x)!=='stale').length,'60 min motion delta below shed baseline','Not resting, not sick — only a counter that barely moved.'],
+  ['High Movement Spike',IC.activity,'derived',r=>r.filter(x=>x.d15>=200).length,'15m delta far above the animal/shed baseline','Unusual counter activity. Not walking, running or distress.'],
+  ['Shed Signal Coverage',IC.pin,'derived',r=>Math.round(100*r.filter(x=>x.ageSec<300&&x.mapping==='mapped').length/Math.max(1,r.filter(x=>x.mapping==='mapped').length))+'%','live mapped tags / smart-tag mapped animals per shed','Coverage of the radio, correlated with animal location.'],
   ['Weak Signal Tags',IC.wifi,'derived',r=>r.filter(x=>signalState(x)==='weak').length,'RSSI at or below the provisional threshold','A radio measure. Says nothing about the animal.'],
-  ['Battery Attention',IC.battery,'direct',r=>r.filter(x=>battState(x)==='low').length,'battery below configured mV threshold','Threshold is a placeholder until the vendor confirms the curve.'],
+  ['Battery Attention',IC.battery,'derived',r=>r.filter(x=>battState(x)==='low').length,'battery below configured mV threshold','Threshold is a placeholder until the vendor confirms the curve.'],
   ['Post-Vaccination Movement Watch',IC.alert,'correlated',()=>4,'0-24h activity delta after vaccination vs prior baseline','Correlation only. Never a diagnosis or an adverse-event finding.'],
   ['Health Case Activity Trend',IC.activity,'correlated',()=>2,'activity trend before / during an open treatment','Context for the case. Not disease detection.'],
   ['Feed × Activity',IC.activity,'correlated',()=>3,'shed activity 2h before vs 2h after fed_at','Shed response to feeding. It is not eating detection.'],
   ['Weight × Activity',IC.activity,'correlated',()=>1,'low ADG or weight drop together with low activity','A growth-risk correlation to review, not a cause.'],
-  ['Unmapped Smart Tags',IC.unlink,'derived',r=>r.filter(x=>x.mapping!=='mapped').length,'BLE tags seen with no active smart-tag-capable identifier','Action: map the tag to an animal identifier.']
+  ['Unmapped Smart Tags',IC.unlink,'inferred',r=>r.filter(x=>x.mapping!=='mapped').length,'BLE tags seen with no active smart-tag-capable identifier','Action: map the tag to an animal identifier.']
 ];
 function renderInsights(){
   const el=document.getElementById('insightsBody');
