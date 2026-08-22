@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -11,6 +12,15 @@ import (
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+)
+
+// Ingest request caps (security review, HIGH): the handler previously decoded an unbounded
+// array straight into one transaction holding FOR UPDATE row locks, with no limit on body size
+// or packet count. A single gateway batch is at most a few hundred tags; these are generous but
+// finite.
+const (
+	maxIngestBodyBytes         = 2 << 20 // 2 MiB
+	maxIngestPacketsPerRequest = 2000
 )
 
 func tenantID(r *http.Request) string {
@@ -70,14 +80,36 @@ func (h *Handler) IngestPackets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Bound the request body BEFORE decoding (security review, HIGH): the handler previously
+	// decoded an unbounded array straight into one transaction holding FOR UPDATE row locks, so
+	// an oversized or absurdly long-array payload could hold locks and memory indefinitely.
+	// MaxBytesReader caps total bytes read; the packet-count cap below catches a payload that
+	// stays under the byte cap by using short/repeated field values but still carries an
+	// unreasonable number of packets.
+	r.Body = http.MaxBytesReader(w, r.Body, maxIngestBodyBytes)
+
 	// Strict JSON decode
 	var req domain.IngestRequest
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+				map[string]interface{}{"code": "request_too_large", "message": fmt.Sprintf("request body exceeds %d bytes", maxIngestBodyBytes)},
+				err)
+			return
+		}
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
 			map[string]interface{}{"code": "invalid_request", "message": "invalid request body"},
 			err)
+		return
+	}
+
+	if len(req.Packets) > maxIngestPacketsPerRequest {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			map[string]interface{}{"code": "too_many_packets", "message": fmt.Sprintf("request carries %d packets, max %d per request", len(req.Packets), maxIngestPacketsPerRequest)},
+			nil)
 		return
 	}
 

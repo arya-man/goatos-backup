@@ -54,18 +54,36 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 		return domain.IngestResponse{}, fmt.Errorf("invalid gateway_seen_at: %w", err)
 	}
 
-	// Convert request packets to domain packets
+	// Convert request packets to domain packets.
+	//
+	// serverNow is stamped ONCE for this whole ingest call and used as ReceivedAt for every
+	// packet in it (security review, HIGH): staleness, gap detection, ordering, the
+	// advance-only "latest" guard, and the packet dedup identity in this module all key off
+	// ReceivedAt, so it must never come from the caller. A far-future caller-supplied value
+	// would otherwise permanently freeze a tag's live state (the advance-only guard rejects
+	// every subsequent real packet as "not newer"). All packets in one call share serverNow
+	// because they were, in fact, received together -- that is a truthful timestamp, not an
+	// approximation.
+	serverNow := time.Now().UTC()
+
 	packets := make([]domain.Packet, 0, len(req.Packets))
 	for _, p := range req.Packets {
-		seenAt, err := time.Parse(time.RFC3339, p.SeenAt)
-		if err != nil {
-			s.log.Warn("skipping packet with invalid seen_at", "seen_at", p.SeenAt, "tag_id", p.TagID)
-			continue
+		// The caller's own claimed capture time is kept ONLY as a diagnostic (DeviceSeenAt) and
+		// as the dedup key's identity of "the same physical packet" (see migration 000195) --
+		// never for a staleness/gap/ordering decision. A malformed or absent value degrades to
+		// "no diagnostic timestamp available", not a reason to drop real sensor data: dropping
+		// the packet would make the device's own clock a DoS lever over data we no longer trust
+		// it for anyway.
+		var deviceSeenAt *time.Time
+		if parsed, err := time.Parse(time.RFC3339, p.SeenAt); err == nil {
+			deviceSeenAt = &parsed
+		} else {
+			s.log.Warn("packet has invalid or missing seen_at; ingesting with no diagnostic device timestamp", "seen_at", p.SeenAt, "tag_id", p.TagID)
 		}
 
 		// Per-packet gateway timestamp when the caller sends one; falls back to the envelope's
-		// batch relay time only when absent (older firmware). received_at (seenAt, server-
-		// relevant) is truth for ordering/gaps regardless -- this is diagnostic only.
+		// batch relay time only when absent (older firmware). Diagnostic only, same as
+		// DeviceSeenAt -- never used for ordering/gap/staleness decisions.
 		packetGatewaySeen := gatewaySeen
 		if p.GatewaySeenAt != nil && *p.GatewaySeenAt != "" {
 			if parsed, err := time.Parse(time.RFC3339, *p.GatewaySeenAt); err == nil {
@@ -82,7 +100,8 @@ func (s *Service) IngestPackets(ctx context.Context, actor domain.Actor, req dom
 			Source:                "gateway",
 			TagID:                 p.TagID,
 			TagMAC:                &p.TagMAC,
-			ReceivedAt:            seenAt,
+			ReceivedAt:            serverNow,
+			DeviceSeenAt:          deviceSeenAt,
 			GatewaySeenAt:         &packetGatewaySeen,
 			RSSIdbm:               p.RSSI,
 			BatteryMV:             p.Battery,
