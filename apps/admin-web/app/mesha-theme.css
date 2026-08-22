@@ -3337,7 +3337,7 @@ select:disabled { opacity: .45; }
   text-overflow:ellipsis;
   white-space:nowrap;
   font-size:14.5px;
-  line-height:1.25;
+  line-height:1.45;
   letter-spacing:0;
 }
 .herd-signals-page aside.drawer .dh .mono{
@@ -3347,7 +3347,7 @@ select:disabled { opacity: .45; }
   text-overflow:ellipsis;
   white-space:nowrap;
   font-size:11.5px;
-  line-height:1.35;
+  line-height:1.45;
 }
 .herd-signals-page aside.drawer .dh .sp{display:block;flex:1}
 .herd-signals-page aside.drawer .dh .iconbtn{
