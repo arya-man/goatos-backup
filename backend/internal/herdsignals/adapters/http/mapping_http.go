@@ -14,6 +14,11 @@ import (
 // buttons -- "Map selected BLE tag", "Mark as smart tag", "Replace smart tag" -- because the
 // module had no write path at all: five routes, one ingest and four reads.
 //
+// The three verbs are MAP, REPLACE and UNMAP. There is deliberately no "mark as smart tag"
+// endpoint: every row on the Tag Mapping screen is ALREADY a smart tag -- it is listed precisely
+// because the gateway is receiving its advertisements -- so asking a user to declare one as such
+// asserts nothing. smart_tag_capable is an internal consequence of binding.
+//
 // These are gated by permissions.HerdSignalsMap, NOT by the read permission: deciding which
 // animal a tag belongs to is a different authority from looking at the dashboard, and it is the
 // decision every animal-attributed number downstream depends on.
@@ -103,26 +108,20 @@ func (h *Handler) ReplaceTagMapping(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
 }
 
-// SetSmartTagCapable handles POST /herd-signals/identifiers/{identifier_id}/smart-tag.
-func (h *Handler) SetSmartTagCapable(w http.ResponseWriter, r *http.Request) {
+// UnmapTagMapping handles POST /herd-signals/tag-mappings/unmap.
+func (h *Handler) UnmapTagMapping(w http.ResponseWriter, r *http.Request) {
 	actor, ok := h.mappingActor(w, r)
 	if !ok {
 		return
 	}
-	identifierID := r.PathValue("identifier_id")
-	if identifierID == "" {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
-			map[string]interface{}{"code": "missing_identifier_id", "message": "identifier_id is required"}, nil)
-		return
-	}
-	var req domain.SetSmartTagCapableRequest
+	var req domain.UnmapTagMappingRequest
 	if err := decodeMappingBody(w, r, &req); err != nil {
 		h.writeDecodeError(w, r, err)
 		return
 	}
-	resp, err := h.service.SetSmartTagCapable(r.Context(), actor, identifierID, req)
+	resp, err := h.service.UnmapTagMapping(r.Context(), actor, req)
 	if err != nil {
-		h.writeMappingError(w, r, "set_smart_tag_capable", err)
+		h.writeMappingError(w, r, "unmap_tag_mapping", err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)

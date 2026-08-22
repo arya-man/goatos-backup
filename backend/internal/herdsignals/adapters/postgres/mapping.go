@@ -342,9 +342,20 @@ func effectiveMappedAt(ctx context.Context, tx pgx.Tx, tenantID string, ids []st
 	return at.UTC(), nil
 }
 
-// SetSmartTagCapable implements ports.Repository.
-func (r *Repository) SetSmartTagCapable(ctx context.Context, tenantID, identifierID string, capable bool) (domain.TagMappingResponse, error) {
+// UnmapTagMapping implements ports.Repository: release a binding with no replacement.
+//
+// It clears smart_tag_capable and smart_tag_mapped_at on the identifiers holding this tag's
+// value(s) WITHOUT retiring the identity row -- the row may also be the animal's ordinary ear-tag
+// identity, and the physical value stays claimed for the tenant's lifetime either way. Clearing
+// the flag is exactly what makes the read path stop resolving the tag to this animal; clearing
+// the stamp is what makes NULL mean "device telemetry only" again. The tag's packets keep
+// flowing and its stored history stays intact.
+func (r *Repository) UnmapTagMapping(ctx context.Context, tenantID string, req domain.UnmapTagMappingRequest) (domain.TagMappingResponse, error) {
 	var out domain.TagMappingResponse
+	values, normTagID, normTagMAC, err := bindValues(req.TagID, req.TagMAC)
+	if err != nil {
+		return out, err
+	}
 
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -352,82 +363,43 @@ func (r *Repository) SetSmartTagCapable(ctx context.Context, tenantID, identifie
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op once committed
 
-	var goatID, normalizedValue, status string
-	err = tx.QueryRow(ctx, `
-		SELECT goat_id::text, normalized_value, status
-		FROM public.goat_identifiers
-		WHERE tenant_id = $1::uuid AND identifier_id = $2::uuid
-		FOR UPDATE
-	`, tenantID, identifierID).Scan(&goatID, &normalizedValue, &status)
-	if err == pgx.ErrNoRows {
-		return out, fmt.Errorf("identifier %s not found in this tenant: %w", identifierID, domain.ErrMappingNotFound)
-	}
-	if err != nil {
-		return out, fmt.Errorf("lock identifier: %w", err)
-	}
-
-	values := []string{normalizedValue}
-
-	if !capable {
-		if err := unbindIdentifiers(ctx, tx, tenantID, []string{identifierID}); err != nil {
-			return out, err
-		}
-		if err := syncTagLatestMonitoring(ctx, tx, tenantID, values, nil); err != nil {
-			return out, err
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return out, fmt.Errorf("commit unmark smart tag: %w", err)
-		}
-		return domain.TagMappingResponse{
-			GoatID:               goatID,
-			TagID:                normalizedValue,
-			IdentifierIDs:        []string{},
-			MappingState:         "unmapped",
-			MonitoringSince:      nil,
-			UnboundIdentifierIDs: []string{identifierID},
-		}, nil
-	}
-
-	if status != "active" {
-		return out, fmt.Errorf("identifier %s is %s; only an active identifier may carry a smart tag: %w", identifierID, status, domain.ErrMappingConflict)
-	}
-	live, err := liveSmartTagsForGoat(ctx, tx, tenantID, goatID)
+	existing, err := lockIdentifiersByValue(ctx, tx, tenantID, values)
 	if err != nil {
 		return out, err
 	}
-	for _, e := range live {
-		if e.IdentifierID != identifierID {
-			return out, fmt.Errorf("animal %s already carries a live smart tag (%s); use the replace endpoint to swap it: %w", goatID, e.NormalizedValue, domain.ErrMappingConflict)
+	ids := make([]string, 0, len(existing))
+	goatID := ""
+	for _, e := range existing {
+		if e.Status != "active" || e.SmartTagCapable == nil || !*e.SmartTagCapable {
+			continue
 		}
+		ids = append(ids, e.IdentifierID)
+		goatID = e.GoatID
+	}
+	if len(ids) == 0 {
+		// Unmapping something that is not mapped is a caller mistake worth naming, not a silent
+		// no-op: the operator believes they just released a binding.
+		return out, fmt.Errorf("tag %q is not mapped to an animal: %w", normTagID, domain.ErrMappingConflict)
 	}
 
-	mappedAt := time.Now().UTC()
-	if _, err := tx.Exec(ctx, `
-		UPDATE public.goat_identifiers
-		SET smart_tag_capable = true,
-		    smart_tag_mapped_at = COALESCE(smart_tag_mapped_at, $3),
-		    updated_at = now()
-		WHERE tenant_id = $1::uuid AND identifier_id = $2::uuid
-	`, tenantID, identifierID, mappedAt); err != nil {
-		return out, fmt.Errorf("mark smart tag capable: %w", err)
-	}
-	effective, err := effectiveMappedAt(ctx, tx, tenantID, []string{identifierID})
-	if err != nil {
+	if err := unbindIdentifiers(ctx, tx, tenantID, ids); err != nil {
 		return out, err
 	}
-	if err := syncTagLatestMonitoring(ctx, tx, tenantID, values, &effective); err != nil {
+	if err := syncTagLatestMonitoring(ctx, tx, tenantID, values, nil); err != nil {
 		return out, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return out, fmt.Errorf("commit mark smart tag: %w", err)
+		return out, fmt.Errorf("commit unmap tag mapping: %w", err)
 	}
+
 	return domain.TagMappingResponse{
 		GoatID:               goatID,
-		TagID:                normalizedValue,
-		IdentifierIDs:        []string{identifierID},
-		MappingState:         "mapped",
-		MonitoringSince:      &effective,
-		UnboundIdentifierIDs: []string{},
+		TagID:                normTagID,
+		TagMAC:               normTagMAC,
+		IdentifierIDs:        []string{},
+		MappingState:         "unmapped",
+		MonitoringSince:      nil,
+		UnboundIdentifierIDs: ids,
 	}, nil
 }
 

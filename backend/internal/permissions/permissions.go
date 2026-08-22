@@ -519,8 +519,8 @@ const (
 	// permission, not an operator's.
 	HerdSignalsIngest = "herd_signals.ingest"
 	// HerdSignalsMap gates the herd-signals MAPPING WRITES (POST /herd-signals/tag-mappings,
-	// /herd-signals/tag-mappings/replace, /herd-signals/identifiers/{identifier_id}/smart-tag):
-	// deciding WHICH ANIMAL a BLE tag belongs to.
+	// /herd-signals/tag-mappings/replace, /herd-signals/tag-mappings/unmap): deciding WHICH
+	// ANIMAL a BLE tag belongs to.
 	//
 	// Deliberately separate from HerdSignalsRead, and it is not a formality. Reading the live
 	// dashboard observes what the tags report; a mapping write decides whose body every
