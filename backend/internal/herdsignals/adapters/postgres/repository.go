@@ -275,6 +275,50 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		mapping = existing.MappingState
 	}
 
+	// Maintainer decision on offline behaviour: the gateway does not buffer scan reports through
+	// a WAN outage, so a reception gap this long means we received NOTHING for that period, and
+	// this delta is a TOTAL over the gap with unknown time distribution, not ordinary movement.
+	// received_at (server clock) is the ONLY input -- never gateway_seen_at, which is the
+	// gateway's own uncorrected clock and would fabricate or hide gaps.
+	gapDelta := domain.IsGapDelta(previousSeenAt, latestPkt.ReceivedAt, thresholds)
+	// The TOTAL across the gap: current cumulative minus the last one we saw, floored at 0 on a
+	// counter reset (domain.MotionDelta's existing guard, reused rather than duplicated). This is
+	// distinct from the reconnect bucket's own naturally-computed intra-bucket delta (which is 0,
+	// or close to it, since the bucket usually holds only the single reconnect packet) -- the
+	// bucket's row is overwritten with THIS total below, specifically because attributing it to
+	// "first packet in bucket minus itself" would silently drop the whole point of gap_delta.
+	rawDelta, _ := domain.MotionDelta(latestPkt.MotionCount, previousMotionCount)
+
+	if gapDelta {
+		// Flag the RECONNECT bucket -- the bucket containing latestPkt.ReceivedAt -- in every
+		// tier's activity-window row, AND overwrite its motion_delta with rawDelta (the TOTAL
+		// across the gap). This never smears the gap across the buckets it spans: those buckets
+		// simply have no row (packets never arrived for them, so upsertActivityWindowsTx never
+		// wrote them), which the timeline already renders as is_gap=true. Only the ONE bucket
+		// that actually received the reconnect packet carries the lump.
+		//
+		// Overwriting motion_delta here is deliberate, not a bug to "fix" later: the bucket's own
+		// naturally-computed intra-bucket delta (last packet in bucket minus first packet in
+		// bucket, from upsertActivityWindowsTx above) is 0 or near-0, because the bucket usually
+		// holds only this single reconnect packet -- comparing it to itself cannot see the gap.
+		// rawDelta compares against the tag's last KNOWN state before the gap, which is the only
+		// number that actually represents "how much movement happened somewhere in that hole".
+		// first_motion_count/last_motion_count are left as whatever this bucket's own packets
+		// produced (not rewritten to match) -- they remain "what this bucket observed", while
+		// motion_delta on a gap_delta row means something different ("what accrued since we last
+		// heard from this tag"). That asymmetry is intentional.
+		for _, bucketSeconds := range activityWindowTiers {
+			bucketStart := latestPkt.ReceivedAt.Truncate(time.Duration(bucketSeconds) * time.Second)
+			if _, err := tx.Exec(ctx, `
+				UPDATE public.herd_signal_activity_windows
+				SET gap_delta = true, motion_delta = $5
+				WHERE tenant_id = $1 AND tag_id = $2 AND bucket_start = $3 AND bucket_seconds = $4
+			`, tenantID, tagID, bucketStart, bucketSeconds, rawDelta); err != nil {
+				return false, fmt.Errorf("flag reconnect bucket (%ds): %w", bucketSeconds, err)
+			}
+		}
+	}
+
 	// movement_state and pattern_state are computed over history, not the single ingest-batch
 	// delta (AGENTS.md: compare like grain to like grain). Pull the trailing 15-minute window
 	// from the 60s tier (already upserted above in this same tx) for the movement-state delta,
@@ -305,7 +349,7 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		return false, fmt.Errorf("load 24h pattern history: %w", err)
 	}
 	seenAt := latestPkt.ReceivedAt
-	patternStateComputed := domain.PatternStateFromHistory(windowDelta, &seenAt, time.Now().UTC(), history, previousPattern, thresholds)
+	patternStateComputed := domain.PatternStateFromHistory(windowDelta, &seenAt, time.Now().UTC(), history, previousPattern, gapDelta, thresholds)
 
 	signalState := domain.SignalStateFromRSSI(latestPkt.RSSIdbm, nil, thresholds)
 	batteryState := domain.BatteryStateFromMillivolts(latestPkt.BatteryMV, thresholds)
@@ -324,8 +368,8 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 			last_rssi_dbm, signal_state, battery_mv, battery_state, tag_temperature_c,
 			motion_count, motion_delta, motion_delta_1h, previous_motion_count, previous_seen_at,
 			motion_window_seconds, movement_state, pattern_state, temperature_sensor_ok,
-			accelerometer_sensor_ok, mapping_state, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, now())
+			accelerometer_sensor_ok, mapping_state, gap_delta, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now())
 		ON CONFLICT (tenant_id, tag_id) DO UPDATE
 		SET tag_mac = COALESCE($3, public.herd_signal_tag_latest.tag_mac),
 		    gateway_id = COALESCE($4, public.herd_signal_tag_latest.gateway_id),
@@ -347,6 +391,7 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		    temperature_sensor_ok = COALESCE($20, public.herd_signal_tag_latest.temperature_sensor_ok),
 		    accelerometer_sensor_ok = COALESCE($21, public.herd_signal_tag_latest.accelerometer_sensor_ok),
 		    mapping_state = $22,
+		    gap_delta = $23,
 		    updated_at = now()
 	`,
 		tenantID, tagID, latestPkt.TagMAC, latestPkt.GatewayID, latestPkt.Source, latestPkt.ReceivedAt,
@@ -357,11 +402,12 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		previousMotionCount, previousSeenAt,
 		900, movementState,
 		patternStateComputed,
-		latestPkt.TemperatureSensorOK, latestPkt.AccelerometerSensorOK, mapping,
+		latestPkt.TemperatureSensorOK, latestPkt.AccelerometerSensorOK, mapping, gapDelta,
 	)
 	if err != nil {
 		return false, fmt.Errorf("upsert tag_latest: %w", err)
 	}
+
 	return true, nil
 }
 
@@ -389,7 +435,7 @@ func (r *Repository) sumActivityWindowDeltaTx(ctx context.Context, tx pgx.Tx, te
 // ingest transaction (mirrors ListActivityWindows but reads through the tx, not the pool).
 func (r *Repository) listActivityWindowsTx(ctx context.Context, tx pgx.Tx, tenantID, tagID string, bucketSeconds int, from, to time.Time) ([]domain.ActivityWindow, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT bucket_start, bucket_seconds, motion_delta, packet_count
+		SELECT bucket_start, bucket_seconds, motion_delta, packet_count, gap_delta
 		FROM public.herd_signal_activity_windows
 		WHERE tenant_id = $1 AND tag_id = $2 AND bucket_seconds = $3
 		      AND bucket_start >= $4 AND bucket_start <= $5
@@ -403,7 +449,7 @@ func (r *Repository) listActivityWindowsTx(ctx context.Context, tx pgx.Tx, tenan
 	var windows []domain.ActivityWindow
 	for rows.Next() {
 		var w domain.ActivityWindow
-		if err := rows.Scan(&w.BucketStart, &w.BucketSeconds, &w.MotionDelta, &w.PacketCount); err != nil {
+		if err := rows.Scan(&w.BucketStart, &w.BucketSeconds, &w.MotionDelta, &w.PacketCount, &w.GapDelta); err != nil {
 			return nil, err
 		}
 		w.IsGap = w.PacketCount == 0
@@ -422,7 +468,7 @@ func (r *Repository) GetTagLatest(ctx context.Context, tenantID, tagID string) (
 		       tl.last_rssi_dbm, tl.signal_state, tl.battery_mv, tl.battery_state, tl.tag_temperature_c,
 		       tl.motion_count, tl.motion_delta, tl.motion_delta_1h, tl.previous_motion_count, tl.previous_seen_at,
 		       tl.motion_window_seconds, ` + effectiveMovementStateExpr + `, ` + effectivePatternStateExpr + `, tl.temperature_sensor_ok,
-		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.updated_at
+		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.gap_delta, tl.updated_at
 		FROM public.herd_signal_tag_latest tl
 		WHERE tl.tenant_id = $1 AND tl.tag_id = $2
 	`
@@ -432,7 +478,7 @@ func (r *Repository) GetTagLatest(ctx context.Context, tenantID, tagID string) (
 		&tag.LastRSSIdbm, &tag.SignalState, &tag.BatteryMV, &tag.BatteryState, &tag.TagTemperatureC,
 		&tag.MotionCount, &tag.MotionDelta, &tag.MotionDelta1h, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
 		&tag.MotionWindowSeconds, &tag.MovementState, &tag.PatternState, &tag.TemperatureSensorOK,
-		&tag.AccelerometerSensorOK, &tag.MappingState, &tag.UpdatedAt,
+		&tag.AccelerometerSensorOK, &tag.MappingState, &tag.GapDelta, &tag.UpdatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -557,7 +603,7 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 		       tl.last_rssi_dbm, tl.signal_state, tl.battery_mv, tl.battery_state, tl.tag_temperature_c,
 		       tl.motion_count, tl.motion_delta, tl.motion_delta_1h, tl.previous_motion_count, tl.previous_seen_at,
 		       tl.motion_window_seconds, `+effectiveMovementStateExpr+`, `+effectivePatternStateExpr+`, tl.temperature_sensor_ok,
-		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.updated_at
+		       tl.accelerometer_sensor_ok, tl.mapping_state, tl.gap_delta, tl.updated_at
 		FROM public.herd_signal_tag_latest tl
 		%s
 		%s
@@ -580,7 +626,7 @@ func (r *Repository) ListTagsLatest(ctx context.Context, tenantID string, parkID
 			&tag.LastRSSIdbm, &tag.SignalState, &tag.BatteryMV, &tag.BatteryState, &tag.TagTemperatureC,
 			&tag.MotionCount, &tag.MotionDelta, &tag.MotionDelta1h, &tag.PreviousMotionCount, &tag.PreviousSeenAt,
 			&tag.MotionWindowSeconds, &tag.MovementState, &tag.PatternState, &tag.TemperatureSensorOK,
-			&tag.AccelerometerSensorOK, &tag.MappingState, &tag.UpdatedAt,
+			&tag.AccelerometerSensorOK, &tag.MappingState, &tag.GapDelta, &tag.UpdatedAt,
 		); err != nil {
 			return nil, domain.Summary{}, nil, err
 		}
@@ -646,7 +692,7 @@ func (r *Repository) ListActivityWindows(ctx context.Context, tenantID, tagID st
 	query := `
 		SELECT tenant_id, tag_id, bucket_start, bucket_seconds, first_motion_count,
 		       last_motion_count, motion_delta, packet_count, avg_rssi_dbm,
-		       min_rssi_dbm, max_rssi_dbm, first_seen_at, last_seen_at
+		       min_rssi_dbm, max_rssi_dbm, first_seen_at, last_seen_at, gap_delta
 		FROM public.herd_signal_activity_windows
 		WHERE tenant_id = $1 AND tag_id = $2 AND bucket_start >= $3 AND bucket_start <= $4
 		      AND bucket_seconds = $5
@@ -664,7 +710,7 @@ func (r *Repository) ListActivityWindows(ctx context.Context, tenantID, tagID st
 		if err := rows.Scan(
 			&w.TenantID, &w.TagID, &w.BucketStart, &w.BucketSeconds, &w.FirstMotionCount,
 			&w.LastMotionCount, &w.MotionDelta, &w.PacketCount, &w.AvgRSSIdbm,
-			&w.MinRSSIdbm, &w.MaxRSSIdbm, &w.FirstSeenAt, &w.LastSeenAt,
+			&w.MinRSSIdbm, &w.MaxRSSIdbm, &w.FirstSeenAt, &w.LastSeenAt, &w.GapDelta,
 		); err != nil {
 			return nil, err
 		}
@@ -887,11 +933,15 @@ func (r *Repository) GetBaselineDeltas(ctx context.Context, tenantID string, tag
 	if len(tagIDs) == 0 {
 		return result, nil
 	}
+	// gap_delta = false: a reconnect lump is a total over an unknown span, not a sample of this
+	// animal's normal per-bucket movement (maintainer decision on offline behaviour, mirrors
+	// domain.Baseline75's Go-side exclusion for the same reason). Never remove this predicate to
+	// "smooth" the baseline -- that is exactly the mistake this exclusion exists to prevent.
 	rows, err := r.db.Query(ctx, `
 		SELECT tag_id, percentile_disc(0.75) WITHIN GROUP (ORDER BY motion_delta)
 		FROM public.herd_signal_activity_windows
 		WHERE tenant_id = $1 AND tag_id = ANY($2)
-		      AND bucket_seconds = 300 AND packet_count > 0
+		      AND bucket_seconds = 300 AND packet_count > 0 AND gap_delta = false
 		      AND bucket_start >= now() - interval '24 hours'
 		GROUP BY tag_id
 	`, tenantID, tagIDs)

@@ -10727,7 +10727,15 @@ components:
         temperature_sensor_ok: { type: boolean, nullable: true }
         accelerometer_sensor_ok: { type: boolean, nullable: true }
         mapping_state: { $ref: '#/components/schemas/HerdSignalMappingState' }
-      required: [tag_id, tag_mac, goat_id, display_id, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, gateway_id, last_seen_at, rssi_dbm, signal_state, battery_mv, battery_state, battery_life_estimate, tag_temperature_c, motion_count, motion_delta, motion_delta_1h, motion_window_seconds, movement_state, pattern_state, baseline_delta, sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, mapping_state]
+        gap_delta:
+          type: boolean
+          description: >-
+            True when motion_delta is a reconnect TOTAL across a reception gap (maintainer
+            decision on offline behaviour: the gateway does not buffer through a WAN outage, so a
+            gap this long means nothing was received, and the delta on reconnect is a total with
+            unknown time distribution), not this window's own movement. Render distinctly, never
+            as an ordinary delta.
+      required: [tag_id, tag_mac, goat_id, display_id, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, gateway_id, last_seen_at, rssi_dbm, signal_state, battery_mv, battery_state, battery_life_estimate, tag_temperature_c, motion_count, motion_delta, motion_delta_1h, motion_window_seconds, movement_state, pattern_state, baseline_delta, sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, mapping_state, gap_delta]
     HerdSignalsLiveResponse:
       type: object
       properties:
@@ -10752,7 +10760,14 @@ components:
         is_gap:
           type: boolean
           description: True when the window has NO packets. Never collapsed with packet_count>0/motion_delta=0.
-      required: [bucket_start, bucket_seconds, first_motion_count, last_motion_count, motion_delta, packet_count, avg_rssi_dbm, min_rssi_dbm, max_rssi_dbm, is_gap]
+        gap_delta:
+          type: boolean
+          description: >-
+            True only on a RECONNECT bucket: packets WERE received, and motion_delta is a TOTAL
+            across a prior reception gap with unknown time distribution. Distinct from BOTH is_gap
+            (no packets) and an ordinary zero delta (packets received, no movement) -- a client
+            must be able to render all three as different facts.
+      required: [bucket_start, bucket_seconds, first_motion_count, last_motion_count, motion_delta, packet_count, avg_rssi_dbm, min_rssi_dbm, max_rssi_dbm, is_gap, gap_delta]
     HerdSignalTimelineResponse:
       type: object
       properties:

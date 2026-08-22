@@ -29,6 +29,25 @@ func MotionDelta(current, previous *int64) (delta int64, wasReset bool) {
 	return *current - *previous, false
 }
 
+// IsGapDelta reports whether a delta between previousSeenAt and the new packet's received_at
+// crosses a reception gap (maintainer decision on offline behaviour): the gateway does not
+// buffer scan reports through a WAN outage and a tag only broadcasts its current cumulative
+// motion_count, so an interval this long means the backend received NOTHING in between, and the
+// eventual delta is a TOTAL across the whole gap with NO information about its distribution in
+// time. previousSeenAt is nil for a tag's first-ever packet, which is not a "gap" (there is no
+// prior sighting to have lost touch with).
+//
+// received_at (server clock) is the ONLY input, by maintainer decision: gateway_seen_at is the
+// gateway's own clock, stored uncorrected and never used to decide whether a gap occurred (one
+// observed gateway runs +02:30:00 ahead of real IST, so trusting it would fabricate or hide
+// gaps).
+func IsGapDelta(previousSeenAt *time.Time, receivedAt time.Time, thresholds Thresholds) bool {
+	if previousSeenAt == nil {
+		return false
+	}
+	return receivedAt.Sub(*previousSeenAt) > time.Duration(thresholds.ReceptionGapMinutes)*time.Minute
+}
+
 // MovementStateFromDelta determines movement state from motion delta and time window.
 func MovementStateFromDelta(delta int64, windowSeconds int, thresholds Thresholds) string {
 	switch {
@@ -102,6 +121,7 @@ func PatternStateFromHistory(
 	now time.Time,
 	recentWindows []ActivityWindow, // 24h history, all tiers
 	previousPattern string,
+	currentIsGapDelta bool,
 	thresholds Thresholds,
 ) string {
 	if lastPacketAt == nil {
@@ -113,18 +133,23 @@ func PatternStateFromHistory(
 		return string(PatternMissingSignal)
 	}
 
-	// Compute baseline (p75) from 24h non-gap windows. The baseline is computed over the 300s
-	// (5-minute) activity-window tier -- see the postgres adapter's GetBaselineDeltas -- while
-	// currentDelta is a 900s (15-minute) window sum. Comparing a 15-minute value directly
-	// against a 5-minute baseline (maintainer correctness review, defect 3: "like grain to like
-	// grain") makes spike fire at ~0.83x the animal's normal rate, i.e. constantly. Scale the
-	// baseline up by the grain ratio (patternWindowSeconds / baselineBucketSeconds = 3) before
-	// applying the spike multiplier, so both sides of the comparison cover the same span.
+	// Compute baseline (p75) from 24h non-gap, non-gap-delta windows. The baseline is computed
+	// over the 300s (5-minute) activity-window tier -- see the postgres adapter's
+	// GetBaselineDeltas -- while currentDelta is a 900s (15-minute) window sum. Comparing a
+	// 15-minute value directly against a 5-minute baseline (maintainer correctness review,
+	// defect 3: "like grain to like grain") makes spike fire at ~0.83x the animal's normal rate,
+	// i.e. constantly. Scale the baseline up by the grain ratio (patternWindowSeconds /
+	// baselineBucketSeconds = 3) before applying the spike multiplier, so both sides of the
+	// comparison cover the same span.
 	baseline := Baseline75(recentWindows)
 	grainRatio := float64(patternWindowSeconds) / float64(baselineBucketSeconds)
 
-	// Check for spike (current far above baseline, at matching grain)
-	if baseline > 0 && float64(currentDelta) > float64(baseline)*grainRatio*thresholds.SpikeThresholdMultiplier {
+	// A reconnect lump is NOT a spike (maintainer decision on offline behaviour): a tag that was
+	// offline for two hours and comes back +239 is not a burst of activity in this window, it is
+	// a total across a gap with an unknown time distribution -- attributing it to "spike" would
+	// invent a timeline the data cannot support, the same reason it is excluded from the
+	// baseline above. Skip the comparison entirely rather than exempting it after the fact.
+	if !currentIsGapDelta && baseline > 0 && float64(currentDelta) > float64(baseline)*grainRatio*thresholds.SpikeThresholdMultiplier {
 		return string(PatternSpike)
 	}
 
@@ -165,7 +190,12 @@ func PatternStateFromHistory(
 func Baseline75(recentWindows []ActivityWindow) int64 {
 	var deltas []int64
 	for _, w := range recentWindows {
-		if !w.IsGap && w.MotionDelta >= 0 {
+		// GapDelta windows are excluded on purpose (maintainer decision on offline behaviour):
+		// a reconnect lump is a total over an unknown span, not a sample of this animal's normal
+		// per-bucket movement. Averaging or otherwise folding it into the baseline would treat an
+		// artifact of a network outage as if it were the animal's behaviour -- DO NOT "fix" this
+		// by including it, weighting it down, or smoothing it across buckets; exclude it, full stop.
+		if !w.IsGap && !w.GapDelta && w.MotionDelta >= 0 {
 			deltas = append(deltas, w.MotionDelta)
 		}
 	}
