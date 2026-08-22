@@ -70,8 +70,13 @@ export function VaccinationPlanEditor(props: Props) {
   // saved plan differs from client state by those codes alone. Comparing against the page
   // props therefore never settled: the "Draft saved." note never appeared and Save stayed
   // lit, inviting the user to save the same thing forever.
-  const [baseline, setBaseline] = useState<EditorPlan>(props.initialPlan);
-  useEffect(() => setBaseline(props.initialPlan), [props.initialPlan]);
+  // Held as "what was last saved", defaulting to what the page was given. Kept as state
+  // rather than synced from props in an effect: setting state inside an effect re-renders
+  // the whole editor a second time on every prop change, and the value is only ever
+  // replaced at two moments this component already knows about -- a save, and a fresh page.
+  const [savedPlan, setSavedPlan] = useState<EditorPlan | null>(null);
+  const baseline = savedPlan ?? props.initialPlan;
+  const setBaseline = setSavedPlan;
   const [selected, setSelected] = useState(props.initialPlan.vaccines[0]?.code ?? "");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);

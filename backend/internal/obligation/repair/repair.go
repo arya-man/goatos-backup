@@ -27,7 +27,12 @@ import (
 )
 
 const (
-	repeatReason   = "repeat_cycle_duplicate_repaired"
+	repeatReason = "repeat_cycle_duplicate_repaired"
+	// One plan, one draft. Where a scope already holds more than one, the newest survives --
+	// it is the one someone was most recently working in -- and the losers are RETIRED rather
+	// than deleted: unreachable work either way (the list renders the first draft it finds),
+	// but a retired row keeps what the farm typed and stays in the version history.
+	draftsReason   = "duplicate_draft_retired"
 	campaignReason = "campaign_duplicate_repaired"
 	courseReason   = "course_dose_duplicate_repaired"
 
@@ -61,7 +66,7 @@ type Counters struct {
 }
 
 // Modes lists every repairable duplicate class.
-func Modes() []string { return []string{"repeat", "course", "campaign"} }
+func Modes() []string { return []string{"repeat", "course", "campaign", "drafts"} }
 
 // ValidMode reports whether mode names a repairable class.
 func ValidMode(mode string) bool {
@@ -108,6 +113,9 @@ const pageSize = 500
 
 func Run(ctx context.Context, pool *pgxpool.Pool, repo canceller, cfg Config) (Counters, error) {
 	var got Counters
+	if cfg.Mode == "drafts" {
+		return retireDuplicateDrafts(ctx, pool, cfg)
+	}
 	// Paged with a keyset cursor rather than a single LIMIT window. Rows that cannot be
 	// repaired -- no reconstructable cause -- stay open and sort to the front, so a plain
 	// LIMIT would hand back the same unrepairable groups on every run and the tail of a large
@@ -401,4 +409,73 @@ func isRepeatCycleConflict(err error) bool {
 	}
 	return pgErr.ConstraintName == "obligation_repeat_cycle_open_anchor_unique_idx" ||
 		pgErr.ConstraintName == "obligation_repeat_cycle_open_source_unique_idx"
+}
+
+// retireDuplicateDrafts leaves one draft per (tenant, plan, scope).
+//
+// The newest survives -- it is the one someone was most recently working in -- and the losers
+// are RETIRED rather than deleted: unreachable work either way, since the list renders the
+// first draft it finds, but a retired row keeps what the farm typed and stays in the version
+// history.
+//
+// This has to happen BEFORE the one-draft unique index is built, because the index cannot be
+// created over rows that already violate it. It is a command rather than a step inside that
+// migration on purpose: retiring a draft is a data change on rows the seed itself authors, and
+// a migration cannot be dry-run, cannot be reviewed row by row, and cannot be re-run
+// selectively. Here it reports by default and mutates only with --apply.
+func retireDuplicateDrafts(ctx context.Context, pool *pgxpool.Pool, cfg Config) (Counters, error) {
+	var got Counters
+	const losers = `
+SELECT protocol_version_id::text
+FROM (
+  SELECT protocol_version_id,
+         row_number() OVER (
+           PARTITION BY tenant_id, protocol_id, scope_type, scope_id
+           ORDER BY created_at DESC, protocol_version_id DESC
+         ) AS rn
+  FROM protocol_versions
+  WHERE tenant_id = $1::uuid
+    AND status = 'draft'
+) ranked
+WHERE ranked.rn > 1
+LIMIT $2`
+
+	rows, err := pool.Query(ctx, losers, cfg.TenantID, cfg.Limit)
+	if err != nil {
+		return got, fmt.Errorf("find duplicate drafts: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return got, fmt.Errorf("scan duplicate draft: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return got, err
+	}
+
+	got.GroupsExamined = len(ids)
+	got.SkippedNotRepeat = len(ids) // counted in its own bucket: a draft is not a repeat cycle
+	if !cfg.Apply || len(ids) == 0 {
+		got.DuplicatesRetired = len(ids)
+		return got, nil
+	}
+	tag, err := pool.Exec(ctx, `
+UPDATE protocol_versions
+SET status = 'retired',
+    retired_at = now(),
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND protocol_version_id = ANY($2::uuid[])
+  AND status = 'draft'`, cfg.TenantID, ids)
+	if err != nil {
+		return got, fmt.Errorf("retire duplicate drafts: %w", err)
+	}
+	got.DuplicatesRetired = int(tag.RowsAffected())
+	return got, nil
 }

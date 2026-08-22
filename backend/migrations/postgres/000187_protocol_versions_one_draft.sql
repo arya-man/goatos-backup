@@ -39,31 +39,18 @@ BEGIN
 END $$;
 
 -- Second: this index exists because duplicate drafts were really created, so scopes holding
--- two of them plausibly exist right now -- and a unique build over them simply fails. The
--- losers are retired rather than deleted: they are unreachable work either way (the list
--- renders the first draft it finds), but a retired row keeps whatever the farm typed and
--- stays visible in the version history, where a deleted one would just vanish.
+-- two of them plausibly exist right now -- and a unique build over them simply fails.
 --
--- The newest draft survives, which is the one someone was most recently working in.
-WITH ranked AS (
-  SELECT protocol_version_id,
-         row_number() OVER (
-           PARTITION BY tenant_id, protocol_id, scope_type, scope_id
-           ORDER BY created_at DESC, protocol_version_id DESC
-         ) AS rn
-  FROM protocol_versions
-  WHERE status = 'draft'
-)
--- seed-migration-guard:ignore owner=ravi issue=vaccination-plan-console reason=no-seed-impact-retires-only-duplicate-DRAFT-rows-and-a-seeded-plan-creates-at-most-one-draft expiry=2026-11-30
-UPDATE protocol_versions pv
-SET status = 'retired',
-    retired_at = now(),
-    row_version = pv.row_version + 1,
-    updated_at = now()
-FROM ranked
-WHERE pv.protocol_version_id = ranked.protocol_version_id
-  AND ranked.rn > 1;
-
+-- That cleanup is NOT done here. Retiring the losers is a data change on rows the seed
+-- itself authors, and a migration is the wrong place for it: it cannot be dry-run, cannot be
+-- reviewed row by row, and cannot be re-run selectively. It lives in
+-- `repair-obligation-duplicates -mode drafts`, which defaults to reporting and only mutates
+-- with --apply.
+--
+-- DEPLOY ORDER, therefore:
+--   1. repair-obligation-duplicates -mode drafts -apply   (per tenant, retires the losers)
+--   2. this migration                                     (builds the index)
+-- Run out of order the index build fails, loudly, and nothing is left half-applied.
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS protocol_versions_one_draft_per_scope_idx
   ON protocol_versions (tenant_id, protocol_id, scope_type, scope_id)
   NULLS NOT DISTINCT
