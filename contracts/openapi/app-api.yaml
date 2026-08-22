@@ -274,46 +274,43 @@ paths:
           description: >-
             The animal has no live smart tag to replace, already carries exactly this tag, or the
             new tag value is claimed by another animal.
-  /herd-signals/identifiers/{identifier_id}/smart-tag:
+  /herd-signals/tag-mappings/unmap:
     post:
       tags:
         - Herd Signals
-      operationId: setHerdSignalSmartTagCapable
-      summary: Mark or unmark an existing identifier as smart-tag capable.
+      operationId: unmapHerdSignalTagMapping
+      summary: Release a tag's binding with no replacement.
       description: >-
-        Requires herd_signals.map. For the case where the animal's existing ear-tag value IS the
-        BLE tag value, so no new identifier row should be invented.
+        Requires herd_signals.map. For a tag that was lost, an animal that was sold, or a mapping
+        made in error.
 
-        Marking stamps the monitoring boundary (animal monitoring starts now). Unmarking clears it
-        back to null, which returns the tag to device-telemetry-only: no animal-attributed value
-        may be produced for it at all -- not a zero, not a default.
-      parameters:
-        - name: identifier_id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
+        The tag returns to unmapped and its packets keep flowing as device telemetry: nothing is
+        deleted and its stored history stays intact, it simply stops being attributed to an
+        animal. Its monitoring period ends, so no further animal-attributed value is produced for
+        it -- not a zero, not a default.
+
+        There is no "mark as smart tag" counterpart anywhere in this API. Every tag the gateway
+        reports is already a smart tag; smart_tag_capable is an internal consequence of binding,
+        never a user action.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/HerdSignalsSetSmartTagCapableRequest'
+              $ref: '#/components/schemas/HerdSignalsUnmapTagMappingRequest'
       responses:
         '200':
-          description: The binding now in force.
+          description: The binding that was released.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HerdSignalsTagMappingResponse'
         '400':
-          description: Malformed identifier_id or request body.
+          description: Missing tag_id.
         '401':
           description: Authentication required.
-        '404':
-          description: No such identifier in this tenant.
         '409':
-          description: >-
-            The identifier is not active, or the animal already carries a different live smart tag.
+          description: That tag is not mapped to an animal.
   /herd-signals/heartbeats:
     post:
       tags:
@@ -11271,14 +11268,15 @@ components:
           type: string
           enum: [animal_identifier_1, animal_identifier_2, temporary_tag]
       required: [goat_id, new_tag_id]
-    HerdSignalsSetSmartTagCapableRequest:
+    HerdSignalsUnmapTagMappingRequest:
       type: object
       additionalProperties: false
       properties:
-        smart_tag_capable:
-          type: boolean
-          description: True marks the identifier as a smart tag and starts monitoring; false unbinds it and returns the tag to device telemetry only.
-      required: [smart_tag_capable]
+        tag_id: { type: string }
+        tag_mac:
+          type: string
+          description: Optional. Released alongside the id when the tag claimed both values.
+      required: [tag_id]
     HerdSignalsTagMappingResponse:
       type: object
       properties:

@@ -39,9 +39,41 @@ type fakeService struct {
 		parkID, shedID, movementState, mappingState, pattern, q *string
 	}
 
+	mappingResp domain.TagMappingResponse
+	mappingErr  error
+	bindGot     domain.BindTagMappingRequest
+	replaceGot  domain.ReplaceTagMappingRequest
+	unmapGot    domain.UnmapTagMappingRequest
+
+	heartbeatResp domain.GatewayHeartbeatResponse
+	heartbeatErr  error
+	heartbeatGot  domain.GatewayHeartbeatRequest
+
 	activityResp domain.ActivityResponse
 	activityErr  error
 	activityGot  struct{ tagID, from, to string }
+}
+
+// The mapping WRITES (MAP / REPLACE / UNMAP) and the gateway heartbeat. Recorded rather than
+// ignored so a handler test can assert the decoded body reached the service unchanged.
+func (f *fakeService) BindTagMapping(_ context.Context, _ domain.Actor, req domain.BindTagMappingRequest) (domain.TagMappingResponse, error) {
+	f.bindGot = req
+	return f.mappingResp, f.mappingErr
+}
+
+func (f *fakeService) ReplaceTagMapping(_ context.Context, _ domain.Actor, req domain.ReplaceTagMappingRequest) (domain.TagMappingResponse, error) {
+	f.replaceGot = req
+	return f.mappingResp, f.mappingErr
+}
+
+func (f *fakeService) UnmapTagMapping(_ context.Context, _ domain.Actor, req domain.UnmapTagMappingRequest) (domain.TagMappingResponse, error) {
+	f.unmapGot = req
+	return f.mappingResp, f.mappingErr
+}
+
+func (f *fakeService) RecordGatewayHeartbeat(_ context.Context, _ domain.Actor, req domain.GatewayHeartbeatRequest) (domain.GatewayHeartbeatResponse, error) {
+	f.heartbeatGot = req
+	return f.heartbeatResp, f.heartbeatErr
 }
 
 func (f *fakeService) IngestPackets(_ context.Context, _ domain.Actor, req domain.IngestRequest) (domain.IngestResponse, error) {
