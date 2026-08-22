@@ -137,7 +137,8 @@ export function HerdSignalsDrawer({
     ? item.operational_location_display
     : operationalLocationLabel({ shedName: item.shed_name, partitionLabel: item.partition_label });
   const expandHref = `${closeHref}${closeHref.includes("?") ? "&" : "?"}hs_history=${encodeURIComponent(item.tag_id)}#hs-history-${encodeURIComponent(item.tag_id)}`;
-  const titleLine = item.display_id ? `${item.display_id} · ${item.tag_id}` : `Unmapped tag ${item.tag_id}`;
+  const animalLabel = item.animal_identifier_1 || item.animal_identifier_2 || item.display_id;
+  const titleLine = animalLabel ? `${animalLabel} · ${item.tag_id}` : `Unmapped tag ${item.tag_id}`;
   const subtitleLine = [fmtBleMac(item.tag_mac), location || null, item.gateway_id || null].filter(Boolean).join(" · ");
   const batteryLifeEstimate = batteryLife(item.battery_mv);
 
@@ -251,7 +252,7 @@ export function HerdSignalsDrawer({
             </dd>
             <dt>Animal</dt>
             <dd>
-              {item.display_id || <span className="muted">Unmapped</span>}
+              {animalLabel || <span className="muted">Unmapped</span>}
               <span className="srcl derived">Derived</span>
             </dd>
             <dt>Location</dt>

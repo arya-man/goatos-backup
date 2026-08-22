@@ -868,9 +868,29 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 	}
 
 	query := `
-		SELECT goat_id, display_id, shed_id, park_id
-		FROM public.goats
-		WHERE tenant_id = $1 AND goat_id = ANY($2)
+		SELECT g.goat_id, g.display_id, g.shed_id, g.park_id, ident1.animal_identifier_1, ident2.animal_identifier_2
+		FROM public.goats g
+		LEFT JOIN LATERAL (
+			SELECT identifier_value AS animal_identifier_1
+			FROM public.goat_identifiers gi
+			WHERE gi.tenant_id = g.tenant_id
+			  AND gi.goat_id = g.goat_id
+			  AND gi.identifier_type = 'animal_identifier_1'
+			  AND gi.status = 'active'
+			ORDER BY gi.created_at DESC
+			LIMIT 1
+		) ident1 ON true
+		LEFT JOIN LATERAL (
+			SELECT identifier_value AS animal_identifier_2
+			FROM public.goat_identifiers gi
+			WHERE gi.tenant_id = g.tenant_id
+			  AND gi.goat_id = g.goat_id
+			  AND gi.identifier_type = 'animal_identifier_2'
+			  AND gi.status = 'active'
+			ORDER BY gi.created_at DESC
+			LIMIT 1
+		) ident2 ON true
+		WHERE g.tenant_id = $1 AND g.goat_id = ANY($2)
 	`
 	rows, err := r.db.Query(ctx, query, tenantID, goatIDs)
 	if err != nil {
@@ -881,14 +901,16 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 	result := make(map[string]ports.GoatData)
 	for rows.Next() {
 		var goatID, displayID string
-		var shedID, parkID *string
-		if err := rows.Scan(&goatID, &displayID, &shedID, &parkID); err != nil {
+		var animalIdentifier1, animalIdentifier2, shedID, parkID *string
+		if err := rows.Scan(&goatID, &displayID, &shedID, &parkID, &animalIdentifier1, &animalIdentifier2); err != nil {
 			return nil, err
 		}
 		result[goatID] = ports.GoatData{
-			DisplayID: displayID,
-			ShedID:    shedID,
-			ParkID:    parkID,
+			DisplayID:         displayID,
+			AnimalIdentifier1: animalIdentifier1,
+			AnimalIdentifier2: animalIdentifier2,
+			ShedID:            shedID,
+			ParkID:            parkID,
 		}
 	}
 	return result, rows.Err()

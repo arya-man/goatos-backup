@@ -187,7 +187,9 @@ type GoatIdentifierResult struct {
 
 // GoatData is location and display info for a goat.
 type GoatData struct {
-	DisplayID string
-	ShedID    *string
-	ParkID    *string
+	DisplayID         string
+	AnimalIdentifier1 *string
+	AnimalIdentifier2 *string
+	ShedID            *string
+	ParkID            *string
 }

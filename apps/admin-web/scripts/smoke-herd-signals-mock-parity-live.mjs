@@ -22,6 +22,8 @@ const browser = await chromium.launch({ channel: "chrome" });
 const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
 
 try {
+  await verifyLiveRowClickOpensDrawer(context);
+
   const mockPage = await context.newPage();
   await mockPage.goto(mockUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await mockPage.evaluate(() => {
@@ -106,6 +108,26 @@ async function capture(page, label, drawerSelector) {
   }
 
   return { fullPath, regions, metrics };
+}
+
+async function verifyLiveRowClickOpensDrawer(context) {
+  const page = await context.newPage();
+  try {
+    await page.goto(`${baseUrl}/herd-signals?scope_mode=company`, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    const firstRow = page.locator("table.herd-signals-table tbody tr").first();
+    await firstRow.waitFor({ state: "visible", timeout: 15_000 });
+    const tagId = await firstRow.locator("td[data-l='Smart tag'] .mono").first().textContent();
+    await firstRow.click({ position: { x: 18, y: 18 } });
+    await page.waitForSelector("aside.drawer.on", { timeout: 5_000 });
+    const url = new URL(page.url());
+    const selected = new URLSearchParams(url.hash.replace(/^#/, "")).get("hs_tag") ?? url.searchParams.get("hs_tag");
+    if (!selected) throw new Error("row click opened drawer without hs_tag in URL");
+    if (tagId && selected !== tagId.trim()) {
+      throw new Error(`row click selected ${selected}, expected ${tagId.trim()}`);
+    }
+  } finally {
+    await page.close();
+  }
 }
 
 async function box(page, selector) {
