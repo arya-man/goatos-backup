@@ -87,7 +87,7 @@ FOR UPDATE`, scoped).Scan(&existingHash, &resultID, &snapshot, &status); err != 
 		return idemReservation{}, ports.ErrIdempotencyConflict
 	}
 	if status == "started" && resultID == "" {
-		return idemReservation{proceed: true}, nil
+		return idemReservation{}, ports.ErrIdempotencyInFlight
 	}
 	return idemReservation{proceed: false, resultID: resultID, snapshot: snapshot}, nil
 }

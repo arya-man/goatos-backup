@@ -631,6 +631,9 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrIdempotencyConflict) {
 		return Conflict("idempotency_conflict", "Idempotency-Key was reused with a different request payload")
 	}
+	if errors.Is(err, ports.ErrIdempotencyInFlight) {
+		return &Error{Code: "idempotency_in_flight", Message: "the same request is already being processed; retry shortly", HTTPStatus: 409, Retryable: true}
+	}
 	if errors.Is(err, ports.ErrInvalidFilter) {
 		return BadRequest("invalid_filter", "one or more filters are invalid")
 	}

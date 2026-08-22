@@ -69,6 +69,23 @@ func TestCreatePersonTransactionIsAtomicAndIdempotentWithDockerPostgres(t *testi
 	repo := NewRepository(pool, 5*time.Second)
 	seedPeoplePark(t, ctx, pool)
 
+	preflight, err := repo.PreflightCreatePerson(ctx, ports.PreflightCreatePersonCommand{
+		TenantID:        peopleTenant,
+		IdempotencyKey:  "people-key-1",
+		NormalizedEmail: "idem-check@mesha.sg",
+		FirstName:       "Idem",
+		LastName:        "Check",
+		Role:            "operator",
+		ScopeType:       "park",
+		ScopeID:         peoplePark,
+	})
+	if err != nil {
+		t.Fatalf("PreflightCreatePerson before first create: %v", err)
+	}
+	if preflight.Replay != nil {
+		t.Fatalf("first preflight unexpectedly replayed an existing person")
+	}
+
 	first, err := repo.CreatePerson(ctx, peopleCreateCommand("people-key-1"))
 	if err != nil {
 		t.Fatalf("CreatePerson: %v", err)
@@ -184,6 +201,70 @@ SELECT
 	}
 	if activeGrants != 0 || activeAllowlist != 0 {
 		t.Fatalf("deactivate must remove active grants and allowlist access, got grants=%d allowlist=%d", activeGrants, activeAllowlist)
+	}
+
+	reactivated, err := repo.SetOperatorStatus(ctx, ports.StatusCommand{
+		TenantID:   peopleTenant,
+		ActorID:    peopleActor,
+		OperatorID: first.PersonID,
+		Reason:     "people_hrms_admin_action",
+		RowVersion: deactivated.RowVersion,
+		Status:     "active",
+	})
+	if err != nil {
+		t.Fatalf("reactivate person: %v", err)
+	}
+	if reactivated.Status != "active" {
+		t.Fatalf("reactivated status = %q, want active", reactivated.Status)
+	}
+	if err := pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM user_scope_grants WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND status = 'active'),
+  (SELECT count(*) FROM auth_allowed_emails WHERE tenant_id = $1::uuid AND normalized_email = 'idem-check@mesha.sg' AND status = 'active')`,
+		peopleTenant, peopleUser).Scan(&activeGrants, &activeAllowlist); err != nil {
+		t.Fatalf("count active access after reactivate: %v", err)
+	}
+	if activeGrants != 1 || activeAllowlist != 1 {
+		t.Fatalf("reactivate must restore active grants and allowlist access, got grants=%d allowlist=%d", activeGrants, activeAllowlist)
+	}
+}
+
+func TestCreatePersonExactReplayWhileStartedIsInFlightWithDockerPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	repo := NewRepository(pool, 5*time.Second)
+	seedPeoplePark(t, ctx, pool)
+
+	cmd := peopleCreateCommand("people-key-in-flight")
+	fingerprint := personCreateFingerprint(cmd.TenantID, cmd.NormalizedEmail, cmd.FirstName, cmd.LastName, cmd.Role, cmd.ScopeType, cmd.ScopeID, cmd.DepartmentID, cmd.DesignationGrade)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	if _, err := reserveIdempotency(ctx, tx, cmd.TenantID, "create_person", cmd.IdempotencyKey, fingerprint); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("reserve in-flight key: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit in-flight reservation: %v", err)
+	}
+
+	if _, err := repo.PreflightCreatePerson(ctx, ports.PreflightCreatePersonCommand{
+		TenantID:        cmd.TenantID,
+		IdempotencyKey:  cmd.IdempotencyKey,
+		NormalizedEmail: cmd.NormalizedEmail,
+		FirstName:       cmd.FirstName,
+		LastName:        cmd.LastName,
+		Role:            cmd.Role,
+		ScopeType:       cmd.ScopeType,
+		ScopeID:         cmd.ScopeID,
+	}); !errors.Is(err, ports.ErrIdempotencyInFlight) {
+		t.Fatalf("preflight exact replay while started must return ErrIdempotencyInFlight, got %v", err)
+	}
+	if _, err := repo.CreatePerson(ctx, cmd); !errors.Is(err, ports.ErrIdempotencyInFlight) {
+		t.Fatalf("create exact replay while started must return ErrIdempotencyInFlight, got %v", err)
 	}
 }
 

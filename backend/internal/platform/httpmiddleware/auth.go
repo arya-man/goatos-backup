@@ -196,16 +196,6 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 		if !a.verifyAppCheck(w, r) {
 			return r.Context(), "", "", false
 		}
-		if !authallow.AllowsWithDynamic(r.Context(), a.allowedEmails, a.dynamicEmails, claims.Email, claims.EmailVerified) {
-			a.logAuthFailure(r, http.StatusForbidden, "email_not_allowed",
-				slog.String("email", normalizedEmailForLog(claims.Email)),
-				slog.String("firebase_uid", claims.ExternalSubject),
-				slog.String("actor_id", claims.Subject),
-				slog.Bool("email_verified", claims.EmailVerified != nil && *claims.EmailVerified),
-			)
-			writeAuthError(w, r, http.StatusForbidden, "email_not_allowed", "this Google account is not allowed for Mesha Admin")
-			return r.Context(), "", "", false
-		}
 		tenantID := claims.TenantID
 		if tenantID == "" {
 			tenantID = strings.TrimSpace(TenantIDFromContext(r.Context()))
@@ -218,6 +208,17 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 				slog.String("tenant_id", tenantID),
 			)
 			writeAuthError(w, r, http.StatusUnauthorized, "missing_tenant_context", "tenant context is required")
+			return r.Context(), "", "", false
+		}
+		if !authallow.AllowsWithDynamic(r.Context(), a.allowedEmails, a.dynamicEmails, tenantID, claims.Email, claims.EmailVerified) {
+			a.logAuthFailure(r, http.StatusForbidden, "email_not_allowed",
+				slog.String("email", normalizedEmailForLog(claims.Email)),
+				slog.String("firebase_uid", claims.ExternalSubject),
+				slog.String("tenant_id", tenantID),
+				slog.String("actor_id", claims.Subject),
+				slog.Bool("email_verified", claims.EmailVerified != nil && *claims.EmailVerified),
+			)
+			writeAuthError(w, r, http.StatusForbidden, "email_not_allowed", "this Google account is not allowed for Mesha Admin")
 			return r.Context(), "", "", false
 		}
 		ctx := WithClientInfo(WithActorID(WithTenantID(r.Context(), tenantID), claims.Subject), ClientInfoFromRequest(r))

@@ -153,7 +153,7 @@ func (h *Handler) RecordSessionEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tenantID, tenantSource := tenantFromClaimsOrHeader(claims, r)
-	if !authallow.AllowsWithDynamic(r.Context(), h.allowedEmails, h.dynamicEmails, claims.Email, claims.EmailVerified) {
+	if !authallow.AllowsWithDynamic(r.Context(), h.allowedEmails, h.dynamicEmails, tenantID, claims.Email, claims.EmailVerified) {
 		requestedTenantID := strings.TrimSpace(r.Header.Get(httpmiddleware.TenantContextHeader))
 		if !h.allowRateLimited(r, claims, "email_not_allowed|"+tenantID) {
 			writeError(w, r, http.StatusTooManyRequests, "auth_session_rate_limited", "too many auth session events")

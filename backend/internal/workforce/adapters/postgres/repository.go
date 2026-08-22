@@ -190,7 +190,8 @@ RETURNING workforce_member_id::text, user_id::text, email`,
 	if err != nil {
 		return domain.OperatorProfile{}, mapUpdateErr(err)
 	}
-	if cmd.Status == "inactive" {
+	switch cmd.Status {
+	case "inactive":
 		if userID.Valid && strings.TrimSpace(userID.String) != "" {
 			if _, err := tx.Exec(ctx, `
 UPDATE user_scope_grants
@@ -213,6 +214,29 @@ WHERE tenant_id = $1::uuid
   AND status = 'active'`,
 				cmd.TenantID, email.String); err != nil {
 				return domain.OperatorProfile{}, err
+			}
+		}
+	case "active":
+		if userID.Valid && strings.TrimSpace(userID.String) != "" {
+			if _, err := tx.Exec(ctx, `
+UPDATE user_scope_grants
+SET status = 'active',
+    valid_to = NULL
+WHERE tenant_id = $1::uuid
+  AND user_id = $2::uuid
+  AND status = 'inactive'`,
+				cmd.TenantID, userID.String); err != nil {
+				return domain.OperatorProfile{}, err
+			}
+		}
+		if email.Valid && strings.TrimSpace(email.String) != "" {
+			if _, err := tx.Exec(ctx, `
+INSERT INTO auth_allowed_emails (tenant_id, email, normalized_email, status, source, created_by)
+VALUES ($1::uuid, $2, lower(btrim($2)), 'active', 'workforce_status_reactivate', $3::uuid)
+ON CONFLICT (tenant_id, normalized_email) WHERE status = 'active'
+DO UPDATE SET status = 'active', updated_at = now(), created_by = EXCLUDED.created_by`,
+				cmd.TenantID, email.String, cmd.ActorID); err != nil {
+				return domain.OperatorProfile{}, mapPersonWriteErr(err)
 			}
 		}
 	}

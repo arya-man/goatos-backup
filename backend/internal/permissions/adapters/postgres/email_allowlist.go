@@ -30,10 +30,13 @@ type AllowedEmailSource struct {
 	log     *slog.Logger
 	now     func() time.Time
 
-	mu        sync.Mutex
-	emails    map[string]struct{}
-	loadedAt  time.Time
-	hasLoaded bool
+	mu       sync.Mutex
+	byTenant map[string]tenantEmailCache
+}
+
+type tenantEmailCache struct {
+	emails   map[string]struct{}
+	loadedAt time.Time
 }
 
 func NewAllowedEmailSource(pool *pgxpool.Pool, timeout time.Duration, log *slog.Logger) *AllowedEmailSource {
@@ -44,30 +47,32 @@ func NewAllowedEmailSource(pool *pgxpool.Pool, timeout time.Duration, log *slog.
 		log = slog.Default()
 	}
 	return &AllowedEmailSource{
-		pool:    pool,
-		timeout: timeout,
-		ttl:     30 * time.Second,
-		log:     log,
-		now:     time.Now,
+		pool:     pool,
+		timeout:  timeout,
+		ttl:      30 * time.Second,
+		log:      log,
+		now:      time.Now,
+		byTenant: map[string]tenantEmailCache{},
 	}
 }
 
 var _ authallow.DynamicEmailSource = (*AllowedEmailSource)(nil)
 
 // EmailAllowed implements authallow.DynamicEmailSource.
-func (s *AllowedEmailSource) EmailAllowed(ctx context.Context, normalizedEmail string) bool {
-	if normalizedEmail == "" {
+func (s *AllowedEmailSource) EmailAllowed(ctx context.Context, tenantID, normalizedEmail string) bool {
+	if tenantID == "" || normalizedEmail == "" {
 		return false
 	}
-	set := s.activeSet(ctx)
+	set := s.activeSet(ctx, tenantID)
 	_, ok := set[normalizedEmail]
 	return ok
 }
 
-func (s *AllowedEmailSource) activeSet(ctx context.Context) map[string]struct{} {
+func (s *AllowedEmailSource) activeSet(ctx context.Context, tenantID string) map[string]struct{} {
 	s.mu.Lock()
-	fresh := s.hasLoaded && s.now().Sub(s.loadedAt) < s.ttl
-	cached := s.emails
+	entry, hasLoaded := s.byTenant[tenantID]
+	fresh := hasLoaded && s.now().Sub(entry.loadedAt) < s.ttl
+	cached := entry.emails
 	s.mu.Unlock()
 	if fresh {
 		return cached
@@ -78,7 +83,7 @@ func (s *AllowedEmailSource) activeSet(ctx context.Context) map[string]struct{} 
 	rows, err := s.pool.Query(loadCtx, `
 SELECT normalized_email
 FROM auth_allowed_emails
-WHERE status = 'active'`)
+WHERE tenant_id = $1::uuid AND status = 'active'`, tenantID)
 	if err != nil {
 		s.log.Warn("auth_allowed_emails_load_failed", slog.Any("error", err))
 		return cached
@@ -100,9 +105,7 @@ WHERE status = 'active'`)
 	}
 
 	s.mu.Lock()
-	s.emails = loaded
-	s.loadedAt = s.now()
-	s.hasLoaded = true
+	s.byTenant[tenantID] = tenantEmailCache{emails: loaded, loadedAt: s.now()}
 	s.mu.Unlock()
 	return loaded
 }

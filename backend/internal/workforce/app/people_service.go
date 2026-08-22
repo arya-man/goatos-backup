@@ -169,6 +169,9 @@ func (s *PeopleService) CreatePerson(ctx context.Context, tenantID, actorID, ide
 		if errors.Is(err, ports.ErrIdempotencyConflict) {
 			return nil, &Error{Code: "idempotency_conflict", Message: "this request key was already used with different details", HTTPStatus: 409, Retryable: false}
 		}
+		if errors.Is(err, ports.ErrIdempotencyInFlight) {
+			return nil, &Error{Code: "idempotency_in_flight", Message: "this request is already being processed; retry shortly", HTTPStatus: 409, Retryable: true}
+		}
 		return nil, mapRepoErr(err)
 	}
 	if preflight.Replay != nil {
@@ -218,6 +221,9 @@ func (s *PeopleService) CreatePerson(ctx context.Context, tenantID, actorID, ide
 		}
 		if errors.Is(err, ports.ErrIdempotencyConflict) {
 			return nil, &Error{Code: "idempotency_conflict", Message: "this request key was already used with different details", HTTPStatus: 409, Retryable: false}
+		}
+		if errors.Is(err, ports.ErrIdempotencyInFlight) {
+			return nil, &Error{Code: "idempotency_in_flight", Message: "this request is already being processed; retry shortly", HTTPStatus: 409, Retryable: true}
 		}
 		return nil, mapRepoErr(err)
 	}
