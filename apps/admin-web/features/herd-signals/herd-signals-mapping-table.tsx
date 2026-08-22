@@ -237,7 +237,7 @@ function AnimalPicker({
           ) : state === "loading" ? (
             <p className="faint small">Searching…</p>
           ) : results.length === 0 ? (
-            <p className="faint small">No active animal matches that search.</p>
+            <p className="faint small">No living animal matches that search.</p>
           ) : (
             results.map((animal) => (
               <button
@@ -305,7 +305,11 @@ function MappingDialog({
 
   useEffect(() => {
     const node = panelRef.current;
-    const first = node?.querySelector<HTMLElement>('input:not([disabled]),button:not([disabled])');
+    // The INPUT first, explicitly -- a plain "first focusable" query returns the header's Close
+    // button (it comes earlier in the DOM), which swallowed every keystroke meant for the picker.
+    const first =
+      node?.querySelector<HTMLElement>('input:not([disabled])') ??
+      node?.querySelector<HTMLElement>('button:not([disabled])');
     (first ?? node)?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();

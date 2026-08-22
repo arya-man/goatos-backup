@@ -22,7 +22,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ items: [] }, { headers: { "Cache-Control": "no-store" } });
   }
 
-  const result = await searchGoats({ limit: MAX_RESULTS, q, status: "active" });
+  // status=alive, the value the identity search actually accepts (backend/internal/identity) --
+  // a picker must not offer an animal that is dead or sold. An invented "active" here silently
+  // matched NOTHING and made every search look like "no such animal".
+  const result = await searchGoats({ limit: MAX_RESULTS, q, status: "alive" });
   if (!result.ok) {
     return NextResponse.json(
       { error: result.error.message },
@@ -30,9 +33,19 @@ export async function GET(request: Request) {
     );
   }
 
+  // /goats/search returns ONE ROW PER MATCHING IDENTIFIER, so an animal whose id and both ear-tag
+  // values all match the query came back four times and the picker listed the same animal four
+  // times over. The picker chooses an ANIMAL, so it is keyed by goat_id.
+  const seen = new Set<string>();
+  const unique = result.data.items.filter((goat) => {
+    if (seen.has(goat.goat_id)) return false;
+    seen.add(goat.goat_id);
+    return true;
+  });
+
   return NextResponse.json(
     {
-      items: result.data.items.map((goat) => ({
+      items: unique.map((goat) => ({
         goat_id: goat.goat_id,
         display_id: goat.display_id,
         animal_identifier_1: goat.animal_identifier_1 ?? null,
