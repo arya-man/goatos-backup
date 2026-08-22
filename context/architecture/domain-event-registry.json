@@ -762,7 +762,7 @@
         {
           "module": "counts",
           "file": "backend/internal/counts/app/milk_preparation_verification_handler.go",
-          "notes": "Filters source.module=milk_preparation + ref_type=milk_preparation_completion. APPROVE is the only transition from pending_verification to completed for the farm-day preparation; the operator's two/five-video submit never completes it."
+          "notes": "Filters source.module=milk_preparation + ref_type=milk_preparation_completion. APPROVE is the only transition from pending_verification to completed for the farm-day preparation; the operator's two/five-video submit never completes it. FEED-STOCK FAN-OUT (maintainer decision 2026-08-22): after the verdict applies, the handler forwards the accepted attempt's uht_milk_quantity_litres answer through the countsapp.MilkPreparationUHTRecorder seam (implemented at composition in eventwiring by feeddirection's RecordExternalConsumption) into feed_external_consumption (migration 000185), the ledger the feed stock cards deplete UHT Milk from. Runs on every approve delivery, duplicates included -- the upsert's (farm, feed, day) natural key converges -- and a recorder failure fails the handler so the at-least-once bus redelivers. Counts never writes a feed table; feed never reads a counts table."
         },
         {
           "module": "counts",
@@ -811,6 +811,8 @@
         "backend/internal/notificationbridge/verification_notify_consumer_test.go",
         "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
         "backend/internal/counts/app/milk_preparation_verification_handler_test.go",
+        "backend/internal/counts/adapters/postgres/milk_preparation_integration_test.go",
+        "backend/internal/feeddirection/adapters/postgres/analytics_integration_test.go",
         "backend/internal/counts/domain/milk_feeding_test.go",
         "backend/internal/countsbridge/shifting_verification_enqueue_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
@@ -895,6 +897,8 @@
         "backend/internal/notificationbridge/verification_notify_consumer_test.go",
         "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
         "backend/internal/counts/app/milk_preparation_verification_handler_test.go",
+        "backend/internal/counts/adapters/postgres/milk_preparation_integration_test.go",
+        "backend/internal/feeddirection/adapters/postgres/analytics_integration_test.go",
         "backend/internal/counts/domain/milk_feeding_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_transport_integration_test.go",

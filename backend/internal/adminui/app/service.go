@@ -3439,6 +3439,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"stock.hint":                     "Purchased minus directed since the ledger bootstrap — stock leaves the store when the sheet locks for packing",
 			"stock.days_left":                "days left",
 			"stock.balance":                  "kg in store",
+			"stock.per_day":                  "kg/day",
 			"stock.batch":                    "latest load",
 			"stock.low":                      "Low stock",
 			"stock.never_directed":           "not directed recently",

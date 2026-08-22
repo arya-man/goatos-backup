@@ -551,3 +551,88 @@ func TestMilkPreparationPartitionExecutionDateIndependence(t *testing.T) {
 		}
 	}
 }
+
+// TestVerifiedUHTConsumptionReadsTheAcceptedAttemptOnly drives the production
+// submit → approve path and pins the feed-stock seam's read contract
+// (maintainer decision 2026-08-22: the app's verified UHT answer feeds the
+// stock ledger): litres exist only once the completion is COMPLETED, come from
+// the CURRENT attempt, and disappear again on rework.
+func TestVerifiedUHTConsumptionReadsTheAcceptedAttemptOnly(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := newBreakdownRepo(t, ctx)
+
+	submit := func(idem string, litres float64) domain.MilkPreparationSubmissionResult {
+		t.Helper()
+		res, err := repo.SubmitMilkPreparation(ctx, domain.MilkPreparationSubmission{
+			TenantID: countsTenant, ParkID: countsPark,
+			PreparationDate: time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC),
+			FeedingDate:     time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC),
+			GoatMilkUsed:    false,
+			Answers: domain.MilkPreparationAnswers{
+				MorningMilkCollectedLitres: 1, EveningMilkCollectedLitres: 1,
+				UHTMilkQuantityLitres: litres, CitricAcidGrams: 120,
+			},
+			Proofs: domain.MilkPreparationProofs{
+				UHTMilkQuantityProofRef: "proof-uht-" + idem, CitricAcidMixingProofRef: "proof-citric-" + idem,
+			},
+			SubmittedBy: "90000000-0000-4000-8000-000000000101", SubmittedAt: time.Now().UTC(),
+			IdempotencyKey: "milk-prep:" + idem, TraceID: "trace-" + idem,
+		})
+		if err != nil {
+			t.Fatalf("submit %s: %v", idem, err)
+		}
+		return res
+	}
+
+	first := submit("a1", 28)
+
+	// Pending: no accepted consumption yet.
+	if _, ok, err := repo.VerifiedUHTConsumption(ctx, countsTenant, first.CompletionID); err != nil || ok {
+		t.Fatalf("pending completion must read (ok=false, nil), got ok=%v err=%v", ok, err)
+	}
+
+	// Verifier bounces the first attempt; a reworked row has no accepted fact.
+	if applied, err := repo.BounceMilkPreparationForRework(ctx, domain.MilkPreparationVerdictCommand{
+		TenantID: countsTenant, CompletionID: first.CompletionID,
+		VerifiedBy: "90000000-0000-4000-8000-000000000101", Reason: "blurry",
+		OccurredAt: time.Now().UTC(), TraceID: "verdict-1",
+	}); err != nil || !applied {
+		t.Fatalf("rework: applied=%v err=%v", applied, err)
+	}
+	if _, ok, _ := repo.VerifiedUHTConsumption(ctx, countsTenant, first.CompletionID); ok {
+		t.Fatalf("reworked completion must carry no accepted consumption")
+	}
+
+	// The re-shoot carries CORRECTED litres; approval must surface the second
+	// attempt's answer, never the bounced first attempt's.
+	second := submit("a2", 30)
+	if second.CompletionID != first.CompletionID || second.AttemptNo != 2 {
+		t.Fatalf("second attempt must reuse the farm-day completion: %+v", second)
+	}
+	if _, err := repo.ApplyVerifiedMilkPreparation(ctx, domain.MilkPreparationVerdictCommand{
+		TenantID: countsTenant, CompletionID: first.CompletionID,
+		VerifiedBy: "90000000-0000-4000-8000-000000000101", OccurredAt: time.Now().UTC(), TraceID: "verdict-2",
+	}); err != nil {
+		t.Fatalf("approve second attempt: %v", err)
+	}
+	got, ok, err := repo.VerifiedUHTConsumption(ctx, countsTenant, first.CompletionID)
+	if err != nil || !ok {
+		t.Fatalf("completed read = (ok=%v, err=%v)", ok, err)
+	}
+	if got.ParkID != countsPark || got.PreparationDate != "2026-08-22" || got.UHTMilkQuantityLitres != 30 || got.AttemptNo != 2 {
+		t.Fatalf("consumption=%+v, want the SECOND attempt's 30 litres", got)
+	}
+
+	// A stale rework verdict on the now-completed row is an at-least-once no-op —
+	// it neither errors nor retracts the accepted fact.
+	if applied, err := repo.BounceMilkPreparationForRework(ctx, domain.MilkPreparationVerdictCommand{
+		TenantID: countsTenant, CompletionID: first.CompletionID,
+		VerifiedBy: "90000000-0000-4000-8000-000000000101", Reason: "late duplicate",
+		OccurredAt: time.Now().UTC(), TraceID: "verdict-3",
+	}); err != nil || applied {
+		t.Fatalf("stale rework must be a no-op: applied=%v err=%v", applied, err)
+	}
+	if _, ok, _ := repo.VerifiedUHTConsumption(ctx, countsTenant, first.CompletionID); !ok {
+		t.Fatalf("stale rework no-op must not retract the accepted fact")
+	}
+}

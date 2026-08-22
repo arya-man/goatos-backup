@@ -860,3 +860,275 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 		t.Errorf("out-of-window variance = %+v, want empty", before.PackingVariance)
 	}
 }
+
+// TestStockItemsIncludeExternalConsumptionFeeds pins the 2026-08-22 maintainer
+// decision that sheet-tracked feeds GoatOS never directs (UHT Milk) get the
+// same stock treatment as directed feeds: balance depletes from the
+// feed_external_consumption ledger, the burn rate is the 3 most recent
+// consumption days, and the day's consumption is priced into expenditure at
+// the ledger's latest load rate.
+func TestStockItemsIncludeExternalConsumptionFeeds(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	park := fdiPark
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status)
+VALUES ($1, $2, 'CBE', 'UHT Milk', 326, DATE '2026-08-07', 600, 63.64, 38184,
+        0, DATE '2026-03-18', 'Balamurugan Enterprises', 'Pending')`,
+		fdiTenant, park); err != nil {
+		t.Fatalf("insert UHT purchase: %v", err)
+	}
+	insertConsumption := func(day, qty string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_external_consumption (tenant_id, park_id, farm_label, feed_item_label, feed_day, quantity_kg, batch_no, source_ref)
+VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, $4::numeric, 326, 'test')`,
+			fdiTenant, park, day, qty); err != nil {
+			t.Fatalf("insert consumption %s: %v", day, err)
+		}
+	}
+	// Four consumption days; the burn window is the 3 MOST RECENT, so avg =
+	// (30+28+26)/3 = 28.0 while all four deplete the balance.
+	insertConsumption("2026-08-18", "40.000")
+	insertConsumption("2026-08-19", "30.000")
+	insertConsumption("2026-08-20", "28.000")
+	insertConsumption("2026-08-21", "26.000")
+	// A park-less external row must be excluded: with no park it cannot join a
+	// farm's store, so counting it would deplete nobody's balance honestly.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_external_consumption (tenant_id, park_id, farm_label, feed_item_label, feed_day, quantity_kg, source_ref)
+VALUES ($1, NULL, 'XYZ', 'UHT Milk', DATE '2026-08-21', 999, 'test')`,
+		fdiTenant); err != nil {
+		t.Fatalf("insert park-less consumption: %v", err)
+	}
+
+	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+	var uht *domain.StockItem
+	for i := range got.Items {
+		if got.Items[i].FeedItemKey == "uht_milk" && got.Items[i].FarmLabel == "CBE" {
+			uht = &got.Items[i]
+		}
+	}
+	if uht == nil {
+		t.Fatalf("UHT Milk stock item missing: %+v", got.Items)
+	}
+	// balance = 600 − (40+30+28+26) = 476.0
+	if uht.BalanceKg != "476.0" {
+		t.Errorf("balance = %q, want 476.0", uht.BalanceKg)
+	}
+	if uht.AvgDailyKg != "28.0" {
+		t.Errorf("avg daily = %q, want 28.0 (3 most recent days)", uht.AvgDailyKg)
+	}
+	if uht.DaysLeft == nil || *uht.DaysLeft != 17 {
+		t.Errorf("days left = %v, want 17 (floor 476/28)", uht.DaysLeft)
+	}
+	if uht.LowStock {
+		t.Errorf("17 days left must not flag low stock")
+	}
+
+	// Expenditure prices the day's external consumption at the ledger rate:
+	// 26 kg × 63.64 = 1655.
+	day := time.Date(2026, 8, 21, 0, 0, 0, 0, biztime.DefaultLocation())
+	windowed, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day})
+	if err != nil {
+		t.Fatalf("StockAnalytics windowed: %v", err)
+	}
+	if len(windowed.Expenditure) != 1 || windowed.Expenditure[0].FeedDay != "2026-08-21" || windowed.Expenditure[0].Rupees != "1655" {
+		t.Errorf("expenditure = %+v, want one 2026-08-21 row of 1655", windowed.Expenditure)
+	}
+
+	// OneToMany: four consumption days and one purchase collapse to exactly ONE
+	// stock card per (farm, item) — the ledger fan-out never multiplies rows.
+	t.Run("OneToManyConsumptionDaysCollapseToOneCard", func(t *testing.T) {
+		n := 0
+		for _, item := range got.Items {
+			if item.FeedItemKey == "uht_milk" {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("uht_milk cards = %d, want exactly 1: %+v", n, got.Items)
+		}
+	})
+
+	// PageBoundary: the expenditure date window must not move the stock card —
+	// balance/avg/days-left are whole-ledger aggregates, not window slices.
+	t.Run("PageBoundaryWindowDoesNotMoveStock", func(t *testing.T) {
+		var w *domain.StockItem
+		for i := range windowed.Items {
+			if windowed.Items[i].FeedItemKey == "uht_milk" {
+				w = &windowed.Items[i]
+			}
+		}
+		if w == nil || w.BalanceKg != "476.0" || w.AvgDailyKg != "28.0" {
+			t.Errorf("narrow window moved the stock card: %+v", w)
+		}
+	})
+
+	// ParkScope: a caller scoped to a foreign park sees no UHT card and no UHT
+	// spend — both sides of the union carry the park filter.
+	t.Run("ParkScopeFilterExcludesExternalConsumption", func(t *testing.T) {
+		scoped, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{uuid.New()}})
+		if err != nil {
+			t.Fatalf("StockAnalytics scoped: %v", err)
+		}
+		if len(scoped.Items) != 0 || len(scoped.Expenditure) != 0 {
+			t.Errorf("foreign park scope must serve nothing, got items=%+v expenditure=%+v", scoped.Items, scoped.Expenditure)
+		}
+	})
+
+	// StatusBuckets/both-sources grain: a feed with a LOCKED directed day AND an
+	// external row on the SAME day sums once per (park, item, day) — the union
+	// re-groups instead of double-listing, and an ISSUED (unlocked) sheet still
+	// contributes nothing to stock depletion.
+	t.Run("StatusBucketsLockedDirectedAndExternalSumOnce", func(t *testing.T) {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status)
+VALUES ($1, $2, 'CBE', 'Mesha Kids Goat Concentrate', 900, DATE '2026-08-01', 1000, 50, 50000,
+        0, DATE '2026-08-01', 'Farm vendor', 'Paid')`, fdiTenant, park); err != nil {
+			t.Fatalf("insert concentrate purchase: %v", err)
+		}
+		issuedAt := time.Date(2026, 8, 18, 9, 0, 0, 0, biztime.DefaultLocation())
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-08-18", Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: "fp-uht-status",
+			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":2026-08-18:uht-status",
+			GeneratedBy:    "test", Cells: []domain.StoredCell{{
+				ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+				PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+				RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+				HeadCount: 10, Workflow: domain.WorkflowNormal,
+				FeedItemLabel: "Mesha Kids Goat Concentrate", FeedItemKey: "mesha_kids_goat_concentrate",
+				QuantityKg: kg("30.000"), SessionTotalKg: "30.000",
+			}},
+		}); err != nil {
+			t.Fatalf("persist issue: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_external_consumption (tenant_id, park_id, farm_label, feed_item_label, feed_day, quantity_kg, source_ref)
+VALUES ($1, $2, 'CBE', 'Mesha Kids Goat Concentrate', DATE '2026-08-18', 5, 'test-same-day')`,
+			fdiTenant, park); err != nil {
+			t.Fatalf("insert same-day external row: %v", err)
+		}
+		// ISSUED only: stock depletes at sheet LOCK, so only the external 5 kg
+		// counts. 1000 − 5 = 995.0.
+		read := func() string {
+			t.Helper()
+			res, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+			if err != nil {
+				t.Fatalf("StockAnalytics: %v", err)
+			}
+			for _, item := range res.Items {
+				if item.FeedItemKey == "mesha_kids_goat_concentrate" && item.FarmLabel == "CBE" {
+					return item.BalanceKg
+				}
+			}
+			t.Fatalf("concentrate card missing: %+v", res.Items)
+			return ""
+		}
+		if bal := read(); bal != "995.0" {
+			t.Errorf("issued-only balance = %q, want 995.0 (external row only; issued sheet must not deplete)", bal)
+		}
+		if lock, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-08-18",
+			Workflow: domain.WorkflowNormal, LockedAt: issuedAt,
+		}); err != nil || lock.Outcome != "locked" {
+			t.Fatalf("lock = (%v, %v)", lock.Outcome, err)
+		}
+		// Locked: both sources on the same (park, item, day) sum once —
+		// 1000 − 30 − 5 = 965.0, never a doubled or dropped source.
+		if bal := read(); bal != "965.0" {
+			t.Errorf("locked balance = %q, want 965.0 (30 directed + 5 external, summed once)", bal)
+		}
+	})
+}
+
+// TestRecordExternalConsumptionUpsertsTheLedgerAndFeedsStock pins the feed
+// half of the milk-preparation → feed-stock seam (maintainer decision
+// 2026-08-22): the recorder resolves the park's farm label itself, lands on
+// the SAME natural key as the sheet importer so replays and corrections
+// converge, refuses an unresolvable park loudly, and the stock read sees the
+// recorded day.
+func TestRecordExternalConsumptionUpsertsTheLedgerAndFeedsStock(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	park := fdiPark
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status)
+VALUES ($1, $2, 'CBE', 'UHT Milk', 326, DATE '2026-08-07', 600, 63.64, 38184,
+        0, DATE '2026-03-18', 'Balamurugan Enterprises', 'Pending')`,
+		fdiTenant, park); err != nil {
+		t.Fatalf("insert UHT purchase: %v", err)
+	}
+
+	cmd := ports.RecordExternalConsumptionCommand{
+		TenantID: fdiTenant, ParkID: park, FeedItemLabel: "UHT Milk",
+		FeedDay: "2026-08-22", QuantityKg: 29,
+		SourceRef: "milk-preparation:completion-1:attempt=1",
+	}
+	if err := repo.RecordExternalConsumption(ctx, cmd); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	// Replay with a corrected quantity (a rework's second accepted attempt)
+	// converges on the same (farm, feed, day) row.
+	cmd.QuantityKg = 28
+	cmd.SourceRef = "milk-preparation:completion-1:attempt=2"
+	if err := repo.RecordExternalConsumption(ctx, cmd); err != nil {
+		t.Fatalf("record replay: %v", err)
+	}
+	var rows int
+	var qty float64
+	var farm, sourceRef string
+	if err := pool.QueryRow(ctx, `
+SELECT count(*), max(quantity_kg::float8), max(farm_label), max(source_ref)
+FROM feed_external_consumption WHERE tenant_id = $1`, fdiTenant).
+		Scan(&rows, &qty, &farm, &sourceRef); err != nil {
+		t.Fatalf("read ledger: %v", err)
+	}
+	if rows != 1 || qty != 28 || farm != "CBE" || sourceRef != "milk-preparation:completion-1:attempt=2" {
+		t.Fatalf("ledger = rows=%d qty=%v farm=%q ref=%q, want one converged CBE row of 28", rows, qty, farm, sourceRef)
+	}
+
+	// The stock card sees the recorded day: balance 600 − 28 = 572.0.
+	stock, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+	found := false
+	for _, item := range stock.Items {
+		if item.FeedItemKey == "uht_milk" && item.FarmLabel == "CBE" {
+			found = true
+			if item.BalanceKg != "572.0" {
+				t.Errorf("balance = %q, want 572.0", item.BalanceKg)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("UHT stock card missing: %+v", stock.Items)
+	}
+
+	// An unresolvable park is a loud error (the event redelivers), never a
+	// silent skip that quietly stops depleting the store.
+	bad := cmd
+	bad.ParkID = "00000000-0000-4000-8000-00000000dead"
+	if err := repo.RecordExternalConsumption(ctx, bad); err == nil {
+		t.Fatal("unknown park must error")
+	}
+	// A non-positive quantity is a producer bug and is rejected.
+	bad = cmd
+	bad.QuantityKg = 0
+	if err := repo.RecordExternalConsumption(ctx, bad); err == nil {
+		t.Fatal("zero quantity must error")
+	}
+}

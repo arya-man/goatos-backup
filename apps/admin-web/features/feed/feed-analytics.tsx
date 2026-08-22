@@ -983,7 +983,9 @@ function StockCards({
                     : `${nf(item.days_left)} ${fa(pageContract, "stock.days_left")}`}
                 </div>
                 <div className="muted small">
-                  {`${nf(num(item.balance_kg))} ${fa(pageContract, "stock.balance")} · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`}
+                  {`${nf(num(item.balance_kg))} ${fa(pageContract, "stock.balance")}${
+                    item.avg_daily_kg ? ` · ${nf(num(item.avg_daily_kg))} ${fa(pageContract, "stock.per_day")}` : ""
+                  } · ${fa(pageContract, "stock.batch")} ${item.latest_batch_no}`}
                 </div>
                 {item.low_stock ? <span className="tag t-dng">{fa(pageContract, "stock.low")}</span> : null}
               </div>
