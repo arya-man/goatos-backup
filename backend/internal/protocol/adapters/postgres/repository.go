@@ -1487,15 +1487,23 @@ func insertDerivedProtocolRuleTx(ctx context.Context, tx pgx.Tx, tenant pgtype.U
 	if err != nil {
 		return fmt.Errorf("protocol: version id: %w", err)
 	}
+	// Rule lineage, written here so every rule row -- whoever authored it -- carries the two
+	// values carry-over compares. A blank fingerprint (unparseable JSON) is stored as NULL and
+	// never matches, which falls the rule back to cancel-and-regenerate.
+	identityKey := domain.RuleIdentityKey(domain.VaccineCodeForRule(in.EligibilityJSON), in.DoseCode, in.Sequence)
+	fingerprint := domain.RuleContentFingerprint(in)
+
 	tag, err := tx.Exec(ctx, `
 INSERT INTO protocol_rules (
   rule_id, tenant_id, protocol_version_id, dose_code, "sequence", trigger_type, offset_days,
   due_window_days, min_gap_days, "repeat", repeat_until_after_age, catch_up,
-  eligibility_json, sop_version_id, proof_policy, withdrawal_days, sort_order
+  eligibility_json, sop_version_id, proof_policy, withdrawal_days, sort_order,
+  identity_key, content_fingerprint
 ) SELECT
   $1, $2, $3, $4, $5, $6, $7,
   $8, $9, $10, $11, $12,
-  $13, $14, $15, $16, $17
+  $13, $14, $15, $16, $17,
+  $18, $19
 FROM protocol_versions pv
 WHERE pv.tenant_id = $2
   AND pv.protocol_version_id = $3
@@ -1503,6 +1511,7 @@ WHERE pv.tenant_id = $2
 		ruleID, tenant, vid, in.DoseCode, in.Sequence, in.TriggerType, in.OffsetDays,
 		in.DueWindowDays, in.MinGapDays, in.Repeat, pgconv.Text(in.RepeatUntilAfterAge), in.CatchUp,
 		pgconv.JSONB(in.EligibilityJSON), pgconv.NullableUUID(in.SopVersionID), pgconv.JSONB(in.ProofPolicy), pgconv.Int4(in.WithdrawalDays), in.SortOrder,
+		pgconv.Text(identityKey), pgconv.Text(fingerprint),
 	)
 	if err != nil {
 		return fmt.Errorf("protocol: insert derived rule %s: %w", in.DoseCode, err)

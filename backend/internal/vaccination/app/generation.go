@@ -87,6 +87,7 @@ type ObligationWriter interface {
 	// Bounded pre-filter for plan replacement: which of these animals still hold open work
 	// under a version that is no longer effective for them. Usually none, for one indexed read.
 	GoatsWithVaccinationObligationsOutsideVersions(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) ([]string, error)
+	CarryOverUnchangedVaccinationObligations(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) (int, error)
 	// Finds an open row by the CAUSE it descends from, for the case where an insert was
 	// refused because another writer already created this cycle under a different key.
 	OpenObligationForRepeatCycle(ctx context.Context, tenantID, protocolVersionID, ruleID, targetType, targetID string, sequence int32, sourceRef string) (obldomain.ObligationRef, bool, error)
@@ -2908,6 +2909,16 @@ func (s *GenerationService) supersedeRetiredPlanWork(
 			// No effective plan for this park. Cancelling everything here would be
 			// indistinguishable from a misconfigured lookup, so leave the work alone.
 			continue
+		}
+		// Carry over BEFORE superseding. Work whose rule is unchanged -- same vaccine, same dose,
+		// same content -- is rebound to the new version in place, keeping its obligation id and
+		// its due date. Only what is left after this is genuinely stale, so publishing a plan
+		// that adds one vaccine no longer cancels and re-mints the vaccines nobody touched.
+		//
+		// Order matters beyond tidiness: rebinding after generation would collide with
+		// obligation_instances_dup_guard, because generation would already hold that key.
+		if _, err := s.obl.CarryOverUnchangedVaccinationObligations(ctx, tenantID, goatIDs, versionIDs); err != nil {
+			return err
 		}
 		stale, err := s.obl.GoatsWithVaccinationObligationsOutsideVersions(ctx, tenantID, goatIDs, versionIDs)
 		if err != nil {
