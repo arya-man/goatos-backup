@@ -136,11 +136,42 @@ live_image_tag() {
 }
 
 already_deployed() {
-  local api_tag admin_tag
+  local api_tag admin_tag bridge_tag
   api_tag="$(live_image_tag goatos-api-stg)"
   admin_tag="$(live_image_tag goatos-admin-web-stg)"
+  bridge_tag="$(live_image_tag goatos-herd-signals-mqtt-bridge-stg)"
 
-  [[ "$api_tag" == "$commit_sha" && "$admin_tag" == "$commit_sha" ]]
+  [[ "$api_tag" == "$commit_sha" && "$admin_tag" == "$commit_sha" && "$bridge_tag" == "$commit_sha" ]]
+}
+
+deploy_herd_signals_mqtt_bridge() {
+  local backend_image="asia-south1-docker.pkg.dev/${PROJECT_ID}/goatos/backend:${commit_sha}"
+  local service="goatos-herd-signals-mqtt-bridge-stg"
+
+  gcloud run deploy "$service" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --image="$backend_image" \
+    --command="/app/bin/herd-signals-mqtt-bridge" \
+    --service-account="goatos-hs-mqtt-bridge-stg@goatos-stg.iam.gserviceaccount.com" \
+    --ingress=internal \
+    --min-instances=1 \
+    --max-instances=1 \
+    --cpu=1 \
+    --memory=512Mi \
+    --no-cpu-throttling \
+    --add-cloudsql-instances="${PROJECT_ID}:${REGION}:goatos-stg-core-db" \
+    --set-env-vars="GOATOS_ENV=stg,GOATOS_HEALTH_ADDR=:8080,HERD_SIGNALS_MQTT_HOST=__REDACTED_HERD_SIGNALS_MQTT_HOST__,HERD_SIGNALS_MQTT_PORT=8883,HERD_SIGNALS_MQTT_TLS=true,HERD_SIGNALS_MQTT_CLIENT_ID=herd-signals-mqtt-bridge-stg,HERD_SIGNALS_MQTT_USERNAME=__REDACTED_HERD_SIGNALS_MQTT_USERNAME__,HERD_SIGNALS_MQTT_TOPIC=GwData,HERD_SIGNALS_TENANT_ID=00000000-0000-4000-8000-000000000001,HERD_SIGNALS_DEFAULT_GATEWAY_ID=f130d402dcb4,HERD_SIGNALS_MQTT_BATCH_SIZE=50,HERD_SIGNALS_MQTT_BATCH_INTERVAL=2s,HERD_SIGNALS_MQTT_QUEUE_MAX=5000" \
+    --set-secrets="DATABASE_URL=goatos-stg-database-url:latest,HERD_SIGNALS_MQTT_PASSWORD=herd-signals-mqtt-gateway-514060-password:latest,HERD_SIGNALS_MQTT_CA_CERT=herd-signals-mqtt-ca-crt:latest" \
+    --update-labels="commit_sha=${commit_sha},deployed_by=cloud-build-release" \
+    --quiet
+
+  local actual
+  actual="$(gcloud run services describe "$service" --project="$PROJECT_ID" --region="$REGION" --format='value(spec.template.spec.containers[0].image)')"
+  [[ "$actual" == "$backend_image" ]] || {
+    echo "ERROR: $service image stale: got $actual want $backend_image" >&2
+    return 1
+  }
 }
 
 on_exit() {
@@ -173,6 +204,7 @@ export RELEASE_ID="$release_id"
 notify_slack "STARTED" "Building images and creating Cloud Deploy release for STG."
 
 tools/deploy/stg-clouddeploy-release.sh
+deploy_herd_signals_mqtt_bridge
 
 if [[ "$DEPLOY_MOBILE" == "true" ]]; then
   notify_slack "SUCCEEDED" "STG rollout succeeded and live images were verified. Android mobile distribution will start next."
