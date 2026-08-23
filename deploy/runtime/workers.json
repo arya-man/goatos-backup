@@ -98,6 +98,17 @@
         "stg": "infra/envs/stg/cloud_run_worker.tf"
       },
       "notes": "Consolidated long-running kernel worker (backend/cmd/kernel-worker/main.go, backend/internal/kernelstages, backend/internal/platform/worker; built by backend/Dockerfile). Deployed as a Cloud Run SERVICE (min=2/max=2, CPU always-on, /readyz+/livez probes) in dev and stg via infra/envs/{dev,stg}/cloud_run_worker.tf, replacing the retired per-stage scheduled jobs. command+args here (/app/bin/kernel-worker -timeout=0s) are reconciled bidirectionally against those Terraform services by check-deployed-job-flags.mjs, and exercised by deploy/e2e/docker-compose.e2e.yml + make e2e-parity/e2e-smoke."
+    },
+    {
+      "name": "herd_signals_mqtt_bridge",
+      "binary": "herd-signals-mqtt-bridge",
+      "kind": "service",
+      "args": [],
+      "health_signal": "process stays running; structured logs mqtt_connected, mqtt_subscribed, herd_signals_mqtt_bridge_stats, and ingest_batch_ok when HoneyComm packets arrive",
+      "deployed_environments": [
+        "stg"
+      ],
+      "notes": "Long-running staging MQTT bridge for HoneyComm BLE gateway telemetry. It connects to the TLS Mosquitto broker, decodes GwData scan reports, and writes through herdsignals app.Service.IngestPackets rather than a second write path. Initial deployment must run as a single Cloud Run instance until duplicate handling and shared subscription semantics are proven."
     }
   ],
   "environments": {

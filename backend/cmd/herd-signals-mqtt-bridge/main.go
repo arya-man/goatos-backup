@@ -30,11 +30,14 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -116,6 +119,7 @@ func run() error {
 	actor := domain.Actor{TenantID: cfg.TenantID, UserID: cfg.ServiceActorID}
 
 	b := &bridge{cfg: cfg, log: log, repo: repo, svc: svc, actor: actor, queue: make(chan decodedPacket, cfg.QueueMax)}
+	go b.serveHealth(ctx)
 
 	client, err := b.connect()
 	if err != nil {
@@ -145,6 +149,9 @@ type config struct {
 	TenantID       string
 	ServiceActorID string
 	DefaultGateway string // used only when a message's own gw_addr cannot be trusted/derived
+	CACertPEM      string
+	CACertFile     string
+	HealthAddr     string
 	BatchSize      int
 	BatchInterval  time.Duration
 	QueueMax       int
@@ -169,6 +176,9 @@ func loadConfig() (config, error) {
 		BatchInterval:  envDuration("HERD_SIGNALS_MQTT_BATCH_INTERVAL", 2*time.Second),
 		QueueMax:       envInt("HERD_SIGNALS_MQTT_QUEUE_MAX", 5000),
 		TLS:            os.Getenv("HERD_SIGNALS_MQTT_TLS") == "true",
+		CACertPEM:      os.Getenv("HERD_SIGNALS_MQTT_CA_CERT"),
+		CACertFile:     os.Getenv("HERD_SIGNALS_MQTT_CA_CERT_FILE"),
+		HealthAddr:     getenvDefault("GOATOS_HEALTH_ADDR", ":8080"),
 	}
 	c.Host = os.Getenv("HERD_SIGNALS_MQTT_HOST")
 	c.Port = getenvDefault("HERD_SIGNALS_MQTT_PORT", "1883")
@@ -266,6 +276,13 @@ func (b *bridge) connect() (mqtt.Client, error) {
 		opts.SetUsername(b.cfg.Username)
 		opts.SetPassword(b.cfg.Password)
 	}
+	if b.cfg.TLS {
+		tlsConfig, err := b.cfg.TLSConfig()
+		if err != nil {
+			return nil, err
+		}
+		opts.SetTLSConfig(tlsConfig)
+	}
 
 	client := mqtt.NewClient(opts)
 	token := client.Connect()
@@ -274,6 +291,62 @@ func (b *bridge) connect() (mqtt.Client, error) {
 		return nil, err
 	}
 	return client, nil
+}
+
+func (b *bridge) serveHealth(ctx context.Context) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/livez", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	srv := &http.Server{
+		Addr:              b.cfg.HealthAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		b.log.Error("health_server_failed", "addr", b.cfg.HealthAddr, "error", err)
+	}
+}
+
+func (c config) TLSConfig() (*tls.Config, error) {
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, fmt.Errorf("load system cert pool: %w", err)
+	}
+	if roots == nil {
+		roots = x509.NewCertPool()
+	}
+
+	if c.CACertPEM != "" {
+		if ok := roots.AppendCertsFromPEM([]byte(c.CACertPEM)); !ok {
+			return nil, errors.New("HERD_SIGNALS_MQTT_CA_CERT did not contain a valid PEM certificate")
+		}
+	}
+	if c.CACertFile != "" {
+		pem, err := os.ReadFile(c.CACertFile)
+		if err != nil {
+			return nil, fmt.Errorf("read HERD_SIGNALS_MQTT_CA_CERT_FILE: %w", err)
+		}
+		if ok := roots.AppendCertsFromPEM(pem); !ok {
+			return nil, errors.New("HERD_SIGNALS_MQTT_CA_CERT_FILE did not contain a valid PEM certificate")
+		}
+	}
+
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    roots,
+		ServerName: c.Host,
+	}, nil
 }
 
 // gwEnvelope is the top-level MQTT message shape. Handles both pkt_type "scan_report" (tag

@@ -524,3 +524,182 @@ resource "google_cloud_run_v2_service_iam_member" "admin_web_public_invoker" {
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
+
+resource "google_secret_manager_secret_iam_member" "herd_signals_mqtt_bridge_gateway_password_accessor" {
+  secret_id = "projects/${var.project_id}/secrets/herd-signals-mqtt-gateway-514060-password"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.runtime["herd_signals_mqtt_bridge"].email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "herd_signals_mqtt_bridge_ca_accessor" {
+  secret_id = "projects/${var.project_id}/secrets/herd-signals-mqtt-ca-crt"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.runtime["herd_signals_mqtt_bridge"].email}"
+}
+
+resource "google_cloud_run_v2_service" "herd_signals_mqtt_bridge" {
+  name                = "goatos-herd-signals-mqtt-bridge-stg"
+  location            = var.region
+  deletion_protection = false
+  ingress             = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+  labels              = local.labels
+
+  template {
+    service_account = google_service_account.runtime["herd_signals_mqtt_bridge"].email
+
+    scaling {
+      min_instance_count = 1
+      max_instance_count = 1
+    }
+
+    containers {
+      name    = "herd-signals-mqtt-bridge"
+      image   = local.backend_image
+      command = ["/app/bin/herd-signals-mqtt-bridge"]
+
+      ports {
+        container_port = 8080
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+        # This is a long-running MQTT subscriber, not request-driven HTTP traffic.
+        cpu_idle = false
+      }
+
+      env {
+        name  = "GOATOS_ENV"
+        value = "stg"
+      }
+
+      env {
+        name  = "GOATOS_HEALTH_ADDR"
+        value = ":8080"
+      }
+
+      env {
+        name  = "HERD_SIGNALS_TENANT_ID"
+        value = var.stg_tenant_id
+      }
+
+      env {
+        name  = "HERD_SIGNALS_MQTT_HOST"
+        value = "8.234.104.45"
+      }
+
+      env {
+        name  = "HERD_SIGNALS_MQTT_PORT"
+        value = "8883"
+      }
+
+      env {
+        name  = "HERD_SIGNALS_MQTT_TLS"
+        value = "true"
+      }
+
+      env {
+        name  = "HERD_SIGNALS_MQTT_TOPIC"
+        value = "GwData"
+      }
+
+      env {
+        name  = "HERD_SIGNALS_MQTT_CLIENT_ID"
+        value = "herd-signals-mqtt-bridge-stg"
+      }
+
+      env {
+        name  = "HERD_SIGNALS_MQTT_USERNAME"
+        value = "gw-514060"
+      }
+
+      env {
+        name = "HERD_SIGNALS_MQTT_PASSWORD"
+        value_source {
+          secret_key_ref {
+            secret  = "herd-signals-mqtt-gateway-514060-password"
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "HERD_SIGNALS_MQTT_CA_CERT"
+        value_source {
+          secret_key_ref {
+            secret  = "herd-signals-mqtt-ca-crt"
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name  = "HERD_SIGNALS_DEFAULT_GATEWAY_ID"
+        value = "f130d402dcb4"
+      }
+
+      env {
+        name  = "HERD_SIGNALS_MQTT_BATCH_SIZE"
+        value = "50"
+      }
+
+      env {
+        name  = "HERD_SIGNALS_MQTT_BATCH_INTERVAL"
+        value = "2s"
+      }
+
+      env {
+        name  = "HERD_SIGNALS_MQTT_QUEUE_MAX"
+        value = "5000"
+      }
+
+      env {
+        name = "DATABASE_URL"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["database_url"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      volume_mounts {
+        name       = "cloudsql"
+        mount_path = "/cloudsql"
+      }
+
+      startup_probe {
+        initial_delay_seconds = 5
+        timeout_seconds       = 5
+        period_seconds        = 10
+        failure_threshold     = 6
+
+        http_get {
+          path = "/readyz"
+          port = 8080
+        }
+      }
+
+      liveness_probe {
+        initial_delay_seconds = 30
+        timeout_seconds       = 5
+        period_seconds        = 30
+        failure_threshold     = 3
+
+        http_get {
+          path = "/livez"
+          port = 8080
+        }
+      }
+    }
+
+    volumes {
+      name = "cloudsql"
+      cloud_sql_instance {
+        instances = [google_sql_database_instance.core.connection_name]
+      }
+    }
+  }
+}
