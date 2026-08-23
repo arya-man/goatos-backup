@@ -848,6 +848,126 @@ LEFT JOIN recent r
  AND r.feed_item_key = b.feed_item_key
 ORDER BY days_left NULLS LAST, b.feed_item_label, b.farm_label`
 
+// Next-7-days requirement and cost (maintainer decision 2026-08-23), at
+// (park, feed item) grain.
+//
+// Keyed on CONSUMPTION, not on the purchase ledger, so every feed the farm
+// actually feeds gets a row -- sheet-directed feeds and the external ledger
+// (UHT Milk) alike, including a feed never purchased at that park. Purchases
+// only decorate the row with a balance and a rate.
+//
+// projection-review: membership=fed items at (park_id, feed_item_key) from
+// locked feed_direction_issue_rows UNION feed_external_consumption, collapsed
+// to one row per (park_id, feed_item_key, feed_day) BEFORE ranking so a feed
+// carried by both sources on one day averages once; group_key=(park_id,
+// feed_item_key) on every side -- recent/first_day GROUP BY that pair, the
+// purchase side aggregates feed_purchases to the same pair before joining, and
+// the rate LATERAL returns one row by construction; join_cardinality=fed LEFT
+// JOIN purchased 1:0..1, LEFT JOIN LATERAL rate 1:0..1, no side left
+// unaggregated -- and required_kg and required_cost range over the IDENTICAL
+// (park_id, feed_item_key) key set, cost being a scalar multiple of the same
+// avg rather than a differently-grouped sum; pagination=none, a tenant's feeds
+// across its parks is a bounded table with no limit/offset input, so no
+// summary can disagree with a page; scope=tenant_id everywhere plus the
+// caller's authorized park set on consumption and purchases alike.
+//
+// scale-guard:ignore: 5k-50k-envelope -- bounded per-(park,item) aggregate over
+// locked sheets and the small purchase ledger, canonical-indexed-SQL default.
+const stockForecastSQL = `
+WITH fed_days AS (
+    SELECT park_id, feed_item_key, feed_day, SUM(kg) AS kg,
+           MAX(feed_item_label) AS feed_item_label
+    FROM (
+        SELECT i.park_id, r.feed_item_key, i.feed_day,
+               SUM(r.quantity_kg) AS kg,
+               MAX(r.feed_item_label) AS feed_item_label
+        FROM feed_direction_issues i
+        JOIN feed_direction_issue_rows r
+          ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
+        WHERE i.tenant_id = $1
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR i.park_id = ANY ($2::uuid[]))
+          AND i.state = 'locked'
+        GROUP BY i.park_id, r.feed_item_key, i.feed_day
+        UNION ALL
+        SELECT x.park_id, x.feed_item_key, x.feed_day,
+               SUM(x.quantity_kg) AS kg,
+               MAX(x.feed_item_label) AS feed_item_label
+        FROM feed_external_consumption x
+        WHERE x.tenant_id = $1
+          AND x.park_id IS NOT NULL
+          AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
+        GROUP BY x.park_id, x.feed_item_key, x.feed_day
+    ) both_sources
+    GROUP BY park_id, feed_item_key, feed_day
+),
+recent AS (
+    SELECT park_id, feed_item_key,
+           AVG(kg)              AS avg_kg,
+           MAX(feed_item_label) AS feed_item_label
+    FROM (
+        SELECT park_id, feed_item_key, feed_day, kg, feed_item_label,
+               ROW_NUMBER() OVER (PARTITION BY park_id, feed_item_key ORDER BY feed_day DESC) AS rn
+        FROM fed_days
+    ) ranked
+    WHERE rn <= 3
+    GROUP BY park_id, feed_item_key
+),
+-- Ledger balance at the SAME (park, item) grain the stock cards use: purchased
+-- net of import-time consumption, minus everything fed since the bootstrap
+-- cutoff. Park-less purchase rows have no park to attribute to and are excluded,
+-- exactly as the expenditure series excludes them.
+purchased AS (
+    SELECT p.park_id, p.feed_item_key,
+           SUM(p.quantity_kg - p.consumed_at_import_kg) AS net_kg,
+           MIN(p.depletes_from)                         AS depletes_from
+    FROM feed_purchases p
+    WHERE p.tenant_id = $1
+      AND p.park_id IS NOT NULL
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR p.park_id = ANY ($2::uuid[]))
+    GROUP BY p.park_id, p.feed_item_key
+),
+depleted AS (
+    SELECT pu.park_id, pu.feed_item_key,
+           pu.net_kg - COALESCE(SUM(fd.kg), 0) AS balance_kg
+    FROM purchased pu
+    LEFT JOIN fed_days fd
+      ON fd.park_id = pu.park_id
+     AND fd.feed_item_key = pu.feed_item_key
+     AND fd.feed_day >= pu.depletes_from
+    GROUP BY pu.park_id, pu.feed_item_key, pu.net_kg
+)
+SELECT lp.name                                            AS farm_label,
+       COALESCE(NULLIF(r.feed_item_label, ''), r.feed_item_key) AS feed_item_label,
+       r.feed_item_key,
+       round(r.avg_kg, 1)::text                           AS avg_daily_kg,
+       round(r.avg_kg * $3::numeric, 1)::text             AS required_kg,
+       COALESCE(round(d.balance_kg, 1)::text, '')         AS stock_kg,
+       CASE WHEN d.balance_kg IS NOT NULL
+            THEN round(GREATEST(r.avg_kg * $3::numeric - d.balance_kg, 0), 1)::text
+            ELSE '' END                                   AS shortfall_kg,
+       COALESCE(round(rate.per_kg, 2)::text, '')          AS per_kg_cost,
+       COALESCE(round(r.avg_kg * $3::numeric * rate.per_kg, 0)::text, '') AS required_cost,
+       CASE WHEN d.balance_kg IS NOT NULL AND rate.per_kg IS NOT NULL
+            THEN round(GREATEST(r.avg_kg * $3::numeric - d.balance_kg, 0) * rate.per_kg, 0)::text
+            ELSE '' END                                   AS shortfall_cost
+FROM recent r
+JOIN locations lp
+  ON lp.tenant_id = $1 AND lp.location_id = r.park_id
+LEFT JOIN depleted d
+  ON d.park_id = r.park_id AND d.feed_item_key = r.feed_item_key
+LEFT JOIN LATERAL (
+    SELECT COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.quantity_kg, 0)) AS per_kg
+    FROM feed_purchases p
+    WHERE p.tenant_id = $1
+      AND p.park_id = r.park_id
+      AND p.feed_item_key = r.feed_item_key
+      AND COALESCE(p.per_kg_cost, p.total_cost / NULLIF(p.quantity_kg, 0)) IS NOT NULL
+    ORDER BY p.purchase_date DESC, p.batch_no DESC
+    LIMIT 1
+) rate ON TRUE
+WHERE r.avg_kg > 0
+ORDER BY lp.name, feed_item_label`
+
 // Expenditure: each (day, farm, item)'s directed kg — plus external
 // consumption of sheet-tracked feeds (UHT Milk) — priced at that farm's most
 // recent load rate on or before that day, matching the sheet's daily feed
@@ -1020,6 +1140,13 @@ stock_balance AS (
       ON dep.farm_label = l.farm_label
      AND dep.feed_item_key = l.feed_item_key
 )
+-- projection-review: membership=feed_purchases at (tenant, farm_label, feed_item_key, batch_no)
+-- filtered to MeshaConcentrateStockKeys; group_key=(farm_label, feed_item_key) on every side,
+-- loads GROUP BY that pair and last_load is DISTINCT ON the same pair; join_cardinality=loads
+-- JOIN last_load 1:1, LEFT JOIN directed 1:0..1, LEFT JOIN stock_balance 1:0..1, no side left
+-- unaggregated, and weekly_required_kg is a scalar multiple of the same recent_avg_kg rather than
+-- a differently-grouped sum; pagination=none, four items across a tenant's farms is bounded with
+-- no limit/offset input; scope=tenant_id everywhere plus the caller's authorized park set.
 SELECT l.farm_label,
        l.feed_item_label,
        l.feed_item_key,
@@ -1097,6 +1224,32 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	}
 	if err := farmRows.Err(); err != nil {
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm rows: %w", err)
+	}
+
+	// projection-review: membership=stockForecastSQL's fed (park_id, feed_item_key) set;
+	// group_key=(park_id, feed_item_key), one row per pair straight from the query with no
+	// client-side regrouping; join_cardinality=1:1 row-to-struct, nothing fanned out here;
+	// pagination=none, the whole bounded result is scanned; scope=tenantID plus parkIDs
+	// passed straight through to the query.
+	out.Forecast = []domain.StockForecastItem{}
+	fcRows, err := r.pool.Query(ctx, stockForecastSQL, tenantID, parkIDs, domain.StockForecastDays)
+	if err != nil {
+		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock forecast: %w", err)
+	}
+	defer fcRows.Close()
+	for fcRows.Next() {
+		var f domain.StockForecastItem
+		if err := fcRows.Scan(
+			&f.FarmLabel, &f.FeedItemLabel, &f.FeedItemKey,
+			&f.AvgDailyKg, &f.RequiredKg, &f.StockKg, &f.ShortfallKg,
+			&f.PerKgCost, &f.RequiredCost, &f.ShortfallCost,
+		); err != nil {
+			return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock forecast scan: %w", err)
+		}
+		out.Forecast = append(out.Forecast, f)
+	}
+	if err := fcRows.Err(); err != nil {
+		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock forecast rows: %w", err)
 	}
 
 	expRows, err := r.pool.Query(ctx, stockExpenditureSQL, tenantID, parkIDs, from.Format("2006-01-02"), to.Format("2006-01-02"))

@@ -1044,6 +1044,7 @@ function StockCards({
     (item) => item.days_left !== null && item.days_left !== undefined,
   );
   const farmItems = stock?.farm_items ?? [];
+  const forecast = stock?.forecast ?? [];
   return (
     <>
       {!stock || active.length === 0 ? (
@@ -1187,7 +1188,112 @@ function StockCards({
           </div>
         )}
       </section>
+      <ForecastTable rows={forecast} pageContract={pageContract} />
     </>
+  );
+}
+
+// Next-7-days requirement and cost. Every figure is backend-composed; an empty
+// string on a row means the backend could not price or balance it (no load in
+// the purchase ledger for that farm and feed), which is rendered as a stated
+// reason rather than a silent zero -- a zero would read as "nothing needed".
+function ForecastTable({
+  rows,
+  pageContract,
+}: {
+  rows: FeedAnalyticsStockResponse["forecast"];
+  pageContract: AdminUiPageContract;
+}) {
+  let requiredCostTotal = 0;
+  let shortfallCostTotal = 0;
+  let anyPriced = false;
+  rows.forEach((row) => {
+    if (row.required_cost !== "") {
+      requiredCostTotal += num(row.required_cost);
+      anyPriced = true;
+    }
+    if (row.shortfall_cost !== "") shortfallCostTotal += num(row.shortfall_cost);
+  });
+  return (
+    <section className="card" style={{ marginTop: 14 }} aria-label={fa(pageContract, "forecast.title")}>
+      <div className="hd">
+        <h3>{fa(pageContract, "forecast.title")}</h3>
+        <span className="small muted">{fa(pageContract, "forecast.hint")}</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="muted small">{fa(pageContract, "forecast.empty")}</p>
+      ) : (
+        <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "forecast.title")}>
+          <table className="tbl feed-forecast-table">
+            <thead>
+              <tr>
+                <th>{fa(pageContract, "forecast.col.farm")}</th>
+                <th>{fa(pageContract, "forecast.col.item")}</th>
+                <th>{fa(pageContract, "forecast.col.avg")}</th>
+                <th>{fa(pageContract, "forecast.col.required")}</th>
+                <th>{fa(pageContract, "forecast.col.stock")}</th>
+                <th>{fa(pageContract, "forecast.col.shortfall")}</th>
+                <th>{fa(pageContract, "forecast.col.rate")}</th>
+                <th>{fa(pageContract, "forecast.col.required_cost")}</th>
+                <th>{fa(pageContract, "forecast.col.shortfall_cost")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const kg = fa(pageContract, "unit.kg");
+                const short = num(row.shortfall_kg);
+                return (
+                  <tr key={`${row.farm_label}:${row.feed_item_key}`}>
+                    <td>{row.farm_label}</td>
+                    <td>{row.feed_item_label}</td>
+                    <td>{`${nf(num(row.avg_daily_kg))} ${kg}`}</td>
+                    <td>
+                      <strong>{`${nf(num(row.required_kg))} ${kg}`}</strong>
+                    </td>
+                    <td>{row.stock_kg === "" ? "—" : `${nf(num(row.stock_kg))} ${kg}`}</td>
+                    <td>
+                      {row.shortfall_kg === "" ? (
+                        "—"
+                      ) : short > 0 ? (
+                        <span className="tag t-dng feed-stock-check-tag">
+                          <span>{`${nf(short)} ${kg}`}</span>
+                        </span>
+                      ) : (
+                        <span className="tag t-ok feed-stock-check-tag">
+                          <span>{fa(pageContract, "forecast.covered")}</span>
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      {row.per_kg_cost === ""
+                        ? fa(pageContract, "forecast.unpriced")
+                        : `₹${rate(num(row.per_kg_cost))}`}
+                    </td>
+                    <td>{row.required_cost === "" ? "—" : `₹${money(num(row.required_cost))}`}</td>
+                    <td>
+                      {row.shortfall_cost === "" ? "—" : `₹${money(num(row.shortfall_cost))}`}
+                    </td>
+                  </tr>
+                );
+              })}
+              {anyPriced ? (
+                <tr className="feed-forecast-total">
+                  <td colSpan={7}>
+                    <strong>{fa(pageContract, "forecast.total")}</strong>
+                  </td>
+                  <td>
+                    <strong>{`₹${money(requiredCostTotal)}`}</strong>
+                  </td>
+                  <td>
+                    <strong>{`₹${money(shortfallCostTotal)}`}</strong>
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 
