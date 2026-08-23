@@ -13133,10 +13133,15 @@ components:
           description: verified minus the resolved planned quantity (0 when unresolved), signed.
     FeedAnalyticsConsumptionRow:
       type: object
-      description: One latest-day shed/cohort/feed-item target-vs-actual packing comparison row.
+      description: >-
+        One SHED's target-vs-actual feed for the requested day, summed across every feed item and
+        session it was fed. `actual_kg` and `variance_kg` are EMPTY when no packing reading exists
+        for that shed yet -- never "0", which would claim the shed was fed nothing. `has_variance`
+        is true only when a reading exists AND differs from target beyond tolerance. `breed_label`
+        and `age_group` report "Mixed" when the shed's sheet rows disagree.
       required:
         [feed_day, park_label, shed_id, shed_label, operational_location_display, breed_label,
-         age_group, feed_item_key, feed_item_label, target_kg, actual_kg, variance_kg, has_variance]
+         age_group, target_kg, actual_kg, variance_kg, has_variance]
       properties:
         feed_day:
           type: string
@@ -13156,10 +13161,6 @@ components:
           type: string
         age_group:
           type: string
-        feed_item_key:
-          type: string
-        feed_item_label:
-          type: string
         target_kg:
           type: string
         actual_kg:
@@ -13170,7 +13171,10 @@ components:
           type: boolean
     FeedAnalyticsConsumptionTrendDay:
       type: object
-      description: One day of target-vs-actual feed packing totals.
+      description: >-
+        One day of target-vs-actual feed totals over the same comparison rows the table shows.
+        `actual_kg` is EMPTY on a day with no packing readings at all, so the chart draws a gap
+        rather than a plunge to zero.
       required: [feed_day, target_kg, actual_kg, variance_rows, compared_rows]
       properties:
         feed_day:
@@ -13335,10 +13339,7 @@ components:
         - last_load_vendor
         - last_load_total_cost
         - last_load_per_kg_cost
-        - expected_stock_kg
         - ledger_stock_kg
-        - stock_variance_kg
-        - stock_check_status
       properties:
         farm_label:
           type: string
@@ -13379,18 +13380,9 @@ components:
         last_load_per_kg_cost:
           type: string
           description: Latest load per-kg cost from the feed purchase ledger.
-        expected_stock_kg:
-          type: string
-          description: Latest load quantity minus days since first_directed_day through yesterday in IST times avg_daily_kg; negative values show the expected shortage.
         ledger_stock_kg:
           type: string
           description: Displayed current stock from the canonical purchase ledger after consumed-at-import and locked-sheet depletion.
-        stock_variance_kg:
-          type: string
-          description: ledger_stock_kg minus expected_stock_kg.
-        stock_check_status:
-          type: string
-          enum: [ok, mismatch, unavailable]
     FeedAnalyticsExpenditureDay:
       type: object
       required: [feed_day, rupees]
