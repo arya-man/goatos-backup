@@ -30,6 +30,10 @@ locals {
       account_id   = "goatos-kernel-worker-stg"
       display_name = "Goat OS staging kernel worker runtime"
     }
+    herd_signals_mqtt_bridge = {
+      account_id   = "goatos-herd-signals-mqtt-bridge-stg"
+      display_name = "Goat OS staging herd signals MQTT bridge runtime"
+    }
     outbox_dlq = {
       account_id   = "goatos-outbox-dlq-stg"
       display_name = "Goat OS staging outbox DLQ operator runtime"
@@ -62,6 +66,7 @@ locals {
   database_clients = toset([
     "api",
     "kernel_worker",
+    "herd_signals_mqtt_bridge",
     "outbox_dlq",
     "migrate",
     "legacy_sync",
@@ -74,6 +79,7 @@ locals {
       accessors = [
         "api",
         "kernel_worker",
+        "herd_signals_mqtt_bridge",
         "outbox_dlq",
         "migrate",
         "legacy_sync",
