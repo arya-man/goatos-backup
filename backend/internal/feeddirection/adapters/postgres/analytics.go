@@ -310,6 +310,122 @@ LEFT JOIN planned p
 WHERE abs(rd.entered_kg - COALESCE(p.planned_kg, 0)) > $5
 ORDER BY rd.target_date DESC, rd.park_label, rd.shed_label, rd.partition_label, rd.session_no, rd.feed_item_label`
 
+const executionConsumptionSQL = `
+WITH planned AS (
+    SELECT i.feed_day,
+           i.park_id,
+           lp.name AS park_label,
+           r.shed_id,
+           ls.name AS shed_label,
+           r.partition_key,
+           COALESCE(MAX(r.partition_label), '') AS partition_label,
+           r.session_no,
+           r.workflow,
+           r.feed_item_key,
+           MAX(r.feed_item_label) AS feed_item_label,
+           COALESCE(NULLIF(MAX(r.breed), ''), 'Unspecified') AS breed_label,
+           CASE
+             WHEN feed_config_norm(COALESCE(MAX(r.ration_group), MAX(r.shed_tag), '')) LIKE '%kid%' THEN 'Kid'
+             ELSE 'Adult'
+           END AS age_group,
+           SUM(r.quantity_kg) AS target_kg
+    FROM feed_direction_issues i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1
+     AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    JOIN locations lp
+      ON lp.tenant_id = i.tenant_id AND lp.location_id = i.park_id
+    JOIN locations ls
+      ON ls.tenant_id = i.tenant_id AND ls.location_id = r.shed_id
+    WHERE i.tenant_id = $1
+      AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
+      AND i.feed_day BETWEEN $3 AND $4
+      AND i.state IN ('issued', 'amended', 'locked')
+      AND i.workflow IN ('normal', 'experiment')
+      AND r.quantity_kg IS NOT NULL
+    GROUP BY i.feed_day, i.park_id, lp.name, r.shed_id, ls.name, r.partition_key,
+             r.session_no, r.workflow, r.feed_item_key
+),
+readings AS (
+    SELECT c.target_date,
+           c.park_id,
+           c.shed_id,
+           c.partition_key,
+           c.session_no,
+           c.workflow,
+           q.feed_item_key,
+           SUM(q.entered_kg) AS actual_kg
+    FROM feed_packing_verified_quantities q
+    JOIN feed_packing_completions c
+      ON c.tenant_id = q.tenant_id AND c.completion_id = q.completion_id
+    WHERE q.tenant_id = $1
+      AND ($2::uuid[] IS NULL OR c.park_id = ANY ($2::uuid[]))
+      AND c.target_date BETWEEN $3 AND $4
+      AND c.status = 'completed'
+    GROUP BY c.target_date, c.park_id, c.shed_id, c.partition_key, c.session_no, c.workflow, q.feed_item_key
+),
+comparison AS (
+    SELECT p.feed_day,
+           p.park_label,
+           p.shed_id,
+           p.shed_label,
+           p.partition_label,
+           p.breed_label,
+           p.age_group,
+           p.feed_item_key,
+           p.feed_item_label,
+           p.target_kg,
+           COALESCE(r.actual_kg, 0) AS actual_kg,
+           COALESCE(r.actual_kg, 0) - p.target_kg AS variance_kg
+    FROM planned p
+    LEFT JOIN readings r
+      ON r.target_date = p.feed_day
+     AND r.park_id = p.park_id
+     AND r.shed_id = p.shed_id
+     AND r.partition_key = p.partition_key
+     AND r.session_no = p.session_no
+     AND r.workflow = p.workflow
+     AND r.feed_item_key = p.feed_item_key
+)
+SELECT 'row' AS kind,
+       feed_day::text,
+       park_label,
+       shed_id::text,
+       shed_label,
+       partition_label,
+       breed_label,
+       age_group,
+       feed_item_key,
+       feed_item_label,
+       target_kg::text,
+       actual_kg::text,
+       variance_kg::text,
+       (abs(variance_kg) > $5)::text,
+       ''::text,
+       ''::text
+FROM comparison
+WHERE feed_day = $4::date
+UNION ALL
+SELECT 'trend' AS kind,
+       feed_day::text,
+       '' AS park_label,
+       '' AS shed_id,
+       '' AS shed_label,
+       '' AS partition_label,
+       '' AS breed_label,
+       '' AS age_group,
+       '' AS feed_item_key,
+       '' AS feed_item_label,
+       SUM(target_kg)::text,
+       SUM(actual_kg)::text,
+       SUM(variance_kg)::text,
+       COUNT(*) FILTER (WHERE abs(variance_kg) > $5)::text,
+       COUNT(*)::text,
+       ''::text
+FROM comparison
+GROUP BY feed_day
+ORDER BY 1, 2 DESC, 3, 4, 5, 6, 9`
+
 // ExecutionAnalytics merges the three status streams and the latency series by
 // date. Four set-based reads, no per-day fan-out.
 func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ExecutionAnalytics, error) {
@@ -416,6 +532,72 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 	for _, k := range keys {
 		out.Days = append(out.Days, *days[k])
 	}
+
+	consRows, err := r.pool.Query(ctx, executionConsumptionSQL, tenantID, parkIDs, fromArg, toArg, domain.PackingVarianceToleranceKg)
+	if err != nil {
+		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption comparison: %w", err)
+	}
+	defer consRows.Close()
+	out.ConsumptionRows = []domain.FeedConsumptionRow{}
+	out.ConsumptionTrend = []domain.FeedConsumptionTrendDay{}
+	for consRows.Next() {
+		var kind, feedDay, parkLabel, shedID, shedLabel, partitionLabel, breedLabel, ageGroup string
+		var feedItemKey, feedItemLabel, targetKg, actualKg, varianceKg, flagText, comparedText, unused string
+		if err := consRows.Scan(
+			&kind, &feedDay, &parkLabel, &shedID, &shedLabel, &partitionLabel, &breedLabel, &ageGroup,
+			&feedItemKey, &feedItemLabel, &targetKg, &actualKg, &varianceKg, &flagText, &comparedText, &unused,
+		); err != nil {
+			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption comparison scan: %w", err)
+		}
+		switch kind {
+		case "row":
+			v := domain.FeedConsumptionRow{
+				FeedDay:        feedDay,
+				ParkLabel:      parkLabel,
+				ShedID:         shedID,
+				ShedLabel:      shedLabel,
+				PartitionLabel: partitionLabel,
+				BreedLabel:     breedLabel,
+				AgeGroup:       ageGroup,
+				FeedItemKey:    feedItemKey,
+				FeedItemLabel:  feedItemLabel,
+				TargetKg:       targetKg,
+				ActualKg:       actualKg,
+				VarianceKg:     varianceKg,
+				HasVariance:    flagText == "true",
+			}
+			v.OperationalLocationDisplay = oploc.OperationalLocation{
+				ShedName:       v.ShedLabel,
+				PartitionLabel: v.PartitionLabel,
+			}.Display()
+			out.ConsumptionRows = append(out.ConsumptionRows, v)
+		case "trend":
+			var varianceRows, comparedRows int64
+			if flagText != "" {
+				if _, err := fmt.Sscan(flagText, &varianceRows); err != nil {
+					return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption variance row count: %w", err)
+				}
+			}
+			if comparedText != "" {
+				if _, err := fmt.Sscan(comparedText, &comparedRows); err != nil {
+					return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption compared row count: %w", err)
+				}
+			}
+			out.ConsumptionTrend = append(out.ConsumptionTrend, domain.FeedConsumptionTrendDay{
+				FeedDay:      feedDay,
+				TargetKg:     targetKg,
+				ActualKg:     actualKg,
+				VarianceRows: varianceRows,
+				ComparedRows: comparedRows,
+			})
+		}
+	}
+	if err := consRows.Err(); err != nil {
+		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption comparison rows: %w", err)
+	}
+	sort.Slice(out.ConsumptionTrend, func(i, j int) bool {
+		return out.ConsumptionTrend[i].FeedDay < out.ConsumptionTrend[j].FeedDay
+	})
 
 	varRows, err := r.pool.Query(ctx, executionPackingVarianceSQL, tenantID, parkIDs, fromArg, toArg, domain.PackingVarianceToleranceKg)
 	if err != nil {
