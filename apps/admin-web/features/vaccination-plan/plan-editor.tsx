@@ -13,7 +13,7 @@
  */
 
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { DurationField, formatDays } from "./duration-field";
@@ -582,6 +582,232 @@ export function VaccinationPlanEditor(props: Props) {
           >
             Publish plan
           </button>
+        </div>
+      </div>
+
+      {addingVaccine ? (
+        <AddVaccineModal onSave={onAddVaccine} onCancel={() => setAddingVaccine(false)} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * "Add a vaccine to this plan" — the panel behind the rail's "+ Add a vaccine"
+ * button, matching docs/preventive-care-vaccination/design/vaccination-plan-console.mock.html
+ * (#newVacModal).
+ *
+ * Every duration here is a DurationField, not a native `<select>` of canned
+ * options: MOCK-BEHAVIOUR-SPEC.md §6 bans a fixed list for a duration, and a
+ * first dose of 17 weeks or a deadline of 5 months must both be entered exactly.
+ * Live/killed, bacterial/viral, species and one-dose-or-two are finite,
+ * backend-defined enumerations (vaccine-taxonomy.ts) -- not durations -- so a
+ * plain `<select>` is the right control for those.
+ */
+function AddVaccineModal({
+  onSave,
+  onCancel,
+}: {
+  onSave: (input: NewVaccineInput) => string | null;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [disease, setDisease] = useState("");
+  const [vaccineType, setVaccineType] = useState<"live" | "killed">("killed");
+  const [pathogenClass, setPathogenClass] = useState<"bacterial" | "viral">("bacterial");
+  const [species, setSpecies] = useState<"goat" | "sheep" | "both">("both");
+  const [courseType, setCourseType] = useState<"single" | "booster">("single");
+  const [firstDoseDays, setFirstDoseDays] = useState(84); // 12 weeks, the mock's own default
+  const [boosterGapDays, setBoosterGapDays] = useState(21); // 3 weeks
+  const [repeats, setRepeats] = useState(true);
+  const [repeatDays, setRepeatDays] = useState(365);
+  const [maxLateDays, setMaxLateDays] = useState(14); // 2 weeks
+  const [err, setErr] = useState<string | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => nameRef.current?.focus(), 40);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  const spacingNote =
+    vaccineType === "live"
+      ? "Live vaccines need 28 days from another live vaccine, and 14 days from a killed one. The system enforces this on its own."
+      : "Killed vaccines need 14 days from any other vaccine. The system enforces this on its own.";
+
+  function handleSave() {
+    const result = onSave({
+      name,
+      code,
+      disease,
+      vaccineType,
+      pathogenClass,
+      species,
+      courseType,
+      firstDoseDays,
+      boosterGapDays,
+      repeatDays: repeats ? repeatDays : null,
+      maxLateDays,
+    });
+    if (result) setErr(result);
+  }
+
+  return (
+    <div
+      className="vp-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Add a vaccine to this plan"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
+      <div className="vp-sheet">
+        <div className="vp-head">
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 4 }}>
+              New vaccine
+            </div>
+            <h2>Add a vaccine to this plan</h2>
+          </div>
+          <button className="vp-x" type="button" onClick={onCancel} aria-label="Close">
+            <X size={15} aria-hidden />
+          </button>
+        </div>
+        <div className="vp-body">
+          <p className="vp-lead">
+            Everything marked <b>required</b> must be filled before the plan can be published. The
+            rest can be left as-is.
+          </p>
+
+          <div className="vp-nvsec">Basics</div>
+          <div className="vp-nvgrid">
+            <label className="vp-nvf">
+              <span>
+                Name <b>required</b>
+              </span>
+              <input ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Brucella" />
+            </label>
+            <label className="vp-nvf">
+              <span>
+                Short code <b>required</b>
+              </span>
+              <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. BRU" />
+            </label>
+            <label className="vp-nvf vp-nvwide">
+              <span>What it protects against</span>
+              <input
+                value={disease}
+                onChange={(e) => setDisease(e.target.value)}
+                placeholder="e.g. Brucellosis"
+              />
+            </label>
+          </div>
+
+          <div className="vp-nvsec">Biology — this decides the spacing rules</div>
+          <div className="vp-nvgrid">
+            <label className="vp-nvf">
+              <span>
+                Live or killed <b>required</b>
+              </span>
+              <select value={vaccineType} onChange={(e) => setVaccineType(e.target.value as "live" | "killed")}>
+                <option value="killed">Killed</option>
+                <option value="live">Live</option>
+              </select>
+            </label>
+            <label className="vp-nvf">
+              <span>
+                Bacterial or viral <b>required</b>
+              </span>
+              <select
+                value={pathogenClass}
+                onChange={(e) => setPathogenClass(e.target.value as "bacterial" | "viral")}
+              >
+                <option value="bacterial">Bacterial</option>
+                <option value="viral">Viral</option>
+              </select>
+            </label>
+          </div>
+          <p className="hintline">{spacingNote}</p>
+
+          <div className="vp-nvsec">Who gets it</div>
+          <div className="vp-nvgrid">
+            <label className="vp-nvf">
+              <span>
+                Species <b>required</b>
+              </span>
+              <select value={species} onChange={(e) => setSpecies(e.target.value as "goat" | "sheep" | "both")}>
+                <option value="both">Goats and sheep</option>
+                <option value="goat">Goats only</option>
+                <option value="sheep">Sheep only</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="vp-nvsec">The course</div>
+          <div className="vp-nvgrid">
+            <label className="vp-nvf">
+              <span>
+                One dose or two <b>required</b>
+              </span>
+              <select
+                value={courseType}
+                onChange={(e) => setCourseType(e.target.value as "single" | "booster")}
+              >
+                <option value="single">One dose only</option>
+                <option value="booster">First dose + booster</option>
+              </select>
+            </label>
+            <label className="vp-nvf">
+              <span>First dose at</span>
+              <DurationField days={firstDoseDays} onChange={setFirstDoseDays} title="First dose at" />
+            </label>
+            {courseType === "booster" ? (
+              <label className="vp-nvf">
+                <span>Booster, after the first dose</span>
+                <DurationField days={boosterGapDays} onChange={setBoosterGapDays} title="Booster, after the first dose" />
+              </label>
+            ) : null}
+            <label className="vp-nvf">
+              <span>Repeat every</span>
+              {repeats ? (
+                <span className="durrow" style={{ alignItems: "center" }}>
+                  <DurationField days={repeatDays} onChange={setRepeatDays} title="Repeat every" />
+                  <button className="addrow" type="button" style={{ marginTop: 0 }} onClick={() => setRepeats(false)}>
+                    Does not repeat
+                  </button>
+                </span>
+              ) : (
+                <button className="addrow" type="button" style={{ marginTop: 0 }} onClick={() => setRepeats(true)}>
+                  + Make it repeat
+                </button>
+              )}
+            </label>
+            <label className="vp-nvf">
+              <span>Can be given up to … late</span>
+              <DurationField days={maxLateDays} onChange={setMaxLateDays} title="Can be given up to … late" />
+            </label>
+          </div>
+
+          <div className="vp-nvfoot">
+            <span className="hintline">{err}</span>
+            <span className="ab-spacer" />
+            <button className="btn ghost sm" type="button" onClick={onCancel}>
+              Cancel
+            </button>
+            <button className="btn" type="button" onClick={handleSave}>
+              Add to the draft
+            </button>
+          </div>
         </div>
       </div>
     </div>
