@@ -292,7 +292,7 @@ WHERE vda.tenant_id = $1
 
 func (r *Repository) vaccinationClinicalConflictForDate(ctx context.Context, tenant, park pgtype.UUID, cohort vaccinationDriveAffectedCohort, moved vaccinationClinicalRule, candidate, original time.Time) (*vaccinationClinicalConflict, error) {
 	rows, err := r.pool.Query(ctx, `
-WITH affected(goat_id) AS (SELECT unnest($3::uuid[])),
+WITH affected(goat_id) AS (SELECT unnest($2::uuid[])),
 events AS (
   SELECT vc.goat_id,
          vc.administered_at::date AS event_date,
@@ -314,7 +314,7 @@ events AS (
   JOIN affected a ON a.goat_id = vc.goat_id
   WHERE vc.tenant_id = $1
     AND vc.status = 'accepted'
-    AND NOT (vc.obligation_id = ANY($7::uuid[]))
+    AND NOT (vc.obligation_id = ANY($4::uuid[]))
   UNION ALL
   SELECT oi.target_id AS goat_id,
          COALESCE(vda.planned_date, oi.due_at::date) AS event_date,
@@ -338,13 +338,13 @@ events AS (
   WHERE oi.tenant_id = $1
     AND oi.target_type = 'goat'
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
-    AND NOT (oi.obligation_id = ANY($7::uuid[]))
+    AND NOT (oi.obligation_id = ANY($4::uuid[]))
 )
 SELECT vaccine_code, vaccine_label, event_date, vaccine_type, pathogen_class, course_type, min_gap_days
 FROM events
-WHERE event_date BETWEEN ($5::date - INTERVAL '60 days')::date AND ($5::date + INTERVAL '60 days')::date
-ORDER BY ABS(event_date - $5::date), event_date
-LIMIT 50`, tenant, park, cohort.goats, moved.code, businessDateOnly(candidate), businessDateOnly(original), cohort.obligations)
+WHERE event_date BETWEEN ($3::date - INTERVAL '60 days')::date AND ($3::date + INTERVAL '60 days')::date
+ORDER BY ABS(event_date - $3::date), event_date
+LIMIT 50`, tenant, cohort.goats, businessDateOnly(candidate), cohort.obligations)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: read vaccination clinical conflicts: %w", err)
 	}

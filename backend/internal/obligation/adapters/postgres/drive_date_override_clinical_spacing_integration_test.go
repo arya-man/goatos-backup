@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
@@ -60,7 +62,7 @@ INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_
 VALUES ($2, 'clinical_spacing_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_spacing_operator_a', 'manager', 'friday', 50, 'active', '2026-01-01')`,
-		operatorA, tenantID, cbePark); err != nil {
+		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
 		t.Fatalf("seed operator: %v", err)
 	}
 
@@ -148,7 +150,7 @@ INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_
 VALUES ($2, 'clinical_spill_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_spill_operator_a', 'manager', 'friday', 1, 'active', '2026-01-01')`,
-		operatorA, tenantID, cbePark); err != nil {
+		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
 		t.Fatalf("seed operator: %v", err)
 	}
 
@@ -272,7 +274,7 @@ INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_
 VALUES ($2, 'clinical_edit_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_edit_operator_a', 'manager', 'friday', 50, 'active', '2026-01-01')`,
-		operatorA, tenantID, cbePark); err != nil {
+		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
 		t.Fatalf("seed operator: %v", err)
 	}
 
@@ -362,7 +364,7 @@ INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_
 VALUES ($2, 'clinical_future_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_future_operator_a', 'manager', 'friday', 50, 'active', '2026-01-01')`,
-		operatorA, tenantID, cbePark); err != nil {
+		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
 		t.Fatalf("seed operator: %v", err)
 	}
 
@@ -442,7 +444,7 @@ INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_
 VALUES ($2, 'clinical_edit_future_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_edit_future_operator_a', 'manager', 'friday', 50, 'active', '2026-01-01')`,
-		operatorA, tenantID, cbePark); err != nil {
+		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
 		t.Fatalf("seed operator: %v", err)
 	}
 
