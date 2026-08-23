@@ -256,9 +256,22 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
   // A vaccine the plan carries that the original document never had is one added
   // in this editing session via "+ Add a vaccine". It gets a brand new matrix
   // row -- there is no existing row to edit onto.
+  //
+  // row_id has to be unique across the whole matrix or publish rejects the draft, and it is
+  // derived from the short code rather than being the short code: an existing "ET+TT" carries
+  // row_id "et_tt", so a newly authored "ET_TT" passes the editor's short-code check and still
+  // collides here. Every id already spoken for -- by an existing row or by an earlier addition
+  // in this same session -- is therefore reserved as the ids are handed out.
+  const takenRowIds = new Set(
+    editedRows.map((row) => String(asObject(row).row_id ?? "").toLowerCase()).filter(Boolean),
+  );
   const newRows = plan.vaccines
     .filter((v) => !seenCodes.has(v.code))
-    .map((v) => buildNewMatrixRow(v, doc));
+    .map((v) => {
+      const row = buildNewMatrixRow(v, doc, takenRowIds);
+      takenRowIds.add(String(row.row_id));
+      return row;
+    });
   doc.matrix_rows = [...editedRows, ...newRows];
 
   // The flat top-level schedule is the union of every row's schedule, and the
@@ -392,7 +405,28 @@ function withWindow(rule: ScheduleRule, edited: EditorVaccine): ScheduleRule {
  * Only `species` and `animal_stage` are this row's own, because they are the one
  * thing the panel actually asked the author to decide.
  */
-function buildNewMatrixRow(v: EditorVaccine, doc: Record<string, unknown>): Record<string, unknown> {
+/**
+ * A matrix row id that no other row in the document already holds.
+ *
+ * Publish rejects a matrix whose row ids repeat, and the id is derived from the short code, so
+ * two codes that differ only in punctuation ("ET+TT" and "ET_TT") derive the same id. Rather
+ * than refuse the vaccine over a detail the author cannot see, the id is suffixed until it is
+ * free -- the short code the author typed is preserved untouched as vaccine.code.
+ */
+function uniqueRowId(code: string, taken: ReadonlySet<string>): string {
+  const base = code.toLowerCase();
+  if (!taken.has(base)) return base;
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${base}_${suffix}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+function buildNewMatrixRow(
+  v: EditorVaccine,
+  doc: Record<string, unknown>,
+  takenRowIds: ReadonlySet<string> = new Set(),
+): Record<string, unknown> {
   const topEligibility = asObject(doc.eligibility);
   const species = v.species === "goat" ? ["goat"] : v.species === "sheep" ? ["sheep"] : ["goat", "sheep"];
 
@@ -417,7 +451,7 @@ function buildNewMatrixRow(v: EditorVaccine, doc: Record<string, unknown>): Reco
   const schedule = applyEdits([], v, v.code);
 
   return {
-    row_id: v.code.toLowerCase(),
+    row_id: uniqueRowId(v.code, takenRowIds),
     vaccine: {
       code: v.code,
       name: v.name,
