@@ -35,7 +35,7 @@ const TAB_LABEL: Record<HerdSignalsTab, string> = {
 
 // One glyph per tab, using exactly the paths the reference `.segs` buttons carry. Labels alone made
 // the six tabs a wall of same-weight text; the icon is what lets the eye find "Gateways" without
-// reading the row. Rendered at `ic sm` (14px) as the reference does, not the 18px default `ic`.
+// reading the row. Sized at `ic sm` (14px) as the reference does, not the 18px default `ic`.
 const TAB_ICON: Record<HerdSignalsTab, ReactNode> = {
   live: (
     <>

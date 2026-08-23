@@ -132,6 +132,8 @@ export interface HerdGateway {
   label: string | null;
   park_name: string | null;
   shed_name: string | null;
+  partition_label: string | null;
+  operational_location_display: string | null;
   network_mode: HerdGatewayNetworkMode | null;
   wifi_mac: string | null;
   ble_mac: string | null;

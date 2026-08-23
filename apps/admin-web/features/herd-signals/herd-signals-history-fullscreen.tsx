@@ -231,7 +231,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
             </button>
           ))}
           <span className="sp" style={{ flex: 1 }} />
-          <span className="small faint">Overlays are joins onto existing Goat OS records — they are context, not cause.</span>
+          <span className="small faint">Overlays are joins onto existing Mesha records — they are context, not cause.</span>
         </div>
 
         <div className="card">

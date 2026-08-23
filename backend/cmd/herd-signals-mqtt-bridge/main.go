@@ -49,6 +49,7 @@ import (
 	herdsignalsapp "github.com/vgoats/goatos/backend/internal/herdsignals/app"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/gateway"
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -60,7 +61,7 @@ func main() {
 }
 
 func run() error {
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	log := observability.New(observability.Config{Service: "herd-signals-mqtt-bridge"})
 
 	cfg, err := loadConfig()
 	if err != nil {

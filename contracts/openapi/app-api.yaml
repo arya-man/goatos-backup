@@ -11072,6 +11072,8 @@ components:
         label: { type: string, nullable: true }
         park_name: { type: string, nullable: true }
         shed_name: { type: string, nullable: true }
+        partition_label: { type: string, nullable: true }
+        operational_location_display: { type: string, nullable: true }
         network_mode: { allOf: [{ $ref: '#/components/schemas/HerdGatewayNetworkMode' }], nullable: true }
         wifi_mac: { type: string, nullable: true }
         ble_mac: { type: string, nullable: true }
@@ -11080,7 +11082,7 @@ components:
         tags_seen_recently: { type: integer }
         weak_tags: { type: integer }
         unmapped_tags: { type: integer }
-      required: [gateway_id, label, park_name, shed_name, network_mode, wifi_mac, ble_mac, status, last_seen_at, tags_seen_recently, weak_tags, unmapped_tags]
+      required: [gateway_id, label, park_name, shed_name, partition_label, operational_location_display, network_mode, wifi_mac, ble_mac, status, last_seen_at, tags_seen_recently, weak_tags, unmapped_tags]
     HerdGatewaysResponse:
       type: object
       properties:
