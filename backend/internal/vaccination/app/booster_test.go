@@ -555,6 +555,10 @@ func (f *boosterObligationWriterFake) GoatsWithVaccinationObligationsOutsideVers
 	return nil, nil
 }
 
+func (f *boosterObligationWriterFake) CarryOverUnchangedVaccinationObligations(context.Context, string, []string, []string) (int, error) {
+	return 0, nil
+}
+
 func (f *boosterObligationWriterFake) CancelOpenVaccinationObligationsForGoatExceptVersions(context.Context, string, string, []string, string, time.Time) (int, error) {
 	return 0, nil
 }
