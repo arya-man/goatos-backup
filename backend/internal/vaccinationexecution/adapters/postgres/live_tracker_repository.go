@@ -225,10 +225,11 @@ day_assignments AS (
    AND ovr.canceled_at IS NULL
   WHERE oi.tenant_id = $1::uuid
     AND oi.target_type = 'goat'
-    -- 'superseded' and 'waived' are DEAD obligations: they will never receive a proof. Counting them
+    -- 'superseded', 'waived' and 'missed' are DEAD obligations: they will never receive a proof.
+    -- 'deferred' is explicitly not today's operator work. Counting any of them
     -- into the scheduled count inflates the Scheduled tile and Remaining, and holds the shed row at
     -- not_started for the rest of the day. Same exclusion set as repository.go's execution reads.
-    AND oi.status NOT IN ('canceled', 'superseded', 'waived')
+    AND oi.status NOT IN ('canceled', 'superseded', 'waived', 'missed', 'deferred')
     -- Assigned obligations belong to their persisted operator drive day. Unassigned obligations
     -- still use due_at/override. This prevents old completed drive work with a future clinical due
     -- date from leaking into a later live tracker day with a blank operator.
@@ -1357,6 +1358,11 @@ func liveTrackerDoseState(status string, completedProofs int) string {
 	switch status {
 	case "completed":
 		return domain.LiveTrackerDoseClosed
+	case "missed":
+		if completedProofs > 0 {
+			return domain.LiveTrackerDoseVerificationPending
+		}
+		return domain.LiveTrackerDoseMissed
 	case "in_progress", "due":
 		if completedProofs > 0 {
 			return domain.LiveTrackerDoseVerificationPending

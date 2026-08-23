@@ -197,6 +197,89 @@ ORDER BY vda.planned_date, m.goat_id`, tenantID, batchID)
 	}
 }
 
+func TestDriveAssignmentMembershipMovesStaleTenantObligationBinding(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 10*time.Second)
+	planned := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+	const (
+		parkID = "97000000-0000-4000-8000-000000000001"
+		shedID = "97000000-0000-4000-8000-000000000002"
+		opA    = "97000000-0000-4000-8000-000000000011"
+		goatID = "97000000-0000-4000-8000-000000000101"
+	)
+	versionID, ruleID := parkConsolidationProtocol(t, ctx, pool, "drive_member_stale_move")
+	seedDriveMembershipLocations(t, ctx, pool, parkID, shedID)
+	seedDriveMembershipOperators(t, ctx, pool, parkID, opA)
+	seedReserveGoats(t, ctx, pool, shedID, parkID, goatID)
+
+	oldBatchID := seedDriveMembershipBatch(t, ctx, pool, versionID, parkID, planned.AddDate(0, 0, -1))
+	currentBatchID := seedDriveMembershipBatch(t, ctx, pool, versionID, parkID, planned)
+	obligationID := seedBatchedShedObligation(t, ctx, pool, versionID, ruleID, currentBatchID, goatID, shedID, "member-stale-"+goatID, planned, 0)
+
+	var staleAssignmentID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO vaccination_drive_assignments (
+  tenant_id, batch_id, planned_date, operator_id, park_id, shed_id,
+  physical_shed, partition_label, animal_count, vaccine_rule_ids, total_doses, capacity_status
+)
+VALUES ($1::uuid, $2::uuid, $3::date, $4::uuid, $5::uuid, $6::uuid,
+        'Yashoda', 'Part 4', 1, ARRAY[$7::uuid], 1, 'within_cap')
+RETURNING assignment_id::text`,
+		tenantID, oldBatchID, planned.AddDate(0, 0, -1), opA, parkID, shedID, ruleID).Scan(&staleAssignmentID); err != nil {
+		t.Fatalf("seed stale assignment: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
+		tenantID, staleAssignmentID, obligationID, goatID); err != nil {
+		t.Fatalf("seed stale member: %v", err)
+	}
+
+	shed := shedID
+	operator := opA
+	assignments := []domain.DriveAssignment{{
+		BatchID: currentBatchID, PlannedDate: planned, OperatorID: &operator, ParkID: parkID, ShedID: &shed,
+		PhysicalShed: "Yashoda", PartitionLabel: "Part 4", AnimalCount: 1,
+		VaccineRuleIDs: []string{ruleID}, TotalDoses: 1, CapacityStatus: "within_cap",
+	}}
+	if err := repo.ReplaceVaccinationDriveAssignmentsForBatch(ctx, tenantID, currentBatchID, assignments); err != nil {
+		t.Fatalf("replace drive assignments with stale tenant-obligation member: %v", err)
+	}
+
+	var gotAssignmentID, gotBatchID string
+	if err := pool.QueryRow(ctx, `
+SELECT m.assignment_id::text, vda.batch_id::text
+FROM vaccination_drive_assignment_members m
+JOIN vaccination_drive_assignments vda
+  ON vda.tenant_id = m.tenant_id AND vda.assignment_id = m.assignment_id
+WHERE m.tenant_id = $1::uuid AND m.obligation_id = $2::uuid`,
+		tenantID, obligationID).Scan(&gotAssignmentID, &gotBatchID); err != nil {
+		t.Fatalf("read moved member: %v", err)
+	}
+	if gotAssignmentID == staleAssignmentID {
+		t.Fatalf("member stayed on stale assignment %s", staleAssignmentID)
+	}
+	if gotBatchID != currentBatchID {
+		t.Fatalf("member moved to batch %s, want current batch %s", gotBatchID, currentBatchID)
+	}
+	var staleRows int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*)
+FROM vaccination_drive_assignments
+WHERE tenant_id = $1::uuid AND assignment_id = $2::uuid`,
+		tenantID, staleAssignmentID).Scan(&staleRows); err != nil {
+		t.Fatalf("count stale assignment: %v", err)
+	}
+	if staleRows != 0 {
+		t.Fatalf("stale assignment rows = %d, want deleted after its only member moved", staleRows)
+	}
+	assertDriveMembershipMatchesCounts(t, ctx, pool, currentBatchID, 1)
+}
+
 // assertDriveMembershipMatchesCounts is the maintainer's stated acceptance condition: the aggregate
 // animal_count on each drive row and the exact membership behind it must agree, and the union must
 // cover every goat in the batch exactly once. animal_count counts ANIMALS, so the matching member

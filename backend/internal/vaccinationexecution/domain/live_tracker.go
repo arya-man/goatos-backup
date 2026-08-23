@@ -64,6 +64,7 @@ const (
 	LiveTrackerDoseVerificationPending = "verification_pending"
 	LiveTrackerDoseAwaitingProof       = "awaiting_proof"
 	LiveTrackerDoseScheduled           = "scheduled"
+	LiveTrackerDoseMissed              = "missed"
 )
 
 // Activity feed event kinds. Each maps 1:1 to one UNION arm of the feed query.
