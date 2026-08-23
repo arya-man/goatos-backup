@@ -114,6 +114,7 @@ func main() {
 			req.Packets = append(req.Packets, r.toIngestPacket())
 		}
 
+		// scale-guard:ignore: dev-only seed tool, one IngestPackets call per *batchSize chunk (not per packet); not a serving path
 		resp, err := svc.IngestPackets(ctx, actor, req)
 		if err != nil {
 			log.Fatalf("seed-herd-signals-oci: ingest batch [%d:%d] failed: %v", start, end, err)

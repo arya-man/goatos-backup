@@ -69,6 +69,7 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, parkID, she
 	cursor := ""
 	written := 0
 	for {
+		// scale-guard:ignore: keyset cursor pagination; each page depends on the prior cursor, cannot be batched into one query
 		tags, err := s.repo.ListTagsLatestPage(ctx, actor.TenantID, parkID, shedID, movementState, mappingState, pattern, q, cursor, exportPageSize)
 		if err != nil {
 			return fmt.Errorf("export page read failed: %w", err)

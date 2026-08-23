@@ -182,6 +182,7 @@ func claimValues(ctx context.Context, tx pgx.Tx, tenantID, goatID, identifierTyp
 			// create is left alone and refused upstream: reactivating someone else's retired
 			// identity is the identity module's decision, not ours.
 			var id string
+			// scale-guard:ignore: 2 = fixed upper bound; values = [normalized_tag_id, optional normalized_tag_mac] from bindValues()
 			if err := tx.QueryRow(ctx, `
 				UPDATE public.goat_identifiers
 				SET status = 'active',
@@ -206,6 +207,7 @@ func claimValues(ctx context.Context, tx pgx.Tx, tenantID, goatID, identifierTyp
 		// animal's real ear-tag identity row that a bind merely flagged. Release deletes the
 		// former and must never touch the latter.
 		var id string
+		// scale-guard:ignore: 2 = fixed upper bound; values = [normalized_tag_id, optional normalized_tag_mac] from bindValues()
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO public.goat_identifiers (
 				tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
