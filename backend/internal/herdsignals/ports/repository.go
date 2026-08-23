@@ -201,7 +201,11 @@ type GoatIdentifierResult struct {
 type GoatData struct {
 	DisplayID         string
 	AnimalIdentifier1 *string
+	MappedBy1         *string
+	MappedAt1         *string
 	AnimalIdentifier2 *string
+	MappedBy2         *string
+	MappedAt2         *string
 	ShedID            *string
 	ParkID            *string
 }
