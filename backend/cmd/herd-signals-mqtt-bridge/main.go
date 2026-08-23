@@ -171,7 +171,7 @@ func loadConfig() (config, error) {
 		ClientID:       getenvDefault("HERD_SIGNALS_MQTT_CLIENT_ID", "herd-signals-mqtt-bridge"),
 		ServiceActorID: getenvDefault("HERD_SIGNALS_MQTT_SERVICE_ACTOR_ID", "svc-herd-signals-mqtt-bridge"),
 		Username:       os.Getenv("HERD_SIGNALS_MQTT_USERNAME"),
-		Password:       os.Getenv("HERD_SIGNALS_MQTT_PASSWORD"),
+		Password:       strings.TrimRight(os.Getenv("HERD_SIGNALS_MQTT_PASSWORD"), "\r\n"),
 		BatchSize:      envInt("HERD_SIGNALS_MQTT_BATCH_SIZE", 50),
 		BatchInterval:  envDuration("HERD_SIGNALS_MQTT_BATCH_INTERVAL", 2*time.Second),
 		QueueMax:       envInt("HERD_SIGNALS_MQTT_QUEUE_MAX", 5000),

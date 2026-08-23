@@ -8,6 +8,8 @@ ARTIFACT_REPOSITORY="${ARTIFACT_REPOSITORY:-goatos}"
 API_SERVICE="${API_SERVICE:-goatos-api-stg}"
 MCP_SERVICE="${MCP_SERVICE:-goatos-mcp-stg}"
 KERNEL_WORKER_SERVICE="${KERNEL_WORKER_SERVICE:-goatos-kernel-worker-stg}"
+HERD_SIGNALS_MQTT_BRIDGE_SERVICE="${HERD_SIGNALS_MQTT_BRIDGE_SERVICE:-goatos-herd-signals-mqtt-bridge-stg}"
+HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT="${HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT:-goatos-hs-mqtt-bridge-stg@goatos-stg.iam.gserviceaccount.com}"
 ADMIN_WEB_SERVICE="${ADMIN_WEB_SERVICE:-goatos-admin-web-stg}"
 MIGRATE_JOB="${MIGRATE_JOB:-goatos-stg-migrate}"
 VACCINATION_SCHEDULE_PROJECTOR_JOB="${VACCINATION_SCHEDULE_PROJECTOR_JOB:-goatos-stg-vaccination-schedule-projector}"
@@ -269,6 +271,7 @@ deploy() {
   gcloud run services describe "$MCP_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run services describe "$KERNEL_WORKER_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run services describe "$ADMIN_WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
+  gcloud iam service-accounts describe "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT" --project="$PROJECT_ID" >/dev/null
   gcloud run jobs describe "$MIGRATE_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   if ! job_exists "$VACCINATION_SCHEDULE_PROJECTOR_JOB"; then
     echo "optional job $VACCINATION_SCHEDULE_PROJECTOR_JOB is absent; skipping explicit projector execution"
@@ -411,6 +414,25 @@ deploy() {
     --quiet
   wait_service_ready "$MCP_SERVICE" "post-migration restore"
 
+  run gcloud run deploy "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --image="$BACKEND_IMAGE" \
+    --command="/app/bin/herd-signals-mqtt-bridge" \
+    --service-account="$HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT" \
+    --ingress=internal \
+    --min-instances=1 \
+    --max-instances=1 \
+    --cpu=1 \
+    --memory=512Mi \
+    --no-cpu-throttling \
+    --add-cloudsql-instances="${PROJECT_ID}:${REGION}:goatos-stg-core-db" \
+    --set-env-vars="GOATOS_ENV=stg,GOATOS_HEALTH_ADDR=:8080,HERD_SIGNALS_MQTT_HOST=8.234.104.45,HERD_SIGNALS_MQTT_PORT=8883,HERD_SIGNALS_MQTT_TLS=true,HERD_SIGNALS_MQTT_CLIENT_ID=herd-signals-mqtt-bridge-stg,HERD_SIGNALS_MQTT_USERNAME=gw-514060,HERD_SIGNALS_MQTT_TOPIC=GwData,HERD_SIGNALS_TENANT_ID=00000000-0000-4000-8000-000000000001,HERD_SIGNALS_DEFAULT_GATEWAY_ID=f130d402dcb4,HERD_SIGNALS_MQTT_BATCH_SIZE=50,HERD_SIGNALS_MQTT_BATCH_INTERVAL=2s,HERD_SIGNALS_MQTT_QUEUE_MAX=5000" \
+    --set-secrets="DATABASE_URL=goatos-stg-database-url:latest,HERD_SIGNALS_MQTT_PASSWORD=herd-signals-mqtt-gateway-514060-password:latest,HERD_SIGNALS_MQTT_CA_CERT=herd-signals-mqtt-ca-crt:latest" \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+    --quiet
+  wait_service_ready "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE" "post-migration restore"
+
   while IFS= read -r job; do
     [[ -n "$job" ]] || continue
     [[ "$job" != "$MIGRATE_JOB" ]] || continue
@@ -445,6 +467,7 @@ deploy() {
   [[ "$(service_image "$API_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$API_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$MCP_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$MCP_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$KERNEL_WORKER_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$KERNEL_WORKER_SERVICE image did not settle on $BACKEND_IMAGE"
+  [[ "$(service_image "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$ADMIN_WEB_SERVICE")" == "$ADMIN_WEB_IMAGE" ]] || die "$ADMIN_WEB_SERVICE image did not settle on $ADMIN_WEB_IMAGE"
   [[ "$(job_image "$MIGRATE_JOB")" == "$MIGRATION_IMAGE" ]] || die "$MIGRATE_JOB image did not settle on $MIGRATION_IMAGE"
   if job_exists "$VACCINATION_SCHEDULE_PROJECTOR_JOB"; then
