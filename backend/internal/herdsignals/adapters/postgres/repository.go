@@ -1421,6 +1421,13 @@ func (r *Repository) upsertActivityWindowsTx(ctx context.Context, tx pgx.Tx, ten
 		firstSeenAt      time.Time
 		lastSeenAt       time.Time
 		packetCount      int
+		// The gateway that actually HEARD these packets. The 15-minute coverage aggregate reads this
+		// rather than the tag's CURRENT gateway: a tag that moves between gateways would otherwise
+		// have its older packets counted against whichever gateway heard it last, which silently
+		// misreports the coverage the card exists to report. Taken from the last packet in the
+		// bucket -- a bucket spanning a handover is attributed to where the tag ended up, and that
+		// ambiguity is inherent to bucketing, not introduced here.
+		gatewayID *string
 	}
 
 	buckets := make(map[bucketKey]*bucketData)
@@ -1433,7 +1440,11 @@ func (r *Repository) upsertActivityWindowsTx(ctx context.Context, tx pgx.Tx, ten
 
 		bd, exists := buckets[key]
 		if !exists {
-			bd = &bucketData{firstSeenAt: p.ReceivedAt, lastSeenAt: p.ReceivedAt}
+			// Seed the gateway from the packet that CREATES the bucket. Setting it only on the
+			// later-than-lastSeenAt branch below missed every single-packet bucket -- which is most
+			// of them at a packet every few seconds -- so the column stayed NULL and the coverage
+			// aggregate that reads it returned nothing.
+			bd = &bucketData{firstSeenAt: p.ReceivedAt, lastSeenAt: p.ReceivedAt, gatewayID: p.GatewayID}
 			buckets[key] = bd
 		}
 
@@ -1442,6 +1453,10 @@ func (r *Repository) upsertActivityWindowsTx(ctx context.Context, tx pgx.Tx, ten
 			bd.firstSeenAt = p.ReceivedAt
 		}
 		if p.ReceivedAt.After(bd.lastSeenAt) {
+			// keep the gateway of the chronologically LAST packet, matching lastSeenAt
+			if p.GatewayID != nil {
+				bd.gatewayID = p.GatewayID
+			}
 			bd.lastSeenAt = p.ReceivedAt
 		}
 
@@ -1523,8 +1538,8 @@ func (r *Repository) upsertActivityWindowsTx(ctx context.Context, tx pgx.Tx, ten
 				tenant_id, tag_id, bucket_start, bucket_seconds,
 				first_motion_count, last_motion_count, motion_delta,
 				packet_count, avg_rssi_dbm, min_rssi_dbm, max_rssi_dbm,
-				first_seen_at, last_seen_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+				first_seen_at, last_seen_at, gateway_id
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 			ON CONFLICT (tenant_id, tag_id, bucket_start, bucket_seconds) DO UPDATE
 			SET first_motion_count = CASE WHEN $12 < public.herd_signal_activity_windows.first_seen_at
 			                               THEN $5 ELSE public.herd_signal_activity_windows.first_motion_count END,
@@ -1545,6 +1560,14 @@ func (r *Repository) upsertActivityWindowsTx(ctx context.Context, tx pgx.Tx, ten
 			                     ELSE public.herd_signal_activity_windows.first_motion_count END))
 			      ELSE public.herd_signal_activity_windows.motion_delta
 			    END,
+			    -- The receiving gateway follows last_seen_at: whichever packet is chronologically
+			    -- last in the bucket decides which gateway the bucket is attributed to. Without
+			    -- this the column only ever filled on the INSERT that created the bucket, so every
+			    -- already-existing bucket stayed NULL for ever and the coverage aggregate that
+			    -- reads it reported nothing at all.
+			    gateway_id = CASE WHEN $13 > public.herd_signal_activity_windows.last_seen_at
+			                      THEN COALESCE($14, public.herd_signal_activity_windows.gateway_id)
+			                      ELSE public.herd_signal_activity_windows.gateway_id END,
 			    packet_count = public.herd_signal_activity_windows.packet_count + $8,
 			    avg_rssi_dbm = CASE
 			      WHEN $9 IS NULL THEN public.herd_signal_activity_windows.avg_rssi_dbm
@@ -1564,7 +1587,7 @@ func (r *Repository) upsertActivityWindowsTx(ctx context.Context, tx pgx.Tx, ten
 			tenantID, key.tagID, key.bucketStart, bucketSeconds,
 			bd.firstMotionCount, bd.lastMotionCount, motionDelta,
 			bd.packetCount, avgRSSI, minRSSI, maxRSSI,
-			bd.firstSeenAt, bd.lastSeenAt,
+			bd.firstSeenAt, bd.lastSeenAt, bd.gatewayID,
 		)
 	}
 
