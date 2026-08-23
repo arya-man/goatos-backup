@@ -1025,6 +1025,17 @@ function StockCards({
                   </th>
                   <th>
                     <span className="feed-stock-check-head">
+                      {fa(pageContract, "stock.farms.col.week")}
+                      <span className="feed-stock-info" tabIndex={0} aria-label="How weekly requirement is calculated">
+                        i
+                        <span className="feed-stock-info-pop" role="tooltip">
+                          Week need = Avg / Day times 7, using the latest 3 locked feed days for this farm and item.
+                        </span>
+                      </span>
+                    </span>
+                  </th>
+                  <th>
+                    <span className="feed-stock-check-head">
                       {fa(pageContract, "stock.farms.col.stock")}
                       <span className="feed-stock-info" tabIndex={0} aria-label="How stock is calculated">
                         i
@@ -1065,11 +1076,19 @@ function StockCards({
                       {row.last_load_vendor !== "" ? (
                         <div className="muted small">{row.last_load_vendor}</div>
                       ) : null}
+                      {row.last_load_total_cost !== "" ? (
+                        <div className="muted small">{`₹${nf(num(row.last_load_total_cost))} · ₹${nf(num(row.last_load_per_kg_cost))}/kg`}</div>
+                      ) : null}
                     </td>
                     <td>
                       {row.avg_daily_kg === ""
                         ? "—"
                         : `${nf(num(row.avg_daily_kg))} ${fa(pageContract, "unit.kg")}`}
+                    </td>
+                    <td>
+                      {row.weekly_required_kg === ""
+                        ? "—"
+                        : `${nf(num(row.weekly_required_kg))} ${fa(pageContract, "unit.kg")}`}
                     </td>
                     <td>
                       <div className="feed-stock-qty">{`${nf(num(row.ledger_stock_kg))} ${fa(pageContract, "unit.kg")}`}</div>

@@ -285,13 +285,16 @@ type StockFarmItem struct {
 	// recent locked feed days (same semantics as StockItem.AvgDailyKg, scoped
 	// to the farm); empty when never directed.
 	AvgDailyKg string
-	// Last load (highest purchase_date, then batch_no) details. Cost and
-	// payment state are deliberately absent (maintainer decision 2026-08-21):
-	// this table is about quantities and timing, not money.
+	// WeeklyRequiredKg is AvgDailyKg multiplied by 7, showing the feed needed
+	// for one week at the current farm/item consumption rate.
+	WeeklyRequiredKg string
+	// Last load (highest purchase_date, then batch_no) details.
 	LastLoadBatchNo    int64
 	LastLoadDate       string
 	LastLoadQuantityKg string
 	LastLoadVendor     string
+	LastLoadTotalCost  string
+	LastLoadPerKgCost  string
 	// LedgerStockKg is the canonical current stock from the purchase ledger:
 	// purchased minus consumed-at-import minus locked-sheet directed kg.
 	LedgerStockKg string
