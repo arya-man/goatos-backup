@@ -11,18 +11,26 @@ import { fmtClockIst, fmtDelta, fmtRssi } from "./format";
 //   RECONNECT DELTA  first packet after a gap,         -> a visually distinct bar (never spike-
 //                     gap_delta = true                    coloured) carrying the gap's TOTAL,
 //                                                          drawn only at the reconnect point
+export type ChartMarker = { atMs: number; color: string; label: string };
+
 export function HistoryChart({
   buckets,
   baseline,
   height = 130,
   width = 900,
   onHover,
+  markers,
 }: {
   buckets: HerdSignalTimelineBucket[];
   baseline?: number | null;
   height?: number;
   width?: number;
   onHover?: (bucket: HerdSignalTimelineBucket | null) => void;
+  // Other recorded farm activity (vaccination, feed, weighing, treatment, hoof trimming, shed
+  // move), joined by tag/animal and time. Drawn as vertical lines at the event's REAL timestamp
+  // (not snapped to a bucket) — correlation for a human to read, never cause. See the
+  // correlation-not-cause copy in herd-signals-history-fullscreen.tsx, which this renders under.
+  markers?: ChartMarker[];
 }) {
   if (buckets.length === 0) {
     return (
@@ -61,6 +69,18 @@ export function HistoryChart({
 
   // x-axis time labels: roughly six evenly-spaced ticks, IST, received_at-sourced (per the
   // two-clocks rule — bucket_start already comes from the server clock, never gateway_seen_at).
+  // Marker x-position is placed from the event's real timestamp against the chart's actual time
+  // domain (first bucket start -> last bucket end), NOT snapped to the nearest bucket's x-slot —
+  // a bucket can span up to an hour, and snapping would visibly misplace a marker within it.
+  const domainStartMs = new Date(buckets[0].bucket_start).getTime();
+  const lastBucket = buckets[buckets.length - 1];
+  const domainEndMs = new Date(lastBucket.bucket_start).getTime() + lastBucket.bucket_seconds * 1000;
+  const domainSpanMs = Math.max(1, domainEndMs - domainStartMs);
+  const markerX = (atMs: number) => {
+    const fraction = Math.min(1, Math.max(0, (atMs - domainStartMs) / domainSpanMs));
+    return padL + fraction * plotW;
+  };
+
   const tickEvery = Math.max(1, Math.ceil(buckets.length / 6));
   const formatAxisTick = (value: number) => {
     if (maxDelta < 10) return value === 0 ? "0" : value.toFixed(1).replace(/\\.0$/, "");
@@ -145,6 +165,17 @@ export function HistoryChart({
             </text>
           ) : null,
         )}
+        {(markers ?? []).map((marker, index) => {
+          const x = markerX(marker.atMs);
+          return (
+            <g key={`${marker.atMs}-${index}`}>
+              <line x1={x} y1={padT} x2={x} y2={padT + plotH} className="evline" stroke={marker.color} />
+              <circle cx={x} cy={padT + 4} r={3.5} fill={marker.color}>
+                <title>{marker.label}</title>
+              </circle>
+            </g>
+          );
+        })}
       </svg>
     </div>
   );

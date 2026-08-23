@@ -4411,6 +4411,25 @@ export interface components {
             /** @description Backend-owned short label; render verbatim. */
             label: string;
             grain: components["schemas"]["HerdSignalActivityGrain"];
+            /**
+             * Format: int64
+             * @description Motion delta in the 2-hour window before this event.
+             */
+            motion_delta_before_2h?: number | null;
+            /**
+             * Format: int64
+             * @description Motion delta in the 2-hour window after this event.
+             */
+            motion_delta_after_2h?: number | null;
+            /**
+             * Format: int64
+             * @description Percentage change in motion delta between before and after windows.
+             */
+            motion_change_percent?: number | null;
+            /** @description True when the before window contains gaps or reconnect deltas; motion_delta_before_2h may not be distributed uniformly. */
+            before_window_incomplete: boolean;
+            /** @description True when the after window contains gaps or reconnect deltas; motion_delta_after_2h may not be distributed uniformly. */
+            after_window_incomplete: boolean;
         };
         HerdSignalActivityUnavailableKind: {
             kind: components["schemas"]["HerdSignalActivityEventKind"];

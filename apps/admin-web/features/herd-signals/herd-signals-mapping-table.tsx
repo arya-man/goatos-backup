@@ -840,10 +840,19 @@ export function HerdSignalsMappingTable({
                         tag. A tag with no gateway id was not attributed to one, so it gets "—",
                         never a guessed source. */}
                     <td data-l="Source">{item.gateway_id ? "Gateway" : <span className="faint">{NOT_ON_CONTRACT}</span>}</td>
-                    <td data-l="Verified by" className={item.mapped_by ? "" : "faint"}>
-                      {item.mapped_by ? <span className="mono text-sm">{item.mapped_by.slice(0, 8)}</span> : NOT_ON_CONTRACT}
+                    {/* TODO: Resolve mapped_by user ID to a human-readable operator name using the workforce
+                        lookup pattern from the rest of the product (see docs for existing patterns).
+                        For now, show the full ID; truncation to 8 chars can collide on UUIDs. */}
+                    <td data-l="Bound by" className={item.mapped_by ? "" : "faint"}>
+                      {item.mapped_by ? (
+                        <span className="mono text-sm" title={`Operator ID: ${item.mapped_by}`}>
+                          {item.mapped_by}
+                        </span>
+                      ) : (
+                        NOT_ON_CONTRACT
+                      )}
                     </td>
-                    <td data-l="Verified at" className={item.mapped_at ? "" : "faint"}>
+                    <td data-l="Bound at" className={item.mapped_at ? "" : "faint"}>
                       {item.mapped_at ? fmtAgo(item.mapped_at, new Date().getTime()) : NOT_ON_CONTRACT}
                     </td>
                     <td data-l="Status">

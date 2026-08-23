@@ -359,10 +359,35 @@ longer end.
 `backend/cmd/herd-signals-partition-maintenance` (`make
 herd-signals-partition-maintenance`) is the documented command that calls
 both functions against `DATABASE_URL`, intended to run once daily.
-**Scheduling it (cron / Cloud Run job / etc.) in any environment is an infra
-step outside this migration's scope and is NOT yet wired up** — running the
-command against the target database is currently a manual/operator action
-until that scheduling exists.
+
+**Scheduling — `[BUILT in dev, MANUAL in stg]`:**
+
+- **dev**: scheduled daily at 00:21 IST via Cloud Scheduler -> Cloud Run Job,
+  wired in `infra/envs/dev/cloud_run_jobs.tf`
+  (`local.kernel_jobs.herd_signals_partition_maintenance`) — the same
+  `google_cloud_run_v2_job` + `google_cloud_scheduler_job` `for_each` pattern
+  every other kernel maintenance job uses. `-days-ahead=14 -retention-days=14`.
+- **stg**: the Cloud Run Job itself is declared
+  (`infra/envs/stg/herd_signals_partition_maintenance.tf`, same
+  image/command/args as dev) but **stg has no Cloud Scheduler wiring for any
+  job today** — that infra does not exist in this environment yet, so running
+  this job on stg is a manual operator action until it does. See
+  `docs/runbooks/herd-signals-partition-retention.md` for the exact manual
+  trigger command, the metrics/logs this job emits
+  (`kernel.herd_signals_partition_maintenance.*`), and what healthy vs.
+  unhealthy looks like.
+
+This is a real operational gap, not a cosmetic one: if nothing calls
+`herd_signal_packets_ensure_future_partitions`, the pre-created runway
+(migration 000200) eventually runs out and new packets silently fall into the
+`DEFAULT` partition, destroying pruning; if nothing calls
+`herd_signal_packets_prune_expired_partitions`, raw packets accumulate
+forever (~65 GB/day at the release envelope). **Dropping a partition via
+`herd_signal_packets_prune_expired_partitions` is IRREVERSIBLE** — the raw
+packets in that partition are gone, not archived. Only the derived
+`herd_signal_activity_windows` / `herd_signal_tag_latest` state (and whatever
+was re-derived from raw packets before they aged out) survives past the
+retention window.
 
 Activity-window per-tier retention (60 s / 300 s / 3600 s: 48 h / 30 days /
 13 months) remains `[DESIGNED — NOT BUILT]`: `herd_signal_activity_windows`

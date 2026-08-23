@@ -3108,6 +3108,11 @@ select:disabled { opacity: .45; }
 .herd-signals-page .hchart .b-move:hover,.herd-signals-page .hchart .b-low:hover,.herd-signals-page .hchart .b-zero:hover,.herd-signals-page .hchart .b-spike:hover,.herd-signals-page .hchart .b-reconnect:hover{opacity:.8;cursor:pointer}
 .herd-signals-page .hchart .gl{stroke:var(--line2);stroke-width:1}
 .herd-signals-page .hchart .base{stroke:var(--info);stroke-width:1;stroke-dasharray:3 3;opacity:.7}
+/* Overlay activity markers (vaccination/feed/weighing/treatment/hoof trimming/shed move) — a
+   dashed vertical line at the event's real timestamp plus a dot at the top, coloured per-kind via
+   the `stroke`/`fill` attribute set inline in herd-signals-history-chart.tsx (mirrors the mock's
+   EVENT_TYPES colours exactly). Matches mock/herd-signals-mock.html's `.hchart .evline` rule. */
+.herd-signals-page .hchart .evline{stroke-width:1.5;stroke-dasharray:4 3;opacity:.9}
 
 .herd-signals-page .gwcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r2);padding:13px 14px;box-shadow:var(--shadow)}
 .herd-signals-page .gwh{display:flex;align-items:center;gap:9px;margin-bottom:9px}

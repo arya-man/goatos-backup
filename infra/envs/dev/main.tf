@@ -32,6 +32,15 @@ locals {
       account_id   = "goatos-partition-maint-dev"
       display_name = "Goat OS dev partition coverage maintainer runtime"
     }
+    # herd_signals_partition_maintenance: daily herd_signal_packets partition
+    # ensure/prune job (backend/cmd/herd-signals-partition-maintenance, migration
+    # 000201). Separate from partition_maintainer above -- that job maintains
+    # unrelated monthly partitions; this one is hardcoded to herd_signal_packets
+    # only. See docs/modules/herd-signals-system-design.md Section 3.2.
+    herd_signals_partition_maintenance = {
+      account_id   = "goatos-herd-sig-partmnt-dev"
+      display_name = "Goat OS dev herd-signals partition maintenance runtime"
+    }
     migrate = {
       account_id   = "goatos-migrate-dev"
       display_name = "Goat OS dev migration job runtime"
@@ -105,6 +114,7 @@ locals {
       "kernel_worker",
       "outbox_dlq",
       "partition_maintainer",
+      "herd_signals_partition_maintenance",
       "migrate",
       "legacy_sync",
     ],
@@ -125,6 +135,7 @@ locals {
           "kernel_worker",
           "outbox_dlq",
           "partition_maintainer",
+          "herd_signals_partition_maintenance",
           "migrate",
           "legacy_sync",
         ],

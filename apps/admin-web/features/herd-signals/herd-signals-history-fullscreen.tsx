@@ -54,11 +54,20 @@ function bucketSecondsFor(range: RangeKey, seconds: number): number {
 }
 const BUCKET_LABEL: Record<number, string> = { 60: "1-minute", 300: "5-minute", 3600: "hourly" };
 
-// The six farm-activity overlays. None of these has a data endpoint in the fixed contract this
-// page was built against (GET /herd-signals/live|tags/{id}/timeline|gateways|insights only) — so
-// every toggle here is disabled-with-a-reason rather than faking a data source. Wiring them up is a
-// follow-up once the corresponding read model exists.
-const OVERLAYS = ["Vaccination", "Feed given", "Weighing", "Treatment", "Hoof trimming", "Shed move"];
+// The six farm-activity overlays. GET /herd-signals/tags/{id}/activity is the data source (see
+// readTimeline's sibling fetch below); each toggle here filters the correlation table AND the
+// chart markers by event.kind, using the same colour for a kind's chip, its markers, and its
+// legend text everywhere so the three never drift out of sync. Colours match the mock's
+// EVENT_TYPES table exactly (mock/herd-signals-mock.html).
+const KIND_META: Record<HerdSignalActivityResponse["events"][number]["kind"], { label: string; color: string }> = {
+  vaccination: { label: "Vaccination", color: "#A78BF5" },
+  feed_given: { label: "Feed given", color: "#34C2A6" },
+  weighing: { label: "Weighing", color: "#5B9BE8" },
+  treatment: { label: "Treatment", color: "#F0635F" },
+  hoof_trimming: { label: "Hoof trimming", color: "#E0A53A" },
+  shed_move: { label: "Shed move", color: "#94A89A" },
+};
+const OVERLAY_KINDS = Object.keys(KIND_META) as (keyof typeof KIND_META)[];
 
 async function readTimeline(
   tagId: string,
@@ -94,7 +103,9 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [hovered, setHovered] = useState<HerdSignalTimelineBucket | null>(null);
-  const [overlaysOn, setOverlaysOn] = useState<Record<string, boolean>>({});
+  const [overlaysOn, setOverlaysOn] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(OVERLAY_KINDS.map((kind) => [kind, true])),
+  );
   const bounds = useMemo(() => {
     if (range === "custom") {
       if (!customFrom || !customTo) return null;
@@ -181,6 +192,23 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
   }, [displayedItem, bounds]);
   const { buckets, error } = chart;
 
+  // The chips filter, not just style: events outside the toggled-on kinds never reach the
+  // correlation table or the chart markers below. Both consume this SAME filtered list so a
+  // toggle can never leave the table and the chart disagreeing about what is "shown".
+  const filteredEvents = useMemo(
+    () => (activity.data ? activity.data.events.filter((event) => overlaysOn[event.kind]) : []),
+    [activity.data, overlaysOn],
+  );
+  const chartMarkers = useMemo(
+    () =>
+      filteredEvents.map((event) => ({
+        atMs: new Date(event.at).getTime(),
+        color: KIND_META[event.kind].color,
+        label: `${KIND_META[event.kind].label} · ${event.label}`,
+      })),
+    [filteredEvents],
+  );
+
   // Prefill custom date inputs when a preset is active (not custom range)
   const prefillCustomInputsWhenPresetActive = useMemo(() => {
     if (range !== "custom" && bounds) {
@@ -264,18 +292,20 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
 
         <div className="daterow" style={{ gap: 7 }}>
           <span className="small faint rowlabel">Overlay activity</span>
-          {OVERLAYS.map((overlay) => {
-            const key = overlay.toLowerCase().replace(" ", "_");
+          {OVERLAY_KINDS.map((kind) => {
+            const meta = KIND_META[kind];
+            const on = overlaysOn[kind] ?? true;
             return (
               <button
-                key={overlay}
+                key={kind}
                 type="button"
-                className={`evchip${overlaysOn[overlay] ? " on" : ""}`}
+                className={`evchip${on ? " on" : ""}`}
+                style={{ color: on ? meta.color : "var(--muted)" }}
                 disabled={activity.data === null && activity.error !== null}
                 title={activity.error ? `Failed to load activity: ${activity.error}` : undefined}
-                onClick={() => setOverlaysOn((current) => ({ ...current, [overlay]: !current[overlay] }))}
+                onClick={() => setOverlaysOn((current) => ({ ...current, [kind]: !(current[kind] ?? true) }))}
               >
-                <i aria-hidden="true" /> {overlay}
+                <i aria-hidden="true" /> {meta.label}
               </button>
             );
           })}
@@ -314,7 +344,13 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
               </div>
             ) : (
               <div style={{ padding: "12px 12px 0" }}>
-                <HistoryChart buckets={buckets} baseline={item.baseline_delta} height={240} onHover={setHovered} />
+                <HistoryChart
+                  buckets={buckets}
+                  baseline={item.baseline_delta}
+                  height={240}
+                  onHover={setHovered}
+                  markers={chartMarkers}
+                />
               </div>
             )}
             <div className="legend">
@@ -330,7 +366,11 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                 ),
               )}
               <span style={{ gridColumn: "1 / -1", fontSize: 12, color: "var(--c-mut)" }}>
-                Recorded farm activity: Vaccination · Feed given · Weighing · Treatment · Hoof trimming · Shed move
+                {OVERLAY_KINDS.some((kind) => overlaysOn[kind] ?? true)
+                  ? `Showing: ${OVERLAY_KINDS.filter((kind) => overlaysOn[kind] ?? true)
+                      .map((kind) => KIND_META[kind].label)
+                      .join(" · ")}`
+                  : "No overlay categories selected — all markers hidden"}
               </span>
             </div>
             <div className="readout" aria-live="polite">
@@ -406,8 +446,21 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                           </div>
                         </td>
                       </tr>
+                    ) : filteredEvents.length === 0 ? (
+                      <tr>
+                        <td colSpan={6}>
+                          <div className="empty">
+                            <h4>All recorded activity is hidden</h4>
+                            <p>
+                              {activity.data.events.length.toLocaleString("en-IN")} event
+                              {activity.data.events.length === 1 ? "" : "s"} found in this window, but every overlay
+                              category above is turned off. Turn one on to show it.
+                            </p>
+                          </div>
+                        </td>
+                      </tr>
                     ) : (
-                      activity.data.events.map((event, idx) => {
+                      filteredEvents.map((event, idx) => {
                         const eventTime = new Date(event.at);
                         const isoTime = eventTime.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
 
