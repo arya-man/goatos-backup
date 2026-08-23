@@ -19,9 +19,9 @@ import { HerdSignalsTable } from "./herd-signals-table";
 import { HerdSignalsMappingTable } from "./herd-signals-mapping-table";
 import { HerdSignalsGateways } from "./herd-signals-gateways";
 import { HerdSignalsInsights } from "./herd-signals-insights";
-import { Tag } from "@/components/ui-primitives";
+import { Tag, type Tone } from "@/components/ui-primitives";
 import type { HerdSignalItem } from "@/lib/api/herd-signals";
-import { PATTERN_LABEL, PATTERN_TONE, PATTERN_WHY, fmtAgo, fmtRssi } from "./format";
+import { PATTERN_LABEL, PATTERN_TONE, PATTERN_WHY, fmtAgo, fmtRssi, fmtBatteryMv } from "./format";
 import { HERD_SIGNALS_TABS, herdSignalsHref, kpiToMovementState, parseHerdSignalsParams, type HerdSignalsParams, type HerdSignalsTab } from "./params";
 
 const TAB_LABEL: Record<HerdSignalsTab, string> = {
@@ -552,7 +552,7 @@ function buildAlertConditions(item: HerdSignalItem, nowMs: number): AlertConditi
   }
   if (item.battery_state === "low" || item.battery_state === "critical") {
     conditions.push({
-      tone: "purple",
+      tone: "pur",
       label: "Low battery",
       // Deliberately no "est. ~N left" life estimate here (removed twice already — no vendor
       // discharge curve exists). Voltage threshold only, same wording as the KPI card.
