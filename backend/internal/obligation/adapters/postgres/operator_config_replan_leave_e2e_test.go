@@ -67,7 +67,9 @@ func TestLeaveAddAutoReplansAffectedShedsPark(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	plannedDate := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	// Forward-only recompute: a planned date already in the past is never revisited, so a
+	// fixed calendar date stops proving anything once the clock passes it.
+	plannedDate := time.Now().UTC().AddDate(0, 0, 10).Truncate(24 * time.Hour).Add(12 * time.Hour)
 
 	// Affected park (leave will be applied to a shed inside this park).
 	affectedPark, affectedGoats, affectedBatch := seedOperatorConfigReplanFixture(t, ctx, pool, "b1", 3, plannedDate)
@@ -105,14 +107,25 @@ ON CONFLICT (workforce_member_id) DO NOTHING`, leaveTaker, tenantID, affectedShe
 		ScopeType:         "shed",
 		ScopeID:           affectedShed,
 		ReasonCode:        "sick",
-		StartsOn:          "2026-07-24",
-		EndsOn:            "2026-07-26",
+		// The leave has to straddle the planned drive it is supposed to invalidate; a fixed
+		// calendar range stops overlapping once plannedDate follows the clock.
+		StartsOn: plannedDate.AddDate(0, 0, -1).Format("2006-01-02"),
+		EndsOn:   plannedDate.AddDate(0, 0, 1).Format("2006-01-02"),
 	}, "trace-leave-e2e")
 	if err != nil {
 		t.Fatalf("ApplyLeave (real production write path): %v", err)
 	}
 	if resp == nil || resp.Leave.AbsenceID == "" {
 		t.Fatalf("ApplyLeave returned no absence id")
+	}
+
+	// The cascade is bound to the transition that actually changes availability. ApplyLeave
+	// leaves the absence 'reported', and the scheduler only excludes 'approved' /
+	// 'escalation_required' operators -- so the apply alone is a planning no-op and emits
+	// nothing. Approving it is what invalidates the planned drive.
+	if _, err := rosterService.ApproveLeave(ctx, tenantID, leaveTaker, resp.Leave.AbsenceID,
+		workforcedomain.ApproveStaffLeaveRequest{RowVersion: resp.Leave.RowVersion}, "trace-leave-e2e-approve"); err != nil {
+		t.Fatalf("ApproveLeave (real production write path): %v", err)
 	}
 
 	// Drive the REAL durable delivery path: the leave write durably enqueued
