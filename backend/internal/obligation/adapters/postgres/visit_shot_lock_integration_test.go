@@ -101,12 +101,12 @@ ON CONFLICT (location_id) DO UPDATE SET status='active'`, parkID, tenantID); err
 		t.Fatalf("seed park: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code)
+INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from)
 VALUES
-  ($1::uuid, 'vaccination_operator_custom', 'pc.vaccination', 'execute', 'vaccination.execute'),
-  ($1::uuid, 'vaccination_operator_default', 'pc.vaccination', 'execute', 'vaccination.execute'),
-  ($1::uuid, 'vaccination_operator_off', 'pc.vaccination', 'execute', 'vaccination.execute')
-ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID); err != nil {
+  ($1::uuid, 'vaccination_operator_custom', 'pc.vaccination', 'execute', 'vaccination.execute', $2::date - interval '1 day'),
+  ($1::uuid, 'vaccination_operator_default', 'pc.vaccination', 'execute', 'vaccination.execute', $2::date - interval '1 day'),
+  ($1::uuid, 'vaccination_operator_off', 'pc.vaccination', 'execute', 'vaccination.execute', $2::date - interval '1 day')
+ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID, planned); err != nil {
 		t.Fatalf("seed execute duty: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -265,9 +265,11 @@ ON CONFLICT (location_id) DO UPDATE SET status='active'`, parkID, tenantID); err
 		t.Fatalf("seed park: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code)
-VALUES ($1::uuid, 'assignment_load_operator', 'vaccination', 'execute', 'vaccination.drive.execute')
-ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID); err != nil {
+INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from)
+VALUES
+  ($1::uuid, 'assignment_load_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', $2::date - interval '1 day'),
+  ($1::uuid, 'assignment_load_operator_b', 'vaccination', 'execute', 'vaccination.drive.execute', $2::date - interval '1 day')
+ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID, planned); err != nil {
 		t.Fatalf("seed duty: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -280,9 +282,12 @@ ON CONFLICT (workforce_member_id) DO UPDATE SET status='active'`, operatorA, ope
 	}
 	if _, err := pool.Exec(ctx, `
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, vaccination_daily_animal_cap, status, valid_from)
+-- workforce_positions_active_seat_unique is one active seat per
+-- (tenant, scope_type, scope_id, position_code): two operators on one park cannot share a
+-- position code, they hold distinct seats.
 VALUES
-  ($1::uuid, $2::uuid, 'center', $4::uuid, 'assignment_load_operator', 'manager', 2, 'active', '2026-01-01'),
-  ($1::uuid, $3::uuid, 'center', $4::uuid, 'assignment_load_operator', 'manager', 2, 'active', '2026-01-01')`,
+  ($1::uuid, $2::uuid, 'center', $4::uuid, 'assignment_load_operator_a', 'manager', 2, 'active', '2026-01-01'),
+  ($1::uuid, $3::uuid, 'center', $4::uuid, 'assignment_load_operator_b', 'manager', 2, 'active', '2026-01-01')`,
 		tenantID, operatorA, operatorB, parkID); err != nil {
 		t.Fatalf("seed positions: %v", err)
 	}
@@ -1146,9 +1151,9 @@ ON CONFLICT (location_id) DO UPDATE SET status='active'`, parkID, tenantID); err
 		t.Fatalf("seed park: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code)
-VALUES ($1::uuid, 'vaccination_operator_cardinality', 'pc.vaccination', 'execute', 'vaccination.execute')
-ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID); err != nil {
+INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from)
+VALUES ($1::uuid, 'vaccination_operator_cardinality', 'pc.vaccination', 'execute', 'vaccination.execute', $2::date - interval '1 day')
+ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID, planned); err != nil {
 		t.Fatalf("seed execute duty: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -1237,9 +1242,9 @@ ON CONFLICT (location_id) DO UPDATE SET status='active'`, parkID, tenantID); err
 		t.Fatalf("seed park: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code)
-VALUES ($1::uuid, 'vaccination_operator_status', 'pc.vaccination', 'execute', 'vaccination.execute')
-ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID); err != nil {
+INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from)
+VALUES ($1::uuid, 'vaccination_operator_status', 'pc.vaccination', 'execute', 'vaccination.execute', $2::date - interval '1 day')
+ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID, planned); err != nil {
 		t.Fatalf("seed execute duty: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -1330,9 +1335,9 @@ ON CONFLICT (location_id) DO UPDATE SET status='active'`, parkID, tenantID); err
 		t.Fatalf("seed park: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code)
-VALUES ($1::uuid, 'vaccination_operator_dateshift', 'pc.vaccination', 'execute', 'vaccination.execute')
-ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID); err != nil {
+INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from)
+VALUES ($1::uuid, 'vaccination_operator_dateshift', 'pc.vaccination', 'execute', 'vaccination.execute', $2::date - interval '1 day')
+ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID, planned1); err != nil {
 		t.Fatalf("seed execute duty: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -1439,9 +1444,9 @@ ON CONFLICT (location_id) DO UPDATE SET status='active'`, parkID, tenantID); err
 		t.Fatalf("seed park: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code)
-VALUES ($1::uuid, 'vaccination_operator_pagination', 'pc.vaccination', 'execute', 'vaccination.execute')
-ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID); err != nil {
+INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from)
+VALUES ($1::uuid, 'vaccination_operator_pagination', 'pc.vaccination', 'execute', 'vaccination.execute', $2::date - interval '1 day')
+ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID, planned); err != nil {
 		t.Fatalf("seed execute duty: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -1462,12 +1467,12 @@ ON CONFLICT (workforce_member_id) DO UPDATE SET status='active'`, op1, tenantID,
 		t.Fatalf("seed workforce members: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code)
+INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from)
 VALUES
-  ($1::uuid, 'vaccination_operator_pagination_1', 'pc.vaccination', 'execute', 'vaccination.execute'),
-  ($1::uuid, 'vaccination_operator_pagination_2', 'pc.vaccination', 'execute', 'vaccination.execute'),
-  ($1::uuid, 'vaccination_operator_pagination_3', 'pc.vaccination', 'execute', 'vaccination.execute')
-ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID); err != nil {
+  ($1::uuid, 'vaccination_operator_pagination_1', 'pc.vaccination', 'execute', 'vaccination.execute', $2::date - interval '1 day'),
+  ($1::uuid, 'vaccination_operator_pagination_2', 'pc.vaccination', 'execute', 'vaccination.execute', $2::date - interval '1 day'),
+  ($1::uuid, 'vaccination_operator_pagination_3', 'pc.vaccination', 'execute', 'vaccination.execute', $2::date - interval '1 day')
+ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID, planned); err != nil {
 		t.Fatalf("seed position duties: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -1571,9 +1576,9 @@ ON CONFLICT (location_id) DO UPDATE SET status='active'`, parkID, tenantID, shed
 		t.Fatalf("seed locations: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code)
-VALUES ($1::uuid, 'vaccination_operator_scope', 'pc.vaccination', 'execute', 'vaccination.execute')
-ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID); err != nil {
+INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from)
+VALUES ($1::uuid, 'vaccination_operator_scope', 'pc.vaccination', 'execute', 'vaccination.execute', $2::date - interval '1 day')
+ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`, tenantID, planned); err != nil {
 		t.Fatalf("seed execute duty: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
