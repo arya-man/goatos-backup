@@ -104,22 +104,22 @@ export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway
 
             <div className="gwstats">
               <div>
-                <div className="v" title={gateway.tags_seen_recently === null ? "Not computed yet" : undefined}>
-                  {fmtCount(gateway.tags_seen_recently)}
+                <div className="v" title={gateway.tags_seen_in_window === null ? "Not computed yet" : undefined}>
+                  {fmtCount(gateway.tags_seen_in_window)}
                 </div>
-                <div className="l">Tags seen</div>
+                <div className="l">Tags seen<br /><small>15m window</small></div>
               </div>
               <div>
-                <div className="v" title={gateway.weak_tags === null ? "Not computed yet" : undefined}>
-                  {fmtCount(gateway.weak_tags)}
+                <div className="v" title={gateway.distinct_motion_deltas === null ? "Not computed yet" : undefined}>
+                  {fmtCount(gateway.distinct_motion_deltas)}
                 </div>
-                <div className="l">Weak</div>
+                <div className="l">Moving<br /><small>15m window</small></div>
               </div>
               <div>
-                <div className="v" title={gateway.unmapped_tags === null ? "Not computed yet" : undefined}>
-                  {fmtCount(gateway.unmapped_tags)}
+                <div className="v" title={gateway.packets_received_in_window === null ? "Not computed yet" : undefined}>
+                  {fmtCount(gateway.packets_received_in_window)}
                 </div>
-                <div className="l">Unmapped</div>
+                <div className="l">Packets<br /><small>15m window</small></div>
               </div>
               <div>
                 <div className="v">{fmtAgo(gateway.last_seen_at, nowMs)}</div>

@@ -24,6 +24,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/herdsignals/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/app"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/migrationguard"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -66,6 +67,24 @@ func main() {
 		log.Fatalf("seed-herd-signals-oci: connect to postgres: %v", err)
 	}
 	defer pool.Close()
+
+	// Fail fast on migration drift: if the database has migrations this binary
+	// doesn't know about, refuse to write to the database.
+	binaryMigrationVersion, err := migrationguard.BinaryVersion()
+	if err != nil {
+		log.Fatalf("seed-herd-signals-oci: migration guard: %v", err)
+	}
+	dbMigrationVersion, err := migrationguard.AppliedVersion(ctx, pool)
+	if err != nil {
+		log.Fatalf("seed-herd-signals-oci: migration guard: %v", err)
+	}
+	status, err := migrationguard.Check(dbMigrationVersion, binaryMigrationVersion)
+	if err != nil {
+		if status.DBAhead {
+			log.Printf("seed-herd-signals-oci: ERROR migration_drift_dbahead_fatal: db=%s binary=%s", dbMigrationVersion, binaryMigrationVersion)
+		}
+		log.Fatalf("seed-herd-signals-oci: migration guard: %v", err)
+	}
 
 	repo := postgres.NewRepository(pool)
 	svc := app.NewService(repo)
