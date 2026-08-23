@@ -63,8 +63,16 @@ ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SE
 		t.Fatalf("seed rule dimensions: %v", err)
 	}
 
+	// The whole fixture turns on which weekday each date is (the two operators' week-offs are
+	// derived from them), so the pair is shifted forward in WHOLE WEEKS until it is in the
+	// future: weekdays and the gap between the dates are preserved, and the planner is not
+	// asked to plan into the past.
 	source := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
 	target := time.Date(2026, 8, 6, 0, 0, 0, 0, time.UTC)
+	for horizon := time.Now().UTC().AddDate(0, 0, 2); !target.After(horizon); {
+		source = source.AddDate(0, 0, 7)
+		target = target.AddDate(0, 0, 7)
+	}
 	sourceWeekday := strings.ToLower(source.Weekday().String())
 	targetWeekday := strings.ToLower(target.Weekday().String())
 
@@ -164,8 +172,12 @@ UPDATE obligation_batches SET conducted_by = $2 WHERE tenant_id = $1 AND batch_i
 			t.Fatalf("moved assignment row booked on an operator not resolvable on the target date: %+v", row)
 		}
 	}
-	if totalMoved != 1 {
-		t.Fatalf("moved animal total on target date = %d, want 1 remaining-cap animal before overflow continues forward", totalMoved)
+	// A physical shed that fits inside one operator's standing cap is INDIVISIBLE: residual
+	// capacity on the target day is not permission to peel one animal off the shed and leave
+	// the rest behind (OperatorDrivePlanner.planOneDay). Operator B has 1 slot left of 3 and
+	// the moved shed is 3 animals, so the whole shed carries to the next operator-day.
+	if totalMoved != 0 {
+		t.Fatalf("moved animal total on target date = %d, want 0 -- an indivisible shed does not partially fill the day's residual cap", totalMoved)
 	}
 	nextRows := driveAssignmentRowsForRule(t, ctx, pool, next, versions[0].ruleID)
 	totalNext := 0
@@ -175,8 +187,8 @@ UPDATE obligation_batches SET conducted_by = $2 WHERE tenant_id = $1 AND batch_i
 			t.Fatalf("next-day moved assignment row booked on wrong operator: %+v", row)
 		}
 	}
-	if totalNext != 2 {
-		t.Fatalf("moved animal total on next date = %d, want 2 overflow animals (no work may be lost by the move)", totalNext)
+	if totalNext != 3 {
+		t.Fatalf("moved animal total on next date = %d, want all 3 animals carried forward together (no work may be lost by the move)", totalNext)
 	}
 	for _, row := range movedRows {
 		if row.capacityStatus != "within_cap" {

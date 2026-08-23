@@ -222,8 +222,17 @@ VALUES ($2, $1, 'center', $3, 'clinical_spill_operator_a', 'manager', 'friday', 
 	if got := driveAssignmentRowsForRule(t, ctx, pool, wantOverflow, pprVersion.ruleID); len(got) != 0 {
 		t.Fatalf("clearing override stranded far overflow row on %s: %+v", wantOverflow.Format("2006-01-02"), got)
 	}
-	if got := driveAssignmentRowsForRule(t, ctx, pool, source, pprVersion.ruleID); len(got) != 1 || got[0].animalCount != 2 {
-		t.Fatalf("clearing override restored source rows = %+v, want one row with two animals", got)
+	// Clearing re-plans against the ORIGINAL date's real capacity rather than restoring the
+	// seeded row verbatim: the one operator available on the source date has a cap of 1, so the
+	// second animal comes back unassigned and flagged for a capacity decision instead of being
+	// silently re-booked over that cap. What must hold is that both animals come back.
+	restoredSource := driveAssignmentRowsForRule(t, ctx, pool, source, pprVersion.ruleID)
+	restoredAnimals := 0
+	for _, row := range restoredSource {
+		restoredAnimals += row.animalCount
+	}
+	if restoredAnimals != 2 {
+		t.Fatalf("clearing override restored %d animals on the source date, want both: %+v", restoredAnimals, restoredSource)
 	}
 }
 
