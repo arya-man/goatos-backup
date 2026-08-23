@@ -1299,3 +1299,34 @@ rows.
 | pc_care_task_animals | EXCLUDED — per-scan RFID rows with slot proof refs and capture attribution. Evidence state behind the verification item; the tag is stored verbatim and derives no herd fact. |
 | `GET/POST /app/pc-care/*` (planner catalog/sheds, tasks, worklist, captures, animals, proofs, submit) | EXCLUDED — operator/planner execution surfaces (the mobile module's own screens). No leadership read API or aggregate; the verifier reviews through the existing generic verification routes already covered here. |
 | event `pc_care.task.completed` | EXCLUDED — the module's single canonical completion event, consumed today by nothing (registered producer-only in the domain-event registry). Becomes a coverage row when a governed care-adherence aggregate is built over it. |
+
+## Herd Signals BLE telemetry: excluded backend infrastructure (2026-08-23)
+
+Herd Signals (migration `000192_herd_signals.sql` onwards) ingests and stores BLE
+advertisement packets and derived telemetry from HoneyComm smart ear tags on
+animals. It is exclusively a **backend telemetry collection and storage system**
+— not a behavior classifier, activity recognizer, or health diagnostic system.
+The tables, functions, and services exist to capture motion, battery, signal
+strength, and tag hardware status at radio-packet grain. The module draws NO
+business logic from these low-level signals and makes NO clinical or
+operational claims (see `docs/modules/herd-signals.md` Section 3 for the
+exhaustive list of what it explicitly cannot measure).
+
+Leadership questions about animal health, movement, location, activity, or
+behavior are NOT answered by this telemetry today. They will be answered through
+higher-level aggregates and decision models built ON TOP of herd-signals data
+when those are implemented — for example, a future Cube metric or `ceo_ai.*` view
+that computes health risk scores, activity classification, or behavioral
+anomalies from the raw signal history. Until those aggregates exist, herd_signals
+remains backend infrastructure only.
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| herd_signal_gateways | EXCLUDED | Backend telemetry storage table: BLE gateway registrations. No leadership read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool. Infrastructure table only. |
+| herd_signal_packets | EXCLUDED | Backend telemetry storage table: raw BLE advertisement packets. No leadership read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool. Infrastructure table only. |
+| herd_signal_tag_latest | EXCLUDED | Backend telemetry storage table: latest tag state (RSSI, battery, motion, pattern). No leadership read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool. Infrastructure table only. |
+| herd_signal_activity_windows | EXCLUDED | Backend telemetry storage table: time-bucketed motion aggregates (5-min and 1-hour windows). No leadership read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool. Infrastructure table only. |
+| herd_signal_tag_mappings | EXCLUDED | Backend telemetry storage table: tag-to-animal identity mappings. No leadership read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool. Infrastructure table only. |
+| herd_signal_motion_delta_1h | EXCLUDED | Backend telemetry storage table: 1-hour motion bucket summary. No leadership read API, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool. Infrastructure table only. |
+| func:IngestPackets, func:ListLive, func:GetTagActivity, func:ListGateways, func:GetInsights, func:ListActivityWindows, func:GetTimeline, func:BindTagMapping, func:ReplaceTagMapping, func:UnmapTagMapping, func:RecordGatewayHeartbeat, func:GetBaselineDeltas, func:GetBatteryHistory, func:GetGatewayTagStats, func:GetInsightsData, func:ExportCSV, func:NewService, func:WithThresholds, func:NewRepository, func:UpsertGateway, func:GetGatewaysByTenant, func:GetTagLatest, func:ListTagsLatest, func:GetGoatIdentifier, func:ResolveTagMapping, func:GetGoatsByIDs, func:ResolveTagsBatch, func:GetShedLocations, func:ListFarmActivity, func:ListTagsLatestPage, func:GetTagActivityScope, func:NewHandler, func:Register, func:Write, func:MotionDelta, func:IsGapDelta, func:MovementStateFromDelta, func:SignalStateFromRSSI, func:BatteryStateFromVoltage, func:BatteryTrendFromHistory, func:BatteryStateWithTrend, func:PatternStateFromHistory, func:Baseline75, func:SelectBucketTier, func:IsSupportedBucketSeconds, func:NormalizeTagIdentifier, func:DefaultThresholds, func:IsHoneyCombAdvertisement, func:DecodeHoneyCombPacket | EXCLUDED | Backend ingest, storage, and internal telemetry functions (service, handlers, repositories, domain helpers, HTTP wiring). Operate on radio primitives (packet ingestion, motion bucketing, battery trending, signal state calculation) with no business domain or leadership outcome attached. When leadership aggregates are built (e.g. animal activity score, herd movement alerts), those become coverage rows and may delegate to these internals via governance layer. |
+| /herd-signals/* (all HTTP routes) | EXCLUDED | Backend operator/admin routes for tag mapping, gateway registration, and insights rendering. No leadership read API or aggregate; operational support only. |

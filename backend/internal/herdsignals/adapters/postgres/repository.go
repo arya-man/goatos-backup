@@ -405,6 +405,9 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		return false, fmt.Errorf("load 24h pattern history: %w", err)
 	}
 	seenAt := latestPkt.ReceivedAt
+	// PatternStateFromHistory computes elapsed time since last packet for staleness/missing-signal detection.
+	// This is elapsed-time comparison (now.Sub(*lastPacketAt)), not a date boundary, so UTC is correct.
+	// india-date-guard:ignore: owner=ravi issue=herd-signals-phase1 scope=elapsed-time-for-staleness-detection expiry=2026-12-31
 	patternStateComputed := domain.PatternStateFromHistory(windowDelta, &seenAt, time.Now().UTC(), history, previousPattern, gapDelta, thresholds)
 
 	signalState := domain.SignalStateFromRSSI(latestPkt.RSSIdbm, nil, thresholds)
