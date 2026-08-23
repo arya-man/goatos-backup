@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "@/components/no-prefetch-link";
 import { Tag } from "@/components/ui-primitives";
 import type { HerdSignalItem, HerdSignalsTagMappingResponse } from "@/lib/api/herd-signals";
-import { MAPPING_LABEL, MAPPING_TONE, fmtBleMac } from "./format";
+import { MAPPING_LABEL, MAPPING_TONE, fmtBleMac, fmtAgo } from "./format";
 import { useHerdSignalsNav } from "./herd-signals-nav-context";
 import { herdSignalsHref, type HerdSignalsParams } from "./params";
 
