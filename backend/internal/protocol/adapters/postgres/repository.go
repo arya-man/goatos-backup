@@ -2007,6 +2007,11 @@ func (r *Repository) CreateRule(ctx context.Context, in domain.NewRule) (string,
 		ProofPolicy:         pgconv.JSONB(in.ProofPolicy),
 		WithdrawalDays:      pgconv.Int4(in.WithdrawalDays),
 		SortOrder:           in.SortOrder,
+		// Same lineage the publisher writes, from the same helpers. A rule authored through this
+		// path and one authored by a publish have to be comparable, or carry-over would see an
+		// edit where there was none.
+		IdentityKey:        pgconv.Text(domain.RuleIdentityKey(domain.VaccineCodeForRule(in.EligibilityJSON), in.DoseCode, in.Sequence)),
+		ContentFingerprint: pgconv.Text(domain.RuleContentFingerprint(in)),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ports.ErrVersionNotDraft
