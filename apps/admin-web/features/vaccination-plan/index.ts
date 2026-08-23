@@ -9,5 +9,5 @@ export { VaccinationPlanConsole } from "./plan-console";
 export { VaccinationPlanEditor } from "./plan-editor";
 export { describeChange, readVaccines } from "./plan-model";
 export type { VaccineGroup } from "./plan-model";
-export { fromRuleDsl } from "./editor-model";
-export type { EditorPlan, EditorVaccine } from "./editor-model";
+export { fromRuleDsl, newVaccineToEditor } from "./editor-model";
+export type { EditorPlan, EditorVaccine, NewVaccineInput } from "./editor-model";
