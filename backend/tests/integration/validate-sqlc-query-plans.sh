@@ -9,13 +9,40 @@ image="${GOATOS_SQLC_POSTGRES_IMAGE:-${GOATOS_POSTGRES_IMAGE:-postgres:16.9-alpi
 db_name="goatos"
 db_user="postgres"
 
+# GOATOS_SQLC_PLAN_ADMIN_DSN lets this run against an ALREADY-RUNNING Postgres instead of a throwaway
+# Docker container. Nothing here needs Docker specifically -- it needs a database it may migrate from
+# empty and then EXPLAIN against. On a laptop where the sanctioned test database is remote (the OCI
+# dev instance reached through an SSH tunnel) and starting a local container runtime is explicitly
+# disallowed, Docker is simply unavailable, and this step would otherwise be unrunnable.
+#
+# The DSN must point at a SERVER, not at a database anyone cares about: this script creates its own
+# scratch database, applies every migration into it, and drops it on exit. It must never be pointed
+# at a database holding real data.
+plan_admin_dsn="${GOATOS_SQLC_PLAN_ADMIN_DSN:-}"
+scratch_db=""
+
+if [[ -n "$plan_admin_dsn" ]]; then
+  scratch_db="goatos_sqlc_plans_$$"
+  psql "$plan_admin_dsn" -v ON_ERROR_STOP=1 -qtAc "CREATE DATABASE $scratch_db" >/dev/null
+  scratch_dsn="${plan_admin_dsn%/*}/$scratch_db"
+  case "$plan_admin_dsn" in *\?*) scratch_dsn="${scratch_dsn}?${plan_admin_dsn#*\?}";; esac
+fi
+
 cleanup() {
-  docker rm -f "$container_name" >/dev/null 2>&1 || true
+  if [[ -n "$scratch_db" ]]; then
+    psql "$plan_admin_dsn" -qtAc "DROP DATABASE IF EXISTS $scratch_db WITH (FORCE)" >/dev/null 2>&1 || true
+  else
+    docker rm -f "$container_name" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
 run_psql() {
-  postgres_ci_psql "$container_name" "$db_user" "$db_name" "$@"
+  if [[ -n "$scratch_db" ]]; then
+    psql "$scratch_dsn" -v ON_ERROR_STOP=1 -qtA "$@"
+  else
+    postgres_ci_psql "$container_name" "$db_user" "$db_name" "$@"
+  fi
 }
 
 apply_goose_up() {
@@ -1581,12 +1608,14 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND valid_to IS NULL;"
 }
 
-docker run --rm --name "$container_name" \
-  -e POSTGRES_PASSWORD=goatos \
-  -e POSTGRES_DB="$db_name" \
-  -d "$image" >/dev/null
+if [[ -z "$scratch_db" ]]; then
+  docker run --rm --name "$container_name" \
+    -e POSTGRES_PASSWORD=goatos \
+    -e POSTGRES_DB="$db_name" \
+    -d "$image" >/dev/null
 
-postgres_ci_wait_ready "$container_name" "$db_user" "$db_name"
+  postgres_ci_wait_ready "$container_name" "$db_user" "$db_name"
+fi
 
 while IFS= read -r migration; do
   apply_goose_up "$migration"
