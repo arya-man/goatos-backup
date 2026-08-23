@@ -13131,9 +13131,64 @@ components:
         variance_kg:
           type: string
           description: verified minus the resolved planned quantity (0 when unresolved), signed.
+    FeedAnalyticsConsumptionRow:
+      type: object
+      description: One latest-day shed/cohort/feed-item target-vs-actual packing comparison row.
+      required:
+        [feed_day, park_label, shed_id, shed_label, operational_location_display, breed_label,
+         age_group, feed_item_key, feed_item_label, target_kg, actual_kg, variance_kg, has_variance]
+      properties:
+        feed_day:
+          type: string
+          format: date
+        park_label:
+          type: string
+        shed_id:
+          type: string
+          format: uuid
+        shed_label:
+          type: string
+        partition_label:
+          type: string
+        operational_location_display:
+          type: string
+        breed_label:
+          type: string
+        age_group:
+          type: string
+        feed_item_key:
+          type: string
+        feed_item_label:
+          type: string
+        target_kg:
+          type: string
+        actual_kg:
+          type: string
+        variance_kg:
+          type: string
+        has_variance:
+          type: boolean
+    FeedAnalyticsConsumptionTrendDay:
+      type: object
+      description: One day of target-vs-actual feed packing totals.
+      required: [feed_day, target_kg, actual_kg, variance_rows, compared_rows]
+      properties:
+        feed_day:
+          type: string
+          format: date
+        target_kg:
+          type: string
+        actual_kg:
+          type: string
+        variance_rows:
+          type: integer
+          format: int64
+        compared_rows:
+          type: integer
+          format: int64
     FeedAnalyticsExecutionResponse:
       type: object
-      required: [date_from, date_to, days, packing_variance]
+      required: [date_from, date_to, days, consumption_rows, consumption_trend, packing_variance]
       properties:
         date_from:
           type: string
@@ -13145,6 +13200,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FeedAnalyticsExecutionDay"
+        consumption_rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsConsumptionRow"
+        consumption_trend:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsConsumptionTrendDay"
         packing_variance:
           type: array
           description: >-

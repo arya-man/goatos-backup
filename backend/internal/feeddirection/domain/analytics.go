@@ -162,12 +162,47 @@ type PackingVarianceRow struct {
 	VarianceKg string
 }
 
+// FeedConsumptionRow compares the frozen sheet target with the verifier-entered packing reading
+// at the shed/cohort/item grain. Unlike PackingVarianceRow this is the full comparison table, not
+// just outliers, so leadership can scan yesterday's target-vs-actual feed quantities and filter by
+// farm without hiding matched rows.
+type FeedConsumptionRow struct {
+	FeedDay   string
+	ParkLabel string
+	ShedID    string
+	ShedLabel string
+	// PartitionLabel is the pen ("2", "Part 3"), empty for an undivided shed.
+	PartitionLabel string
+	// OperationalLocationDisplay is the oploc-composed shed+pen label, same as every surface.
+	OperationalLocationDisplay string
+	BreedLabel                 string
+	AgeGroup                   string
+	FeedItemKey                string
+	FeedItemLabel              string
+	TargetKg                   string
+	ActualKg                   string
+	VarianceKg                 string
+	HasVariance                bool
+}
+
+// FeedConsumptionTrendDay is the windowed target-vs-actual trend backing the graph tied to the
+// comparison table.
+type FeedConsumptionTrendDay struct {
+	FeedDay      string
+	TargetKg     string
+	ActualKg     string
+	VarianceRows int64
+	ComparedRows int64
+}
+
 // ExecutionAnalytics is the /feed-analytics/execution payload.
 type ExecutionAnalytics struct {
 	Days []ExecutionDay
 	// PackingVariance lists every intended-vs-entered packing mismatch in the window, newest feed
 	// day first. Leadership-only by page contract; the verifier lens never receives this payload.
-	PackingVariance []PackingVarianceRow
+	PackingVariance  []PackingVarianceRow
+	ConsumptionRows  []FeedConsumptionRow
+	ConsumptionTrend []FeedConsumptionTrendDay
 }
 
 // ---------------------------------------------------------------------------

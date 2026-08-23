@@ -1048,6 +1048,14 @@
   td.cbm-sv-behind{background:color-mix(in srgb,var(--danger) 22%,transparent)}
   /* The clean tint drops to a whisper for the same reason the dot went: it is context, not signal. */
   td.cbm-sv-ok{background:color-mix(in srgb,var(--ok) 4%,transparent)}
+  .cbm-pending-table td{text-align:left;vertical-align:top}
+  .cbm-pending-vaccines{display:flex;flex-wrap:wrap;gap:8px}
+  .cbm-pending-chip{display:inline-flex;align-items:flex-start;gap:6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);padding:7px 9px;cursor:pointer;text-align:left}
+  .cbm-pending-chip strong{font-size:12px;line-height:1.2}
+  .cbm-pending-chip span{font-size:11px;color:var(--muted);line-height:1.2;white-space:nowrap}
+  .cbm-pending-behind{border-color:color-mix(in srgb,var(--danger) 55%,var(--line));background:color-mix(in srgb,var(--danger) 12%,var(--panel))}
+  .cbm-pending-verifying{border-color:color-mix(in srgb,var(--warn) 55%,var(--line));background:color-mix(in srgb,var(--warn) 12%,var(--panel))}
+  .cbm-pending-chip:hover,.cbm-pending-chip:focus-visible{outline:1px solid currentColor;outline-offset:2px}
   .cbm-heat{border-collapse:separate;border-spacing:3px;width:100%}
   .cbm-heat th{font-size:10.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:4px 6px;text-align:center;white-space:nowrap}
   .cbm-heat th.cbm-rowh{text-align:left;color:var(--muted);text-transform:none;font-size:12px;letter-spacing:0}
