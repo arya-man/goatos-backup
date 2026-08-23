@@ -13392,7 +13392,7 @@ components:
       additionalProperties: false
       required:
         [farm_label, feed_item_label, feed_item_key, avg_daily_kg, required_kg, stock_kg,
-         shortfall_kg, per_kg_cost, required_cost, shortfall_cost]
+         shortfall_kg, per_kg_cost, required_cost]
       description: >-
         One farm's requirement for one feed over the next 7 days, at the CURRENT feeding rate.
         Quantities are kg and money is rupees, both as decimal strings; an empty string means the
@@ -13424,9 +13424,6 @@ components:
         required_cost:
           type: string
           description: "`required_kg` x `per_kg_cost` -- the week's feed bill at the current rate."
-        shortfall_cost:
-          type: string
-          description: "`shortfall_kg` x `per_kg_cost` -- what the purchase run costs after existing stock."
     FeedDirectionRow:
       type: object
       additionalProperties: false
