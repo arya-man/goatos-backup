@@ -749,7 +749,7 @@ func (r *Repository) ListActivityWindows(ctx context.Context, tenantID, tagID st
 	query := `
 		SELECT tenant_id, tag_id, bucket_start, bucket_seconds, first_motion_count,
 		       last_motion_count, motion_delta, packet_count, avg_rssi_dbm,
-		       min_rssi_dbm, max_rssi_dbm, first_seen_at, last_seen_at, gap_delta
+		       min_rssi_dbm, max_rssi_dbm, first_seen_at, last_seen_at, gateway_id, gap_delta
 		FROM public.herd_signal_activity_windows
 		WHERE tenant_id = $1 AND tag_id = $2 AND bucket_start >= $3 AND bucket_start <= $4
 		      AND bucket_seconds = $5
@@ -767,7 +767,7 @@ func (r *Repository) ListActivityWindows(ctx context.Context, tenantID, tagID st
 		if err := rows.Scan(
 			&w.TenantID, &w.TagID, &w.BucketStart, &w.BucketSeconds, &w.FirstMotionCount,
 			&w.LastMotionCount, &w.MotionDelta, &w.PacketCount, &w.AvgRSSIdbm,
-			&w.MinRSSIdbm, &w.MaxRSSIdbm, &w.FirstSeenAt, &w.LastSeenAt, &w.GapDelta,
+			&w.MinRSSIdbm, &w.MaxRSSIdbm, &w.FirstSeenAt, &w.LastSeenAt, &w.GatewayID, &w.GapDelta,
 		); err != nil {
 			return nil, err
 		}
