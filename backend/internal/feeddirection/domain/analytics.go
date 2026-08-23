@@ -163,9 +163,14 @@ type PackingVarianceRow struct {
 }
 
 // FeedConsumptionRow compares the frozen sheet target with the verifier-entered packing reading
-// at the shed/cohort/item grain. Unlike PackingVarianceRow this is the full comparison table, not
-// just outliers, so leadership can scan yesterday's target-vs-actual feed quantities and filter by
-// farm without hiding matched rows.
+// for ONE SHED on ONE feed day (maintainer decision 2026-08-23), summed across every feed item
+// and session that shed was fed. Unlike PackingVarianceRow this is the full comparison table, not
+// just outliers, so leadership can scan yesterday's target-vs-actual feed quantities park by park
+// without matched sheds being hidden.
+//
+// The shed total deliberately adds unlike feeds together: the question this table answers is "did
+// this shed get what the sheet said", and WHICH feed was off is what the packing-mismatch table
+// below it exists to say.
 type FeedConsumptionRow struct {
 	FeedDay   string
 	ParkLabel string
@@ -175,21 +180,33 @@ type FeedConsumptionRow struct {
 	PartitionLabel string
 	// OperationalLocationDisplay is the oploc-composed shed+pen label, same as every surface.
 	OperationalLocationDisplay string
-	BreedLabel                 string
-	AgeGroup                   string
-	FeedItemKey                string
-	FeedItemLabel              string
-	TargetKg                   string
-	ActualKg                   string
-	VarianceKg                 string
-	HasVariance                bool
+	// BreedLabel and AgeGroup describe the shed's cohort, resolved agree-or-go-bare: a shed whose
+	// sheet rows carry more than one breed reports MixedCohortLabel rather than picking one, which
+	// would be a fact nobody measured.
+	BreedLabel string
+	AgeGroup   string
+	TargetKg   string
+	// ActualKg is EMPTY when no packing reading exists for this shed-day, and "0" only when a
+	// verifier actually recorded zero. Conflating the two would paint every not-yet-verified shed
+	// as a shed that got no feed -- the exact false alarm a red variance row must never raise.
+	ActualKg string
+	// VarianceKg is empty whenever ActualKg is: there is nothing to compare against yet.
+	VarianceKg string
+	// HasVariance is true only when a reading EXISTS and differs from target beyond tolerance.
+	HasVariance bool
 }
+
+// MixedCohortLabel is what a shed reports when its sheet rows disagree on breed or age group. It
+// is a real answer -- the pen holds a mix -- never a missing value.
+const MixedCohortLabel = "Mixed"
 
 // FeedConsumptionTrendDay is the windowed target-vs-actual trend backing the graph tied to the
 // comparison table.
 type FeedConsumptionTrendDay struct {
-	FeedDay      string
-	TargetKg     string
+	FeedDay  string
+	TargetKg string
+	// ActualKg is EMPTY on a day with no packing readings at all, so the chart draws a GAP rather
+	// than a plunge to zero that would read as "the farm fed nothing that day".
 	ActualKg     string
 	VarianceRows int64
 	ComparedRows int64

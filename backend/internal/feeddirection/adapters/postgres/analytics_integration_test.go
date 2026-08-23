@@ -1425,3 +1425,193 @@ func feedKeyOf(label string) string {
 		return t
 	}
 }
+
+// Target vs actual at SHED grain. The fixture is built around the one mistake this table must not
+// make: a shed nobody has verified yet reads as UNVERIFIED, never as a shed fed nothing. It also
+// pins the shed total (two items across two sessions collapse to one row), the Mixed cohort answer
+// when a pen's rows disagree, the red flag firing only on a real measured difference, and the
+// trend gapping on a day with no readings at all.
+func TestFeedConsumptionShedGrainOneToManyStatusBucketsParkScopeAndPageBoundary(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id, display_order)
+VALUES ($2::uuid, $1::uuid, 'park', 'CBE-C', 'CBE', 'active', NULL, 1),
+       ($3::uuid, $1::uuid, 'shed', 'S-CONS-A', 'Castro', 'active', $2::uuid, 1),
+       ($4::uuid, $1::uuid, 'shed', 'S-CONS-B', 'Gandhi', 'active', $2::uuid, 2)
+ON CONFLICT (location_id) DO NOTHING`, fdiTenant, fdiPark, fdiShedA, fdiShedB); err != nil {
+		t.Fatalf("seed locations: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, '1', $3, 'active', 'manual')
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
+		fdiTenant, fdiShedA, domain.PartitionMatchKey("1")); err != nil {
+		t.Fatalf("seed partition: %v", err)
+	}
+
+	kgOf := func(v string) *string { return &v }
+	cell := func(shed, partition, breed, rationGroup, item, itemKey string, session int32, qty string, rowSeq, itemSeq int32) domain.StoredCell {
+		return domain.StoredCell{
+			ParkID: fdiPark, ParkLabel: "CBE", ShedID: shed, ShedLabel: map[string]string{fdiShedA: "Castro", fdiShedB: "Gandhi"}[shed],
+			PartitionLabel: partition, ShedTag: "Non-Pregnant", Breed: breed,
+			RationGroup: rationGroup, SessionNo: session, SessionLabel: "S",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: item, FeedItemKey: itemKey, QuantityKg: kgOf(qty),
+			SessionTotalKg: qty, RowSeq: rowSeq, ItemSeq: itemSeq,
+		}
+	}
+	persist := func(feedDay, fingerprint string, cells []domain.StoredCell) {
+		t.Helper()
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: feedDay, Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: fingerprint,
+			IdempotencyKey: "issue:cons:" + feedDay, GeneratedBy: "test", Cells: cells,
+		}); err != nil {
+			t.Fatalf("PersistIssue %s: %v", feedDay, err)
+		}
+	}
+
+	// The reported day. Castro pen 1 is fed TWO items across TWO sessions — 4 sheet cells that must
+	// collapse to ONE row totalling 10.0 kg — and its two cells disagree on breed AND on kid/adult,
+	// so both cohort columns must report Mixed rather than picking a side. Gandhi is a second,
+	// single-cell shed that nobody verifies.
+	persist("2026-07-30", "fp-cons-day", []domain.StoredCell{
+		cell(fdiShedA, "1", "Beetal", "Beetal/Sirohi", "Concentrate", "concentrate", 1, "3.000", 0, 0),
+		cell(fdiShedA, "1", "Beetal", "Beetal/Sirohi", "Bhusa", "bhusa", 1, "2.000", 0, 1),
+		cell(fdiShedA, "1", "Sojat", "Kids", "Concentrate", "concentrate", 2, "3.000", 1, 0),
+		cell(fdiShedA, "1", "Sojat", "Kids", "Bhusa", "bhusa", 2, "2.000", 1, 1),
+		cell(fdiShedB, "", "Beetal", "Beetal/Sirohi", "Concentrate", "concentrate", 1, "4.000", 2, 0),
+	})
+	// An EARLIER day with a sheet and no readings at all: the trend must gap there.
+	persist("2026-07-29", "fp-cons-prev", []domain.StoredCell{
+		cell(fdiShedA, "1", "Beetal", "Beetal/Sirohi", "Concentrate", "concentrate", 1, "5.000", 0, 0),
+	})
+
+	target := time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation())
+	completeAndRecord := func(session int32, idem string, entries []ports.PackingVerifiedQuantity, apply bool) {
+		t.Helper()
+		res, err := repo.CompletePacking(ctx, ports.CompletePackingParams{
+			TenantID: fdiTenant, ParkID: fdiPark, ShedID: fdiShedA, PartitionLabel: "1",
+			SessionNo: session, TargetDate: target, Workflow: domain.WorkflowNormal,
+			PackingProofRef: "proof-" + idem, CompletedBy: fdActor,
+			IdempotencyKey: idem, ActorID: fdActor, ActorType: "operator", TraceID: "trace-" + idem,
+		})
+		if err != nil {
+			t.Fatalf("CompletePacking(%s): %v", idem, err)
+		}
+		if err := repo.RecordPackingVerifiedQuantities(ctx, ports.RecordPackingVerifiedQuantitiesParams{
+			TenantID: fdiTenant, CompletionID: res.CompletionID, Entries: entries, RecordedBy: fdActor,
+		}); err != nil {
+			t.Fatalf("RecordPackingVerifiedQuantities(%s): %v", idem, err)
+		}
+		if !apply {
+			return
+		}
+		if _, err := repo.ApplyVerifiedPacking(ctx, ports.ApplyPackingParams{
+			TenantID: fdiTenant, CompletionID: res.CompletionID, VerifiedBy: fdActor, TraceID: "apply-" + idem,
+		}); err != nil {
+			t.Fatalf("ApplyVerifiedPacking(%s): %v", idem, err)
+		}
+	}
+	// Session 1 verified: 3.0 concentrate + 2.0 bhusa, exactly the sheet.
+	completeAndRecord(1, "cons-s1", []ports.PackingVerifiedQuantity{
+		{FeedItemKey: "concentrate", FeedItemLabel: "Concentrate", EnteredKg: 3.0},
+		{FeedItemKey: "bhusa", FeedItemLabel: "Bhusa", EnteredKg: 2.0},
+	}, true)
+	// Session 2 verified SHORT: 1.0 concentrate against 3.0, bhusa on target. The shed's day total
+	// therefore reads 8.0 against 10.0 — a real 2.0 kg shortfall that must flag.
+	completeAndRecord(2, "cons-s2", []ports.PackingVerifiedQuantity{
+		{FeedItemKey: "concentrate", FeedItemLabel: "Concentrate", EnteredKg: 1.0},
+		{FeedItemKey: "bhusa", FeedItemLabel: "Bhusa", EnteredKg: 2.0},
+	}, true)
+
+	got, err := repo.ExecutionAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+		DateFrom: time.Date(2026, 7, 29, 0, 0, 0, 0, biztime.DefaultLocation()),
+		DateTo:   target,
+	})
+	if err != nil {
+		t.Fatalf("ExecutionAnalytics: %v", err)
+	}
+
+	// PAGE BOUNDARY: the table takes no limit/offset — every shed fed on the reported day is a row,
+	// and only that day's. Two sheds fed, two rows; the previous day contributes none.
+	if len(got.ConsumptionRows) != 2 {
+		t.Fatalf("consumption rows = %d, want 2: %+v", len(got.ConsumptionRows), got.ConsumptionRows)
+	}
+	byShed := map[string]domain.FeedConsumptionRow{}
+	for _, r := range got.ConsumptionRows {
+		if r.FeedDay != "2026-07-30" {
+			t.Errorf("row from the wrong day: %+v", r)
+		}
+		byShed[r.OperationalLocationDisplay] = r
+	}
+
+	// FOUR sheet cells, TWO sessions, TWO feed items -> ONE row of 10.0 kg. Measured 8.0, so the
+	// row is flagged and the variance reads -2.0. Both cohort columns are Mixed: the pen's rows
+	// carry two breeds and both a kid and an adult ration group, and inventing one would be a
+	// cohort nobody recorded.
+	castro := byShed["Castro 1"]
+	if castro.TargetKg != "10.000" || castro.ActualKg != "8.000" || castro.VarianceKg != "-2.000" {
+		t.Errorf("Castro 1 target/actual/variance = %q/%q/%q, want 10.000/8.000/-2.000",
+			castro.TargetKg, castro.ActualKg, castro.VarianceKg)
+	}
+	if !castro.HasVariance {
+		t.Errorf("Castro 1 measured 2 kg short and must be flagged: %+v", castro)
+	}
+	if castro.BreedLabel != domain.MixedCohortLabel || castro.AgeGroup != domain.MixedCohortLabel {
+		t.Errorf("Castro 1 cohort = %q/%q, want Mixed/Mixed", castro.BreedLabel, castro.AgeGroup)
+	}
+	if castro.ParkLabel != "CBE" {
+		t.Errorf("Castro 1 park = %q, want CBE", castro.ParkLabel)
+	}
+
+	// THE RULE THIS TABLE EXISTS TO GET RIGHT: Gandhi was fed on the sheet and nobody has verified
+	// it. Its actual and variance are EMPTY and it is NOT flagged. A "0.000" here would tell
+	// leadership the shed got no feed, and a red row would send someone to a shed that is fine.
+	gandhi := byShed["Gandhi"]
+	if gandhi.TargetKg != "4.000" {
+		t.Errorf("Gandhi target = %q, want 4.000", gandhi.TargetKg)
+	}
+	if gandhi.ActualKg != "" || gandhi.VarianceKg != "" {
+		t.Errorf("unverified shed must read blank, got actual=%q variance=%q", gandhi.ActualKg, gandhi.VarianceKg)
+	}
+	if gandhi.HasVariance {
+		t.Errorf("an unverified shed must never be flagged: %+v", gandhi)
+	}
+	if gandhi.BreedLabel != "Beetal" || gandhi.AgeGroup != "Adult" {
+		t.Errorf("Gandhi cohort = %q/%q, want Beetal/Adult", gandhi.BreedLabel, gandhi.AgeGroup)
+	}
+
+	// The trend ranges over the SAME comparison rows: 2026-07-30 totals 14.0 target (10 + 4) and
+	// 8.0 measured, one flagged shed of one compared. 2026-07-29 has a sheet and no readings, so
+	// its actual is EMPTY and the chart draws a gap instead of a plunge to zero.
+	trend := map[string]domain.FeedConsumptionTrendDay{}
+	for _, d := range got.ConsumptionTrend {
+		trend[d.FeedDay] = d
+	}
+	if len(got.ConsumptionTrend) != 2 {
+		t.Fatalf("trend days = %d, want 2: %+v", len(got.ConsumptionTrend), got.ConsumptionTrend)
+	}
+	if d := trend["2026-07-30"]; d.TargetKg != "14.000" || d.ActualKg != "8.000" || d.VarianceRows != 1 || d.ComparedRows != 1 {
+		t.Errorf("2026-07-30 trend = %+v, want target 14.000 actual 8.000 variance 1 compared 1", d)
+	}
+	if d := trend["2026-07-29"]; d.TargetKg != "5.000" || d.ActualKg != "" || d.ComparedRows != 0 {
+		t.Errorf("an unverified day must gap, got %+v", d)
+	}
+
+	// PARK SCOPE: another park's id must empty both arms rather than leak CBE's sheds.
+	other, err := repo.ExecutionAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+		DateFrom: time.Date(2026, 7, 29, 0, 0, 0, 0, biztime.DefaultLocation()),
+		DateTo:   target,
+		ParkIDs:  []uuid.UUID{uuid.MustParse("22222222-2222-4222-8222-222222222222")},
+	})
+	if err != nil {
+		t.Fatalf("ExecutionAnalytics other park: %v", err)
+	}
+	if len(other.ConsumptionRows) != 0 || len(other.ConsumptionTrend) != 0 {
+		t.Errorf("park scope leaked: rows=%+v trend=%+v", other.ConsumptionRows, other.ConsumptionTrend)
+	}
+}

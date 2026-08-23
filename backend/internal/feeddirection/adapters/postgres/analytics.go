@@ -310,6 +310,34 @@ LEFT JOIN planned p
 WHERE abs(rd.entered_kg - COALESCE(p.planned_kg, 0)) > $5
 ORDER BY rd.target_date DESC, rd.park_label, rd.shed_label, rd.partition_label, rd.session_no, rd.feed_item_label`
 
+// Target vs actual feed, at SHED grain (maintainer decision 2026-08-23).
+//
+// Three things this query must keep straight, each of which reads as a detail and is not:
+//
+//  1. A shed with NO packing reading is not a shed that got zero feed. `readings` is LEFT JOINed
+//     and its sum kept NULL, so an unverified shed reports a blank actual and NO variance. The
+//     older shape coalesced it to 0, which made every not-yet-verified shed a red row claiming
+//     the animals were fed nothing.
+//  2. Breed and age group are resolved AGREE-OR-GO-BARE across the shed's sheet rows. A pen whose
+//     rows disagree reports 'Mixed'; picking the first would invent a cohort.
+//  3. The item/session detail is summed away ON PURPOSE. Which feed was off is the packing
+//     mismatch table's question; this table answers whether the shed got its day's feed.
+//
+// projection-review: membership=feed_direction_issue_rows of issued/amended/locked sheets in the
+// window at their (issue, shed, partition, session, item) natural grain, LEFT JOINed to
+// feed_packing_verified_quantities through completed feed_packing_completions;
+// group_key=(feed_day, park_id, shed_id, partition_key) on every side -- both sides are collapsed
+// to the item/session grain FIRST and joined on the full (date, park, shed, partition, session,
+// workflow, item) key, then summed to the shed key, so a shed fed two items in two sessions
+// contributes each bag exactly once; join_cardinality=planned LEFT JOIN readings 1:0..1 at the
+// item/session key (feed_packing_verified_quantities is unique per completion+item and
+// completions are unique per that key), no side left unaggregated; pagination=none, one day's
+// sheds for the caller's parks is a bounded set with no limit/offset input, and the trend arm
+// ranges over the SAME comparison rows as the table so a day total can never disagree with the
+// rows it summarises; scope=tenant_id on both sides plus the caller's authorized park set.
+//
+// scale-guard:ignore: 5k-50k-envelope -- bounded per-(day, shed) aggregate over one window of
+// frozen sheets and their readings, canonical-indexed-SQL default.
 const executionConsumptionSQL = `
 WITH planned AS (
     SELECT i.feed_day,
@@ -322,7 +350,6 @@ WITH planned AS (
            r.session_no,
            r.workflow,
            r.feed_item_key,
-           MAX(r.feed_item_label) AS feed_item_label,
            COALESCE(NULLIF(MAX(r.breed), ''), 'Unspecified') AS breed_label,
            CASE
              WHEN feed_config_norm(COALESCE(MAX(r.ration_group), MAX(r.shed_tag), '')) LIKE '%kid%' THEN 'Kid'
@@ -364,19 +391,20 @@ readings AS (
       AND c.status = 'completed'
     GROUP BY c.target_date, c.park_id, c.shed_id, c.partition_key, c.session_no, c.workflow, q.feed_item_key
 ),
+-- One row per SHED per day: every item and session summed. actual_kg stays NULL when the shed has
+-- no reading at all, which is what keeps "not verified yet" apart from "given nothing".
 comparison AS (
     SELECT p.feed_day,
-           p.park_label,
+           p.park_id,
+           MAX(p.park_label)      AS park_label,
            p.shed_id,
-           p.shed_label,
-           p.partition_label,
-           p.breed_label,
-           p.age_group,
-           p.feed_item_key,
-           p.feed_item_label,
-           p.target_kg,
-           COALESCE(r.actual_kg, 0) AS actual_kg,
-           COALESCE(r.actual_kg, 0) - p.target_kg AS variance_kg
+           MAX(p.shed_label)      AS shed_label,
+           p.partition_key,
+           MAX(p.partition_label) AS partition_label,
+           CASE WHEN COUNT(DISTINCT p.breed_label) = 1 THEN MAX(p.breed_label) ELSE $6::text END AS breed_label,
+           CASE WHEN COUNT(DISTINCT p.age_group) = 1 THEN MAX(p.age_group) ELSE $6::text END     AS age_group,
+           SUM(p.target_kg)       AS target_kg,
+           SUM(r.actual_kg)       AS actual_kg
     FROM planned p
     LEFT JOIN readings r
       ON r.target_date = p.feed_day
@@ -386,6 +414,7 @@ comparison AS (
      AND r.session_no = p.session_no
      AND r.workflow = p.workflow
      AND r.feed_item_key = p.feed_item_key
+    GROUP BY p.feed_day, p.park_id, p.shed_id, p.partition_key
 )
 SELECT 'row' AS kind,
        feed_day::text,
@@ -395,13 +424,10 @@ SELECT 'row' AS kind,
        partition_label,
        breed_label,
        age_group,
-       feed_item_key,
-       feed_item_label,
        target_kg::text,
-       actual_kg::text,
-       variance_kg::text,
-       (abs(variance_kg) > $5)::text,
-       ''::text,
+       COALESCE(actual_kg::text, '')                                        AS actual_kg,
+       COALESCE((actual_kg - target_kg)::text, '')                          AS variance_kg,
+       (actual_kg IS NOT NULL AND abs(actual_kg - target_kg) > $5)::text     AS has_variance,
        ''::text
 FROM comparison
 WHERE feed_day = $4::date
@@ -414,17 +440,18 @@ SELECT 'trend' AS kind,
        '' AS partition_label,
        '' AS breed_label,
        '' AS age_group,
-       '' AS feed_item_key,
-       '' AS feed_item_label,
        SUM(target_kg)::text,
-       SUM(actual_kg)::text,
-       SUM(variance_kg)::text,
-       COUNT(*) FILTER (WHERE abs(variance_kg) > $5)::text,
-       COUNT(*)::text,
-       ''::text
+       COALESCE(SUM(actual_kg)::text, '')                                   AS actual_kg,
+       -- The last three slots are POSITIONAL and shared with the row arm above: the row arm sends
+       -- variance / has_variance / unused, the trend arm sends unused / flagged-shed count /
+       -- compared-shed count. Misaligning them is silent -- a count simply lands in the wrong
+       -- field -- so the counts are pinned by TestFeedConsumptionShedGrain...
+       ''::text                                                             AS variance_kg,
+       COUNT(*) FILTER (WHERE actual_kg IS NOT NULL AND abs(actual_kg - target_kg) > $5)::text,
+       COUNT(*) FILTER (WHERE actual_kg IS NOT NULL)::text
 FROM comparison
 GROUP BY feed_day
-ORDER BY 1, 2 DESC, 3, 4, 5, 6, 9`
+ORDER BY 1, 2 DESC, 3, 5, 6`
 
 // ExecutionAnalytics merges the three status streams and the latency series by
 // date. Four set-based reads, no per-day fan-out.
@@ -533,7 +560,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		out.Days = append(out.Days, *days[k])
 	}
 
-	consRows, err := r.pool.Query(ctx, executionConsumptionSQL, tenantID, parkIDs, fromArg, toArg, domain.PackingVarianceToleranceKg)
+	consRows, err := r.pool.Query(ctx, executionConsumptionSQL, tenantID, parkIDs, fromArg, toArg, domain.PackingVarianceToleranceKg, domain.MixedCohortLabel)
 	if err != nil {
 		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption comparison: %w", err)
 	}
@@ -542,10 +569,10 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 	out.ConsumptionTrend = []domain.FeedConsumptionTrendDay{}
 	for consRows.Next() {
 		var kind, feedDay, parkLabel, shedID, shedLabel, partitionLabel, breedLabel, ageGroup string
-		var feedItemKey, feedItemLabel, targetKg, actualKg, varianceKg, flagText, comparedText, unused string
+		var targetKg, actualKg, varianceKg, flagText, comparedText string
 		if err := consRows.Scan(
 			&kind, &feedDay, &parkLabel, &shedID, &shedLabel, &partitionLabel, &breedLabel, &ageGroup,
-			&feedItemKey, &feedItemLabel, &targetKg, &actualKg, &varianceKg, &flagText, &comparedText, &unused,
+			&targetKg, &actualKg, &varianceKg, &flagText, &comparedText,
 		); err != nil {
 			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption comparison scan: %w", err)
 		}
@@ -559,8 +586,6 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 				PartitionLabel: partitionLabel,
 				BreedLabel:     breedLabel,
 				AgeGroup:       ageGroup,
-				FeedItemKey:    feedItemKey,
-				FeedItemLabel:  feedItemLabel,
 				TargetKg:       targetKg,
 				ActualKg:       actualKg,
 				VarianceKg:     varianceKg,
