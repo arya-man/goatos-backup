@@ -5551,12 +5551,18 @@ export interface components {
             first_directed_day: string;
             /** @description Average directed kg over the farm's 3 most recent locked feed days for the item (same semantics as the stock card, scoped to the farm); empty when never directed. */
             avg_daily_kg: string;
+            /** @description Seven times avg_daily_kg, showing the stock required for one week at the current farm/item consumption rate; empty when never directed. */
+            weekly_required_kg: string;
             /** Format: int64 */
             last_load_batch_no: number;
             /** Format: date */
             last_load_date: string;
             last_load_quantity_kg: string;
             last_load_vendor: string;
+            /** @description Latest load total cost from the feed purchase ledger. */
+            last_load_total_cost: string;
+            /** @description Latest load per-kg cost from the feed purchase ledger. */
+            last_load_per_kg_cost: string;
             /** @description Latest load quantity minus days since first_directed_day through yesterday in IST times avg_daily_kg; negative values show the expected shortage. */
             expected_stock_kg: string;
             /** @description Displayed current stock from the canonical purchase ledger after consumed-at-import and locked-sheet depletion. */

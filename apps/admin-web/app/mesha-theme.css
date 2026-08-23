@@ -930,14 +930,15 @@
   .main table.feed-stock-table{width:100%;min-width:0;table-layout:fixed}
   .main table.feed-stock-table th,.main table.feed-stock-table td{padding-left:9px;padding-right:9px;white-space:normal;overflow-wrap:anywhere;vertical-align:middle}
   .main table.feed-stock-table th{font-size:10px;letter-spacing:.08em;line-height:1.25}
-  .main table.feed-stock-table th:nth-child(1),.main table.feed-stock-table td:nth-child(1){width:22%}
+  .main table.feed-stock-table th:nth-child(1),.main table.feed-stock-table td:nth-child(1){width:20%}
   .main table.feed-stock-table th:nth-child(2),.main table.feed-stock-table td:nth-child(2){width:5%}
-  .main table.feed-stock-table th:nth-child(3),.main table.feed-stock-table td:nth-child(3){width:9%}
-  .main table.feed-stock-table th:nth-child(4),.main table.feed-stock-table td:nth-child(4){width:10%}
-  .main table.feed-stock-table th:nth-child(5),.main table.feed-stock-table td:nth-child(5){width:29%}
-  .main table.feed-stock-table th:nth-child(6),.main table.feed-stock-table td:nth-child(6){width:8%}
+  .main table.feed-stock-table th:nth-child(3),.main table.feed-stock-table td:nth-child(3){width:8%}
+  .main table.feed-stock-table th:nth-child(4),.main table.feed-stock-table td:nth-child(4){width:9%}
+  .main table.feed-stock-table th:nth-child(5),.main table.feed-stock-table td:nth-child(5){width:28%}
+  .main table.feed-stock-table th:nth-child(6),.main table.feed-stock-table td:nth-child(6){width:7%}
   .main table.feed-stock-table th:nth-child(7),.main table.feed-stock-table td:nth-child(7){width:8%}
-  .main table.feed-stock-table th:nth-child(8),.main table.feed-stock-table td:nth-child(8){width:9%}
+  .main table.feed-stock-table th:nth-child(8),.main table.feed-stock-table td:nth-child(8){width:7%}
+  .main table.feed-stock-table th:nth-child(9),.main table.feed-stock-table td:nth-child(9){width:8%}
   .main table.feed-stock-table .feed-stock-load{white-space:normal;overflow:visible;text-overflow:clip}
   .main table.feed-stock-table .tag{max-width:100%;white-space:normal;line-height:1.25;justify-content:center;text-align:center}
   .main table.feed-stock-table .feed-stock-check-tag{display:inline-flex;align-items:center;gap:5px;min-width:0;padding:4px 8px;letter-spacing:0;white-space:nowrap}
@@ -949,7 +950,7 @@
   .main .feed-stock-info-pop{position:absolute;right:0;top:22px;z-index:20;display:none;width:280px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);box-shadow:var(--shadow);color:var(--ink);font-size:11.5px;font-weight:600;line-height:1.35;letter-spacing:0;text-transform:none;white-space:normal}
   .main .feed-stock-info:hover .feed-stock-info-pop,.main .feed-stock-info:focus .feed-stock-info-pop{display:block}
   @media(max-width:1350px){
-    .main table.feed-stock-table{min-width:1320px}
+    .main table.feed-stock-table{min-width:1480px}
     .main table.feed-stock-table th,.main table.feed-stock-table td{white-space:nowrap;overflow-wrap:normal}
     .main table.feed-stock-table .tag{white-space:nowrap}
   }
