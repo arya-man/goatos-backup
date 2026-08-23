@@ -245,9 +245,11 @@ Two facts drive the retention shape:
 
 ### 3.1 Partitioning `[BUILT]`
 
-`herd_signal_packets` is now RANGE-partitioned daily on `received_at`
-(migration `000200_herd_signal_packets_partition.sql`). The existing captured
-rows were copied into the new partitioned table and the old heap kept as
+`herd_signal_packets` is now RANGE-partitioned daily on `received_date`, a
+plain (non-generated) `date NOT NULL` column bucketing the server-stamped
+`received_at` to its UTC calendar day (migration
+`000200_herd_signal_packets_partition.sql`). The existing captured rows were
+copied into the new partitioned table and the old heap kept as
 `herd_signal_packets_pre_partition_000200` for one retention cycle as a
 rollback/audit safety net (not dropped by the migration). `herd_signal_activity_windows`
 remains unpartitioned — its own volume (Section 1.6, ~24 GB/day at full
@@ -255,19 +257,51 @@ tiers, well below packets) does not currently justify the conversion cost;
 revisit if/when a tier's own row count crosses the same order-of-magnitude
 threshold that justified this migration for packets.
 
-The dedup unique index (`herd_signal_packets_dedup_uidx`, originally 000193,
-redefined by 000196 to key on `device_seen_at`) had to be widened to include
-`received_at` because PostgreSQL requires every unique index on a partitioned
-table to include the partition key. This is a deliberate, documented
-correctness trade — not a silent constraint change — recorded in full in
-000200's migration header: it narrows dedup so a retry whose new
-server-stamped `received_at` lands in a *different* daily partition than the
-original attempt is no longer guaranteed to be deduplicated by this index
-alone. Accepted because nothing on any read path reads `herd_signal_packets`
-(this section's own opening claim), so a rare duplicate raw row is a
-forensics-only artifact, not a product-visible bug. The PRIMARY KEY changed
-from `(packet_id)` to `(packet_id, received_at)` for the same structural
-reason.
+**`received_date`, not raw `received_at`, is the partition key** — this was
+not the first design tried, and the two rejected attempts are worth knowing
+about because both look correct until tested:
+
+- Partitioning directly on `received_at` and widening the dedup index
+  (`herd_signal_packets_dedup_uidx`, 000193/000196) to include it compiles,
+  but a unique index requires exact equality: `received_at` is stamped fresh
+  to microsecond precision on **every** ingest call (000198), so a retried
+  batch's `received_at` practically never matches the original's, on any day.
+  Verified on a scratch database: a replayed packet inserted as a new row
+  every time — silently reopening the double-count bug 000196 exists to
+  close, for the ordinary retry case, not a rare edge case.
+- Making `received_date` a `GENERATED ALWAYS ... STORED` column and
+  partitioning on that fails outright — Postgres does not allow a generated
+  column as a partition key at all.
+- A `BEFORE INSERT` trigger to populate `received_date` also fails: partition
+  routing is decided before row-level `BEFORE INSERT` triggers run, so a
+  trigger that then writes a value implying a different partition is
+  rejected ("moving row to another partition ... is not supported").
+
+The shipped design: `received_date` is a plain column the **application
+supplies explicitly** — `backend/internal/herdsignals/adapters/postgres/repository.go`
+computes it as `p.ReceivedAt.UTC().Truncate(24*time.Hour)` from the same
+server-stamped `received_at` already used for the row, so routing and dedup
+identity can never disagree about which day a packet belongs to. The dedup
+index becomes `(tenant_id, tag_id, device_seen_at, motion_count,
+received_date)` — a same-day retry (the ordinary case: seconds to low
+minutes later) still collides correctly; only a retry whose `received_at`
+lands on the *other* side of a UTC-midnight boundary from the original
+escapes this index. That narrow residual is forensics-only (this section's
+own opening claim: nothing reads `herd_signal_packets` on any request path),
+not a product-visible bug. The PRIMARY KEY changed from `(packet_id)` to
+`(packet_id, received_date)` for the same structural reason (partition key
+must be in every unique index).
+
+**Partition pruning requires filtering on `received_date`, not `received_at`.**
+Postgres cannot statically prune partitions from a predicate on a *different*
+column than the partition key, even one that is functionally correlated with
+it — verified by EXPLAIN: a `received_at` range predicate scans every
+partition (`Merge Append` over all 32), while the equivalent `received_date =
+current_date` predicate prunes to exactly one (`Subplans Removed: 31`). Since
+nothing reads this table today, this has no current product impact, but any
+future direct/forensics query against `herd_signal_packets` should filter on
+`received_date` (optionally alongside `received_at` for sub-day precision) to
+get pruning.
 
 Below, superseded by the above (kept for the historical decision record):
 

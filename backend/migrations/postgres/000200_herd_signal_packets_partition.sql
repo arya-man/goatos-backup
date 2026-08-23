@@ -21,51 +21,58 @@
 -- also means "yesterday's partition" and "today's retention cutoff" are the same concept, which
 -- keeps the maintenance job in 000201 simple to reason about.
 --
--- WHY THE PARTITION KEY IS A GENERATED received_date COLUMN, NOT THE RAW received_at TIMESTAMP
+-- WHY THE PARTITION KEY IS A SEPARATE received_date COLUMN, NOT THE RAW received_at TIMESTAMP,
+-- AND WHY THAT COLUMN IS APPLICATION-SUPPLIED RATHER THAN COMPUTED BY POSTGRES
 --
--- This is a correctness decision, not a style choice, and it was caught by actually testing the
--- naive version, not just reasoning about it -- worth recording so it is not undone by accident.
+-- This is a correctness decision, not a style choice, and both halves of it were caught by
+-- actually testing the naive versions on a scratch database, not just reasoning about them --
+-- worth recording so neither is undone by accident.
 --
 -- Migration 000198 establishes that received_at is stamped from the SERVER clock ONCE PER
 -- INGEST CALL, while device_seen_at is the caller's own claimed timestamp -- observed hours off
 -- in the field. So received_at, not device_seen_at, must drive partition routing and retention
 -- (partitioning on a field an attacker or a bad gateway clock controls would let one bad clock
--- route packets into the wrong partition, or evade retention). That part of the design is
--- unchanged from the original plan.
+-- route packets into the wrong partition, or evade retention).
 --
--- But PostgreSQL requires every unique index (and therefore the PRIMARY KEY) on a partitioned
--- table to include the partition key column, and the FIRST version of this migration partitioned
--- directly on the raw received_at column and widened herd_signal_packets_dedup_uidx (000196) to
--- (tenant_id, tag_id, device_seen_at, motion_count, received_at). That compiles, and it looks like
--- a narrow trade ("a retry that straddles a partition boundary won't dedup"). It is not narrow:
--- received_at is stamped fresh, to microsecond precision, on EVERY ingest call including retries
--- of the exact same physical batch -- 000198's own header says so ("received_at is now stamped
--- from the SERVER clock at ingest time"). A unique index requires EXACT equality on every
--- column, so including full-precision received_at in the key means a retried batch's received_at
--- practically NEVER matches the original attempt's, on ANY day, not just at midnight. Verified by
--- seeding a scratch database, converting, and replaying a packet with a fresh received_at: it
--- inserted as a NEW row every time. That would have silently reintroduced the exact double-count
--- bug 000196 exists to close, for the ordinary case (any retry), not a rare edge case -- the
--- opposite of "do not just make the constraint compile" that this task explicitly warned against.
+-- Attempt 1 -- partition directly on the raw received_at column, widen
+-- herd_signal_packets_dedup_uidx (000196) to
+-- (tenant_id, tag_id, device_seen_at, motion_count, received_at). This compiles (Postgres requires
+-- the partition key in every unique index on a partitioned table), and it looks like a narrow
+-- trade ("a retry that straddles a partition boundary won't dedup"). It is not narrow: received_at
+-- is stamped fresh, to microsecond precision, on EVERY ingest call including retries of the exact
+-- same physical batch -- 000198's own header says so. A unique index requires EXACT equality on
+-- every column, so including full-precision received_at in the key means a retried batch's
+-- received_at practically NEVER matches the original attempt's, on ANY day, not just at midnight.
+-- Verified by seeding a scratch database, converting, and replaying a packet with a fresh
+-- received_at: it inserted as a NEW row every time -- silently reintroducing the exact
+-- double-count bug 000196 exists to close, for the ordinary case (any retry), not a rare edge
+-- case. Rejected.
 --
--- The fix: add a GENERATED ALWAYS ... STORED column, received_date, that buckets received_at to
--- its UTC calendar day, use THAT as the partition key, and put received_date (not received_at)
--- in the dedup unique index. A retry of the same batch, seconds to low-minutes later, gets a
--- fresh received_at but (except within a few seconds either side of UTC midnight) the SAME
--- received_date, so the unique index correctly collapses it. The genuinely narrow, honestly-rare
--- residual case is now real: a retry whose received_at lands on the OTHER side of a UTC-midnight
--- boundary from the original attempt is not deduplicated by this index. That is the trade
--- described below, not the accidentally-total one the first draft made.
+-- Attempt 2 -- bucket received_at to its UTC calendar day in a GENERATED ALWAYS ... STORED
+-- received_date column, partition on that instead. This fails outright: PostgreSQL does not allow
+-- a generated column to be a partition key at all ("cannot use generated column in partition
+-- key"), verified on a scratch database. Rejected, not a viable option.
 --
--- The generation expression must be IMMUTABLE (a Postgres requirement for STORED generated
--- columns). `received_at::date` and `(received_at AT TIME ZONE 'UTC')::date` are both rejected --
--- verified on a scratch database -- because the timestamptz-to-date paths Postgres uses for those
--- are marked STABLE (session-timezone dependent), not IMMUTABLE. The two-argument
--- `timezone(text, timestamptz) -> timestamp` overload IS marked IMMUTABLE (its named-zone lookup
--- is resolved at parse time for a literal zone name and does not depend on session state), so
--- `(timezone('UTC', received_at))::date` is the expression used below. Verified by hand on a
--- scratch database: a UTC 23:59:59 timestamp and the same instant a second later both bucket to
--- their correct, different UTC calendar dates.
+-- Attempt 3 (also tried and rejected) -- keep received_date a plain column with a default, and
+-- populate it via a BEFORE INSERT trigger. This fails too: partition routing for a partitioned
+-- table is decided from the tuple's column values BEFORE row-level BEFORE INSERT triggers run, so
+-- a trigger that then writes a received_date implying a DIFFERENT partition is rejected with
+-- "moving row to another partition during a BEFORE FOR EACH ROW trigger is not supported" --
+-- verified on a scratch database. Rejected.
+--
+-- What actually works, and is used below: received_date is a plain (non-generated, no default)
+-- `date NOT NULL` column, and the CALLER supplies its value explicitly on every insert --
+-- backend/internal/herdsignals/adapters/postgres/repository.go computes it as
+-- `p.ReceivedAt.UTC().Truncate(24*time.Hour)` from the SAME server-stamped p.ReceivedAt already
+-- used for received_at itself, so routing and dedup identity can never disagree about which day a
+-- packet belongs to. This migration's own data copy (below) computes the equivalent value in SQL
+-- for the rows that predate the repository.go change. The dedup unique index becomes
+-- (tenant_id, tag_id, device_seen_at, motion_count, received_date) WHERE device_seen_at IS NOT
+-- NULL: a retry of the same batch, seconds to low-minutes later, gets a fresh received_at but
+-- (except within a few seconds either side of UTC midnight) the SAME received_date, so the index
+-- correctly collapses it. The genuinely narrow, honestly-rare residual case: a retry whose
+-- received_at lands on the OTHER side of a UTC-midnight boundary from the original attempt is not
+-- deduplicated by this index.
 --
 -- WHY THIS DOES NOT REOPEN THE DOUBLE-COUNT BUG FOR THE PRODUCT (only for raw forensics rows)
 --
@@ -93,9 +100,10 @@
 --      (so no captured row is homeless) plus a 30-day runway into the future (so ingest never
 --      hits a missing-partition error -- see 000201 for the ongoing job that keeps extending
 --      this runway), plus a DEFAULT partition as a last-resort safety net.
---   3. LOCK the live table ACCESS EXCLUSIVE, copy every existing row, then rename old -> legacy
---      and new -> live, all inside ONE transaction so no writer can observe a half-migrated state
---      and no row written between "copy" and "rename" is lost.
+--   3. LOCK the live table ACCESS EXCLUSIVE, copy every existing row (computing received_date for
+--      each in the copy's SELECT list), then rename old -> legacy and new -> live, all inside ONE
+--      transaction so no writer can observe a half-migrated state and no row written between
+--      "copy" and "rename" is lost.
 --
 -- Lock profile: ONE ACCESS EXCLUSIVE lock on herd_signal_packets, held only across step 3 (the
 -- row copy + two catalog renames) -- NOT across steps 1-2, which run against a table nobody else
@@ -119,19 +127,31 @@
 -- immediately after -- exactly the same discipline the existing migrate-then-restart deploy
 -- practice already uses -- and must NOT be run against the live `goatos` database while the
 -- current API process / UDP bridge connections are expected to keep serving traffic unattended.
--- This migration was validated on a disposable scratch database (see
--- backend/tests/integration/validate-sqlc-query-plans.sh's GOATOS_SQLC_PLAN_ADMIN_DSN pattern),
--- never against the live database, in the same session that authored it.
+-- This migration (and the repository.go change that supplies received_date) was validated on a
+-- disposable scratch database (see backend/tests/integration/validate-sqlc-query-plans.sh's
+-- GOATOS_SQLC_PLAN_ADMIN_DSN pattern), never against the live database, in the same session that
+-- authored it.
 --
 -- The pre-partition table is intentionally NOT dropped by this migration. It is kept as
 -- `herd_signal_packets_pre_partition_000200` as a rollback/audit safety net; drop it manually
 -- once the new partitioned table has been running long enough to trust (recommended: after one
 -- full retention cycle, i.e. >= 14 days, once 000201's maintenance job has proven itself).
 
--- +goose Up
+-- +goose NO TRANSACTION
+--
+-- This migration does NOT run inside goose's default whole-file transaction. It manages its own
+-- transaction explicitly (BEGIN/COMMIT around only the LOCK+copy+rename step below) instead,
+-- because the risky part needs an explicit transaction it fully controls (SET LOCAL and LOCK
+-- TABLE both require an active transaction block), while the table/index/partition creation
+-- above it is safe to run as ordinary autocommitted statements -- each builds an object nothing
+-- references yet, so a failure there just leaves an orphan to clean up, not a half-migrated live
+-- table. This also matches how this repo already treats CREATE INDEX CONCURRENTLY migrations
+-- (NO TRANSACTION + the statement's own safety), and is required for compatibility with
+-- backend/tests/integration/validate-sqlc-query-plans.sh's apply_goose_up, which pipes a
+-- migration's Up section through plain autocommit psql rather than replicating goose's implicit
+-- transaction wrapping.
 
-SET LOCAL lock_timeout = '5s';
-SET LOCAL statement_timeout = '120s';
+-- +goose Up
 
 CREATE TABLE public.herd_signal_packets_new (
   packet_id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -142,10 +162,11 @@ CREATE TABLE public.herd_signal_packets_new (
   tag_mac text,
   received_at timestamptz NOT NULL,
   -- Partition key. UTC calendar day of received_at (server-stamped, never the gateway clock).
-  -- Must be a STORED generated column, not the raw received_at column, so the dedup unique index
-  -- below can enforce "same physical packet" identity across a retry's fresh received_at -- see
-  -- the migration header for why partitioning on the raw timestamp silently breaks retry dedup.
-  received_date date GENERATED ALWAYS AS ((timezone('UTC', received_at))::date) STORED,
+  -- Deliberately NOT a generated column and NOT trigger-populated -- Postgres allows neither as
+  -- a partition key mechanism, verified while building this migration (see header). The caller
+  -- (repository.go IngestPackets, and this migration's own data copy below) supplies it
+  -- explicitly, computed from the exact same received_at value.
+  received_date date NOT NULL,
   device_seen_at timestamptz,
   gateway_seen_at timestamptz,
   rssi_dbm smallint,
@@ -166,7 +187,7 @@ COMMENT ON TABLE public.herd_signal_packets_new IS
   'Raw BLE advertisement packets, partitioned daily on received_date (UTC calendar day of the server-stamped received_at). Forensics-only -- see docs/modules/herd-signals-system-design.md Section 3. Retention managed by herd_signal_packets_prune_expired_partitions() (000201).';
 
 COMMENT ON COLUMN public.herd_signal_packets_new.received_date IS
-  'Generated (STORED, immutable timezone(''UTC'', received_at)::date). Partition key AND the dedup unique index''s partition-key column -- see 000200 header for why this must be a bucketed generated column, not the raw received_at timestamp.';
+  'Application-supplied UTC calendar day of received_at. Partition key AND the dedup unique index''s partition-key column. NOT generated/trigger-populated -- Postgres disallows both for a partition key; the writer must compute and pass this explicitly (see repository.go IngestPackets and 000200 header).';
 
 -- Mirrors the three secondary indexes from 000192, now as partitioned indexes (each partition
 -- gets its own local index automatically as it is created below / attached later).
@@ -180,8 +201,8 @@ CREATE INDEX herd_signal_packets_new_tenant_received_idx
 -- Dedup identity: (tenant_id, tag_id, device_seen_at, motion_count) is unchanged from 000196's
 -- intent -- received_date is added ONLY because the partition key is mandatory in this index, and
 -- bucketing to the UTC calendar day (rather than the raw received_at) means a same-day retry still
--- collides correctly. See the migration header's "WHY THE PARTITION KEY IS A GENERATED
--- received_date COLUMN" section for the full reasoning and the residual midnight-boundary gap.
+-- collides correctly. See the migration header for the full reasoning and the residual
+-- midnight-boundary gap.
 CREATE UNIQUE INDEX herd_signal_packets_new_dedup_uidx
   ON public.herd_signal_packets_new (tenant_id, tag_id, device_seen_at, motion_count, received_date)
   WHERE device_seen_at IS NOT NULL;
@@ -227,21 +248,30 @@ BEGIN
     || 'PARTITION OF public.herd_signal_packets_new DEFAULT';
 END $$;
 
--- Lock, copy, swap -- all in this transaction so no row is lost and no writer sees a
--- half-migrated table. See "CONVERSION STRATEGY AND LOCK PROFILE" above.
+-- Lock, copy, swap -- all in ONE explicit transaction so no row is lost and no writer sees a
+-- half-migrated table. See "CONVERSION STRATEGY AND LOCK PROFILE" above. Explicit BEGIN/COMMIT
+-- (not goose's implicit wrapping, which this file opted out of via NO TRANSACTION above) because
+-- SET LOCAL and LOCK TABLE both require an active transaction block, and this is the one section
+-- of this migration that must be atomic.
+BEGIN;
+
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '120s';
+
 LOCK TABLE public.herd_signal_packets IN ACCESS EXCLUSIVE MODE;
 
 INSERT INTO public.herd_signal_packets_new (
-  packet_id, tenant_id, gateway_id, source, tag_id, tag_mac, received_at, device_seen_at,
-  gateway_seen_at, rssi_dbm, battery_mv, tag_temperature_c, motion_count, sensor_state,
-  temperature_sensor_ok, accelerometer_sensor_ok, pkt_sn, raw_adv, raw_payload, created_at
+  packet_id, tenant_id, gateway_id, source, tag_id, tag_mac, received_at, received_date,
+  device_seen_at, gateway_seen_at, rssi_dbm, battery_mv, tag_temperature_c, motion_count,
+  sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, pkt_sn, raw_adv, raw_payload,
+  created_at
 )
--- received_date is GENERATED ALWAYS and must not be listed as a source or target column here;
--- Postgres computes it from received_at on insert.
 SELECT
-  packet_id, tenant_id, gateway_id, source, tag_id, tag_mac, received_at, device_seen_at,
-  gateway_seen_at, rssi_dbm, battery_mv, tag_temperature_c, motion_count, sensor_state,
-  temperature_sensor_ok, accelerometer_sensor_ok, pkt_sn, raw_adv, raw_payload, created_at
+  packet_id, tenant_id, gateway_id, source, tag_id, tag_mac, received_at,
+  (timezone('UTC', received_at))::date,
+  device_seen_at, gateway_seen_at, rssi_dbm, battery_mv, tag_temperature_c, motion_count,
+  sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, pkt_sn, raw_adv, raw_payload,
+  created_at
 FROM public.herd_signal_packets;
 
 -- Free the canonical names/indexes off the legacy table before the swap.
@@ -262,7 +292,14 @@ ALTER INDEX public.herd_signal_packets_new_dedup_uidx RENAME TO herd_signal_pack
 COMMENT ON TABLE public.herd_signal_packets_pre_partition_000200 IS
   'Pre-partition snapshot kept by migration 000200 as a rollback/audit safety net. Safe to drop manually once the partitioned herd_signal_packets has run through at least one full retention cycle (>= 14 days) and 000201''s maintenance job is confirmed working.';
 
+COMMIT;
+
 -- +goose Down
+--
+-- Also NO TRANSACTION (see Up section rationale); the rename sequence below is wrapped in its
+-- own explicit BEGIN/COMMIT for the same "one atomic swap" reason.
+
+BEGIN;
 
 ALTER TABLE public.herd_signal_packets RENAME TO herd_signal_packets_new;
 
@@ -278,6 +315,8 @@ ALTER INDEX public.herd_signal_packets_legacy_tag_received_idx RENAME TO herd_si
 ALTER INDEX public.herd_signal_packets_legacy_gw_received_idx RENAME TO herd_signal_packets_tenant_gateway_received_idx;
 ALTER INDEX public.herd_signal_packets_legacy_received_idx RENAME TO herd_signal_packets_tenant_received_idx;
 ALTER INDEX public.herd_signal_packets_legacy_dedup_uidx RENAME TO herd_signal_packets_dedup_uidx;
+
+COMMIT;
 
 -- Best-effort only: any row inserted into the partitioned table after Up ran, or any partition
 -- dropped by the retention job (000201), is NOT recovered by this Down. This rollback is intended
