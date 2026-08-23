@@ -1068,7 +1068,7 @@ func TestGetGatewayWindowStatsScopeHierarchyTenantIsolation(t *testing.T) {
 	}
 
 	// Create a second tenant
-	tenant2ID := hsiUUID(t, "tenant", 2).String()
+	tenant2ID := hsiUUID(t, "tenant", 2)
 	exec(`INSERT INTO tenants (tenant_id, tenant_name, status) VALUES ($1, 'tenant2', 'active')`,
 		tenant2ID)
 
