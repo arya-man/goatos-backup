@@ -222,7 +222,7 @@ implemented.
 
 | Tier | Table | Grain | Written by | Read by | Retention decision |
 |---|---|---|---|---|---|
-| Raw | `herd_signal_packets` | one advertisement | ingest tx | **nothing on any request path today** | `[DESIGNED]` 7–14 days hot |
+| Raw | `herd_signal_packets` | one advertisement | ingest tx | **nothing on any request path today** | `[BUILT]` 14 days, partition-dropped (000200/000201) |
 | 60 s windows | `herd_signal_activity_windows` (`bucket_seconds=60`) | tag × minute | ingest rollup | timeline for ranges ≤ 1 h | `[DESIGNED]` **24–48 h** |
 | 300 s windows | same table | tag × 5 min | ingest rollup | timeline ≤ 24 h; p75 baseline (`repository.go:841`) | `[DESIGNED]` 30 days |
 | 3600 s windows | same table | tag × hour | ingest rollup | timeline > 24 h | `[DESIGNED]` 13 months |
@@ -243,7 +243,33 @@ Two facts drive the retention shape:
    buckets older than ~48 h.** Keeping them longer buys nothing and costs
    ~19 GB/day.
 
-### 3.1 Partitioning `[DESIGNED — NOT BUILT]`
+### 3.1 Partitioning `[BUILT]`
+
+`herd_signal_packets` is now RANGE-partitioned daily on `received_at`
+(migration `000200_herd_signal_packets_partition.sql`). The existing captured
+rows were copied into the new partitioned table and the old heap kept as
+`herd_signal_packets_pre_partition_000200` for one retention cycle as a
+rollback/audit safety net (not dropped by the migration). `herd_signal_activity_windows`
+remains unpartitioned — its own volume (Section 1.6, ~24 GB/day at full
+tiers, well below packets) does not currently justify the conversion cost;
+revisit if/when a tier's own row count crosses the same order-of-magnitude
+threshold that justified this migration for packets.
+
+The dedup unique index (`herd_signal_packets_dedup_uidx`, originally 000193,
+redefined by 000196 to key on `device_seen_at`) had to be widened to include
+`received_at` because PostgreSQL requires every unique index on a partitioned
+table to include the partition key. This is a deliberate, documented
+correctness trade — not a silent constraint change — recorded in full in
+000200's migration header: it narrows dedup so a retry whose new
+server-stamped `received_at` lands in a *different* daily partition than the
+original attempt is no longer guaranteed to be deduplicated by this index
+alone. Accepted because nothing on any read path reads `herd_signal_packets`
+(this section's own opening claim), so a rare duplicate raw row is a
+forensics-only artifact, not a product-visible bug. The PRIMARY KEY changed
+from `(packet_id)` to `(packet_id, received_at)` for the same structural
+reason.
+
+Below, superseded by the above (kept for the historical decision record):
 
 **Decision: range-partition on time, and do it at introduction.**
 
@@ -274,12 +300,39 @@ remain enforceable on a partitioned table — `received_at` is already in it, so
 the key is partition-compatible as written. This is a fortunate accident worth
 preserving.
 
-### 3.2 Retention `[DESIGNED — NOT BUILT]`
+### 3.2 Retention `[BUILT — raw packets only]`
 
-No retention job, no partition maintainer, and no TTL exist anywhere in the
-module or in the migrations. Absent one, the packet table grows without bound
-at the rates in Section 1.5. Provisional targets: packets 7–14 days, 60 s
-windows 48 h, 300 s windows 30 days, 3600 s windows 13 months.
+Migration `000201_herd_signal_packets_partition_maintenance.sql` adds two
+functions, hardcoded to target `herd_signal_packets` only (never a
+parameterized table name — a typo or careless future caller cannot point
+this at `herd_signal_activity_windows` or `herd_signal_tag_latest`, which
+retain aggregates on their own longer, separately-designed schedule):
+
+- `herd_signal_packets_ensure_future_partitions(days_ahead int default 14)`
+  — idempotent; creates any missing daily partition through `today + days_ahead`.
+- `herd_signal_packets_prune_expired_partitions(retention_days int default 14)`
+  — `DROP TABLE` on every daily partition entirely older than the cutoff. A
+  catalog-only operation independent of partition row count: no dead tuples,
+  no index bloat, no `VACUUM FULL`.
+
+Default retention is **14 days** (the top of the 7–14 day range this section
+originally proposed) — see the reasoning in 000201's migration header:
+retention cost here is symmetric (storage only, since nothing reads this
+table) while the forensics/re-derivation value of the window is asymmetric
+and irreversible once a partition is dropped, so the default favors the
+longer end.
+
+`backend/cmd/herd-signals-partition-maintenance` (`make
+herd-signals-partition-maintenance`) is the documented command that calls
+both functions against `DATABASE_URL`, intended to run once daily.
+**Scheduling it (cron / Cloud Run job / etc.) in any environment is an infra
+step outside this migration's scope and is NOT yet wired up** — running the
+command against the target database is currently a manual/operator action
+until that scheduling exists.
+
+Activity-window per-tier retention (60 s / 300 s / 3600 s: 48 h / 30 days /
+13 months) remains `[DESIGNED — NOT BUILT]`: `herd_signal_activity_windows`
+is not partitioned (see 3.1) and has no TTL/pruning job of its own yet.
 
 ---
 
