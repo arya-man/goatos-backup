@@ -926,9 +926,9 @@ func TestGetGatewayWindowStatsOneToManyTagCountRemainDistinct(t *testing.T) {
 	gw1 := "gw-window-test-1"
 	gw2 := "gw-window-test-2"
 	exec(`INSERT INTO herd_signal_gateways
-		(gateway_id, tenant_id, shed_id, status, model_name)
-	VALUES ($1, $2, $3, 'active', 'HoneyComm-Base'),
-	       ($4, $2, $3, 'active', 'HoneyComm-Base')`,
+		(gateway_id, tenant_id, shed_id, status)
+	VALUES ($1, $2, $3, 'active'),
+	       ($4, $2, $3, 'active')`,
 		gw1, hsiTenant, hsiShed, gw2)
 
 	// Ingest packets from multiple tags on gateway 1 in the recent window
@@ -1000,8 +1000,8 @@ func TestGetGatewayWindowStatsPageBoundaryCountsRemainStable(t *testing.T) {
 
 	gwID := "gw-window-boundary-test"
 	exec(`INSERT INTO herd_signal_gateways
-		(gateway_id, tenant_id, shed_id, status, model_name)
-	VALUES ($1, $2, $3, 'active', 'HoneyComm-Base')`,
+		(gateway_id, tenant_id, shed_id, status)
+	VALUES ($1, $2, $3, 'active')`,
 		gwID, hsiTenant, hsiShed)
 
 	// Ingest one tag with packets at different times relative to the 15-minute window
@@ -1136,8 +1136,8 @@ func TestGetGatewayWindowStatsStatusMatrix(t *testing.T) {
 
 	gwID := "gw-status-test"
 	exec(`INSERT INTO herd_signal_gateways
-		(gateway_id, tenant_id, shed_id, status, model_name)
-	VALUES ($1, $2, $3, 'active', 'HoneyComm-Base')`,
+		(gateway_id, tenant_id, shed_id, status)
+	VALUES ($1, $2, $3, 'active')`,
 		gwID, hsiTenant, hsiShed)
 
 	// Ingest tags with different motion deltas to create two status buckets

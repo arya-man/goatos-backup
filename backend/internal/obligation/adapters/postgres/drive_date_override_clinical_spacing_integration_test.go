@@ -30,22 +30,21 @@ func TestDriveDateOverrideAutoShiftsLiveVaccineNearOverlappingLiveObligation(t *
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
 
 	if _, err := pool.Exec(ctx, `
-UPDATE protocol_rules
-SET vaccine_code = CASE WHEN rule_id = $2::uuid THEN 'PPR' ELSE 'SHEEP_POX' END,
-    vaccine_type = 'live',
-    pathogen_class = 'viral',
-    course_type = 'single',
-    min_gap_days = 0
-WHERE tenant_id = $1::uuid AND rule_id = ANY($4::uuid[]);
-
 INSERT INTO protocol_rule_dimensions (
-  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code
+  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code,
+  vaccine_type, pathogen_class, min_gap_days, vaccine_json
 ) VALUES
-  ($1, $5, $2, 'vaccination', 'clinical-ppr', 'ppr_adult_w1', 'PPR'),
-  ($1, $6, $3, 'vaccination', 'clinical-sheep-pox', 'sheep_pox_adult_w1', 'SHEEP_POX')
+  ($1, $4, $2, 'vaccination', 'clinical-ppr', 'ppr_adult_w1', 'PPR',
+   'live', 'viral', 0, '{"course_type":"single"}'::jsonb),
+  ($1, $5, $3, 'vaccination', 'clinical-sheep-pox', 'sheep_pox_adult_w1', 'SHEEP_POX',
+   'live', 'viral', 0, '{"course_type":"single"}'::jsonb)
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SET
-  vaccine_code = EXCLUDED.vaccine_code`,
-		tenantID, pprVersion.ruleID, poxVersion.ruleID, []string{pprVersion.ruleID, poxVersion.ruleID}, pprVersion.versionID, poxVersion.versionID); err != nil {
+  vaccine_code = EXCLUDED.vaccine_code,
+  vaccine_type = EXCLUDED.vaccine_type,
+  pathogen_class = EXCLUDED.pathogen_class,
+  min_gap_days = EXCLUDED.min_gap_days,
+  vaccine_json = EXCLUDED.vaccine_json`,
+		tenantID, pprVersion.ruleID, poxVersion.ruleID, pprVersion.versionID, poxVersion.versionID); err != nil {
 		t.Fatalf("seed clinical rule metadata: %v", err)
 	}
 
@@ -120,22 +119,21 @@ func TestDriveDateOverrideOverflowUsesOnlyClinicallySafeDates(t *testing.T) {
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatA, goatB)
 
 	if _, err := pool.Exec(ctx, `
-UPDATE protocol_rules
-SET vaccine_code = CASE WHEN rule_id = $2::uuid THEN 'PPR' ELSE 'BLUE_TONGUE' END,
-    vaccine_type = CASE WHEN rule_id = $2::uuid THEN 'live' ELSE 'killed' END,
-    pathogen_class = 'viral',
-    course_type = CASE WHEN rule_id = $2::uuid THEN 'single' ELSE 'booster' END,
-    min_gap_days = 0
-WHERE tenant_id = $1::uuid AND rule_id = ANY($4::uuid[]);
-
 INSERT INTO protocol_rule_dimensions (
-  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code
+  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code,
+  vaccine_type, pathogen_class, min_gap_days, vaccine_json
 ) VALUES
-  ($1, $5, $2, 'vaccination', 'clinical-overflow-ppr', 'ppr_adult_w1', 'PPR'),
-  ($1, $6, $3, 'vaccination', 'clinical-overflow-bt', 'blue_tongue_adult_w1', 'BLUE_TONGUE')
+  ($1, $4, $2, 'vaccination', 'clinical-overflow-ppr', 'ppr_adult_w1', 'PPR',
+   'live', 'viral', 0, '{"course_type":"single"}'::jsonb),
+  ($1, $5, $3, 'vaccination', 'clinical-overflow-bt', 'blue_tongue_adult_w1', 'BLUE_TONGUE',
+   'killed', 'viral', 0, '{"course_type":"booster"}'::jsonb)
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SET
-  vaccine_code = EXCLUDED.vaccine_code`,
-		tenantID, pprVersion.ruleID, blueTongueVersion.ruleID, []string{pprVersion.ruleID, blueTongueVersion.ruleID}, pprVersion.versionID, blueTongueVersion.versionID); err != nil {
+  vaccine_code = EXCLUDED.vaccine_code,
+  vaccine_type = EXCLUDED.vaccine_type,
+  pathogen_class = EXCLUDED.pathogen_class,
+  min_gap_days = EXCLUDED.min_gap_days,
+  vaccine_json = EXCLUDED.vaccine_json`,
+		tenantID, pprVersion.ruleID, blueTongueVersion.ruleID, pprVersion.versionID, blueTongueVersion.versionID); err != nil {
 		t.Fatalf("seed clinical rule metadata: %v", err)
 	}
 
@@ -247,19 +245,18 @@ func TestDriveDateOverrideEditDoesNotSelfConflictWithPriorOverrideRows(t *testin
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
 
 	if _, err := pool.Exec(ctx, `
-UPDATE protocol_rules
-SET vaccine_code = 'PPR',
-    vaccine_type = 'live',
-    pathogen_class = 'viral',
-    course_type = 'single',
-    min_gap_days = 0
-WHERE tenant_id = $1::uuid AND rule_id = $2::uuid;
-
 INSERT INTO protocol_rule_dimensions (
-  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code
-) VALUES ($1, $3, $2, 'vaccination', 'clinical-edit-ppr', 'ppr_adult_w1', 'PPR')
+  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code,
+  vaccine_type, pathogen_class, min_gap_days, vaccine_json
+) VALUES
+  ($1, $3, $2, 'vaccination', 'clinical-edit-ppr', 'ppr_adult_w1', 'PPR',
+   'live', 'viral', 0, '{"course_type":"single"}'::jsonb)
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SET
-  vaccine_code = EXCLUDED.vaccine_code`,
+  vaccine_code = EXCLUDED.vaccine_code,
+  vaccine_type = EXCLUDED.vaccine_type,
+  pathogen_class = EXCLUDED.pathogen_class,
+  min_gap_days = EXCLUDED.min_gap_days,
+  vaccine_json = EXCLUDED.vaccine_json`,
 		tenantID, pprVersion.ruleID, pprVersion.versionID); err != nil {
 		t.Fatalf("seed PPR metadata: %v", err)
 	}
@@ -335,22 +332,21 @@ func TestDriveDateOverrideDoesNotExcludeSeparateFutureSameVaccineBooster(t *test
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
 
 	if _, err := pool.Exec(ctx, `
-UPDATE protocol_rules
-SET vaccine_code = 'PPR',
-    vaccine_type = 'live',
-    pathogen_class = 'viral',
-    course_type = 'single',
-    min_gap_days = 28
-WHERE tenant_id = $1::uuid AND rule_id = ANY($4::uuid[]);
-
 INSERT INTO protocol_rule_dimensions (
-  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code
+  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code,
+  vaccine_type, pathogen_class, min_gap_days, vaccine_json
 ) VALUES
-  ($1, $5, $2, 'vaccination', 'clinical-future-ppr-primary', 'ppr_adult_w1', 'PPR'),
-  ($1, $6, $3, 'vaccination', 'clinical-future-ppr-booster', 'ppr_adult_w2', 'PPR')
+  ($1, $4, $2, 'vaccination', 'clinical-future-ppr-primary', 'ppr_adult_w1', 'PPR',
+   'live', 'viral', 28, '{"course_type":"single"}'::jsonb),
+  ($1, $5, $3, 'vaccination', 'clinical-future-ppr-booster', 'ppr_adult_w2', 'PPR',
+   'live', 'viral', 28, '{"course_type":"single"}'::jsonb)
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SET
-  vaccine_code = EXCLUDED.vaccine_code`,
-		tenantID, primaryVersion.ruleID, boosterVersion.ruleID, []string{primaryVersion.ruleID, boosterVersion.ruleID}, primaryVersion.versionID, boosterVersion.versionID); err != nil {
+  vaccine_code = EXCLUDED.vaccine_code,
+  vaccine_type = EXCLUDED.vaccine_type,
+  pathogen_class = EXCLUDED.pathogen_class,
+  min_gap_days = EXCLUDED.min_gap_days,
+  vaccine_json = EXCLUDED.vaccine_json`,
+		tenantID, primaryVersion.ruleID, boosterVersion.ruleID, primaryVersion.versionID, boosterVersion.versionID); err != nil {
 		t.Fatalf("seed PPR metadata: %v", err)
 	}
 
@@ -415,22 +411,21 @@ func TestDriveDateOverrideEditDoesNotExcludeSeparateFutureSameVaccineBooster(t *
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
 
 	if _, err := pool.Exec(ctx, `
-UPDATE protocol_rules
-SET vaccine_code = 'PPR',
-    vaccine_type = 'live',
-    pathogen_class = 'viral',
-    course_type = 'single',
-    min_gap_days = 28
-WHERE tenant_id = $1::uuid AND rule_id = ANY($4::uuid[]);
-
 INSERT INTO protocol_rule_dimensions (
-  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code
+  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code,
+  vaccine_type, pathogen_class, min_gap_days, vaccine_json
 ) VALUES
-  ($1, $5, $2, 'vaccination', 'clinical-editfuture-ppr-primary', 'ppr_adult_w1', 'PPR'),
-  ($1, $6, $3, 'vaccination', 'clinical-editfuture-ppr-booster', 'ppr_adult_w2', 'PPR')
+  ($1, $4, $2, 'vaccination', 'clinical-editfuture-ppr-primary', 'ppr_adult_w1', 'PPR',
+   'live', 'viral', 28, '{"course_type":"single"}'::jsonb),
+  ($1, $5, $3, 'vaccination', 'clinical-editfuture-ppr-booster', 'ppr_adult_w2', 'PPR',
+   'live', 'viral', 28, '{"course_type":"single"}'::jsonb)
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SET
-  vaccine_code = EXCLUDED.vaccine_code`,
-		tenantID, primaryVersion.ruleID, boosterVersion.ruleID, []string{primaryVersion.ruleID, boosterVersion.ruleID}, primaryVersion.versionID, boosterVersion.versionID); err != nil {
+  vaccine_code = EXCLUDED.vaccine_code,
+  vaccine_type = EXCLUDED.vaccine_type,
+  pathogen_class = EXCLUDED.pathogen_class,
+  min_gap_days = EXCLUDED.min_gap_days,
+  vaccine_json = EXCLUDED.vaccine_json`,
+		tenantID, primaryVersion.ruleID, boosterVersion.ruleID, primaryVersion.versionID, boosterVersion.versionID); err != nil {
 		t.Fatalf("seed PPR metadata: %v", err)
 	}
 
