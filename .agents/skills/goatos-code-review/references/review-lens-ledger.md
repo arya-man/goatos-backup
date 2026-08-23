@@ -155,6 +155,28 @@ safe to work, not a new finding).
 - DO-NOT: re-flag R50-008/010 as open from the stale handoff doc; verify against code first. Do not
   add a screen-facing blob cache that skips `JsonBlobCacheDao` governance.
 
+### CD-ADDITIVE-PUBLISH — a publish only touches the rules it changed
+- STATUS: **LOCKED** (maintainer decision 2026-08-24)
+- INVARIANT: a plan version holds every vaccine, so publishing is routine. Adding a 6th vaccine
+  to a plan of 5 leaves those 5 **operationally untouched** — same `obligation_id`, same
+  `due_at`, same status, same task/batch/proof attachment — with only `protocol_version_id`
+  moving. Editing 1 of the 5 changes that 1 and nothing else. Blast radius equals the edit.
+- MECHANISM: a rule is recognised across versions by `protocol_rules.identity_key`
+  (`vaccine|dose|sequence`) + `content_fingerprint` (sha256 over every field that decides what
+  is owed and when). Generation **carries over before it supersedes**: matching rules are
+  rebound in place (UPDATE, id preserved), and only what is left is cancelled.
+- PROOF: `docs/preventive-care-vaccination/additive-publish.md` (6 numbered guardrails);
+  unit tests in `internal/protocol/domain/rule_lineage_test.go`; ordering test
+  `TestGenerationCarriesOverBeforeItSupersedes`.
+- DO-NOT: re-introduce a version-wide `protocol_version_replaced` sweep for unchanged rules;
+  add `due_at` or `status` to the carry-over UPDATE; reorder carry-over after generation (it
+  would collide with `obligation_instances_dup_guard`); treat `sort_order` as rule content.
+- WATCH-FOR (the failure mode this lens exists to catch): cancel-and-re-mint dressed up as
+  something else — regenerating "just to be safe", recomputing due dates for rules whose
+  content did not change, rebuilding tasks/assignments because the version moved, or detaching
+  proof/completion state from a carried-over obligation. Cause-anchored identity prevents
+  DUPLICATES; it does not by itself prevent CHURN, and the two are routinely confused.
+
 ### CD-PHONE-SCALE-UI — banned Android phone-scale UI anti-patterns (2026-08-04)
 - STATUS: **BANNED**
 - INVARIANT: real park cardinality (~100 sheds x ~70-90 animals/shed, ~7-8k rows/park) never
@@ -201,6 +223,7 @@ observability → UI-contract → maintainability). Each lens → its deep chapt
 | **scale-aggregate** | `references/aggregates-and-projections.md` | aggregate-projection-review, atomic-readmodel-sync, admin-web-request-reads · *manual:* scale-guard | CD-PEND2-R50-022 (grain/fan-out); counts PR #12 |
 | **vaccination-rule** | `references/business-rules.md` | clinical-defer-states, vaccination-schedule-canonical, goat-shed-scope | CD-STAGE-REVIEW, CD-NO-CROSS-PARK-MOVE |
 | **backend-hexagonal / idempotency / atomic** | `references/backend.md` | idempotency-writes, atomic-readmodel-sync, config-validate-or-reject, domain-event-architecture · *manual:* check-boundaries.sh, check-contract-drift.sh | CD-PEND3, CD-IDEMPOTENCY-UNIQUE-INDEX |
+| **additive-publish** | `docs/preventive-care-vaccination/additive-publish.md` | additive-publish-guard | CD-ADDITIVE-PUBLISH |
 | **ingestion-validation** | ADR `ingestion-validation-not-runtime-review.md` | no-mismatch-review-queue | CD-STAGE-REVIEW |
 | **security-rbac-scope** | inline (SKILL.md priority #3) | *(no standing scope guard yet — gap)* | CD-R50-019-SCOPE |
 | **frontend-admin-web** | `references/frontend.md` | admin-web-request-reads, admin-web-prefetch, nav-composition, mock-clicks | — |

@@ -44,11 +44,13 @@ const createProtocolRule = `-- name: CreateProtocolRule :one
 INSERT INTO protocol_rules (
   tenant_id, protocol_version_id, dose_code, "sequence", trigger_type, offset_days,
   due_window_days, min_gap_days, "repeat", repeat_until_after_age, catch_up,
-  eligibility_json, sop_version_id, proof_policy, withdrawal_days, sort_order
+  eligibility_json, sop_version_id, proof_policy, withdrawal_days, sort_order,
+  identity_key, content_fingerprint
 ) SELECT
   $1, $2, $3, $4, $5, $6,
   $7, $8, $9, $10, $11,
-  $12, $13, $14, $15, $16
+  $12, $13, $14, $15, $16,
+  $17, $18
 FROM protocol_versions pv
 WHERE pv.tenant_id = $1
   AND pv.protocol_version_id = $2
@@ -73,6 +75,8 @@ type CreateProtocolRuleParams struct {
 	ProofPolicy         []byte
 	WithdrawalDays      pgtype.Int4
 	SortOrder           int32
+	IdentityKey         pgtype.Text
+	ContentFingerprint  pgtype.Text
 }
 
 func (q *Queries) CreateProtocolRule(ctx context.Context, arg CreateProtocolRuleParams) (string, error) {
@@ -93,6 +97,8 @@ func (q *Queries) CreateProtocolRule(ctx context.Context, arg CreateProtocolRule
 		arg.ProofPolicy,
 		arg.WithdrawalDays,
 		arg.SortOrder,
+		arg.IdentityKey,
+		arg.ContentFingerprint,
 	)
 	var rule_id string
 	err := row.Scan(&rule_id)
