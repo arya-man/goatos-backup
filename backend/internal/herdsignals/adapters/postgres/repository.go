@@ -1149,19 +1149,21 @@ func (r *Repository) GetGatewayWindowStats(ctx context.Context, tenantID string)
 	result := make(map[string]ports.GatewayWindowStats)
 
 	// The 15-minute window: from now minus 15 minutes to now.
-	// herd_signal_activity_windows is bucketed; we query the most recent buckets that fall within the window.
+	// herd_signal_activity_windows is pre-bucketed at 60s, 300s, and 3600s tiers.
+	// Query the 300s tier to cover 15 minutes efficiently (5-minute buckets).
 	rows, err := r.db.Query(ctx, `
 		SELECT
-			(SELECT gateway_id FROM public.herd_signal_tag_latest WHERE tenant_id = $1 AND tag_id = hw.tag_id LIMIT 1) AS gateway_id,
+			tl.gateway_id,
 			count(DISTINCT hw.tag_id),
 			count(DISTINCT CASE WHEN hw.motion_delta > 0 THEN hw.tag_id END),
 			sum(hw.packet_count)
 		FROM public.herd_signal_activity_windows hw
+		JOIN public.herd_signal_tag_latest tl ON tl.tenant_id = hw.tenant_id AND tl.tag_id = hw.tag_id
 		WHERE hw.tenant_id = $1
 		  AND hw.bucket_start >= now() - interval '15 minutes'
-		  AND hw.bucket_seconds = 60
-		GROUP BY gateway_id
-		HAVING gateway_id IS NOT NULL
+		  AND hw.bucket_seconds = 300
+		  AND tl.gateway_id IS NOT NULL
+		GROUP BY tl.gateway_id
 	`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("get gateway window stats: %w", err)
