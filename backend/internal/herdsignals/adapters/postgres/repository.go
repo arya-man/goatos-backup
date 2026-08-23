@@ -152,21 +152,35 @@ func (r *Repository) IngestPackets(ctx context.Context, tenantID string, gw doma
 
 	batch := &pgx.Batch{}
 	for _, p := range packets {
+		// received_date buckets received_at (server-stamped, see 000198) to its UTC calendar day.
+		// It is herd_signal_packets' partition key (000200) and, deliberately, NOT a generated
+		// column: PostgreSQL disallows a generated column as a partition key, and a BEFORE INSERT
+		// trigger cannot populate it either -- partition routing happens before row triggers fire,
+		// so a trigger-written value that disagrees with the routed partition is rejected
+		// ("moving row to another partition during a BEFORE FOR EACH ROW trigger is not
+		// supported", verified on a scratch database while building 000200). The application must
+		// supply it explicitly, computed from the SAME p.ReceivedAt used for the dedup key below,
+		// so routing and dedup identity never disagree about which day a packet belongs to.
+		receivedDate := p.ReceivedAt.UTC().Truncate(24 * time.Hour)
 		batch.Queue(`
 			INSERT INTO public.herd_signal_packets (
-				tenant_id, gateway_id, source, tag_id, tag_mac, received_at, device_seen_at,
-				gateway_seen_at, rssi_dbm, battery_mv, tag_temperature_c,
+				tenant_id, gateway_id, source, tag_id, tag_mac, received_at, received_date,
+				device_seen_at, gateway_seen_at, rssi_dbm, battery_mv, tag_temperature_c,
 				motion_count, sensor_state, temperature_sensor_ok,
 				accelerometer_sensor_ok, pkt_sn, raw_adv, raw_payload
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-			-- Dedup identity is device_seen_at (000196), NOT received_at: received_at is now
-			-- server-stamped fresh per ingest call (security fix), so a retried batch would get a
-			-- NEW received_at and this predicate would stop catching retries if it still keyed on
-			-- received_at.
-			ON CONFLICT (tenant_id, tag_id, device_seen_at, motion_count) WHERE device_seen_at IS NOT NULL DO NOTHING
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+			-- Dedup identity is (tenant_id, tag_id, device_seen_at, motion_count) (000196);
+			-- received_date is in the index ONLY because PostgreSQL requires the partition key
+			-- column in every unique index on a partitioned table (000200). received_at itself is
+			-- server-stamped fresh per ingest call (security fix, 000198), so it cannot be part of
+			-- the dedup key -- a retried batch would get a NEW received_at and never collide.
+			-- received_date, bucketed to the UTC calendar day, still collides correctly for the
+			-- ordinary retry case (seconds to low minutes later, same day); only a retry that
+			-- straddles UTC midnight escapes this index (see 000200's migration header).
+			ON CONFLICT (tenant_id, tag_id, device_seen_at, motion_count, received_date) WHERE device_seen_at IS NOT NULL DO NOTHING
 		`,
-			tenantID, p.GatewayID, p.Source, p.TagID, p.TagMAC, p.ReceivedAt, p.DeviceSeenAt,
-			p.GatewaySeenAt, p.RSSIdbm, p.BatteryMV, p.TagTemperatureC,
+			tenantID, p.GatewayID, p.Source, p.TagID, p.TagMAC, p.ReceivedAt, receivedDate,
+			p.DeviceSeenAt, p.GatewaySeenAt, p.RSSIdbm, p.BatteryMV, p.TagTemperatureC,
 			p.MotionCount, p.SensorState, p.TemperatureSensorOK,
 			p.AccelerometerSensorOK, p.PktSN, p.RawAdv, p.RawPayload,
 		)
