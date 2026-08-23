@@ -310,6 +310,12 @@ func (s *Service) ListGateways(ctx context.Context, actor domain.Actor) (domain.
 		tagStats = map[string]ports.GatewayTagStats{}
 	}
 
+	windowStats, err := s.repo.GetGatewayWindowStats(ctx, actor.TenantID)
+	if err != nil {
+		s.log.Warn("failed to compute gateway window stats", "error", err)
+		windowStats = map[string]ports.GatewayWindowStats{}
+	}
+
 	items := make([]domain.GatewayItem, len(gws))
 	for i, gw := range gws {
 		label := gw.Label
@@ -361,8 +367,12 @@ func (s *Service) ListGateways(ctx context.Context, actor domain.Actor) (domain.
 			item.WeakTags = &stat.WeakTags
 			item.UnmappedTags = &stat.UnmappedTags
 		}
-		// TODO: populate TagsSeenInWindow, DistinctMotionDeltas, PacketsReceivedInWindow
-		// from a 15-minute window query over herd_signal_activity_windows + herd_signal_packets.
+		// Populate 15-minute window aggregates from herd_signal_activity_windows.
+		if wstat, ok := windowStats[gw.GatewayID]; ok {
+			item.TagsSeenInWindow = wstat.TagsSeenInWindow
+			item.DistinctMotionDeltas = wstat.DistinctMotionDeltas
+			item.PacketsReceivedInWindow = wstat.PacketsReceivedInWindow
+		}
 		items[i] = item
 	}
 

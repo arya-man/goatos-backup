@@ -895,7 +895,8 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 			  AND gi.goat_id = g.goat_id
 			  AND gi.identifier_type = 'animal_identifier_1'
 			  AND gi.status = 'active'
-			ORDER BY gi.created_at DESC
+			  AND gi.smart_tag_capable IS NOT TRUE
+				ORDER BY gi.created_at DESC
 			LIMIT 1
 		) ident1 ON true
 		LEFT JOIN LATERAL (
@@ -905,6 +906,7 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 			  AND gi.goat_id = g.goat_id
 			  AND gi.identifier_type = 'animal_identifier_2'
 			  AND gi.status = 'active'
+			  AND gi.smart_tag_capable IS NOT TRUE
 			ORDER BY gi.created_at DESC
 			LIMIT 1
 		) ident2 ON true
@@ -1137,6 +1139,52 @@ func (r *Repository) GetGatewayTagStats(ctx context.Context, tenantID string) (m
 			return nil, err
 		}
 		result[gatewayID] = stats
+	}
+	return result, rows.Err()
+}
+
+// GetGatewayWindowStats computes 15-minute window aggregates per gateway from herd_signal_activity_windows.
+// Returns unique tag count, distinct motion delta count, and total packet count for each gateway.
+func (r *Repository) GetGatewayWindowStats(ctx context.Context, tenantID string) (map[string]ports.GatewayWindowStats, error) {
+	result := make(map[string]ports.GatewayWindowStats)
+
+	// The 15-minute window: from now minus 15 minutes to now.
+	// herd_signal_activity_windows is bucketed; we query the most recent buckets that fall within the window.
+	rows, err := r.db.Query(ctx, `
+		SELECT
+			(SELECT gateway_id FROM public.herd_signal_tag_latest WHERE tenant_id = $1 AND tag_id = hw.tag_id LIMIT 1) AS gateway_id,
+			count(DISTINCT hw.tag_id),
+			count(DISTINCT CASE WHEN hw.motion_delta > 0 THEN hw.tag_id END),
+			sum(hw.packet_count)
+		FROM public.herd_signal_activity_windows hw
+		WHERE hw.tenant_id = $1
+		  AND hw.bucket_start >= now() - interval '15 minutes'
+		  AND hw.bucket_seconds = 60
+		GROUP BY gateway_id
+		HAVING gateway_id IS NOT NULL
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get gateway window stats: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var gatewayID *string
+		var tagsSeen, motionCount, packetCount *int64
+		if err := rows.Scan(&gatewayID, &tagsSeen, &motionCount, &packetCount); err != nil {
+			return nil, err
+		}
+		if gatewayID != nil && *gatewayID != "" {
+			// Convert int64 to int for the response
+			tagsSeenInt := int(*tagsSeen)
+			motionCountInt := int(*motionCount)
+			packetCountInt := int(*packetCount)
+			result[*gatewayID] = ports.GatewayWindowStats{
+				TagsSeenInWindow:        &tagsSeenInt,
+				DistinctMotionDeltas:    &motionCountInt,
+				PacketsReceivedInWindow: &packetCountInt,
+			}
+		}
 	}
 	return result, rows.Err()
 }

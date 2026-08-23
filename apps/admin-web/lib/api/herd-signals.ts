@@ -310,6 +310,11 @@ export type HerdSignalActivityResponse = {
     at: string;
     label: string;
     grain: "animal" | "shed" | "scanned_identifier";
+    motion_delta_before_2h: number | null;
+    motion_delta_after_2h: number | null;
+    motion_change_percent: number | null;
+    before_window_incomplete: boolean;
+    after_window_incomplete: boolean;
   }>;
   unavailable_kinds: Array<{
     kind: "vaccination" | "feed_given" | "weighing" | "treatment" | "hoof_trimming" | "shed_move";

@@ -166,7 +166,7 @@ func goatExists(ctx context.Context, tx pgx.Tx, tenantID, goatID string) error {
 // idempotent and must not silently restart the animal's monitoring period (which would discard
 // real history). A genuinely NEW period is started only by an insert, or by REPLACE, which
 // unbinds first and therefore clears the stamp before re-stamping it.
-func claimValues(ctx context.Context, tx pgx.Tx, tenantID, goatID, identifierType string, rawByNorm map[string]string, values []string, mappedAt time.Time, existing []existingIdentifier) ([]string, error) {
+func claimValues(ctx context.Context, tx pgx.Tx, tenantID, goatID, identifierType, actorID string, rawByNorm map[string]string, values []string, mappedAt time.Time, existing []existingIdentifier) ([]string, error) {
 	byValue := make(map[string]existingIdentifier, len(existing))
 	for _, e := range existing {
 		byValue[e.NormalizedValue] = e
@@ -212,10 +212,10 @@ func claimValues(ctx context.Context, tx pgx.Tx, tenantID, goatID, identifierTyp
 			INSERT INTO public.goat_identifiers (
 				tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
 				scope_key, is_primary_for_goat, status, valid_from, normalizer_version,
-				smart_tag_capable, smart_tag_mapped_at, source_system, source_record_id
-			) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, false, 'active', $7, $8, true, $7, $9, $5)
+				smart_tag_capable, smart_tag_mapped_at, mapped_by, mapped_at, source_system, source_record_id
+			) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, false, 'active', $7, $8, true, $7, $9, $10, $11, $5)
 			RETURNING identifier_id::text
-		`, tenantID, goatID, identifierType, raw, v, domain.SmartTagScopeKey, mappedAt, domain.SmartTagNormalizerVersion, moduleSourceSystem).Scan(&id); err != nil {
+		`, tenantID, goatID, identifierType, raw, v, domain.SmartTagScopeKey, mappedAt, domain.SmartTagNormalizerVersion, actorID, mappedAt, moduleSourceSystem).Scan(&id); err != nil {
 			return nil, fmt.Errorf("claim identifier value %q: %w", v, err)
 		}
 		ids = append(ids, id)
@@ -306,7 +306,7 @@ func syncTagLatestMonitoring(ctx context.Context, tx pgx.Tx, tenantID string, va
 }
 
 // BindTagMapping implements ports.Repository.
-func (r *Repository) BindTagMapping(ctx context.Context, tenantID string, req domain.BindTagMappingRequest) (domain.TagMappingResponse, error) {
+func (r *Repository) BindTagMapping(ctx context.Context, tenantID, actorID string, req domain.BindTagMappingRequest) (domain.TagMappingResponse, error) {
 	var out domain.TagMappingResponse
 	identifierType, err := validateIdentifierType(req.IdentifierType)
 	if err != nil {
@@ -369,7 +369,7 @@ func (r *Repository) BindTagMapping(ctx context.Context, tenantID string, req do
 	}
 
 	mappedAt := time.Now().UTC()
-	ids, err := claimValues(ctx, tx, tenantID, req.GoatID, identifierType, rawByNorm, values, mappedAt, mine)
+	ids, err := claimValues(ctx, tx, tenantID, req.GoatID, identifierType, actorID, rawByNorm, values, mappedAt, mine)
 	if err != nil {
 		return out, err
 	}
@@ -437,7 +437,7 @@ func effectiveMappedAt(ctx context.Context, tx pgx.Tx, tenantID string, ids []st
 // the tenant's lifetime either way. Clearing the flag is what makes the read path stop resolving
 // the tag to this animal; clearing the stamp is what makes NULL mean "device telemetry only"
 // again. The tag's packets keep flowing and its stored history stays intact.
-func (r *Repository) UnmapTagMapping(ctx context.Context, tenantID string, req domain.UnmapTagMappingRequest) (domain.TagMappingResponse, error) {
+func (r *Repository) UnmapTagMapping(ctx context.Context, tenantID, actorID string, req domain.UnmapTagMappingRequest) (domain.TagMappingResponse, error) {
 	var out domain.TagMappingResponse
 	values, normTagID, normTagMAC, err := bindValues(req.TagID, req.TagMAC)
 	if err != nil {
@@ -507,7 +507,7 @@ func (r *Repository) UnmapTagMapping(ctx context.Context, tenantID string, req d
 // ReplaceTagMapping implements ports.Repository: unbind the old tag and bind the new one in ONE
 // transaction, so the animal is never left carrying two live smart tags (ambiguous telemetry) or
 // none (silently unmonitored).
-func (r *Repository) ReplaceTagMapping(ctx context.Context, tenantID string, req domain.ReplaceTagMappingRequest) (domain.TagMappingResponse, error) {
+func (r *Repository) ReplaceTagMapping(ctx context.Context, tenantID, actorID string, req domain.ReplaceTagMappingRequest) (domain.TagMappingResponse, error) {
 	var out domain.TagMappingResponse
 	identifierType, err := validateIdentifierType(req.IdentifierType)
 	if err != nil {
@@ -590,7 +590,7 @@ func (r *Repository) ReplaceTagMapping(ctx context.Context, tenantID string, req
 	}
 
 	mappedAt := time.Now().UTC()
-	ids, err := claimValues(ctx, tx, tenantID, req.GoatID, identifierType, rawByNorm, values, mappedAt, mine)
+	ids, err := claimValues(ctx, tx, tenantID, req.GoatID, identifierType, actorID, rawByNorm, values, mappedAt, mine)
 	if err != nil {
 		return out, err
 	}
