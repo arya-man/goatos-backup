@@ -54,7 +54,7 @@ func (s *Service) BindTagMapping(ctx context.Context, actor domain.Actor, req do
 	if strings.TrimSpace(req.TagID) == "" {
 		return domain.TagMappingResponse{}, fmt.Errorf("tag_id is required: %w", domain.ErrValidation)
 	}
-	resp, err := s.repo.BindTagMapping(ctx, actor.TenantID, req)
+	resp, err := s.repo.BindTagMapping(ctx, actor.TenantID, actor.UserID, req)
 	if err != nil {
 		s.log.Warn("bind_tag_mapping_failed", "goat_id", req.GoatID, "tag_id", req.TagID, "error", err)
 		return domain.TagMappingResponse{}, err
@@ -72,7 +72,7 @@ func (s *Service) UnmapTagMapping(ctx context.Context, actor domain.Actor, req d
 	if strings.TrimSpace(req.TagID) == "" {
 		return domain.TagMappingResponse{}, fmt.Errorf("tag_id is required: %w", domain.ErrValidation)
 	}
-	resp, err := s.repo.UnmapTagMapping(ctx, actor.TenantID, req)
+	resp, err := s.repo.UnmapTagMapping(ctx, actor.TenantID, actor.UserID, req)
 	if err != nil {
 		s.log.Warn("unmap_tag_mapping_failed", "tag_id", req.TagID, "error", err)
 		return domain.TagMappingResponse{}, err
@@ -94,7 +94,7 @@ func (s *Service) ReplaceTagMapping(ctx context.Context, actor domain.Actor, req
 	if strings.TrimSpace(req.NewTagID) == "" {
 		return domain.TagMappingResponse{}, fmt.Errorf("new_tag_id is required: %w", domain.ErrValidation)
 	}
-	resp, err := s.repo.ReplaceTagMapping(ctx, actor.TenantID, req)
+	resp, err := s.repo.ReplaceTagMapping(ctx, actor.TenantID, actor.UserID, req)
 	if err != nil {
 		s.log.Warn("replace_tag_mapping_failed", "goat_id", req.GoatID, "new_tag_id", req.NewTagID, "error", err)
 		return domain.TagMappingResponse{}, err

@@ -100,8 +100,8 @@ type Repository interface {
 
 	// BindTagMapping binds a BLE tag to an animal, in ONE transaction: it claims the tag's
 	// value(s) as active, smart-tag-capable goat_identifiers rows for that animal and stamps
-	// smart_tag_mapped_at, then denormalises that instant onto herd_signal_tag_latest
-	// .animal_monitoring_since for every tag row the value matches.
+	// smart_tag_mapped_at and mapped_by/mapped_at (provenance), then denormalises that instant onto
+	// herd_signal_tag_latest.animal_monitoring_since for every tag row the value matches.
 	//
 	// The rows it writes MUST satisfy the read path's own mapping predicate exactly
 	// (normalized_value matches the tag id or MAC, same tenant, status='active',
@@ -111,19 +111,19 @@ type Repository interface {
 	// Refuses with domain.ErrConflict rather than reconciling silently when the value is already
 	// claimed by a different animal, or when the animal already carries a different live smart
 	// tag (use ReplaceTagMapping for the re-tag case).
-	BindTagMapping(ctx context.Context, tenantID string, req domain.BindTagMappingRequest) (domain.TagMappingResponse, error)
+	BindTagMapping(ctx context.Context, tenantID, actorID string, req domain.BindTagMappingRequest) (domain.TagMappingResponse, error)
 
 	// UnmapTagMapping releases a binding with no replacement (tag lost, animal sold, mapping made
 	// in error). The tag returns to unmapped and its packets keep flowing as device telemetry --
 	// nothing is deleted -- and its monitoring period ends, so no further value is attributed to
 	// the animal. Refuses with domain.ErrMappingConflict when the tag is not mapped at all.
-	UnmapTagMapping(ctx context.Context, tenantID string, req domain.UnmapTagMappingRequest) (domain.TagMappingResponse, error)
+	UnmapTagMapping(ctx context.Context, tenantID, actorID string, req domain.UnmapTagMappingRequest) (domain.TagMappingResponse, error)
 
 	// ReplaceTagMapping unbinds the animal's current smart tag and binds a new one in ONE
 	// transaction. Re-tagging is the real-world case (a tag falls off, a replacement goes on) and
 	// it must never leave the animal with two live smart tags or none -- so both halves commit
 	// together or neither does. The new tag starts a NEW monitoring period; the old tag's ends.
-	ReplaceTagMapping(ctx context.Context, tenantID string, req domain.ReplaceTagMappingRequest) (domain.TagMappingResponse, error)
+	ReplaceTagMapping(ctx context.Context, tenantID, actorID string, req domain.ReplaceTagMappingRequest) (domain.TagMappingResponse, error)
 
 	// RecordGatewayHeartbeat records a sta_gw_hb heartbeat: it advances last_heartbeat_at and
 	// last_seen_at, stores ticks_cnt, and counts a reboot when ticks_cnt goes BACKWARDS (never a
@@ -135,6 +135,11 @@ type Repository interface {
 	// Previously hardcoded 0 with a TODO while the frontend rendered it as a real number
 	// (maintainer correctness review, defect 6 -- "scaffolded, never populated").
 	GetGatewayTagStats(ctx context.Context, tenantID string) (map[string]GatewayTagStats, error)
+
+	// GetGatewayWindowStats computes 15-minute window aggregates for EVERY gateway using
+	// herd_signal_activity_windows (bounded, efficient query vs scanning raw packets).
+	// Aggregates: unique tags seen, tags with motion, total packets. Result keyed by gateway_id.
+	GetGatewayWindowStats(ctx context.Context, tenantID string) (map[string]GatewayWindowStats, error)
 }
 
 // GatewayTagStats is the per-gateway tag rollup for GET /herd-signals/gateways.
@@ -142,6 +147,13 @@ type GatewayTagStats struct {
 	TagsSeenRecently int
 	WeakTags         int
 	UnmappedTags     int
+}
+
+// GatewayWindowStats are 15-minute window aggregates computed from herd_signal_activity_windows.
+type GatewayWindowStats struct {
+	TagsSeenInWindow        *int
+	DistinctMotionDeltas    *int
+	PacketsReceivedInWindow *int
 }
 
 // BatteryHistoryPoint is the first/last battery_mv reading within the trend window for one tag.

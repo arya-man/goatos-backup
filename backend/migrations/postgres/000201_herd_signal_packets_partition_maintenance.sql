@@ -1,5 +1,10 @@
 -- Herd Signals: partition maintenance for the daily-partitioned herd_signal_packets (000200).
 --
+-- Partition key is received_date (a generated, UTC-calendar-day bucket of received_at -- see
+-- 000200's header for why the raw timestamp cannot be the partition key here). Both functions
+-- below operate purely on partition names and their date bounds, so they are unaffected by that
+-- column's exact definition.
+--
 -- Two hardcoded, single-table functions -- deliberately NOT a generic "partition maintainer"
 -- that takes a table name as a parameter. A parameterized version could be pointed at
 -- herd_signal_activity_windows or herd_signal_tag_latest by a typo or a future caller who does

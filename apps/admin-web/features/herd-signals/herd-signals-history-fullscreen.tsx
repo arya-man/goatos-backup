@@ -395,7 +395,30 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                       activity.data.events.map((event, idx) => {
                         const eventTime = new Date(event.at);
                         const isoTime = eventTime.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
-                        // Compute 2h windows (only showing placeholder for now; actual delta computation would need bucket data)
+
+                        // Format before/after deltas and change percent
+                        const formatDelta = (delta: number | null, incomplete: boolean): string => {
+                          if (delta === null) return "—";
+                          if (incomplete) return `±${Math.abs(delta).toLocaleString("en-IN")}*`;
+                          return `+${delta.toLocaleString("en-IN")}`;
+                        };
+
+                        const formatChange = (pct: number | null, incBefore: boolean, incAfter: boolean): string => {
+                          if (pct === null || incBefore || incAfter) return "—";
+                          return `${pct >= 0 ? "+" : ""}${pct.toLocaleString("en-IN")}%`;
+                        };
+
+                        const changePercent = formatChange(event.motion_change_percent, event.before_window_incomplete, event.after_window_incomplete);
+                        const beforeDelta = formatDelta(event.motion_delta_before_2h, event.before_window_incomplete);
+                        const afterDelta = formatDelta(event.motion_delta_after_2h, event.after_window_incomplete);
+
+                        // Determine tone based on change percent for visual feedback
+                        let tone = "t-mut";
+                        if (event.motion_change_percent !== null && !event.before_window_incomplete && !event.after_window_incomplete) {
+                          if (event.motion_change_percent >= 40) tone = "t-ok";
+                          else if (event.motion_change_percent <= -40) tone = "t-warn";
+                        }
+
                         const grainLabel = event.grain === "animal" ? "" : event.grain === "shed" ? " (shed)" : " (scanned)";
                         return (
                           <tr key={`${event.at}${idx}`}>
@@ -404,9 +427,9 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                               <span className="small faint">{event.label}{grainLabel}</span>
                             </td>
                             <td className="mono small">{isoTime}</td>
-                            <td className="num small">—</td>
-                            <td className="num small">—</td>
-                            <td className="num small">—</td>
+                            <td className="num small" title={event.before_window_incomplete ? "Window contains gaps or reconnect delta" : undefined}>{beforeDelta}</td>
+                            <td className="num small" title={event.after_window_incomplete ? "Window contains gaps or reconnect delta" : undefined}>{afterDelta}</td>
+                            <td className={`num small ${tone}`} title={event.before_window_incomplete || event.after_window_incomplete ? "Change computed from incomplete windows" : undefined}>{changePercent}</td>
                             <td className="small">
                               <span className="tag">{event.grain === "animal" ? "Animal" : event.grain === "shed" ? "Shed" : "ID"}</span>
                             </td>
