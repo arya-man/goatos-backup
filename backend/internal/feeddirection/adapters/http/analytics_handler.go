@@ -113,26 +113,13 @@ type packingVarianceRowDTO struct {
 	Workflow                   string `json:"workflow"`
 	FeedItemKey                string `json:"feed_item_key"`
 	FeedItemLabel              string `json:"feed_item_label"`
+	BreedLabel                 string `json:"breed_label"`
+	AgeGroup                   string `json:"age_group"`
 	// PlannedKg is "" when the frozen sheet carried no resolved quantity -- blank and zero are
 	// never conflated.
 	PlannedKg  string `json:"planned_kg"`
 	VerifiedKg string `json:"verified_kg"`
 	VarianceKg string `json:"variance_kg"`
-}
-
-type feedConsumptionRowDTO struct {
-	FeedDay                    string `json:"feed_day"`
-	ParkLabel                  string `json:"park_label"`
-	ShedID                     string `json:"shed_id"`
-	ShedLabel                  string `json:"shed_label"`
-	PartitionLabel             string `json:"partition_label,omitempty"`
-	OperationalLocationDisplay string `json:"operational_location_display"`
-	BreedLabel                 string `json:"breed_label"`
-	AgeGroup                   string `json:"age_group"`
-	TargetKg                   string `json:"target_kg"`
-	ActualKg                   string `json:"actual_kg"`
-	VarianceKg                 string `json:"variance_kg"`
-	HasVariance                bool   `json:"has_variance"`
 }
 
 type feedConsumptionTrendDayDTO struct {
@@ -147,7 +134,6 @@ type executionAnalyticsDTO struct {
 	DateFrom         string                       `json:"date_from"`
 	DateTo           string                       `json:"date_to"`
 	Days             []executionDayDTO            `json:"days"`
-	ConsumptionRows  []feedConsumptionRowDTO      `json:"consumption_rows"`
 	ConsumptionTrend []feedConsumptionTrendDayDTO `json:"consumption_trend"`
 	// PackingVariance is always present (possibly empty) so the renderer needs no null branch.
 	PackingVariance []packingVarianceRowDTO `json:"packing_variance"`
@@ -159,6 +145,11 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	sections, ok := executionSections(w, r, h)
+	if !ok {
+		return
+	}
+	in.Sections = sections
 	result, err := h.service.ExecutionAnalytics(r.Context(), in)
 	if err != nil {
 		h.writeServiceError(w, r, "feed analytics execution", err)
@@ -186,23 +177,6 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 			MedianVerifyLatencyMinutes: d.MedianVerifyLatencyMinutes,
 		})
 	}
-	dto.ConsumptionRows = make([]feedConsumptionRowDTO, 0, len(result.ConsumptionRows))
-	for _, row := range result.ConsumptionRows {
-		dto.ConsumptionRows = append(dto.ConsumptionRows, feedConsumptionRowDTO{
-			FeedDay:                    row.FeedDay,
-			ParkLabel:                  row.ParkLabel,
-			ShedID:                     row.ShedID,
-			ShedLabel:                  row.ShedLabel,
-			PartitionLabel:             row.PartitionLabel,
-			OperationalLocationDisplay: row.OperationalLocationDisplay,
-			BreedLabel:                 row.BreedLabel,
-			AgeGroup:                   row.AgeGroup,
-			TargetKg:                   row.TargetKg,
-			ActualKg:                   row.ActualKg,
-			VarianceKg:                 row.VarianceKg,
-			HasVariance:                row.HasVariance,
-		})
-	}
 	dto.ConsumptionTrend = make([]feedConsumptionTrendDayDTO, 0, len(result.ConsumptionTrend))
 	for _, day := range result.ConsumptionTrend {
 		dto.ConsumptionTrend = append(dto.ConsumptionTrend, feedConsumptionTrendDayDTO{
@@ -227,6 +201,8 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 			Workflow:                   v.Workflow,
 			FeedItemKey:                v.FeedItemKey,
 			FeedItemLabel:              v.FeedItemLabel,
+			BreedLabel:                 v.BreedLabel,
+			AgeGroup:                   v.AgeGroup,
 			PlannedKg:                  v.PlannedKg,
 			VerifiedKg:                 v.VerifiedKg,
 			VarianceKg:                 v.VarianceKg,
@@ -395,6 +371,30 @@ type stockAnalyticsDTO struct {
 	Forecast    []stockForecastItemDTO `json:"forecast"`
 	Expenditure []expenditureDayDTO    `json:"expenditure"`
 	Spend       spendSummaryDTO        `json:"spend"`
+}
+
+// executionSections reads the optional `sections` narrowing. An unknown name is a 400 rather than
+// a silent drop: serving a payload without the array the caller asked for would render as "the
+// farm has no data" on a screen that simply asked wrong.
+func executionSections(w http.ResponseWriter, r *http.Request, h *Handler) ([]domain.ExecutionSection, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get("sections"))
+	if raw == "" {
+		return nil, true
+	}
+	var out []domain.ExecutionSection
+	for _, part := range strings.Split(raw, ",") {
+		name := strings.TrimSpace(part)
+		if name == "" {
+			continue
+		}
+		section, ok := domain.ParseExecutionSection(name)
+		if !ok {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "unknown sections value: "+name, nil)
+			return nil, false
+		}
+		out = append(out, section)
+	}
+	return out, true
 }
 
 // GetStockAnalytics serves GET /feed-analytics/stock.

@@ -26,6 +26,8 @@ type DirectedAnalyticsInput struct {
 	AuthorizedParkIDs []string
 	DateFrom          time.Time
 	DateTo            time.Time
+	// Sections narrows the EXECUTION read to the arms the caller renders; empty means all.
+	Sections []domain.ExecutionSection
 	// WastageDay is the single business day the experiment read's per-pen
 	// wastage table describes; zero lets the adapter default it. Ignored by
 	// the directed/execution/stock reads.
@@ -88,7 +90,7 @@ func (s *Service) ExecutionAnalytics(ctx context.Context, in DirectedAnalyticsIn
 		return domain.ExecutionAnalytics{}, err
 	}
 	return s.analytics.ExecutionAnalytics(ctx, in.TenantID, domain.DirectedAnalyticsQuery{
-		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo,
+		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo, Sections: in.Sections,
 	})
 }
 

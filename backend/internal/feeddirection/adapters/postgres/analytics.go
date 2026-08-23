@@ -273,7 +273,18 @@ planned AS (
     SELECT i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow,
            r.feed_item_key,
            SUM(r.quantity_kg)                       AS planned_kg,
-           MAX(r.session_label)                     AS session_label
+           MAX(r.session_label)                     AS session_label,
+           -- The cohort of the bag, agree-or-go-bare: a pen-session-item whose sheet rows carry
+           -- more than one breed or straddle kid and adult reports 'Mixed' rather than naming one,
+           -- which would be a cohort nobody recorded.
+           CASE WHEN COUNT(DISTINCT COALESCE(NULLIF(r.breed, ''), 'Unspecified')) = 1
+                THEN MAX(COALESCE(NULLIF(r.breed, ''), 'Unspecified')) ELSE $6::text END AS breed_label,
+           CASE WHEN COUNT(DISTINCT CASE
+                     WHEN feed_config_norm(COALESCE(r.ration_group, r.shed_tag, '')) LIKE '%kid%' THEN 'Kid'
+                     ELSE 'Adult' END) = 1
+                THEN MAX(CASE
+                     WHEN feed_config_norm(COALESCE(r.ration_group, r.shed_tag, '')) LIKE '%kid%' THEN 'Kid'
+                     ELSE 'Adult' END) ELSE $6::text END AS age_group
     FROM feed_direction_issues i
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1
@@ -295,6 +306,8 @@ SELECT rd.target_date::text,
        rd.workflow,
        rd.feed_item_key,
        rd.feed_item_label,
+       COALESCE(p.breed_label, ''),
+       COALESCE(p.age_group, ''),
        COALESCE(p.planned_kg::text, ''),
        rd.entered_kg::text,
        (rd.entered_kg - COALESCE(p.planned_kg, 0))::text
@@ -416,42 +429,14 @@ comparison AS (
      AND r.feed_item_key = p.feed_item_key
     GROUP BY p.feed_day, p.park_id, p.shed_id, p.partition_key
 )
-SELECT 'row' AS kind,
-       feed_day::text,
-       park_label,
-       shed_id::text,
-       shed_label,
-       partition_label,
-       breed_label,
-       age_group,
-       target_kg::text,
-       COALESCE(actual_kg::text, '')                                        AS actual_kg,
-       COALESCE((actual_kg - target_kg)::text, '')                          AS variance_kg,
-       (actual_kg IS NOT NULL AND abs(actual_kg - target_kg) > $5)::text     AS has_variance,
-       ''::text
-FROM comparison
-WHERE feed_day = $4::date
-UNION ALL
-SELECT 'trend' AS kind,
-       feed_day::text,
-       '' AS park_label,
-       '' AS shed_id,
-       '' AS shed_label,
-       '' AS partition_label,
-       '' AS breed_label,
-       '' AS age_group,
+SELECT feed_day::text,
        SUM(target_kg)::text,
        COALESCE(SUM(actual_kg)::text, '')                                   AS actual_kg,
-       -- The last three slots are POSITIONAL and shared with the row arm above: the row arm sends
-       -- variance / has_variance / unused, the trend arm sends unused / flagged-shed count /
-       -- compared-shed count. Misaligning them is silent -- a count simply lands in the wrong
-       -- field -- so the counts are pinned by TestFeedConsumptionShedGrain...
-       ''::text                                                             AS variance_kg,
        COUNT(*) FILTER (WHERE actual_kg IS NOT NULL AND abs(actual_kg - target_kg) > $5)::text,
        COUNT(*) FILTER (WHERE actual_kg IS NOT NULL)::text
 FROM comparison
 GROUP BY feed_day
-ORDER BY 1, 2 DESC, 3, 5, 6`
+ORDER BY feed_day`
 
 // ExecutionAnalytics merges the three status streams and the latency series by
 // date. Four set-based reads, no per-day fan-out.
@@ -493,61 +478,65 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		return rows.Err()
 	}
 
-	if err := countInto(fmt.Sprintf(executionStatusSQL, "feed_packing_completions"), func(e *domain.ExecutionDay, status string, n int64) {
-		switch status {
-		case "completed":
-			e.PackingVerified += n
-		case "pending_verification":
-			e.PackingAwaiting += n
-		case "rework":
-			e.PackingRework += n
+	// Each arm runs only when asked for. A page that needs one array from a second, differently
+	// scoped read fetches THAT array, not the whole payload.
+	if q.Wants(domain.ExecutionSectionDays) {
+		if err := countInto(fmt.Sprintf(executionStatusSQL, "feed_packing_completions"), func(e *domain.ExecutionDay, status string, n int64) {
+			switch status {
+			case "completed":
+				e.PackingVerified += n
+			case "pending_verification":
+				e.PackingAwaiting += n
+			case "rework":
+				e.PackingRework += n
+			}
+		}); err != nil {
+			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing statuses: %w", err)
 		}
-	}); err != nil {
-		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing statuses: %w", err)
-	}
-	if err := countInto(fmt.Sprintf(executionStatusSQL, "feed_distribution_completions"), func(e *domain.ExecutionDay, status string, n int64) {
-		switch status {
-		case "completed":
-			e.DistributionVerified += n
-		case "pending_verification":
-			e.DistributionAwaiting += n
-		case "rework":
-			e.DistributionRework += n
+		if err := countInto(fmt.Sprintf(executionStatusSQL, "feed_distribution_completions"), func(e *domain.ExecutionDay, status string, n int64) {
+			switch status {
+			case "completed":
+				e.DistributionVerified += n
+			case "pending_verification":
+				e.DistributionAwaiting += n
+			case "rework":
+				e.DistributionRework += n
+			}
+		}); err != nil {
+			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics distribution statuses: %w", err)
 		}
-	}); err != nil {
-		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics distribution statuses: %w", err)
-	}
-	if err := countInto(executionTransportSQL, func(e *domain.ExecutionDay, status string, n int64) {
-		switch status {
-		case "completed":
-			e.TransportCompleted += n
-		case "due":
-			e.TransportOpen += n
-		case "verification_due":
-			e.TransportAwaitingVerdict += n
-		case "rework":
-			e.TransportRework += n
+		if err := countInto(executionTransportSQL, func(e *domain.ExecutionDay, status string, n int64) {
+			switch status {
+			case "completed":
+				e.TransportCompleted += n
+			case "due":
+				e.TransportOpen += n
+			case "verification_due":
+				e.TransportAwaitingVerdict += n
+			case "rework":
+				e.TransportRework += n
+			}
+		}); err != nil {
+			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics transport statuses: %w", err)
 		}
-	}); err != nil {
-		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics transport statuses: %w", err)
-	}
 
-	latRows, err := r.pool.Query(ctx, executionLatencySQL, tenantID, parkIDs, fromArg, toArg)
-	if err != nil {
-		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics latency: %w", err)
-	}
-	defer latRows.Close()
-	for latRows.Next() {
-		var d string
-		var minutes int64
-		if err := latRows.Scan(&d, &minutes); err != nil {
-			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics latency scan: %w", err)
+		latRows, err := r.pool.Query(ctx, executionLatencySQL, tenantID, parkIDs, fromArg, toArg)
+		if err != nil {
+			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics latency: %w", err)
 		}
-		m := minutes
-		day(d).MedianVerifyLatencyMinutes = &m
-	}
-	if err := latRows.Err(); err != nil {
-		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics latency rows: %w", err)
+		defer latRows.Close()
+		for latRows.Next() {
+			var d string
+			var minutes int64
+			if err := latRows.Scan(&d, &minutes); err != nil {
+				return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics latency scan: %w", err)
+			}
+			m := minutes
+			day(d).MedianVerifyLatencyMinutes = &m
+		}
+		if err := latRows.Err(); err != nil {
+			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics latency rows: %w", err)
+		}
 	}
 
 	out := domain.ExecutionAnalytics{Days: make([]domain.ExecutionDay, 0, len(days))}
@@ -560,94 +549,58 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		out.Days = append(out.Days, *days[k])
 	}
 
-	consRows, err := r.pool.Query(ctx, executionConsumptionSQL, tenantID, parkIDs, fromArg, toArg, domain.PackingVarianceToleranceKg, domain.MixedCohortLabel)
-	if err != nil {
-		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption comparison: %w", err)
-	}
-	defer consRows.Close()
-	out.ConsumptionRows = []domain.FeedConsumptionRow{}
-	out.ConsumptionTrend = []domain.FeedConsumptionTrendDay{}
-	for consRows.Next() {
-		var kind, feedDay, parkLabel, shedID, shedLabel, partitionLabel, breedLabel, ageGroup string
-		var targetKg, actualKg, varianceKg, flagText, comparedText string
-		if err := consRows.Scan(
-			&kind, &feedDay, &parkLabel, &shedID, &shedLabel, &partitionLabel, &breedLabel, &ageGroup,
-			&targetKg, &actualKg, &varianceKg, &flagText, &comparedText,
-		); err != nil {
-			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption comparison scan: %w", err)
+	if q.Wants(domain.ExecutionSectionConsumption) {
+		consRows, err := r.pool.Query(ctx, executionConsumptionSQL, tenantID, parkIDs, fromArg, toArg, domain.PackingVarianceToleranceKg, domain.MixedCohortLabel)
+		if err != nil {
+			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption trend: %w", err)
 		}
-		switch kind {
-		case "row":
-			v := domain.FeedConsumptionRow{
-				FeedDay:        feedDay,
-				ParkLabel:      parkLabel,
-				ShedID:         shedID,
-				ShedLabel:      shedLabel,
-				PartitionLabel: partitionLabel,
-				BreedLabel:     breedLabel,
-				AgeGroup:       ageGroup,
-				TargetKg:       targetKg,
-				ActualKg:       actualKg,
-				VarianceKg:     varianceKg,
-				HasVariance:    flagText == "true",
+		defer consRows.Close()
+		out.ConsumptionTrend = []domain.FeedConsumptionTrendDay{}
+		for consRows.Next() {
+			var day domain.FeedConsumptionTrendDay
+			var varianceText, comparedText string
+			if err := consRows.Scan(&day.FeedDay, &day.TargetKg, &day.ActualKg, &varianceText, &comparedText); err != nil {
+				return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption trend scan: %w", err)
 			}
+			if _, err := fmt.Sscan(varianceText, &day.VarianceRows); err != nil {
+				return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption variance row count: %w", err)
+			}
+			if _, err := fmt.Sscan(comparedText, &day.ComparedRows); err != nil {
+				return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption compared row count: %w", err)
+			}
+			out.ConsumptionTrend = append(out.ConsumptionTrend, day)
+		}
+		if err := consRows.Err(); err != nil {
+			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption trend rows: %w", err)
+		}
+	}
+
+	if q.Wants(domain.ExecutionSectionPackingVariance) {
+		varRows, err := r.pool.Query(ctx, executionPackingVarianceSQL, tenantID, parkIDs, fromArg, toArg, domain.PackingVarianceToleranceKg, domain.MixedCohortLabel)
+		if err != nil {
+			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance: %w", err)
+		}
+		defer varRows.Close()
+		out.PackingVariance = []domain.PackingVarianceRow{}
+		for varRows.Next() {
+			var v domain.PackingVarianceRow
+			if err := varRows.Scan(
+				&v.FeedDay, &v.ParkLabel, &v.ShedID, &v.ShedLabel, &v.PartitionLabel,
+				&v.SessionNo, &v.SessionLabel, &v.Workflow, &v.FeedItemKey, &v.FeedItemLabel,
+				&v.BreedLabel, &v.AgeGroup, &v.PlannedKg, &v.VerifiedKg, &v.VarianceKg,
+			); err != nil {
+				return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance scan: %w", err)
+			}
+			// Canonical composition, never hand-rolled (operational-location rule).
 			v.OperationalLocationDisplay = oploc.OperationalLocation{
 				ShedName:       v.ShedLabel,
 				PartitionLabel: v.PartitionLabel,
 			}.Display()
-			out.ConsumptionRows = append(out.ConsumptionRows, v)
-		case "trend":
-			var varianceRows, comparedRows int64
-			if flagText != "" {
-				if _, err := fmt.Sscan(flagText, &varianceRows); err != nil {
-					return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption variance row count: %w", err)
-				}
-			}
-			if comparedText != "" {
-				if _, err := fmt.Sscan(comparedText, &comparedRows); err != nil {
-					return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption compared row count: %w", err)
-				}
-			}
-			out.ConsumptionTrend = append(out.ConsumptionTrend, domain.FeedConsumptionTrendDay{
-				FeedDay:      feedDay,
-				TargetKg:     targetKg,
-				ActualKg:     actualKg,
-				VarianceRows: varianceRows,
-				ComparedRows: comparedRows,
-			})
+			out.PackingVariance = append(out.PackingVariance, v)
 		}
-	}
-	if err := consRows.Err(); err != nil {
-		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption comparison rows: %w", err)
-	}
-	sort.Slice(out.ConsumptionTrend, func(i, j int) bool {
-		return out.ConsumptionTrend[i].FeedDay < out.ConsumptionTrend[j].FeedDay
-	})
-
-	varRows, err := r.pool.Query(ctx, executionPackingVarianceSQL, tenantID, parkIDs, fromArg, toArg, domain.PackingVarianceToleranceKg)
-	if err != nil {
-		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance: %w", err)
-	}
-	defer varRows.Close()
-	out.PackingVariance = []domain.PackingVarianceRow{}
-	for varRows.Next() {
-		var v domain.PackingVarianceRow
-		if err := varRows.Scan(
-			&v.FeedDay, &v.ParkLabel, &v.ShedID, &v.ShedLabel, &v.PartitionLabel,
-			&v.SessionNo, &v.SessionLabel, &v.Workflow, &v.FeedItemKey, &v.FeedItemLabel,
-			&v.PlannedKg, &v.VerifiedKg, &v.VarianceKg,
-		); err != nil {
-			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance scan: %w", err)
+		if err := varRows.Err(); err != nil {
+			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance rows: %w", err)
 		}
-		// Canonical composition, never hand-rolled (operational-location rule).
-		v.OperationalLocationDisplay = oploc.OperationalLocation{
-			ShedName:       v.ShedLabel,
-			PartitionLabel: v.PartitionLabel,
-		}.Display()
-		out.PackingVariance = append(out.PackingVariance, v)
-	}
-	if err := varRows.Err(); err != nil {
-		return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance rows: %w", err)
 	}
 	return out, nil
 }
