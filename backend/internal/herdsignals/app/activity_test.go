@@ -1,10 +1,14 @@
 package app
 
 import (
+	"context"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
+	"github.com/vgoats/goatos/backend/internal/herdsignals/ports"
 )
 
 func TestComputeMotionChangePercent(t *testing.T) {
@@ -315,5 +319,71 @@ func TestBatchedCorrelationHandlesUnalignedEventTimes(t *testing.T) {
 				t.Fatalf("both halves are complete and equal, so a change of 0%% must be reported for an event at %s", at.Format(time.RFC3339))
 			}
 		})
+	}
+}
+
+// fetchBoundsRecorder answers ListActivityWindows the way the real repository does -- returning only
+// buckets whose bucket_start falls inside [from, to) -- and records the bounds it was asked for.
+//
+// This exists because testing computeEventCorrelationFromBatch alone could never catch a bad FETCH:
+// that helper is handed its buckets, so a test building them from the grid hands it exactly what it
+// wants regardless of what the service would really have requested.
+type fetchBoundsRecorder struct {
+	ports.Repository // nil: only ListActivityWindows is exercised here
+	grid             []domain.ActivityWindow
+	gotFrom, gotTo   time.Time
+}
+
+func (f *fetchBoundsRecorder) ListActivityWindows(_ context.Context, _, _ string, from, to time.Time, _ int) ([]domain.ActivityWindow, error) {
+	f.gotFrom, f.gotTo = from, to
+	var out []domain.ActivityWindow
+	for _, w := range f.grid {
+		// The real query selects on bucket_start, so a bucket starting before `from` is invisible
+		// even when part of it lies inside the requested range.
+		if !w.BucketStart.Before(from) && w.BucketStart.Before(to) {
+			out = append(out, w)
+		}
+	}
+	return out, nil
+}
+
+// An unaligned event's before-half begins at the start of the bucket two hours before its OWN
+// bucket. Fetching from a raw event-2h misses that first bucket entirely, so the helper counts one
+// short and blanks a perfectly healthy correlation. The bug lived in the fetch bounds, one layer
+// below every earlier test.
+func TestBatchedCorrelationFetchesTheWholeAnchoredWindow(t *testing.T) {
+	const bucketSeconds = correlationBucketSeconds
+	bucketDur := time.Duration(bucketSeconds) * time.Second
+	expectedPerHalf := int(time.Duration(correlationWindowHours) * time.Hour / bucketDur)
+
+	at := time.Date(2026, 8, 23, 6, 2, 17, 0, time.UTC) // deliberately mid-bucket
+	var grid []domain.ActivityWindow
+	for t0 := at.Truncate(bucketDur).Add(-4 * time.Hour); t0.Before(at.Add(4 * time.Hour)); t0 = t0.Add(bucketDur) {
+		grid = append(grid, domain.ActivityWindow{
+			BucketStart: t0, BucketSeconds: bucketSeconds, MotionDelta: 1, PacketCount: 4,
+		})
+	}
+
+	repo := &fetchBoundsRecorder{grid: grid}
+	svc := &Service{repo: repo, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	events := []domain.ActivityEvent{{At: at}}
+	svc.computeEventCorrelationsBatched(context.Background(), "tenant", "tag", events)
+
+	// The earliest bucket the maths needs is the one starting two hours before the event's bucket.
+	needFrom := at.Truncate(bucketDur).Add(time.Duration(-correlationWindowHours) * time.Hour)
+	if repo.gotFrom.After(needFrom) {
+		t.Fatalf("fetch started at %s but the anchored before-half needs the bucket at %s; the first bucket can never be returned",
+			repo.gotFrom.Format(time.RFC3339), needFrom.Format(time.RFC3339))
+	}
+
+	ev := events[0]
+	if ev.BeforeWindowIncomplete || ev.AfterWindowIncomplete {
+		t.Fatalf("coverage is dense either side of %s, so neither half may be reported incomplete", at.Format(time.RFC3339))
+	}
+	if ev.MotionDeltaBefore2h == nil || *ev.MotionDeltaBefore2h != int64(expectedPerHalf) {
+		t.Fatalf("before half must total %d whole buckets; got %v", expectedPerHalf, ev.MotionDeltaBefore2h)
+	}
+	if ev.MotionDeltaAfter2h == nil || *ev.MotionDeltaAfter2h != int64(expectedPerHalf) {
+		t.Fatalf("after half must total %d whole buckets; got %v", expectedPerHalf, ev.MotionDeltaAfter2h)
 	}
 }
