@@ -265,3 +265,55 @@ func TestBatchedCorrelationClipsEachEventToItsOwnWindow(t *testing.T) {
 		t.Fatal("an incomplete half must not yield a percentage change")
 	}
 }
+
+// Farm events do not arrive on 5-minute boundaries. A vaccination is recorded at 06:02:17, not
+// 06:00:00 — so if the correlation only produces a whole number of buckets for aligned timestamps,
+// it fails for essentially every real event.
+//
+// Clipping to a raw event.At +/- 2h gave 23 wholly-contained buckets before an unaligned event, not
+// 24: the bucket at the window's far edge hangs over the boundary and the bucket containing the
+// event straddles it. The count check then marked healthy activity incomplete and blanked its
+// before/after/change. Every earlier test used a round timestamp, so all of them passed.
+func TestBatchedCorrelationHandlesUnalignedEventTimes(t *testing.T) {
+	const bucketSeconds = correlationBucketSeconds
+	expectedPerHalf := int(time.Duration(correlationWindowHours) * time.Hour / (time.Duration(bucketSeconds) * time.Second))
+
+	for _, at := range []time.Time{
+		time.Date(2026, 8, 23, 6, 2, 17, 0, time.UTC), // mid-bucket, the ordinary case
+		time.Date(2026, 8, 23, 6, 4, 59, 0, time.UTC), // one second before a boundary
+		time.Date(2026, 8, 23, 6, 0, 0, 0, time.UTC),  // exactly on a boundary
+		time.Date(2026, 8, 23, 6, 0, 1, 0, time.UTC),  // one second after a boundary
+	} {
+		t.Run(at.Format("15:04:05"), func(t *testing.T) {
+			// Dense buckets either side, well beyond the two hours each half needs.
+			var all []domain.ActivityWindow
+			gridStart := at.Truncate(time.Duration(bucketSeconds) * time.Second).Add(-3 * time.Hour)
+			for t0 := gridStart; t0.Before(at.Add(3 * time.Hour)); t0 = t0.Add(time.Duration(bucketSeconds) * time.Second) {
+				all = append(all, domain.ActivityWindow{
+					BucketStart:   t0,
+					BucketSeconds: bucketSeconds,
+					MotionDelta:   1,
+					PacketCount:   4,
+				})
+			}
+
+			ev := domain.ActivityEvent{At: at}
+			(&Service{}).computeEventCorrelationFromBatch(&ev, all, expectedPerHalf)
+
+			if ev.BeforeWindowIncomplete || ev.AfterWindowIncomplete {
+				t.Fatalf("coverage is dense on both sides, so an event at %s must not be reported incomplete", at.Format(time.RFC3339))
+			}
+			if ev.MotionDeltaBefore2h == nil || *ev.MotionDeltaBefore2h != int64(expectedPerHalf) {
+				t.Fatalf("before half must total exactly %d whole buckets for an event at %s; got %v",
+					expectedPerHalf, at.Format(time.RFC3339), ev.MotionDeltaBefore2h)
+			}
+			if ev.MotionDeltaAfter2h == nil || *ev.MotionDeltaAfter2h != int64(expectedPerHalf) {
+				t.Fatalf("after half must total exactly %d whole buckets for an event at %s; got %v",
+					expectedPerHalf, at.Format(time.RFC3339), ev.MotionDeltaAfter2h)
+			}
+			if ev.MotionChangePercent == nil {
+				t.Fatalf("both halves are complete and equal, so a change of 0%% must be reported for an event at %s", at.Format(time.RFC3339))
+			}
+		})
+	}
+}
