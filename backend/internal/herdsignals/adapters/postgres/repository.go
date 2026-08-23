@@ -900,10 +900,28 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 	}
 
 	query := `
-		SELECT g.goat_id, g.display_id, g.shed_id, g.park_id, ident1.animal_identifier_1, ident2.animal_identifier_2
+		SELECT g.goat_id, g.display_id, g.shed_id, g.park_id, ident1.animal_identifier_1, prov.mapped_by, to_char(prov.mapped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSZ') AS mapped_at, ident2.animal_identifier_2, prov.mapped_by, to_char(prov.mapped_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SSZ')
 		FROM public.goats g
+		-- Provenance belongs to the BINDING, not to the animal's ear tag.
+		--
+		-- mapped_by/mapped_at are stamped on the rows THIS MODULE creates to carry a BLE binding
+		-- (source_system = 'herd_signals'). The animal's own ear-tag rows are pre-existing identity
+		-- this module never created, so they carry NULL and always will. Reading provenance off the
+		-- ear tag therefore returned NULL for every row while the binding right beside it held the
+		-- actor and timestamp -- the columns looked unwired when they were merely being read from
+		-- the wrong place.
 		LEFT JOIN LATERAL (
-			SELECT identifier_value AS animal_identifier_1
+			SELECT gi.mapped_by, gi.mapped_at
+			FROM public.goat_identifiers gi
+			WHERE gi.tenant_id = g.tenant_id
+			  AND gi.goat_id = g.goat_id
+			  AND gi.status = 'active'
+			  AND gi.smart_tag_capable IS TRUE
+			ORDER BY gi.mapped_at DESC NULLS LAST, gi.created_at DESC
+			LIMIT 1
+		) prov ON true
+		LEFT JOIN LATERAL (
+			SELECT identifier_value AS animal_identifier_1, mapped_by AS mapped_by_1, mapped_at AS mapped_at_1
 			FROM public.goat_identifiers gi
 			WHERE gi.tenant_id = g.tenant_id
 			  AND gi.goat_id = g.goat_id
@@ -914,7 +932,7 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 			LIMIT 1
 		) ident1 ON true
 		LEFT JOIN LATERAL (
-			SELECT identifier_value AS animal_identifier_2
+			SELECT identifier_value AS animal_identifier_2, mapped_by AS mapped_by_2, mapped_at AS mapped_at_2
 			FROM public.goat_identifiers gi
 			WHERE gi.tenant_id = g.tenant_id
 			  AND gi.goat_id = g.goat_id
@@ -936,13 +954,18 @@ func (r *Repository) GetGoatsByIDs(ctx context.Context, tenantID string, goatIDs
 	for rows.Next() {
 		var goatID, displayID string
 		var animalIdentifier1, animalIdentifier2, shedID, parkID *string
-		if err := rows.Scan(&goatID, &displayID, &shedID, &parkID, &animalIdentifier1, &animalIdentifier2); err != nil {
+		var mappedBy1, mappedAt1, mappedBy2, mappedAt2 *string
+		if err := rows.Scan(&goatID, &displayID, &shedID, &parkID, &animalIdentifier1, &mappedBy1, &mappedAt1, &animalIdentifier2, &mappedBy2, &mappedAt2); err != nil {
 			return nil, err
 		}
 		result[goatID] = ports.GoatData{
 			DisplayID:         displayID,
 			AnimalIdentifier1: animalIdentifier1,
+			MappedBy1:         mappedBy1,
+			MappedAt1:         mappedAt1,
 			AnimalIdentifier2: animalIdentifier2,
+			MappedBy2:         mappedBy2,
+			MappedAt2:         mappedAt2,
 			ShedID:            shedID,
 			ParkID:            parkID,
 		}

@@ -189,10 +189,12 @@ func claimValues(ctx context.Context, tx pgx.Tx, tenantID, goatID, identifierTyp
 				    valid_to = NULL,
 				    smart_tag_capable = true,
 				    smart_tag_mapped_at = COALESCE(smart_tag_mapped_at, $3),
+				    mapped_by = $4,
+				    mapped_at = $3,
 				    updated_at = now()
 				WHERE tenant_id = $1::uuid AND identifier_id = $2::uuid
 				RETURNING identifier_id::text
-			`, tenantID, e.IdentifierID, mappedAt).Scan(&id); err != nil {
+			`, tenantID, e.IdentifierID, mappedAt, actorID).Scan(&id); err != nil {
 				return nil, fmt.Errorf("claim existing identifier %s for this binding: %w", e.IdentifierID, err)
 			}
 			ids = append(ids, id)
