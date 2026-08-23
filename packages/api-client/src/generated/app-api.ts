@@ -5433,7 +5433,7 @@ export interface components {
             /** @description verified minus the resolved planned quantity (0 when unresolved), signed. */
             variance_kg: string;
         };
-        /** @description One latest-day shed/cohort/feed-item target-vs-actual packing comparison row. */
+        /** @description One SHED's target-vs-actual feed for the requested day, summed across every feed item and session it was fed. `actual_kg` and `variance_kg` are EMPTY when no packing reading exists for that shed yet -- never "0", which would claim the shed was fed nothing. `has_variance` is true only when a reading exists AND differs from target beyond tolerance. `breed_label` and `age_group` report "Mixed" when the shed's sheet rows disagree. */
         FeedAnalyticsConsumptionRow: {
             /** Format: date */
             feed_day: string;
@@ -5445,14 +5445,12 @@ export interface components {
             operational_location_display: string;
             breed_label: string;
             age_group: string;
-            feed_item_key: string;
-            feed_item_label: string;
             target_kg: string;
             actual_kg: string;
             variance_kg: string;
             has_variance: boolean;
         };
-        /** @description One day of target-vs-actual feed packing totals. */
+        /** @description One day of target-vs-actual feed totals over the same comparison rows the table shows. `actual_kg` is EMPTY on a day with no packing readings at all, so the chart draws a gap rather than a plunge to zero. */
         FeedAnalyticsConsumptionTrendDay: {
             /** Format: date */
             feed_day: string;
@@ -5555,14 +5553,8 @@ export interface components {
             last_load_total_cost: string;
             /** @description Latest load per-kg cost from the feed purchase ledger. */
             last_load_per_kg_cost: string;
-            /** @description Latest load quantity minus days since first_directed_day through yesterday in IST times avg_daily_kg; negative values show the expected shortage. */
-            expected_stock_kg: string;
             /** @description Displayed current stock from the canonical purchase ledger after consumed-at-import and locked-sheet depletion. */
             ledger_stock_kg: string;
-            /** @description ledger_stock_kg minus expected_stock_kg. */
-            stock_variance_kg: string;
-            /** @enum {string} */
-            stock_check_status: "ok" | "mismatch" | "unavailable";
         };
         FeedAnalyticsExpenditureDay: {
             /** Format: date */
