@@ -4510,3 +4510,55 @@ func TestHeldGoatKeepsItsExistingRepeatCycleDeferredAfterPlanReplacement(t *test
 		t.Fatalf("rows = %d, want the canceled original and the one surviving cycle", len(obl.inserted))
 	}
 }
+
+// Carry-over must run BEFORE supersede, and against the same effective-version list.
+//
+// The order is what makes "add a sixth vaccine, the other five stay put" work. Superseding first
+// would cancel the unchanged work before anything could rebind it; rebinding after generation
+// would collide with obligation_instances_dup_guard, because generation would already hold that
+// key. This test pins the sequence at the seam where a future refactor would most easily lose it.
+func TestGenerationCarriesOverBeforeItSupersedes(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"adult","species":"goat","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any"}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-fmd-adult", DoseCode: "fmd_adult_w1", Sequence: 1,
+			TriggerType: "birth_age", OffsetDays: 63, DueWindowDays: 30, Repeat: "none",
+		}},
+		effectiveVersions: []string{"version-2"},
+		scopeType:         "park",
+		scopeID:           "cpt",
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "carry-goat", LifecycleStatus: "alive", HealthStatus: "healthy",
+			ReproductiveStatus: "open", Species: "goat", Stage: "adult", ShedID: "shed-1", ParkID: "cpt",
+			DOB: &dob,
+		}},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-2",
+		time.Date(2026, time.September, 1, 6, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	if len(obl.carriedOverVersions) == 0 {
+		t.Fatal("carry-over never ran: every publish would cancel and re-mint the whole plan again")
+	}
+	if len(obl.canceledExceptVersions) == 0 {
+		t.Fatal("supersede never ran: work whose rule really did change would survive forever")
+	}
+	if got := obl.carriedOverVersions[0]; len(got) != 1 || got[0] != "version-2" {
+		t.Fatalf("carry-over effective versions = %#v, want only the version being generated", got)
+	}
+	if got := obl.carriedOverGoats[0]; len(got) != 1 || got[0] != "carry-goat" {
+		t.Fatalf("carry-over goats = %#v, want the park's animals", got)
+	}
+	// Both sweeps must agree on what "effective" means, or one would rebind work the other cancels.
+	if got, want := obl.canceledExceptVersions[0], obl.carriedOverVersions[0]; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("supersede kept %#v but carry-over targeted %#v: the two sweeps disagree", got, want)
+	}
+}

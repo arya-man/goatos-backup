@@ -1178,6 +1178,17 @@
       "requiredInCI": true,
       "ciStep": "mock-css-parity-guard",
       "notes": "v4: rewritten to compare RENDERED, BROWSER-COMPUTED styles (Playwright/Chromium getComputedStyle) between the approved mock and the live app at :3318, instead of statically parsing and hand-resolving CSS text. The old static resolver could not see DOM ancestry, so equal-specificity rules from OTHER admin screens sharing a bare class (e.g. Action Center's .task-ac .tag vs this page's .herd-signals-page .tag) looked like competing rules and produced ~76 false findings nobody could triage without opening devtools -- one of which was 'fixed' by adding a bare-classname duplicate rule to the shared global stylesheet, which had to be reverted. A real browser resolves ancestry/specificity/cascade correctly, so this version asks Chromium directly: it loads both pages, walks a curated, deliberately-paired element registry (by class + position/role, never by content -- the mock has invented fixture data and the app has ~20 real tags) across Live Monitor, Animals, Gateways, Alerts, Tag Mapping, Insights, the row-click drawer and the full-screen history, and diffs colour/background/border/border-radius/font/padding/margin/gap/display/grid-template-columns. Needs both dev servers running -- fails loudly with a clear message if either is down, never silently passes. Cannot see hover/focus states, media queries, or anything behind an interaction it does not drive (see the script header's full limits list). A separate, unchanged banned-pattern scan blocks reintroducing the mock's invented battery-life-estimate text, which the style comparison alone would miss since its class is already styled for other fields."
+    },
+    {
+      "id": "additive-publish",
+      "script": "tools/agent-hooks/check-additive-publish.mjs",
+      "makeTarget": "additive-publish-guard",
+      "realCheck": "node tools/agent-hooks/check-additive-publish.mjs",
+      "selfTest": "node tools/agent-hooks/check-additive-publish.mjs --self-test",
+      "owningDoc": "docs/preventive-care-vaccination/additive-publish.md",
+      "requiredInCI": true,
+      "ciStep": "additive-publish-guard",
+      "notes": "Publishing a plan version must only touch the rules that actually changed: adding a 6th vaccine to a plan of 5 leaves those 5 operationally untouched -- same obligation_id, same due_at, same task/batch/proof attachment -- with only protocol_version_id moving. Checks the three ways that guarantee breaks without looking like a bug: the carry-over call vanishing from the supersede path, due_at or status joining the carry-over UPDATE, and a scheduling field dropping out of the rule content fingerprint (which would make an edit read as unchanged and never reach an animal). Lens CD-ADDITIVE-PUBLISH in the review-lens ledger."
     }
   ]
 }
