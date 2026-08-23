@@ -126,7 +126,14 @@ async function main() {
 
     const rangeBtn = page.locator(".fs .rangepick button:has-text('30d')");
     await rangeBtn.click();
-    await page.waitForTimeout(1500);
+    // Web-first assertion rather than a fixed sleep: a timeout is either too short (flaky on a slow
+    // read) or too long (wasted on every run), and it proves nothing about what actually rendered.
+    // Wait for the range to become the active one, which is the state the next assertions depend on.
+    await rangeBtn.and(page.locator(".on, [aria-pressed='true']")).waitFor({ state: "visible", timeout: 10000 })
+      .catch(async () => {
+        // Fall back to the chart itself settling, still an assertion about rendered state.
+        await page.locator(".fs .hchart").first().waitFor({ state: "visible", timeout: 10000 });
+      });
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     await page.screenshot({ path: `./.codex-proof/herd-signals-correlation-${timestamp}.png`, fullPage: true }).catch(() => {});
