@@ -3119,6 +3119,9 @@ func (g *generationGoatFake) RecentVaccineAdministrationsForGoats(_ context.Cont
 }
 
 type generationObligationFake struct {
+	carriedOverGoats       [][]string
+	carriedOverVersions    [][]string
+	carryOverCount         int
 	seen                   map[string]bool
 	keyIndex               map[string]int
 	inserted               []obldomain.NewObligation
@@ -3306,6 +3309,12 @@ func (o *generationObligationFake) OpenObligationForRepeatCycle(_ context.Contex
 
 func (o *generationObligationFake) GoatsWithVaccinationObligationsOutsideVersions(_ context.Context, _ string, goatIDs, _ []string) ([]string, error) {
 	return goatIDs, nil
+}
+
+func (o *generationObligationFake) CarryOverUnchangedVaccinationObligations(_ context.Context, _ string, goatIDs, versionIDs []string) (int, error) {
+	o.carriedOverGoats = append(o.carriedOverGoats, append([]string(nil), goatIDs...))
+	o.carriedOverVersions = append(o.carriedOverVersions, append([]string(nil), versionIDs...))
+	return o.carryOverCount, nil
 }
 
 func (o *generationObligationFake) CancelOpenVaccinationObligationsForGoatExceptVersions(_ context.Context, _, _ string, versionIDs []string, reason string, _ time.Time) (int, error) {

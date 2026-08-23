@@ -1838,6 +1838,89 @@ func (r *Repository) OpenObligationForRepeatCycle(ctx context.Context, tenantID,
 	}, true, nil
 }
 
+// CarryOverUnchangedVaccinationObligations rebinds open vaccination work from a retired protocol
+// version to the effective one, for every rule whose business identity AND content are unchanged.
+//
+// This is the mechanism behind "adding a sixth vaccine must not reschedule the other five"
+// (docs/preventive-care-vaccination/additive-publish.md). It is an UPDATE, never a
+// delete-and-insert: the obligation_id survives, so the task, batch, verification item and the
+// row on an operator's phone all keep pointing at the same thing across a publish.
+//
+// due_at and status are deliberately absent from the SET clause. If a due date ought to move then
+// the rule's content changed, this pairing does not match, and the caller's cancel-and-regenerate
+// path is the correct one.
+//
+// Rules whose lineage columns are NULL -- rows written before the lineage migration -- never pair,
+// so they fall back to that same previous behaviour rather than carrying over unverified content.
+func (r *Repository) CarryOverUnchangedVaccinationObligations(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if len(goatIDs) == 0 || len(effectiveVersionIDs) == 0 {
+		return 0, nil
+	}
+	if _, err := pgconv.UUID(tenantID); err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+
+	// DISTINCT ON keeps the pairing deterministic: a plan that (wrongly) carries two rules with
+	// the same identity and content would otherwise rebind to whichever row the planner reached
+	// first, making the result depend on physical row order.
+	tag, err := r.pool.Exec(ctx, `
+WITH effective_rule AS (
+  SELECT DISTINCT ON (identity_key, content_fingerprint)
+         identity_key, content_fingerprint, protocol_version_id, rule_id
+  FROM protocol_rules
+  WHERE tenant_id = $1::uuid
+    AND protocol_version_id = ANY($3::uuid[])
+    AND identity_key IS NOT NULL
+    AND content_fingerprint IS NOT NULL
+  ORDER BY identity_key, content_fingerprint, rule_id
+)
+UPDATE obligation_instances oi
+SET protocol_version_id = er.protocol_version_id,
+    rule_id = er.rule_id,
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM protocol_rules retired
+JOIN effective_rule er
+  ON er.identity_key = retired.identity_key
+ AND er.content_fingerprint = retired.content_fingerprint
+JOIN protocol_versions pv
+  ON pv.tenant_id = retired.tenant_id
+ AND pv.protocol_version_id = retired.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+WHERE oi.tenant_id = $1::uuid
+  AND oi.target_type = 'goat'
+  AND oi.target_id = ANY($2::uuid[])
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND NOT (oi.protocol_version_id = ANY($3::uuid[]))
+  AND pd.category = 'vaccination'
+  AND retired.tenant_id = oi.tenant_id
+  AND retired.protocol_version_id = oi.protocol_version_id
+  AND retired.rule_id = oi.rule_id
+  AND retired.identity_key IS NOT NULL
+  AND retired.content_fingerprint IS NOT NULL
+  -- obligation_instances_dup_guard spans every status, so a rebind onto a key some other row
+  -- already occupies would raise 23505 and fail the whole generation run. Leave those behind for
+  -- the supersede path instead of letting one collision abort a tenant-wide pass.
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances clash
+    WHERE clash.tenant_id = oi.tenant_id
+      AND clash.protocol_version_id = er.protocol_version_id
+      AND clash.rule_id = er.rule_id
+      AND clash.target_type = oi.target_type
+      AND clash.target_id = oi.target_id
+      AND clash.due_at IS NOT DISTINCT FROM oi.due_at
+      AND clash.obligation_id <> oi.obligation_id
+  )`, tenantID, goatIDs, effectiveVersionIDs)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: carry over unchanged vaccination obligations: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 func (r *Repository) GoatsWithVaccinationObligationsOutsideVersions(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) ([]string, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
