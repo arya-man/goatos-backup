@@ -242,6 +242,108 @@ Verify: enabled if gateway accepts the CA/IP certificate
 Upload the CA certificate from Secret Manager secret
 `herd-signals-mqtt-ca-crt` into the gateway CA file field.
 
+### Physical Gateway Recovery
+
+The HoneyComm gateway local UI is normally reachable on the farm/site LAN at:
+
+```text
+http://192.168.0.9/network_configurations.shtml
+```
+
+If the gateway is reset or falls back to its own access point, connect to the
+gateway Wi-Fi SSID `GW_*******` with password `66668888`, then open:
+
+```text
+http://10.10.10.254
+```
+
+The gateway login password is `admin`.
+
+On 2026-08-23 the gateway was still configured for the old local UDP target:
+
+```text
+protocol: UDP
+host: 192.168.0.5
+port: 7628
+```
+
+That mode sends packets only to the local listener and will leave staging Herd
+Signals at zero even when the gateway is powered and scanning tags.
+
+The staging MQTT settings applied on 2026-08-23 were:
+
+```text
+protocol: MQTT
+host: 8.234.104.45
+port: 8883
+publish topic: GwData
+subscribe topic: SrvData
+client id: gw-514060
+username: gw-514060
+password: from Secret Manager secret herd-signals-mqtt-gateway-514060-password
+QoS: 1
+SSL/TLS: enabled
+CA needed: off temporarily
+Verify: off temporarily
+data mode: Json
+```
+
+Do not paste the MQTT password into this runbook. Read it from Secret Manager in
+project `goatos-stg`.
+
+The gateway UI stores server settings separately from activation. The apply
+sequence that worked was:
+
+```text
+1. Set Server Settings
+2. Activate Server Settings
+3. Save ALL
+4. Reboot
+```
+
+After reboot, verify broker-side connectivity from the MQTT VM:
+
+```bash
+gcloud compute ssh goatos-stg-herd-signals-mqtt-1 \
+  --project=goatos-stg \
+  --zone=asia-south1-a \
+  --command='sudo journalctl -u mosquitto --since "10 minutes ago" --no-pager | tail -120'
+```
+
+Expected connection evidence looks like:
+
+```text
+New client connected ... as gw-514060 (... u'gw-514060')
+```
+
+Do not treat the dashboard's zero packet count as a gateway-configuration
+failure until the Cloud Run MQTT bridge is deployed and subscribed to `GwData`.
+The broker can accept the gateway before the bridge exists.
+
+CA upload trap: the HoneyComm UI did not accept a zip containing only the raw
+CA certificate. It rejected that upload with:
+
+```text
+[CA]ca_infos.json not found!
+```
+
+The temporary staging validation mode is therefore encrypted MQTT/TLS with
+broker certificate verification disabled:
+
+```text
+SSL/TLS: enabled
+CA needed: off
+Verify: off
+```
+
+Follow-up: build the vendor-format CA zip expected by the HoneyComm UI,
+including `ca_infos.json`, then switch the gateway back to:
+
+```text
+CA needed: on
+Verify: on
+```
+
 ## Local Plus GCP At Same Time
 
 The gateway UI exposes one Application Server target. Do not assume the gateway
