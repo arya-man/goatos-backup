@@ -239,7 +239,14 @@ export async function FeedAnalyticsPage({
   const favDay = one(searchParams, "fav_day") ?? "";
   const favPark = one(searchParams, "fav_park") ?? "";
   const favItem = one(searchParams, "fav_item") ?? "";
-  const locations = wantExperiment ? await getCensusLocations() : { parks: [] as { id: string; name: string }[], sheds: [] };
+  // The target-vs-actual section carries its own park and day. Both re-read the endpoint rather
+  // than narrowing served rows, because its TREND is aggregated server-side across parks: a
+  // client-side park filter would narrow the table while the graph above it still charted every
+  // park, and the two would disagree on screen.
+  const facPark = one(searchParams, "fac_park") ?? "";
+  const facDay = one(searchParams, "fac_day") ?? "";
+  const wantParkOptions = wantExperiment || tab === "execution";
+  const locations = wantParkOptions ? await getCensusLocations() : { parks: [] as { id: string; name: string }[], sheds: [] };
   const wantStock = tab === "overview" || tab === "items";
   const [directed, execution, experiment, stock] = await Promise.all([
     wantDirected
@@ -260,6 +267,18 @@ export async function FeedAnalyticsPage({
   const executionDay =
     tab === "execution" && favDay !== ""
       ? await getFeedAnalyticsExecution({ park_id: parkId, date_from: favDay, date_to: favDay })
+      : null;
+  // Third read, for the target-vs-actual section only, when its park or day differs from the
+  // page's. The window keeps the tab's length so the trend stays comparable; only its END moves,
+  // which is also what selects the table's day (the endpoint returns rows for the window's last
+  // day). Skipped entirely while both filters are at their defaults.
+  const consumptionScoped =
+    tab === "execution" && (facPark !== "" || facDay !== "")
+      ? await getFeedAnalyticsExecution({
+          park_id: parkId || facPark,
+          date_from: istDayPlus(facDay || window.date_to, -(Number(range) - 1)),
+          date_to: facDay || window.date_to,
+        })
       : null;
   const nonNull = [directed, execution, experiment, stock].filter((r) => r !== null);
   if (firstAuthRequiredError(...nonNull)) redirect(INTERNAL_LOGIN_PATH);
@@ -323,6 +342,14 @@ export async function FeedAnalyticsPage({
             day: favDay,
             park: favPark,
             item: favItem,
+          }}
+          consumption={{
+            rows: (consumptionScoped?.ok ? consumptionScoped.data : execution.data).consumption_rows,
+            trend: (consumptionScoped?.ok ? consumptionScoped.data : execution.data).consumption_trend,
+            park: facPark,
+            day: facDay,
+            parkOptions: locations.parks.map((park) => ({ value: park.id, label: park.name })),
+            parkLocked: parkId !== "",
           }}
         />
       ) : null}
@@ -583,6 +610,7 @@ function ExecutionTab({
   data,
   pageContract,
   variance,
+  consumption,
 }: {
   data: FeedAnalyticsExecutionResponse;
   pageContract: AdminUiPageContract;
@@ -592,6 +620,15 @@ function ExecutionTab({
     day: string;
     park: string;
     item: string;
+  };
+  /** Target-vs-actual: rows and trend already scoped server-side to `park` and `day`. */
+  consumption: {
+    rows: FeedAnalyticsExecutionResponse["consumption_rows"];
+    trend: FeedAnalyticsExecutionResponse["consumption_trend"];
+    park: string;
+    day: string;
+    parkOptions: { value: string; label: string }[];
+    parkLocked: boolean;
   };
 }) {
   if (data.days.length === 0) {
@@ -604,11 +641,6 @@ function ExecutionTab({
   }
   // Farm/item narrowing applies over the served rows; the calendar already narrowed the fetch.
   const varianceRows = variance.rows.filter(
-    (r) =>
-      (variance.park === "" || r.park_label === variance.park) &&
-      (variance.item === "" || r.feed_item_key === variance.item),
-  );
-  const consumptionRows = data.consumption_rows.filter(
     (r) =>
       (variance.park === "" || r.park_label === variance.park) &&
       (variance.item === "" || r.feed_item_key === variance.item),
@@ -652,17 +684,19 @@ function ExecutionTab({
       points: data.days.map((d) => d.median_verify_latency_minutes ?? null),
     },
   ];
-  const consumptionDayLabels = data.consumption_trend.map((d) => d.feed_day);
+  const consumptionDayLabels = consumption.trend.map((d) => d.feed_day);
   const consumptionSeries: LineSeries[] = [
     {
       label: fa(pageContract, "col.consumption.target"),
       colorVar: FEED_SERIES_VARS[0],
-      points: data.consumption_trend.map((d) => num(d.target_kg)),
+      points: consumption.trend.map((d) => num(d.target_kg)),
     },
     {
+      // A day nobody has verified yet carries an EMPTY actual, which draws a gap. Reading it as 0
+      // would plot a plunge to the axis and look like the farm fed nothing that day.
       label: fa(pageContract, "col.consumption.actual"),
       colorVar: FEED_SERIES_VARS[4],
-      points: data.consumption_trend.map((d) => num(d.actual_kg)),
+      points: consumption.trend.map((d) => (d.actual_kg === "" ? null : num(d.actual_kg))),
     },
   ];
   return (
@@ -707,61 +741,94 @@ function ExecutionTab({
           />
         </ChartHover>
       </section>
-      <section className="card wchart" aria-label={fa(pageContract, "consumption.trend.title")}>
-        <h2 className="h">{fa(pageContract, "consumption.trend.title")}</h2>
-        <p className="muted small">{fa(pageContract, "consumption.trend.hint")}</p>
-        <ChartHover>
-          <FeedLines
-            series={consumptionSeries}
-            dayLabels={consumptionDayLabels}
-            valueNoun={fa(pageContract, "unit.kg")}
-            chartLabel={fa(pageContract, "consumption.trend.title")}
-            emptyLabel={fa(pageContract, "consumption.empty")}
-          />
-        </ChartHover>
-        <FeedChartLegend entries={consumptionSeries.map((s) => ({ label: s.label, colorVar: s.colorVar }))} />
-      </section>
+      {/* Target vs actual, ONE SECTION (maintainer decision 2026-08-23): the park/day filters, the
+          per-shed table and the trend that summarises those same rows sit together, because they
+          are one question. They were three separate cards, with the filter bar living in the
+          MISMATCH card below and silently narrowing a table two sections above it. Park and day
+          re-read the endpoint rather than narrowing served rows, so the graph is sliced by park
+          exactly like the table. */}
       <section className="card" aria-label={fa(pageContract, "consumption.title")}>
         <div className="hd">
           <h3>{fa(pageContract, "consumption.title")}</h3>
           <span className="small muted">{fa(pageContract, "consumption.hint")}</span>
         </div>
-        {consumptionRows.length === 0 ? (
+        <FeedFilters
+          basePath={PAGE_PATH}
+          pageParam="fa_offset"
+          fields={[
+            {
+              kind: "select",
+              param: "fac_park",
+              label: fa(pageContract, "col.consumption.park"),
+              value: consumption.park,
+              allowAll: true,
+              options: consumption.parkOptions,
+              disabledReason: consumption.parkLocked ? fa(pageContract, "filter.scope_readonly") : undefined,
+            },
+            {
+              kind: "date",
+              param: "fac_day",
+              label: fa(pageContract, "col.consumption.day"),
+              value: consumption.day,
+              today: todayIso(),
+              labels: {
+                field: fa(pageContract, "col.consumption.day"),
+                today: fa(pageContract, "filter.date.today"),
+                single: fa(pageContract, "filter.date.single"),
+                range: fa(pageContract, "filter.date.range"),
+                aria: fa(pageContract, "consumption.date.aria"),
+                previousMonth: fa(pageContract, "filter.date.previous_month"),
+                nextMonth: fa(pageContract, "filter.date.next_month"),
+                rangeStartHint: fa(pageContract, "filter.date.range_start_hint"),
+                rangeEndHint: fa(pageContract, "filter.date.range_end_hint"),
+                rangeSeparator: fa(pageContract, "filter.date.range_separator"),
+              },
+            },
+          ]}
+          pageContract={pageContract}
+        />
+        {consumption.rows.length === 0 ? (
           <p className="muted small">{fa(pageContract, "consumption.empty")}</p>
         ) : (
           <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "consumption.title")}>
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>{fa(pageContract, "col.consumption.day")}</th>
-                  <th>{fa(pageContract, "col.consumption.park")}</th>
                   <th>{fa(pageContract, "col.consumption.shed")}</th>
+                  <th>{fa(pageContract, "col.consumption.park")}</th>
                   <th>{fa(pageContract, "col.consumption.breed")}</th>
                   <th>{fa(pageContract, "col.consumption.age_group")}</th>
-                  <th>{fa(pageContract, "col.consumption.item")}</th>
                   <th>{fa(pageContract, "col.consumption.target")}</th>
                   <th>{fa(pageContract, "col.consumption.actual")}</th>
                   <th>{fa(pageContract, "col.consumption.variance")}</th>
                 </tr>
               </thead>
               <tbody>
-                {consumptionRows.map((row, rowIndex) => (
+                {consumption.rows.map((row) => (
                   <tr
-                    key={`${row.feed_day}:${row.shed_id}:${row.partition_label ?? ""}:${row.feed_item_key}:${rowIndex}`}
+                    key={`${row.shed_id}:${row.partition_label ?? ""}`}
                     className={row.has_variance ? "feed-variance-row" : undefined}
                   >
-                    <td>{fmtDate(row.feed_day)}</td>
-                    <td>{row.park_label}</td>
                     <td>{row.operational_location_display}</td>
+                    <td>{row.park_label}</td>
                     <td>{row.breed_label}</td>
                     <td>{row.age_group}</td>
-                    <td>{row.feed_item_label}</td>
-                    <td>{`${row.target_kg} ${fa(pageContract, "unit.kg")}`}</td>
-                    <td>{`${row.actual_kg} ${fa(pageContract, "unit.kg")}`}</td>
+                    <td>{`${nf(num(row.target_kg))} ${fa(pageContract, "unit.kg")}`}</td>
+                    {/* An empty actual is a shed nobody has verified yet, NOT a shed fed nothing:
+                        it says so in words rather than showing a 0 that would read as a failure. */}
                     <td>
-                      <span className={`${row.has_variance ? "tag t-dng" : "tag t-ok"} feed-stock-check-tag`}>
-                        <span>{`${nf(Math.abs(num(row.variance_kg)))} ${fa(pageContract, "unit.kg")}`}</span>
-                      </span>
+                      {row.actual_kg === ""
+                        ? fa(pageContract, "consumption.not_verified")
+                        : `${nf(num(row.actual_kg))} ${fa(pageContract, "unit.kg")}`}
+                    </td>
+                    <td>
+                      {row.variance_kg === "" ? (
+                        "—"
+                      ) : (
+                        <span className={`${row.has_variance ? "tag t-dng" : "tag t-ok"} feed-stock-check-tag`}>
+                          <span>{`${nf(Math.abs(num(row.variance_kg)))} ${fa(pageContract, "unit.kg")}`}</span>
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -769,6 +836,20 @@ function ExecutionTab({
             </table>
           </div>
         )}
+        <div className="feed-consumption-trend">
+          <h4 className="feed-subhead">{fa(pageContract, "consumption.trend.title")}</h4>
+          <p className="muted small">{fa(pageContract, "consumption.trend.hint")}</p>
+          <ChartHover>
+            <FeedLines
+              series={consumptionSeries}
+              dayLabels={consumptionDayLabels}
+              valueNoun={fa(pageContract, "unit.kg")}
+              chartLabel={fa(pageContract, "consumption.trend.title")}
+              emptyLabel={fa(pageContract, "consumption.empty")}
+            />
+          </ChartHover>
+          <FeedChartLegend entries={consumptionSeries.map((c) => ({ label: c.label, colorVar: c.colorVar }))} />
+        </div>
       </section>
       {/* Intended-vs-entered packing mismatches (maintainer decision 2026-08-21). The verifier
           enters her per-item readings BLIND -- this comparison exists only on this leadership

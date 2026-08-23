@@ -168,6 +168,14 @@
      the clip only while a picker inside the card is actually open, so the card's
      own clipping is unchanged the rest of the time. */
   .card:has(.top-date-picker[open]){overflow:visible}
+  /* A shed whose measured feed differs from the sheet is flagged on the WHOLE row, not just the
+     variance cell -- the reader is scanning for sheds, not for numbers. `feed-variance-row` was
+     applied by the table with no rule behind it, so the flag rendered as nothing at all. The tint
+     is a wash rather than a fill so the row's own text keeps its contrast in both themes. */
+  .main tr.feed-variance-row > td{background:color-mix(in srgb,var(--danger) 13%,transparent)}
+  .main tr.feed-variance-row:hover > td{background:color-mix(in srgb,var(--danger) 20%,transparent)}
+  .main .feed-consumption-trend{padding:4px 16px 14px}
+  .main .feed-subhead{margin:10px 0 2px;font-size:13px;font-weight:700}
   /* Undoes the generic `.card{overflow:hidden}` for THIS card only. That clip keeps table corners
      inside the radius, but it also amputated the capture-date popover: with an empty board the card
      is ~350px tall and the calendar ~416px, so the last two weeks and the Today button were cut off
