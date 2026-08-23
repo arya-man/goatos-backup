@@ -939,6 +939,9 @@
   .main table.feed-stock-table th:nth-child(7),.main table.feed-stock-table td:nth-child(7){width:8%}
   .main table.feed-stock-table th:nth-child(8),.main table.feed-stock-table td:nth-child(8){width:7%}
   .main table.feed-stock-table th:nth-child(9),.main table.feed-stock-table td:nth-child(9){width:8%}
+  .main table.feed-forecast-table td:nth-child(n+3),.main table.feed-forecast-table th:nth-child(n+3){text-align:right}
+  .main table.feed-forecast-table tr.feed-forecast-total td{border-top:2px solid var(--line);text-align:right}
+  .main table.feed-forecast-table tr.feed-forecast-total td:first-child{text-align:left}
   .main table.feed-stock-table .feed-stock-load{white-space:normal;overflow:visible;text-overflow:clip}
   .main table.feed-stock-table .tag{max-width:100%;white-space:normal;line-height:1.25;justify-content:center;text-align:center}
   .main table.feed-stock-table .feed-stock-check-tag{display:inline-flex;align-items:center;gap:5px;min-width:0;padding:4px 8px;letter-spacing:0;white-space:nowrap}
