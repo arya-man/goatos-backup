@@ -6404,6 +6404,7 @@ func liveTrackerOptionGroups() []domain.OptionGroup {
 				option("verification_pending", "awaiting close", "a proof landed for this animal today; this obligation is not closed yet", "warn"),
 				option("awaiting_proof", "awaiting proof", "in progress, proof not yet landed", "mut"),
 				option("scheduled", "scheduled", "not started yet", "mut"),
+				option("missed", "missed", "window closed with no proof", "dng"),
 			},
 		},
 		{

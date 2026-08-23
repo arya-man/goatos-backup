@@ -4685,8 +4685,8 @@ per_animal AS (
     -- animals as unvaccinated and simultaneously showed awaiting_verification = 0 while 137 proofs
     -- sat in the queue -- both tiles wrong, in opposite directions, from the same predicate.
     bool_or(is_missed AND no_completion) AS any_missed,
-    bool_or(has_accepted) AS any_verified,
     bool_or(has_recorded_unverified AND NOT has_accepted) AS any_awaiting,
+    bool_or(has_accepted) AS any_verified,
     bool_or(is_open AND no_completion AND due_before_as_of) AS any_overdue,
     bool_or(is_open AND no_completion AND NOT due_before_as_of) AS any_scheduled
   FROM scoped
@@ -4695,8 +4695,8 @@ per_animal AS (
 SELECT
   COUNT(*) AS targets,
   COUNT(*) FILTER (WHERE any_missed) AS missed_not_given,
-  COUNT(*) FILTER (WHERE any_verified AND NOT any_missed) AS doses_verified,
-  COUNT(*) FILTER (WHERE any_awaiting AND NOT any_verified AND NOT any_missed) AS awaiting_verification,
+  COUNT(*) FILTER (WHERE any_verified AND NOT any_awaiting AND NOT any_missed) AS doses_verified,
+  COUNT(*) FILTER (WHERE any_awaiting AND NOT any_missed) AS awaiting_verification,
   COUNT(*) FILTER (WHERE any_overdue AND NOT any_awaiting AND NOT any_verified AND NOT any_missed) AS overdue_not_given,
   COUNT(*) FILTER (WHERE any_scheduled AND NOT any_overdue AND NOT any_awaiting AND NOT any_verified AND NOT any_missed) AS scheduled_ahead,
   COUNT(*) FILTER (WHERE NOT any_missed AND NOT any_verified AND NOT any_awaiting AND NOT any_overdue AND NOT any_scheduled) AS closed_without_dose

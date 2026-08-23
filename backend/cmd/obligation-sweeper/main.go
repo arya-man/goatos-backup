@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
@@ -19,6 +21,7 @@ import (
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	obligationdomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/kmetrics"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
@@ -113,14 +116,17 @@ func run(args []string) error {
 		creator = sopbridge.New(adapter, cfg.ActorID)
 	}
 	sweeper := obligationapp.NewSweeperService(obligationRepo, creator, reserver)
+	var batchSweepErr error
+	batchSweepPhase := "batch"
 	versionIDs := []string{cfg.VersionID}
 	if cfg.VersionID == "" {
 		versionIDs, err = protocolRepo.ListPublishedVaccinationVersions(ctx, cfg.TenantID)
 		if err != nil {
-			return err
+			batchSweepPhase = "list_versions"
+			batchSweepErr = fmt.Errorf("list published vaccination versions: %w", err)
 		}
 	}
-	if len(versionIDs) == 0 {
+	if batchSweepErr == nil && len(versionIDs) == 0 {
 		fmt.Println("no published vaccination protocol versions to sweep")
 	} else {
 		// Build every version's sweep config up front, then sort by resolved vaccine priority
@@ -134,16 +140,20 @@ func run(args []string) error {
 		// real shared visit is still reported by the sweeper itself
 		// (obligationapp.ShotCapPriorityTieError), not silently decided by this ordering.
 		plans := make([]obligationapp.SweepVersionPriority, 0, len(versionIDs))
-		for _, versionID := range versionIDs {
-			sweepCfg, err := buildSweepConfig(ctx, protocolRepo, cfg, versionID)
-			if err != nil {
-				return fmt.Errorf("sweep config version %s: %w", versionID, err)
+		if batchSweepErr == nil {
+			for _, versionID := range versionIDs {
+				sweepCfg, err := buildSweepConfig(ctx, protocolRepo, cfg, versionID)
+				if err != nil {
+					batchSweepPhase = "build_config"
+					batchSweepErr = fmt.Errorf("sweep config version %s: %w", versionID, err)
+					break
+				}
+				if len(cfg.DoseCodes) > 0 && len(sweepCfg.AllowedRuleIDs) == 0 {
+					continue
+				}
+				sweepCfg.AllowedTargetIDs = cfg.TargetIDs
+				plans = append(plans, obligationapp.SweepVersionPriority{VersionID: versionID, Config: sweepCfg})
 			}
-			if len(cfg.DoseCodes) > 0 && len(sweepCfg.AllowedRuleIDs) == 0 {
-				continue
-			}
-			sweepCfg.AllowedTargetIDs = cfg.TargetIDs
-			plans = append(plans, obligationapp.SweepVersionPriority{VersionID: versionID, Config: sweepCfg})
 		}
 		plans = obligationapp.SortSweepVersionsByPriority(plans)
 
@@ -151,28 +161,39 @@ func run(args []string) error {
 		// writer. If another sweeper (the kernel obligation-sweeper stage, or a second replica) already
 		// owns the tenant, skip -- otherwise both could commit into an animal's last cap slot and let
 		// lock-acquisition order, not vaccine priority, decide the medical plan.
-		acquired, releaseSweep, err := sweeper.LockTenantSweep(ctx, cfg.TenantID)
-		if err != nil {
-			return fmt.Errorf("acquire tenant sweep lock: %w", err)
+		acquired := false
+		var releaseSweep func(context.Context) error
+		if batchSweepErr == nil {
+			acquired, releaseSweep, err = sweeper.LockTenantSweep(ctx, cfg.TenantID)
+			if err != nil {
+				batchSweepPhase = "tenant_lock"
+				batchSweepErr = fmt.Errorf("acquire tenant sweep lock: %w", err)
+			} else {
+				defer func() { _ = releaseSweep(context.Background()) }()
+			}
 		}
-		defer func() { _ = releaseSweep(context.Background()) }()
-		if !acquired {
+		if batchSweepErr == nil && !acquired {
 			fmt.Printf("obligation sweep skipped: tenant %s already locked by another sweeper\n", cfg.TenantID)
-		} else {
+		} else if batchSweepErr == nil {
 			// RV-05: the HWM excludes later inserts and the preflight snapshot below excludes older rows
 			// that become eligible only after preflight. Candidate membership cannot grow mid-cycle.
 			createdAtHWM, err := sweeper.CaptureSweepHighWaterMark(ctx)
 			if err != nil {
-				return fmt.Errorf("capture sweep high-water mark: %w", err)
+				batchSweepPhase = "high_water_mark"
+				batchSweepErr = fmt.Errorf("capture sweep high-water mark: %w", err)
 			}
 
 			// VAX-REV-04: detect a cross-version shot-cap priority tie BEFORE sweeping a single plan
 			// for real. Without this, a later plan's tie aborted the loop below while earlier plans'
 			// batches/SOP tasks/stock reservations were already committed -- a silent, arbitrary
 			// partial commit. See obligationapp.PreflightVisitShotCapTies.
-			snapshot, err := sweeper.PreflightVisitShotCapTiesWithSnapshotAsOf(ctx, cfg.TenantID, plans, cfg.AsOf, cfg.DueBefore, createdAtHWM)
-			if err != nil {
-				return fmt.Errorf("preflight shot-cap ties: %w", err)
+			var snapshot *obligationapp.SweepCandidateSnapshot
+			if batchSweepErr == nil {
+				snapshot, err = sweeper.PreflightVisitShotCapTiesWithSnapshotAsOf(ctx, cfg.TenantID, plans, cfg.AsOf, cfg.DueBefore, createdAtHWM)
+				if err != nil {
+					batchSweepPhase = "preflight"
+					batchSweepErr = fmt.Errorf("preflight shot-cap ties: %w", err)
+				}
 			}
 
 			session := obligationapp.NewSweepSession()
@@ -181,46 +202,68 @@ func run(args []string) error {
 			// pre-alignment planned_date would permanently exclude it from AlignComboDrives' candidate
 			// query (sop_task_id IS NULL AND NOT context ? 'stock_reservation'). The HWM variant (RV-05)
 			// bounds every real-sweep read to the successful preflight's exact candidate membership.
-			for _, plan := range plans {
-				sweepStart := time.Now()
-				result, err := sweeper.SweepVersionWithSessionNoFinalizeSnapshotAsOf(ctx, cfg.TenantID, plan.VersionID, plan.Config, cfg.AsOf, cfg.DueBefore, session, createdAtHWM, snapshot)
-				// tasksCreated approximates 1 SOP batch task per obligation batch -
-				// obligationapp.SweepResult does not return a distinct tasks-created count, and batches
-				// are only task-bearing when a TaskCreator (creator, gated on --actor-id) is configured.
-				tasksCreated := 0
-				if creator != nil {
-					tasksCreated = result.Batches + result.ParkBatches
+			if batchSweepErr == nil {
+				for _, plan := range plans {
+					sweepStart := time.Now()
+					result, err := sweeper.SweepVersionWithSessionNoFinalizeSnapshotAsOf(ctx, cfg.TenantID, plan.VersionID, plan.Config, cfg.AsOf, cfg.DueBefore, session, createdAtHWM, snapshot)
+					// tasksCreated approximates 1 SOP batch task per obligation batch -
+					// obligationapp.SweepResult does not return a distinct tasks-created count, and batches
+					// are only task-bearing when a TaskCreator (creator, gated on --actor-id) is configured.
+					tasksCreated := 0
+					if creator != nil {
+						tasksCreated = result.Batches + result.ParkBatches
+					}
+					kmetrics.RecordSweeperBatch(ctx, "version", time.Since(sweepStart).Seconds(), result.Obligations+result.ParkObligations, tasksCreated)
+					if err != nil {
+						batchSweepPhase = "version_sweep"
+						batchSweepErr = fmt.Errorf("sweep version %s: %w", plan.VersionID, err)
+						break
+					}
+					fmt.Printf("swept version=%s batches=%d obligations=%d park_batches=%d park_obligations=%d\n",
+						plan.VersionID, result.Batches, result.Obligations, result.ParkBatches, result.ParkObligations)
 				}
-				kmetrics.RecordSweeperBatch(ctx, "version", time.Since(sweepStart).Seconds(), result.Obligations+result.ParkObligations, tasksCreated)
+			}
+			if batchSweepErr == nil {
+				alignWindowDays, maxShotsPerAnimalPerDrive, maxDriveCells := obligationapp.ComboAlignmentSettingsForPlans(plans)
+				aligned, err := sweeper.AlignComboDrivesAsOf(ctx, cfg.TenantID, alignWindowDays, cfg.AsOf, cfg.DueBefore, maxShotsPerAnimalPerDrive, maxDriveCells, session)
 				if err != nil {
-					return fmt.Errorf("sweep version %s: %w", plan.VersionID, err)
+					batchSweepPhase = "combo_alignment"
+					batchSweepErr = fmt.Errorf("align combo drives: %w", err)
 				}
-				fmt.Printf("swept version=%s batches=%d obligations=%d park_batches=%d park_obligations=%d\n",
-					plan.VersionID, result.Batches, result.Obligations, result.ParkBatches, result.ParkObligations)
+				if aligned > 0 {
+					fmt.Printf("combo drive dates aligned=%d\n", aligned)
+				}
 			}
-			alignWindowDays, maxShotsPerAnimalPerDrive, maxDriveCells := obligationapp.ComboAlignmentSettingsForPlans(plans)
-			aligned, err := sweeper.AlignComboDrivesAsOf(ctx, cfg.TenantID, alignWindowDays, cfg.AsOf, cfg.DueBefore, maxShotsPerAnimalPerDrive, maxDriveCells, session)
+			if batchSweepErr == nil {
+				// R2-04: finalize stock reservation + SOP-task creation for every swept version now that
+				// alignment has settled each planned batch's final date.
+				for _, plan := range plans {
+					if err := sweeper.FinalizePlannedBatches(ctx, cfg.TenantID, plan.VersionID, plan.Config); err != nil {
+						batchSweepPhase = "finalize"
+						batchSweepErr = fmt.Errorf("finalize batches version %s: %w", plan.VersionID, err)
+						break
+					}
+				}
+			}
+		}
+		if batchSweepErr != nil {
+			kmetrics.RecordSweeperFailure(ctx, batchSweepPhase)
+			recordSweeperFailure(ctx, pool, pgCfg.QueryTimeout, cfg, batchSweepPhase, batchSweepErr)
+			fmt.Fprintf(os.Stderr, "obligation batch sweep failed; continuing to mark missed/reminders: %v\n", batchSweepErr)
+		}
+		if cfg.MarkMissed {
+			missed, err := sweeper.MarkMissed(ctx, cfg.TenantID, cfg.MissedBefore)
 			if err != nil {
-				return fmt.Errorf("align combo drives: %w", err)
-			}
-			if aligned > 0 {
-				fmt.Printf("combo drive dates aligned=%d\n", aligned)
-			}
-			// R2-04: finalize stock reservation + SOP-task creation for every swept version now that
-			// alignment has settled each planned batch's final date.
-			for _, plan := range plans {
-				if err := sweeper.FinalizePlannedBatches(ctx, cfg.TenantID, plan.VersionID, plan.Config); err != nil {
-					return fmt.Errorf("finalize batches version %s: %w", plan.VersionID, err)
+				if batchSweepErr != nil {
+					return errors.Join(batchSweepErr, fmt.Errorf("mark missed obligations: %w", err))
 				}
+				return fmt.Errorf("mark missed obligations: %w", err)
 			}
+			fmt.Printf("marked missed obligations=%d before=%s\n", missed, cfg.MissedBefore.Format(time.RFC3339))
 		}
-	}
-	if cfg.MarkMissed {
-		missed, err := sweeper.MarkMissed(ctx, cfg.TenantID, cfg.MissedBefore)
-		if err != nil {
-			return fmt.Errorf("mark missed obligations: %w", err)
+		if batchSweepErr != nil {
+			return batchSweepErr
 		}
-		fmt.Printf("marked missed obligations=%d before=%s\n", missed, cfg.MissedBefore.Format(time.RFC3339))
 	}
 	// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): Calendar has no
 	// projection to refresh anymore -- it serves canonical reads directly, which are never stale
@@ -491,6 +534,36 @@ func enqueueNotificationDispatcher(ctx context.Context, tenantID, source string)
 	defer enqueuer.Close()
 	taskID := taskqueue.SafeTaskID(fmt.Sprintf("notification-dispatcher-%s-%s-%s", tenantID, source, time.Now().In(biztime.DefaultLocation()).Format("200601021504")))
 	return enqueuer.EnqueueJSONPost(ctx, taskID, map[string]any{}, time.Time{})
+}
+
+func recordSweeperFailure(ctx context.Context, pool *pgxpool.Pool, queryTimeout time.Duration, cfg config, phase string, failure error) {
+	if pool == nil || failure == nil {
+		return
+	}
+	recorder := audit.NewPostgresRecorder(pool, queryTimeout)
+	now := time.Now().In(biztime.DefaultLocation())
+	if err := recorder.Record(ctx, audit.Event{
+		TenantID:     cfg.TenantID,
+		ActorID:      cfg.ActorID,
+		ActorType:    "system",
+		Action:       "obligation_sweeper.batch_failed_continued_to_missed",
+		ResourceType: "obligation_sweeper",
+		Metadata: map[string]any{
+			"domain":        "preventive_care",
+			"module":        "vaccination",
+			"category":      "sweeper",
+			"phase":         phase,
+			"error":         failure.Error(),
+			"as_of":         cfg.AsOf.Format(time.RFC3339),
+			"due_before":    cfg.DueBefore.Format(time.RFC3339),
+			"missed_before": cfg.MissedBefore.Format(time.RFC3339),
+			"continued":     true,
+			"source":        "cmd/obligation-sweeper",
+		},
+		TraceID: "obligation-sweeper:" + now.Format("20060102T150405Z0700"),
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "obligation batch sweep failure audit failed: %v\n", err)
+	}
 }
 
 func getenv(key string) string {

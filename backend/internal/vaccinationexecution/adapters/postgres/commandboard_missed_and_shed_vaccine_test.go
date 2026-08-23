@@ -91,6 +91,12 @@ func TestVaccinationCommandBoardMissedWithRecordedProofIsVerificationPendingNotM
 	if resp.KPIs.MissedNotGiven != 0 {
 		t.Fatalf("missed_not_given = %d, want 0; an obligation with a recorded completion was DOSED -- it is a verification backlog, not a missed dose", resp.KPIs.MissedNotGiven)
 	}
+	if resp.KPIs.AwaitingVerification != 1 {
+		t.Fatalf("awaiting_verification = %d, want 1; the unverified proof must stay visible even when an older dose was accepted", resp.KPIs.AwaitingVerification)
+	}
+	if resp.KPIs.DosesVerified != 0 {
+		t.Fatalf("doses_verified = %d, want 0; an older accepted dose must not hide a current proof awaiting verification", resp.KPIs.DosesVerified)
+	}
 	assertKPIPartitionExhaustive(t, resp.KPIs)
 }
 

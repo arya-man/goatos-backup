@@ -644,12 +644,13 @@ func TestLiveTrackerMembershipIsVaccinationOnly(t *testing.T) {
 	}
 }
 
-// TestLiveTrackerMembershipExcludesDeadObligations pins the status exclusion set. 'superseded' and
-// 'waived' rows will never receive a proof; counting them into `scheduled` inflates the Scheduled
-// tile and Remaining and holds the shed row open for the rest of the day.
-func TestLiveTrackerMembershipExcludesDeadObligations(t *testing.T) {
-	if !strings.Contains(liveTrackerScopedCTE, "oi.status NOT IN ('canceled', 'superseded', 'waived')") {
-		t.Error("membership must exclude canceled, superseded AND waived obligations")
+// TestLiveTrackerMembershipExcludesDeadOrNonWorkObligations pins the status exclusion set.
+// 'superseded', 'waived' and 'missed' rows will never receive a proof; 'deferred' is not today's
+// operator work. Counting them into `scheduled` inflates the Scheduled tile and Remaining and holds
+// the shed row open for the rest of the day.
+func TestLiveTrackerMembershipExcludesDeadOrNonWorkObligations(t *testing.T) {
+	if !strings.Contains(liveTrackerScopedCTE, "oi.status NOT IN ('canceled', 'superseded', 'waived', 'missed', 'deferred')") {
+		t.Error("membership must exclude canceled, superseded, waived, missed and deferred obligations")
 	}
 	if strings.Contains(liveTrackerScopedCTE, "oi.status <> 'canceled'") {
 		t.Error("excluding only 'canceled' leaves dead obligations counted as scheduled work")
@@ -1046,7 +1047,7 @@ func TestLiveTrackerDoseStateNeverInfersClosureFromAProof(t *testing.T) {
 		{"in_progress", 0, domain.LiveTrackerDoseAwaitingProof},
 		{"due", 0, domain.LiveTrackerDoseAwaitingProof},
 		{"scheduled", 0, domain.LiveTrackerDoseScheduled},
-		{"missed", 0, domain.LiveTrackerDoseScheduled},
+		{"missed", 0, domain.LiveTrackerDoseMissed},
 	} {
 		if got := liveTrackerDoseState(tc.status, tc.proofs); got != tc.want {
 			t.Errorf("dose state for status=%q proofs=%d = %q, want %q", tc.status, tc.proofs, got, tc.want)
