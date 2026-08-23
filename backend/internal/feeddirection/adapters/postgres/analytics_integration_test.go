@@ -1132,3 +1132,294 @@ FROM feed_external_consumption WHERE tenant_id = $1`, fdiTenant).
 		t.Fatal("zero quantity must error")
 	}
 }
+
+// The next-7-days requirement table is keyed on what the farm FEEDS, so its
+// membership is deliberately wider than the four-concentrate purchase table.
+// The adversarial fixture carries every way a row can be incomplete: a feed
+// with a full ledger (needs, has stock, has a rate), a NON-Mesha feed that the
+// concentrate table excludes and this one must not, a feed directed but NEVER
+// purchased (a requirement with no money), an EXTERNALLY tracked feed (UHT
+// Milk, which is fed but never directed through a sheet), and a feed whose
+// stock already covers the week (shortfall exactly zero, not blank).
+func TestStockForecastOneToManyStatusBucketsParkScopeAndNoPageBoundary(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+	park := fdiPark
+
+	insertPurchase := func(label string, batch int64, date, qty, perKg string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status)
+VALUES ($1, $2, 'CBE', $3, $4, $5::date, $6::numeric, $7::numeric, 0, 0, DATE '2026-08-10', 'Navaladi', 'Paid')`,
+			fdiTenant, park, label, batch, date, qty, perKg); err != nil {
+			t.Fatalf("insert purchase %s#%d: %v", label, batch, err)
+		}
+	}
+	// Two loads: pricing must take the LATEST (batch 330 @ 40.00), never the
+	// older 30.00 — a forecast priced at a superseded rate under-orders money.
+	insertPurchase("Mesha Kids Goat Concentrate", 298, "2026-06-20", "1000.000", "30.0000")
+	insertPurchase("Mesha Kids Goat Concentrate", 330, "2026-08-08", "100.000", "40.0000")
+	// A NON-Mesha feed: absent from the concentrate table, required here.
+	insertPurchase("Concentrate", 328, "2026-08-08", "5000.000", "20.0000")
+	// UHT Milk: fed through the external ledger, never directed on a sheet.
+	insertPurchase("UHT Milk", 326, "2026-08-07", "600.000", "60.0000")
+
+	issuedAt := time.Date(2026, 8, 20, 9, 0, 0, 0, biztime.DefaultLocation())
+	persistIssue := func(feedDay, fingerprint string, items map[string]string, lock bool) {
+		t.Helper()
+		cells := make([]domain.StoredCell, 0, len(items))
+		var seq int32
+		for _, label := range []string{"Mesha Kids Goat Concentrate", "Concentrate", "Hay"} {
+			qty, ok := items[label]
+			if !ok {
+				continue
+			}
+			cells = append(cells, domain.StoredCell{
+				ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+				PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+				RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+				HeadCount: 10, Workflow: domain.WorkflowNormal,
+				FeedItemLabel: label, FeedItemKey: feedKeyOf(label),
+				QuantityKg: kg(qty), SessionTotalKg: qty, ItemSeq: seq,
+			})
+			seq++
+		}
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: feedDay, Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: fingerprint,
+			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":" + feedDay + ":forecast",
+			GeneratedBy:    "test", Cells: cells,
+		}); err != nil {
+			t.Fatalf("persist %s: %v", feedDay, err)
+		}
+		if !lock {
+			return
+		}
+		if locked, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: feedDay,
+			Workflow: domain.WorkflowNormal, LockedAt: issuedAt,
+		}); err != nil || locked.Outcome != "locked" {
+			t.Fatalf("lock %s = (%v, %v)", feedDay, locked.Outcome, err)
+		}
+	}
+	persistLocked := func(feedDay, fingerprint string, items map[string]string) {
+		t.Helper()
+		persistIssue(feedDay, fingerprint, items, true)
+	}
+	// FOUR locked days. The burn window is the 3 most recent, so the oldest day
+	// (deliberately a different quantity) must fall OUT of every average while
+	// still depleting the balance.
+	persistLocked("2026-08-17", "fp-fc-0", map[string]string{
+		"Mesha Kids Goat Concentrate": "2.000", "Concentrate": "100.000", "Hay": "5.000"})
+	persistLocked("2026-08-18", "fp-fc-1", map[string]string{
+		"Mesha Kids Goat Concentrate": "10.000", "Concentrate": "100.000", "Hay": "5.000"})
+	persistLocked("2026-08-19", "fp-fc-2", map[string]string{
+		"Mesha Kids Goat Concentrate": "10.000", "Concentrate": "100.000", "Hay": "5.000"})
+	persistLocked("2026-08-20", "fp-fc-3", map[string]string{
+		"Mesha Kids Goat Concentrate": "10.000", "Concentrate": "100.000", "Hay": "5.000"})
+	// STATUS BUCKET: an issue that was generated but never LOCKED is not feed
+	// the farm committed to, so it must not enter the burn rate. Dated AFTER
+	// every locked day and ten times the quantity, so counting it would move
+	// every figure in the table -- silence here is the assertion.
+	persistIssue("2026-08-21", "fp-fc-unlocked", map[string]string{
+		"Mesha Kids Goat Concentrate": "100.000", "Concentrate": "1000.000", "Hay": "50.000"}, false)
+	for _, day := range []string{"2026-08-18", "2026-08-19", "2026-08-20"} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_external_consumption (tenant_id, park_id, farm_label, feed_item_label, feed_day, quantity_kg, batch_no, source_ref)
+VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, 20.000, 326, 'test')`, fdiTenant, park, day); err != nil {
+			t.Fatalf("insert consumption %s: %v", day, err)
+		}
+	}
+
+	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+	rows := map[string]domain.StockForecastItem{}
+	for _, r := range got.Forecast {
+		if r.FarmLabel != "CBE" {
+			t.Errorf("unexpected farm %q in forecast", r.FarmLabel)
+		}
+		rows[r.FeedItemKey] = r
+	}
+
+	// The Mesha concentrate: avg = (10+10+10)/3 = 10.0 (the 2 kg day is out),
+	// need = 70.0, stock = 1100 purchased − (2+10+10+10) directed = 1068.0,
+	// so the week is covered and there is nothing to buy — a ZERO shortfall,
+	// never a blank one. Cost prices the full week at the LATEST rate:
+	// 70 × 40.00 = 2800.
+	mesha := rows["mesha_kids_goat_concentrate"]
+	assertForecast(t, "mesha_kids_goat_concentrate", mesha, domain.StockForecastItem{
+		FarmLabel: "CBE", FeedItemLabel: "Mesha Kids Goat Concentrate",
+		FeedItemKey: "mesha_kids_goat_concentrate",
+		AvgDailyKg:  "10.0", RequiredKg: "70.0", StockKg: "1068.0", ShortfallKg: "0.0",
+		PerKgCost: "40.00", RequiredCost: "2800", ShortfallCost: "0",
+	})
+
+	// The NON-Mesha feed the concentrate table excludes: avg 100.0, need 700.0,
+	// stock = 5000 − 400 directed = 4600.0, covered, 700 × 20 = 14000.
+	concentrate := rows["concentrate"]
+	assertForecast(t, "concentrate", concentrate, domain.StockForecastItem{
+		FarmLabel: "CBE", FeedItemLabel: "Concentrate", FeedItemKey: "concentrate",
+		AvgDailyKg: "100.0", RequiredKg: "700.0", StockKg: "4600.0", ShortfallKg: "0.0",
+		PerKgCost: "20.00", RequiredCost: "14000", ShortfallCost: "0",
+	})
+
+	// Hay: fed every day, NEVER purchased. The requirement still reports — a
+	// missing rate must not delete the need — while every money and balance
+	// figure stays EMPTY rather than reading as a zero need or free feed.
+	hay := rows["hay"]
+	assertForecast(t, "hay", hay, domain.StockForecastItem{
+		FarmLabel: "CBE", FeedItemLabel: "Hay", FeedItemKey: "hay",
+		AvgDailyKg: "5.0", RequiredKg: "35.0", StockKg: "", ShortfallKg: "",
+		PerKgCost: "", RequiredCost: "", ShortfallCost: "",
+	})
+
+	// UHT Milk: fed only through the external ledger. avg 20.0, need 140.0,
+	// stock = 600 − 60 = 540.0 (covered), 140 × 60 = 8400.
+	uht := rows["uht_milk"]
+	assertForecast(t, "uht_milk", uht, domain.StockForecastItem{
+		FarmLabel: "CBE", FeedItemLabel: "UHT Milk", FeedItemKey: "uht_milk",
+		AvgDailyKg: "20.0", RequiredKg: "140.0", StockKg: "540.0", ShortfallKg: "0.0",
+		PerKgCost: "60.00", RequiredCost: "8400", ShortfallCost: "0",
+	})
+
+	// PAGE BOUNDARY: this table takes no limit/offset, so the whole fed set is
+	// one page and the row count IS the total. Four feeds fed, four rows -- a
+	// requirement table that silently truncated would under-order the feeds it
+	// dropped.
+	if len(got.Forecast) != 4 {
+		t.Errorf("forecast rows = %d, want 4: %+v", len(got.Forecast), got.Forecast)
+	}
+
+	// A park filter naming a different park must empty the table rather than
+	// leak another park's requirement.
+	other, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+		ParkIDs: []uuid.UUID{uuid.MustParse("11111111-1111-4111-8111-111111111111")},
+	})
+	if err != nil {
+		t.Fatalf("StockAnalytics other park: %v", err)
+	}
+	if len(other.Forecast) != 0 {
+		t.Errorf("forecast leaked across park scope: %+v", other.Forecast)
+	}
+}
+
+// A shortfall the farm must actually buy: stock BELOW the week's need, priced
+// separately from the full week's bill.
+func TestStockForecastShortfallPricesOnlyWhatMustBeBought(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+	park := fdiPark
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status)
+VALUES ($1, $2, 'CBE', 'Concentrate', 400, DATE '2026-08-16', 130.000, 25.0000, 0, 0,
+        DATE '2026-08-17', 'Navaladi', 'Paid')`, fdiTenant, park); err != nil {
+		t.Fatalf("insert purchase: %v", err)
+	}
+	issuedAt := time.Date(2026, 8, 20, 9, 0, 0, 0, biztime.DefaultLocation())
+	for i, day := range []string{"2026-08-18", "2026-08-19", "2026-08-20"} {
+		cells := []domain.StoredCell{{
+			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+			PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: "Concentrate", FeedItemKey: "concentrate",
+			QuantityKg: kg("10.000"), SessionTotalKg: "10.000",
+		}}
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day, Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: fmt.Sprintf("fp-short-%d", i),
+			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":" + day + ":short",
+			GeneratedBy:    "test", Cells: cells,
+		}); err != nil {
+			t.Fatalf("persist %s: %v", day, err)
+		}
+		if lock, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day,
+			Workflow: domain.WorkflowNormal, LockedAt: issuedAt,
+		}); err != nil || lock.Outcome != "locked" {
+			t.Fatalf("lock %s = (%v, %v)", day, lock.Outcome, err)
+		}
+	}
+	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+	if len(got.Forecast) != 1 {
+		t.Fatalf("forecast rows = %d, want 1: %+v", len(got.Forecast), got.Forecast)
+	}
+	// avg 10.0 → need 70.0; stock = 130 − 30 fed = 100.0. Wait, that covers it;
+	// the fixture is built so it does NOT: depletes_from is 2026-08-17 and all
+	// three fed days are on/after it, so stock = 130 − 30 = 100.0 ... the week
+	// needs 70.0, so this row IS covered. The shortfall case is the SECOND item.
+	// Keeping the arithmetic explicit here documents which side of the line the
+	// fixture sits on; the true shortfall assertion follows.
+	if got.Forecast[0].StockKg != "100.0" || got.Forecast[0].RequiredKg != "70.0" {
+		t.Fatalf("fixture drifted: %+v", got.Forecast[0])
+	}
+	// Now feed HARDER: three more days at 30 kg pushes the average to 30.0, so
+	// the week needs 210.0 against a 10.0 kg balance — a real 200.0 kg buy at
+	// 25.00 = 5000, while the FULL week would cost 210 × 25 = 5250. The two
+	// figures must differ: a purchase run pays only for what is missing.
+	for i, day := range []string{"2026-08-21", "2026-08-22", "2026-08-23"} {
+		cells := []domain.StoredCell{{
+			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+			PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+			HeadCount: 10, Workflow: domain.WorkflowNormal,
+			FeedItemLabel: "Concentrate", FeedItemKey: "concentrate",
+			QuantityKg: kg("30.000"), SessionTotalKg: "30.000",
+		}}
+		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day, Workflow: domain.WorkflowNormal,
+			IssuedAt: issuedAt, Fingerprint: fmt.Sprintf("fp-short-b-%d", i),
+			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":" + day + ":short",
+			GeneratedBy:    "test", Cells: cells,
+		}); err != nil {
+			t.Fatalf("persist %s: %v", day, err)
+		}
+		if lock, err := repo.LockIssue(ctx, ports.LockIssueCommand{
+			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: day,
+			Workflow: domain.WorkflowNormal, LockedAt: issuedAt,
+		}); err != nil || lock.Outcome != "locked" {
+			t.Fatalf("lock %s = (%v, %v)", day, lock.Outcome, err)
+		}
+	}
+	got, err = repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+	if err != nil {
+		t.Fatalf("StockAnalytics after: %v", err)
+	}
+	assertForecast(t, "concentrate", got.Forecast[0], domain.StockForecastItem{
+		FarmLabel: "CBE", FeedItemLabel: "Concentrate", FeedItemKey: "concentrate",
+		AvgDailyKg: "30.0", RequiredKg: "210.0", StockKg: "10.0", ShortfallKg: "200.0",
+		PerKgCost: "25.00", RequiredCost: "5250", ShortfallCost: "5000",
+	})
+}
+
+func assertForecast(t *testing.T, name string, got, want domain.StockForecastItem) {
+	t.Helper()
+	if got != want {
+		t.Errorf("%s forecast:\n got %+v\nwant %+v", name, got, want)
+	}
+}
+
+// feedKeyOf mirrors the feed_config_norm the generated column applies, for the
+// handful of labels this file's fixtures use.
+func feedKeyOf(label string) string {
+	switch label {
+	case "Mesha Kids Goat Concentrate":
+		return "mesha_kids_goat_concentrate"
+	case "Concentrate":
+		return "concentrate"
+	case "Hay":
+		return "hay"
+	default:
+		t := label
+		return t
+	}
+}
