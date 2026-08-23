@@ -158,3 +158,35 @@ test("an existing vaccine's own row is left untouched by adding a new one", () =
   assert.equal(original.schedule[0].offset_days, 28);
   assert.equal(original.schedule[0].dose_amount, 2);
 });
+
+// A short code that differs only in punctuation derives the same row id as an existing row, and
+// publish rejects a matrix whose row ids repeat. Refusing the vaccine over a detail the author
+// cannot see would be worse than suffixing the id, so the id moves and the typed code does not.
+test("a new vaccine never reuses an existing matrix row id", () => {
+  const plan = fromRuleDsl(BASE_DOC, null);
+  const existingRowId = BASE_DOC.matrix_rows[0].row_id;
+  // A short code differing from the existing one only in punctuation derives the SAME row id,
+  // and publish rejects a matrix whose row ids repeat. Refusing the vaccine over a detail the
+  // author cannot see would be worse than suffixing the id, so the id moves, the typed code
+  // does not, and the existing row keeps what it had.
+  const added = newVaccineToEditor({
+    name: "Enterotoxaemia Tetanus Repeat",
+    code: existingRowId.toUpperCase(),
+    disease: "Enterotoxaemia",
+    vaccineClass: "killed",
+    pathogen: "bacterial",
+    species: "both",
+    course: "single",
+    firstDoseDays: 28,
+    boosterGapDays: 0,
+    repeatDays: 180,
+    maxDelayDays: 7,
+  });
+  const doc = toRuleDsl(BASE_DOC, { ...plan, vaccines: [...plan.vaccines, added] });
+  const ids = doc.matrix_rows.map((r) => r.row_id);
+  assert.equal(new Set(ids).size, ids.length, `row ids collided: ${ids.join(", ")}`);
+  assert.ok(ids.includes(existingRowId), "the existing row lost its id");
+  const addedRow = doc.matrix_rows.find((r) => r.vaccine.code === existingRowId.toUpperCase());
+  assert.ok(addedRow, "the added vaccine produced no row");
+  assert.notEqual(addedRow.row_id, existingRowId, "the added row reused the existing row id");
+});

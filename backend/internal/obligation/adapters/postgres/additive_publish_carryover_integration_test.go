@@ -332,3 +332,56 @@ func TestCarryOverSkipsRowsThatWouldCollideInsteadOfFailing(t *testing.T) {
 		t.Fatalf("the colliding row vanished")
 	}
 }
+
+// Guardrail 7: the two sweeps take different status sets on purpose.
+//
+// Carry-over includes in_progress because rebinding is non-destructive: an operator part-way
+// through a drive keeps the same obligation and it stays attached to the version that is now
+// live. Supersede excludes in_progress because cancelling work somebody is physically doing is
+// worse than the staleness it fixes -- that exclusion predates carry-over and is unchanged by it.
+//
+// Pinned here because the asymmetry reads like an oversight and would otherwise be "tidied up".
+func TestInFlightWorkIsReboundButNeverCancelled(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo, _, v2, before := seedCarryOverFixture(t, ctx, pool, fiveVaccines())
+
+	// An operator has started the FMD dose.
+	if _, err := pool.Exec(ctx,
+		`UPDATE obligation_instances SET status = 'in_progress' WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		tenantID, before["fmd_primary"].id); err != nil {
+		t.Fatalf("mark in_progress: %v", err)
+	}
+
+	moved, err := repo.CarryOverUnchangedVaccinationObligations(ctx, tenantID, []string{carryOverGoat}, []string{v2})
+	if err != nil {
+		t.Fatalf("carry over: %v", err)
+	}
+	if moved != 5 {
+		t.Fatalf("carried over %d of 5: in-flight work was left behind on a retired version", moved)
+	}
+
+	after := obligationsForGoat(t, ctx, pool, carryOverGoat)
+	inFlight := after["fmd_primary"]
+	if inFlight.status != "in_progress" {
+		t.Fatalf("in-flight status = %q, want it untouched", inFlight.status)
+	}
+	if inFlight.id != before["fmd_primary"].id {
+		t.Fatalf("the operator's obligation was re-minted mid-drive")
+	}
+	if inFlight.versionID != v2 {
+		t.Fatalf("in-flight work did not follow the live version")
+	}
+
+	// And the supersede sweep must not offer it up for cancellation.
+	stale, err := repo.GoatsWithVaccinationObligationsOutsideVersions(ctx, tenantID, []string{carryOverGoat}, []string{v2})
+	if err != nil {
+		t.Fatalf("stale sweep: %v", err)
+	}
+	if len(stale) != 0 {
+		t.Fatalf("supersede wants to cancel %d goat(s) after a clean carry-over", len(stale))
+	}
+}

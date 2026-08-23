@@ -1839,7 +1839,10 @@ func (r *Repository) OpenObligationForRepeatCycle(ctx context.Context, tenantID,
 }
 
 // CarryOverUnchangedVaccinationObligations rebinds open vaccination work from a retired protocol
-// version to the effective one, for every rule whose business identity AND content are unchanged.
+// version to whichever effective version carries the same rule, for every rule whose business
+// identity AND content are unchanged. Callers normally pass a single effective version per park;
+// the pairing is by rule identity rather than by version, so more than one is handled without the
+// result depending on argument order.
 //
 // This is the mechanism behind "adding a sixth vaccine must not reschedule the other five"
 // (docs/preventive-care-vaccination/additive-publish.md). It is an UPDATE, never a
@@ -1864,7 +1867,10 @@ func (r *Repository) CarryOverUnchangedVaccinationObligations(ctx context.Contex
 
 	// DISTINCT ON keeps the pairing deterministic: a plan that (wrongly) carries two rules with
 	// the same identity and content would otherwise rebind to whichever row the planner reached
-	// first, making the result depend on physical row order.
+	// first, making the result depend on physical row order. Ordering by rule_id makes the choice
+	// stable within a version, though not across a re-publish, which mints fresh rule ids -- a
+	// duplicate-rule plan is an authoring error caught at publish, and this only bounds the damage
+	// rather than pretending to resolve it.
 	tag, err := r.pool.Exec(ctx, `
 WITH effective_rule AS (
   SELECT DISTINCT ON (identity_key, content_fingerprint)
