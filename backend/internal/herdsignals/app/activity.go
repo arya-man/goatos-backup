@@ -199,14 +199,32 @@ func (s *Service) computeEventCorrelationsBatched(ctx context.Context, tenantID,
 // motion cannot be attributed to one side, and silently counting it as "after" (as this did)
 // would let movement that happened BEFORE the event inflate the response to it.
 func (s *Service) computeEventCorrelationFromBatch(event *domain.ActivityEvent, allWindows []domain.ActivityWindow, expectedPerHalf int) {
+	// The batch is fetched ONCE across every event's span -- earliest-2h to latest+2h -- so it holds
+	// far more than this event's own two hours. Each event must therefore be clipped to ITS OWN
+	// window before anything is summed. Without the clip, the first event in a response counted every
+	// later event's buckets as its "after", and the last event counted every earlier bucket as its
+	// "before": a response to feeding could be inflated by a weighing hours later.
+	//
+	// The clip also restores the sparse check. Comparing a count against expectedPerHalf only works
+	// when every counted bucket is INSIDE the window -- otherwise unrelated buckets pad the total and
+	// hide a genuine hole, which is the one thing this comparison exists to refuse.
+	windowStart := event.At.Add(time.Duration(-correlationWindowHours) * time.Hour)
+	windowEnd := event.At.Add(time.Duration(correlationWindowHours) * time.Hour)
+
 	var beforeWindows, afterWindows []domain.ActivityWindow
 	for _, w := range allWindows {
 		bucketEnd := w.BucketStart.Add(time.Duration(w.BucketSeconds) * time.Second)
 		switch {
 		case !bucketEnd.After(event.At):
-			beforeWindows = append(beforeWindows, w)
+			// BEFORE half: the bucket must lie wholly within [event-2h, event].
+			if !w.BucketStart.Before(windowStart) {
+				beforeWindows = append(beforeWindows, w)
+			}
 		case !w.BucketStart.Before(event.At):
-			afterWindows = append(afterWindows, w)
+			// AFTER half: the bucket must lie wholly within [event, event+2h].
+			if !bucketEnd.After(windowEnd) {
+				afterWindows = append(afterWindows, w)
+			}
 		default:
 			// straddles the event instant -- counted in neither half
 		}

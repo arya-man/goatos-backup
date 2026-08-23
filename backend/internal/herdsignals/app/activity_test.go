@@ -188,3 +188,80 @@ func TestSparseHalfIsIncompleteEvenWhenEveryReturnedRowLooksHealthy(t *testing.T
 		t.Fatalf("a half holding %d of %d buckets must be treated as sparse, and therefore incomplete", len(half), expectedPerHalf)
 	}
 }
+
+// The batch is fetched once across EVERY event's span, so it holds buckets that belong to other
+// events entirely. Each event must be clipped to its own two hours before anything is summed.
+//
+// Without the clip the first event counted every later bucket as its "after" and the last event
+// counted every earlier bucket as its "before" -- so a response to feeding could be inflated by a
+// weighing hours later. Worse, those extra buckets padded the count that the sparse check compares
+// against expectedPerHalf, so a genuine hole INSIDE the real window could be hidden by unrelated
+// buckets outside it: the one thing that comparison exists to refuse.
+func TestBatchedCorrelationClipsEachEventToItsOwnWindow(t *testing.T) {
+	const bucketSeconds = correlationBucketSeconds
+	expectedPerHalf := int(time.Duration(correlationWindowHours) * time.Hour / (time.Duration(bucketSeconds) * time.Second))
+
+	base := time.Date(2026, 8, 23, 6, 0, 0, 0, time.UTC)
+	// Two events eight hours apart: their windows do not overlap at all.
+	eventA := base
+	eventB := base.Add(8 * time.Hour)
+
+	// One continuous run of buckets spanning both events and the gap between them, every bucket
+	// healthy. A correct implementation gives each event exactly its own 24-bucket halves.
+	var all []domain.ActivityWindow
+	for t0 := eventA.Add(-2 * time.Hour); t0.Before(eventB.Add(2 * time.Hour)); t0 = t0.Add(time.Duration(bucketSeconds) * time.Second) {
+		all = append(all, domain.ActivityWindow{
+			BucketStart:   t0,
+			BucketSeconds: bucketSeconds,
+			MotionDelta:   1,
+			PacketCount:   3,
+		})
+	}
+
+	svc := &Service{}
+	for _, tc := range []struct {
+		name string
+		at   time.Time
+	}{{"first event", eventA}, {"last event", eventB}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ev := domain.ActivityEvent{At: tc.at}
+			svc.computeEventCorrelationFromBatch(&ev, all, expectedPerHalf)
+
+			if ev.MotionDeltaBefore2h == nil || ev.MotionDeltaAfter2h == nil {
+				t.Fatalf("both halves are fully covered, so both must produce a number; got before=%v after=%v",
+					ev.MotionDeltaBefore2h, ev.MotionDeltaAfter2h)
+			}
+			// Every bucket carries delta 1, so a correctly clipped half sums to exactly its bucket count.
+			if *ev.MotionDeltaBefore2h != int64(expectedPerHalf) {
+				t.Fatalf("before half must contain exactly %d buckets from THIS event's window, summed %d -- buckets outside the window leaked in",
+					expectedPerHalf, *ev.MotionDeltaBefore2h)
+			}
+			if *ev.MotionDeltaAfter2h != int64(expectedPerHalf) {
+				t.Fatalf("after half must contain exactly %d buckets from THIS event's window, summed %d -- buckets outside the window leaked in",
+					expectedPerHalf, *ev.MotionDeltaAfter2h)
+			}
+			if ev.BeforeWindowIncomplete || ev.AfterWindowIncomplete {
+				t.Fatalf("a fully covered window must not be reported incomplete")
+			}
+		})
+	}
+
+	// Now punch a hole INSIDE the first event's before-half, while leaving the wider batch dense.
+	// Padding from outside the window must not disguise it.
+	holeStart := eventA.Add(-1 * time.Hour)
+	var withHole []domain.ActivityWindow
+	for _, w := range all {
+		if w.BucketStart.Equal(holeStart) {
+			continue
+		}
+		withHole = append(withHole, w)
+	}
+	ev := domain.ActivityEvent{At: eventA}
+	svc.computeEventCorrelationFromBatch(&ev, withHole, expectedPerHalf)
+	if !ev.BeforeWindowIncomplete {
+		t.Fatal("a bucket missing from INSIDE the before-window must mark it incomplete, even though the wider batch is dense")
+	}
+	if ev.MotionChangePercent != nil {
+		t.Fatal("an incomplete half must not yield a percentage change")
+	}
+}
