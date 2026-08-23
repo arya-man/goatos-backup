@@ -351,6 +351,10 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 		RepeatCycleDueAt:              repeatTime(in.RepeatCycle, func(r domain.RepeatCycleSource) *time.Time { return r.DueAt }),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
+		// Refused because something is already there. If that something is this rule's own work
+		// carried across a publish, it still answers to the key it was minted under; give it the
+		// one generation now owns so the row stays addressable.
+		r.adoptCarriedOverObligation(ctx, r.pool, tenant, in)
 		return "", false, nil // already generated for this idempotency key
 	}
 	if isRepeatCycleConflict(err) {
@@ -367,6 +371,65 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 // InsertDeferredObligation closes the split-write gap in generation: the row and its initial
 // deferred status event commit together. On a legacy replay where the row exists but the event
 // does not, the same transaction repairs the missing event before returning applied=false.
+// adoptCarriedOverObligation gives a carried-over row the idempotency key generation now owns.
+//
+// The key is derived from (tenant, protocol_version_id, rule_id, goat, due token, sequence), so a
+// row carried across a publish still holds the key it was minted under while its version and rule
+// point at the new plan. Every key-addressed operation the generator performs afterwards --
+// realign, defer, reopen, cancel-by-key -- would then look up a key that matches nothing, and the
+// obligation it just preserved becomes unreachable by the code that owns it.
+//
+// Rewriting the key here, at the moment the insert is refused, keeps the row and its address in
+// step. It is deliberately narrow: only a row already sitting at this exact identity is touched,
+// only when its key actually differs, and never when some other row already holds the new key --
+// that would be a genuine collision rather than a stale address, and unique_violation is the right
+// outcome for the caller to see rather than something to paper over.
+func (r *Repository) adoptCarriedOverObligation(ctx context.Context, q rowExecer, tenant pgtype.UUID, in domain.NewObligation) {
+	version, verr := pgconv.UUID(in.ProtocolVersionID)
+	rule, rerr := pgconv.UUID(in.RuleID)
+	target, terr := pgconv.UUID(in.TargetID)
+	if verr != nil || rerr != nil || terr != nil {
+		return
+	}
+	ref := pgtype.Text{}
+	if in.RepeatCycle.Valid() {
+		ref = pgtype.Text{String: in.RepeatCycle.SourceRef, Valid: true}
+	}
+	// Errors are deliberately not surfaced: this is an address repair on a row the caller already
+	// decided to keep. Failing the generation pass over it would turn a cosmetic staleness into an
+	// outage, and the next pass attempts the repair again.
+	_, _ = q.Exec(ctx, `
+UPDATE obligation_instances oi
+SET idempotency_key = $9,
+    row_version = oi.row_version + 1,
+    updated_at = now()
+WHERE oi.tenant_id = $1
+  AND oi.protocol_version_id = $2
+  AND oi.rule_id = $3
+  AND oi.target_type = $4
+  AND oi.target_id = $5
+  AND oi.idempotency_key <> $9
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND (
+    ($6::text IS NULL AND oi."sequence" = $7 AND oi.due_at = $8::timestamptz)
+    OR ($6::text IS NOT NULL
+        AND (oi.repeat_cycle_source_ref = $6::text
+          OR (oi.repeat_cycle_source_ref IS NULL AND oi."sequence" = $7)))
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances other
+    WHERE other.tenant_id = oi.tenant_id
+      AND other.idempotency_key = $9
+      AND other.obligation_id <> oi.obligation_id
+  )`, tenant, version, rule, in.TargetType, target, ref, in.Sequence, pgconv.Timestamptz(in.DueAt), in.IdempotencyKey)
+}
+
+// rowExecer is satisfied by *pgxpool.Pool and pgx.Tx, so the address repair can run inside or
+// outside an open transaction.
+type rowExecer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
 // suppressedObligation finds the row an insert was refused against.
 //
 // The guard suppresses for two different reasons, and only one of them is a key collision.
@@ -381,6 +444,7 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 // it stayed held.
 func (r *Repository) suppressedObligation(
 	ctx context.Context,
+	tx pgx.Tx,
 	qtx *obligationdb.Queries,
 	tenant pgtype.UUID,
 	in domain.NewObligation,
@@ -391,8 +455,14 @@ func (r *Repository) suppressedObligation(
 	if err == nil {
 		return existing.ObligationID, existing.Status, nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) || !in.RepeatCycle.Valid() {
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return "", "", err
+	}
+	if !in.RepeatCycle.Valid() {
+		// No cause to look up, but the insert was still suppressed by SOMETHING. Ask the guard's
+		// own predicate which row that was, rather than reporting the key miss as if nothing had
+		// blocked us -- after a carry-over the blocking row routinely carries a different key.
+		return r.obligationSuppressingInsert(ctx, tx, tenant, in, err)
 	}
 	version, verr := pgconv.UUID(in.ProtocolVersionID)
 	if verr != nil {
@@ -416,11 +486,82 @@ func (r *Repository) suppressedObligation(
 		RepeatCycleSourceRef: pgtype.Text{String: in.RepeatCycle.SourceRef, Valid: true},
 	})
 	if cerr != nil {
-		// Report the ORIGINAL miss: "no row under this key" is the honest description of
-		// what happened, and the by-cause attempt was the fallback, not the request.
-		return "", "", err
+		return r.obligationSuppressingInsert(ctx, tx, tenant, in, err)
 	}
 	return byCause.ObligationID, byCause.Status, nil
+}
+
+// obligationSuppressingInsert finds the row that actually suppressed the insert.
+//
+// InsertObligationInstance returns no rows when its NOT EXISTS guard matches an existing open
+// obligation, and that guard has two branches: a non-repeat one keyed on (sequence, due_at), and
+// a repeat one keyed on the CAUSE (repeat_cycle_source_ref) that deliberately ignores due_at,
+// because a repeat's due date moves with the dose before it.
+//
+// Looking the row up by idempotency key misses whenever the suppressing row was minted under a
+// different key -- which is routine after carry-over, since a rebound obligation keeps the key it
+// was created with while sitting at the new version's identity. Looking it up by (due_at,
+// sequence) misses whenever the repeat branch did the suppressing.
+//
+// So this mirrors the guard's own predicate rather than approximating it: whatever the insert
+// treated as "already there" is what gets returned. priorErr -- the original by-key miss -- is
+// returned unchanged when nothing matches, because that stays the honest description of what was
+// asked for.
+func (r *Repository) obligationSuppressingInsert(
+	ctx context.Context,
+	tx pgx.Tx,
+	tenant pgtype.UUID,
+	in domain.NewObligation,
+	priorErr error,
+) (string, string, error) {
+	if tx == nil {
+		return "", "", priorErr
+	}
+	version, verr := pgconv.UUID(in.ProtocolVersionID)
+	if verr != nil {
+		return "", "", priorErr
+	}
+	rule, rerr := pgconv.UUID(in.RuleID)
+	if rerr != nil {
+		return "", "", priorErr
+	}
+	target, terr := pgconv.UUID(in.TargetID)
+	if terr != nil {
+		return "", "", priorErr
+	}
+	ref := pgtype.Text{}
+	if in.RepeatCycle.Valid() {
+		ref = pgtype.Text{String: in.RepeatCycle.SourceRef, Valid: true}
+	}
+	var id, status string
+	// Ordered so the non-repeat exact match wins over a cause match when both exist, and by
+	// obligation_id after that, so the answer never depends on physical row order.
+	if err := tx.QueryRow(ctx, `
+SELECT obligation_id::text, status
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND protocol_version_id = $2
+  AND rule_id = $3
+  AND target_type = $4
+  AND target_id = $5
+  AND (
+    ($6::text IS NULL
+      AND "sequence" = $7
+      AND due_at = $8::timestamptz
+      AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed'))
+    OR
+    ($6::text IS NOT NULL
+      AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      AND (repeat_cycle_source_ref = $6::text
+        OR (repeat_cycle_source_ref IS NULL AND "sequence" = $7)))
+  )
+ORDER BY (due_at = $8::timestamptz) DESC, obligation_id
+LIMIT 1`,
+		tenant, version, rule, in.TargetType, target, ref, in.Sequence, pgconv.Timestamptz(in.DueAt),
+	).Scan(&id, &status); err != nil {
+		return "", "", priorErr
+	}
+	return id, status, nil
 }
 
 func (r *Repository) InsertDeferredObligation(ctx context.Context, in domain.NewObligation, reason string, occurredAt time.Time) (string, bool, error) {
@@ -488,11 +629,12 @@ func (r *Repository) InsertDeferredObligation(ctx context.Context, in domain.New
 	}
 	applied := err == nil
 	if errors.Is(err, pgx.ErrNoRows) {
-		existingID, existingStatus, lookupErr := r.suppressedObligation(ctx, qtx, tenant, in)
+		existingID, existingStatus, lookupErr := r.suppressedObligation(ctx, tx, qtx, tenant, in)
 		if lookupErr != nil {
 			return "", false, fmt.Errorf("obligation: lookup deferred replay: %w", lookupErr)
 		}
 		obligationID = existingID
+		r.adoptCarriedOverObligation(ctx, tx, tenant, in)
 		if existingStatus != "deferred" {
 			if err := tx.Commit(ctx); err != nil {
 				return "", false, fmt.Errorf("obligation: commit deferred replay: %w", err)
