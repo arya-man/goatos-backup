@@ -21,7 +21,7 @@ import { HerdSignalsGateways } from "./herd-signals-gateways";
 import { HerdSignalsInsights } from "./herd-signals-insights";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import type { HerdSignalItem } from "@/lib/api/herd-signals";
-import { PATTERN_LABEL, PATTERN_TONE, PATTERN_WHY, fmtAgo, fmtRssi, fmtBatteryMv } from "./format";
+import { PATTERN_LABEL, PATTERN_TONE, fmtAgo, fmtRssi, fmtBatteryMv } from "./format";
 import { HERD_SIGNALS_TABS, herdSignalsHref, kpiToMovementState, parseHerdSignalsParams, type HerdSignalsParams, type HerdSignalsTab } from "./params";
 
 const TAB_LABEL: Record<HerdSignalsTab, string> = {

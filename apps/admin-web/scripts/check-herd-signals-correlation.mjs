@@ -56,11 +56,13 @@ async function main() {
       await page.screenshot({ path: screenshotPath, fullPage: true });
       console.log(`Screenshot saved: ${screenshotPath}`);
 
-      // Wait a moment for the activity data to load
-      await page.waitForTimeout(2000);
+      // Wait for the activity data to load (table to be visible)
+      const correlationTable = page.locator('table.resp:has-text("Activity around recorded farm activity")').first();
+      await correlationTable.waitFor({ timeout: 5000, state: "visible" }).catch(() => {
+        console.warn("Correlation table did not appear within timeout");
+      });
 
       // Check if the correlation table has data
-      const correlationTable = page.locator('table.resp:has-text("Activity around recorded farm activity")').first();
       const tableVisible = await correlationTable.isVisible().catch(() => false);
 
       if (tableVisible) {
