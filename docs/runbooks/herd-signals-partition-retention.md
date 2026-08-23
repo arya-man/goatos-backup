@@ -139,10 +139,12 @@ tunnel via `/Users/ravi/mesha/tools/local/oci-goatos-a1-dev.sh tunnel`):
 
 ```bash
 cd backend
-go run ./cmd/herd-signals-partition-maintenance -database-url "$DATABASE_URL"
-# or, matching the deployed args exactly:
-go run ./cmd/herd-signals-partition-maintenance \
-  -database-url "$DATABASE_URL" -days-ahead=14 -retention-days=14
+# DATABASE_URL must already be exported (e.g. `set -a; source
+# /Users/ravi/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env; set +a` -- a plain,
+# non-exported `source` will NOT put it in the child process env).
+go run ./cmd/herd-signals-partition-maintenance -days-ahead=14 -retention-days=14
+# or use the Makefile target, which passes the same flags:
+make herd-signals-partition-maintenance
 ```
 
 Running it twice in a row should show `0 created` the second time (the

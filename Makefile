@@ -1120,9 +1120,13 @@ seed-feed-ration:
 # Herd Signals partition maintenance (see migration 000201 and
 # docs/modules/herd-signals-system-design.md Section 3): creates any missing daily
 # herd_signal_packets partitions ahead of ingest, then drops daily partitions older than
-# retention. Intended to run once daily against the target environment's DATABASE_URL.
+# retention (IRREVERSIBLE -- dropped raw packets are not recoverable). Intended to run once
+# daily against the target environment's DATABASE_URL. Scheduled in dev via Cloud Scheduler
+# (infra/envs/dev/cloud_run_jobs.tf); declared but manually-triggered in stg
+# (infra/envs/stg/herd_signals_partition_maintenance.tf) until stg gets equivalent scheduler
+# wiring -- see docs/runbooks/herd-signals-partition-retention.md.
 herd-signals-partition-maintenance:
-	cd backend && go run ./cmd/herd-signals-partition-maintenance -database-url "$${DATABASE_URL}"
+	cd backend && go run ./cmd/herd-signals-partition-maintenance -days-ahead=14 -retention-days=14
 
 seed-dev-email-grants:
 	cd backend && go run ./cmd/seed-dev-email-grants -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -role ceo_internal -source goatos_dev_dashboard_admins $(foreach email,$(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS),-email $(email))
