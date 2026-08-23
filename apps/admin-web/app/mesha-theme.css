@@ -176,6 +176,26 @@
   .main tr.feed-variance-row:hover > td{background:color-mix(in srgb,var(--danger) 20%,transparent)}
   .main .feed-consumption-trend{padding:4px 16px 14px}
   .main .feed-subhead{margin:10px 0 2px;font-size:13px;font-weight:700}
+  /* A card title is a NAME and reads as one line. In the header flex row a long hint squeezed the
+     title until it wrapped ("Packing quantity / mismatches"), which reads as two headings. The
+     title holds its width and the hint takes the remaining space, shrinking instead. */
+  .main .card .hd h3{white-space:nowrap;flex:0 0 auto}
+  .main .card .hd > .small.muted{min-width:0}
+  /* Ten columns since breed and age group joined: at the default 12px each side the row needed
+     more width than a laptop viewport gives, so Difference -- the column the reader came for --
+     fell off the right edge behind a horizontal scroll. Tighter gutters fit the row instead of
+     hiding its point. The kg figures stay on one line; only the wordy columns may wrap. */
+  .main table.feed-mismatch-table th,.main table.feed-mismatch-table td{padding-left:7px;padding-right:7px}
+  .main table.feed-mismatch-table th:first-child,.main table.feed-mismatch-table td:first-child{padding-left:14px}
+  .main table.feed-mismatch-table th:last-child,.main table.feed-mismatch-table td:last-child{padding-right:14px}
+  /* Only the columns that CONTAIN SPACES may wrap, and only at those spaces: a shed, a feed name
+     and a breed read fine over two lines, which is what buys the numeric columns their width.
+     Everything else holds one line -- breaking mid-word gave "Channapat/na" and "SESSIO/N". */
+  .main table.feed-mismatch-table th,.main table.feed-mismatch-table td{white-space:nowrap}
+  .main table.feed-mismatch-table th:nth-child(3),.main table.feed-mismatch-table td:nth-child(3),
+  .main table.feed-mismatch-table th:nth-child(5),.main table.feed-mismatch-table td:nth-child(5),
+  .main table.feed-mismatch-table th:nth-child(6),.main table.feed-mismatch-table td:nth-child(6),
+  .main table.feed-mismatch-table th:nth-child(7){white-space:normal;overflow-wrap:normal;word-break:normal}
   /* Undoes the generic `.card{overflow:hidden}` for THIS card only. That clip keeps table corners
      inside the radius, but it also amputated the capture-date popover: with an empty board the card
      is ~350px tall and the calendar ~416px, so the last two weeks and the Today button were cut off

@@ -5466,29 +5466,16 @@ export interface components {
             workflow: string;
             feed_item_key: string;
             feed_item_label: string;
+            /** @description The bag's breed, or "Mixed" when its sheet rows disagree; empty when the sheet row is gone. */
+            breed_label: string;
+            /** @description "Kid" or "Adult", or "Mixed" when the bag's sheet rows straddle both; empty when the sheet row is gone. */
+            age_group: string;
             /** @description The frozen sheet's summed quantity as a decimal string; EMPTY when the sheet carried no resolved quantity for this item -- blank and zero are never conflated. */
             planned_kg: string;
             /** @description The verifier's entered reading. "0" is a real observation. */
             verified_kg: string;
             /** @description verified minus the resolved planned quantity (0 when unresolved), signed. */
             variance_kg: string;
-        };
-        /** @description One SHED's target-vs-actual feed for the requested day, summed across every feed item and session it was fed. `actual_kg` and `variance_kg` are EMPTY when no packing reading exists for that shed yet -- never "0", which would claim the shed was fed nothing. `has_variance` is true only when a reading exists AND differs from target beyond tolerance. `breed_label` and `age_group` report "Mixed" when the shed's sheet rows disagree. */
-        FeedAnalyticsConsumptionRow: {
-            /** Format: date */
-            feed_day: string;
-            park_label: string;
-            /** Format: uuid */
-            shed_id: string;
-            shed_label: string;
-            partition_label?: string;
-            operational_location_display: string;
-            breed_label: string;
-            age_group: string;
-            target_kg: string;
-            actual_kg: string;
-            variance_kg: string;
-            has_variance: boolean;
         };
         /** @description One day of target-vs-actual feed totals over the same comparison rows the table shows. `actual_kg` is EMPTY on a day with no packing readings at all, so the chart draws a gap rather than a plunge to zero. */
         FeedAnalyticsConsumptionTrendDay: {
@@ -5507,7 +5494,6 @@ export interface components {
             /** Format: date */
             date_to: string;
             days: components["schemas"]["FeedAnalyticsExecutionDay"][];
-            consumption_rows: components["schemas"]["FeedAnalyticsConsumptionRow"][];
             consumption_trend: components["schemas"]["FeedAnalyticsConsumptionTrendDay"][];
             /** @description Every intended-vs-entered packing mismatch in the window, newest feed day first. Always present; empty when every verified reading matched the sheet. */
             packing_variance: components["schemas"]["FeedAnalyticsPackingVarianceRow"][];
@@ -15881,6 +15867,8 @@ export interface operations {
                 date_from?: string;
                 /** @description Inclusive window end, defaulting to yesterday; window capped at 92 days. */
                 date_to?: string;
+                /** @description Comma-separated arms to compute; omit for all. Each arm is several queries, so a page that needs one array from a second, differently-scoped read should ask for that arm alone. An unrequested arm comes back empty, NOT absent. An unknown name is rejected with 400 rather than ignored, because serving a payload without the array the caller asked for renders as "no data" on screen. */
+                sections?: string;
             };
             header?: never;
             path?: never;

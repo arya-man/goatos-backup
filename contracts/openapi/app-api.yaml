@@ -4374,6 +4374,18 @@ paths:
           schema:
             type: string
             format: date
+        - name: sections
+          in: query
+          required: false
+          description: >-
+            Comma-separated arms to compute; omit for all. Each arm is several queries, so a page
+            that needs one array from a second, differently-scoped read should ask for that arm
+            alone. An unrequested arm comes back empty, NOT absent. An unknown name is rejected
+            with 400 rather than ignored, because serving a payload without the array the caller
+            asked for renders as "no data" on screen.
+          schema:
+            type: string
+            example: consumption
       responses:
         "200":
           description: Per-day status counts, ordered by date ascending.
@@ -13090,7 +13102,8 @@ components:
         surface.
       required:
         [feed_day, park_label, shed_id, shed_label, operational_location_display, session_no,
-         workflow, feed_item_key, feed_item_label, planned_kg, verified_kg, variance_kg]
+         workflow, feed_item_key, feed_item_label, breed_label, age_group, planned_kg, verified_kg,
+         variance_kg]
       properties:
         feed_day:
           type: string
@@ -13120,6 +13133,12 @@ components:
           type: string
         feed_item_label:
           type: string
+        breed_label:
+          type: string
+          description: The bag's breed, or "Mixed" when its sheet rows disagree; empty when the sheet row is gone.
+        age_group:
+          type: string
+          description: "\"Kid\" or \"Adult\", or \"Mixed\" when the bag's sheet rows straddle both; empty when the sheet row is gone."
         planned_kg:
           type: string
           description: >-
@@ -13131,44 +13150,6 @@ components:
         variance_kg:
           type: string
           description: verified minus the resolved planned quantity (0 when unresolved), signed.
-    FeedAnalyticsConsumptionRow:
-      type: object
-      description: >-
-        One SHED's target-vs-actual feed for the requested day, summed across every feed item and
-        session it was fed. `actual_kg` and `variance_kg` are EMPTY when no packing reading exists
-        for that shed yet -- never "0", which would claim the shed was fed nothing. `has_variance`
-        is true only when a reading exists AND differs from target beyond tolerance. `breed_label`
-        and `age_group` report "Mixed" when the shed's sheet rows disagree.
-      required:
-        [feed_day, park_label, shed_id, shed_label, operational_location_display, breed_label,
-         age_group, target_kg, actual_kg, variance_kg, has_variance]
-      properties:
-        feed_day:
-          type: string
-          format: date
-        park_label:
-          type: string
-        shed_id:
-          type: string
-          format: uuid
-        shed_label:
-          type: string
-        partition_label:
-          type: string
-        operational_location_display:
-          type: string
-        breed_label:
-          type: string
-        age_group:
-          type: string
-        target_kg:
-          type: string
-        actual_kg:
-          type: string
-        variance_kg:
-          type: string
-        has_variance:
-          type: boolean
     FeedAnalyticsConsumptionTrendDay:
       type: object
       description: >-
@@ -13192,7 +13173,7 @@ components:
           format: int64
     FeedAnalyticsExecutionResponse:
       type: object
-      required: [date_from, date_to, days, consumption_rows, consumption_trend, packing_variance]
+      required: [date_from, date_to, days, consumption_trend, packing_variance]
       properties:
         date_from:
           type: string
@@ -13204,10 +13185,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FeedAnalyticsExecutionDay"
-        consumption_rows:
-          type: array
-          items:
-            $ref: "#/components/schemas/FeedAnalyticsConsumptionRow"
         consumption_trend:
           type: array
           items:
