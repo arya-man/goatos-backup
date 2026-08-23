@@ -642,7 +642,7 @@ func TestGetInsightsDataOneToManyIdentifiersNoDoubleCount(t *testing.T) {
 			 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 			 smart_tag_mapped_at, source_system)
 		VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', $4, $5, 'herd_signals', false, 'active',
-			now(), 1, true, now(), 'herd_signals')`,
+			now(), 1, true, now() - interval '1 day', 'herd_signals')`,
 			hsiUUID(t, "id", i), hsiTenant, goatID, identifier, strings.ToUpper(strings.TrimSpace(identifier)))
 	}
 
@@ -704,7 +704,7 @@ func TestGetInsightsDataScopeHierarchyTenantIsolation(t *testing.T) {
 		 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 		 smart_tag_mapped_at, source_system)
 	VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', 'tag-1', 'TAG-1', 'herd_signals', false, 'active',
-		now(), 1, true, now(), 'herd_signals')`,
+		now(), 1, true, now() - interval '1 day', 'herd_signals')`,
 		hsiUUID(t, "id", 10), hsiTenant, goatID1)
 
 	hsiSeedVaccinationCompletion(t, ctx, pool, hsiTenant, goatID1, 2)
@@ -715,7 +715,7 @@ func TestGetInsightsDataScopeHierarchyTenantIsolation(t *testing.T) {
 		 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 		 smart_tag_mapped_at, source_system)
 	VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', 'tag-2', 'TAG-2', 'herd_signals', false, 'active',
-		now(), 1, true, now(), 'herd_signals')`,
+		now(), 1, true, now() - interval '1 day', 'herd_signals')`,
 		hsiUUID(t, "id", 11), tenant2, goatID2)
 
 	hsiSeedVaccinationCompletion(t, ctx, pool, tenant2, goatID2, 3)
@@ -776,7 +776,7 @@ func TestGetInsightsDataHealthCaseStatusMatrix(t *testing.T) {
 			 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 			 smart_tag_mapped_at, source_system)
 		VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', $4, $5, 'herd_signals', false, 'active',
-			now(), 1, true, now(), 'herd_signals')`,
+			now(), 1, true, now() - interval '1 day', 'herd_signals')`,
 			hsiUUID(t, "id", i), hsiTenant, gid, fmt.Sprintf("tag-hc%d", i+1), fmt.Sprintf("TAG-HC%d", i+1))
 	}
 
@@ -848,7 +848,7 @@ func TestGetInsightsDataMultiPageBoundaryCountsRemainStable(t *testing.T) {
 			 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 			 smart_tag_mapped_at, source_system)
 		VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', $4, $5, 'herd_signals', false, 'active',
-			now(), 1, true, now(), 'herd_signals')`,
+			now(), 1, true, now() - interval '1 day', 'herd_signals')`,
 			hsiUUID(t, "id", i), hsiTenant, goatID, "tag-multi-"+string(rune('a'+i)), "TAG-MULTI-"+string(rune('A'+i)))
 
 		// Each goat has a recent vaccination
@@ -1133,28 +1133,39 @@ func TestGetGatewayWindowStatsStatusMatrix(t *testing.T) {
 	VALUES ($1, $2, $3, 'active')`,
 		gwID, hsiTenant, hsiShed)
 
-	// Ingest tags with different motion deltas to create two status buckets
-	for i := 0; i < 3; i++ {
-		tagID := fmt.Sprintf("tag-status-%d", i)
-		mac := fmt.Sprintf("%02d:BB:CC:DD:EE:%02d", i, i)
-		motionDelta := int64(100 + i*50) // 100, 150, 200 - all positive (active)
-		_, _, err := repo.IngestPackets(ctx, hsiTenant, domain.Gateway{TenantID: hsiTenant, GatewayID: gwID, Status: "active"},
-			[]domain.Packet{makePacket(hsiTenant, tagID, mac, gwID, time.Now().Add(-5*time.Minute), motionDelta, -70)})
-		if err != nil {
-			t.Fatalf("IngestPackets active tag %d: %v", i, err)
+	// A packet carries a monotonic motion COUNT, not a delta: the window's motion_delta is
+	// last_motion_count - first_motion_count within the bucket. A single packet therefore has
+	// first == last and always reports zero movement, however large its counter. Each tag needs
+	// at least two readings in the same bucket for the delta to exist at all.
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: gwID, Status: "active"}
+	ingest := func(tagID, mac string, at time.Time, motionCount int64, label string, i int) {
+		t.Helper()
+		if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw,
+			[]domain.Packet{makePacket(hsiTenant, tagID, mac, gwID, at, motionCount, -70)}); err != nil {
+			t.Fatalf("IngestPackets %s tag %d: %v", label, i, err)
 		}
 	}
 
-	// Ingest tags with zero or negative motion (idle status)
+	// Both readings must land in the SAME 300s bucket -- one packet per bucket is one packet
+	// as far as the delta is concerned, however many buckets there are.
+	bucket := time.Now().UTC().Add(-5 * time.Minute).Truncate(5 * time.Minute)
+	firstAt, secondAt := bucket.Add(30*time.Second), bucket.Add(90*time.Second)
+
+	// Three tags that moved: the counter advances between the two readings.
+	for i := 0; i < 3; i++ {
+		tagID := fmt.Sprintf("tag-status-%d", i)
+		mac := fmt.Sprintf("%02d:BB:CC:DD:EE:%02d", i, i)
+		moved := int64(100 + i*50) // 100, 150, 200 - all positive (active)
+		ingest(tagID, mac, firstAt, 1000, "active", i)
+		ingest(tagID, mac, secondAt, 1000+moved, "active", i)
+	}
+
+	// Two tags that were heard but did not move: the counter stands still.
 	for i := 3; i < 5; i++ {
 		tagID := fmt.Sprintf("tag-status-%d", i)
 		mac := fmt.Sprintf("%02d:BB:CC:DD:EE:%02d", i, i)
-		motionDelta := int64(-50) // Negative motion (idle)
-		_, _, err := repo.IngestPackets(ctx, hsiTenant, domain.Gateway{TenantID: hsiTenant, GatewayID: gwID, Status: "active"},
-			[]domain.Packet{makePacket(hsiTenant, tagID, mac, gwID, time.Now().Add(-5*time.Minute), motionDelta, -70)})
-		if err != nil {
-			t.Fatalf("IngestPackets idle tag %d: %v", i, err)
-		}
+		ingest(tagID, mac, firstAt, 1000, "idle", i)
+		ingest(tagID, mac, secondAt, 1000, "idle", i)
 	}
 
 	stats, err := repo.GetGatewayWindowStats(ctx, hsiTenant)
