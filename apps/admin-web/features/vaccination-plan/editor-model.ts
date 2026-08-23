@@ -38,7 +38,70 @@ export type EditorVaccine = {
   maxLateDays: number | null;
   /** Repeat interval in days, or null when the vaccine does not repeat. */
   repeatDays: number | null;
+  /**
+   * "bacterial" | "viral" | "mixed" | "unknown_review_needed". Only carried for a
+   * vaccine added in this session -- toRuleDsl needs it to classify a matrix row
+   * that does not exist in the original document yet. An existing row's own
+   * document object is never touched, so this is undefined for it.
+   */
+  pathogenClass?: string;
+  /** "single" | "booster". Same "new row only" scope as pathogenClass. */
+  courseType?: string;
+  /** "goat" | "sheep" | "both". Same "new row only" scope as pathogenClass. */
+  species?: string;
 };
+
+/** Everything "+ Add a vaccine" collects, before it becomes an EditorVaccine + a matrix row. */
+export type NewVaccineInput = {
+  name: string;
+  code: string;
+  disease: string;
+  vaccineType: "live" | "killed";
+  pathogenClass: "bacterial" | "viral";
+  species: "goat" | "sheep" | "both";
+  courseType: "single" | "booster";
+  firstDoseDays: number;
+  /** Only meaningful when courseType is "booster". */
+  boosterGapDays: number;
+  /** null when this vaccine does not repeat. */
+  repeatDays: number | null;
+  maxLateDays: number;
+};
+
+/**
+ * Turns what the panel collected into the same shape the rest of the editor
+ * already edits. A booster is just a second kid dose whose offset is the first
+ * dose plus the gap -- the existing dose UI (plan-editor's "Give it when the
+ * animal is …" rows, the Booster label at index > 0) needs nothing new to show
+ * or edit it.
+ */
+export function newVaccineToEditor(input: NewVaccineInput): EditorVaccine {
+  const code = input.code.trim();
+  const kidDoses: Dose[] = [
+    { offsetDays: input.firstDoseDays, triggerType: "birth_age", doseCode: `${code.toLowerCase()}_dose_1` },
+  ];
+  if (input.courseType === "booster") {
+    kidDoses.push({
+      offsetDays: input.firstDoseDays + input.boosterGapDays,
+      triggerType: "birth_age",
+      doseCode: `${code.toLowerCase()}_dose_2`,
+    });
+  }
+  return {
+    code,
+    name: input.name.trim(),
+    vaccineClass: input.vaccineType,
+    disease: input.disease.trim(),
+    on: true,
+    kidDoses,
+    driveDoses: [],
+    maxLateDays: input.maxLateDays,
+    repeatDays: input.repeatDays,
+    pathogenClass: input.pathogenClass,
+    courseType: input.courseType,
+    species: input.species,
+  };
+}
 
 export type ProcurementHolding = {
   warmupNoVaccinationDays: number | null;
@@ -129,6 +192,8 @@ function readVaccine(row: unknown): EditorVaccine {
     // editor shows one value rather than pretending they are independent.
     maxLateDays: numberOrNull(firsts[0]?.due_window_days ?? repeats[0]?.due_window_days),
     repeatDays: numberOrNull(repeats[0]?.offset_days),
+    pathogenClass: typeof vaccine.pathogen_class === "string" ? vaccine.pathogen_class : undefined,
+    courseType: typeof vaccine.course_type === "string" ? vaccine.course_type : undefined,
   };
 }
 
@@ -152,9 +217,11 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
   const byCode = new Map(plan.vaccines.map((v) => [v.code, v]));
 
   const rows = Array.isArray(doc.matrix_rows) ? (doc.matrix_rows as unknown[]) : [];
-  doc.matrix_rows = rows.map((row) => {
+  const seenCodes = new Set<string>();
+  const editedRows = rows.map((row) => {
     const r = asObject(row);
     const code = String(asObject(r.vaccine).code ?? r.row_id ?? "");
+    seenCodes.add(code);
     const edited = byCode.get(code);
     if (!edited) return r;
     // Switching a vaccine OFF must not destroy it. dose_amount, dose_unit,
@@ -185,6 +252,14 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
     }
     return r;
   });
+
+  // A vaccine the plan carries that the original document never had is one added
+  // in this editing session via "+ Add a vaccine". It gets a brand new matrix
+  // row -- there is no existing row to edit onto.
+  const newRows = plan.vaccines
+    .filter((v) => !seenCodes.has(v.code))
+    .map((v) => buildNewMatrixRow(v, doc));
+  doc.matrix_rows = [...editedRows, ...newRows];
 
   // The flat top-level schedule is the union of every row's schedule, and the
   // generator reads it. Rebuilt from the rows so the two can never disagree.
@@ -224,6 +299,19 @@ function newRule(
   sequence: number,
 ): ScheduleRule {
   const base: Record<string, unknown> = template ? { ...(template as Record<string, unknown>) } : {};
+  // With no sibling dose to copy from, publish's own required fields
+  // (dose_amount, dose_unit, route_site, course_lapse_policy) would otherwise be
+  // silently absent -- exactly the values a template row would have carried.
+  // These are ordinary, reviewable defaults, not invented clinical judgement:
+  // the operator app already prompts for the actual amount given at the point
+  // of injection, and course_lapse_policy routes an unresolved course to human
+  // review rather than resolving it silently either way.
+  if (!template) {
+    base.dose_amount = 1;
+    base.dose_unit = "ml";
+    base.route_site = "subcutaneous";
+    base.course_lapse_policy = "pc_review";
+  }
   base.dose_code = `${code.toLowerCase()}_${kind}_${sequence}`;
   base.source_dose_code = base.dose_code;
   base.sequence = sequence;
@@ -291,6 +379,57 @@ function applyEdits(schedule: ScheduleRule[], edited: EditorVaccine, code: strin
 function withWindow(rule: ScheduleRule, edited: EditorVaccine): ScheduleRule {
   if (edited.maxLateDays === null) return rule;
   return { ...rule, due_window_days: edited.maxLateDays, max_delay_days: edited.maxLateDays };
+}
+
+/**
+ * A whole new `matrix_rows` entry for a vaccine "+ Add a vaccine" created.
+ *
+ * Eligibility is not invented from nothing: `sex`, `breed`, `lifecycle`,
+ * `health`, `reproductive`, `exclude_reproductive_states` and `defer_states` are
+ * copied from the plan's own top-level eligibility -- the same clinical
+ * judgement (who is deferred, what counts as pregnant-late) that already governs
+ * every other vaccine in this plan, not a second, competing set of defaults.
+ * Only `species` and `animal_stage` are this row's own, because they are the one
+ * thing the panel actually asked the author to decide.
+ */
+function buildNewMatrixRow(v: EditorVaccine, doc: Record<string, unknown>): Record<string, unknown> {
+  const topEligibility = asObject(doc.eligibility);
+  const species = v.species === "goat" ? ["goat"] : v.species === "sheep" ? ["sheep"] : ["goat", "sheep"];
+
+  const rowEligibility: Record<string, unknown> = {
+    animal_stage: "all",
+    species,
+    sex: topEligibility.sex ?? "all",
+    breed: topEligibility.breed ?? "all",
+    lifecycle: topEligibility.lifecycle ?? "alive",
+    health: topEligibility.health ?? "any",
+    reproductive: topEligibility.reproductive ?? "any",
+    exclude_reproductive_states: topEligibility.exclude_reproductive_states ?? ["pregnant_late"],
+    defer_states: topEligibility.defer_states ?? [
+      "sick",
+      "under_treatment",
+      "recovering",
+      "icu",
+      "quarantine",
+    ],
+  };
+
+  const schedule = applyEdits([], v, v.code);
+
+  return {
+    row_id: v.code.toLowerCase(),
+    vaccine: {
+      code: v.code,
+      name: v.name,
+      type: v.vaccineClass,
+      disease: v.disease,
+      pathogen_class: v.pathogenClass ?? "unknown_review_needed",
+      course_type: v.courseType ?? "single",
+      compatibility_group: v.code,
+    },
+    eligibility: rowEligibility,
+    schedule,
+  };
 }
 
 /**
