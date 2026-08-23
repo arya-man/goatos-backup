@@ -67,6 +67,9 @@ const RANGES = ["30", "61", "92"] as const;
 type Range = (typeof RANGES)[number];
 
 const nf = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 1 });
+const money = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+const rate = (value: number) =>
+  value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const num = (raw: string) => {
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -605,6 +608,11 @@ function ExecutionTab({
       (variance.park === "" || r.park_label === variance.park) &&
       (variance.item === "" || r.feed_item_key === variance.item),
   );
+  const consumptionRows = data.consumption_rows.filter(
+    (r) =>
+      (variance.park === "" || r.park_label === variance.park) &&
+      (variance.item === "" || r.feed_item_key === variance.item),
+  );
   // Window totals for the KPI row: shares of backend counts, no new business math.
   let packingDone = 0, packingAll = 0, distDone = 0, distAll = 0, transDone = 0, transAll = 0;
   let latestLatency: number | null = null;
@@ -642,6 +650,19 @@ function ExecutionTab({
       label: fa(pageContract, "chart.latency.title"),
       colorVar: FEED_SERIES_VARS[1],
       points: data.days.map((d) => d.median_verify_latency_minutes ?? null),
+    },
+  ];
+  const consumptionDayLabels = data.consumption_trend.map((d) => d.feed_day);
+  const consumptionSeries: LineSeries[] = [
+    {
+      label: fa(pageContract, "col.consumption.target"),
+      colorVar: FEED_SERIES_VARS[0],
+      points: data.consumption_trend.map((d) => num(d.target_kg)),
+    },
+    {
+      label: fa(pageContract, "col.consumption.actual"),
+      colorVar: FEED_SERIES_VARS[4],
+      points: data.consumption_trend.map((d) => num(d.actual_kg)),
     },
   ];
   return (
@@ -685,6 +706,69 @@ function ExecutionTab({
             emptyLabel={fa(pageContract, "empty.execution.body")}
           />
         </ChartHover>
+      </section>
+      <section className="card wchart" aria-label={fa(pageContract, "consumption.trend.title")}>
+        <h2 className="h">{fa(pageContract, "consumption.trend.title")}</h2>
+        <p className="muted small">{fa(pageContract, "consumption.trend.hint")}</p>
+        <ChartHover>
+          <FeedLines
+            series={consumptionSeries}
+            dayLabels={consumptionDayLabels}
+            valueNoun={fa(pageContract, "unit.kg")}
+            chartLabel={fa(pageContract, "consumption.trend.title")}
+            emptyLabel={fa(pageContract, "consumption.empty")}
+          />
+        </ChartHover>
+        <FeedChartLegend entries={consumptionSeries.map((s) => ({ label: s.label, colorVar: s.colorVar }))} />
+      </section>
+      <section className="card" aria-label={fa(pageContract, "consumption.title")}>
+        <div className="hd">
+          <h3>{fa(pageContract, "consumption.title")}</h3>
+          <span className="small muted">{fa(pageContract, "consumption.hint")}</span>
+        </div>
+        {consumptionRows.length === 0 ? (
+          <p className="muted small">{fa(pageContract, "consumption.empty")}</p>
+        ) : (
+          <div className="tablewrap" tabIndex={0} role="group" aria-label={fa(pageContract, "consumption.title")}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>{fa(pageContract, "col.consumption.day")}</th>
+                  <th>{fa(pageContract, "col.consumption.park")}</th>
+                  <th>{fa(pageContract, "col.consumption.shed")}</th>
+                  <th>{fa(pageContract, "col.consumption.breed")}</th>
+                  <th>{fa(pageContract, "col.consumption.age_group")}</th>
+                  <th>{fa(pageContract, "col.consumption.item")}</th>
+                  <th>{fa(pageContract, "col.consumption.target")}</th>
+                  <th>{fa(pageContract, "col.consumption.actual")}</th>
+                  <th>{fa(pageContract, "col.consumption.variance")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {consumptionRows.map((row, rowIndex) => (
+                  <tr
+                    key={`${row.feed_day}:${row.shed_id}:${row.partition_label ?? ""}:${row.feed_item_key}:${rowIndex}`}
+                    className={row.has_variance ? "feed-variance-row" : undefined}
+                  >
+                    <td>{fmtDate(row.feed_day)}</td>
+                    <td>{row.park_label}</td>
+                    <td>{row.operational_location_display}</td>
+                    <td>{row.breed_label}</td>
+                    <td>{row.age_group}</td>
+                    <td>{row.feed_item_label}</td>
+                    <td>{`${row.target_kg} ${fa(pageContract, "unit.kg")}`}</td>
+                    <td>{`${row.actual_kg} ${fa(pageContract, "unit.kg")}`}</td>
+                    <td>
+                      <span className={`${row.has_variance ? "tag t-dng" : "tag t-ok"} feed-stock-check-tag`}>
+                        <span>{`${nf(Math.abs(num(row.variance_kg)))} ${fa(pageContract, "unit.kg")}`}</span>
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
       {/* Intended-vs-entered packing mismatches (maintainer decision 2026-08-21). The verifier
           enters her per-item readings BLIND -- this comparison exists only on this leadership
@@ -1077,7 +1161,7 @@ function StockCards({
                         <div className="muted small">{row.last_load_vendor}</div>
                       ) : null}
                       {row.last_load_total_cost !== "" ? (
-                        <div className="muted small">{`₹${nf(num(row.last_load_total_cost))} · ₹${nf(num(row.last_load_per_kg_cost))}/kg`}</div>
+                        <div className="muted small">{`₹${money(num(row.last_load_total_cost))} · ₹${rate(num(row.last_load_per_kg_cost))}/kg`}</div>
                       ) : null}
                     </td>
                     <td>

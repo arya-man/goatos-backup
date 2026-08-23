@@ -583,6 +583,31 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     verificationQueue: (board.verificationQueue ?? []).filter((r) => matchesVaccine(r.doseRule)),
     };
   }, [board, vaccine, statuses]);
+  const pendingVaccinesByShed = useMemo(() => {
+    const vaccineLabels = new Map((view.shedVaccineColumns ?? []).map((c) => [c.code, c.label || c.code]));
+    type PendingShed = {
+      key: string;
+      name: string;
+      park?: string;
+      cells: Array<ShedVaccineCell & { label: string }>;
+    };
+    const byShed = new Map<string, PendingShed>();
+    (view.shedVaccineMatrix ?? []).forEach((cell) => {
+      if (cell.state !== "behind" && cell.state !== "verifying") return;
+      const key = `${cell.shedId}|${cell.partition_label ?? ""}`;
+      const row = byShed.get(key) ?? {
+        key,
+        name: cell.operational_location_display || cell.shedName,
+        park: cell.parkName ?? undefined,
+        cells: [],
+      };
+      row.cells.push({ ...cell, label: vaccineLabels.get(cell.vaccineCode) ?? cell.vaccineCode });
+      byShed.set(key, row);
+    });
+    return Array.from(byShed.values()).sort((a, b) =>
+      `${a.park ?? ""}:${a.name}`.localeCompare(`${b.park ?? ""}:${b.name}`),
+    );
+  }, [view.shedVaccineColumns, view.shedVaccineMatrix]);
 
   const toggleStatus = (key: StatusKey) => setStatuses((prev) => {
     const next = new Set(prev);
@@ -915,6 +940,56 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             </div>
           );
         })()}
+
+        <div className="cbm-shed-section cbm-pending-sheds">
+          <div className="cbm-section-head">
+            <h3>{copy(pageContract, "command_board.pending_sheds.title")}</h3>
+            <span className="cbm-meta">{copy(pageContract, "command_board.pending_sheds.meta")}</span>
+          </div>
+          {pendingVaccinesByShed.length === 0 ? (
+            <p className="cbm-empty">{copy(pageContract, "command_board.pending_sheds.empty")}</p>
+          ) : (
+            <div className="cbm-hm">
+              <table className="cbm-heat cbm-pending-table">
+                <thead>
+                  <tr>
+                    <th>{copy(pageContract, "command_board.pending_sheds.column.shed")}</th>
+                    <th>{copy(pageContract, "command_board.pending_sheds.column.park")}</th>
+                    <th>{copy(pageContract, "command_board.pending_sheds.column.vaccines")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingVaccinesByShed.map((row) => (
+                    <tr key={row.key}>
+                      <td className="cbm-sv-shed">{row.name}</td>
+                      <td>{row.park ?? "—"}</td>
+                      <td className="cbm-pending-vaccines">
+                        {row.cells
+                          .sort((a, b) => a.label.localeCompare(b.label))
+                          .map((cell) => {
+                            const count = cell.state === "behind" ? cell.behindAnimals : cell.verifyingAnimals;
+                            return (
+                              <button
+                                key={`${cell.vaccineCode}:${cell.state}`}
+                                type="button"
+                                className={`cbm-pending-chip cbm-pending-${cell.state}`}
+                                onClick={() => setSelectedShedVaccine(cell)}
+                              >
+                                <strong>{cell.label}</strong>
+                                <span>
+                                  {count} {copy(pageContract, `command_board.pending_sheds.state.${cell.state}`)}
+                                </span>
+                              </button>
+                            );
+                          })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
         {/* Vaccine × Shed status - colored grid heatmap */}
         {view.shedDoseMatrix.length > 0 && (() => {

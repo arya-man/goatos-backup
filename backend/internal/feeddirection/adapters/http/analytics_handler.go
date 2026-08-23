@@ -120,10 +120,37 @@ type packingVarianceRowDTO struct {
 	VarianceKg string `json:"variance_kg"`
 }
 
+type feedConsumptionRowDTO struct {
+	FeedDay                    string `json:"feed_day"`
+	ParkLabel                  string `json:"park_label"`
+	ShedID                     string `json:"shed_id"`
+	ShedLabel                  string `json:"shed_label"`
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	BreedLabel                 string `json:"breed_label"`
+	AgeGroup                   string `json:"age_group"`
+	FeedItemKey                string `json:"feed_item_key"`
+	FeedItemLabel              string `json:"feed_item_label"`
+	TargetKg                   string `json:"target_kg"`
+	ActualKg                   string `json:"actual_kg"`
+	VarianceKg                 string `json:"variance_kg"`
+	HasVariance                bool   `json:"has_variance"`
+}
+
+type feedConsumptionTrendDayDTO struct {
+	FeedDay      string `json:"feed_day"`
+	TargetKg     string `json:"target_kg"`
+	ActualKg     string `json:"actual_kg"`
+	VarianceRows int64  `json:"variance_rows"`
+	ComparedRows int64  `json:"compared_rows"`
+}
+
 type executionAnalyticsDTO struct {
-	DateFrom string            `json:"date_from"`
-	DateTo   string            `json:"date_to"`
-	Days     []executionDayDTO `json:"days"`
+	DateFrom         string                       `json:"date_from"`
+	DateTo           string                       `json:"date_to"`
+	Days             []executionDayDTO            `json:"days"`
+	ConsumptionRows  []feedConsumptionRowDTO      `json:"consumption_rows"`
+	ConsumptionTrend []feedConsumptionTrendDayDTO `json:"consumption_trend"`
 	// PackingVariance is always present (possibly empty) so the renderer needs no null branch.
 	PackingVariance []packingVarianceRowDTO `json:"packing_variance"`
 }
@@ -159,6 +186,35 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 			TransportAwaitingVerdict:   d.TransportAwaitingVerdict,
 			TransportRework:            d.TransportRework,
 			MedianVerifyLatencyMinutes: d.MedianVerifyLatencyMinutes,
+		})
+	}
+	dto.ConsumptionRows = make([]feedConsumptionRowDTO, 0, len(result.ConsumptionRows))
+	for _, row := range result.ConsumptionRows {
+		dto.ConsumptionRows = append(dto.ConsumptionRows, feedConsumptionRowDTO{
+			FeedDay:                    row.FeedDay,
+			ParkLabel:                  row.ParkLabel,
+			ShedID:                     row.ShedID,
+			ShedLabel:                  row.ShedLabel,
+			PartitionLabel:             row.PartitionLabel,
+			OperationalLocationDisplay: row.OperationalLocationDisplay,
+			BreedLabel:                 row.BreedLabel,
+			AgeGroup:                   row.AgeGroup,
+			FeedItemKey:                row.FeedItemKey,
+			FeedItemLabel:              row.FeedItemLabel,
+			TargetKg:                   row.TargetKg,
+			ActualKg:                   row.ActualKg,
+			VarianceKg:                 row.VarianceKg,
+			HasVariance:                row.HasVariance,
+		})
+	}
+	dto.ConsumptionTrend = make([]feedConsumptionTrendDayDTO, 0, len(result.ConsumptionTrend))
+	for _, day := range result.ConsumptionTrend {
+		dto.ConsumptionTrend = append(dto.ConsumptionTrend, feedConsumptionTrendDayDTO{
+			FeedDay:      day.FeedDay,
+			TargetKg:     day.TargetKg,
+			ActualKg:     day.ActualKg,
+			VarianceRows: day.VarianceRows,
+			ComparedRows: day.ComparedRows,
 		})
 	}
 	dto.PackingVariance = make([]packingVarianceRowDTO, 0, len(result.PackingVariance))
