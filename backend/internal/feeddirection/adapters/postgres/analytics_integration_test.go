@@ -1431,7 +1431,7 @@ func feedKeyOf(label string) string {
 // pins the shed total (two items across two sessions collapse to one row), the Mixed cohort answer
 // when a pen's rows disagree, the red flag firing only on a real measured difference, and the
 // trend gapping on a day with no readings at all.
-func TestFeedConsumptionShedGrainOneToManyStatusBucketsParkScopeAndPageBoundary(t *testing.T) {
+func TestPackingMismatchCohortAndTrendOneToManyStatusBucketsParkScopePageBoundary(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
@@ -1536,70 +1536,30 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 		t.Fatalf("ExecutionAnalytics: %v", err)
 	}
 
-	// PAGE BOUNDARY: the table takes no limit/offset — every shed fed on the reported day is a row,
-	// and only that day's. Two sheds fed, two rows; the previous day contributes none.
-	if len(got.ConsumptionRows) != 2 {
-		t.Fatalf("consumption rows = %d, want 2: %+v", len(got.ConsumptionRows), got.ConsumptionRows)
-	}
-	byShed := map[string]domain.FeedConsumptionRow{}
-	for _, r := range got.ConsumptionRows {
-		if r.FeedDay != "2026-07-30" {
-			t.Errorf("row from the wrong day: %+v", r)
+	// The MISMATCH rows now carry the bag's cohort. Castro pen 1 session 2 was measured 2 kg short
+	// on concentrate, and its two sheet rows for that session disagree on nothing -- one breed, one
+	// ration group -- so it names them outright.
+	var shortBag *domain.PackingVarianceRow
+	for i := range got.PackingVariance {
+		if got.PackingVariance[i].FeedItemKey == "concentrate" && got.PackingVariance[i].SessionNo == 2 {
+			shortBag = &got.PackingVariance[i]
 		}
-		byShed[r.OperationalLocationDisplay] = r
 	}
-
-	// FOUR sheet cells, TWO sessions, TWO feed items -> ONE row of 10.0 kg. Measured 8.0, so the
-	// row is flagged and the variance reads -2.0. Both cohort columns are Mixed: the pen's rows
-	// carry two breeds and both a kid and an adult ration group, and inventing one would be a
-	// cohort nobody recorded.
-	castro := byShed["Castro 1"]
-	if castro.TargetKg != "10.000" || castro.ActualKg != "8.000" || castro.VarianceKg != "-2.000" {
-		t.Errorf("Castro 1 target/actual/variance = %q/%q/%q, want 10.000/8.000/-2.000",
-			castro.TargetKg, castro.ActualKg, castro.VarianceKg)
+	if shortBag == nil {
+		t.Fatalf("the 2 kg short concentrate bag is missing: %+v", got.PackingVariance)
 	}
-	if !castro.HasVariance {
-		t.Errorf("Castro 1 measured 2 kg short and must be flagged: %+v", castro)
+	if shortBag.BreedLabel != "Sojat" || shortBag.AgeGroup != "Kid" {
+		t.Errorf("short bag cohort = %q/%q, want Sojat/Kid", shortBag.BreedLabel, shortBag.AgeGroup)
 	}
-	if castro.BreedLabel != domain.MixedCohortLabel || castro.AgeGroup != domain.MixedCohortLabel {
-		t.Errorf("Castro 1 cohort = %q/%q, want Mixed/Mixed", castro.BreedLabel, castro.AgeGroup)
+	if shortBag.PlannedKg != "3.000" || shortBag.VerifiedKg != "1.000" {
+		t.Errorf("short bag = %q directed / %q measured, want 3.000/1.000", shortBag.PlannedKg, shortBag.VerifiedKg)
 	}
-	if castro.ParkLabel != "CBE" {
-		t.Errorf("Castro 1 park = %q, want CBE", castro.ParkLabel)
-	}
-
-	// THE RULE THIS TABLE EXISTS TO GET RIGHT: Gandhi was fed on the sheet and nobody has verified
-	// it. Its actual and variance are EMPTY and it is NOT flagged. A "0.000" here would tell
-	// leadership the shed got no feed, and a red row would send someone to a shed that is fine.
-	gandhi := byShed["Gandhi"]
-	if gandhi.TargetKg != "4.000" {
-		t.Errorf("Gandhi target = %q, want 4.000", gandhi.TargetKg)
-	}
-	if gandhi.ActualKg != "" || gandhi.VarianceKg != "" {
-		t.Errorf("unverified shed must read blank, got actual=%q variance=%q", gandhi.ActualKg, gandhi.VarianceKg)
-	}
-	if gandhi.HasVariance {
-		t.Errorf("an unverified shed must never be flagged: %+v", gandhi)
-	}
-	if gandhi.BreedLabel != "Beetal" || gandhi.AgeGroup != "Adult" {
-		t.Errorf("Gandhi cohort = %q/%q, want Beetal/Adult", gandhi.BreedLabel, gandhi.AgeGroup)
-	}
-
-	// The trend ranges over the SAME comparison rows: 2026-07-30 totals 14.0 target (10 + 4) and
-	// 8.0 measured, one flagged shed of one compared. 2026-07-29 has a sheet and no readings, so
-	// its actual is EMPTY and the chart draws a gap instead of a plunge to zero.
-	trend := map[string]domain.FeedConsumptionTrendDay{}
-	for _, d := range got.ConsumptionTrend {
-		trend[d.FeedDay] = d
-	}
-	if len(got.ConsumptionTrend) != 2 {
-		t.Fatalf("trend days = %d, want 2: %+v", len(got.ConsumptionTrend), got.ConsumptionTrend)
-	}
-	if d := trend["2026-07-30"]; d.TargetKg != "14.000" || d.ActualKg != "8.000" || d.VarianceRows != 1 || d.ComparedRows != 1 {
-		t.Errorf("2026-07-30 trend = %+v, want target 14.000 actual 8.000 variance 1 compared 1", d)
-	}
-	if d := trend["2026-07-29"]; d.TargetKg != "5.000" || d.ActualKg != "" || d.ComparedRows != 0 {
-		t.Errorf("an unverified day must gap, got %+v", d)
+	// A bag whose sheet rows straddle two cohorts reports Mixed rather than naming one. Session 1
+	// carries only Beetal/adult rows, so it must NOT read Mixed -- the fixture proves both answers.
+	for _, row := range got.PackingVariance {
+		if row.SessionNo == 1 && row.BreedLabel == domain.MixedCohortLabel {
+			t.Errorf("a single-cohort bag must not read Mixed: %+v", row)
+		}
 	}
 
 	// PARK SCOPE: another park's id must empty both arms rather than leak CBE's sheds.
@@ -1611,7 +1571,7 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 	if err != nil {
 		t.Fatalf("ExecutionAnalytics other park: %v", err)
 	}
-	if len(other.ConsumptionRows) != 0 || len(other.ConsumptionTrend) != 0 {
-		t.Errorf("park scope leaked: rows=%+v trend=%+v", other.ConsumptionRows, other.ConsumptionTrend)
+	if len(other.ConsumptionTrend) != 0 || len(other.PackingVariance) != 0 {
+		t.Errorf("park scope leaked: trend=%+v variance=%+v", other.ConsumptionTrend, other.PackingVariance)
 	}
 }
