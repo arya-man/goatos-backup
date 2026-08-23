@@ -312,10 +312,13 @@ type stockFarmItemDTO struct {
 	FirstPurchaseDate  string `json:"first_purchase_date"`
 	FirstDirectedDay   string `json:"first_directed_day"`
 	AvgDailyKg         string `json:"avg_daily_kg"`
+	WeeklyRequiredKg   string `json:"weekly_required_kg"`
 	LastLoadBatchNo    int64  `json:"last_load_batch_no"`
 	LastLoadDate       string `json:"last_load_date"`
 	LastLoadQuantityKg string `json:"last_load_quantity_kg"`
 	LastLoadVendor     string `json:"last_load_vendor"`
+	LastLoadTotalCost  string `json:"last_load_total_cost"`
+	LastLoadPerKgCost  string `json:"last_load_per_kg_cost"`
 	LedgerStockKg      string `json:"ledger_stock_kg"`
 }
 
