@@ -946,10 +946,7 @@ SELECT lp.name                                            AS farm_label,
             THEN round(GREATEST(r.avg_kg * $3::numeric - d.balance_kg, 0), 1)::text
             ELSE '' END                                   AS shortfall_kg,
        COALESCE(round(rate.per_kg, 2)::text, '')          AS per_kg_cost,
-       COALESCE(round(r.avg_kg * $3::numeric * rate.per_kg, 0)::text, '') AS required_cost,
-       CASE WHEN d.balance_kg IS NOT NULL AND rate.per_kg IS NOT NULL
-            THEN round(GREATEST(r.avg_kg * $3::numeric - d.balance_kg, 0) * rate.per_kg, 0)::text
-            ELSE '' END                                   AS shortfall_cost
+       COALESCE(round(r.avg_kg * $3::numeric * rate.per_kg, 0)::text, '') AS required_cost
 FROM recent r
 JOIN locations lp
   ON lp.tenant_id = $1 AND lp.location_id = r.park_id
@@ -1242,7 +1239,7 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 		if err := fcRows.Scan(
 			&f.FarmLabel, &f.FeedItemLabel, &f.FeedItemKey,
 			&f.AvgDailyKg, &f.RequiredKg, &f.StockKg, &f.ShortfallKg,
-			&f.PerKgCost, &f.RequiredCost, &f.ShortfallCost,
+			&f.PerKgCost, &f.RequiredCost,
 		); err != nil {
 			return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock forecast scan: %w", err)
 		}

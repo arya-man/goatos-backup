@@ -1255,7 +1255,7 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, 20.000, 326, 'test')`, fdiTenant, p
 		FarmLabel: "CBE", FeedItemLabel: "Mesha Kids Goat Concentrate",
 		FeedItemKey: "mesha_kids_goat_concentrate",
 		AvgDailyKg:  "10.0", RequiredKg: "70.0", StockKg: "1068.0", ShortfallKg: "0.0",
-		PerKgCost: "40.00", RequiredCost: "2800", ShortfallCost: "0",
+		PerKgCost: "40.00", RequiredCost: "2800",
 	})
 
 	// The NON-Mesha feed the concentrate table excludes: avg 100.0, need 700.0,
@@ -1264,7 +1264,7 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, 20.000, 326, 'test')`, fdiTenant, p
 	assertForecast(t, "concentrate", concentrate, domain.StockForecastItem{
 		FarmLabel: "CBE", FeedItemLabel: "Concentrate", FeedItemKey: "concentrate",
 		AvgDailyKg: "100.0", RequiredKg: "700.0", StockKg: "4600.0", ShortfallKg: "0.0",
-		PerKgCost: "20.00", RequiredCost: "14000", ShortfallCost: "0",
+		PerKgCost: "20.00", RequiredCost: "14000",
 	})
 
 	// Hay: fed every day, NEVER purchased. The requirement still reports — a
@@ -1274,7 +1274,7 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, 20.000, 326, 'test')`, fdiTenant, p
 	assertForecast(t, "hay", hay, domain.StockForecastItem{
 		FarmLabel: "CBE", FeedItemLabel: "Hay", FeedItemKey: "hay",
 		AvgDailyKg: "5.0", RequiredKg: "35.0", StockKg: "", ShortfallKg: "",
-		PerKgCost: "", RequiredCost: "", ShortfallCost: "",
+		PerKgCost: "", RequiredCost: "",
 	})
 
 	// UHT Milk: fed only through the external ledger. avg 20.0, need 140.0,
@@ -1283,7 +1283,7 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, 20.000, 326, 'test')`, fdiTenant, p
 	assertForecast(t, "uht_milk", uht, domain.StockForecastItem{
 		FarmLabel: "CBE", FeedItemLabel: "UHT Milk", FeedItemKey: "uht_milk",
 		AvgDailyKg: "20.0", RequiredKg: "140.0", StockKg: "540.0", ShortfallKg: "0.0",
-		PerKgCost: "60.00", RequiredCost: "8400", ShortfallCost: "0",
+		PerKgCost: "60.00", RequiredCost: "8400",
 	})
 
 	// PAGE BOUNDARY: this table takes no limit/offset, so the whole fed set is
@@ -1307,9 +1307,10 @@ VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, 20.000, 326, 'test')`, fdiTenant, p
 	}
 }
 
-// A shortfall the farm must actually buy: stock BELOW the week's need, priced
-// separately from the full week's bill.
-func TestStockForecastShortfallPricesOnlyWhatMustBeBought(t *testing.T) {
+// A shortfall the farm must actually buy: stock BELOW the week's need. The
+// shortfall is reported in KG; the week's bill stays priced on the FULL
+// requirement, not on the shortfall.
+func TestStockForecastReportsTheKgShortfallBelowAWeeksNeed(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupIssueDB(t, ctx)
 	park := fdiPark
@@ -1363,9 +1364,10 @@ VALUES ($1, $2, 'CBE', 'Concentrate', 400, DATE '2026-08-16', 130.000, 25.0000, 
 		t.Fatalf("fixture drifted: %+v", got.Forecast[0])
 	}
 	// Now feed HARDER: three more days at 30 kg pushes the average to 30.0, so
-	// the week needs 210.0 against a 10.0 kg balance — a real 200.0 kg buy at
-	// 25.00 = 5000, while the FULL week would cost 210 × 25 = 5250. The two
-	// figures must differ: a purchase run pays only for what is missing.
+	// the week needs 210.0 against a 10.0 kg balance — a real 200.0 kg buy,
+	// while the week's bill stays 210 × 25 = 5250. The shortfall is reported in
+	// KG only: what it costs is a purchase-order question this table does not
+	// answer.
 	for i, day := range []string{"2026-08-21", "2026-08-22", "2026-08-23"} {
 		cells := []domain.StoredCell{{
 			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
@@ -1397,7 +1399,7 @@ VALUES ($1, $2, 'CBE', 'Concentrate', 400, DATE '2026-08-16', 130.000, 25.0000, 
 	assertForecast(t, "concentrate", got.Forecast[0], domain.StockForecastItem{
 		FarmLabel: "CBE", FeedItemLabel: "Concentrate", FeedItemKey: "concentrate",
 		AvgDailyKg: "30.0", RequiredKg: "210.0", StockKg: "10.0", ShortfallKg: "200.0",
-		PerKgCost: "25.00", RequiredCost: "5250", ShortfallCost: "5000",
+		PerKgCost: "25.00", RequiredCost: "5250",
 	})
 }
 

@@ -388,7 +388,6 @@ type stockForecastItemDTO struct {
 	ShortfallKg   string `json:"shortfall_kg"`
 	PerKgCost     string `json:"per_kg_cost"`
 	RequiredCost  string `json:"required_cost"`
-	ShortfallCost string `json:"shortfall_cost"`
 }
 
 type stockAnalyticsDTO struct {
