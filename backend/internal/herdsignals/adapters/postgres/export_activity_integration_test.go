@@ -310,6 +310,15 @@ func TestTagActivityEventsIncludeMotionDeltaFields(t *testing.T) {
 	ctx := context.Background()
 	repo, _ := setupHerdSignalsDB(t, ctx)
 
+	// The tag has to have been HEARD before its activity can be read: GetTagActivity resolves
+	// herd_signal_tag_latest first and 404s on a tag this tenant never received a packet from.
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-hsi-activity", Status: "active"}
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+		makePacket(hsiTenant, hsiMappedTag, hsiMappedMAC, "gw-hsi-activity", time.Now().UTC().Add(-time.Minute), 500, -60),
+	}); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+
 	// Seed an activity event that occurred after the mapping boundary
 	boundary, before, after := seedFarmActivity(t, ctx, repo.db)
 
