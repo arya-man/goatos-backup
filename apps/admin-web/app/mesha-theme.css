@@ -161,6 +161,13 @@
      hangs off the right edge of the shell; a filter row grows left-to-right, so the popover
      anchors to the control's left edge instead. */
   .top-date-picker.inline .top-date-popover{left:0;right:auto}
+  /* An open calendar must render OVER the card it sits in. `.card` clips to its
+     rounded corners, which sliced the popover off at the card's bottom edge -- a
+     z-index cannot beat a clip, and the component's existing scrollIntoView could
+     not help because the box was in view while its content was cut. `:has()` lifts
+     the clip only while a picker inside the card is actually open, so the card's
+     own clipping is unchanged the rest of the time. */
+  .card:has(.top-date-picker[open]){overflow:visible}
   /* Undoes the generic `.card{overflow:hidden}` for THIS card only. That clip keeps table corners
      inside the radius, but it also amputated the capture-date popover: with an empty board the card
      is ~350px tall and the calendar ~416px, so the last two weeks and the Today button were cut off
