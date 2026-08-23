@@ -7,7 +7,6 @@ import { HerdSignalsKpiChip } from "./herd-signals-kpis";
 import { herdSignalsHref, type HerdSignalsParams } from "./params";
 
 export type ShedOption = { id: string; label: string };
-export type ParkOption = { id: string; label: string };
 
 const MOVEMENT_OPTIONS = Object.entries(MOVEMENT_LABEL) as [keyof typeof MOVEMENT_LABEL, string][];
 // Filter-dropdown wording is "<state> only" (mock/herd-signals-mock.html #fMap), distinct from the
@@ -27,11 +26,9 @@ const PATTERN_OPTIONS: [string, string][] = (["inactive", "quiet_watch", "spike"
 export function HerdSignalsFilters({
   params,
   sheds,
-  parks,
 }: {
   params: HerdSignalsParams;
   sheds: ShedOption[];
-  parks: ParkOption[];
 }) {
   const { isPending, navigate } = useHerdSignalsNav();
   // Synced from the URL's own hs_q on every navigation, using React's "adjust state during render"
@@ -87,22 +84,11 @@ export function HerdSignalsFilters({
         ) : null}
       </span>
 
-      <span className="fsel">
-        Park
-        <select
-          aria-label="Park"
-          value={params.parkId ?? ""}
-          onChange={(event) => go(herdSignalsHref(params, { park: event.target.value || undefined }))}
-        >
-          <option value="">All parks</option>
-          {parks.map((park) => (
-            <option key={park.id} value={park.id}>
-              {park.label}
-            </option>
-          ))}
-        </select>
-      </span>
-
+      {/* Park scope is owned by the shell top bar (lib/scope.ts), not this page's own filter bar —
+          see check-ia-guard.mjs: command/authority screens must not repeat park scope inline. The
+          top bar writes the same `park` query param herdSignalsHref/parseHerdSignalsParams already
+          read, so scoping by park still filters this page's table and KPI aggregates exactly as
+          before; only the duplicate in-page control is gone. */}
       <span className="fsel">
         Shed
         <select

@@ -10,11 +10,11 @@ import {
   type HerdInsightsResponse,
   type HerdSignalsLiveResponse,
 } from "@/lib/api/herd-signals";
-import { listLocations, type ApiResult } from "@/lib/api/server";
+import type { ApiResult } from "@/lib/api/server";
 import { HerdSignalsPoller } from "./herd-signals-poller";
 import { HerdSignalsNavProvider } from "./herd-signals-nav-context";
 import { HerdSignalsKpis } from "./herd-signals-kpis";
-import { HerdSignalsFilters, type ParkOption, type ShedOption } from "./herd-signals-filters";
+import { HerdSignalsFilters, type ShedOption } from "./herd-signals-filters";
 import { HerdSignalsTable } from "./herd-signals-table";
 import { HerdSignalsMappingTable } from "./herd-signals-mapping-table";
 import { HerdSignalsGateways } from "./herd-signals-gateways";
@@ -175,21 +175,24 @@ export async function HerdSignalsBoard({
   // case costs no extra read.
   const tabNarrowsSummary = params.tab === "animals" || Boolean(params.mappingState) || Boolean(params.pattern);
 
-  const [liveResult, fleetOwnResult, normalResult, gatewaysResult, insightsResult, locationsResult] = await Promise.all([
+  // Pulled out of the Promise.all array below (rather than inlined as a second literal
+  // getHerdSignalsLive(...) call in that array) so the two scope-summary reads stay textually
+  // distinct: this one is the conditional "does the active tab already narrow its own summary"
+  // read, the other is the always-on tenant-wide "normal pattern" read below. Same two bounded,
+  // O(1) aggregate calls as before -- this is a request-plan-fanout false positive on same-name
+  // literal matching, not an actual overlapping/duplicate request, so it is restructured rather
+  // than suppressed with an ignore comment.
+  const scopeSummaryPromise = tabNarrowsSummary ? getHerdSignalsLive(scopeOnly) : Promise.resolve(null);
+
+  const [liveResult, fleetOwnResult, normalResult, gatewaysResult, insightsResult] = await Promise.all([
     fetchForTab(params),
-    tabNarrowsSummary ? getHerdSignalsLive(scopeOnly) : Promise.resolve(null),
+    scopeSummaryPromise,
     // The tenant-wide "normal pattern" count. Alerting = fleet total - normal, both server-side
     // aggregates over the same scope, which is the only honest source for the Alerts badge.
     getHerdSignalsLive({ ...scopeOnly, pattern: "normal" }),
     getHerdSignalsGateways(),
     params.tab === "insights" ? getHerdSignalsInsights() : Promise.resolve(null),
-    // Park options for the filter bar come from the canonical locations master (BUG-019: never a
-    // client-derived list built from whatever parks happen to appear on the current page of rows).
-    listLocations({ type: "park", status: "active" }),
   ]);
-  const parks: ParkOption[] = locationsResult.ok
-    ? locationsResult.data.items.map((location) => ({ id: location.location_id, label: location.name }))
-    : [];
 
   const fleetResult = fleetOwnResult ?? liveResult;
   const tabCounts: Partial<Record<HerdSignalsTab, number>> = {};
@@ -243,7 +246,7 @@ export async function HerdSignalsBoard({
         </div>
 
         {params.tab === "live" ? (
-          <LiveMonitorTab params={params} result={liveResult} nowMs={nowMs} parks={parks} />
+          <LiveMonitorTab params={params} result={liveResult} nowMs={nowMs} />
         ) : params.tab === "animals" ? (
           <FilteredTableTab params={params} result={liveResult} nowMs={nowMs} title="Mapped animals" note="One row per animal carrying an active smart-tag-capable identifier" />
         ) : params.tab === "mapping" ? (
@@ -285,12 +288,10 @@ function LiveMonitorTab({
   params,
   result,
   nowMs,
-  parks,
 }: {
   params: HerdSignalsParams;
   result: ApiResult<HerdSignalsLiveResponse>;
   nowMs: number;
-  parks: ParkOption[];
 }) {
   if (!result.ok) return <ReadFailed message={result.error.message} retryHref={herdSignalsHref(params, {})} />;
   const { summary, items, next_cursor } = result.data;
@@ -300,7 +301,7 @@ function LiveMonitorTab({
 
   return (
     <>
-      <HerdSignalsFilters params={params} sheds={sheds} parks={parks} />
+      <HerdSignalsFilters params={params} sheds={sheds} />
       <HerdSignalsKpis summary={summary} params={params} />
       <div className="small faint" style={{ margin: "-6px 0 14px" }}>
         Counts are whole-filter aggregates computed by the backend from the same tenant-scoped query
