@@ -17,13 +17,11 @@ RETURNING protocol_version_id::text AS protocol_version_id;
 INSERT INTO protocol_rules (
   tenant_id, protocol_version_id, dose_code, "sequence", trigger_type, offset_days,
   due_window_days, min_gap_days, "repeat", repeat_until_after_age, catch_up,
-  eligibility_json, sop_version_id, proof_policy, withdrawal_days, sort_order,
-  identity_key, content_fingerprint
+  eligibility_json, sop_version_id, proof_policy, withdrawal_days, sort_order
 ) SELECT
   @tenant_id, @protocol_version_id, @dose_code, @sequence, @trigger_type, @offset_days,
   @due_window_days, @min_gap_days, @repeat, @repeat_until_after_age, @catch_up,
-  @eligibility_json, @sop_version_id, @proof_policy, @withdrawal_days, @sort_order,
-  @identity_key, @content_fingerprint
+  @eligibility_json, @sop_version_id, @proof_policy, @withdrawal_days, @sort_order
 FROM protocol_versions pv
 WHERE pv.tenant_id = @tenant_id
   AND pv.protocol_version_id = @protocol_version_id

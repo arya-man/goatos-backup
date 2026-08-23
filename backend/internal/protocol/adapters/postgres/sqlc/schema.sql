@@ -2304,8 +2304,6 @@ CREATE TABLE public.protocol_rules (
     withdrawal_days integer,
     sort_order integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    identity_key text,
-    content_fingerprint text,
     CONSTRAINT protocol_rules_catch_up_check CHECK ((catch_up = ANY (ARRAY['immediate'::text, 'next_cycle'::text, 'pc_approval'::text, 'defer'::text]))),
     CONSTRAINT protocol_rules_gap_check CHECK ((min_gap_days >= 0)),
     CONSTRAINT protocol_rules_offset_check CHECK ((offset_days >= 0)),
