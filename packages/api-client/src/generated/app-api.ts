@@ -5479,8 +5479,38 @@ export interface components {
             /** Format: date */
             date_to: string;
             days: components["schemas"]["FeedAnalyticsExecutionDay"][];
+            consumption_rows: components["schemas"]["FeedAnalyticsConsumptionRow"][];
+            consumption_trend: components["schemas"]["FeedAnalyticsConsumptionTrendDay"][];
             /** @description Every intended-vs-entered packing mismatch in the window, newest feed day first. Always present; empty when every verified reading matched the sheet. */
             packing_variance: components["schemas"]["FeedAnalyticsPackingVarianceRow"][];
+        };
+        /** @description One latest-day shed/cohort/feed-item target-vs-actual packing comparison row. */
+        FeedAnalyticsConsumptionRow: {
+            /** Format: date */
+            feed_day: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            partition_label?: string;
+            operational_location_display: string;
+            breed_label: string;
+            age_group: string;
+            feed_item_key: string;
+            feed_item_label: string;
+            target_kg: string;
+            actual_kg: string;
+            variance_kg: string;
+            has_variance: boolean;
+        };
+        /** @description One day of target-vs-actual feed packing totals. */
+        FeedAnalyticsConsumptionTrendDay: {
+            /** Format: date */
+            feed_day: string;
+            target_kg: string;
+            actual_kg: string;
+            variance_rows: number;
+            compared_rows: number;
         };
         /** @description One (feed day, feed item) of authored absolute kg across every experiment pen. */
         FeedAnalyticsExperimentItem: {
