@@ -1070,6 +1070,9 @@ func (r *Repository) GetShedLocations(ctx context.Context, tenantID string, shed
 // trend window for many tags in ONE query, using a LATERAL + LIMIT 1 per tag (same pattern as
 // tagLocationJoin/ResolveTagsBatch) against herd_signal_packets' existing
 // (tenant_id, tag_id, received_at DESC) index -- never a per-row historical scan.
+// CRITICAL: herd_signal_packets is partitioned on received_date, so both the received_at
+// range predicate and the received_date partition key must be present to enable partition
+// pruning. Without received_date, queries scan every retained partition.
 func (r *Repository) GetBatteryHistory(ctx context.Context, tenantID string, tagIDs []string, windowDays int) (map[string]ports.BatteryHistoryPoint, error) {
 	result := make(map[string]ports.BatteryHistoryPoint)
 	if len(tagIDs) == 0 {
@@ -1084,6 +1087,7 @@ func (r *Repository) GetBatteryHistory(ctx context.Context, tenantID string, tag
 			FROM public.herd_signal_packets
 			WHERE tenant_id = $1 AND tag_id = t.tag_id AND battery_mv IS NOT NULL
 			      AND received_at >= now() - make_interval(days => $3::int)
+			      AND received_date >= (now()::date - ($3::int || ' days')::interval)::date
 			ORDER BY received_at ASC
 			LIMIT 1
 		) first_pkt ON true
@@ -1092,6 +1096,7 @@ func (r *Repository) GetBatteryHistory(ctx context.Context, tenantID string, tag
 			FROM public.herd_signal_packets
 			WHERE tenant_id = $1 AND tag_id = t.tag_id AND battery_mv IS NOT NULL
 			      AND received_at >= now() - make_interval(days => $3::int)
+			      AND received_date >= (now()::date - ($3::int || ' days')::interval)::date
 			ORDER BY received_at DESC
 			LIMIT 1
 		) last_pkt ON true
