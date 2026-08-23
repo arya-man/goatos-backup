@@ -129,8 +129,6 @@ type feedConsumptionRowDTO struct {
 	OperationalLocationDisplay string `json:"operational_location_display"`
 	BreedLabel                 string `json:"breed_label"`
 	AgeGroup                   string `json:"age_group"`
-	FeedItemKey                string `json:"feed_item_key"`
-	FeedItemLabel              string `json:"feed_item_label"`
 	TargetKg                   string `json:"target_kg"`
 	ActualKg                   string `json:"actual_kg"`
 	VarianceKg                 string `json:"variance_kg"`
@@ -199,8 +197,6 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 			OperationalLocationDisplay: row.OperationalLocationDisplay,
 			BreedLabel:                 row.BreedLabel,
 			AgeGroup:                   row.AgeGroup,
-			FeedItemKey:                row.FeedItemKey,
-			FeedItemLabel:              row.FeedItemLabel,
 			TargetKg:                   row.TargetKg,
 			ActualKg:                   row.ActualKg,
 			VarianceKg:                 row.VarianceKg,
@@ -396,12 +392,9 @@ type stockAnalyticsDTO struct {
 	Items     []stockItemDTO     `json:"items"`
 	FarmItems []stockFarmItemDTO `json:"farm_items"`
 	// Forecast is always present (possibly empty) so the renderer needs no null branch.
-	Forecast []stockForecastItemDTO `json:"forecast"`
-	// ForecastDays names the window the forecast covers, so the client labels
-	// it from the contract instead of hardcoding "7".
-	ForecastDays int                 `json:"forecast_days"`
-	Expenditure  []expenditureDayDTO `json:"expenditure"`
-	Spend        spendSummaryDTO     `json:"spend"`
+	Forecast    []stockForecastItemDTO `json:"forecast"`
+	Expenditure []expenditureDayDTO    `json:"expenditure"`
+	Spend       spendSummaryDTO        `json:"spend"`
 }
 
 // GetStockAnalytics serves GET /feed-analytics/stock.
