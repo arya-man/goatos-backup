@@ -208,25 +208,43 @@ func (s *Service) computeEventCorrelationFromBatch(event *domain.ActivityEvent, 
 	// The clip also restores the sparse check. Comparing a count against expectedPerHalf only works
 	// when every counted bucket is INSIDE the window -- otherwise unrelated buckets pad the total and
 	// hide a genuine hole, which is the one thing this comparison exists to refuse.
-	windowStart := event.At.Add(time.Duration(-correlationWindowHours) * time.Hour)
-	windowEnd := event.At.Add(time.Duration(correlationWindowHours) * time.Hour)
+	// ANCHOR BOTH HALVES TO THE BUCKET GRID.
+	//
+	// Clipping to a raw event.At +/- 2h only yields a whole number of buckets when the event happens
+	// to land exactly on a 5-minute boundary. A real event at 06:02 leaves 23 wholly-contained
+	// buckets before it, not 24 -- 04:00-04:05 hangs over the window start and 06:00-06:05 straddles
+	// the event -- so the count check marked ordinary healthy activity as incomplete and blanked its
+	// before/after/change. Farm events do not arrive on 5-minute boundaries, so this would have hit
+	// nearly every real correlation while every test using a round timestamp passed.
+	//
+	// Anchoring to the grid makes the expected count exact by construction: the BEFORE half is the
+	// two hours of whole buckets ending where the event's own bucket begins, and the AFTER half is
+	// the two hours of whole buckets starting where it ends. The bucket containing the event belongs
+	// to neither -- its motion cannot be attributed to one side of an instant inside it.
+	bucketDur := time.Duration(correlationBucketSeconds) * time.Second
+	eventBucketStart := event.At.Truncate(bucketDur)
+
+	beforeEnd := eventBucketStart
+	beforeStart := beforeEnd.Add(time.Duration(-correlationWindowHours) * time.Hour)
+
+	// An event exactly on a boundary starts its own bucket, so that bucket is wholly after it and
+	// counts; otherwise the event sits inside a bucket which is excluded from both halves.
+	afterStart := eventBucketStart
+	if event.At.After(eventBucketStart) {
+		afterStart = eventBucketStart.Add(bucketDur)
+	}
+	afterEnd := afterStart.Add(time.Duration(correlationWindowHours) * time.Hour)
 
 	var beforeWindows, afterWindows []domain.ActivityWindow
 	for _, w := range allWindows {
 		bucketEnd := w.BucketStart.Add(time.Duration(w.BucketSeconds) * time.Second)
 		switch {
-		case !bucketEnd.After(event.At):
-			// BEFORE half: the bucket must lie wholly within [event-2h, event].
-			if !w.BucketStart.Before(windowStart) {
-				beforeWindows = append(beforeWindows, w)
-			}
-		case !w.BucketStart.Before(event.At):
-			// AFTER half: the bucket must lie wholly within [event, event+2h].
-			if !bucketEnd.After(windowEnd) {
-				afterWindows = append(afterWindows, w)
-			}
+		case !w.BucketStart.Before(beforeStart) && !bucketEnd.After(beforeEnd):
+			beforeWindows = append(beforeWindows, w)
+		case !w.BucketStart.Before(afterStart) && !bucketEnd.After(afterEnd):
+			afterWindows = append(afterWindows, w)
 		default:
-			// straddles the event instant -- counted in neither half
+			// outside this event's two hours, or the bucket the event itself falls inside
 		}
 	}
 	beforeSparse := len(beforeWindows) < expectedPerHalf
