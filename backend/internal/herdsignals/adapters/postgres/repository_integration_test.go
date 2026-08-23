@@ -1193,3 +1193,131 @@ func TestGetGatewayWindowStatsStatusMatrix(t *testing.T) {
 		t.Errorf("stats missing gateway entry")
 	}
 }
+
+// ---------------------------------------------------------------------------------------------
+// Adversarial coverage for GetGatewayWindowStats, the 15-minute gateway coverage aggregate.
+//
+// This aggregate reads herd_signal_activity_windows.gateway_id -- the gateway that actually HEARD
+// each bucket -- rather than the tag's CURRENT gateway. It got that wrong twice: first by joining
+// to herd_signal_tag_latest (so a tag that moved gateways dragged its history with it), then by
+// adding the column and never populating it (so every gateway reported nothing at all). Both
+// passed build and tests. These exercise the properties that would have caught either.
+// ---------------------------------------------------------------------------------------------
+
+// A tag reports through several gateways over time. Each bucket must be counted exactly once, for
+// the gateway that heard it -- never duplicated across gateways, never all attributed to the last.
+func TestGatewayWindowStatsOneToManyGatewaysNoDoubleCount(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+	defer pool.Close()
+
+	gwA := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-window-a", Status: "active"}
+	gwB := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-window-b", Status: "active"}
+	base := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
+
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gwA, []domain.Packet{
+		makePacket(hsiTenant, hsiMappedTag, hsiMappedMAC, gwA.GatewayID, base, 100, -60),
+	}); err != nil {
+		t.Fatalf("ingest via gateway A: %v", err)
+	}
+	// The SAME tag is later heard by a different gateway. Its earlier bucket must stay with A.
+	if _, _, err := repo.IngestPackets(ctx, hsiTenant, gwB, []domain.Packet{
+		makePacket(hsiTenant, hsiMappedTag, hsiMappedMAC, gwB.GatewayID, base.Add(6*time.Minute), 150, -60),
+	}); err != nil {
+		t.Fatalf("ingest via gateway B: %v", err)
+	}
+
+	stats, err := repo.GetGatewayWindowStats(ctx, hsiTenant)
+	if err != nil {
+		t.Fatalf("GetGatewayWindowStats: %v", err)
+	}
+	if len(stats) == 0 {
+		t.Fatal("no gateway window stats returned; the column that carries the receiving gateway is not being populated")
+	}
+	var total int
+	for _, st := range stats {
+		if st.PacketsReceivedInWindow != nil {
+			total += *st.PacketsReceivedInWindow
+		}
+	}
+	if total != 2 {
+		t.Fatalf("each packet must be counted once for the gateway that heard it; got %d across %d gateways", total, len(stats))
+	}
+}
+
+// The aggregate is a WHOLE-WINDOW figure, never a page of rows. Adding more tags must move the
+// counts, and no pagination may enter this path.
+func TestGatewayWindowStatsPageBoundaryIsWholeWindow(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+	defer pool.Close()
+
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-window-page", Status: "active"}
+	base := time.Now().UTC().Add(-5 * time.Minute).Truncate(time.Second)
+	for i := 0; i < 3; i++ {
+		tag := fmt.Sprintf("PAGE%02d", i)
+		if _, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+			makePacket(hsiTenant, tag, fmt.Sprintf("AA:BB:CC:00:0P:%02d", i), gw.GatewayID, base, int64(10*i), -60),
+		}); err != nil {
+			t.Fatalf("ingest tag %s: %v", tag, err)
+		}
+	}
+
+	stats, err := repo.GetGatewayWindowStats(ctx, hsiTenant)
+	if err != nil {
+		t.Fatalf("GetGatewayWindowStats: %v", err)
+	}
+	st, ok := stats[gw.GatewayID]
+	if !ok {
+		t.Fatalf("gateway %s heard 3 tags but is absent from the aggregate", gw.GatewayID)
+	}
+	if st.TagsSeenInWindow == nil || *st.TagsSeenInWindow < 3 {
+		t.Fatalf("whole-window aggregate must see all 3 tags -- a page count has leaked into it; got %v", st.TagsSeenInWindow)
+	}
+}
+
+// Tenant scope: one tenant's traffic must never appear in another's coverage figures.
+func TestGatewayWindowStatsScopeHierarchyTenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+	defer pool.Close()
+
+	otherTenant := hsiUUID(t, "tenant", 7)
+	gw := domain.Gateway{TenantID: otherTenant, GatewayID: "gw-window-other", Status: "active"}
+	base := time.Now().UTC().Add(-3 * time.Minute).Truncate(time.Second)
+	if _, _, err := repo.IngestPackets(ctx, otherTenant, gw, []domain.Packet{
+		makePacket(otherTenant, "OTHER1", "AA:BB:CC:00:0T:01", gw.GatewayID, base, 5, -60),
+	}); err != nil {
+		t.Fatalf("ingest for other tenant: %v", err)
+	}
+
+	stats, err := repo.GetGatewayWindowStats(ctx, hsiTenant)
+	if err != nil {
+		t.Fatalf("GetGatewayWindowStats: %v", err)
+	}
+	if _, leaked := stats[gw.GatewayID]; leaked {
+		t.Fatalf("another tenant's gateway %s leaked into this tenant's coverage", gw.GatewayID)
+	}
+}
+
+// Status matrix: a gateway with no traffic in the window must be ABSENT, so the read layer can
+// render an em dash. A fabricated zero would read as "heard nothing", which is a different and
+// unearned claim from "we have no measurement".
+func TestGatewayWindowStatsStatusMatrixIdleGatewayAbsent(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+	defer pool.Close()
+
+	idle := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-window-idle", Status: "active"}
+	if err := repo.UpsertGateway(ctx, hsiTenant, idle); err != nil {
+		t.Fatalf("upsert idle gateway: %v", err)
+	}
+
+	stats, err := repo.GetGatewayWindowStats(ctx, hsiTenant)
+	if err != nil {
+		t.Fatalf("GetGatewayWindowStats: %v", err)
+	}
+	if st, present := stats[idle.GatewayID]; present {
+		t.Fatalf("a gateway with no windows must not appear with fabricated counts; got %+v", st)
+	}
+}
