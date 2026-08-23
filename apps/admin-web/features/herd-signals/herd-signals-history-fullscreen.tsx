@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import type { HerdSignalItem, HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
+import { getHerdSignalsActivity, type HerdSignalActivityResponse } from "@/lib/api/herd-signals";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import {
   fmtBleMac,
@@ -89,6 +90,11 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
   const [customTo, setCustomTo] = useState("");
   const [hovered, setHovered] = useState<HerdSignalTimelineBucket | null>(null);
   const [overlaysOn, setOverlaysOn] = useState<Record<string, boolean>>({});
+  const [activity, setActivity] = useState<{ key: string; data: HerdSignalActivityResponse | null; error: string | null }>({
+    key: "",
+    data: null,
+    error: null,
+  });
 
   const bounds = useMemo(() => {
     if (range === "custom") {
@@ -133,6 +139,31 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
       active = false;
     };
   }, [displayedItem, bounds, range]);
+
+  // Fetch activity data for overlay
+  useEffect(() => {
+    if (!displayedItem || !bounds) {
+      setActivity({ key: "", data: null, error: null });
+      return;
+    }
+    let active = true;
+    const key = `${displayedItem.tag_id}|${bounds.from}|${bounds.to}`;
+    void getHerdSignalsActivity({
+      tagId: displayedItem.tag_id,
+      from: bounds.from,
+      to: bounds.to,
+    }).then((result) => {
+      if (!active) return;
+      if (result.ok) {
+        setActivity({ key, data: result.data, error: null });
+      } else {
+        setActivity({ key, data: null, error: result.error?.message ?? "Failed to load activity" });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [displayedItem, bounds]);
   const { buckets, error } = chart;
 
   // Prefill custom date inputs when a preset is active (not custom range)
@@ -218,18 +249,21 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
 
         <div className="daterow" style={{ gap: 7 }}>
           <span className="small faint rowlabel">Overlay activity</span>
-          {OVERLAYS.map((overlay) => (
-            <button
-              key={overlay}
-              type="button"
-              className={`evchip${overlaysOn[overlay] ? " on" : ""}`}
-              disabled
-              title="No activity-overlay read endpoint is available yet — this toggle is wired but has nothing to fetch."
-              onClick={() => setOverlaysOn((current) => ({ ...current, [overlay]: !current[overlay] }))}
-            >
-              <i aria-hidden="true" /> {overlay}
-            </button>
-          ))}
+          {OVERLAYS.map((overlay) => {
+            const key = overlay.toLowerCase().replace(" ", "_");
+            return (
+              <button
+                key={overlay}
+                type="button"
+                className={`evchip${overlaysOn[overlay] ? " on" : ""}`}
+                disabled={activity.data === null && activity.error !== null}
+                title={activity.error ? `Failed to load activity: ${activity.error}` : undefined}
+                onClick={() => setOverlaysOn((current) => ({ ...current, [overlay]: !current[overlay] }))}
+              >
+                <i aria-hidden="true" /> {overlay}
+              </button>
+            );
+          })}
           <span className="sp" style={{ flex: 1 }} />
           <span className="small faint">Overlays are joins onto existing Mesha records — they are context, not cause.</span>
         </div>
@@ -281,7 +315,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                 ),
               )}
               <span style={{ gridColumn: "1 / -1", fontSize: 12, color: "var(--c-mut)" }}>
-                Recorded farm activity: Vaccination · Feed given · Weighing · Treatment · Hoof trimming · Shed move (endpoints not yet available)
+                Recorded farm activity: Vaccination · Feed given · Weighing · Treatment · Hoof trimming · Shed move
               </span>
             </div>
             <div className="readout" aria-live="polite">
@@ -321,17 +355,65 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
                     </tr>
                   </thead>
                   <tbody>
-                    <tr>
-                      <td colSpan={6}>
-                        <div className="empty">
-                          <h4>No recorded farm activity available</h4>
-                          <p>
-                            The overlay read endpoints (vaccination, feed given, weighing, treatment, hoof trimming, shed
-                            move) are not built yet, so this table has nothing to join against the motion history above.
-                          </p>
-                        </div>
-                      </td>
-                    </tr>
+                    {activity.error && activity.key ? (
+                      <tr>
+                        <td colSpan={6}>
+                          <div className="empty dngstate">
+                            <h4>Activity read failed</h4>
+                            <p>{activity.error}</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : activity.data === null ? (
+                      <tr>
+                        <td colSpan={6}>
+                          <div style={{ padding: 16 }}>
+                            <div className="skelrow" style={{ width: "100%", height: 40 }} />
+                          </div>
+                        </td>
+                      </tr>
+                    ) : activity.data.events.length === 0 ? (
+                      <tr>
+                        <td colSpan={6}>
+                          <div className="empty">
+                            <h4>
+                              {activity.data.reason ? (
+                                <>
+                                  No activity {activity.data.reason === "tag_not_mapped_to_animal" && "— tag is not mapped to an animal"}
+                                  {activity.data.reason === "monitoring_boundary_unknown" && "— mapping start time unknown"}
+                                  {activity.data.reason === "window_entirely_before_monitoring_start" && "— window before tag mapping"}
+                                </>
+                              ) : (
+                                "No recorded farm activity in this window"
+                              )}
+                            </h4>
+                            {!activity.data.reason && <p>No vaccination, feed, weighing, treatment, hoof trimming, or shed move records found.</p>}
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      activity.data.events.map((event, idx) => {
+                        const eventTime = new Date(event.at);
+                        const isoTime = eventTime.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
+                        // Compute 2h windows (only showing placeholder for now; actual delta computation would need bucket data)
+                        const grainLabel = event.grain === "animal" ? "" : event.grain === "shed" ? " (shed)" : " (scanned)";
+                        return (
+                          <tr key={`${event.at}${idx}`}>
+                            <td>
+                              <span className="tag t-event">{event.kind}</span>
+                              <span className="small faint">{event.label}{grainLabel}</span>
+                            </td>
+                            <td className="mono small">{isoTime}</td>
+                            <td className="num small">—</td>
+                            <td className="num small">—</td>
+                            <td className="num small">—</td>
+                            <td className="small">
+                              <span className="tag">{event.grain === "animal" ? "Animal" : event.grain === "shed" ? "Shed" : "ID"}</span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>

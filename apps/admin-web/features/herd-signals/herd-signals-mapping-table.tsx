@@ -810,11 +810,11 @@ export function HerdSignalsMappingTable({
                     <td data-l="Animal" className="wide animcell">
                       <AnimalCell item={item} />
                     </td>
-                    <td data-l="Existing tag 1" className="faint">
-                      {NOT_ON_CONTRACT}
+                    <td data-l="Existing tag 1" className={item.animal_identifier_1 ? "" : "faint"}>
+                      {item.animal_identifier_1 ? <span className="mono">{item.animal_identifier_1}</span> : NOT_ON_CONTRACT}
                     </td>
-                    <td data-l="Existing tag 2" className="faint">
-                      {NOT_ON_CONTRACT}
+                    <td data-l="Existing tag 2" className={item.animal_identifier_2 ? "" : "faint"}>
+                      {item.animal_identifier_2 ? <span className="mono">{item.animal_identifier_2}</span> : NOT_ON_CONTRACT}
                     </td>
                     {/* Every row on this screen IS a BLE smart tag -- that is why it is here at all.
                         smart_tag_capable is a flag on the ANIMAL IDENTIFIER, so an unmapped tag has
@@ -840,11 +840,11 @@ export function HerdSignalsMappingTable({
                         tag. A tag with no gateway id was not attributed to one, so it gets "—",
                         never a guessed source. */}
                     <td data-l="Source">{item.gateway_id ? "Gateway" : <span className="faint">{NOT_ON_CONTRACT}</span>}</td>
-                    <td data-l="Verified by" className="faint">
-                      {NOT_ON_CONTRACT}
+                    <td data-l="Verified by" className={item.mapped_by ? "" : "faint"}>
+                      {item.mapped_by ? <span className="mono text-sm">{item.mapped_by.slice(0, 8)}</span> : NOT_ON_CONTRACT}
                     </td>
-                    <td data-l="Verified at" className="faint">
-                      {NOT_ON_CONTRACT}
+                    <td data-l="Verified at" className={item.mapped_at ? "" : "faint"}>
+                      {item.mapped_at ? fmtAgo(item.mapped_at, new Date().getTime()) : NOT_ON_CONTRACT}
                     </td>
                     <td data-l="Status">
                       <Tag tone={MAPPING_TONE[item.mapping_state]}>{MAPPING_LABEL[item.mapping_state]}</Tag>

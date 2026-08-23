@@ -96,7 +96,7 @@ paths:
           schema: { $ref: '#/components/schemas/HerdSignalMappingState' }
         - name: pattern
           in: query
-          schema: { $ref: '#/components/schemas/HerdSignalPatternState' }
+          schema: { $ref: '#/components/schemas/HerdSignalPatternFilter' }
         - name: q
           in: query
           schema: { type: string }
@@ -385,7 +385,7 @@ paths:
           schema: { $ref: '#/components/schemas/HerdSignalMappingState' }
         - name: pattern
           in: query
-          schema: { $ref: '#/components/schemas/HerdSignalPatternState' }
+          schema: { $ref: '#/components/schemas/HerdSignalPatternFilter' }
         - name: q
           in: query
           schema: { type: string }
@@ -10921,6 +10921,19 @@ components:
     HerdSignalPatternState:
       type: string
       enum: [no_movement, quiet_watch, inactive, missing, spike, recovered, normal]
+    HerdSignalPatternFilter:
+      type: string
+      description: >-
+        Accepted values for the `pattern` QUERY parameter. A superset of HerdSignalPatternState:
+        every real pattern state, plus the `not_normal` sentinel that selects the whole alerting
+        partition server-side (pattern_state other than normal/no_movement, OR weak signal, OR
+        low/critical battery, OR abnormal sensor, OR mapping conflict).
+
+        Deliberately a SEPARATE enum from HerdSignalPatternState so a row's pattern_state stays the
+        set of states a tag can actually be in -- no tag is ever IN state "not_normal". The Alerts
+        view needs the partition selected in the query rather than filtered from a fetched page,
+        because a page of rows is not the fleet.
+      enum: [no_movement, quiet_watch, inactive, missing, spike, recovered, normal, not_normal]
     HerdSignalTone:
       type: string
       enum: [strong, ok, weak]
@@ -10980,6 +10993,8 @@ components:
         tag_mac: { type: string }
         goat_id: { type: string, format: uuid, nullable: true }
         display_id: { type: string, nullable: true }
+        animal_identifier_1: { type: string, nullable: true, description: Most recent active ear-tag value (non-BLE). }
+        animal_identifier_2: { type: string, nullable: true, description: Second most recent active ear-tag value (non-BLE). }
         park_id: { type: string, format: uuid, nullable: true }
         park_name: { type: string, nullable: true }
         shed_id: { type: string, format: uuid, nullable: true }
@@ -11018,6 +11033,8 @@ components:
             gap this long means nothing was received, and the delta on reconnect is a total with
             unknown time distribution), not this window's own movement. Render distinctly, never
             as an ordinary delta.
+        mapped_by: { type: string, nullable: true, description: User ID of the operator who bound this tag to an identifier (mapping provenance). }
+        mapped_at: { type: string, format: date-time, nullable: true, description: Server timestamp when this tag was bound to an identifier (mapping provenance). }
       required: [tag_id, tag_mac, goat_id, display_id, park_id, park_name, shed_id, shed_name, partition_label, operational_location_display, gateway_id, last_seen_at, rssi_dbm, signal_state, battery_mv, battery_state, battery_trend, tag_temperature_c, motion_count, motion_delta, motion_delta_1h, motion_window_seconds, movement_state, pattern_state, baseline_delta, sensor_state, temperature_sensor_ok, accelerometer_sensor_ok, mapping_state, gap_delta]
     HerdSignalsLiveResponse:
       type: object
@@ -11079,10 +11096,13 @@ components:
         ble_mac: { type: string, nullable: true }
         status: { $ref: '#/components/schemas/HerdGatewayStatus' }
         last_seen_at: { type: string, format: date-time, nullable: true }
-        tags_seen_recently: { type: integer }
-        weak_tags: { type: integer }
-        unmapped_tags: { type: integer }
-      required: [gateway_id, label, park_name, shed_name, partition_label, operational_location_display, network_mode, wifi_mac, ble_mac, status, last_seen_at, tags_seen_recently, weak_tags, unmapped_tags]
+        tags_seen_recently: { type: integer, nullable: true }
+        weak_tags: { type: integer, nullable: true }
+        unmapped_tags: { type: integer, nullable: true }
+        tags_seen_in_window: { type: integer, nullable: true, description: Count of unique tags seen by this gateway in the last 15 minutes. }
+        distinct_motion_deltas: { type: integer, nullable: true, description: Count of tags with measurable motion in the last 15 minutes. }
+        packets_received_in_window: { type: integer, nullable: true, description: Total packet count received by this gateway in the last 15 minutes. }
+      required: [gateway_id, label, park_name, shed_name, partition_label, operational_location_display, network_mode, wifi_mac, ble_mac, status, last_seen_at, tags_seen_recently, weak_tags, unmapped_tags, tags_seen_in_window, distinct_motion_deltas, packets_received_in_window]
     HerdGatewaysResponse:
       type: object
       properties:

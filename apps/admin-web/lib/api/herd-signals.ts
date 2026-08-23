@@ -93,6 +93,9 @@ export interface HerdSignalItem {
   // recoverable TOTAL (motion_count is cumulative) but its distribution across the gap is unknown
   // — never render it as a normal 15m/1h reading and never let it drive a "spike" claim.
   gap_delta: boolean;
+  // Mapping provenance: who bound this tag and when. Populated only when mapped_state is 'mapped'.
+  mapped_by: string | null;
+  mapped_at: string | null;
 }
 
 export interface HerdSignalsLiveResponse {
@@ -145,6 +148,11 @@ export interface HerdGateway {
   tags_seen_recently: number | null;
   weak_tags: number | null;
   unmapped_tags: number | null;
+  // 15-minute window aggregates: computed over the most recent 15 minutes of packets/tags for this gateway.
+  // Bounded by the stated window so operators know these are not lifetime counts. Null means not yet computed.
+  tags_seen_in_window: number | null;
+  distinct_motion_deltas: number | null;
+  packets_received_in_window: number | null;
 }
 
 export interface HerdGatewaysResponse {
@@ -264,6 +272,53 @@ export async function getHerdSignalsInsights(): Promise<ApiResult<HerdInsightsRe
     ),
   );
 }
+
+export interface HerdSignalsActivityParams {
+  tagId: string;
+  from: string;
+  to: string;
+}
+
+export async function getHerdSignalsActivity(params: HerdSignalsActivityParams): Promise<ApiResult<HerdSignalActivityResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/herd-signals/tags/${encodeURIComponent(params.tagId)}/activity` as keyof AppApiPaths & string;
+  return request(() =>
+    withApiTimeout(8000, (signal) =>
+      client.request<HerdSignalActivityResponse>(path, {
+        cache: "no-store",
+        signal,
+        query: compactQuery({
+          from: params.from,
+          to: params.to,
+        }),
+      }),
+    ),
+  );
+}
+
+// Import the generated type from the API client for the activity response
+// The component should use this type once the generated client includes it
+export type HerdSignalActivityResponse = {
+  tag_id: string;
+  from: string;
+  to: string;
+  monitoring_since: string | null;
+  events: Array<{
+    kind: "vaccination" | "feed_given" | "weighing" | "treatment" | "hoof_trimming" | "shed_move";
+    at: string;
+    label: string;
+    grain: "animal" | "shed" | "scanned_identifier";
+  }>;
+  unavailable_kinds: Array<{
+    kind: "vaccination" | "feed_given" | "weighing" | "treatment" | "hoof_trimming" | "shed_move";
+    reason: string;
+  }>;
+  reason: ("tag_not_mapped_to_animal" | "monitoring_boundary_unknown" | "window_entirely_before_monitoring_start") | null;
+  truncated: boolean;
+  correlation_note: string;
+};
 
 // ---------------------------------------------------------------------------
 // Tag mapping WRITES.

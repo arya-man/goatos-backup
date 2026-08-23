@@ -29,6 +29,8 @@ import (
 	herdsignalsapp "github.com/vgoats/goatos/backend/internal/herdsignals/app"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/herdsignals/gateway"
+	"github.com/vgoats/goatos/backend/internal/platform/buildinfo"
+	"github.com/vgoats/goatos/backend/internal/platform/migrationguard"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
@@ -57,6 +59,30 @@ func run() error {
 		return fmt.Errorf("connect postgres: %w", err)
 	}
 	defer pool.Close()
+
+	// Fail fast on migration drift: if the database has migrations this binary
+	// doesn't know about, refuse to start and don't bind the socket. This prevents
+	// the bridge from silently starting and then crashing on the first packet when
+	// it encounters a missing schema element (e.g. column pkt_sn does not exist).
+	binaryMigrationVersion, err := migrationguard.BinaryVersion()
+	if err != nil {
+		return err
+	}
+	dbMigrationVersion, err := migrationguard.AppliedVersion(ctx, pool)
+	if err != nil {
+		return err
+	}
+	status, err := migrationguard.Check(dbMigrationVersion, binaryMigrationVersion)
+	if err != nil {
+		if status.DBAhead {
+			log.Error("migration_drift_dbahead_fatal",
+				slog.String("db_migration_version", dbMigrationVersion),
+				slog.String("binary_migration_version", binaryMigrationVersion),
+				slog.String("binary_version", buildinfo.Current()),
+				slog.String("error", err.Error()))
+		}
+		return err
+	}
 
 	repo := herdsignalspg.NewRepository(pool)
 	svc := herdsignalsapp.NewService(repo, log)

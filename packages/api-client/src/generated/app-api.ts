@@ -4212,6 +4212,12 @@ export interface components {
         HerdSignalMappingState: "mapped" | "unmapped" | "conflict";
         /** @enum {string} */
         HerdSignalPatternState: "no_movement" | "quiet_watch" | "inactive" | "missing" | "spike" | "recovered" | "normal";
+        /**
+         * @description Accepted values for the `pattern` QUERY parameter. A superset of HerdSignalPatternState: every real pattern state, plus the `not_normal` sentinel that selects the whole alerting partition server-side (pattern_state other than normal/no_movement, OR weak signal, OR low/critical battery, OR abnormal sensor, OR mapping conflict).
+         *     Deliberately a SEPARATE enum from HerdSignalPatternState so a row's pattern_state stays the set of states a tag can actually be in -- no tag is ever IN state "not_normal". The Alerts view needs the partition selected in the query rather than filtered from a fetched page, because a page of rows is not the fleet.
+         * @enum {string}
+         */
+        HerdSignalPatternFilter: "no_movement" | "quiet_watch" | "inactive" | "missing" | "spike" | "recovered" | "normal" | "not_normal";
         /** @enum {string} */
         HerdSignalTone: "strong" | "ok" | "weak";
         /**
@@ -4259,6 +4265,10 @@ export interface components {
             /** Format: uuid */
             goat_id: string | null;
             display_id: string | null;
+            /** @description Most recent active ear-tag value (non-BLE). */
+            animal_identifier_1?: string | null;
+            /** @description Second most recent active ear-tag value (non-BLE). */
+            animal_identifier_2?: string | null;
             /** Format: uuid */
             park_id: string | null;
             park_name: string | null;
@@ -4304,6 +4314,13 @@ export interface components {
             mapping_state: components["schemas"]["HerdSignalMappingState"];
             /** @description True when motion_delta is a reconnect TOTAL across a reception gap (maintainer decision on offline behaviour: the gateway does not buffer through a WAN outage, so a gap this long means nothing was received, and the delta on reconnect is a total with unknown time distribution), not this window's own movement. Render distinctly, never as an ordinary delta. */
             gap_delta: boolean;
+            /** @description User ID of the operator who bound this tag to an identifier (mapping provenance). */
+            mapped_by?: string | null;
+            /**
+             * Format: date-time
+             * @description Server timestamp when this tag was bound to an identifier (mapping provenance).
+             */
+            mapped_at?: string | null;
         };
         HerdSignalsLiveResponse: {
             summary: components["schemas"]["HerdSignalsSummary"];
@@ -4352,9 +4369,15 @@ export interface components {
             status: components["schemas"]["HerdGatewayStatus"];
             /** Format: date-time */
             last_seen_at: string | null;
-            tags_seen_recently: number;
-            weak_tags: number;
-            unmapped_tags: number;
+            tags_seen_recently: number | null;
+            weak_tags: number | null;
+            unmapped_tags: number | null;
+            /** @description Count of unique tags seen by this gateway in the last 15 minutes. */
+            tags_seen_in_window: number | null;
+            /** @description Count of tags with measurable motion in the last 15 minutes. */
+            distinct_motion_deltas: number | null;
+            /** @description Total packet count received by this gateway in the last 15 minutes. */
+            packets_received_in_window: number | null;
         };
         HerdGatewaysResponse: {
             gateways: components["schemas"]["HerdGateway"][];
@@ -12606,7 +12629,7 @@ export interface operations {
                 shed_id?: string;
                 movement_state?: components["schemas"]["HerdSignalMovementState"];
                 mapping_state?: components["schemas"]["HerdSignalMappingState"];
-                pattern?: components["schemas"]["HerdSignalPatternState"];
+                pattern?: components["schemas"]["HerdSignalPatternFilter"];
                 /** @description Free-text search over display id, tag id, MAC, shed name, gateway id. */
                 q?: string;
                 cursor?: string;
@@ -12924,7 +12947,7 @@ export interface operations {
                 shed_id?: string;
                 movement_state?: components["schemas"]["HerdSignalMovementState"];
                 mapping_state?: components["schemas"]["HerdSignalMappingState"];
-                pattern?: components["schemas"]["HerdSignalPatternState"];
+                pattern?: components["schemas"]["HerdSignalPatternFilter"];
                 /** @description Free-text search over display id, tag id, MAC, shed name, gateway id. */
                 q?: string;
             };
