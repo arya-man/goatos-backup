@@ -59,15 +59,15 @@ const (
 // ActivityEvent is one overlay marker: a kind, an instant, a short label, and the grain of the
 // record behind it.
 type ActivityEvent struct {
-	Kind                    ActivityEventKind `json:"kind"`
-	At                      time.Time         `json:"at"`
-	Label                   string            `json:"label"`
-	Grain                   ActivityGrain     `json:"grain"`
-	MotionDeltaBefore2h     *int64            `json:"motion_delta_before_2h"`
-	MotionDeltaAfter2h      *int64            `json:"motion_delta_after_2h"`
-	MotionChangePercent     *int64            `json:"motion_change_percent"`
-	BeforeWindowIncomplete  bool              `json:"before_window_incomplete"`
-	AfterWindowIncomplete   bool              `json:"after_window_incomplete"`
+	Kind                   ActivityEventKind `json:"kind"`
+	At                     time.Time         `json:"at"`
+	Label                  string            `json:"label"`
+	Grain                  ActivityGrain     `json:"grain"`
+	MotionDeltaBefore2h    *int64            `json:"motion_delta_before_2h"`
+	MotionDeltaAfter2h     *int64            `json:"motion_delta_after_2h"`
+	MotionChangePercent    *int64            `json:"motion_change_percent"`
+	BeforeWindowIncomplete bool              `json:"before_window_incomplete"`
+	AfterWindowIncomplete  bool              `json:"after_window_incomplete"`
 }
 
 // UnavailableActivityKind names a kind this deployment cannot produce, with the reason, so the

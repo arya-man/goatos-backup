@@ -184,6 +184,10 @@ func identifierRowsForValues(t *testing.T, ctx context.Context, pool *pgxpool.Po
 // TestMapTagToAnimalFlipsTheLiveReadToMapped is the primary proof: the action the Tag Mapping
 // screen could not perform at all now makes the live view say "mapped", through the read path's
 // own predicate.
+// hsiActor is the actor recorded as mapped_by on every binding these tests create.
+// Named rather than a bare literal so a provenance assertion reads as provenance.
+const hsiActor = "00000000-0000-4000-8000-0000000000aa"
+
 func TestMapTagToAnimalFlipsTheLiveReadToMapped(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupMappingDB(t, ctx)
@@ -194,7 +198,7 @@ func TestMapTagToAnimalFlipsTheLiveReadToMapped(t *testing.T) {
 		t.Fatalf("before mapping: live mapping_state = %q, want unmapped (this is the staging day-one state)", got)
 	}
 
-	resp, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{
+	resp, err := repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{
 		GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC,
 	})
 	if err != nil {
@@ -247,24 +251,24 @@ func TestBindRefusesTheStatesItExistsToPrevent(t *testing.T) {
 	repo, pool := setupMappingDB(t, ctx)
 	seedSecondGoat(t, ctx, pool)
 
-	if _, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA}); err != nil {
+	if _, err := repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA}); err != nil {
 		t.Fatalf("first bind: %v", err)
 	}
 
 	// Same tag, different animal -- this is exactly the "conflict" state the UI renders.
-	_, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsiGoat, TagID: hsmTagA})
+	_, err := repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{GoatID: hsiGoat, TagID: hsmTagA})
 	if !errors.Is(err, domain.ErrMappingConflict) {
 		t.Errorf("binding a tag already on another animal returned %v, want a conflict", err)
 	}
 
 	// Same animal, a second tag -- that is REPLACE, not MAP.
-	_, err = repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagB})
+	_, err = repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagB})
 	if !errors.Is(err, domain.ErrMappingConflict) {
 		t.Errorf("binding a second live tag to the same animal returned %v, want a conflict directing the caller to replace", err)
 	}
 
 	// An animal that does not exist is a 404-class failure, not a conflict and not a 500.
-	_, err = repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{
+	_, err = repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{
 		GoatID: "45000000-0000-4000-8000-0000000029ff", TagID: "hsm-tag-nobody",
 	})
 	if !errors.Is(err, domain.ErrMappingNotFound) {
@@ -273,7 +277,7 @@ func TestBindRefusesTheStatesItExistsToPrevent(t *testing.T) {
 
 	// Re-binding the SAME tag to the SAME animal is idempotent, not a conflict: an operator who
 	// double-taps must not be told they broke something.
-	if _, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA}); err != nil {
+	if _, err := repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA}); err != nil {
 		t.Errorf("re-binding the same tag to the same animal returned %v, want an idempotent success", err)
 	}
 }
@@ -289,14 +293,14 @@ func TestReplaceLeavesExactlyOneLiveBinding(t *testing.T) {
 	ingestTag(t, ctx, repo, "gw-hsm-2", hsmTagA, hsmTagAMAC, time.Now().UTC().Add(-3*time.Minute), 100)
 	ingestTag(t, ctx, repo, "gw-hsm-2", hsmTagB, hsmTagBMAC, time.Now().UTC().Add(-3*time.Minute), 200)
 
-	first, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC})
+	first, err := repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC})
 	if err != nil {
 		t.Fatalf("bind old tag: %v", err)
 	}
 
 	// A replace to a tag the animal does not have yet.
 	time.Sleep(5 * time.Millisecond) // so the new monitoring period is distinguishable from the old
-	second, err := repo.ReplaceTagMapping(ctx, hsiTenant, domain.ReplaceTagMappingRequest{
+	second, err := repo.ReplaceTagMapping(ctx, hsiTenant, hsiActor, domain.ReplaceTagMappingRequest{
 		GoatID: hsmGoatB, NewTagID: hsmTagB, NewTagMAC: hsmTagBMAC,
 	})
 	if err != nil {
@@ -336,7 +340,7 @@ func TestReplaceLeavesExactlyOneLiveBinding(t *testing.T) {
 
 	// And a re-tag AFTER a re-tag must still work: an animal that accumulated a dead MAC binding
 	// on every swap would fail here on the second one.
-	if _, err := repo.ReplaceTagMapping(ctx, hsiTenant, domain.ReplaceTagMappingRequest{
+	if _, err := repo.ReplaceTagMapping(ctx, hsiTenant, hsiActor, domain.ReplaceTagMappingRequest{
 		GoatID: hsmGoatB, NewTagID: hsmTagA, NewTagMAC: hsmTagAMAC,
 	}); err != nil {
 		t.Fatalf("second replace (swapping back to the original tag): %v", err)
@@ -362,7 +366,7 @@ func TestReplaceLeavesExactlyOneLiveBinding(t *testing.T) {
 		 VALUES ($2::uuid, $1::uuid, 'alive', 'goat', $3::uuid, $4::uuid, $5::uuid, $4::uuid, 'Synthetic Boer', 'male')
 		 ON CONFLICT (goat_id) DO NOTHING`,
 		hsiTenant, hsmGoatC, hsiParty, hsiShed, hsiPark)
-	if _, err := repo.ReplaceTagMapping(ctx, hsiTenant, domain.ReplaceTagMappingRequest{GoatID: hsmGoatC, NewTagID: "hsm-tag-c"}); !errors.Is(err, domain.ErrMappingConflict) {
+	if _, err := repo.ReplaceTagMapping(ctx, hsiTenant, hsiActor, domain.ReplaceTagMappingRequest{GoatID: hsmGoatC, NewTagID: "hsm-tag-c"}); !errors.Is(err, domain.ErrMappingConflict) {
 		t.Errorf("replace on an animal with no live smart tag returned %v, want a conflict directing the caller to map", err)
 	}
 }
@@ -374,11 +378,11 @@ func TestUnmapReturnsTheTagToDeviceTelemetry(t *testing.T) {
 	seedSecondGoat(t, ctx, pool)
 
 	ingestTag(t, ctx, repo, "gw-hsm-3", hsmTagA, hsmTagAMAC, time.Now().UTC().Add(-2*time.Minute), 100)
-	if _, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC}); err != nil {
+	if _, err := repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC}); err != nil {
 		t.Fatalf("bind: %v", err)
 	}
 
-	resp, err := repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagA, TagMAC: hsmTagAMAC})
+	resp, err := repo.UnmapTagMapping(ctx, hsiTenant, hsiActor, domain.UnmapTagMappingRequest{TagID: hsmTagA, TagMAC: hsmTagAMAC})
 	if err != nil {
 		t.Fatalf("UnmapTagMapping: %v", err)
 	}
@@ -408,7 +412,7 @@ func TestUnmapReturnsTheTagToDeviceTelemetry(t *testing.T) {
 
 	// Unmapping something that is not mapped is a named refusal, not a silent no-op -- the
 	// operator believes they just released a binding.
-	if _, err := repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagA}); !errors.Is(err, domain.ErrMappingConflict) {
+	if _, err := repo.UnmapTagMapping(ctx, hsiTenant, hsiActor, domain.UnmapTagMappingRequest{TagID: hsmTagA}); !errors.Is(err, domain.ErrMappingConflict) {
 		t.Errorf("unmapping an unmapped tag returned %v, want a conflict", err)
 	}
 }
@@ -428,7 +432,7 @@ func TestUnmapReleasesTheWHOLEBindingNotJustTheValueNamed(t *testing.T) {
 	repo, pool := setupMappingDB(t, ctx)
 	seedSecondGoat(t, ctx, pool)
 
-	bind, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{
+	bind, err := repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{
 		GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC,
 	})
 	if err != nil {
@@ -439,7 +443,7 @@ func TestUnmapReleasesTheWHOLEBindingNotJustTheValueNamed(t *testing.T) {
 	}
 
 	// Unmap naming ONLY the tag id. The MAC row must go too.
-	unmap, err := repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagA})
+	unmap, err := repo.UnmapTagMapping(ctx, hsiTenant, hsiActor, domain.UnmapTagMappingRequest{TagID: hsmTagA})
 	if err != nil {
 		t.Fatalf("unmap: %v", err)
 	}
@@ -458,7 +462,7 @@ func TestUnmapReleasesTheWHOLEBindingNotJustTheValueNamed(t *testing.T) {
 
 	// THE ROUND TRIP a real re-tagging performs: map A, unmap A, map B to the SAME animal.
 	// This is what was impossible: the leftover row made the second map a 409.
-	if _, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{
+	if _, err := repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{
 		GoatID: hsmGoatB, TagID: hsmTagB, TagMAC: hsmTagBMAC,
 	}); err != nil {
 		t.Fatalf("map a DIFFERENT tag to the same animal after unmapping the first: %v\nthis is exactly what a farm does when a tag falls off and is replaced, and a half-released binding makes it permanently impossible", err)
@@ -468,7 +472,7 @@ func TestUnmapReleasesTheWHOLEBindingNotJustTheValueNamed(t *testing.T) {
 	}
 
 	// And unmapping by MAC releases just as completely as unmapping by id.
-	if _, err := repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagBMAC}); err != nil {
+	if _, err := repo.UnmapTagMapping(ctx, hsiTenant, hsiActor, domain.UnmapTagMappingRequest{TagID: hsmTagBMAC}); err != nil {
 		t.Fatalf("unmap by MAC: %v", err)
 	}
 	if live := liveSmartTagValues(t, ctx, pool, hsmGoatB); len(live) != 0 {
@@ -477,7 +481,7 @@ func TestUnmapReleasesTheWHOLEBindingNotJustTheValueNamed(t *testing.T) {
 
 	// Re-mapping the SAME tag to the SAME animal after an unmap must work too: an operator who
 	// unmaps by mistake has to be able to put it straight back.
-	again, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{
+	again, err := repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{
 		GoatID: hsmGoatB, TagID: hsmTagB, TagMAC: hsmTagBMAC,
 	})
 	if err != nil {
@@ -522,7 +526,7 @@ func TestMonitoringBoundaryKeepsBenchHistoryOutOfTheAnimalsBaseline(t *testing.T
 	}
 
 	// MAP IT. Animal monitoring starts now; everything above is device history.
-	bind, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC})
+	bind, err := repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC})
 	if err != nil {
 		t.Fatalf("bind: %v", err)
 	}
@@ -565,7 +569,7 @@ func TestMonitoringBoundaryKeepsBenchHistoryOutOfTheAnimalsBaseline(t *testing.T
 	}
 
 	// UNMAP ends the period: the baseline goes away again, because there is no animal.
-	if _, err := repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagA, TagMAC: hsmTagAMAC}); err != nil {
+	if _, err := repo.UnmapTagMapping(ctx, hsiTenant, hsiActor, domain.UnmapTagMappingRequest{TagID: hsmTagA, TagMAC: hsmTagAMAC}); err != nil {
 		t.Fatalf("unmap: %v", err)
 	}
 	baselines, err = repo.GetBaselineDeltas(ctx, hsiTenant, []string{hsmTagA})
@@ -690,22 +694,22 @@ func TestOrdinaryRetaggingRoundTripNeedsNoSQL(t *testing.T) {
 		}
 	}
 
-	first, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC})
+	first, err := repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC})
 	step(1, "MAP A", err)
 
-	_, err = repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagA})
+	_, err = repo.UnmapTagMapping(ctx, hsiTenant, hsiActor, domain.UnmapTagMappingRequest{TagID: hsmTagA})
 	step(2, "UNMAP A", err)
 	if rows := identifierRowsForValues(t, ctx, pool, hsmTagA, hsmTagAMAC); len(rows) != 0 {
 		t.Fatalf("after step 2 these rows survive: %v -- they are what refuses step 3", rows)
 	}
 
-	again, err := repo.BindTagMapping(ctx, hsiTenant, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC})
+	again, err := repo.BindTagMapping(ctx, hsiTenant, hsiActor, domain.BindTagMappingRequest{GoatID: hsmGoatB, TagID: hsmTagA, TagMAC: hsmTagAMAC})
 	step(3, "MAP A again to the same animal", err)
 	if again.MonitoringSince == nil || !again.MonitoringSince.After(*first.MonitoringSince) {
 		t.Errorf("step 3 monitoring_since = %v, want a NEW period after %v", again.MonitoringSince, first.MonitoringSince)
 	}
 
-	_, err = repo.ReplaceTagMapping(ctx, hsiTenant, domain.ReplaceTagMappingRequest{GoatID: hsmGoatB, NewTagID: hsmTagB, NewTagMAC: hsmTagBMAC})
+	_, err = repo.ReplaceTagMapping(ctx, hsiTenant, hsiActor, domain.ReplaceTagMappingRequest{GoatID: hsmGoatB, NewTagID: hsmTagB, NewTagMAC: hsmTagBMAC})
 	step(4, "REPLACE A with B", err)
 	if rows := identifierRowsForValues(t, ctx, pool, hsmTagA, hsmTagAMAC); len(rows) != 0 {
 		t.Fatalf("after step 4 the OLD tag's rows survive: %v -- an animal would accumulate a dead binding on every re-tag", rows)
@@ -714,7 +718,7 @@ func TestOrdinaryRetaggingRoundTripNeedsNoSQL(t *testing.T) {
 		t.Fatalf("after step 4 the animal carries %v, want exactly the new tag's 2 values", live)
 	}
 
-	_, err = repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsmTagB})
+	_, err = repo.UnmapTagMapping(ctx, hsiTenant, hsiActor, domain.UnmapTagMappingRequest{TagID: hsmTagB})
 	step(5, "UNMAP B", err)
 	if rows := identifierRowsForValues(t, ctx, pool, hsmTagA, hsmTagAMAC, hsmTagB, hsmTagBMAC); len(rows) != 0 {
 		t.Fatalf("after the full round trip these rows survive: %v -- want a clean slate", rows)
@@ -743,7 +747,7 @@ func TestReleaseNeverDestroysTheAnimalsOwnIdentity(t *testing.T) {
 		t.Fatalf("read the fixture identity row: %v", err)
 	}
 
-	if _, err := repo.UnmapTagMapping(ctx, hsiTenant, domain.UnmapTagMappingRequest{TagID: hsiMappedTag}); err != nil {
+	if _, err := repo.UnmapTagMapping(ctx, hsiTenant, hsiActor, domain.UnmapTagMappingRequest{TagID: hsiMappedTag}); err != nil {
 		t.Fatalf("unmap the animal's own ear-tag identifier: %v", err)
 	}
 
