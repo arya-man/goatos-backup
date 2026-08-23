@@ -550,7 +550,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   // opposite. Selecting into an empty set makes the chip mean what its label says, and keeps the
   // unfiltered board reachable by deselecting rather than by re-selecting all four.
   const [statuses, setStatuses] = useState<Set<StatusKey>>(new Set());
-  const statusVisible = (key: string) => statuses.size === 0 || statuses.has(key as StatusKey);
   // Cell drilldown is client-local overlay state: the cohort row already carries its sub-cohorts,
   // so opening a cell must not re-run the route (local-overlay rule).
   const [selectedCell, setSelectedCell] = useState<SelectedCohortCell | null>(null);
@@ -562,7 +561,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   const [selectedShedVaccine, setSelectedShedVaccine] = useState<ShedVaccineCell | null>(null);
   const closedAnimals = board.closedWithoutDoseAnimals ?? [];
   const futureCampaigns = useMemo(
-    () => statusVisible("scheduled") ? scheduledDriveCampaigns(futureDrives) : [],
+    () => (statuses.size === 0 || statuses.has("scheduled")) ? scheduledDriveCampaigns(futureDrives) : [],
     [futureDrives, statuses],
   );
   const driveCampaigns = useMemo(
@@ -572,12 +571,13 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
 
   const view = useMemo(() => {
     const matchesVaccine = (label?: string) => !vaccine || (label ?? "").startsWith(vaccine);
+    const isStatusVisible = (key: string) => statuses.size === 0 || statuses.has(key as StatusKey);
     return {
     ...board,
     shedVaccineMatrix: board.shedVaccineMatrix ?? [],
     shedVaccineColumns: board.shedVaccineColumns ?? [],
     shedDoseMatrix: (board.shedDoseMatrix ?? []).filter(
-      (c) => matchesVaccine(c.doseRule) && statusVisible(c.state),
+      (c) => matchesVaccine(c.doseRule) && isStatusVisible(c.state),
     ),
     cohortMatrix: (board.cohortMatrix ?? []).filter((c) => matchesVaccine(c.vaccineLabel)),
     verificationQueue: (board.verificationQueue ?? []).filter((r) => matchesVaccine(r.doseRule)),

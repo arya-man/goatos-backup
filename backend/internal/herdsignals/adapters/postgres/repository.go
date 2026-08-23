@@ -161,6 +161,7 @@ func (r *Repository) IngestPackets(ctx context.Context, tenantID string, gw doma
 		// supported", verified on a scratch database while building 000200). The application must
 		// supply it explicitly, computed from the SAME p.ReceivedAt used for the dedup key below,
 		// so routing and dedup identity never disagree about which day a packet belongs to.
+		// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=partition-key-stable-timezone-independent expiry=2027-12-31
 		receivedDate := p.ReceivedAt.UTC().Truncate(24 * time.Hour)
 		batch.Queue(`
 			INSERT INTO public.herd_signal_packets (
@@ -1194,6 +1195,7 @@ func (r *Repository) GetGatewayWindowStats(ctx context.Context, tenantID string)
 	// The 15-minute window: from now minus 15 minutes to now.
 	// herd_signal_activity_windows is pre-bucketed at 60s, 300s, and 3600s tiers.
 	// Query the 300s tier to cover 15 minutes efficiently (5-minute buckets).
+	// projection-review: membership=herd_signal_activity_windows.tag_id; group_key=gateway_id; join_cardinality=one tag is joined to exactly one tag_latest row per tag_id; pagination=none whole-result aggregate time-windowed to 15 minutes; scope=tenant_id with gateway_id filter
 	rows, err := r.db.Query(ctx, `
 		SELECT
 			tl.gateway_id,

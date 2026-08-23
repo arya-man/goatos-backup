@@ -95,12 +95,6 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
   const [customTo, setCustomTo] = useState("");
   const [hovered, setHovered] = useState<HerdSignalTimelineBucket | null>(null);
   const [overlaysOn, setOverlaysOn] = useState<Record<string, boolean>>({});
-  const [activity, setActivity] = useState<{ key: string; data: HerdSignalActivityResponse | null; error: string | null }>({
-    key: "",
-    data: null,
-    error: null,
-  });
-
   const bounds = useMemo(() => {
     if (range === "custom") {
       if (!customFrom || !customTo) return null;
@@ -131,6 +125,17 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
     setChart({ key: chartKey, buckets: null, error: null });
   }
 
+  // Activity state follows the same reset-on-key-change pattern
+  const activityKey = displayedItem && bounds ? `${displayedItem.tag_id}|${bounds.from}|${bounds.to}` : "";
+  const [activity, setActivity] = useState<{ key: string; data: HerdSignalActivityResponse | null; error: string | null }>({
+    key: activityKey,
+    data: null,
+    error: null,
+  });
+  if (activityKey !== activity.key) {
+    setActivity({ key: activityKey, data: null, error: null });
+  }
+
   useEffect(() => {
     if (!displayedItem || !bounds) return;
     let active = true;
@@ -147,10 +152,7 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
 
   // Fetch activity data for overlay
   useEffect(() => {
-    if (!displayedItem || !bounds) {
-      setActivity({ key: "", data: null, error: null });
-      return;
-    }
+    if (!displayedItem || !bounds) return;
     let active = true;
     const key = `${displayedItem.tag_id}|${bounds.from}|${bounds.to}`;
     // Fetched through the same-origin proxy, NOT by importing the server reader: that reader is

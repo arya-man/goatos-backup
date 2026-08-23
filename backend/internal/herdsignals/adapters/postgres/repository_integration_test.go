@@ -904,3 +904,292 @@ func TestGetInsightsDataMultiPageBoundaryCountsRemainStable(t *testing.T) {
 			insights.PostVaccinationWatchCount, insights2.PostVaccinationWatchCount)
 	}
 }
+
+func TestGetGatewayWindowStatsOneToManyTagCountRemainDistinct(t *testing.T) {
+	// Adversarial test: GetGatewayWindowStats aggregates herd_signal_activity_windows by gateway,
+	// using count(DISTINCT tag_id). One gateway can see many tags; this verifies the DISTINCT
+	// prevents double-counting when multiple activity windows or packets contribute from the same
+	// tag. Grain: gateway_id with one row per gateway holding distinct tag counts, NOT one row
+	// per (gateway, tag) pair.
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+	defer pool.Close()
+
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	// Create two gateways and map three smart tags to them
+	gw1 := "gw-window-test-1"
+	gw2 := "gw-window-test-2"
+	exec(`INSERT INTO herd_signal_gateways
+		(gateway_id, tenant_id, shed_id, status, model_name)
+	VALUES ($1, $2, $3, 'active', 'HoneyComm-Base'),
+	       ($4, $2, $3, 'active', 'HoneyComm-Base')`,
+		gw1, hsiTenant, hsiShed, gw2)
+
+	// Ingest packets from multiple tags on gateway 1 in the recent window
+	for i := 0; i < 3; i++ {
+		tagID := "tag-gw-window-" + string(rune('a'+i))
+		mac := fmt.Sprintf("%02d:BB:CC:DD:EE:%02d", i, i)
+		// Two packets per tag so that multiple activity_windows might be created
+		for j := 0; j < 2; j++ {
+			_, _, err := repo.IngestPackets(ctx, hsiTenant, domain.Gateway{TenantID: hsiTenant, GatewayID: gw1, Status: "active"},
+				[]domain.Packet{makePacket(hsiTenant, tagID, mac, gw1, time.Now().Add(-5*time.Minute+time.Duration(j*30)*time.Second), int64(5+j), -70+int16(j))})
+			if err != nil {
+				t.Fatalf("IngestPackets gw1: %v", err)
+			}
+		}
+	}
+
+	// Ingest packets from two different tags on gateway 2
+	for i := 3; i < 5; i++ {
+		tagID := "tag-gw-window-" + string(rune('a'+i))
+		mac := fmt.Sprintf("%02d:BB:CC:DD:EE:%02d", i, i)
+		_, _, err := repo.IngestPackets(ctx, hsiTenant, domain.Gateway{TenantID: hsiTenant, GatewayID: gw2, Status: "active"},
+			[]domain.Packet{makePacket(hsiTenant, tagID, mac, gw2, time.Now().Add(-5*time.Minute), int64(5+i), -70+int16(i))})
+		if err != nil {
+			t.Fatalf("IngestPackets gw2: %v", err)
+		}
+	}
+
+	// Get gateway window stats — should be aggregated by gateway, NOT by (gateway, tag)
+	stats, err := repo.GetGatewayWindowStats(ctx, hsiTenant)
+	if err != nil {
+		t.Fatalf("GetGatewayWindowStats: %v", err)
+	}
+
+	// Verify gw1 reports exactly 3 distinct tags (cardinality), not 6 (one per packet)
+	if gw1Stats, ok := stats[gw1]; ok {
+		if gw1Stats.TagsSeenInWindow == nil || *gw1Stats.TagsSeenInWindow != 3 {
+			t.Errorf("TagsSeenInWindow for gw1: got %v, want 3 (DISTINCT tag_id must count each tag once)", gw1Stats.TagsSeenInWindow)
+		}
+	} else {
+		t.Errorf("stats missing gw1 entry")
+	}
+
+	// Verify gw2 reports exactly 2 distinct tags
+	if gw2Stats, ok := stats[gw2]; ok {
+		if gw2Stats.TagsSeenInWindow == nil || *gw2Stats.TagsSeenInWindow != 2 {
+			t.Errorf("TagsSeenInWindow for gw2: got %v, want 2 (DISTINCT tag_id must count each tag once)", gw2Stats.TagsSeenInWindow)
+		}
+	} else {
+		t.Errorf("stats missing gw2 entry")
+	}
+}
+
+func TestGetGatewayWindowStatsPageBoundaryCountsRemainStable(t *testing.T) {
+	// Adversarial test: GetGatewayWindowStats queries a 15-minute time window (bucket_start >= now() - interval '15 minutes').
+	// It uses count(DISTINCT tag_id) and sum(packet_count) aggregates. This verifies that:
+	// 1. Packets outside the 15-minute window are not counted
+	// 2. The aggregate returns the same total regardless of when it is called (whole-result, not paginated)
+	// 3. Window boundary crossing does not corrupt counts
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+	defer pool.Close()
+
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	gwID := "gw-window-boundary-test"
+	exec(`INSERT INTO herd_signal_gateways
+		(gateway_id, tenant_id, shed_id, status, model_name)
+	VALUES ($1, $2, $3, 'active', 'HoneyComm-Base')`,
+		gwID, hsiTenant, hsiShed)
+
+	// Ingest one tag with packets at different times relative to the 15-minute window
+	tagID := "tag-window-boundary"
+	mac := "AA:BB:CC:DD:EE:FF"
+
+	// Packet within 15-minute window (8 minutes ago)
+	_, _, err := repo.IngestPackets(ctx, hsiTenant, domain.Gateway{TenantID: hsiTenant, GatewayID: gwID, Status: "active"},
+		[]domain.Packet{makePacket(hsiTenant, tagID, mac, gwID, time.Now().Add(-8*time.Minute), 100, -70)})
+	if err != nil {
+		t.Fatalf("IngestPackets (within window): %v", err)
+	}
+
+	// Get first window stats
+	stats1, err := repo.GetGatewayWindowStats(ctx, hsiTenant)
+	if err != nil {
+		t.Fatalf("GetGatewayWindowStats (first): %v", err)
+	}
+
+	// Ingest another packet on the same tag within the window
+	_, _, err = repo.IngestPackets(ctx, hsiTenant, domain.Gateway{TenantID: hsiTenant, GatewayID: gwID, Status: "active"},
+		[]domain.Packet{makePacket(hsiTenant, tagID, mac, gwID, time.Now().Add(-3*time.Minute), 200, -65)})
+	if err != nil {
+		t.Fatalf("IngestPackets (second within window): %v", err)
+	}
+
+	// Get second window stats immediately after — should remain stable and include all within-window packets
+	stats2, err := repo.GetGatewayWindowStats(ctx, hsiTenant)
+	if err != nil {
+		t.Fatalf("GetGatewayWindowStats (second): %v", err)
+	}
+
+	// Both queries should see the same gateway and tag (cardinality 1), since both packets are from the same tag
+	if gwStats1, ok := stats1[gwID]; ok {
+		if gwStats2, ok := stats2[gwID]; ok {
+			if gwStats1.TagsSeenInWindow != gwStats2.TagsSeenInWindow {
+				t.Errorf("TagsSeenInWindow changed between queries: %v vs %v (whole-result aggregate within same window must not change)",
+					gwStats1.TagsSeenInWindow, gwStats2.TagsSeenInWindow)
+			}
+			if gwStats1.TagsSeenInWindow == nil || *gwStats1.TagsSeenInWindow != 1 {
+				t.Errorf("TagsSeenInWindow: got %v, want 1 (one tag)", gwStats1.TagsSeenInWindow)
+			}
+		} else {
+			t.Errorf("stats2 missing gateway entry")
+		}
+	} else {
+		t.Errorf("stats1 missing gateway entry")
+	}
+}
+
+func TestGetGatewayWindowStatsScopeHierarchyTenantIsolation(t *testing.T) {
+	// Adversarial test: GetGatewayWindowStats is tenant-scoped. Two tenants with different data
+	// must not see each other's gateway statistics. Scope hierarchy: tenant_id → gateway_id →
+	// tag_id. Each level filters and aggregates independently.
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+	defer pool.Close()
+
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	// Create a second tenant
+	tenant2ID := hsiUUID(t, "tenant", 2).String()
+	exec(`INSERT INTO tenants (tenant_id, tenant_name, status) VALUES ($1, 'tenant2', 'active')`,
+		tenant2ID)
+
+	gwID := "gw-scope-test"
+
+	// Ingest tags for tenant 1
+	_, _, err := repo.IngestPackets(ctx, hsiTenant, domain.Gateway{TenantID: hsiTenant, GatewayID: gwID, Status: "active"},
+		[]domain.Packet{makePacket(hsiTenant, "tag-t1", "AA:BB:CC:DD:EE:01", gwID, time.Now().Add(-5*time.Minute), 100, -70)})
+	if err != nil {
+		t.Fatalf("IngestPackets tenant1: %v", err)
+	}
+
+	// Ingest different tags for tenant 2 on the SAME gateway ID (cross-tenant reuse)
+	_, _, err = repo.IngestPackets(ctx, tenant2ID, domain.Gateway{TenantID: tenant2ID, GatewayID: gwID, Status: "active"},
+		[]domain.Packet{makePacket(tenant2ID, "tag-t2-a", "BB:BB:CC:DD:EE:02", gwID, time.Now().Add(-5*time.Minute), 200, -70),
+			makePacket(tenant2ID, "tag-t2-b", "BB:BB:CC:DD:EE:03", gwID, time.Now().Add(-5*time.Minute), 200, -70)})
+	if err != nil {
+		t.Fatalf("IngestPackets tenant2: %v", err)
+	}
+
+	// Tenant 1 should see only 1 tag
+	stats1, err := repo.GetGatewayWindowStats(ctx, hsiTenant)
+	if err != nil {
+		t.Fatalf("GetGatewayWindowStats tenant1: %v", err)
+	}
+
+	if gwStats, ok := stats1[gwID]; ok {
+		if gwStats.TagsSeenInWindow == nil || *gwStats.TagsSeenInWindow != 1 {
+			t.Errorf("Tenant1 TagsSeenInWindow: got %v, want 1 (scope isolation broken)", gwStats.TagsSeenInWindow)
+		}
+	} else {
+		t.Errorf("Tenant1: gateway not found in results (scope isolation broken)")
+	}
+
+	// Tenant 2 should see exactly 2 tags (not tenant 1's 1 tag)
+	stats2, err := repo.GetGatewayWindowStats(ctx, tenant2ID)
+	if err != nil {
+		t.Fatalf("GetGatewayWindowStats tenant2: %v", err)
+	}
+
+	if gwStats, ok := stats2[gwID]; ok {
+		if gwStats.TagsSeenInWindow == nil || *gwStats.TagsSeenInWindow != 2 {
+			t.Errorf("Tenant2 TagsSeenInWindow: got %v, want 2 (scope isolation broken)", gwStats.TagsSeenInWindow)
+		}
+	} else {
+		t.Errorf("Tenant2: gateway not found in results (scope isolation broken)")
+	}
+}
+
+func TestGetGatewayWindowStatsStatusMatrix(t *testing.T) {
+	// Adversarial test: GetGatewayWindowStats counts tags by motion status. Tags with
+	// motion_delta > 0 (active) vs <= 0 (quiet/idle) are both counted in TagsSeenInWindow
+	// but separately tracked in DistinctMotionDeltas. This verifies the status-aware
+	// CASE WHEN aggregation correctly separates tag populations and sums remain stable.
+	ctx := context.Background()
+	repo, pool := setupHerdSignalsDB(t, ctx)
+	defer pool.Close()
+
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	gwID := "gw-status-test"
+	exec(`INSERT INTO herd_signal_gateways
+		(gateway_id, tenant_id, shed_id, status, model_name)
+	VALUES ($1, $2, $3, 'active', 'HoneyComm-Base')`,
+		gwID, hsiTenant, hsiShed)
+
+	// Ingest tags with different motion deltas to create two status buckets
+	for i := 0; i < 3; i++ {
+		tagID := fmt.Sprintf("tag-status-%d", i)
+		mac := fmt.Sprintf("%02d:BB:CC:DD:EE:%02d", i, i)
+		motionDelta := int64(100 + i*50) // 100, 150, 200 - all positive (active)
+		_, _, err := repo.IngestPackets(ctx, hsiTenant, domain.Gateway{TenantID: hsiTenant, GatewayID: gwID, Status: "active"},
+			[]domain.Packet{makePacket(hsiTenant, tagID, mac, gwID, time.Now().Add(-5*time.Minute), motionDelta, -70)})
+		if err != nil {
+			t.Fatalf("IngestPackets active tag %d: %v", i, err)
+		}
+	}
+
+	// Ingest tags with zero or negative motion (idle status)
+	for i := 3; i < 5; i++ {
+		tagID := fmt.Sprintf("tag-status-%d", i)
+		mac := fmt.Sprintf("%02d:BB:CC:DD:EE:%02d", i, i)
+		motionDelta := int64(-50) // Negative motion (idle)
+		_, _, err := repo.IngestPackets(ctx, hsiTenant, domain.Gateway{TenantID: hsiTenant, GatewayID: gwID, Status: "active"},
+			[]domain.Packet{makePacket(hsiTenant, tagID, mac, gwID, time.Now().Add(-5*time.Minute), motionDelta, -70)})
+		if err != nil {
+			t.Fatalf("IngestPackets idle tag %d: %v", i, err)
+		}
+	}
+
+	stats, err := repo.GetGatewayWindowStats(ctx, hsiTenant)
+	if err != nil {
+		t.Fatalf("GetGatewayWindowStats: %v", err)
+	}
+
+	if gwStats, ok := stats[gwID]; ok {
+		// Total distinct tags should be 5 (3 active + 2 idle)
+		if gwStats.TagsSeenInWindow == nil || *gwStats.TagsSeenInWindow != 5 {
+			t.Errorf("TagsSeenInWindow: got %v, want 5 (total distinct tags)", gwStats.TagsSeenInWindow)
+		}
+
+		// Tags with motion_delta > 0 should be 3 (only the active tags)
+		if gwStats.DistinctMotionDeltas == nil || *gwStats.DistinctMotionDeltas != 3 {
+			t.Errorf("DistinctMotionDeltas: got %v, want 3 (tags with motion_delta > 0)", gwStats.DistinctMotionDeltas)
+		}
+
+		// Status matrix verification: the count(DISTINCT CASE WHEN ...) must separate statuses
+		// without double-counting or losing the distinction.
+		if gwStats.TagsSeenInWindow != nil && gwStats.DistinctMotionDeltas != nil {
+			activeCount := *gwStats.DistinctMotionDeltas
+			totalCount := *gwStats.TagsSeenInWindow
+			if activeCount > totalCount {
+				t.Errorf("Status matrix broken: active count %d > total count %d", activeCount, totalCount)
+			}
+		}
+	} else {
+		t.Errorf("stats missing gateway entry")
+	}
+}

@@ -22,7 +22,7 @@ func main() {
 	} else {
 		fmt.Printf("RESULT: ALLOWED (bridge starts successfully)\n")
 	}
-	
+
 	fmt.Println()
 	fmt.Println("=== DRIFT PATH 1: Database behind binary (BinaryAhead) ===")
 	fmt.Println("When database has not been migrated to current binary version:")
@@ -36,7 +36,7 @@ func main() {
 	} else {
 		fmt.Printf("RESULT: ALLOWED (unexpected)\n")
 	}
-	
+
 	fmt.Println()
 	fmt.Println("=== DRIFT PATH 2: Database ahead of binary (DBAhead) ===")
 	fmt.Println("When database has been migrated beyond this binary's knowledge:")
