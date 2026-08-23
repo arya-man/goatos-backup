@@ -788,7 +788,7 @@ WITH loads AS (
 last_load AS (
     SELECT DISTINCT ON (farm_label, feed_item_key)
            farm_label, feed_item_key,
-           batch_no, purchase_date, quantity_kg, vendor
+           batch_no, purchase_date, quantity_kg, vendor, total_cost, per_kg_cost
     FROM feed_purchases
     WHERE tenant_id = $1
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
@@ -844,10 +844,13 @@ SELECT l.farm_label,
        l.first_purchase::text,
        COALESCE(d.first_directed_day::text, '')      AS first_directed_day,
        COALESCE(round(d.recent_avg_kg, 1)::text, '') AS avg_daily_kg,
+       COALESCE(round(d.recent_avg_kg * 7, 1)::text, '') AS weekly_required_kg,
        ll.batch_no,
        ll.purchase_date::text,
        round(ll.quantity_kg, 1)::text AS last_quantity_kg,
        ll.vendor,
+       COALESCE(round(ll.total_cost, 0)::text, '') AS last_total_cost,
+       COALESCE(round(ll.per_kg_cost, 2)::text, '') AS last_per_kg_cost,
        sb.ledger_stock_kg::text
 FROM loads l
 JOIN last_load ll
@@ -901,9 +904,9 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 		var fi domain.StockFarmItem
 		if err := farmRows.Scan(
 			&fi.FarmLabel, &fi.FeedItemLabel, &fi.FeedItemKey,
-			&fi.FirstPurchaseDate, &fi.FirstDirectedDay, &fi.AvgDailyKg,
+			&fi.FirstPurchaseDate, &fi.FirstDirectedDay, &fi.AvgDailyKg, &fi.WeeklyRequiredKg,
 			&fi.LastLoadBatchNo, &fi.LastLoadDate, &fi.LastLoadQuantityKg,
-			&fi.LastLoadVendor,
+			&fi.LastLoadVendor, &fi.LastLoadTotalCost, &fi.LastLoadPerKgCost,
 			&fi.LedgerStockKg,
 		); err != nil {
 			return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock farm scan: %w", err)

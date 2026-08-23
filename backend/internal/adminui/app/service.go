@@ -3553,6 +3553,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"stock.farms.col.first_purchase": "First purchased",
 			"stock.farms.col.directed_since": "Consumption from",
 			"stock.farms.col.avg":            "Avg / day",
+			"stock.farms.col.week":           "Week need",
 			"stock.farms.col.last_load":      "Last load",
 			"stock.farms.col.stock":          "Stock",
 			"stock.farms.col.days_left":      "Days left",
