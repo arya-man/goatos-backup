@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -637,7 +638,7 @@ func TestGetInsightsDataOneToManyIdentifiersNoDoubleCount(t *testing.T) {
 			(identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
 			 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 			 smart_tag_mapped_at, source_system)
-		VALUES ($1::uuid, $2::uuid, $3::uuid, 'smart_tag', $4, $5, 'herd_signals', false, 'active',
+		VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', $4, $5, 'herd_signals', false, 'active',
 			now(), 1, true, now(), 'herd_signals')`,
 			hsiUUID(t, "id", i), hsiTenant, goatID, "raw"+identifier, identifier)
 	}
@@ -701,7 +702,7 @@ func TestGetInsightsDataScopeHierarchyTenantIsolation(t *testing.T) {
 		(identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
 		 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 		 smart_tag_mapped_at, source_system)
-	VALUES ($1::uuid, $2::uuid, $3::uuid, 'smart_tag', 'raw-id1', 'ID1-NORM', 'herd_signals', false, 'active',
+	VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', 'raw-id1', 'ID1-NORM', 'herd_signals', false, 'active',
 		now(), 1, true, now(), 'herd_signals')`,
 		hsiUUID(t, "id", 10), hsiTenant, goatID1)
 
@@ -715,7 +716,7 @@ func TestGetInsightsDataScopeHierarchyTenantIsolation(t *testing.T) {
 		(identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
 		 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 		 smart_tag_mapped_at, source_system)
-	VALUES ($1::uuid, $2::uuid, $3::uuid, 'smart_tag', 'raw-id2', 'ID2-NORM', 'herd_signals', false, 'active',
+	VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', 'raw-id2', 'ID2-NORM', 'herd_signals', false, 'active',
 		now(), 1, true, now(), 'herd_signals')`,
 		hsiUUID(t, "id", 11), tenant2, goatID2)
 
@@ -775,7 +776,7 @@ func TestGetInsightsDataHealthCaseStatusMatrix(t *testing.T) {
 			(identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
 			 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 			 smart_tag_mapped_at, source_system)
-		VALUES ($1::uuid, $2::uuid, $3::uuid, 'smart_tag', $4, $5, 'herd_signals', false, 'active',
+		VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', $4, $5, 'herd_signals', false, 'active',
 			now(), 1, true, now(), 'herd_signals')`,
 			hsiUUID(t, "id", i), hsiTenant, gid, "raw"+string(rune('a'+i)), string(rune('A'+i))+"-NORM")
 	}
@@ -851,7 +852,7 @@ func TestGetInsightsDataMultiPageBoundaryCountsRemainStable(t *testing.T) {
 			(identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
 			 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 			 smart_tag_mapped_at, source_system)
-		VALUES ($1::uuid, $2::uuid, $3::uuid, 'smart_tag', $4, $5, 'herd_signals', false, 'active',
+		VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', $4, $5, 'herd_signals', false, 'active',
 			now(), 1, true, now(), 'herd_signals')`,
 			hsiUUID(t, "id", i), hsiTenant, goatID, "raw"+string(rune('a'+i)), string(rune('A'+i))+"-NORM")
 
@@ -1037,12 +1038,12 @@ func TestGetGatewayWindowStatsPageBoundaryCountsRemainStable(t *testing.T) {
 	// Both queries should see the same gateway and tag (cardinality 1), since both packets are from the same tag
 	if gwStats1, ok := stats1[gwID]; ok {
 		if gwStats2, ok := stats2[gwID]; ok {
-			if gwStats1.TagsSeenInWindow != gwStats2.TagsSeenInWindow {
-				t.Errorf("TagsSeenInWindow changed between queries: %v vs %v (whole-result aggregate within same window must not change)",
-					gwStats1.TagsSeenInWindow, gwStats2.TagsSeenInWindow)
+			if hsiIntPtr(gwStats1.TagsSeenInWindow) != hsiIntPtr(gwStats2.TagsSeenInWindow) {
+				t.Errorf("TagsSeenInWindow changed between queries: %s vs %s (whole-result aggregate within same window must not change)",
+					hsiIntPtr(gwStats1.TagsSeenInWindow), hsiIntPtr(gwStats2.TagsSeenInWindow))
 			}
 			if gwStats1.TagsSeenInWindow == nil || *gwStats1.TagsSeenInWindow != 1 {
-				t.Errorf("TagsSeenInWindow: got %v, want 1 (one tag)", gwStats1.TagsSeenInWindow)
+				t.Errorf("TagsSeenInWindow: got %s, want 1 (one tag)", hsiIntPtr(gwStats1.TagsSeenInWindow))
 			}
 		} else {
 			t.Errorf("stats2 missing gateway entry")
@@ -1069,7 +1070,7 @@ func TestGetGatewayWindowStatsScopeHierarchyTenantIsolation(t *testing.T) {
 
 	// Create a second tenant
 	tenant2ID := hsiUUID(t, "tenant", 2)
-	exec(`INSERT INTO tenants (tenant_id, tenant_name, status) VALUES ($1, 'tenant2', 'active')`,
+	exec(`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'tenant2', 'active')`,
 		tenant2ID)
 
 	gwID := "gw-scope-test"
@@ -1172,12 +1173,12 @@ func TestGetGatewayWindowStatsStatusMatrix(t *testing.T) {
 	if gwStats, ok := stats[gwID]; ok {
 		// Total distinct tags should be 5 (3 active + 2 idle)
 		if gwStats.TagsSeenInWindow == nil || *gwStats.TagsSeenInWindow != 5 {
-			t.Errorf("TagsSeenInWindow: got %v, want 5 (total distinct tags)", gwStats.TagsSeenInWindow)
+			t.Errorf("TagsSeenInWindow: got %s, want 5 (total distinct tags)", hsiIntPtr(gwStats.TagsSeenInWindow))
 		}
 
 		// Tags with motion_delta > 0 should be 3 (only the active tags)
 		if gwStats.DistinctMotionDeltas == nil || *gwStats.DistinctMotionDeltas != 3 {
-			t.Errorf("DistinctMotionDeltas: got %v, want 3 (tags with motion_delta > 0)", gwStats.DistinctMotionDeltas)
+			t.Errorf("DistinctMotionDeltas: got %s, want 3 (tags with motion_delta > 0)", hsiIntPtr(gwStats.DistinctMotionDeltas))
 		}
 
 		// Status matrix verification: the count(DISTINCT CASE WHEN ...) must separate statuses
@@ -1320,4 +1321,14 @@ func TestGatewayWindowStatsStatusMatrixIdleGatewayAbsent(t *testing.T) {
 	if st, present := stats[idle.GatewayID]; present {
 		t.Fatalf("a gateway with no windows must not appear with fabricated counts; got %+v", st)
 	}
+}
+
+// hsiIntPtr renders a nullable window aggregate by VALUE. Comparing or printing the
+// *int itself compares addresses, so two equal counts read as a changed aggregate and
+// every failure message shows a pointer instead of the number under test.
+func hsiIntPtr(v *int) string {
+	if v == nil {
+		return "<nil>"
+	}
+	return strconv.Itoa(*v)
 }

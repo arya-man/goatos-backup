@@ -59,7 +59,7 @@ ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SE
 INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 VALUES ($1, $2, 'CSP-A', 'Clinical Spacing Operator A', 'active', 'operator', $3);
 INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from, status)
-VALUES ($2, 'clinical_spacing_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
+VALUES ($2, 'clinical_spacing_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01', 'active');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_spacing_operator_a', 'manager', 'friday', 50, 'active', '2026-01-01')`,
 		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
@@ -147,7 +147,7 @@ ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SE
 INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 VALUES ($1, $2, 'CSO-A', 'Clinical Spill Operator A', 'active', 'operator', $3);
 INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from, status)
-VALUES ($2, 'clinical_spill_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
+VALUES ($2, 'clinical_spill_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01', 'active');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_spill_operator_a', 'manager', 'friday', 1, 'active', '2026-01-01')`,
 		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
@@ -271,7 +271,7 @@ ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SE
 INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 VALUES ($1, $2, 'CSE-A', 'Clinical Edit Operator A', 'active', 'operator', $3);
 INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from, status)
-VALUES ($2, 'clinical_edit_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
+VALUES ($2, 'clinical_edit_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01', 'active');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_edit_operator_a', 'manager', 'friday', 50, 'active', '2026-01-01')`,
 		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
@@ -361,7 +361,7 @@ ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SE
 INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 VALUES ($1, $2, 'CSF-A', 'Clinical Future Operator A', 'active', 'operator', $3);
 INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from, status)
-VALUES ($2, 'clinical_future_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
+VALUES ($2, 'clinical_future_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01', 'active');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_future_operator_a', 'manager', 'friday', 50, 'active', '2026-01-01')`,
 		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
@@ -441,7 +441,7 @@ ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SE
 INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 VALUES ($1, $2, 'CEF-A', 'Clinical Edit Future Operator A', 'active', 'operator', $3);
 INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from, status)
-VALUES ($2, 'clinical_edit_future_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
+VALUES ($2, 'clinical_edit_future_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01', 'active');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_edit_future_operator_a', 'manager', 'friday', 50, 'active', '2026-01-01')`,
 		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
