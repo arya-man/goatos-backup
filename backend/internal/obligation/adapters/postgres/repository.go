@@ -1995,8 +1995,9 @@ func (r *Repository) OpenObligationForRepeatCycle(ctx context.Context, tenantID,
 // the rule's content changed, this pairing does not match, and the caller's cancel-and-regenerate
 // path is the correct one.
 //
-// Rules whose lineage columns are NULL -- rows written before the lineage migration -- never pair,
-// so they fall back to that same previous behaviour rather than carrying over unverified content.
+// A rule with no lineage row -- every rule written before the lineage table existed -- never
+// pairs, so it falls back to that same previous behaviour rather than carrying over content
+// nothing has verified.
 func (r *Repository) CarryOverUnchangedVaccinationObligations(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) (int, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -2017,11 +2018,9 @@ func (r *Repository) CarryOverUnchangedVaccinationObligations(ctx context.Contex
 WITH effective_rule AS (
   SELECT DISTINCT ON (identity_key, content_fingerprint)
          identity_key, content_fingerprint, protocol_version_id, rule_id
-  FROM protocol_rules
+  FROM protocol_rule_lineage
   WHERE tenant_id = $1::uuid
     AND protocol_version_id = ANY($3::uuid[])
-    AND identity_key IS NOT NULL
-    AND content_fingerprint IS NOT NULL
   ORDER BY identity_key, content_fingerprint, rule_id
 )
 UPDATE obligation_instances oi
@@ -2029,7 +2028,7 @@ SET protocol_version_id = er.protocol_version_id,
     rule_id = er.rule_id,
     row_version = oi.row_version + 1,
     updated_at = now()
-FROM protocol_rules retired
+FROM protocol_rule_lineage retired
 JOIN effective_rule er
   ON er.identity_key = retired.identity_key
  AND er.content_fingerprint = retired.content_fingerprint
@@ -2048,8 +2047,6 @@ WHERE oi.tenant_id = $1::uuid
   AND retired.tenant_id = oi.tenant_id
   AND retired.protocol_version_id = oi.protocol_version_id
   AND retired.rule_id = oi.rule_id
-  AND retired.identity_key IS NOT NULL
-  AND retired.content_fingerprint IS NOT NULL
   -- obligation_instances_dup_guard spans every status, so a rebind onto a key some other row
   -- already occupies would raise 23505 and fail the whole generation run. Leave those behind for
   -- the supersede path instead of letting one collision abort a tenant-wide pass.
