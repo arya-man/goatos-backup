@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -632,36 +633,33 @@ func TestGetInsightsDataOneToManyIdentifiersNoDoubleCount(t *testing.T) {
 	tagID := "tag-multi-id"
 	tagMAC := "AA:BB:CC:DD:EE:03"
 
+	hsiSeedGoatFor(t, ctx, pool, hsiTenant, goatID)
+
 	// Create a goat with TWO active smart-tag identifiers (this should be rare but possible)
-	for i, identifier := range []string{"tag1-norm", "MAC1-norm"} {
+	for i, identifier := range []string{tagID, tagMAC} {
 		exec(`INSERT INTO goat_identifiers
 			(identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
 			 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 			 smart_tag_mapped_at, source_system)
 		VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', $4, $5, 'herd_signals', false, 'active',
 			now(), 1, true, now(), 'herd_signals')`,
-			hsiUUID(t, "id", i), hsiTenant, goatID, "raw"+identifier, identifier)
+			hsiUUID(t, "id", i), hsiTenant, goatID, identifier, strings.ToUpper(strings.TrimSpace(identifier)))
 	}
 
 	// Create one vaccination completion for this goat
-	exec(`INSERT INTO vaccination_completions
-		(vaccination_completion_id, tenant_id, vaccination_id, goat_id, operator_id, status, administered_at)
-	VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'accepted', now() - interval '12 hours')`,
-		hsiUUID(t, "vacc", 1), hsiTenant, hsiUUID(t, "vacc", 0), goatID, hsiParty)
+	hsiSeedVaccinationCompletion(t, ctx, pool, hsiTenant, goatID, 1)
 
-	// Create and ingest one tag packet to make the tag "current"
+	// The post-vaccination watch card counts tags that have gone quiet, and quiet_watch is a
+	// duration verdict, so the tag needs a sustained low-motion series rather than one packet.
 	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-1", Status: "active"}
-	ingestPacket := makePacket(hsiTenant, tagID, tagMAC, "gw-1", time.Now().UTC().Add(-10*time.Minute), 5, -70)
-	_, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{ingestPacket})
-	if err != nil {
-		t.Fatalf("IngestPackets: %v", err)
+	for minutesAgo := 120; minutesAgo >= 5; minutesAgo -= 5 {
+		_, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+			makePacket(hsiTenant, tagID, tagMAC, "gw-1", time.Now().UTC().Add(-time.Duration(minutesAgo)*time.Minute), 0, -70),
+		})
+		if err != nil {
+			t.Fatalf("IngestPackets: %v", err)
+		}
 	}
-
-	// MANUALLY map the tag to the goat's first identifier (in production this happens via BindTagMapping)
-	exec(`UPDATE goat_identifiers
-		SET smart_tag_mapped_at = now()
-		WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND normalized_value = 'tag1-norm'`,
-		hsiTenant, goatID)
 
 	insights, err := repo.GetInsightsData(ctx, hsiTenant)
 	if err != nil {
@@ -697,33 +695,30 @@ func TestGetInsightsDataScopeHierarchyTenantIsolation(t *testing.T) {
 	goatID1 := "45000000-0000-4000-8000-000000005002"
 	goatID2 := "45000000-0000-4000-8000-000000005003"
 
+	hsiSeedGoatFor(t, ctx, pool, hsiTenant, goatID1)
+	hsiSeedGoatFor(t, ctx, pool, tenant2, goatID2)
+
 	// Create vaccination for tenant 1
 	exec(`INSERT INTO goat_identifiers
 		(identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
 		 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 		 smart_tag_mapped_at, source_system)
-	VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', 'raw-id1', 'ID1-NORM', 'herd_signals', false, 'active',
+	VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', 'tag-1', 'TAG-1', 'herd_signals', false, 'active',
 		now(), 1, true, now(), 'herd_signals')`,
 		hsiUUID(t, "id", 10), hsiTenant, goatID1)
 
-	exec(`INSERT INTO vaccination_completions
-		(vaccination_completion_id, tenant_id, vaccination_id, goat_id, operator_id, status, administered_at)
-	VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'accepted', now() - interval '12 hours')`,
-		hsiUUID(t, "vacc", 2), hsiTenant, hsiUUID(t, "vacc", 0), goatID1, hsiParty)
+	hsiSeedVaccinationCompletion(t, ctx, pool, hsiTenant, goatID1, 2)
 
 	// Create vaccination for tenant 2
 	exec(`INSERT INTO goat_identifiers
 		(identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
 		 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 		 smart_tag_mapped_at, source_system)
-	VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', 'raw-id2', 'ID2-NORM', 'herd_signals', false, 'active',
+	VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', 'tag-2', 'TAG-2', 'herd_signals', false, 'active',
 		now(), 1, true, now(), 'herd_signals')`,
 		hsiUUID(t, "id", 11), tenant2, goatID2)
 
-	exec(`INSERT INTO vaccination_completions
-		(vaccination_completion_id, tenant_id, vaccination_id, goat_id, operator_id, status, administered_at)
-	VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'accepted', now() - interval '12 hours')`,
-		hsiUUID(t, "vacc", 3), tenant2, hsiUUID(t, "vacc", 1), goatID2, hsiParty)
+	hsiSeedVaccinationCompletion(t, ctx, pool, tenant2, goatID2, 3)
 
 	// Ingest a tag for tenant 1
 	_, _, err := repo.IngestPackets(ctx, hsiTenant, domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-1", Status: "active"}, []domain.Packet{makePacket(hsiTenant, "tag-1", "AA:BB:CC:DD:EE:04", "gw-1", time.Now().Add(-10*time.Minute), 5, -70)})
@@ -770,6 +765,10 @@ func TestGetInsightsDataHealthCaseStatusMatrix(t *testing.T) {
 	goatID2 := "45000000-0000-4000-8000-000000006002"
 	goatID3 := "45000000-0000-4000-8000-000000006003"
 
+	for _, gid := range []string{goatID1, goatID2, goatID3} {
+		hsiSeedGoatFor(t, ctx, pool, hsiTenant, gid)
+	}
+
 	// Create goats with smart-tag identifiers
 	for i, gid := range []string{goatID1, goatID2, goatID3} {
 		exec(`INSERT INTO goat_identifiers
@@ -778,39 +777,34 @@ func TestGetInsightsDataHealthCaseStatusMatrix(t *testing.T) {
 			 smart_tag_mapped_at, source_system)
 		VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', $4, $5, 'herd_signals', false, 'active',
 			now(), 1, true, now(), 'herd_signals')`,
-			hsiUUID(t, "id", i), hsiTenant, gid, "raw"+string(rune('a'+i)), string(rune('A'+i))+"-NORM")
+			hsiUUID(t, "id", i), hsiTenant, gid, fmt.Sprintf("tag-hc%d", i+1), fmt.Sprintf("TAG-HC%d", i+1))
 	}
 
 	// Create health cases with different statuses
-	exec(`INSERT INTO health_cases
-		(health_case_id, tenant_id, goat_id, case_type, status, initial_onset)
-	VALUES ($1::uuid, $2::uuid, $3::uuid, 'injury', 'active', now() - interval '2 days')`,
-		hsiUUID(t, "hc", 1), hsiTenant, goatID1)
-
-	exec(`INSERT INTO health_cases
-		(health_case_id, tenant_id, goat_id, case_type, status, initial_onset)
-	VALUES ($1::uuid, $2::uuid, $3::uuid, 'illness', 'resolved', now() - interval '5 days')`,
-		hsiUUID(t, "hc", 2), hsiTenant, goatID2)
-
-	exec(`INSERT INTO health_cases
-		(health_case_id, tenant_id, goat_id, case_type, status, initial_onset)
-	VALUES ($1::uuid, $2::uuid, $3::uuid, 'injury', 'active', now() - interval '1 day')`,
-		hsiUUID(t, "hc", 3), hsiTenant, goatID3)
+	hsiSeedHealthCase(t, ctx, pool, hsiTenant, goatID1, "active", 1)
+	hsiSeedHealthCase(t, ctx, pool, hsiTenant, goatID2, "recovered", 2)
+	hsiSeedHealthCase(t, ctx, pool, hsiTenant, goatID3, "active", 3)
 
 	// Ingest tag packets to make tags current
 	for i, tagID := range []string{"tag-hc1", "tag-hc2", "tag-hc3"} {
 		gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-1", Status: "active"}
 		mac := string(rune('F'+i)) + ":BB:CC:DD:EE:05"
-		_, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
-			makePacket(hsiTenant, tagID, mac, "gw-1", time.Now().UTC().Add(-5*time.Minute), 5, -70),
-		})
-		if err != nil {
-			t.Fatalf("IngestPackets: %v", err)
+		// Card 9 counts sick animals whose tag has gone QUIET, and quiet_watch is a
+		// DURATION verdict (low delta sustained for 1-2 hours), not a single reading. A
+		// lone zero-motion packet classifies as unknown, so the fixture sends a sustained
+		// two-hour series -- which is also what a real idle tag looks like on the wire.
+		for minutesAgo := 120; minutesAgo >= 5; minutesAgo -= 5 {
+			_, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+				makePacket(hsiTenant, tagID, mac, "gw-1", time.Now().UTC().Add(-time.Duration(minutesAgo)*time.Minute), 0, -70),
+			})
+			if err != nil {
+				t.Fatalf("IngestPackets: %v", err)
+			}
 		}
 	}
 
 	// Manually map tags to goats (simulate bind operation)
-	for i := range []string{"A-NORM", "B-NORM", "C-NORM"} {
+	for i := range []string{"TAG-HC1", "TAG-HC2", "TAG-HC3"} {
 		exec(`UPDATE goat_identifiers
 			SET smart_tag_mapped_at = now()
 			WHERE tenant_id = $1::uuid AND identifier_id = $2::uuid`,
@@ -848,19 +842,17 @@ func TestGetInsightsDataMultiPageBoundaryCountsRemainStable(t *testing.T) {
 	// Create 5 goats with vaccinations, each with a smart-tag identifier
 	for i := 0; i < 5; i++ {
 		goatID := hsiUUID(t, "goat", i)
+		hsiSeedGoatFor(t, ctx, pool, hsiTenant, goatID)
 		exec(`INSERT INTO goat_identifiers
 			(identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
 			 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 			 smart_tag_mapped_at, source_system)
 		VALUES ($1::uuid, $2::uuid, $3::uuid, 'animal_identifier_2', $4, $5, 'herd_signals', false, 'active',
 			now(), 1, true, now(), 'herd_signals')`,
-			hsiUUID(t, "id", i), hsiTenant, goatID, "raw"+string(rune('a'+i)), string(rune('A'+i))+"-NORM")
+			hsiUUID(t, "id", i), hsiTenant, goatID, "tag-multi-"+string(rune('a'+i)), "TAG-MULTI-"+string(rune('A'+i)))
 
 		// Each goat has a recent vaccination
-		exec(`INSERT INTO vaccination_completions
-			(vaccination_completion_id, tenant_id, vaccination_id, goat_id, operator_id, status, administered_at)
-		VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'accepted', now() - interval '12 hours')`,
-			hsiUUID(t, "vacc", i), hsiTenant, hsiUUID(t, "batch", i), goatID, hsiParty)
+		hsiSeedVaccinationCompletion(t, ctx, pool, hsiTenant, goatID, i)
 	}
 
 	// Ingest tags for all 5 goats and map them
@@ -1331,4 +1323,123 @@ func hsiIntPtr(v *int) string {
 		return "<nil>"
 	}
 	return strconv.Itoa(*v)
+}
+
+// hsiSeedGoatFor creates the goat row (and, for a non-default tenant, the park/shed it
+// lives in) that goat_identifiers.goat_id points at. goat_identifiers carries a
+// tenant-scoped FK to goats, so seeding an identifier for an invented goat id fails.
+func hsiSeedGoatFor(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID, goatID string) {
+	t.Helper()
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed goat %s: %v", goatID, err)
+		}
+	}
+	park, shed := hsiPark, hsiShed
+	if tenantID != hsiTenant {
+		park = hsiUUID(t, "park-"+tenantID, 0)
+		shed = hsiUUID(t, "shed-"+tenantID, 0)
+		exec(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($2::uuid, $1::uuid, 'park', 'HSI-T2', 'HSI Park T2', 'active')
+ON CONFLICT (location_id) DO NOTHING`, tenantID, park)
+		exec(`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($2::uuid, $1::uuid, 'shed', 'HSI-SHED-T2', 'HSI Shed T2', $3::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`, tenantID, shed, park)
+	}
+	exec(`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, current_location_id, park_id, shed_id, breed, sex)
+VALUES ($2::uuid, $1::uuid, 'alive', 'goat', $3::uuid, $4::uuid, $5::uuid, $4::uuid, 'Synthetic Boer', 'female')
+ON CONFLICT (goat_id) DO NOTHING`, tenantID, goatID, hsiParty, shed, park)
+}
+
+// hsiSeedVaccinationCompletion writes an accepted vaccination_completions row for a goat,
+// creating the protocol -> version -> rule -> obligation chain it is required to point at.
+// The insights card only reads (tenant_id, goat_id, administered_at), but the row cannot
+// exist without that chain, so the fixture builds it rather than inventing columns.
+func hsiSeedVaccinationCompletion(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID, goatID string, idx int) {
+	t.Helper()
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed vaccination completion for %s: %v", goatID, err)
+		}
+	}
+	protocolID := hsiUUID(t, "protocol-"+tenantID, 0)
+	versionID := hsiUUID(t, "protocol-version-"+tenantID, 0)
+	ruleID := hsiUUID(t, "protocol-rule-"+tenantID, 0)
+	scopeID := hsiPark
+	if tenantID != hsiTenant {
+		scopeID = hsiUUID(t, "park-"+tenantID, 0)
+	}
+	var chainExists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM protocol_rules WHERE tenant_id = $1::uuid AND rule_id = $2::uuid)`,
+		tenantID, ruleID).Scan(&chainExists); err != nil {
+		t.Fatalf("check protocol chain: %v", err)
+	}
+	if !chainExists {
+		hsiSeedProtocolChain(t, ctx, pool, tenantID, protocolID, versionID, ruleID)
+	}
+
+	obligationID := hsiUUID(t, "obligation-"+goatID, idx)
+	exec(`INSERT INTO obligation_instances
+	(obligation_id, tenant_id, protocol_version_id, rule_id, target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key)
+VALUES ($5::uuid, $1::uuid, $2::uuid, $3::uuid, 'goat', $4::uuid, 'park', $6::uuid, now() - interval '1 day', 'completed', $7)
+ON CONFLICT (obligation_id) DO NOTHING`,
+		tenantID, versionID, ruleID, goatID, obligationID, scopeID, "hsi-"+obligationID)
+	exec(`INSERT INTO vaccination_completions
+	(completion_id, tenant_id, obligation_id, goat_id, status, administered_at, idempotency_key)
+VALUES ($4::uuid, $1::uuid, $2::uuid, $3::uuid, 'accepted', now() - interval '12 hours', $5)
+ON CONFLICT (completion_id) DO NOTHING`,
+		tenantID, obligationID, goatID, hsiUUID(t, "completion-"+goatID, idx), "hsi-completion-"+goatID)
+}
+
+// hsiSeedHealthCase writes a health_cases row (and the published health protocol version it
+// references) for a goat, in the given status.
+func hsiSeedHealthCase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID, goatID, status string, idx int) {
+	t.Helper()
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed health case for %s: %v", goatID, err)
+		}
+	}
+	hpvID := hsiUUID(t, "health-protocol-"+tenantID, 0)
+	exec(`INSERT INTO health_protocol_versions
+	(health_protocol_version_id, tenant_id, disease_key, display_name, age_band, version, duration_days, status, content_hash)
+VALUES ($2::uuid, $1::uuid, 'hsi_test_disease', 'HSI Test Disease', 'adult', 1, 3, 'published', 'hsi-test-hash')
+ON CONFLICT (health_protocol_version_id) DO NOTHING`, tenantID, hpvID)
+	exec(`INSERT INTO health_cases
+	(health_case_id, tenant_id, goat_id, health_protocol_version_id, disease_key, disease_name, age_band,
+	 start_date, duration_days, status, idempotency_key, request_fingerprint)
+VALUES ($4::uuid, $1::uuid, $2::uuid, $3::uuid, 'hsi_test_disease', 'HSI Test Disease', 'adult',
+	current_date - 2, 3, $5, $6, 'hsi-test-fingerprint')
+ON CONFLICT (health_case_id) DO NOTHING`,
+		tenantID, goatID, hpvID, hsiUUID(t, "health-case-"+goatID, idx), status, "hsi-hc-"+goatID)
+}
+
+// hsiSeedProtocolChain creates the protocol -> version -> rule chain once per tenant. Rules may
+// only be attached while the version is a draft, so the version is published afterwards; calling
+// this a second time would trip that immutability rule, hence the existence check at the caller.
+func hsiSeedProtocolChain(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID, protocolID, versionID, ruleID string) {
+	t.Helper()
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed protocol chain: %v", err)
+		}
+	}
+	exec(`INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+VALUES ($2::uuid, $1::uuid, 'herd_signals_test', 'Herd Signals Test Protocol', 'vaccination', 'active')
+ON CONFLICT (protocol_id) DO NOTHING`, tenantID, protocolID)
+	exec(`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from)
+VALUES ($3::uuid, $1::uuid, $2::uuid, 'tenant', 1, 'draft', '2026-01-01')
+ON CONFLICT (protocol_version_id) DO NOTHING`, tenantID, protocolID, versionID)
+	exec(`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type)
+VALUES ($3::uuid, $1::uuid, $2::uuid, 'hsi_dose', 'birth_age')
+ON CONFLICT (rule_id) DO NOTHING`, tenantID, versionID, ruleID)
+	// Rules may only be attached while the version is a draft; publish afterwards so the
+	// obligation rows below point at a real published version.
+	exec(`UPDATE protocol_versions SET status = 'published'
+WHERE tenant_id = $1::uuid AND protocol_version_id = $2::uuid AND status = 'draft'`, tenantID, versionID)
+
 }
