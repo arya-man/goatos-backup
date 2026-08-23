@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppApiComponents } from "@goatos/api-client";
@@ -15,7 +15,7 @@ import {
   parseDriveSelectionValue,
   scheduledDriveCampaigns,
   scheduledDriveRows,
-  sortDriveCampaignsNewestFirst,
+  sortDriveCampaignsChronological,
   type CommandBoardDriveOption,
 } from "./command-board-future-drives";
 
@@ -565,8 +565,18 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     [futureDrives, statuses],
   );
   const driveCampaigns = useMemo(
-    () => sortDriveCampaignsNewestFirst([...executedCampaigns, ...futureCampaigns]),
+    () => sortDriveCampaignsChronological([...executedCampaigns, ...futureCampaigns]),
     [executedCampaigns, futureCampaigns],
+  );
+  const driveChoices = useMemo(
+    () => driveCampaigns
+      .flatMap((campaign) => campaign.treatments.map((drive, index) => ({ campaign, drive, index })))
+      .sort((a, b) => {
+        const dateOrder = (a.drive.dateKeys[0] ?? "").localeCompare(b.drive.dateKeys[0] ?? "");
+        if (dateOrder !== 0) return dateOrder;
+        return a.campaign.name.localeCompare(b.campaign.name);
+      }),
+    [driveCampaigns],
   );
 
   const view = useMemo(() => {
@@ -613,6 +623,28 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     const next = new Set(prev);
     if (next.has(key)) next.delete(key); else next.add(key);
     return next;
+  });
+
+  const activateStatusKpi = (key: StatusKey) => {
+    setSelectedCell(null);
+    setClosedDrawerOpen(false);
+    setSelectedShedVaccine(null);
+    setStatuses(new Set([key]));
+    document.getElementById("cbm-shed-dose-matrix")?.scrollIntoView({ block: "start", behavior: "smooth" });
+  };
+
+  const statusKpiProps = (key: StatusKey, count: number) => ({
+    role: count > 0 ? "button" : undefined,
+    tabIndex: count > 0 ? 0 : undefined,
+    "aria-disabled": count === 0 ? true : undefined,
+    className: `kpi ${key === "verified" ? "ok" : key === "awaiting" ? "warn" : key === "scheduled" ? "info" : "danger"}${count > 0 ? " kpi-clickable" : ""}`,
+    onClick: () => count > 0 && activateStatusKpi(key),
+    onKeyDown: (e: ReactKeyboardEvent<HTMLDivElement>) => {
+      if ((e.key === "Enter" || e.key === " ") && count > 0) {
+        e.preventDefault();
+        activateStatusKpi(key);
+      }
+    },
   });
 
   const openCohortDrawer = (cell: SelectedCohortCell) => {
@@ -672,20 +704,13 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           }
         >
           <option value="">{copy(pageContract, "command_board.filter.all_common_drives")}</option>
-          {driveCampaigns.map((campaign) => (
-            <optgroup
-              key={campaign.key}
-              label={`${campaign.name} · ${formatScheduledDriveDates(campaign.dateKeys)} · ${campaign.targetCount} animals`}
+          {driveChoices.map(({ campaign, drive, index }) => (
+            <option
+              key={`${driveSelectionValue(drive.batchIds[0] ?? drive.key, drive.parkId)}|${drive.dateKeys.join(",")}`}
+              value={driveSelectionValue(drive.batchIds[0] ?? drive.key, drive.parkId)}
             >
-              {campaign.treatments.map((drive, index) => (
-                  <option
-                    key={`${driveSelectionValue(drive.batchIds[0] ?? drive.key, drive.parkId)}|${drive.dateKeys.join(",")}`}
-                    value={driveSelectionValue(drive.batchIds[0] ?? drive.key, drive.parkId)}
-                  >
-                    {`Operator day ${index + 1} · ${formatScheduledDriveDates(drive.dateKeys)} · ${drive.targetCount} animals`}
-                  </option>
-                ))}
-            </optgroup>
+              {`${campaign.name} · Operator day ${index + 1} · ${formatScheduledDriveDates(drive.dateKeys)} · ${drive.targetCount} animals`}
+            </option>
           ))}
         </select>
         {/* The catalogue is bounded, so a drive past the bound is otherwise indistinguishable from a
@@ -733,31 +758,31 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               it is the one tile that reports a failure rather than progress. It is also the tile
               whose absence made the board wrong: 137 animals holding a missed dose were being
               counted as Verified while Overdue read 0. */}
-          <div className="kpi danger">
+          <div {...statusKpiProps("overdue", view.kpis.missedNotGiven)}>
             <div className="stripe"></div>
             <div className="lbl">{copy(pageContract, "command_board.kpi.missed")}</div>
             <div className="val">{view.kpis.missedNotGiven}</div>
             <div className="dl">{copy(pageContract, "command_board.kpi.missed_dl")}</div>
           </div>
-          <div className="kpi ok">
+          <div {...statusKpiProps("verified", view.kpis.dosesVerified)}>
             <div className="stripe"></div>
             <div className="lbl">{copy(pageContract, "command_board.kpi.verified")}</div>
             <div className="val">{view.kpis.dosesVerified}</div>
             <div className="dl">{copy(pageContract, "command_board.kpi.verified_dl")}</div>
           </div>
-          <div className="kpi warn">
+          <div {...statusKpiProps("awaiting", view.kpis.awaitingVerification)}>
             <div className="stripe"></div>
             <div className="lbl">{copy(pageContract, "command_board.kpi.awaiting_verification")}</div>
             <div className="val">{view.kpis.awaitingVerification}</div>
             <div className="dl">{copy(pageContract, "command_board.kpi.awaiting_dl")}</div>
           </div>
-          <div className="kpi danger">
+          <div {...statusKpiProps("overdue", view.kpis.overdueNotGiven)}>
             <div className="stripe"></div>
             <div className="lbl">{copy(pageContract, "command_board.kpi.overdue")}</div>
             <div className="val">{view.kpis.overdueNotGiven}</div>
             <div className="dl">{copy(pageContract, "command_board.kpi.overdue_dl")}</div>
           </div>
-          <div className="kpi info">
+          <div {...statusKpiProps("scheduled", view.kpis.scheduledAhead)}>
             <div className="stripe"></div>
             <div className="lbl">{copy(pageContract, "command_board.kpi.scheduled_ahead")}</div>
             <div className="val">{view.kpis.scheduledAhead}</div>
@@ -992,6 +1017,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
         </div>
 
         {/* Vaccine × Shed status - colored grid heatmap */}
+        <div id="cbm-shed-dose-matrix">
         {view.shedDoseMatrix.length > 0 && (() => {
           const grid = buildShedGrid(view.shedDoseMatrix);
           // Queue age keyed by the same (shed, dose) grain the matrix cells use, so the number
@@ -1077,6 +1103,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             </div>
           );
         })()}
+        </div>
 
         {/* Cohort matrix, FARMWISE: one table per farm, cohort ladder down the side, vaccines
             across the top, pending count in the cell (red when > 0) with the verified count

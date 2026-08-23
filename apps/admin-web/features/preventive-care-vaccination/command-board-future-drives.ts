@@ -273,9 +273,15 @@ export function executedDriveCampaigns(options: CommandBoardDriveOption[]): Sche
     .sort((a, b) => (b.dateKeys[0] ?? "").localeCompare(a.dateKeys[0] ?? ""));
 }
 
-export function sortDriveCampaignsNewestFirst(campaigns: ScheduledDriveCampaign[]): ScheduledDriveCampaign[] {
+function campaignSortDate(campaign: ScheduledDriveCampaign): string {
+  return campaign.dateKeys[0] ?? "";
+}
+
+export function sortDriveCampaignsChronological(campaigns: ScheduledDriveCampaign[]): ScheduledDriveCampaign[] {
   return [...campaigns].sort((a, b) => {
-    const dateOrder = (b.dateKeys[0] ?? "").localeCompare(a.dateKeys[0] ?? "");
+    const aDate = campaignSortDate(a);
+    const bDate = campaignSortDate(b);
+    const dateOrder = aDate.localeCompare(bDate);
     if (dateOrder !== 0) return dateOrder;
     return a.name.localeCompare(b.name);
   });
