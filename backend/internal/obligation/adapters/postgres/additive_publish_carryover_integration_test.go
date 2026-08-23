@@ -270,14 +270,19 @@ func TestRuleWithoutLineageDoesNotCarryOver(t *testing.T) {
 	}
 
 	v1, v1Rules := seedCarryOverVersion(t, ctx, pool, protoID, 1, fiveVaccines())
-	// Blank the fingerprint on one rule BEFORE publishing to simulate pre-migration rows
+	// Drop one rule's lineage row to simulate a rule written before the lineage table existed.
 	if _, err := pool.Exec(ctx, `
-UPDATE protocol_rules SET content_fingerprint = NULL
-WHERE tenant_id = $1::uuid AND dose_code = 'ppr_primary' AND protocol_version_id = $2::uuid`, tenantID, v1); err != nil {
-		t.Fatalf("blank the fingerprint: %v", err)
+DELETE FROM protocol_rule_lineage l
+USING protocol_rules pr
+WHERE l.tenant_id = $1::uuid
+  AND pr.tenant_id = l.tenant_id
+  AND pr.rule_id = l.rule_id
+  AND pr.dose_code = 'ppr_primary'
+  AND l.protocol_version_id = $2::uuid`, tenantID, v1); err != nil {
+		t.Fatalf("drop the lineage row: %v", err)
 	}
 
-	// Now publish v1 (with the blanked fingerprint)
+	// Now publish v1 (with one rule carrying no lineage)
 	if err := proto.PublishVersion(ctx, tenantID, v1, nil); err != nil {
 		t.Fatalf("publish v1: %v", err)
 	}

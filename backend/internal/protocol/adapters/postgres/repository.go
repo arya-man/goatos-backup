@@ -1478,6 +1478,33 @@ FROM retired`, tenant, versionID)
 	return retired, nil
 }
 
+// writeRuleLineage records how a rule is recognised across versions.
+//
+// Lineage is derived, not authored: the publisher computes it from the rule it just wrote. It
+// lives in its own table because protocol_rules holds SOURCED configuration, traceable to the
+// spreadsheets the seed pipeline validates, and mixing derived metadata into that would couple
+// every future change to a fixture contract it has nothing to do with.
+//
+// A blank fingerprint means the rule carried JSON that could not be canonicalised. No row is
+// written, the rule reads as "content unverified", and carry-over passes it over -- the
+// cancel-and-regenerate path that shipped before lineage existed.
+func writeRuleLineageTx(ctx context.Context, tx pgx.Tx, tenant, versionID, ruleID pgtype.UUID, identityKey, fingerprint string) error {
+	if strings.TrimSpace(identityKey) == "" || strings.TrimSpace(fingerprint) == "" {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO protocol_rule_lineage (tenant_id, protocol_version_id, rule_id, identity_key, content_fingerprint)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (tenant_id, rule_id) DO UPDATE
+SET protocol_version_id = EXCLUDED.protocol_version_id,
+    identity_key = EXCLUDED.identity_key,
+    content_fingerprint = EXCLUDED.content_fingerprint`,
+		tenant, versionID, ruleID, identityKey, fingerprint); err != nil {
+		return fmt.Errorf("protocol: write rule lineage: %w", err)
+	}
+	return nil
+}
+
 func insertDerivedProtocolRuleTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, in domain.NewRule) error {
 	ruleID, err := pgconv.UUID(in.RuleID)
 	if err != nil {
@@ -1497,13 +1524,11 @@ func insertDerivedProtocolRuleTx(ctx context.Context, tx pgx.Tx, tenant pgtype.U
 INSERT INTO protocol_rules (
   rule_id, tenant_id, protocol_version_id, dose_code, "sequence", trigger_type, offset_days,
   due_window_days, min_gap_days, "repeat", repeat_until_after_age, catch_up,
-  eligibility_json, sop_version_id, proof_policy, withdrawal_days, sort_order,
-  identity_key, content_fingerprint
+  eligibility_json, sop_version_id, proof_policy, withdrawal_days, sort_order
 ) SELECT
   $1, $2, $3, $4, $5, $6, $7,
   $8, $9, $10, $11, $12,
-  $13, $14, $15, $16, $17,
-  $18, $19
+  $13, $14, $15, $16, $17
 FROM protocol_versions pv
 WHERE pv.tenant_id = $2
   AND pv.protocol_version_id = $3
@@ -1511,13 +1536,15 @@ WHERE pv.tenant_id = $2
 		ruleID, tenant, vid, in.DoseCode, in.Sequence, in.TriggerType, in.OffsetDays,
 		in.DueWindowDays, in.MinGapDays, in.Repeat, pgconv.Text(in.RepeatUntilAfterAge), in.CatchUp,
 		pgconv.JSONB(in.EligibilityJSON), pgconv.NullableUUID(in.SopVersionID), pgconv.JSONB(in.ProofPolicy), pgconv.Int4(in.WithdrawalDays), in.SortOrder,
-		pgconv.Text(identityKey), pgconv.Text(fingerprint),
 	)
 	if err != nil {
 		return fmt.Errorf("protocol: insert derived rule %s: %w", in.DoseCode, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ports.ErrVersionNotDraft
+	}
+	if err := writeRuleLineageTx(ctx, tx, tenant, vid, ruleID, identityKey, fingerprint); err != nil {
+		return err
 	}
 	if err := recordProtocolCreateAudit(ctx, tx, protocolRuleCreatedAction, in.TenantID, "protocol_rule", in.RuleID, "tenant", "", in.CreatedBy, map[string]any{
 		"protocol_version_id": in.ProtocolVersionID,
@@ -2007,14 +2034,25 @@ func (r *Repository) CreateRule(ctx context.Context, in domain.NewRule) (string,
 		ProofPolicy:         pgconv.JSONB(in.ProofPolicy),
 		WithdrawalDays:      pgconv.Int4(in.WithdrawalDays),
 		SortOrder:           in.SortOrder,
-		// Same lineage the publisher writes, from the same helpers. A rule authored through this
-		// path and one authored by a publish have to be comparable, or carry-over would see an
-		// edit where there was none.
-		IdentityKey:        pgconv.Text(domain.RuleIdentityKey(domain.VaccineCodeForRule(in.EligibilityJSON), in.DoseCode, in.Sequence)),
-		ContentFingerprint: pgconv.Text(domain.RuleContentFingerprint(in)),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ports.ErrVersionNotDraft
+	}
+	if err == nil {
+		// Same lineage the publisher writes, from the same helpers. A rule authored through this
+		// path and one authored by a publish have to be comparable, or carry-over would see an
+		// edit where there was none.
+		ruleUUID, convErr := pgconv.UUID(id)
+		if convErr != nil {
+			return "", fmt.Errorf("protocol: created rule id: %w", convErr)
+		}
+		if lerr := writeRuleLineageTx(ctx, tx, tenant, vid,
+			ruleUUID,
+			domain.RuleIdentityKey(domain.VaccineCodeForRule(in.EligibilityJSON), in.DoseCode, in.Sequence),
+			domain.RuleContentFingerprint(in),
+		); lerr != nil {
+			return "", lerr
+		}
 	}
 	if err != nil {
 		return "", fmt.Errorf("protocol: create rule: %w", err)

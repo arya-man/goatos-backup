@@ -2509,8 +2509,6 @@ type ProtocolRule struct {
 	WithdrawalDays      pgtype.Int4
 	SortOrder           int32
 	CreatedAt           pgtype.Timestamptz
-	IdentityKey         pgtype.Text
-	ContentFingerprint  pgtype.Text
 }
 
 type ProtocolRuleDimension struct {
