@@ -38,16 +38,21 @@ const RANGE_SECONDS: Partial<Record<RangeKey, number>> = {
   "7d": 7 * 24 * 3600,
   "30d": 30 * 24 * 3600,
 };
-// 5-minute / hourly / 6-hourly buckets by range, matching the mock's own roll-up thresholds:
-// up to 24h stays on the 300s tier (288 readable bars), 24h-72h rolls to hourly, beyond that to
-// 6-hourly. Rolling 24h up to hourly would leave 24 fat bars and break the per-5-minute baseline.
+// Bucket tier by range. ONLY the tiers activity windows are actually stored at may be requested:
+// domain.SupportedBucketSeconds is {60, 300, 3600} and the backend rejects anything else. The mock's
+// roll-up thresholds implied a 6-hourly (21600s) tier for 7d/30d, and asking for it returned
+// 400 "unsupported bucket_seconds 21600" -- so the 7d and 30d ranges were simply broken, and the
+// full-screen chart, its buckets-with-packets count and its signal-gap count all failed together.
+//
+// 30 days on the hourly tier is 720 bars, comfortably inside MaxTimelineBuckets (2000), so hourly is
+// the correct answer rather than a compromise. Up to 24h stays on the 300s tier (288 readable bars);
+// rolling that up to hourly would leave 24 fat bars and break the per-5-minute baseline comparison.
 function bucketSecondsFor(range: RangeKey, seconds: number): number {
-  if (range === "custom") return seconds <= 24 * 3600 ? 300 : seconds <= 72 * 3600 ? 3600 : 21600;
-  if (range === "3d") return 3600;
-  if (range === "7d" || range === "30d") return 21600;
+  if (range === "custom") return seconds <= 24 * 3600 ? 300 : 3600;
+  if (range === "3d" || range === "7d" || range === "30d") return 3600;
   return 300;
 }
-const BUCKET_LABEL: Record<number, string> = { 300: "5-minute", 3600: "hourly", 21600: "6-hourly" };
+const BUCKET_LABEL: Record<number, string> = { 60: "1-minute", 300: "5-minute", 3600: "hourly" };
 
 // The six farm-activity overlays. None of these has a data endpoint in the fixed contract this
 // page was built against (GET /herd-signals/live|tags/{id}/timeline|gateways|insights only) — so
