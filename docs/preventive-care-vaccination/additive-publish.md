@@ -57,8 +57,18 @@ derived values do:
   `repeat_until_after_age`, `catch_up`, `eligibility_json`, `proof_policy`,
   `withdrawal_days`, `sop_version_id`.
 
-Both are computed **at publish**, in Go, and stored on the rule row. Carry-over
-happens only when `identity_key` matches **and** `content_fingerprint` matches.
+Both are computed **at publish**, in Go, and stored in `protocol_rule_lineage`,
+keyed by `(tenant_id, rule_id)`. Carry-over happens only when `identity_key`
+matches **and** `content_fingerprint` matches.
+
+They live in their own table rather than as columns on `protocol_rules`, and the
+separation is the point. `protocol_rules` holds **sourced** configuration — what
+the spreadsheets say a plan is, which the seed pipeline validates row by row.
+Lineage is **derived**: the publisher computes it from the rule it just wrote, no
+fixture supplies it, and no validator could check it against a sheet. Mixing the
+two would tie every future change here to a seed-source contract it has nothing
+to do with, and the seed fixture guard says so — it refused the column form of
+this change, correctly.
 
 ### Fields deliberately excluded from the fingerprint
 
@@ -101,10 +111,12 @@ These are the invariants a reviewer or a future change must not break.
 4. **Carry-over never moves a due date.** `due_at` is not in the update. If a due
    date should move, the rule content changed, and the edited path — cancel and
    regenerate — is the correct one.
-5. **Unknown fingerprint fails safe.** A rule row with a NULL fingerprint (rows
-   written before this migration) does not carry over. It takes the old
-   cancel-and-re-mint path. Failing safe means falling back to the previous
-   behaviour, never to a silent carry-over of a rule whose content is unverified.
+5. **Unknown lineage fails safe.** A rule with no `protocol_rule_lineage` row —
+   every rule written before the table existed — does not carry over. It takes
+   the old cancel-and-re-mint path. Failing safe means falling back to the
+   previous behaviour, never to a silent carry-over of a rule whose content
+   nothing has verified. The first publish after this ships therefore behaves
+   exactly as before; the guarantee starts from the publish after that one.
 6. **Terminal work is never touched.** `completed`, `canceled` and `missed` are
    history and are immutable. Both sweeps act only on open work.
 
