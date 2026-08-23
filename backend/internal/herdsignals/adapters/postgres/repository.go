@@ -181,6 +181,7 @@ func (r *Repository) IngestPackets(ctx context.Context, tenantID string, gw doma
 
 	results := tx.SendBatch(ctx, batch)
 	for i := 0; i < len(packets); i++ {
+		// scale-guard:ignore: pgx.SendBatch result iteration; all statements are pre-batched, not individual round-trips
 		ct, err := results.Exec()
 		if err != nil {
 			results.Close()
@@ -333,6 +334,7 @@ func (r *Repository) updateTagLatest(ctx context.Context, tx pgx.Tx, tenantID, t
 		// heard from this tag"). That asymmetry is intentional.
 		for _, bucketSeconds := range activityWindowTiers {
 			bucketStart := latestPkt.ReceivedAt.Truncate(time.Duration(bucketSeconds) * time.Second)
+			// scale-guard:ignore: 3 = fixed bound; activityWindowTiers = [60s, 300s, 3600s] per migration 000197, domain.SupportedBucketSeconds
 			if _, err := tx.Exec(ctx, `
 				UPDATE public.herd_signal_activity_windows
 				SET gap_delta = true, motion_delta = $5
@@ -1185,6 +1187,7 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 
 	// Card 8: post_vaccination_movement_watch. Bounded to the last 24h of accepted
 	// vaccination_completions (indexed by tenant_id), joined to a mapped tag currently watched.
+	// projection-review: membership=vaccination_completions.goat_id; group_key=count(DISTINCT vc.goat_id); join_cardinality=one goat can have multiple active smart-tag identifiers and each can be joined to herd_signal_tag_latest; pagination=none whole-result aggregate; scope=tenant_id
 	err = r.db.QueryRow(ctx, `
 		SELECT count(DISTINCT vc.goat_id)
 		FROM public.vaccination_completions vc
@@ -1210,6 +1213,7 @@ func (r *Repository) GetInsightsData(ctx context.Context, tenantID string) (port
 	}
 
 	// Card 9: health_case_activity_trend. Bounded to currently-active health_cases.
+	// projection-review: membership=health_cases.goat_id; group_key=count(DISTINCT hc.goat_id); join_cardinality=one goat can have multiple active smart-tag identifiers and each can be joined to herd_signal_tag_latest; pagination=none whole-result aggregate; scope=tenant_id
 	err = r.db.QueryRow(ctx, `
 		SELECT count(DISTINCT hc.goat_id)
 		FROM public.health_cases hc
@@ -1464,6 +1468,7 @@ func (r *Repository) upsertActivityWindowsTx(ctx context.Context, tx pgx.Tx, ten
 	defer results.Close()
 
 	for i := 0; i < len(buckets); i++ {
+		// scale-guard:ignore: pgx.SendBatch result iteration; all upsert statements are pre-batched, not individual round-trips
 		if _, err := results.Exec(); err != nil {
 			return fmt.Errorf("upsert bucket %d: %w", i, err)
 		}

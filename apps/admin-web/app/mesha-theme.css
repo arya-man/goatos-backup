@@ -3147,6 +3147,16 @@ select:disabled { opacity: .45; }
    above it -- scoped to this feature's own wrapper class rather than the shared `.btn.sm` rule
    (used by 80+ other screens). */
 .herd-signals-page .hs-mapping-tab .btn.sm{padding:4px 9px;font-size:11.5px;border-radius:7px}
+/* The scoped .btn rule above sets background:var(--panel), which outranks the global `.btn.p`
+   primary fill by specificity. The result was a PRIMARY button rendering as dark text on a dark
+   panel with only a green outline -- the active mapping filter and the enabled action were
+   unreadable, and the maintainer could not tell which filter was selected (he landed on
+   "Conflicts only", which matches zero rows, and concluded the buttons were dead).
+   Restore the mock's primary fill at the same scope so it wins where it must. */
+.herd-signals-page .fs .btn.p,
+.herd-signals-page .hs-mapping-tab .btn.p{background:linear-gradient(100deg,var(--brand-d),var(--brand));border-color:var(--brand);color:#08130B}
+.herd-signals-page .fs .btn.p:hover,
+.herd-signals-page .hs-mapping-tab .btn.p:hover{background:var(--brand-d)}
 .herd-signals-page .fs .tag{display:inline-flex}
 /* Above: .btn and .tag are app-wide shared classes (.btn: 82 other admin-web files; .tag: 32)
    this feature has never locally overridden to the mock's own look; changing the global rule, or

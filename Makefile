@@ -659,7 +659,7 @@ notification-specificity-guard:
 	node tools/agent-hooks/check-notification-specificity.mjs
 
 
-herd-signals-language-guard: enforces the Herd Signals product claim boundary
+# herd-signals-language-guard enforces the Herd Signals product claim boundary
 # (docs/modules/herd-signals.md Section 3). The HoneyComm BLE ear tag exposes
 # only tag id/MAC, RSSI, battery, tag temperature, a cumulative motion_count,
 # sensor-OK bits, gateway id, and timestamps -- it cannot detect eating,
