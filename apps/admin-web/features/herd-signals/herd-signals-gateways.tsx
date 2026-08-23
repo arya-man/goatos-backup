@@ -1,5 +1,6 @@
 import { Tag } from "@/components/ui-primitives";
 import type { HerdGateway } from "@/lib/api/herd-signals";
+import { operationalLocationLabel } from "@/lib/operational-location";
 import { fmtAgo, fmtBleMac } from "./format";
 
 // The backend does not compute these three aggregates yet (tracked TODO) and may return null until
@@ -32,10 +33,16 @@ function gatewayName(gateway: HerdGateway): string {
   return gateway.label?.trim() || gateway.gateway_id;
 }
 
-// "Mandela block gateway · Channapatna · Mandela 1" in the mock: the human label first, then where
-// it is. Every part is dropped rather than padded when the backend has not got it.
+// "Mandela block gateway · Channapatna · Mandela 1 - Part 1" in the mock: the human label first,
+// then where it is. The shed segment goes through operational_location_display (falling back to
+// the shared operationalLocationLabel composer, same as every other herd-signals surface) so a
+// partitioned shed never renders as its bare parent name -- an operator sent to "Mandela 1" would
+// not know which part. Every part is dropped rather than padded when the backend has not got it.
 function locationLine(gateway: HerdGateway): string {
-  const parts = [gateway.label?.trim() || null, gateway.park_name, gateway.shed_name].filter(
+  const shedLocation =
+    gateway.operational_location_display ||
+    operationalLocationLabel({ shedName: gateway.shed_name, partitionLabel: gateway.partition_label });
+  const parts = [gateway.label?.trim() || null, gateway.park_name, shedLocation || null].filter(
     (part): part is string => Boolean(part && part.trim()),
   );
   return parts.length > 0 ? parts.join(" · ") : "No location recorded for this gateway";

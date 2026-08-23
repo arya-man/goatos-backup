@@ -2,14 +2,24 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
+
+// hsiUUID builds a DETERMINISTIC uuid for fixtures. Deterministic rather than random so a failing
+// run can be re-read afterwards against the same ids, and so two rows that must differ provably do.
+func hsiUUID(t *testing.T, kind string, n int) string {
+	t.Helper()
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("herd-signals/%s/%d", kind, n))).String()
+}
 
 // Proofs of the herd-signals SQL against the REAL migration schema (000191/000192/000193):
 // packet ingest, activity-window rollup, tag_latest state computation, the live-view join, the
@@ -629,27 +639,19 @@ func TestGetInsightsDataOneToManyIdentifiersNoDoubleCount(t *testing.T) {
 			 smart_tag_mapped_at, source_system)
 		VALUES ($1::uuid, $2::uuid, $3::uuid, 'smart_tag', $4, $5, 'herd_signals', false, 'active',
 			now(), 1, true, now(), 'herd_signals')`,
-			pgtest.UUIDv4(t, "id", i), hsiTenant, goatID, "raw"+identifier, identifier)
+			hsiUUID(t, "id", i), hsiTenant, goatID, "raw"+identifier, identifier)
 	}
 
 	// Create one vaccination completion for this goat
 	exec(`INSERT INTO vaccination_completions
 		(vaccination_completion_id, tenant_id, vaccination_id, goat_id, operator_id, status, administered_at)
 	VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'accepted', now() - interval '12 hours')`,
-		pgtest.UUIDv4(t, "vacc", 1), hsiTenant, pgtest.UUIDv4(t, "vacc", 0), goatID, hsiParty)
+		hsiUUID(t, "vacc", 1), hsiTenant, hsiUUID(t, "vacc", 0), goatID, hsiParty)
 
 	// Create and ingest one tag packet to make the tag "current"
-	ingestPacket := domain.Packet{
-		TenantID:    hsiTenant,
-		TagID:       tagID,
-		TagMAC:      tagMAC,
-		GatewayID:   "gw-1",
-		RSSIdbm:     -70,
-		MotionCount: 5,
-		BatteryMV:   3000,
-		ReceivedAt:  time.Now().Add(-10 * time.Minute),
-	}
-	_, _, err := repo.IngestPackets(ctx, hsiTenant, []domain.Packet{ingestPacket})
+	gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-1", Status: "active"}
+	ingestPacket := makePacket(hsiTenant, tagID, tagMAC, "gw-1", time.Now().UTC().Add(-10*time.Minute), 5, -70)
+	_, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{ingestPacket})
 	if err != nil {
 		t.Fatalf("IngestPackets: %v", err)
 	}
@@ -701,12 +703,12 @@ func TestGetInsightsDataScopeHierarchyTenantIsolation(t *testing.T) {
 		 smart_tag_mapped_at, source_system)
 	VALUES ($1::uuid, $2::uuid, $3::uuid, 'smart_tag', 'raw-id1', 'ID1-NORM', 'herd_signals', false, 'active',
 		now(), 1, true, now(), 'herd_signals')`,
-		pgtest.UUIDv4(t, "id", 10), hsiTenant, goatID1)
+		hsiUUID(t, "id", 10), hsiTenant, goatID1)
 
 	exec(`INSERT INTO vaccination_completions
 		(vaccination_completion_id, tenant_id, vaccination_id, goat_id, operator_id, status, administered_at)
 	VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'accepted', now() - interval '12 hours')`,
-		pgtest.UUIDv4(t, "vacc", 2), hsiTenant, pgtest.UUIDv4(t, "vacc", 0), goatID1, hsiParty)
+		hsiUUID(t, "vacc", 2), hsiTenant, hsiUUID(t, "vacc", 0), goatID1, hsiParty)
 
 	// Create vaccination for tenant 2
 	exec(`INSERT INTO goat_identifiers
@@ -715,24 +717,15 @@ func TestGetInsightsDataScopeHierarchyTenantIsolation(t *testing.T) {
 		 smart_tag_mapped_at, source_system)
 	VALUES ($1::uuid, $2::uuid, $3::uuid, 'smart_tag', 'raw-id2', 'ID2-NORM', 'herd_signals', false, 'active',
 		now(), 1, true, now(), 'herd_signals')`,
-		pgtest.UUIDv4(t, "id", 11), tenant2, goatID2)
+		hsiUUID(t, "id", 11), tenant2, goatID2)
 
 	exec(`INSERT INTO vaccination_completions
 		(vaccination_completion_id, tenant_id, vaccination_id, goat_id, operator_id, status, administered_at)
 	VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'accepted', now() - interval '12 hours')`,
-		pgtest.UUIDv4(t, "vacc", 3), tenant2, pgtest.UUIDv4(t, "vacc", 1), goatID2, hsiParty)
+		hsiUUID(t, "vacc", 3), tenant2, hsiUUID(t, "vacc", 1), goatID2, hsiParty)
 
 	// Ingest a tag for tenant 1
-	_, _, err := repo.IngestPackets(ctx, hsiTenant, []domain.Packet{{
-		TenantID:    hsiTenant,
-		TagID:       "tag-1",
-		TagMAC:      "AA:BB:CC:DD:EE:04",
-		GatewayID:   "gw-1",
-		RSSIdbm:     -70,
-		MotionCount: 5,
-		BatteryMV:   3000,
-		ReceivedAt:  time.Now().Add(-10 * time.Minute),
-	}})
+	_, _, err := repo.IngestPackets(ctx, hsiTenant, domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-1", Status: "active"}, []domain.Packet{makePacket(hsiTenant, "tag-1", "AA:BB:CC:DD:EE:04", "gw-1", time.Now().Add(-10*time.Minute), 5, -70)})
 	if err != nil {
 		t.Fatalf("IngestPackets: %v", err)
 	}
@@ -784,48 +777,43 @@ func TestGetInsightsDataHealthCaseStatusMatrix(t *testing.T) {
 			 smart_tag_mapped_at, source_system)
 		VALUES ($1::uuid, $2::uuid, $3::uuid, 'smart_tag', $4, $5, 'herd_signals', false, 'active',
 			now(), 1, true, now(), 'herd_signals')`,
-			pgtest.UUIDv4(t, "id", i), hsiTenant, gid, "raw"+string(rune('a'+i)), string(rune('A'+i))+"-NORM")
+			hsiUUID(t, "id", i), hsiTenant, gid, "raw"+string(rune('a'+i)), string(rune('A'+i))+"-NORM")
 	}
 
 	// Create health cases with different statuses
 	exec(`INSERT INTO health_cases
 		(health_case_id, tenant_id, goat_id, case_type, status, initial_onset)
 	VALUES ($1::uuid, $2::uuid, $3::uuid, 'injury', 'active', now() - interval '2 days')`,
-		pgtest.UUIDv4(t, "hc", 1), hsiTenant, goatID1)
+		hsiUUID(t, "hc", 1), hsiTenant, goatID1)
 
 	exec(`INSERT INTO health_cases
 		(health_case_id, tenant_id, goat_id, case_type, status, initial_onset)
 	VALUES ($1::uuid, $2::uuid, $3::uuid, 'illness', 'resolved', now() - interval '5 days')`,
-		pgtest.UUIDv4(t, "hc", 2), hsiTenant, goatID2)
+		hsiUUID(t, "hc", 2), hsiTenant, goatID2)
 
 	exec(`INSERT INTO health_cases
 		(health_case_id, tenant_id, goat_id, case_type, status, initial_onset)
 	VALUES ($1::uuid, $2::uuid, $3::uuid, 'injury', 'active', now() - interval '1 day')`,
-		pgtest.UUIDv4(t, "hc", 3), hsiTenant, goatID3)
+		hsiUUID(t, "hc", 3), hsiTenant, goatID3)
 
 	// Ingest tag packets to make tags current
 	for i, tagID := range []string{"tag-hc1", "tag-hc2", "tag-hc3"} {
-		_, _, err := repo.IngestPackets(ctx, hsiTenant, []domain.Packet{{
-			TenantID:    hsiTenant,
-			TagID:       tagID,
-			TagMAC:      string(rune('F'+i)) + ":BB:CC:DD:EE:05",
-			GatewayID:   "gw-1",
-			RSSIdbm:     -70,
-			MotionCount: 5,
-			BatteryMV:   3000,
-			ReceivedAt:  time.Now().Add(-5 * time.Minute),
-		}})
+		gw := domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-1", Status: "active"}
+		mac := string(rune('F'+i)) + ":BB:CC:DD:EE:05"
+		_, _, err := repo.IngestPackets(ctx, hsiTenant, gw, []domain.Packet{
+			makePacket(hsiTenant, tagID, mac, "gw-1", time.Now().UTC().Add(-5*time.Minute), 5, -70),
+		})
 		if err != nil {
 			t.Fatalf("IngestPackets: %v", err)
 		}
 	}
 
 	// Manually map tags to goats (simulate bind operation)
-	for i, norm := range []string{"A-NORM", "B-NORM", "C-NORM"} {
+	for i := range []string{"A-NORM", "B-NORM", "C-NORM"} {
 		exec(`UPDATE goat_identifiers
 			SET smart_tag_mapped_at = now()
 			WHERE tenant_id = $1::uuid AND identifier_id = $2::uuid`,
-			hsiTenant, pgtest.UUIDv4(t, "id", i))
+			hsiTenant, hsiUUID(t, "id", i))
 	}
 
 	insights, err := repo.GetInsightsData(ctx, hsiTenant)
@@ -858,34 +846,25 @@ func TestGetInsightsDataMultiPageBoundaryCountsRemainStable(t *testing.T) {
 
 	// Create 5 goats with vaccinations, each with a smart-tag identifier
 	for i := 0; i < 5; i++ {
-		goatID := pgtest.UUIDv4(t, "goat", i)
+		goatID := hsiUUID(t, "goat", i)
 		exec(`INSERT INTO goat_identifiers
 			(identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
 			 scope_key, is_primary_for_goat, status, valid_from, normalizer_version, smart_tag_capable,
 			 smart_tag_mapped_at, source_system)
 		VALUES ($1::uuid, $2::uuid, $3::uuid, 'smart_tag', $4, $5, 'herd_signals', false, 'active',
 			now(), 1, true, now(), 'herd_signals')`,
-			pgtest.UUIDv4(t, "id", i), hsiTenant, goatID, "raw"+string(rune('a'+i)), string(rune('A'+i))+"-NORM")
+			hsiUUID(t, "id", i), hsiTenant, goatID, "raw"+string(rune('a'+i)), string(rune('A'+i))+"-NORM")
 
 		// Each goat has a recent vaccination
 		exec(`INSERT INTO vaccination_completions
 			(vaccination_completion_id, tenant_id, vaccination_id, goat_id, operator_id, status, administered_at)
 		VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'accepted', now() - interval '12 hours')`,
-			pgtest.UUIDv4(t, "vacc", i), hsiTenant, pgtest.UUIDv4(t, "batch", i), goatID, hsiParty)
+			hsiUUID(t, "vacc", i), hsiTenant, hsiUUID(t, "batch", i), goatID, hsiParty)
 	}
 
 	// Ingest tags for all 5 goats and map them
 	for i := 0; i < 5; i++ {
-		_, _, err := repo.IngestPackets(ctx, hsiTenant, []domain.Packet{{
-			TenantID:    hsiTenant,
-			TagID:       "tag-multi-" + string(rune('a'+i)),
-			TagMAC:      string(rune('G'+i)) + ":BB:CC:DD:EE:06",
-			GatewayID:   "gw-1",
-			RSSIdbm:     -70,
-			MotionCount: 5,
-			BatteryMV:   3000,
-			ReceivedAt:  time.Now().Add(-5 * time.Minute),
-		}})
+		_, _, err := repo.IngestPackets(ctx, hsiTenant, domain.Gateway{TenantID: hsiTenant, GatewayID: "gw-1", Status: "active"}, []domain.Packet{makePacket(hsiTenant, "tag-multi-"+string(rune('a'+i)), string(rune('G'+i))+":BB:CC:DD:EE:06", "gw-1", time.Now().Add(-5*time.Minute), 5, -70)})
 		if err != nil {
 			t.Fatalf("IngestPackets: %v", err)
 		}
@@ -909,7 +888,7 @@ func TestGetInsightsDataMultiPageBoundaryCountsRemainStable(t *testing.T) {
 		exec(`UPDATE goat_identifiers
 			SET smart_tag_mapped_at = now()
 			WHERE tenant_id = $1::uuid AND identifier_id = $2::uuid`,
-			hsiTenant, pgtest.UUIDv4(t, "id", i))
+			hsiTenant, hsiUUID(t, "id", i))
 	}
 
 	// Re-query insights; the whole-result count should be stable

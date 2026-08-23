@@ -4344,6 +4344,8 @@ export interface components {
             label: string | null;
             park_name: string | null;
             shed_name: string | null;
+            partition_label: string | null;
+            operational_location_display: string | null;
             network_mode: components["schemas"]["HerdGatewayNetworkMode"] | null;
             wifi_mac: string | null;
             ble_mac: string | null;

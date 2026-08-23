@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useSyncExternalStore, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { fmtClockSeconds } from "./format";
 
@@ -183,6 +183,20 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
     refresh();
   }
 
+  const [exportHref, setExportHref] = useState("/api/herd-signals/export.csv");
+  useEffect(() => {
+    const sync = () => {
+      const sp = new URLSearchParams(window.location.search);
+      const out = new URLSearchParams();
+      const map: Record<string, string> = { park: "park_id", hs_shed: "shed_id", hs_move: "movement_state", hs_map: "mapping_state", hs_pattern: "pattern", hs_q: "q" };
+      for (const [from, to] of Object.entries(map)) { const v = sp.get(from); if (v) out.set(to, v); }
+      setExportHref(`/api/herd-signals/export.csv${out.toString() ? `?${out.toString()}` : ""}`);
+    };
+    sync();
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, []);
+
   const ageMs = nowMs - new Date(generatedAt).getTime();
   const stale = live && !tabHidden && Number.isFinite(ageMs) && ageMs > STALE_AFTER_MS;
   const staleSeconds = Math.max(0, Math.round(ageMs / 1000));
@@ -231,9 +245,15 @@ export function HerdSignalsPoller({ generatedAt }: { generatedAt: string }) {
       <button type="button" className="btn" onClick={refresh} disabled={isPending}>
         Refresh
       </button>
-      <button type="button" className="btn" disabled title="Export endpoint not built yet">
+      <a
+        className="btn"
+        href={exportHref}
+        title="Download the current filtered view as CSV"
+        // The file must match what is on screen, so the active filters ride along. Not a
+        // LocalOverlayLink: this is a real download, not an in-page overlay.
+      >
         Export
-      </button>
+      </a>
     </div>
   );
 }
