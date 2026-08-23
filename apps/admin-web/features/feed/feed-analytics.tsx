@@ -1064,7 +1064,7 @@ function StockCards({
                 <div className="val" style={item.low_stock ? { color: "var(--danger)" } : undefined}>
                   {item.days_left === null || item.days_left === undefined
                     ? fa(pageContract, "stock.never_directed")
-                    : `${nf(item.days_left)} ${fa(pageContract, "stock.days_left")}`}
+                    : `${nf(Math.max(item.days_left, 0))} ${fa(pageContract, "stock.days_left")}`}
                 </div>
                 <div className="muted small">
                   {`${nf(num(item.balance_kg))} ${fa(pageContract, "stock.balance")}${
@@ -1200,6 +1200,6 @@ function DaysLeftText({
 }) {
   const avg = num(row.avg_daily_kg);
   if (avg <= 0) return <>{fa(pageContract, "stock.farms.unavailable")}</>;
-  const daysLeft = num(row.ledger_stock_kg) / avg;
+  const daysLeft = Math.max(Math.floor(num(row.ledger_stock_kg) / avg), 0);
   return <>{`${nf(daysLeft)} ${fa(pageContract, "stock.days_left")}`}</>;
 }
