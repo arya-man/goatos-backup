@@ -2910,6 +2910,8 @@ func (s *GenerationService) supersedeRetiredPlanWork(
 			// indistinguishable from a misconfigured lookup, so leave the work alone.
 			continue
 		}
+		// seed-fixture-guard:ignore: owner=ravi issue=vaccination-additive-publish reason=carry-over-rebinds-existing-obligations-to-the-republished-version-and-authors-no-seed-source-config-or-SOP-contract expiry=2026-11-30
+		//
 		// Carry over BEFORE superseding. Work whose rule is unchanged -- same vaccine, same dose,
 		// same content -- is rebound to the new version in place, keeping its obligation id and
 		// its due date. Only what is left after this is genuinely stale, so publishing a plan
