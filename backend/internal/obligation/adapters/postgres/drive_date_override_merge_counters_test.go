@@ -34,13 +34,13 @@ import (
 //
 // Fixture: ONE batch, ONE cell, ONE operator, two vaccines, four goats.
 //
-//	target date already holds: FMD for goatA and goatD  -> 2 animals / 2 doses
+//	target date already holds: Blue Tongue for goatA and goatD  -> 2 animals / 2 doses
 //	source date holds:         PPR for goatA, goatB, goatC -> 3 animals / 3 doses
 //	move PPR source -> target; both land on the same cell/operator row.
 //
-//	merged row MUST be: rules {FMD,PPR}
+//	merged row MUST be: rules {Blue Tongue,PPR}
 //	                    animal_count = |{A,B,C,D}|                        = 4  (goatA counts ONCE)
-//	                    total_doses  = |{(A,PPR),(B,PPR),(C,PPR),(A,FMD),(D,FMD)}| = 5  (goatA gives TWO doses)
+//	                    total_doses  = |{(A,PPR),(B,PPR),(C,PPR),(A,Blue Tongue),(D,Blue Tongue)}| = 5  (goatA gives TWO doses)
 //
 // Overwrite yields 3/3, naive addition yields 5/5; only counters derived from the merged row's own
 // per-goat membership ledger yield 4/5. The ledger parity assertion below is the independent
@@ -54,7 +54,7 @@ func TestDriveDateOverrideMergeOneToManyDateShiftLedgerParity(t *testing.T) {
 	proto := protopg.NewRepository(pool, 5*time.Second)
 	repo := NewRepository(pool, 5*time.Second)
 	versions := seedShotCapVersions(t, ctx, proto, "vaccination.lanemerge", 2)
-	pprVersion, fmdVersion := versions[0], versions[1]
+	pprVersion, blueTongueVersion := versions[0], versions[1]
 
 	const (
 		goatA     = "10000000-0000-4000-8000-00000000fc01"
@@ -72,10 +72,10 @@ INSERT INTO protocol_rule_dimensions (
   tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code
 ) VALUES
   ($1, $2, $3, 'vaccination', 'lane-merge-ppr', 'ppr_adult_w1', 'PPR'),
-  ($1, $4, $5, 'vaccination', 'lane-merge-fmd', 'fmd_adult_w1', 'FMD')
+  ($1, $4, $5, 'vaccination', 'lane-merge-bt', 'blue_tongue_adult_w1', 'BLUE_TONGUE')
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SET
   vaccine_code = EXCLUDED.vaccine_code`,
-		tenantID, pprVersion.versionID, pprVersion.ruleID, fmdVersion.versionID, fmdVersion.ruleID); err != nil {
+		tenantID, pprVersion.versionID, pprVersion.ruleID, blueTongueVersion.versionID, blueTongueVersion.ruleID); err != nil {
 		t.Fatalf("seed rule dimensions: %v", err)
 	}
 
@@ -121,8 +121,8 @@ VALUES ($1, $2, 'center', $3, 'lane_merge_operator_a', 'manager', $4, 50, 'activ
 		{pprVersion, goatB, source, "lane-merge-ppr-b"},
 		{pprVersion, goatC, source, "lane-merge-ppr-c"},
 		// goatA is in BOTH lanes: one animal, two doses. Naive count addition double-counts it.
-		{fmdVersion, goatA, target, "lane-merge-fmd-a"},
-		{fmdVersion, goatD, target, "lane-merge-fmd-d"},
+		{blueTongueVersion, goatA, target, "lane-merge-bt-a"},
+		{blueTongueVersion, goatD, target, "lane-merge-bt-d"},
 	}
 	for _, s := range seed {
 		oblID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
@@ -152,7 +152,7 @@ VALUES ($1, $2, 'center', $3, 'lane_merge_operator_a', 'manager', $4, 50, 'activ
 	if err := repo.UpsertVaccinationDriveAssignments(ctx, tenantID, []domain.DriveAssignment{{
 		BatchID: batchID, PlannedDate: target, OperatorID: testStringPtr(operatorA), ParkID: cbePark,
 		ShedID: testStringPtr(shedID), PhysicalShed: "Gandhi", PartitionLabel: "1", AnimalCount: 2,
-		VaccineRuleIDs: []string{fmdVersion.ruleID}, TotalDoses: 2, CapacityStatus: "within_cap",
+		VaccineRuleIDs: []string{blueTongueVersion.ruleID}, TotalDoses: 2, CapacityStatus: "within_cap",
 	}, {
 		BatchID: batchID, PlannedDate: source, OperatorID: testStringPtr(operatorA), ParkID: cbePark,
 		ShedID: testStringPtr(shedID), PhysicalShed: "Gandhi", PartitionLabel: "1", AnimalCount: 3,
@@ -163,7 +163,7 @@ VALUES ($1, $2, 'center', $3, 'lane_merge_operator_a', 'manager', $4, 50, 'activ
 
 	beforeTarget := laneRowsOnDate(t, ctx, pool, target)
 	if len(beforeTarget) != 1 || beforeTarget[0].animalCount != 2 || beforeTarget[0].totalDoses != 2 {
-		t.Fatalf("fixture invalid: target date must start with exactly one 2-animal/2-dose FMD row: %+v", beforeTarget)
+		t.Fatalf("fixture invalid: target date must start with exactly one 2-animal/2-dose Blue Tongue row: %+v", beforeTarget)
 	}
 	beforeSource := laneRowsOnDate(t, ctx, pool, source)
 	if len(beforeSource) != 1 || beforeSource[0].animalCount != 3 || beforeSource[0].totalDoses != 3 {
@@ -172,7 +172,7 @@ VALUES ($1, $2, 'center', $3, 'lane_merge_operator_a', 'manager', $4, 50, 'activ
 
 	if _, err := repo.UpsertVaccinationDriveDateOverride(ctx, domain.VaccineDriveDateOverride{
 		TenantID: tenantID, ParkID: cbePark, VaccineCode: "PPR", OriginalDriveDate: source,
-		OverrideDate: target, Reason: "admin moves PPR onto the day that already runs FMD", CreatedBy: operatorA,
+		OverrideDate: target, Reason: "admin moves PPR onto the day that already runs Blue Tongue", CreatedBy: operatorA,
 	}); err != nil {
 		t.Fatalf("UpsertVaccinationDriveDateOverride: %v", err)
 	}
@@ -190,7 +190,7 @@ VALUES ($1, $2, 'center', $3, 'lane_merge_operator_a', 'manager', $4, 50, 'activ
 			merged.animalCount)
 	}
 	if merged.totalDoses != 5 {
-		t.Errorf("merged row total_doses = %d, want 5 -- doses are DISTINCT (animal, rule) pairs: (A,PPR),(B,PPR),(C,PPR),(A,FMD),(D,FMD)",
+		t.Errorf("merged row total_doses = %d, want 5 -- doses are DISTINCT (animal, rule) pairs: (A,PPR),(B,PPR),(C,PPR),(A,Blue Tongue),(D,Blue Tongue)",
 			merged.totalDoses)
 	}
 	if merged.animalCount != merged.memberAnimals {
@@ -229,7 +229,7 @@ func TestDriveDateOverrideMergeMultiPageParkScopeStatusMatrix(t *testing.T) {
 	proto := protopg.NewRepository(pool, 5*time.Second)
 	repo := NewRepository(pool, 5*time.Second)
 	versions := seedShotCapVersions(t, ctx, proto, "vaccination.lanemerge2", 2)
-	pprVersion, fmdVersion := versions[0], versions[1]
+	pprVersion, blueTongueVersion := versions[0], versions[1]
 
 	const (
 		goatA1    = "10000000-0000-4000-8000-00000000fd01"
@@ -261,10 +261,10 @@ INSERT INTO protocol_rule_dimensions (
   tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code
 ) VALUES
   ($1, $2, $3, 'vaccination', 'lane-merge2-ppr', 'ppr_adult_w1', 'PPR'),
-  ($1, $4, $5, 'vaccination', 'lane-merge2-fmd', 'fmd_adult_w1', 'FMD')
+  ($1, $4, $5, 'vaccination', 'lane-merge2-bt', 'blue_tongue_adult_w1', 'BLUE_TONGUE')
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SET
   vaccine_code = EXCLUDED.vaccine_code`,
-		tenantID, pprVersion.versionID, pprVersion.ruleID, fmdVersion.versionID, fmdVersion.ruleID); err != nil {
+		tenantID, pprVersion.versionID, pprVersion.ruleID, blueTongueVersion.versionID, blueTongueVersion.ruleID); err != nil {
 		t.Fatalf("seed rule dimensions: %v", err)
 	}
 
@@ -305,9 +305,9 @@ VALUES ($1, $2, 'center', $3, 'lane_merge2_operator_a', 'manager', $4, 50, 'acti
 		{pprVersion, goatB1, shed1, source, "lane-merge2-ppr-b1", "scheduled"},
 		// CANCELED: not work. Must not reach the merged row's ledger or its counters.
 		{pprVersion, goatE1, shed1, source, "lane-merge2-ppr-e1", "canceled"},
-		{fmdVersion, goatA1, shed1, target, "lane-merge2-fmd-a1", "scheduled"},
+		{blueTongueVersion, goatA1, shed1, target, "lane-merge2-bt-a1", "scheduled"},
 		{pprVersion, goatA2, shed2, source, "lane-merge2-ppr-a2", "scheduled"},
-		{fmdVersion, goatD2, shed2, target, "lane-merge2-fmd-d2", "scheduled"},
+		{blueTongueVersion, goatD2, shed2, target, "lane-merge2-bt-d2", "scheduled"},
 	}
 	oblIDs := make([]string, 0, len(seeds))
 	for _, s := range seeds {
@@ -363,7 +363,7 @@ VALUES ($1, $2, 'center', $3, 'lane_merge2_operator_a', 'manager', $4, 50, 'acti
 	if err := repo.UpsertVaccinationDriveAssignments(ctx, tenantID, []domain.DriveAssignment{{
 		BatchID: batchID, PlannedDate: target, OperatorID: testStringPtr(operatorA), ParkID: cbePark,
 		ShedID: testStringPtr(shed1), PhysicalShed: "Gandhi", PartitionLabel: "1", AnimalCount: 1,
-		VaccineRuleIDs: []string{fmdVersion.ruleID}, TotalDoses: 1, CapacityStatus: "within_cap",
+		VaccineRuleIDs: []string{blueTongueVersion.ruleID}, TotalDoses: 1, CapacityStatus: "within_cap",
 	}, {
 		BatchID: batchID, PlannedDate: source, OperatorID: testStringPtr(operatorA), ParkID: cbePark,
 		ShedID: testStringPtr(shed1), PhysicalShed: "Gandhi", PartitionLabel: "1", AnimalCount: 2,
@@ -371,7 +371,7 @@ VALUES ($1, $2, 'center', $3, 'lane_merge2_operator_a', 'manager', $4, 50, 'acti
 	}, {
 		BatchID: batchID, PlannedDate: target, OperatorID: testStringPtr(operatorA), ParkID: cbePark,
 		ShedID: testStringPtr(shed2), PhysicalShed: "Nehru", PartitionLabel: "1", AnimalCount: 1,
-		VaccineRuleIDs: []string{fmdVersion.ruleID}, TotalDoses: 1, CapacityStatus: "within_cap",
+		VaccineRuleIDs: []string{blueTongueVersion.ruleID}, TotalDoses: 1, CapacityStatus: "within_cap",
 	}, {
 		BatchID: batchID, PlannedDate: source, OperatorID: testStringPtr(operatorA), ParkID: cbePark,
 		ShedID: testStringPtr(shed2), PhysicalShed: "Nehru", PartitionLabel: "1", AnimalCount: 1,
@@ -391,7 +391,7 @@ VALUES ($1, $2, $3, $4, $5, $6, 'Patel', '1', 7, ARRAY[$7::uuid], 9, 'within_cap
 
 	if _, err := repo.UpsertVaccinationDriveDateOverride(ctx, domain.VaccineDriveDateOverride{
 		TenantID: tenantID, ParkID: cbePark, VaccineCode: "PPR", OriginalDriveDate: source,
-		OverrideDate: target, Reason: "admin moves PPR onto the day that already runs FMD", CreatedBy: operatorA,
+		OverrideDate: target, Reason: "admin moves PPR onto the day that already runs Blue Tongue", CreatedBy: operatorA,
 	}); err != nil {
 		t.Fatalf("UpsertVaccinationDriveDateOverride: %v", err)
 	}
@@ -416,8 +416,8 @@ VALUES ($1, $2, $3, $4, $5, $6, 'Patel', '1', 7, ARRAY[$7::uuid], 9, 'within_cap
 	if len(merged) != 2 {
 		t.Fatalf("expected BOTH cells to merge onto the target date, got %d: %+v", len(merged), merged)
 	}
-	// shed1: {A1,B1} animals; doses (A1,PPR),(B1,PPR),(A1,FMD). The canceled goatE1 PPR is absent.
-	// shed2: {A2,D2} animals; doses (A2,PPR),(D2,FMD).
+	// shed1: {A1,B1} animals; doses (A1,PPR),(B1,PPR),(A1,Blue Tongue). The canceled goatE1 PPR is absent.
+	// shed2: {A2,D2} animals; doses (A2,PPR),(D2,Blue Tongue).
 	for _, want := range []struct {
 		shed    string
 		label   string
