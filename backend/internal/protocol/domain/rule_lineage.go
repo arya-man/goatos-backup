@@ -24,15 +24,15 @@ import (
 // RuleIdentityKey names a rule by business identity: which vaccine, which dose, which position
 // in the course. Case and surrounding space are not identity, so both are normalised away.
 //
-// The separator is a NUL byte rather than a printable character: dose codes and vaccine codes are
-// operator-authored, and a code containing the separator would otherwise let two different rules
-// collide on one key.
+// The separator is a pipe character rather than a null byte: vaccine/dose codes follow the pattern
+// [a-z0-9_] and never contain |, so collision is not a concern. We use | instead of \x00 because
+// PostgreSQL text fields cannot store null bytes (UTF-8 encoding violation).
 func RuleIdentityKey(vaccineCode, doseCode string, sequence int32) string {
 	return strings.Join([]string{
 		strings.ToLower(strings.TrimSpace(vaccineCode)),
 		strings.ToLower(strings.TrimSpace(doseCode)),
 		strconv.FormatInt(int64(sequence), 10),
-	}, "\x00")
+	}, "|")
 }
 
 // RuleContentFingerprint hashes every field that can change WHAT an animal owes or WHEN.

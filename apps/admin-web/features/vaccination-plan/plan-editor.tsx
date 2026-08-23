@@ -17,7 +17,8 @@ import { ArrowLeft, Check } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { DurationField, formatDays } from "./duration-field";
-import type { EditorPlan, EditorVaccine } from "./editor-model";
+import type { EditorPlan, EditorVaccine, NewVaccineInput } from "./editor-model";
+import { newVaccineToEditor } from "./editor-model";
 import { publishPlan, saveDraftPlan } from "./plan-actions";
 import { humanDays } from "./plan-model";
 
@@ -82,6 +83,7 @@ export function VaccinationPlanEditor(props: Props) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [addingVaccine, setAddingVaccine] = useState(false);
 
   const dirty = useMemo(
     () => JSON.stringify(plan) !== JSON.stringify(baseline),
@@ -118,6 +120,30 @@ export function VaccinationPlanEditor(props: Props) {
   function updateVaccine(code: string, change: (v: EditorVaccine) => EditorVaccine) {
     setSaved(false);
     setPlan((p) => ({ ...p, vaccines: p.vaccines.map((v) => (v.code === code ? change(v) : v)) }));
+  }
+
+  /**
+   * Validated the same way the mock validates it: name and short code required,
+   * and neither may already belong to a vaccine already in this draft. Returns
+   * an error string for the panel to show inline, or null on success -- the
+   * panel stays open on an error, exactly like every other save-time validation
+   * in this editor.
+   */
+  function onAddVaccine(input: NewVaccineInput): string | null {
+    const name = input.name.trim();
+    const code = input.code.trim();
+    if (!name || !code) return "Name and short code are required.";
+    const lowerCode = code.toLowerCase();
+    const codeClash = plan.vaccines.find((v) => v.code.toLowerCase() === lowerCode);
+    if (codeClash) return `Short code "${code}" is already used by ${codeClash.name}.`;
+    const nameClash = plan.vaccines.find((v) => v.name.toLowerCase() === name.toLowerCase());
+    if (nameClash) return `"${name}" is already in this plan.`;
+    const vaccine = newVaccineToEditor({ ...input, name, code });
+    setSaved(false);
+    setPlan((p) => ({ ...p, vaccines: [...p.vaccines, vaccine] }));
+    setSelected(vaccine.code);
+    setAddingVaccine(false);
+    return null;
   }
 
   function onSave() {
@@ -279,6 +305,9 @@ export function VaccinationPlanEditor(props: Props) {
                 </li>
               ))}
             </ul>
+            <button className="vp-addvac" type="button" onClick={() => setAddingVaccine(true)}>
+              + Add a vaccine
+            </button>
           </nav>
         </div>
 
