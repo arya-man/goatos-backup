@@ -30,7 +30,6 @@ func TestAnalyticsDTOsMatchTheirOpenAPISchemas(t *testing.T) {
 		{"FeedAnalyticsStockFarmItem", stockFarmItemDTO{}},
 		{"FeedAnalyticsStockForecastItem", stockForecastItemDTO{}},
 		{"FeedAnalyticsExecutionResponse", executionAnalyticsDTO{}},
-		{"FeedAnalyticsConsumptionRow", feedConsumptionRowDTO{}},
 		{"FeedAnalyticsConsumptionTrendDay", feedConsumptionTrendDayDTO{}},
 		{"FeedAnalyticsPackingVarianceRow", packingVarianceRowDTO{}},
 	} {

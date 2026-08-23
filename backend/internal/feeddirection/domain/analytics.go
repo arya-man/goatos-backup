@@ -42,6 +42,60 @@ type DirectedAnalyticsQuery struct {
 	// Asia/Kolkata) — wastage is collected live during the feed day. Read only
 	// by the experiment analytics; the directed/execution/stock reads ignore it.
 	WastageDay time.Time
+	// Sections narrows the EXECUTION read to the arms the caller will actually render. Empty means
+	// every arm, so an existing caller is unaffected.
+	//
+	// It exists because the execution payload is six queries and a page can need one array from a
+	// second, differently-scoped read: the mismatch table pins a day, the target-vs-actual section
+	// pins its own day and park. Fetching the whole payload for each meant three concurrent reads
+	// of eighteen queries to use four arrays, and the last query of the third read hit the repo
+	// deadline -- the page then showed its "rollup read failed" card while every individual query
+	// was fast. Narrowing the fetch is the fix; widening the deadline would only move the failure.
+	Sections []ExecutionSection
+}
+
+// ExecutionSection names one arm of the execution payload.
+type ExecutionSection string
+
+const (
+	// ExecutionSectionDays is the per-day status matrix, transport counts and verify latency.
+	ExecutionSectionDays ExecutionSection = "days"
+	// ExecutionSectionPackingVariance is the intended-vs-entered mismatch list.
+	ExecutionSectionPackingVariance ExecutionSection = "packing_variance"
+	// ExecutionSectionConsumption is the target-vs-actual shed table and its trend.
+	ExecutionSectionConsumption ExecutionSection = "consumption"
+)
+
+// ExecutionSections lists every arm, in payload order.
+var ExecutionSections = []ExecutionSection{
+	ExecutionSectionDays,
+	ExecutionSectionPackingVariance,
+	ExecutionSectionConsumption,
+}
+
+// Wants reports whether the query asked for an arm. An empty selection wants everything.
+func (q DirectedAnalyticsQuery) Wants(section ExecutionSection) bool {
+	if len(q.Sections) == 0 {
+		return true
+	}
+	for _, s := range q.Sections {
+		if s == section {
+			return true
+		}
+	}
+	return false
+}
+
+// ParseExecutionSection maps a caller's string to an arm. An unknown name is REJECTED rather than
+// ignored: silently dropping it would serve a payload missing the array the caller asked for, and
+// the client would render an empty table as though the farm had no data.
+func ParseExecutionSection(raw string) (ExecutionSection, bool) {
+	for _, s := range ExecutionSections {
+		if string(s) == raw {
+			return s, true
+		}
+	}
+	return "", false
 }
 
 // MaxAnalyticsWindowDays caps the window: three months of daily points is the
@@ -152,6 +206,12 @@ type PackingVarianceRow struct {
 	Workflow      string
 	FeedItemKey   string
 	FeedItemLabel string
+	// BreedLabel and AgeGroup describe the bag's cohort, resolved agree-or-go-bare: a bag whose
+	// sheet rows carry more than one breed, or straddle kid and adult, reports MixedCohortLabel
+	// rather than naming one, which would be a cohort nobody recorded. Both are empty when the
+	// frozen sheet row behind the reading is gone.
+	BreedLabel string
+	AgeGroup   string
 	// PlannedKg is the frozen sheet's summed quantity for this (pen, session, item) as a decimal
 	// string; "" when the sheet carried no resolved quantity (blocked cell or missing row) -- blank
 	// and zero are never conflated.
@@ -162,46 +222,12 @@ type PackingVarianceRow struct {
 	VarianceKg string
 }
 
-// FeedConsumptionRow compares the frozen sheet target with the verifier-entered packing reading
-// for ONE SHED on ONE feed day (maintainer decision 2026-08-23), summed across every feed item
-// and session that shed was fed. Unlike PackingVarianceRow this is the full comparison table, not
-// just outliers, so leadership can scan yesterday's target-vs-actual feed quantities park by park
-// without matched sheds being hidden.
-//
-// The shed total deliberately adds unlike feeds together: the question this table answers is "did
-// this shed get what the sheet said", and WHICH feed was off is what the packing-mismatch table
-// below it exists to say.
-type FeedConsumptionRow struct {
-	FeedDay   string
-	ParkLabel string
-	ShedID    string
-	ShedLabel string
-	// PartitionLabel is the pen ("2", "Part 3"), empty for an undivided shed.
-	PartitionLabel string
-	// OperationalLocationDisplay is the oploc-composed shed+pen label, same as every surface.
-	OperationalLocationDisplay string
-	// BreedLabel and AgeGroup describe the shed's cohort, resolved agree-or-go-bare: a shed whose
-	// sheet rows carry more than one breed reports MixedCohortLabel rather than picking one, which
-	// would be a fact nobody measured.
-	BreedLabel string
-	AgeGroup   string
-	TargetKg   string
-	// ActualKg is EMPTY when no packing reading exists for this shed-day, and "0" only when a
-	// verifier actually recorded zero. Conflating the two would paint every not-yet-verified shed
-	// as a shed that got no feed -- the exact false alarm a red variance row must never raise.
-	ActualKg string
-	// VarianceKg is empty whenever ActualKg is: there is nothing to compare against yet.
-	VarianceKg string
-	// HasVariance is true only when a reading EXISTS and differs from target beyond tolerance.
-	HasVariance bool
-}
-
-// MixedCohortLabel is what a shed reports when its sheet rows disagree on breed or age group. It
+// MixedCohortLabel is what a bag reports when its sheet rows disagree on breed or age group. It
 // is a real answer -- the pen holds a mix -- never a missing value.
 const MixedCohortLabel = "Mixed"
 
-// FeedConsumptionTrendDay is the windowed target-vs-actual trend backing the graph tied to the
-// comparison table.
+// FeedConsumptionTrendDay is one day of the packed-vs-given trend under the mismatch table:
+// everything the sheet directed that day against everything a verifier measured.
 type FeedConsumptionTrendDay struct {
 	FeedDay  string
 	TargetKg string
@@ -218,7 +244,6 @@ type ExecutionAnalytics struct {
 	// PackingVariance lists every intended-vs-entered packing mismatch in the window, newest feed
 	// day first. Leadership-only by page contract; the verifier lens never receives this payload.
 	PackingVariance  []PackingVarianceRow
-	ConsumptionRows  []FeedConsumptionRow
 	ConsumptionTrend []FeedConsumptionTrendDay
 }
 
