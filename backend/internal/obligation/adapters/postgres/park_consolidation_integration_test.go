@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"testing"
 	"time"
 
@@ -413,12 +414,25 @@ func TestSM4ParkConsolidationMergesDifferentVaccinesAcrossSheds(t *testing.T) {
 	const goatTT = "10000000-0000-4000-8000-00000000d702"
 	seedReserveGoats(t, ctx, pool, parkShedA, cbePark, goatET)
 	seedReserveGoats(t, ctx, pool, parkShedB, cbePark, goatTT)
-	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	// Park consolidation only plans forward. Pinned calendar dates stop being forward as the
+	// clock advances, and the sweep then finds nothing to consolidate.
+	due := biztime.BusinessDayStart(time.Now().UTC().AddDate(0, 0, 7))
 	insertShedObligation(t, ctx, repo, versionID, ruleET, goatET, parkShedA, "park-multivax-et", due)
 	insertShedObligation(t, ctx, repo, versionID, ruleTT, goatTT, parkShedB, "park-multivax-tt", due.Add(24*time.Hour))
 
+	// Two DIFFERENT vaccines share one park drive only when they share an approved same-day
+	// combo session -- otherwise each vaccine is its own drive and the park group key keeps
+	// them apart, which is the behaviour the rest of the clinical rules depend on. Without a
+	// vaccine identity the rules fall back to "rule:<id>", i.e. two groups of one, and nothing
+	// can merge. PPR and Blue Tongue are an approved pair.
+	cfg := defaultParkSweepConfig()
+	cfg.RuleVaccineIDs = map[string]oblapp.RuleVaccineIdentity{
+		ruleET: {VaccineCode: "PPR"},
+		ruleTT: {VaccineCode: "BLUE_TONGUE"},
+	}
+
 	sweep := oblapp.NewSweeperService(repo, nil, nil)
-	res, err := sweep.SweepVersion(ctx, tenantID, versionID, defaultParkSweepConfig(), time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC))
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, cfg, due.AddDate(0, 0, 4))
 	if err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
