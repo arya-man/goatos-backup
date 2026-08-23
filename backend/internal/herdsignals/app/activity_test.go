@@ -2,6 +2,7 @@ package app
 
 import (
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/herdsignals/domain"
 )
@@ -140,4 +141,50 @@ func TestSumMotionDeltas(t *testing.T) {
 
 func ptrInt64(i int64) *int64 {
 	return &i
+}
+
+// A bucket with no packets has NO ROW in herd_signal_activity_windows -- it is not a row with
+// packet_count = 0. So an outage inside a correlation half shows up as MISSING BUCKETS, and summing
+// only the rows that came back yields a clean total and a confident percentage across a hole.
+//
+// This is the case the earlier IsGap check could never catch, because IsGap can only be set on a row
+// that exists. The test asserts the arithmetic of that detection: a half holding fewer buckets than
+// the window should contain is incomplete, whatever the rows it does hold say.
+func TestSparseHalfIsIncompleteEvenWhenEveryReturnedRowLooksHealthy(t *testing.T) {
+	const bucketSeconds = correlationBucketSeconds
+	expectedPerHalf := int(time.Duration(correlationWindowHours) * time.Hour / (time.Duration(bucketSeconds) * time.Second))
+	if expectedPerHalf != 24 {
+		t.Fatalf("expected 24 buckets per 2h half at %ds, got %d", bucketSeconds, expectedPerHalf)
+	}
+
+	healthy := func(n int) []domain.ActivityWindow {
+		out := make([]domain.ActivityWindow, 0, n)
+		base := time.Date(2026, 8, 23, 6, 0, 0, 0, time.UTC)
+		for i := 0; i < n; i++ {
+			out = append(out, domain.ActivityWindow{
+				BucketStart:   base.Add(time.Duration(i*bucketSeconds) * time.Second),
+				BucketSeconds: bucketSeconds,
+				MotionDelta:   10,
+				PacketCount:   5, // packets arrived: nothing about THESE rows looks wrong
+			})
+		}
+		return out
+	}
+
+	full := healthy(expectedPerHalf)
+	if _, incomplete := sumMotionDeltas(full); incomplete {
+		t.Fatalf("a fully covered half must not be incomplete")
+	}
+	if sparse := len(full) < expectedPerHalf; sparse {
+		t.Fatalf("a fully covered half must not be sparse")
+	}
+
+	// One hour of the two is simply absent -- no rows at all, the ordinary shape of an outage.
+	half := healthy(expectedPerHalf / 2)
+	if _, incomplete := sumMotionDeltas(half); incomplete {
+		t.Fatalf("the returned rows are all healthy, so row-level inspection alone cannot detect the hole -- which is the point")
+	}
+	if sparse := len(half) < expectedPerHalf; !sparse {
+		t.Fatalf("a half holding %d of %d buckets must be treated as sparse, and therefore incomplete", len(half), expectedPerHalf)
+	}
 }
