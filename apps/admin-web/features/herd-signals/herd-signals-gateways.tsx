@@ -87,9 +87,10 @@ export function HerdSignalsGateways({ gateways, nowMs }: { gateways: HerdGateway
                 </svg>
                 <div>
                   <b>Gateway {gatewayName(gateway)} is offline.</b> No packet for{" "}
-                  {fmtAgo(gateway.last_seen_at, nowMs)}. Tags last heard through this gateway read as
-                  missing signal until it reconnects — that is a statement about the radio path, never
-                  a claim that those animals are missing.
+                  {fmtAgo(gateway.last_seen_at, nowMs)}. A tag heard by ANOTHER gateway keeps
+                  reporting normally; only a tag no gateway can hear for 30+ minutes reads as missing
+                  signal. Either way that is a statement about the radio path, never a claim that
+                  those animals are missing.
                 </div>
               </div>
             ) : null}
