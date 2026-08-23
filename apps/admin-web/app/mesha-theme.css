@@ -3741,6 +3741,26 @@ select:disabled { opacity: .45; }
 .vplan .v-item.off .v-name, .vplan .v-item.off .v-sched { color: var(--faint); }
 .vplan .v-item.off .sw { opacity: .5; }
 
+/* "+ Add a vaccine" and its panel — lifted from the mock's #newVacModal */
+.vplan .vp-addvac { width: calc(100% - 12px); margin: 4px 6px 8px; border: 1px dashed var(--line);
+  border-radius: 9px; padding: 9px; font-size: 13.5px; font-weight: 600; color: var(--muted);
+  cursor: pointer; background: none; }
+.vplan .vp-addvac:hover { border-color: var(--brand); color: var(--brand-d); }
+.vp-nvsec { font-size: 11px; letter-spacing: .13em; text-transform: uppercase; color: var(--faint);
+  font-weight: 600; margin: 20px 0 11px; }
+.vp-nvsec:first-of-type { margin-top: 4px; }
+.vp-nvgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(214px, 1fr)); gap: 11px; }
+.vp-nvf { display: flex; flex-direction: column; gap: 6px; }
+.vp-nvf.vp-nvwide { grid-column: 1 / -1; }
+.vp-nvf > span { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+.vp-nvf > span b { color: var(--warn); font-weight: 700; font-size: 10.5px; letter-spacing: .06em;
+  text-transform: uppercase; margin-left: 5px; }
+.vp-nvf input, .vp-nvf select { font: inherit; font-size: 14.5px; padding: 9px 11px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); width: 100%; }
+.vp-nvf input:focus, .vp-nvf select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.vp-nvfoot { display: flex; align-items: center; gap: 10px; margin-top: 22px; padding-top: 16px;
+  border-top: 1px solid var(--line); flex-wrap: wrap; }
+
 .vplan .sws { position: relative; flex: none; width: 38px; height: 22px; border-radius: 999px;
   background: var(--line); cursor: pointer; transition: background .16s; padding: 0; border: none; }
 .vplan .sws[aria-checked="true"] { background: var(--brand); }
