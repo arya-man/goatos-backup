@@ -31,15 +31,15 @@ func (r *Repository) UpsertGateway(ctx context.Context, tenantID string, gw doma
 			wifi_mac, ble_mac, network_mode, status, last_seen_at, last_pkt_sn, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::bigint, now())
 		ON CONFLICT (tenant_id, gateway_id) DO UPDATE
-		SET label = COALESCE($3, label),
-		    park_id = COALESCE($4, park_id),
-		    shed_id = COALESCE($5, shed_id),
-		    location_id = COALESCE($6, location_id),
-		    wifi_mac = COALESCE($7, wifi_mac),
-		    ble_mac = COALESCE($8, ble_mac),
-		    network_mode = COALESCE($9, network_mode),
-		    status = COALESCE($10, status),
-		    last_seen_at = COALESCE($11, last_seen_at),
+		SET label = COALESCE($3, herd_signal_gateways.label),
+		    park_id = COALESCE($4, herd_signal_gateways.park_id),
+		    shed_id = COALESCE($5, herd_signal_gateways.shed_id),
+		    location_id = COALESCE($6, herd_signal_gateways.location_id),
+		    wifi_mac = COALESCE($7, herd_signal_gateways.wifi_mac),
+		    ble_mac = COALESCE($8, herd_signal_gateways.ble_mac),
+		    network_mode = COALESCE($9, herd_signal_gateways.network_mode),
+		    status = COALESCE($10, herd_signal_gateways.status),
+		    last_seen_at = COALESCE($11, herd_signal_gateways.last_seen_at),
 		    updated_at = now()
 	`
 	_, err := r.db.Exec(ctx, query,
