@@ -5651,8 +5651,6 @@ export interface components {
             per_kg_cost: string;
             /** @description `required_kg` x `per_kg_cost` -- the week's feed bill at the current rate. */
             required_cost: string;
-            /** @description `shortfall_kg` x `per_kg_cost` -- what the purchase run costs after existing stock. */
-            shortfall_cost: string;
         };
         /** @description ONE ROW PER OPERATIONAL LOCATION PER SESSION -- one pen, one feeding instruction. A pen holding several breeds or management stages is ONE row whose descriptive columns list every value present (` + `-joined) and whose quantities are summed, never several rows an operator has to re-add at the pen door. The packing worklist is built at the same grain, so a row and the bag packed for it always describe the same pen. */
         FeedDirectionRow: {

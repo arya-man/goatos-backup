@@ -379,11 +379,8 @@ type StockForecastItem struct {
 	// farm.
 	PerKgCost string
 	// RequiredCost is RequiredKg x PerKgCost — the week's feed bill at the
-	// current rate. ShortfallCost prices ShortfallKg the same way: what the
-	// purchase run actually costs once existing stock is used up. Both empty
-	// without a rate.
-	RequiredCost  string
-	ShortfallCost string
+	// current rate. Empty without a rate.
+	RequiredCost string
 }
 
 // ExpenditureDay is one feed day's spend: directed kg priced at each item's
