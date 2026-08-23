@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func baseRule() NewRule {
 	return NewRule{
@@ -31,12 +34,19 @@ func TestRuleIdentityKeyIgnoresCaseAndSpaceButNotTheVaccine(t *testing.T) {
 	}
 }
 
-// A dose code containing the separator must not be able to impersonate another rule.
+// Operator-authored codes must not be able to impersonate another rule by containing the
+// separator. A naive join on "|" would give "a" + "b|1" and "a|b" + "1" the same key, so two
+// different rules would share one identity and one would carry over as the other.
 func TestRuleIdentityKeySeparatorCannotBeForged(t *testing.T) {
-	forged := RuleIdentityKey("ppr", "primary\x001", 1)
-	real := RuleIdentityKey("ppr", "primary", 1)
-	if forged == real {
+	if RuleIdentityKey("a", "b|1", 1) == RuleIdentityKey("a|b", "1", 1) {
+		t.Fatalf("a code carrying the separator collided with a different rule")
+	}
+	if RuleIdentityKey("ppr", "primary|1", 1) == RuleIdentityKey("ppr", "primary", 1) {
 		t.Fatalf("a dose code carrying the separator collided with another rule")
+	}
+	// The key also has to survive Postgres text storage, which rejects a null byte.
+	if strings.ContainsRune(RuleIdentityKey("ppr", "primary", 1), 0) {
+		t.Fatalf("identity key contains a null byte and cannot be stored")
 	}
 }
 
@@ -89,8 +99,10 @@ func TestRuleContentFingerprintCoversEverySchedulingField(t *testing.T) {
 		"catch_up":               func(r *NewRule) { r.CatchUp = "next_cycle" },
 		"sop_version_id":         func(r *NewRule) { r.SopVersionID = &sop },
 		"withdrawal_days":        func(r *NewRule) { r.WithdrawalDays = &withdrawal },
-		"eligibility_json":       func(r *NewRule) { r.EligibilityJSON = []byte(`{"vaccine":{"code":"PPR"},"eligibility":{"sex":["female"]}}`) },
-		"proof_policy":           func(r *NewRule) { r.ProofPolicy = []byte(`{"mode":"per_shed"}`) },
+		"eligibility_json": func(r *NewRule) {
+			r.EligibilityJSON = []byte(`{"vaccine":{"code":"PPR"},"eligibility":{"sex":["female"]}}`)
+		},
+		"proof_policy": func(r *NewRule) { r.ProofPolicy = []byte(`{"mode":"per_shed"}`) },
 	} {
 		rule := baseRule()
 		mutate(&rule)
