@@ -166,6 +166,10 @@ HERD_SIGNALS_TENANT_ID=<tenant id used by stg.dashboard.mesha.sg>
 HERD_SIGNALS_ACTOR_ID=herd-signals-bridge
 ```
 
+Keep the MQTT password secret as raw bytes without a trailing newline. Shell
+tests using command substitution strip a newline, but Cloud Run env secrets
+preserve it and Mosquitto will reject the password as unauthorized.
+
 MQTT scan reports should be transformed into `domain.IngestRequest`:
 
 ```text

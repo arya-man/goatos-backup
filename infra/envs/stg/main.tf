@@ -31,7 +31,7 @@ locals {
       display_name = "Goat OS staging kernel worker runtime"
     }
     herd_signals_mqtt_bridge = {
-      account_id   = "goatos-herd-signals-mqtt-bridge-stg"
+      account_id   = "goatos-hs-mqtt-bridge-stg"
       display_name = "Goat OS staging herd signals MQTT bridge runtime"
     }
     outbox_dlq = {
