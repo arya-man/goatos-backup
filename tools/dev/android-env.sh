@@ -43,7 +43,7 @@ android_resolve_env() {
     android_env_die "Android SDK not found. Install it with Android Studio, or set ANDROID_HOME."
 
   export ANDROID_SDK_ROOT="$ANDROID_HOME"
-  export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+  export PATH="$HOME/.local/bin:$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
 
   [ -x "$ANDROID_HOME/platform-tools/adb" ] || \
     android_env_die "adb missing. Install Android SDK Platform-Tools."

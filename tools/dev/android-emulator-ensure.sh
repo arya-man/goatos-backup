@@ -5,6 +5,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+bash "$repo_root/tools/dev/ensure-android-cli.sh"
 # shellcheck source=tools/dev/android-env.sh
 source "$repo_root/tools/dev/android-env.sh"
 

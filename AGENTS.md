@@ -43,6 +43,30 @@ Docker DB container: goatos-phone-qa
 Runbook: docs/runbooks/phone-qa-throwaway-rbac.md
 ```
 
+## Android CLI Bootstrap - Claude AND Codex
+
+Before any Goat OS Android developer command, Claude, Codex, and human
+developers must ensure Google's Android CLI is available. Use the repo helper;
+do not hand-roll separate install steps:
+
+```bash
+bash tools/dev/ensure-android-cli.sh
+```
+
+The helper is idempotent. If `android` is missing, it installs the user-local
+Android CLI for the developer's platform, runs `android update`, runs
+`android init`, and runs `android skills add --all` so Codex, Claude, and other
+detected agents receive the official Android skills. If `android` is already on
+`PATH`, the helper stays quiet unless the base Codex/Claude Android CLI skill or
+the broader official skill set is missing. The Android entrypoints
+`make android-doctor`, `make android-emulator-ensure`, and `make
+android-dev-run` already run this first; agents that call lower-level Android
+scripts directly must preserve that bootstrap.
+
+For what Android CLI and Journeys are allowed to prove in Goat OS, read
+`docs/mobile/android-cli-and-journeys.md`. Journeys supplement the existing
+Gradle/Paparazzi/phone-QA gates; they do not replace them.
+
 **HARD RULE — phone/mobile QA must NEVER use or repoint the default ports.**
 `127.0.0.1:3300` (admin-web), `127.0.0.1:8080` (API), and `127.0.0.1:5433`
 (database) carry the maintainer's LOCAL REPLICA OF STG DATA. Phone QA is mock
