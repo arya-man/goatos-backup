@@ -105,9 +105,31 @@ These are the invariants a reviewer or a future change must not break.
    written before this migration) does not carry over. It takes the old
    cancel-and-re-mint path. Failing safe means falling back to the previous
    behaviour, never to a silent carry-over of a rule whose content is unverified.
-6. **Terminal work is never touched.** Carry-over and supersede both act only on
-   open statuses (`scheduled`, `due`, `deferred`, `in_progress`). `completed`,
-   `canceled`, and `missed` are history and are immutable.
+6. **Terminal work is never touched.** `completed`, `canceled` and `missed` are
+   history and are immutable. Both sweeps act only on open work.
+
+7. **In-flight work is rebound but never cancelled.** The two sweeps take
+   deliberately different status sets, and the difference is not an oversight:
+
+   | | statuses acted on |
+   |---|---|
+   | carry-over | `scheduled`, `due`, `deferred`, **`in_progress`** |
+   | supersede | `scheduled`, `due`, `deferred` |
+
+   Carry-over includes `in_progress` because rebinding is non-destructive — an
+   operator part-way through a drive keeps the same obligation, and it stays
+   attached to the version that is now live. Supersede excludes it because
+   cancelling work somebody is physically doing, mid-drive, is worse than the
+   staleness it would fix. That exclusion predates this change and is unchanged
+   by it.
+
+   The consequence, stated plainly so nobody discovers it as a surprise: if a
+   rule is **edited** while an animal has `in_progress` work on it, that animal
+   keeps the old rule until the in-flight work closes. The edit reaches every
+   other animal immediately, and reaches this one on the next generation pass
+   after its current dose is recorded. A future change that wants the edit to
+   land sooner has to decide what happens to the operator's half-finished drive
+   — it is a product decision, not a bug to quietly patch.
 
 ## What "unchanged" does not cover
 
