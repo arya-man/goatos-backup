@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"os"
 	"strconv"
 	"strings"
@@ -519,7 +520,9 @@ func TestVisitShotCapAtomicAcrossConcurrentWorkers(t *testing.T) {
 	seedParkConsolidationShed(t, ctx, pool, shedID, "visit-cap-concurrent-shed")
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
 
-	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	// The date must stay in the FUTURE: a fixed calendar date turns this into a test that
+	// passes until the wall clock reaches it and then silently stops planning.
+	due := biztime.BusinessDayStart(time.Now().UTC().AddDate(0, 0, 7))
 	// A 1-day window (due..due+1) keeps both candidate dates in the drive planner's OWN
 	// "<=3 days left" scoring bucket (see scoreDriveDate), so every one of the 4 single-obligation
 	// groups ties on score and its date-pick heuristic (independent of the shot cap) prefers the
