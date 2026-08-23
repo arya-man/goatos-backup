@@ -213,6 +213,24 @@ show delayed backlog as **Delayed** against the original planned date; never
 render the rolled due date as if the shed was newly scheduled today. Regression
 guard: `WeighingAssignmentModeAwarenessTest`.
 
+Android CLI and Journey proof:
+
+```text
+docs/mobile/android-cli-and-journeys.md
+tools/dev/ensure-android-cli.sh
+```
+
+Before Android device/debug/Journey work, run the helper or an Android Make
+target that calls it. It installs/updates Google's Android CLI and official
+Android skills for Codex, Claude, and other detected agents when missing.
+Journeys are agent-run functional proof for real-device workflows; they
+supplement, never replace, Gradle, lint, unit tests, Paparazzi, and the phone-QA
+target-chain rules. For Compose work, prefer the relevant official Android skill
+(`adaptive`, `edge-to-edge`, `testing-setup`, `camerax`, `android-profiler`,
+`navigation-3`, or `styles`) only when its trigger matches the task; do not
+upgrade Compose, navigation, or dependencies solely because a skill mentions a
+new API.
+
 ## Leadership Assistant Coverage Skill
 
 Use the leadership-assistant skill whenever a change adds or modifies a

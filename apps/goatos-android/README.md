@@ -23,6 +23,21 @@ the network/data/DI layers run on fakes — this is the scaffold, not the produc
 
 ## Build
 
+Goat OS Android developer entrypoints bootstrap Google's Android CLI first. Run
+this once, or let `make android-doctor` / `make android-dev-run` do it
+automatically:
+
+```bash
+bash ../../tools/dev/ensure-android-cli.sh
+```
+
+When `android` is missing, the helper installs the user-local CLI, runs
+`android update`, `android init`, and `android skills add --all` so Codex,
+Claude, and other detected agents get the official Android CLI and Android
+skills. See
+[`../../docs/mobile/android-cli-and-journeys.md`](../../docs/mobile/android-cli-and-journeys.md)
+for how Goat OS uses Android CLI and Journeys.
+
 ```bash
 # Requires JDK 17+ and the Android SDK (platform android-36).
 cd apps/goatos-android
