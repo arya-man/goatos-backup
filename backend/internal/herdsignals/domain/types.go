@@ -335,8 +335,8 @@ type LiveItem struct {
 	// decision on offline behaviour), not this window's own movement. A client must render this
 	// distinctly (e.g. "+239 since reconnect, timing unknown"), never as a normal delta.
 	GapDelta bool    `json:"gap_delta"`
-	MappedBy *string `json:"mapped_by"`   // User ID of the operator who bound this tag
-	MappedAt *string `json:"mapped_at"`   // RFC3339 timestamp when this tag was bound
+	MappedBy *string `json:"mapped_by"` // User ID of the operator who bound this tag
+	MappedAt *string `json:"mapped_at"` // RFC3339 timestamp when this tag was bound
 }
 
 // BatteryTrendResponse is the wire form of domain.BatteryTrend: a direction plus the two
@@ -405,7 +405,7 @@ type TimelineWindow struct {
 
 // GatewayItem is a single gateway in the gateways response.
 type GatewayItem struct {
-	GatewayID                string     `json:"gateway_id"`
+	GatewayID               string     `json:"gateway_id"`
 	Label                   *string    `json:"label"`
 	ParkID                  *string    `json:"park_id"`
 	ParkName                *string    `json:"park_name"`
@@ -422,7 +422,7 @@ type GatewayItem struct {
 	WeakTags                *int       `json:"weak_tags"`
 	UnmappedTags            *int       `json:"unmapped_tags"`
 	TagsSeenInWindow        *int       `json:"tags_seen_in_window"`        // 15-minute window aggregate
-	DistinctMotionDeltas    *int       `json:"distinct_motion_deltas"`    // 15-minute window aggregate
+	DistinctMotionDeltas    *int       `json:"distinct_motion_deltas"`     // 15-minute window aggregate
 	PacketsReceivedInWindow *int       `json:"packets_received_in_window"` // 15-minute window aggregate
 }
 
