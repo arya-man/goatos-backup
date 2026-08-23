@@ -837,7 +837,7 @@ SELECT b.farm_label,
        round(b.net_kg - d.kg, 1)::text                    AS balance_kg,
        COALESCE(round(r.avg_kg, 1)::text, '')             AS avg_daily_kg,
        CASE WHEN COALESCE(r.avg_kg, 0) > 0
-            THEN floor((b.net_kg - d.kg) / r.avg_kg)::bigint
+            THEN GREATEST(floor((b.net_kg - d.kg) / r.avg_kg), 0)::bigint
        END                                                AS days_left,
        b.latest_batch
 FROM bought b
