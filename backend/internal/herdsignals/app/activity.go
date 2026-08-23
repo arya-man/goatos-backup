@@ -154,23 +154,44 @@ func (s *Service) computeEventCorrelation(ctx context.Context, tenantID, tagID s
 		return
 	}
 
-	// Split windows into before and after halves.
+	// STORED WINDOWS ARE SPARSE: a bucket with no packets has NO ROW, it is not a row with
+	// packet_count = 0. Summing only the rows that came back therefore produces a clean total and a
+	// confident percentage across a two-hour reception outage -- exactly the comparison this feature
+	// promises never to show. The timeline read has always densified for this reason (see
+	// service.go); the correlation did not, so the IsGap check could only ever catch the rare
+	// zero-packet row and never the ordinary missing one.
+	//
+	// Count the buckets each half SHOULD contain and compare against what the store returned. A half
+	// missing any bucket is incomplete, and an incomplete half yields no number at all.
+	bucketDur := time.Duration(correlationBucketSeconds) * time.Second
+	expectedPerHalf := int(time.Duration(correlationWindowHours) * time.Hour / bucketDur)
+
+	// Boundary: a bucket belongs to BEFORE only if it ENDS at or before the event, and to AFTER only
+	// if it STARTS at or after it. A bucket straddling the event instant belongs to neither -- its
+	// motion cannot be attributed to one side, and silently counting it as "after" (as this did)
+	// would let movement that happened BEFORE the event inflate the response to it.
 	var beforeWindows, afterWindows []domain.ActivityWindow
 	for _, w := range windows {
-		if w.BucketStart.Add(time.Duration(w.BucketSeconds)*time.Second).Before(event.At) || w.BucketStart.Equal(event.At) {
-			// Bucket ends before or at the event time -> belongs to before window
+		bucketEnd := w.BucketStart.Add(time.Duration(w.BucketSeconds) * time.Second)
+		switch {
+		case !bucketEnd.After(event.At):
 			beforeWindows = append(beforeWindows, w)
-		} else {
-			// Bucket starts after the event time -> belongs to after window
+		case !w.BucketStart.Before(event.At):
 			afterWindows = append(afterWindows, w)
+		default:
+			// straddles the event instant -- counted in neither half
 		}
 	}
+	beforeSparse := len(beforeWindows) < expectedPerHalf
+	afterSparse := len(afterWindows) < expectedPerHalf
 
 	// Compute before correlation.
 	beforeDelta, beforeIncomplete := sumMotionDeltas(beforeWindows)
+	beforeIncomplete = beforeIncomplete || beforeSparse
 
 	// Compute after correlation.
 	afterDelta, afterIncomplete := sumMotionDeltas(afterWindows)
+	afterIncomplete = afterIncomplete || afterSparse
 
 	// Set the correlation fields.
 	if beforeDelta != nil {
