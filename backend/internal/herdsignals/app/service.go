@@ -336,7 +336,7 @@ func (s *Service) ListGateways(ctx context.Context, actor domain.Actor) (domain.
 			}
 		}
 
-		items[i] = domain.GatewayItem{
+		item := domain.GatewayItem{
 			GatewayID:       gw.GatewayID,
 			Label:           &label,
 			ParkID:          parkID,
@@ -353,11 +353,17 @@ func (s *Service) ListGateways(ctx context.Context, actor domain.Actor) (domain.
 			// HerdGatewayStatus), not the raw stored active/inactive/error text -- a gateway
 			// that stopped heartbeating 2 hours ago is "offline" to an operator regardless of
 			// what its last-known stored status string was.
-			Status:           gatewayStatus(gw.LastSeenAt, s.thresholds),
-			TagsSeenRecently: tagStats[gw.GatewayID].TagsSeenRecently,
-			WeakTags:         tagStats[gw.GatewayID].WeakTags,
-			UnmappedTags:     tagStats[gw.GatewayID].UnmappedTags,
+			Status: gatewayStatus(gw.LastSeenAt, s.thresholds),
 		}
+		// Populate computed stats, converting int to *int.
+		if stat, ok := tagStats[gw.GatewayID]; ok {
+			item.TagsSeenRecently = &stat.TagsSeenRecently
+			item.WeakTags = &stat.WeakTags
+			item.UnmappedTags = &stat.UnmappedTags
+		}
+		// TODO: populate TagsSeenInWindow, DistinctMotionDeltas, PacketsReceivedInWindow
+		// from a 15-minute window query over herd_signal_activity_windows + herd_signal_packets.
+		items[i] = item
 	}
 
 	return domain.GatewaysResponse{Gateways: items}, nil

@@ -1117,6 +1117,13 @@ pre-google-readiness:
 seed-feed-ration:
 	cd backend && go run ./cmd/seed-feed-ration -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}"
 
+# Herd Signals partition maintenance (see migration 000201 and
+# docs/modules/herd-signals-system-design.md Section 3): creates any missing daily
+# herd_signal_packets partitions ahead of ingest, then drops daily partitions older than
+# retention. Intended to run once daily against the target environment's DATABASE_URL.
+herd-signals-partition-maintenance:
+	cd backend && go run ./cmd/herd-signals-partition-maintenance -database-url "$${DATABASE_URL}"
+
 seed-dev-email-grants:
 	cd backend && go run ./cmd/seed-dev-email-grants -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -role ceo_internal -source goatos_dev_dashboard_admins $(foreach email,$(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS),-email $(email))
 
