@@ -335,6 +335,57 @@ type StockFarmItem struct {
 	LedgerStockKg string
 }
 
+// StockForecastDays is the forward window the requirement table answers for:
+// the next seven days of feeding, the horizon the farm buys against.
+const StockForecastDays = 7
+
+// StockForecastItem is one (farm, feed item) row of the next-7-days
+// requirement table (maintainer decision 2026-08-23). It answers the two
+// questions leadership asks before a purchase run: how much of this feed does
+// this farm need for the coming week at the CURRENT feeding rate, and what
+// does that cost.
+//
+// Its grain is (park, feed item) driven by CONSUMPTION, not by the purchase
+// ledger: every feed the farm actually feeds gets a row, including feeds
+// GoatOS does not direct through sheets (UHT Milk, feed_external_consumption)
+// and feeds with no purchase history at all. That is deliberately wider than
+// StockFarmItem's four Mesha concentrates — a requirement table that silently
+// omitted a feed would under-order it.
+//
+// Money is present here by explicit maintainer decision 2026-08-23, which
+// supersedes the 2026-08-21 "quantities and timing, not money" scope recorded
+// on StockFarmItem FOR THIS TABLE ONLY. StockFarmItem's own columns are
+// unchanged.
+type StockForecastItem struct {
+	FarmLabel     string
+	FeedItemLabel string
+	FeedItemKey   string
+	// AvgDailyKg is the same short 3-locked-day average every other figure on
+	// this page uses, so days-left and the requirement move together; empty
+	// when the item has no recent consumption to average.
+	AvgDailyKg string
+	// RequiredKg is AvgDailyKg x StockForecastDays. Empty when AvgDailyKg is.
+	RequiredKg string
+	// StockKg is the ledger balance for this farm and item, empty when the
+	// purchase ledger carries no load for it (a fed-but-never-purchased feed
+	// still gets a requirement, just no balance to compare it against).
+	StockKg string
+	// ShortfallKg is RequiredKg - StockKg floored at zero: what must be bought
+	// to feed the week. Empty when either input is.
+	ShortfallKg string
+	// PerKgCost is the farm's most recent load rate for the item, the same
+	// pricing rule the expenditure series uses, read forward with no date
+	// bound because this is a forecast. Empty when never purchased at this
+	// farm.
+	PerKgCost string
+	// RequiredCost is RequiredKg x PerKgCost — the week's feed bill at the
+	// current rate. ShortfallCost prices ShortfallKg the same way: what the
+	// purchase run actually costs once existing stock is used up. Both empty
+	// without a rate.
+	RequiredCost  string
+	ShortfallCost string
+}
+
 // ExpenditureDay is one feed day's spend: directed kg priced at each item's
 // most recent load rate on or before that day.
 type ExpenditureDay struct {
@@ -362,7 +413,10 @@ type StockAnalytics struct {
 	Items []StockItem
 	// FarmItems is the per-farm Mesha-concentrate purchase/consumption table
 	// (MeshaConcentrateStockKeys only), ordered by feed item then farm.
-	FarmItems   []StockFarmItem
+	FarmItems []StockFarmItem
+	// Forecast is the next-7-days requirement/cost table at (farm, feed item)
+	// grain over every fed feed, ordered by farm then item.
+	Forecast    []StockForecastItem
 	Expenditure []ExpenditureDay
 	Spend       SpendSummary
 }

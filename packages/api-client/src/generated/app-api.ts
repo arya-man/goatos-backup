@@ -5473,17 +5473,6 @@ export interface components {
             /** @description verified minus the resolved planned quantity (0 when unresolved), signed. */
             variance_kg: string;
         };
-        FeedAnalyticsExecutionResponse: {
-            /** Format: date */
-            date_from: string;
-            /** Format: date */
-            date_to: string;
-            days: components["schemas"]["FeedAnalyticsExecutionDay"][];
-            consumption_rows: components["schemas"]["FeedAnalyticsConsumptionRow"][];
-            consumption_trend: components["schemas"]["FeedAnalyticsConsumptionTrendDay"][];
-            /** @description Every intended-vs-entered packing mismatch in the window, newest feed day first. Always present; empty when every verified reading matched the sheet. */
-            packing_variance: components["schemas"]["FeedAnalyticsPackingVarianceRow"][];
-        };
         /** @description One latest-day shed/cohort/feed-item target-vs-actual packing comparison row. */
         FeedAnalyticsConsumptionRow: {
             /** Format: date */
@@ -5509,8 +5498,21 @@ export interface components {
             feed_day: string;
             target_kg: string;
             actual_kg: string;
+            /** Format: int64 */
             variance_rows: number;
+            /** Format: int64 */
             compared_rows: number;
+        };
+        FeedAnalyticsExecutionResponse: {
+            /** Format: date */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            days: components["schemas"]["FeedAnalyticsExecutionDay"][];
+            consumption_rows: components["schemas"]["FeedAnalyticsConsumptionRow"][];
+            consumption_trend: components["schemas"]["FeedAnalyticsConsumptionTrendDay"][];
+            /** @description Every intended-vs-entered packing mismatch in the window, newest feed day first. Always present; empty when every verified reading matched the sheet. */
+            packing_variance: components["schemas"]["FeedAnalyticsPackingVarianceRow"][];
         };
         /** @description One (feed day, feed item) of authored absolute kg across every experiment pen. */
         FeedAnalyticsExperimentItem: {
@@ -5627,8 +5629,30 @@ export interface components {
             items: components["schemas"]["FeedAnalyticsStockItem"][];
             /** @description Per-farm Mesha-concentrate purchase/consumption rows, ordered by feed item then farm. */
             farm_items: components["schemas"]["FeedAnalyticsStockFarmItem"][];
+            /** @description Next-7-days feed requirement and cost, one row per (farm, feed item), ordered by farm then feed item. Keyed on what the farm actually FEEDS -- sheet-directed feeds and externally-tracked feeds alike -- so this list is wider than `farm_items`, which covers the four Mesha concentrates only. Always present, possibly empty. */
+            forecast: components["schemas"]["FeedAnalyticsStockForecastItem"][];
             expenditure: components["schemas"]["FeedAnalyticsExpenditureDay"][];
             spend: components["schemas"]["FeedAnalyticsSpendSummary"];
+        };
+        /** @description One farm's requirement for one feed over the next 7 days, at the CURRENT feeding rate. Quantities are kg and money is rupees, both as decimal strings; an empty string means the figure is unavailable for this row rather than zero -- `stock_kg` and the cost fields are empty when the purchase ledger carries no load for this farm and feed, and a never-purchased feed still reports its requirement. */
+        FeedAnalyticsStockForecastItem: {
+            farm_label: string;
+            feed_item_label: string;
+            feed_item_key: string;
+            /** @description Average fed kg per day over the three most recent days this feed was fed. */
+            avg_daily_kg: string;
+            /** @description `avg_daily_kg` x 7. */
+            required_kg: string;
+            /** @description Current ledger balance for this farm and feed; empty when never purchased here. */
+            stock_kg: string;
+            /** @description `required_kg` - `stock_kg`, floored at zero; empty when `stock_kg` is. */
+            shortfall_kg: string;
+            /** @description The farm's most recent load rate for this feed; empty when never purchased here. */
+            per_kg_cost: string;
+            /** @description `required_kg` x `per_kg_cost` -- the week's feed bill at the current rate. */
+            required_cost: string;
+            /** @description `shortfall_kg` x `per_kg_cost` -- what the purchase run costs after existing stock. */
+            shortfall_cost: string;
         };
         /** @description ONE ROW PER OPERATIONAL LOCATION PER SESSION -- one pen, one feeding instruction. A pen holding several breeds or management stages is ONE row whose descriptive columns list every value present (` + `-joined) and whose quantities are summed, never several rows an operator has to re-add at the pen door. The packing worklist is built at the same grain, so a row and the bag packed for it always describe the same pen. */
         FeedDirectionRow: {
