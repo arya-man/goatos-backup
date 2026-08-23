@@ -770,6 +770,12 @@ func (r *Repository) ListActivityWindows(ctx context.Context, tenantID, tagID st
 		); err != nil {
 			return nil, err
 		}
+		// A bucket with no packets is a HOLE, not a quiet animal. The activity correlation refuses
+		// to compute a before/after comparison across one, so this flag has to be set here as well
+		// as on the transactional read -- it was set only there, so the correlation path could never
+		// see a gap and would happily return a percentage computed over missing data. That is the
+		// exact dishonesty the incomplete-window rule exists to prevent.
+		w.IsGap = w.PacketCount == 0
 		windows = append(windows, w)
 	}
 	return windows, rows.Err()

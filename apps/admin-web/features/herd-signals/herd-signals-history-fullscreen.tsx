@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import type { HerdSignalItem, HerdSignalTimelineBucket } from "@/lib/api/herd-signals";
-import { getHerdSignalsActivity, type HerdSignalActivityResponse } from "@/lib/api/herd-signals";
+import type { HerdSignalActivityResponse } from "@/lib/api/herd-signals";
 import { operationalLocationLabel } from "@/lib/operational-location";
 import {
   fmtBleMac,
@@ -148,18 +148,26 @@ export function HerdSignalsHistoryFullscreen({ rows, closeHref }: { rows: HerdSi
     }
     let active = true;
     const key = `${displayedItem.tag_id}|${bounds.from}|${bounds.to}`;
-    void getHerdSignalsActivity({
-      tagId: displayedItem.tag_id,
-      from: bounds.from,
-      to: bounds.to,
-    }).then((result) => {
-      if (!active) return;
-      if (result.ok) {
-        setActivity({ key, data: result.data, error: null });
-      } else {
-        setActivity({ key, data: null, error: result.error?.message ?? "Failed to load activity" });
-      }
-    });
+    // Fetched through the same-origin proxy, NOT by importing the server reader: that reader is
+    // server-only (it mints the bearer token and reads next/headers), and importing it from this
+    // client component pulled "server-only" into the browser bundle and broke the build for the
+    // WHOLE app. The drawer's timeline uses the same proxy pattern.
+    void fetch(
+      `/api/herd-signals/tags/${encodeURIComponent(displayedItem.tag_id)}/activity?from=${encodeURIComponent(bounds.from)}&to=${encodeURIComponent(bounds.to)}`,
+      { cache: "no-store" },
+    )
+      .then(async (response) => {
+        if (!active) return;
+        if (!response.ok) {
+          setActivity({ key, data: null, error: `Failed to load activity (${response.status})` });
+          return;
+        }
+        const data = (await response.json()) as HerdSignalActivityResponse;
+        setActivity({ key, data, error: null });
+      })
+      .catch(() => {
+        if (active) setActivity({ key, data: null, error: "Failed to load activity" });
+      });
     return () => {
       active = false;
     };

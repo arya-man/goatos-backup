@@ -179,3 +179,7 @@ backend/import-procurement-vendors
 /.qa/
 backend/main
 herd-signals-proof/
+backend/herd-signals-mqtt-bridge
+backend/herd-signals-udp-bridge
+backend/seed-herd-signals-oci
+backend/herd-signals-partition-maintenance
