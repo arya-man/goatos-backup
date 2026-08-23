@@ -198,6 +198,10 @@ ORDER BY vda.planned_date, m.goat_id`, tenantID, batchID)
 }
 
 func TestDriveAssignmentMembershipMovesStaleTenantObligationBinding(t *testing.T) {
+	// Aggregate-projection adversarial coverage: OneToMany, PageBoundary, ScheduledDate,
+	// ParkScope, and StatusMatrix. The stale member row is a one-obligation/two-assignment fanout
+	// until the upsert moves it; the query must preserve the current batch/date/park scope and not
+	// leave counters on the displaced assignment.
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)

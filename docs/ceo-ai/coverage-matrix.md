@@ -790,6 +790,18 @@ Center, Protocol Adherence, and Control Tower read surfaces, which already read
 the effective active override state. Explicit documented exclusion — no
 coverage-matrix mapping required.
 
+## Explicit exclusion: obligation sweeper failure metric (2026-08-24)
+
+`func:RecordSweeperFailure` records a kernel/internal observability counter
+(`kernel.sweeper.failures`) when the obligation sweeper continues to missed
+marking after a recoverable planning/batch phase failure. The same failure is
+also written to the existing audit log by the sweeper. This adds NO leadership
+KPI, read API route, Cube metric intended for CEO answers, `ceo_ai.*` reporting
+view, MCP Toolbox tool, or read-only SQL fallback. Leadership assistant coverage
+for vaccination status remains the existing vaccination command board, schedule,
+Action Center, Protocol Adherence, and Control Tower read surfaces. Explicit
+documented exclusion — no coverage-matrix mapping required.
+
 ## Explicit exclusion: proof artifact retention lifecycle plumbing (2026-07-25)
 
 `func:NewProofRetentionSweeperStage`, `func:Name`, and `func:Run` add hourly

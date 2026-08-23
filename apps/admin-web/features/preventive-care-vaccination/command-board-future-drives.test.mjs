@@ -11,7 +11,7 @@ import {
   resolveSelectedDrive,
   scheduledDriveCampaigns,
   scheduledDriveRows,
-  sortDriveCampaignsNewestFirst,
+  sortDriveCampaignsChronological,
 } from "./command-board-future-drives.ts";
 
 function option(overrides) {
@@ -146,13 +146,19 @@ test("executed drives render as grouped selector campaigns with operator-day com
   assert.deepEqual(campaigns[1].treatments.map((row) => row.targetCount), [114, 163, 47]);
 });
 
-test("visible drive selector campaigns are sorted by first date newest first after merging statuses", () => {
+test("visible drive selector campaigns are sorted by date oldest to newest", () => {
   const futureCampaigns = scheduledDriveCampaigns(scheduledDriveRows([
     option({
       driveBatchId: "future-jan",
       plannedDate: "2027-01-09T00:00:00+05:30",
       windowStart: "2027-01-09T00:00:00+05:30",
       windowEnd: "2027-01-09T00:00:00+05:30",
+    }),
+    option({
+      driveBatchId: "future-sep",
+      plannedDate: "2026-09-09T00:00:00+05:30",
+      windowStart: "2026-09-09T00:00:00+05:30",
+      windowEnd: "2026-09-09T00:00:00+05:30",
     }),
   ]));
   const executedCampaigns = executedDriveCampaigns([
@@ -181,13 +187,14 @@ test("visible drive selector campaigns are sorted by first date newest first aft
     }),
   ]);
 
-  const campaigns = sortDriveCampaignsNewestFirst([...executedCampaigns, ...futureCampaigns]);
+  const campaigns = sortDriveCampaignsChronological([...executedCampaigns, ...futureCampaigns]);
 
   assert.deepEqual(campaigns.map((campaign) => campaign.dateKeys[0]), [
-    "2027-01-09",
-    "2026-08-12",
-    "2026-08-05",
     "2026-07-24",
+    "2026-08-05",
+    "2026-08-12",
+    "2026-09-09",
+    "2027-01-09",
   ]);
 });
 

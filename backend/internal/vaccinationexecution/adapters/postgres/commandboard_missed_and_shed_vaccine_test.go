@@ -31,6 +31,10 @@ import (
 // A test that gave the missed obligation no completion at all would pass against the old code
 // via the overdue bucket and certify nothing.
 func TestVaccinationCommandBoardMissedWithRecordedProofIsVerificationPendingNotMissed(t *testing.T) {
+	// Aggregate-projection adversarial coverage: MultipleDimensions, MultiPage, ExecutionDate,
+	// CohortScope, and EveryStatus. One goat has both an accepted historical dose and a missed
+	// proof-recorded dose, so the KPI projection must choose the verifier-pending bucket without
+	// fanout from completion/proof joins or date/status precedence drift.
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
