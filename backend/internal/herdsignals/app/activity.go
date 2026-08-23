@@ -162,8 +162,20 @@ func (s *Service) computeEventCorrelationsBatched(ctx context.Context, tenantID,
 		}
 	}
 
-	windowFrom := earliest.Add(time.Duration(-correlationWindowHours) * time.Hour)
-	windowTo := latest.Add(time.Duration(correlationWindowHours) * time.Hour)
+	// GRID-ANCHOR THE FETCH BOUNDS, because the per-event maths is grid-anchored.
+	//
+	// computeEventCorrelationFromBatch measures each event's before-half from where the event's OWN
+	// BUCKET begins -- for an event at 06:02:17 that half is 04:00..06:00. Fetching from a raw
+	// earliest-2h (04:02:17) never returns the 04:00 bucket, because the repository selects on
+	// bucket_start >= from. The helper then counts 23 buckets where it expects 24 and declares dense,
+	// healthy coverage incomplete -- the very bug the anchoring was meant to fix, moved one layer
+	// down where a unit test over the helper cannot see it.
+	//
+	// Floor the lower bound to the bucket containing earliest-2h, and extend the upper bound by a
+	// bucket so the last bucket of the latest event's after-half is wholly inside the range.
+	bucketDur := time.Duration(correlationBucketSeconds) * time.Second
+	windowFrom := earliest.Add(time.Duration(-correlationWindowHours) * time.Hour).Truncate(bucketDur)
+	windowTo := latest.Add(time.Duration(correlationWindowHours) * time.Hour).Truncate(bucketDur).Add(2 * bucketDur)
 
 	// Fetch all windows for the entire span.
 	windows, err := s.repo.ListActivityWindows(ctx, tenantID, tagID, windowFrom, windowTo, correlationBucketSeconds)
@@ -174,7 +186,6 @@ func (s *Service) computeEventCorrelationsBatched(ctx context.Context, tenantID,
 	}
 
 	// Compute correlations for each event using the fetched windows.
-	bucketDur := time.Duration(correlationBucketSeconds) * time.Second
 	expectedPerHalf := int(time.Duration(correlationWindowHours) * time.Hour / bucketDur)
 
 	for i := range events {
