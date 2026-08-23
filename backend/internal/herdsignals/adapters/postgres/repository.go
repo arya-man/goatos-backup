@@ -1194,26 +1194,30 @@ func (r *Repository) GetGatewayTagStats(ctx context.Context, tenantID string) (m
 
 // GetGatewayWindowStats computes 15-minute window aggregates per gateway from herd_signal_activity_windows.
 // Returns unique tag count, distinct motion delta count, and total packet count for each gateway.
+//
+// GATEWAY ATTRIBUTION: Each window carries gateway_id, the gateway that actually heard the packets.
+// This ensures that when a tag moves between gateways, old packets are attributed to the gateway
+// that received them, not the tag's current gateway. Avoids silent misreporting of coverage.
 func (r *Repository) GetGatewayWindowStats(ctx context.Context, tenantID string) (map[string]ports.GatewayWindowStats, error) {
 	result := make(map[string]ports.GatewayWindowStats)
 
 	// The 15-minute window: from now minus 15 minutes to now.
 	// herd_signal_activity_windows is pre-bucketed at 60s, 300s, and 3600s tiers.
 	// Query the 300s tier to cover 15 minutes efficiently (5-minute buckets).
-	// projection-review: membership=herd_signal_activity_windows.tag_id; group_key=gateway_id; join_cardinality=one tag is joined to exactly one tag_latest row per tag_id; pagination=none whole-result aggregate time-windowed to 15 minutes; scope=tenant_id with gateway_id filter
+	// Aggregate by gateway_id from the windows table (the gateway that actually heard the packets).
+	// projection-review: membership=herd_signal_activity_windows.tag_id; group_key=gateway_id; aggregation=count distinct tags, count distinct tags with motion, sum packet_count; pagination=none whole-result aggregate time-windowed to 15 minutes; scope=tenant_id with gateway_id filter
 	rows, err := r.db.Query(ctx, `
 		SELECT
-			tl.gateway_id,
+			hw.gateway_id,
 			count(DISTINCT hw.tag_id),
 			count(DISTINCT CASE WHEN hw.motion_delta > 0 THEN hw.tag_id END),
 			sum(hw.packet_count)
 		FROM public.herd_signal_activity_windows hw
-		JOIN public.herd_signal_tag_latest tl ON tl.tenant_id = hw.tenant_id AND tl.tag_id = hw.tag_id
 		WHERE hw.tenant_id = $1
 		  AND hw.bucket_start >= now() - interval '15 minutes'
 		  AND hw.bucket_seconds = 300
-		  AND tl.gateway_id IS NOT NULL
-		GROUP BY tl.gateway_id
+		  AND hw.gateway_id IS NOT NULL
+		GROUP BY hw.gateway_id
 	`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("get gateway window stats: %w", err)

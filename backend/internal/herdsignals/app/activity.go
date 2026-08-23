@@ -114,17 +114,17 @@ func (s *Service) GetTagActivity(ctx context.Context, actor domain.Actor, tagID,
 		resp.Truncated = true
 	}
 
-	// Compute activity correlations for each event (2h before and 2h after motion deltas)
+	// Compute activity correlations for each event (2h before and 2h after motion deltas).
+	// Fetch all windows once for the entire span all events cover, then partition in memory.
 	if len(events) > 0 {
-		for i := range events {
-			s.computeEventCorrelation(ctx, actor.TenantID, scope.TagID, &events[i])
-		}
+		s.computeEventCorrelationsBatched(ctx, actor.TenantID, scope.TagID, events)
 		resp.Events = events
 	}
 	return resp, nil
 }
 
-// computeEventCorrelation computes motion deltas in the 2h windows before and after an activity event.
+// computeEventCorrelationsBatched computes motion deltas in the 2h windows before and after
+// all activity events using a single batched query.
 //
 // CORRELATION WINDOW GRAIN AND GAP HANDLING:
 // We fetch herd_signal_activity_windows at 5-minute (300s) granularity for the 2h windows.
@@ -142,36 +142,65 @@ func (s *Service) GetTagActivity(ctx context.Context, actor domain.Actor, tagID,
 //     motion occurred but was not transmitted.
 //   - We mark the window INCOMPLETE if either condition holds, and return nil values rather
 //     than presenting a partial truth as fact.
-func (s *Service) computeEventCorrelation(ctx context.Context, tenantID, tagID string, event *domain.ActivityEvent) {
-	// Fetch 2h windows: 2h before the event and 2h after the event.
-	before := event.At.Add(time.Duration(-correlationWindowHours) * time.Hour)
-	after := event.At.Add(time.Duration(correlationWindowHours) * time.Hour)
+//
+// PERFORMANCE: Fetches all windows ONCE for the entire span all events cover, then partitions
+// in memory. Reduces up to 500 serial DB reads to a single read.
+func (s *Service) computeEventCorrelationsBatched(ctx context.Context, tenantID, tagID string, events []domain.ActivityEvent) {
+	if len(events) == 0 {
+		return
+	}
 
-	windows, err := s.repo.ListActivityWindows(ctx, tenantID, tagID, before, after, correlationBucketSeconds)
+	// Find the overall window span: earliest event minus 2h to latest event plus 2h.
+	earliest := events[0].At
+	latest := events[0].At
+	for _, e := range events {
+		if e.At.Before(earliest) {
+			earliest = e.At
+		}
+		if e.At.After(latest) {
+			latest = e.At
+		}
+	}
+
+	windowFrom := earliest.Add(time.Duration(-correlationWindowHours) * time.Hour)
+	windowTo := latest.Add(time.Duration(correlationWindowHours) * time.Hour)
+
+	// Fetch all windows for the entire span.
+	windows, err := s.repo.ListActivityWindows(ctx, tenantID, tagID, windowFrom, windowTo, correlationBucketSeconds)
 	if err != nil {
-		s.log.Debug("failed to list activity windows for correlation", "tag_id", tagID, "event_at", event.At, "error", err)
+		s.log.Debug("failed to list activity windows for batch correlation", "tag_id", tagID, "earliest_event", earliest, "latest_event", latest, "error", err)
 		// Leave correlation fields as nil if we can't fetch the data
 		return
 	}
 
-	// STORED WINDOWS ARE SPARSE: a bucket with no packets has NO ROW, it is not a row with
-	// packet_count = 0. Summing only the rows that came back therefore produces a clean total and a
-	// confident percentage across a two-hour reception outage -- exactly the comparison this feature
-	// promises never to show. The timeline read has always densified for this reason (see
-	// service.go); the correlation did not, so the IsGap check could only ever catch the rare
-	// zero-packet row and never the ordinary missing one.
-	//
-	// Count the buckets each half SHOULD contain and compare against what the store returned. A half
-	// missing any bucket is incomplete, and an incomplete half yields no number at all.
+	// Compute correlations for each event using the fetched windows.
 	bucketDur := time.Duration(correlationBucketSeconds) * time.Second
 	expectedPerHalf := int(time.Duration(correlationWindowHours) * time.Hour / bucketDur)
 
-	// Boundary: a bucket belongs to BEFORE only if it ENDS at or before the event, and to AFTER only
-	// if it STARTS at or after it. A bucket straddling the event instant belongs to neither -- its
-	// motion cannot be attributed to one side, and silently counting it as "after" (as this did)
-	// would let movement that happened BEFORE the event inflate the response to it.
+	for i := range events {
+		s.computeEventCorrelationFromBatch(&events[i], windows, expectedPerHalf)
+	}
+}
+
+// computeEventCorrelationFromBatch computes correlation for a single event using pre-fetched windows.
+//
+// STORED WINDOWS ARE SPARSE: a bucket with no packets has NO ROW, it is not a row with
+// packet_count = 0. Summing only the rows that came back therefore produces a clean total and a
+// confident percentage across a two-hour reception outage -- exactly the comparison this feature
+// promises never to show. The timeline read has always densified for this reason (see
+// service.go); the correlation did not, so the IsGap check could only ever catch the rare
+// zero-packet row and never the ordinary missing one.
+//
+// Count the buckets each half SHOULD contain and compare against what the store returned. A half
+// missing any bucket is incomplete, and an incomplete half yields no number at all.
+//
+// Boundary: a bucket belongs to BEFORE only if it ENDS at or before the event, and to AFTER only
+// if it STARTS at or after it. A bucket straddling the event instant belongs to neither -- its
+// motion cannot be attributed to one side, and silently counting it as "after" (as this did)
+// would let movement that happened BEFORE the event inflate the response to it.
+func (s *Service) computeEventCorrelationFromBatch(event *domain.ActivityEvent, allWindows []domain.ActivityWindow, expectedPerHalf int) {
 	var beforeWindows, afterWindows []domain.ActivityWindow
-	for _, w := range windows {
+	for _, w := range allWindows {
 		bucketEnd := w.BucketStart.Add(time.Duration(w.BucketSeconds) * time.Second)
 		switch {
 		case !bucketEnd.After(event.At):

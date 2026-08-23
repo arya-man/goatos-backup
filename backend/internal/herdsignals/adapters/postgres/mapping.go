@@ -283,12 +283,14 @@ func releaseBinding(ctx context.Context, tx pgx.Tx, tenantID string, rows []exis
 }
 
 // syncTagLatestMonitoring pushes the mapping decision onto the hot read path: the denormalised
-// monitoring boundary and the mapping_state the live view reads. Without this the live view
-// would keep reporting the tag as unmapped until its next packet arrived, and every
-// animal-attributed read would keep using the OLD boundary in the meantime.
+// monitoring boundary, mapping provenance (mapped_by/mapped_at), and the mapping_state the live
+// view reads. Without this the live view would keep reporting the tag as unmapped until its
+// next packet arrived, and every animal-attributed read would keep using the OLD boundary in
+// the meantime.
 //
 // The predicate mirrors the read path's own matching rule (normalized tag_id OR tag_mac).
-func syncTagLatestMonitoring(ctx context.Context, tx pgx.Tx, tenantID string, values []string, since *time.Time) error {
+// When unmapping (since=nil), clears the provenance columns as well.
+func syncTagLatestMonitoring(ctx context.Context, tx pgx.Tx, tenantID string, values []string, since *time.Time, mappedBy *string, mappedAt *time.Time) error {
 	if len(values) == 0 {
 		return nil
 	}
@@ -296,12 +298,13 @@ func syncTagLatestMonitoring(ctx context.Context, tx pgx.Tx, tenantID string, va
 	if since != nil {
 		mappingState = "mapped"
 	}
+	// When unmapping, clear provenance columns. When mapping, populate them from the binding.
 	if _, err := tx.Exec(ctx, `
 		UPDATE public.herd_signal_tag_latest
-		SET animal_monitoring_since = $3, mapping_state = $4, updated_at = now()
+		SET animal_monitoring_since = $3, mapping_state = $4, mapped_by = $5, mapped_at = $6, updated_at = now()
 		WHERE tenant_id = $1::uuid
 		      AND (UPPER(BTRIM(tag_id)) = ANY($2) OR UPPER(BTRIM(tag_mac)) = ANY($2))
-	`, tenantID, values, since, mappingState); err != nil {
+	`, tenantID, values, since, mappingState, mappedBy, mappedAt); err != nil {
 		return fmt.Errorf("sync tag_latest monitoring boundary: %w", err)
 	}
 	return nil
@@ -414,6 +417,28 @@ func effectiveMappedAt(ctx context.Context, tx pgx.Tx, tenantID string, ids []st
 	return at.UTC(), nil
 }
 
+// effectiveMappedByAndAt returns the mapped_by and mapped_at values from the
+// identifier rows this write touched -- the provenance in force, not the one the caller hoped for.
+// For new bindings, these match the current request. For idempotent rebinds, these are the
+// original binding values.
+func effectiveMappedByAndAt(ctx context.Context, tx pgx.Tx, tenantID string, ids []string) (*string, *time.Time, error) {
+	var by *string
+	var at *time.Time
+	err := tx.QueryRow(ctx, `
+		SELECT mapped_by, mapped_at
+		FROM public.goat_identifiers
+		WHERE tenant_id = $1::uuid AND identifier_id = ANY($2::uuid[]) AND mapped_at IS NOT NULL
+		LIMIT 1
+	`, tenantID, ids).Scan(&by, &at)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil, nil // No mapped values yet
+		}
+		return nil, nil, fmt.Errorf("read back mapping provenance: %w", err)
+	}
+	return by, at, nil
+}
+
 // UnmapTagMapping implements ports.Repository: release a binding with no replacement.
 //
 // IT RELEASES THE WHOLE BINDING, NOT THE VALUE THE CALLER NAMED. A MAP creates one identifier row
@@ -487,8 +512,8 @@ func (r *Repository) UnmapTagMapping(ctx context.Context, tenantID, actorID stri
 		return out, err
 	}
 	// Clear the hot-read boundary for every released value, not only the caller's: a tag_latest
-	// row keyed on the MAC alone must stop claiming an animal too.
-	if err := syncTagLatestMonitoring(ctx, tx, tenantID, releasedValues, nil); err != nil {
+	// row keyed on the MAC alone must stop claiming an animal too. Also clear provenance.
+	if err := syncTagLatestMonitoring(ctx, tx, tenantID, releasedValues, nil, nil, nil); err != nil {
 		return out, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -587,7 +612,8 @@ func (r *Repository) ReplaceTagMapping(ctx context.Context, tenantID, actorID st
 	if err := releaseBinding(ctx, tx, tenantID, releasing); err != nil {
 		return out, err
 	}
-	if err := syncTagLatestMonitoring(ctx, tx, tenantID, oldValues, nil); err != nil {
+	// Clear the old tag's provenance
+	if err := syncTagLatestMonitoring(ctx, tx, tenantID, oldValues, nil, nil, nil); err != nil {
 		return out, err
 	}
 
@@ -600,7 +626,12 @@ func (r *Repository) ReplaceTagMapping(ctx context.Context, tenantID, actorID st
 	if err != nil {
 		return out, err
 	}
-	if err := syncTagLatestMonitoring(ctx, tx, tenantID, values, &effective); err != nil {
+	// Fetch the provenance that was actually stored for the new tag
+	mappedBy, mappedAtTime, err := effectiveMappedByAndAt(ctx, tx, tenantID, ids)
+	if err != nil {
+		return out, err
+	}
+	if err := syncTagLatestMonitoring(ctx, tx, tenantID, values, &effective, mappedBy, mappedAtTime); err != nil {
 		return out, err
 	}
 	if err := tx.Commit(ctx); err != nil {

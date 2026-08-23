@@ -208,7 +208,8 @@ type ActivityWindow struct {
 	MaxRSSIdbm       *int16
 	FirstSeenAt      *time.Time
 	LastSeenAt       *time.Time
-	IsGap            bool // true if PacketCount = 0 (no data in window)
+	GatewayID        *string // The gateway that heard this window of packets (not the tag's current gateway)
+	IsGap            bool    // true if PacketCount = 0 (no data in window)
 	// GapDelta is true when this bucket carries a RECONNECT delta: the first packet after a
 	// reception gap longer than Thresholds.ReceptionGapMinutes. MotionDelta on such a bucket is
 	// a TOTAL over the whole gap with unknown time distribution -- it must never feed the p75

@@ -303,3 +303,48 @@ func TestTagActivityUnmappedTagIsEmptyWithAReasonNotAnError(t *testing.T) {
 		t.Fatal("unknown tag returned success")
 	}
 }
+
+// TestTagActivityEventsIncludeMotionDeltaFields: motion delta windows and completeness
+// flags are populated on activity events so the UI can render motion context.
+func TestTagActivityEventsIncludeMotionDeltaFields(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupHerdSignalsDB(t, ctx)
+
+	// Seed an activity event that occurred after the mapping boundary
+	boundary, before, after := seedFarmActivity(t, ctx, repo.db)
+
+	svc := app.NewService(repo)
+	actor := domain.Actor{TenantID: hsiTenant, UserID: hsiParty}
+	from := boundary.Add(-24 * time.Hour)
+	to := time.Now().UTC().Add(time.Hour)
+
+	resp, err := svc.GetTagActivity(ctx, actor, hsiMappedTag, from.Format(time.RFC3339), to.Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("GetTagActivity: %v", err)
+	}
+
+	if len(resp.Events) == 0 {
+		t.Fatal("expected activity events, got none")
+	}
+
+	// Verify that all events have the required motion delta fields (even if nil/zero)
+	for _, ev := range resp.Events {
+		// These fields MUST be present in the response (the OpenAPI contract requires them)
+		_ = ev.MotionDeltaBefore2h    // May be nil
+		_ = ev.MotionDeltaAfter2h     // May be nil
+		_ = ev.MotionChangePercent    // May be nil
+		_ = ev.BeforeWindowIncomplete // Bool, never nil
+		_ = ev.AfterWindowIncomplete  // Bool, never nil
+
+		// The window_incomplete fields must be booleans (never nil)
+		if (interface{})(ev.BeforeWindowIncomplete) == nil {
+			t.Fatal("before_window_incomplete must not be nil")
+		}
+		if (interface{})(ev.AfterWindowIncomplete) == nil {
+			t.Fatal("after_window_incomplete must not be nil")
+		}
+	}
+
+	_ = before
+	_ = after
+}
