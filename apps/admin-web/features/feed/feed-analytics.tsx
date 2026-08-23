@@ -1205,14 +1205,12 @@ function ForecastTable({
   pageContract: AdminUiPageContract;
 }) {
   let requiredCostTotal = 0;
-  let shortfallCostTotal = 0;
   let anyPriced = false;
   rows.forEach((row) => {
     if (row.required_cost !== "") {
       requiredCostTotal += num(row.required_cost);
       anyPriced = true;
     }
-    if (row.shortfall_cost !== "") shortfallCostTotal += num(row.shortfall_cost);
   });
   return (
     <section className="card" style={{ marginTop: 14 }} aria-label={fa(pageContract, "forecast.title")}>
@@ -1235,7 +1233,6 @@ function ForecastTable({
                 <th>{fa(pageContract, "forecast.col.shortfall")}</th>
                 <th>{fa(pageContract, "forecast.col.rate")}</th>
                 <th>{fa(pageContract, "forecast.col.required_cost")}</th>
-                <th>{fa(pageContract, "forecast.col.shortfall_cost")}</th>
               </tr>
             </thead>
             <tbody>
@@ -1270,9 +1267,6 @@ function ForecastTable({
                         : `₹${rate(num(row.per_kg_cost))}`}
                     </td>
                     <td>{row.required_cost === "" ? "—" : `₹${money(num(row.required_cost))}`}</td>
-                    <td>
-                      {row.shortfall_cost === "" ? "—" : `₹${money(num(row.shortfall_cost))}`}
-                    </td>
                   </tr>
                 );
               })}
@@ -1283,9 +1277,6 @@ function ForecastTable({
                   </td>
                   <td>
                     <strong>{`₹${money(requiredCostTotal)}`}</strong>
-                  </td>
-                  <td>
-                    <strong>{`₹${money(shortfallCostTotal)}`}</strong>
                   </td>
                 </tr>
               ) : null}
