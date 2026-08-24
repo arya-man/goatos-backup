@@ -1773,6 +1773,13 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			// that; it also means the new due date reaches the surviving row, which is the
 			// only way a moved date surfaces at all now that a second row is impossible.
 			reconcileKey := key
+			// A reconciled obligation may hold a DIFFERENT key than the one just computed: when
+			// its date could not move, the row keeps whatever address it could take. Addressing it
+			// by the wished-for key would look up nothing and fail the animal, so follow-ups use
+			// the key the row actually holds.
+			if reconciledKey := strings.TrimSpace(reconciled.IdempotencyKey); found && reconciledKey != "" {
+				reconcileKey = reconciledKey
+			}
 			if historyAnchor.Valid() {
 				survivor, found, err := s.obl.OpenObligationForRepeatCycle(
 					ctx, tenantID, versionID, rule.RuleID, "goat", g.GoatID, rule.Sequence, historyAnchor.SourceRef,
