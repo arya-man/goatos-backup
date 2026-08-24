@@ -103,6 +103,9 @@ func TestGetShedWeightsOmittedParkIDUsesOnlyAuthorizedParks(t *testing.T) {
 	if repo.gotSelectedPark != "" {
 		t.Fatalf("expected no selected park for omitted park filter, got %q", repo.gotSelectedPark)
 	}
+	if got := int(repo.gotEnd.Sub(repo.gotStart).Hours() / 24); got != domain.ShedWeightsDefaultPeriodDays {
+		t.Fatalf("omitted from/to default window=%d days, want %d", got, domain.ShedWeightsDefaultPeriodDays)
+	}
 	// The park filter vocabulary is backend-owned AND scoped: offering park B here
 	// would advertise a park this caller cannot read. The repository builds it from
 	// the scope, so this asserts the scope that reached it.

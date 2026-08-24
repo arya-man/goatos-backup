@@ -1282,7 +1282,7 @@ paths:
         Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional;
         when omitted, the response aggregates across every park the caller is authorized to
         monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE
-        Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 90 days ending today when
+        Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 7 days ending today when
         omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports
         an "overdue" or "missed" weigh.
       parameters:
@@ -1334,7 +1334,7 @@ paths:
         Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional;
         when omitted, the response aggregates across every park the caller is authorized to
         monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE
-        Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 90 days ending today when
+        Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 7 days ending today when
         omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports
         an "overdue" or "missed" weigh.
       parameters:
@@ -1386,7 +1386,7 @@ paths:
         Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is
         optional; when omitted the response covers every park the caller is authorized to
         monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates
-        (YYYY-MM-DD) and default to the last 28 days ending today.
+        (YYYY-MM-DD) and default to the last 7 days ending today.
 
 
         GRAIN: one row per SHED, not per campaign bucket -- a shed weighed in consecutive
@@ -1445,7 +1445,7 @@ paths:
         Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is
         optional; when omitted the response covers every park the caller is authorized to
         monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates
-        (YYYY-MM-DD) and default to the last 28 days ending today.
+        (YYYY-MM-DD) and default to the last 7 days ending today.
 
 
         GRAIN: one row per SHED, not per campaign bucket -- a shed weighed in consecutive
@@ -1501,6 +1501,8 @@ paths:
       summary: Average weight by breed, sex and management stage.
       description: >
         Requires WeighingMonitor, park-scoped like the other leadership reads.
+        `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD)
+        and default to the last 7 days ending today.
 
 
         This is the ONE weighing read that resolves a scanned tag to its animal
@@ -1538,7 +1540,7 @@ paths:
         Requires WeighingMonitor, park-scoped exactly like the other Weights-screen
         reads. `park_id` is optional; when omitted the response covers every park the
         caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE
-        Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 28 days
+        Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 7 days
         ending today.
 
 
