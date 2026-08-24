@@ -232,7 +232,7 @@ func projectionReplayPregnantShift() countsdomain.ShiftingEvent {
 	sex := "female"
 	return countsdomain.ShiftingEvent{
 		TenantID: projectionReplayTenant, LogicalShiftingEventKey: "projection-replay-pregnant-shift",
-		Priority: "high", Category: "pregnancy",
+		Priority: "high", Category: "growth",
 		SourceParkID: strPtr(projectionReplayPark), SourceShedID: strPtr(projectionReplayShedA),
 		DestinationParkID: projectionReplayPark, DestinationShedID: projectionReplayShedB,
 		RaisedAt:           time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC),

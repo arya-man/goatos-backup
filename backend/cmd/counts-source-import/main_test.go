@@ -64,7 +64,7 @@ func TestParseShiftingEventInfersPregnancyCategoryAndLeavesRationUnresolved(t *t
 		t.Fatalf("parseImportRows: %v", err)
 	}
 	event := rows[0].ShiftingEvent
-	if event.Category != "pregnancy" {
+	if event.Category != "growth" {
 		t.Fatalf("category=%s, want pregnancy", event.Category)
 	}
 	if event.SourceSystem != defaultSourceSystem {
@@ -410,7 +410,7 @@ ON CONFLICT (location_id) DO NOTHING`,
 func sourceImportReplayJSONL() string {
 	return strings.Join([]string{
 		`{"kind":"base_count_anchor","tenant_id":"` + sourceImportReplayTenant + `","park_id":"` + sourceImportReplayPark + `","shed_id":"` + sourceImportReplayShedA + `","breed_key":"beetal","breed_label":"Beetal","counted_at":"2026-06-30T06:00:00Z","head_count":20,"source_system":"import","source_ref":"Counting DB - values only.xlsx:reviewed-base-row-1","source_hash":"source-import-replay-base-hash","discrepancy_state":"not_checked","idempotency_key":"source-import-replay-base-idem","request_fingerprint":"source-import-replay-base-fp"}`,
-		`{"kind":"shifting_event","tenant_id":"` + sourceImportReplayTenant + `","logical_shifting_event_key":"source-import-replay-pregnant-shift","priority":"high","category":"pregnancy","source_park_id":"` + sourceImportReplayPark + `","source_shed_id":"` + sourceImportReplayShedA + `","destination_park_id":"` + sourceImportReplayPark + `","destination_shed_id":"` + sourceImportReplayShedB + `","raised_at":"2026-06-30T12:00:00Z","effective_at":"2026-06-30T13:00:00Z","authorization_state":"authorized","verification_state":"verified","event_status":"authorized","source_system":"import","source_ref":"Feed, Shiftings and Count.docx:reviewed-shift-row-1","payload_hash":"source-import-replay-shift-payload","idempotency_key":"source-import-replay-shift-idem","request_fingerprint":"source-import-replay-shift-fp","impacts":[{"grain_key":"beetal:pregnant","breed_key":"beetal","breed_label":"Beetal","stage_tag":"pregnant","age_class":"adult","sex":"female","head_count":3,"pregnant_count":3,"risk_flags":{"pregnant":true},"ration_context_resolution_state":"blocked","blocker_reason":"destination shed ration context unresolved"}]}`,
+		`{"kind":"shifting_event","tenant_id":"` + sourceImportReplayTenant + `","logical_shifting_event_key":"source-import-replay-pregnant-shift","priority":"high","category":"growth","source_park_id":"` + sourceImportReplayPark + `","source_shed_id":"` + sourceImportReplayShedA + `","destination_park_id":"` + sourceImportReplayPark + `","destination_shed_id":"` + sourceImportReplayShedB + `","raised_at":"2026-06-30T12:00:00Z","effective_at":"2026-06-30T13:00:00Z","authorization_state":"authorized","verification_state":"verified","event_status":"authorized","source_system":"import","source_ref":"Feed, Shiftings and Count.docx:reviewed-shift-row-1","payload_hash":"source-import-replay-shift-payload","idempotency_key":"source-import-replay-shift-idem","request_fingerprint":"source-import-replay-shift-fp","impacts":[{"grain_key":"beetal:pregnant","breed_key":"beetal","breed_label":"Beetal","stage_tag":"pregnant","age_class":"adult","sex":"female","head_count":3,"pregnant_count":3,"risk_flags":{"pregnant":true},"ration_context_resolution_state":"blocked","blocker_reason":"destination shed ration context unresolved"}]}`,
 	}, "\n") + "\n"
 }
 
