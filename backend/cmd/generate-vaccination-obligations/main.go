@@ -98,8 +98,13 @@ func run(args []string) error {
 		if err != nil {
 			return fmt.Errorf("count recoverable deferred vaccination obligations: %w", err)
 		}
-		fmt.Printf("generated effective-cohort generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d skipped_no_due_date=%d suppressed_trusted=%d stuck_recoverable_deferred=%d\n",
-			res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.SkippedNoDueDate, res.SuppressedByTrustedHistory, stuck)
+		fmt.Printf("generated effective-cohort generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d stuck_recoverable_deferred=%d\n",
+			res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.ReconcileDateBlocked, res.SkippedNoDueDate, res.SuppressedByTrustedHistory, stuck)
+		if res.ReconcileDateBlocked > 0 {
+			// Not a failure: the animal keeps exactly one open obligation and nothing was
+			// duplicated. But its date did not move, so it is worth seeing rather than inferring.
+			fmt.Printf("  %d obligation(s) were claimed but kept a stale due date: the key they would move to is already held by another row (usually their own canceled or completed twin).\n", res.ReconcileDateBlocked)
+		}
 		if res.AmbiguousOpenWork > 0 {
 			// Named separately from failed_goats because it is not a transient failure: those
 			// animals already hold two open obligations for one dose, and no re-run fixes that.

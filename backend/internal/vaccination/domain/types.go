@@ -241,7 +241,13 @@ type GenerateResult struct {
 	// for a single rule. They are a pre-existing data problem: generation refuses to guess which
 	// scheduled vaccination is real, fails for that animal alone, and reports the count so the
 	// duplicates get resolved rather than silently multiplied.
-	AmbiguousOpenWork          int
+	AmbiguousOpenWork int
+	// ReconcileDateBlocked counts obligations that were claimed but could NOT take their new due
+	// date, because obligation_instances_dup_guard already holds that key -- usually the row's own
+	// canceled or completed twin. The animal keeps exactly one open obligation, so nothing is
+	// duplicated, but its date is stale until the blocking row's key stops colliding. Counted
+	// rather than hidden: a number that stays high across runs is a signal, not a nuisance.
+	ReconcileDateBlocked       int
 	FailedGoats                int
 	SkippedNoDueDate           int
 	SuppressedByTrustedHistory int

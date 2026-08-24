@@ -142,6 +142,10 @@ type ObligationRef struct {
 	// say. Generation's reconciliation is all keyed, so a row located by cause is unreachable
 	// without carrying its key back.
 	IdempotencyKey string
+	// DateBlocked is set when a reconcile CLAIMED this obligation -- so no duplicate is written --
+	// but could not move it to the new due date, because obligation_instances_dup_guard already
+	// holds that key. The caller reports it; the date is stale until the collision clears.
+	DateBlocked bool
 }
 
 // DueObligation is a row from the due-window scan.
