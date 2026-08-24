@@ -290,7 +290,7 @@ INSERT INTO weighing_shed_observations (
 	}
 	wantHeader := []string{
 		"date", "rfid", "rfid_2", "old_id", "old_id_suffix", "breed", "gender",
-		"shed", "type", "count", "operator", "approval", "verified_weight_kg",
+		"park", "shed", "type", "count", "operator", "approval", "verified_weight_kg",
 	}
 	if len(records) == 0 || strings.Join(records[0], "|") != strings.Join(wantHeader, "|") {
 		t.Fatalf("export header=%v, want %v", records, wantHeader)
@@ -307,6 +307,7 @@ INSERT INTO weighing_shed_observations (
 		"old_id_suffix":      "",
 		"breed":              "F2",
 		"gender":             "female",
+		"park":               "Coimbatore",
 		"shed":               "Gandhi 1 - Part 1",
 		"count":              "",
 		"operator":           "Weigh Operator",
@@ -326,6 +327,7 @@ INSERT INTO weighing_shed_observations (
 		"old_id":             "",
 		"breed":              "",
 		"gender":             "",
+		"park":               "Coimbatore",
 		"shed":               "Q1",
 		"count":              "20",
 		"operator":           "Weigh Operator",
