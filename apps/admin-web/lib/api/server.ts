@@ -945,6 +945,9 @@ export type FeedAnalyticsParams = {
    * the endpoint's deadline.
    */
   sections?: string;
+  /** Execution read only: the mismatch list's page (rows per page, rows to skip). */
+  variance_limit?: string;
+  variance_offset?: string;
 };
 
 export async function getFeedAnalyticsDirected(
