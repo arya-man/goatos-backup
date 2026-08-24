@@ -229,9 +229,14 @@ type RecentVaccineAdministration struct {
 
 // GenerateResult summarises an SM-1 generation run.
 type GenerateResult struct {
-	Generated                  int
-	Deferred                   int
-	Reopened                   int
+	Generated int
+	Deferred  int
+	Reopened  int
+	// Reconciled counts work the animal ALREADY owed under this rule identity, moved onto the
+	// current version and due date instead of being re-minted beside itself. It is deliberately
+	// separate from Generated: nothing new was created, and an operator reading the run should
+	// see that the plan moved without their list churning.
+	Reconciled                 int
 	FailedGoats                int
 	SkippedNoDueDate           int
 	SuppressedByTrustedHistory int

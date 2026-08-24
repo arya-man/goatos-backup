@@ -559,6 +559,10 @@ func (f *boosterObligationWriterFake) CarryOverUnchangedVaccinationObligations(c
 	return 0, nil
 }
 
+func (f *boosterObligationWriterFake) ReconcileOpenObligationForRuleIdentity(context.Context, string, obldomain.NewObligation, time.Time) (obldomain.ObligationRef, bool, error) {
+	return obldomain.ObligationRef{}, false, nil
+}
+
 func (f *boosterObligationWriterFake) CancelOpenVaccinationObligationsForGoatExceptVersions(context.Context, string, string, []string, string, time.Time) (int, error) {
 	return 0, nil
 }

@@ -2299,6 +2299,7 @@ type ObligationInstance struct {
 	Status                        string
 	SopTaskID                     pgtype.UUID
 	IdempotencyKey                string
+	RuleIdentityKey               pgtype.Text
 	GeneratedByTriggerID          pgtype.UUID
 	Sequence                      int32
 	CompletedAt                   pgtype.Timestamptz

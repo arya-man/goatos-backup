@@ -6,13 +6,13 @@
 INSERT INTO obligation_instances (
   tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id,
   scope_type, scope_id, due_at, window_start, window_end, status,
-  idempotency_key, generated_by_trigger_id, "sequence",
+  idempotency_key, rule_identity_key, generated_by_trigger_id, "sequence",
   repeat_cycle_source, repeat_cycle_source_ref, repeat_cycle_anchor_obligation_id,
   repeat_cycle_anchor_at, repeat_cycle_due_at
 ) SELECT
   @tenant_id, @protocol_version_id, @rule_id, @batch_id, @target_type, @target_id,
   @scope_type, @scope_id, @due_at, @window_start, @window_end, @status,
-  @idempotency_key, @generated_by_trigger_id, @sequence,
+  @idempotency_key, sqlc.narg('rule_identity_key'), @generated_by_trigger_id, @sequence,
   sqlc.narg('repeat_cycle_source'), sqlc.narg('repeat_cycle_source_ref'),
   sqlc.narg('repeat_cycle_anchor_obligation_id'), sqlc.narg('repeat_cycle_anchor_at'),
   sqlc.narg('repeat_cycle_due_at')

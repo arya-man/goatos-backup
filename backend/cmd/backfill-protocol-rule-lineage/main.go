@@ -68,14 +68,13 @@ func main() {
 	}
 	defer pool.Close()
 
-	rows, err := loadRulesMissingLineage(ctx, pool, *tenant)
+	tenantID := strings.TrimSpace(*tenant)
+	rows, err := loadRulesMissingLineage(ctx, pool, tenantID)
 	if err != nil {
 		fail(err)
 	}
-	if len(rows) == 0 {
-		fmt.Println("backfill-protocol-rule-lineage: every rule already carries lineage; nothing to do")
-		return
-	}
+	// No early return when every rule is already labelled: the obligation stamping below is a
+	// separate job, and a re-run after a partial pass must still finish it.
 
 	// Collected and written in ONE statement rather than a round trip per rule: a tenant's plan
 	// history runs to hundreds of rules, and a backfill that walks them one at a time is the
@@ -130,11 +129,36 @@ SET protocol_version_id = EXCLUDED.protocol_version_id,
 		}
 	}
 
+	// Stamp the identity onto the animals' EXISTING open work as well.
+	//
+	// Reconciliation finds an animal's current obligation by rule identity, so an obligation
+	// written before this column existed is invisible to it -- and generation would insert beside
+	// it, booking the same dose twice. Derived from the lineage row of whichever rule the
+	// obligation already points at, so it says exactly what the rule says.
+	var stamped int64
+	if *apply {
+		tag, err := pool.Exec(ctx, `
+UPDATE obligation_instances oi
+SET rule_identity_key = l.identity_key,
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM protocol_rule_lineage l
+WHERE l.tenant_id = oi.tenant_id
+  AND l.rule_id = oi.rule_id
+  AND oi.rule_identity_key IS DISTINCT FROM l.identity_key
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND ($1::uuid IS NULL OR oi.tenant_id = $1::uuid)`, nullableUUID(tenantID))
+		if err != nil {
+			fail(fmt.Errorf("stamp obligation identities: %w", err))
+		}
+		stamped = tag.RowsAffected()
+	}
+
 	mode := "would write"
 	if *apply {
 		mode = "wrote"
 	}
-	fmt.Printf("backfill-protocol-rule-lineage: %s %d lineage row(s), skipped %d rule(s) whose content could not be fingerprinted\n", mode, written, skipped)
+	fmt.Printf("backfill-protocol-rule-lineage: %s %d lineage row(s), stamped %d open obligation(s) with their rule identity, skipped %d rule(s) whose content could not be fingerprinted\n", mode, written, stamped, skipped)
 	if !*apply {
 		fmt.Println("re-run with -apply to write them")
 	}

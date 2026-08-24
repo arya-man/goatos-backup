@@ -21,19 +21,25 @@ var ErrOperatorAssignmentConfigPresentButEmpty = errors.New("obligation: operato
 // NewObligation is the input to generate one obligation instance. IdempotencyKey is the
 // deterministic key that makes generation a no-op on replay.
 type NewObligation struct {
-	TenantID             string
-	ProtocolVersionID    string
-	RuleID               string
-	BatchID              *string
-	TargetType           string
-	TargetID             string
-	ScopeType            string
-	ScopeID              string
-	DueAt                time.Time
-	WindowStart          *time.Time
-	WindowEnd            *time.Time
-	Status               string
-	IdempotencyKey       string
+	TenantID          string
+	ProtocolVersionID string
+	RuleID            string
+	BatchID           *string
+	TargetType        string
+	TargetID          string
+	ScopeType         string
+	ScopeID           string
+	DueAt             time.Time
+	WindowStart       *time.Time
+	WindowEnd         *time.Time
+	Status            string
+	IdempotencyKey    string
+	// RuleIdentityKey names the RULE this obligation serves in business terms --
+	// vaccine|dose|sequence -- rather than the version UUID that happened to mint it. Publishing
+	// rewrites every rule row, so the version pointer changes while the animal's work does not;
+	// the identity is what stays still. At most one open obligation may exist per
+	// (target, identity, sequence), enforced by obligation_open_rule_identity_unique_idx.
+	RuleIdentityKey      string
 	GeneratedByTriggerID *string
 	Sequence             int32
 
