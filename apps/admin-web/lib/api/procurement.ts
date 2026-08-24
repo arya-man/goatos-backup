@@ -16,6 +16,12 @@ export type SalesMarketBenchmark = AppApiComponents["schemas"]["SalesMarketBench
 export type SalesDeal = AppApiComponents["schemas"]["SalesDeal"];
 export type SalesDealPage = AppApiComponents["schemas"]["SalesDealPage"];
 export type SalesDealWrite = AppApiComponents["schemas"]["SalesDealWrite"];
+
+// Feed purchases — the buying side of the feed chain (/procurement/feed-purchases).
+export type FeedPurchase = AppApiComponents["schemas"]["FeedPurchase"];
+export type FeedPurchasePage = AppApiComponents["schemas"]["FeedPurchasePage"];
+export type FeedPurchaseWrite = AppApiComponents["schemas"]["FeedPurchaseWrite"];
+export type FeedPurchaseOptions = AppApiComponents["schemas"]["FeedPurchaseOptions"];
 export type SalesBuyerLead = AppApiComponents["schemas"]["SalesBuyerLead"];
 export type SalesBuyerLeadPage = AppApiComponents["schemas"]["SalesBuyerLeadPage"];
 export type SalesBuyerLeadWrite = AppApiComponents["schemas"]["SalesBuyerLeadWrite"];
