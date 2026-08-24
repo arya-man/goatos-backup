@@ -308,7 +308,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     capturedByPrincipalId = null,
                     proofPolicy = feedShedProofPolicy(captured.captureSource),
                     awaitUploadEnqueue = true,
-                    uploadGroupKey = groupKey,
+                    uploadGroupKey = proofUploadGroupKey(ProofSlot.FEED_WEIGHT_PHOTO),
                 )
             ) {
                 is AppResult.Ok -> {
@@ -355,7 +355,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     }
 
     /** MANDATORY feed-distribution video from the LIVE in-app camera. It enqueues a PROOF_UPLOAD on
-     *  the shed-session group so it drains before the completion. */
+     *  this slot's own upload group; completion still waits by resolving the returned outbox id. */
     private fun captureFeedVideo() {
         if (_state.value.isCapturingVideo || _state.value.isFinalSubmitted || shedId.isBlank()) return
         val replacing = _state.value.videoCaptured
@@ -404,7 +404,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     capturedByPrincipalId = null,
                     proofPolicy = feedShedProofPolicy(captured.captureSource),
                     awaitUploadEnqueue = true,
-                    uploadGroupKey = groupKey,
+                    uploadGroupKey = proofUploadGroupKey(ProofSlot.FEED_VIDEO),
                 )
             ) {
                 is AppResult.Ok -> {
@@ -499,7 +499,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     capturedByPrincipalId = null,
                     proofPolicy = feedShedProofPolicy(captured.captureSource),
                     awaitUploadEnqueue = true,
-                    uploadGroupKey = groupKey,
+                    uploadGroupKey = proofUploadGroupKey(ProofSlot.WATER_VIDEO),
                 )
             ) {
                 is AppResult.Ok -> {
@@ -652,6 +652,15 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         !remoteRef.isNullOrBlank() -> "server_ref"
         else -> "missing"
     }
+
+    /**
+     * Distribution slots are independent field work. Keeping every proof upload in the session's
+     * single FIFO group means one backed-off video can strand the other two slots as "waiting to
+     * upload", which violates the parallel slot contract. The final completion stays on [groupKey]
+     * and resolves each proof by outbox id, so it still waits for the required uploads without
+     * serializing the uploads themselves.
+     */
+    private fun proofUploadGroupKey(slot: ProofSlot): String = "$groupKey:${slot.analyticsKind()}"
 
     private fun trackSubmitSources(
         result: String,

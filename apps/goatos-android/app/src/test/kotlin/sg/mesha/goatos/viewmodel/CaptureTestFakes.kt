@@ -206,6 +206,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         val capturedStartMs: Long,
         val capturedEndMs: Long,
         val capturedByPrincipalId: String?,
+        val uploadGroupKey: String?,
     )
 
     // The production DAO scopes every query (activeCountForField/activeCountForSubject/
@@ -276,7 +277,18 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
             failNextCapture = false
             return AppResult.Err("Simulated capture failure.")
         }
-        captureCalls += CaptureCall(fieldKey, subject, subjectId, caption, rfidTag, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
+        captureCalls += CaptureCall(
+            fieldKey,
+            subject,
+            subjectId,
+            caption,
+            rfidTag,
+            localUri,
+            capturedStartMs,
+            capturedEndMs,
+            capturedByPrincipalId,
+            uploadGroupKey,
+        )
         // R50-027 / shed-level vaccination proof: mirror production repository cap selection.
         // Per-goat proof uses per-subject cap; shed-level proof uses the SOP's shed total cap
         // because the whole shed is the proof subject.
