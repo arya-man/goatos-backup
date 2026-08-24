@@ -948,6 +948,9 @@ export type FeedAnalyticsParams = {
   /** Execution read only: the mismatch list's page (rows per page, rows to skip). */
   variance_limit?: string;
   variance_offset?: string;
+  /** Execution read only: mismatch-list filters applied before paging. */
+  variance_park_label?: string;
+  variance_feed_item_key?: string;
 };
 
 export async function getFeedAnalyticsDirected(

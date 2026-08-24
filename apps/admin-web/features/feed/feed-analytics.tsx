@@ -255,6 +255,8 @@ export async function FeedAnalyticsPage({
           ...params,
           variance_limit: String(varianceLimit),
           variance_offset: String(varianceOffset),
+          variance_park_label: favPark,
+          variance_feed_item_key: favItem,
         })
       : Promise.resolve<ApiResult<FeedAnalyticsExecutionResponse> | null>(null),
     wantExperiment
@@ -279,6 +281,8 @@ export async function FeedAnalyticsPage({
           sections: "packing_variance",
           variance_limit: String(varianceLimit),
           variance_offset: String(varianceOffset),
+          variance_park_label: favPark,
+          variance_feed_item_key: favItem,
         })
       : null;
   const nonNull = [directed, execution, experiment, stock].filter((r) => r !== null);
@@ -635,12 +639,9 @@ function ExecutionTab({
       </section>
     );
   }
-  // Farm/item narrowing applies over the served rows; the calendar already narrowed the fetch.
-  const varianceRows = variance.rows.filter(
-    (r) =>
-      (variance.park === "" || r.park_label === variance.park) &&
-      (variance.item === "" || r.feed_item_key === variance.item),
-  );
+  // Farm/item narrowing is applied by the backend before LIMIT/OFFSET; applying it here after
+  // paging would hide matching rows that live on a later unfiltered page.
+  const varianceRows = variance.rows;
   // Window totals for the KPI row: shares of backend counts, no new business math.
   let packingDone = 0, packingAll = 0, distDone = 0, distAll = 0, transDone = 0, transAll = 0;
   let latestLatency: number | null = null;
@@ -757,7 +758,10 @@ function ExecutionTab({
               label: fa(pageContract, "col.variance.park"),
               value: variance.park,
               allowAll: true,
-              options: dedupeOptions(variance.rows.map((r) => ({ value: r.park_label, label: r.park_label }))),
+              options: dedupeOptions([
+                ...(variance.park ? [{ value: variance.park, label: variance.park }] : []),
+                ...variance.rows.map((r) => ({ value: r.park_label, label: r.park_label })),
+              ]),
             },
             {
               kind: "select",
@@ -765,7 +769,10 @@ function ExecutionTab({
               label: fa(pageContract, "col.variance.item"),
               value: variance.item,
               allowAll: true,
-              options: dedupeOptions(variance.rows.map((r) => ({ value: r.feed_item_key, label: r.feed_item_label }))),
+              options: dedupeOptions([
+                ...(variance.item ? [{ value: variance.item, label: variance.item }] : []),
+                ...variance.rows.map((r) => ({ value: r.feed_item_key, label: r.feed_item_label })),
+              ]),
             },
             {
               kind: "date",

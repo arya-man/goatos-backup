@@ -4389,6 +4389,23 @@ paths:
             than the URL asks.
           schema:
             type: integer
+        - name: variance_park_label
+          in: query
+          required: false
+          description: >-
+            Optional mismatch-table farm label filter, applied before variance_limit/variance_offset
+            so paging is over the narrowed result set. Authorization still comes from park_id and
+            the caller's server-side park grants; this is a table display filter, not a scope grant.
+          schema:
+            type: string
+        - name: variance_feed_item_key
+          in: query
+          required: false
+          description: >-
+            Optional mismatch-table feed item key filter, applied before variance_limit/variance_offset
+            so a matching item on a later unfiltered page is not hidden by client-side filtering.
+          schema:
+            type: string
         - name: sections
           in: query
           required: false

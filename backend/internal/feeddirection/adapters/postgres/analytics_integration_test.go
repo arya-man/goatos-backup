@@ -1719,6 +1719,22 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 	if len(seen) != 6 {
 		t.Errorf("paged rows cover %d bags, want all 6", len(seen))
 	}
+	t.Run("OneToManyParkScopeStatusMatrixPageBoundaryFilteredBeforePagination", func(t *testing.T) {
+		filtered, err := repo.ExecutionAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+			DateFrom: target, DateTo: target,
+			PackingVarianceLimit: 1, PackingVarianceOffset: 0,
+			PackingVarianceParkLabel: "CBE", PackingVarianceFeedItemKey: "hay",
+		})
+		if err != nil {
+			t.Fatalf("ExecutionAnalytics filtered variance: %v", err)
+		}
+		if len(filtered.PackingVariance) != 1 || !filtered.PackingVarianceHasMore {
+			t.Fatalf("filtered page = %d rows, hasMore=%v; want first hay row and more", len(filtered.PackingVariance), filtered.PackingVarianceHasMore)
+		}
+		if filtered.PackingVariance[0].ParkLabel != "CBE" || filtered.PackingVariance[0].FeedItemKey != "hay" {
+			t.Fatalf("filtered row = %+v, want CBE hay before paging", filtered.PackingVariance[0])
+		}
+	})
 
 	// The trend is a WHOLE-WINDOW aggregate: identical on both pages. If paging moved it, the graph
 	// would claim the farm directed less feed simply because the reader turned a page.
