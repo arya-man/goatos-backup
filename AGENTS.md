@@ -998,7 +998,7 @@ merge had removed:
    `CHECK (session_no >= 1)`.
 2. `/feed-packing/worklist` accepts `session` again (0/absent = every session).
    `summary.line_count` counts pen×session lines.
-3. The verifier's item is subjected `Session N · Castro - 2`. Without the prefix a
+3. The verifier's item is subjected `Session N · Castro 2`. Without the prefix a
    verifier holding a pen's two cards cannot tell which bag each clip proves.
 4. The expected-ration context on that item names THAT SESSION's quantities, not the
    day's — one clip proves one bag, so a day total would show twice what the video
@@ -1009,7 +1009,7 @@ merge had removed:
 Two things the merge did NOT touch and that stay as they are:
 
 - **The PEN is part of the key.** Castro 1/2/3 are different animals on different
-  rations; `000137` exists because one Castro - 1 clip closed out all three. This
+  rations; `000137` exists because one Castro 1 clip closed out all three. This
   survived the merge and must survive any future change.
 - **Feed DISTRIBUTION was never merged** and needs no repair.
 
@@ -1082,7 +1082,7 @@ Transport is one daily task per active physical shed and is never per feed sessi
 **NOR PER PARTITION.** A shed's pens are packed and fed as separate bags, but they
 are LOADED AND STAGED as one trip, so transport is ONE task and ONE video for the
 whole shed. Migration `000143` fanned the materializer out over `shed_partitions`
-and a partitioned shed began listing `Castro - 1`, `Castro - 2`, `Castro - 3` as
+and a partitioned shed began listing `Castro 1`, `Castro 2`, `Castro 3` as
 three transport tasks -- three videos of one load. That was never a recorded
 decision; it contradicted this rule and `docs/decisions/feed-transport-verification.md`
 at the same time. `000152_feed_transport_restore_shed_grain.sql` is the forward
@@ -1327,7 +1327,7 @@ Three parts, and each narrowing is load-bearing:
    quantity there and reopening one would discard a good video for a sheet that
    did not change. *HEAD COUNT ONLY, PER PEN* — `AffectedShedIDs` also fires for a
    relabelled ration group and is shed-wide, so driving the reopen from it would
-   make the packers of Castro - 1 and Castro - 3 refilm because Castro - 2 gained
+   make the packers of Castro 1 and Castro 3 refilm because Castro 2 gained
    animals. Making an operator refilm is expensive; it is spent only where the
    number of mouths actually moved. Canonical rule:
    `feeddirection/domain.CellDiff.HeadCountChangedPens` →
@@ -2016,8 +2016,8 @@ base name.
 
 ### Rule 2: Storage vs. Display Are Different (Maintainer 2026-08-05, clarified 2026-08-16)
 
-Storage normalizes `Castro 1` and `Castro 2` to `Castro + partition 1/2`. Product display ALWAYS shows the partition when one exists:
-- No partition (NULL / '' / 'whole') → `Yashoda`, `Ho Chi Minh 1` (both undivided sheds per Rule 1 — never `Castro - 1`, which Rule 1 defines as shed `Castro` + partition `1` and therefore has a partitioned display shown WITH its partition)
+Storage keeps the sheds `Castro 1` and `Castro 2` as `Castro + label 1/2`. Display ALWAYS puts the two halves back together, because the label half carries the shed's actual name:
+- No label (NULL / '' / 'whole') → `Yashoda`, `Ho Chi Minh 1`: undivided sheds whose trailing digit is part of the name (Rule 1). Never `Yashoda - 2`, and never a bare base name for a shed that HAS a label
 - Bare numeric partition → `Castro 1`, `Gandhi 2`, `Gandhi 3` (space separator; the farm's actual physical shed names as painted on buildings)
 - Worded/prefixed partition → `Godel 1 - Part 3`, `Mandela 1 - Part 1` (dash separator; visual boundary since 75% of live shed names end in digits)
 
