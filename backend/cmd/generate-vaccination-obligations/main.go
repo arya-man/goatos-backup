@@ -110,6 +110,10 @@ func run(args []string) error {
 			// animals already hold two open obligations for one dose, and no re-run fixes that.
 			fmt.Printf("  %d animal(s) hold more than one UNLABELLED open obligation for a single rule and were skipped.\n", res.AmbiguousOpenWork)
 			fmt.Println("  Generation refuses to guess which scheduled vaccination is real. Resolve the duplicates, then re-run. List them with:")
+			// The lines below are operator help text, not a query this process runs. Marked so the
+			// aggregate guard can see what it would be if it were run, which is also what a reader
+			// needs to trust it:
+			// projection-review: membership=open obligation_instances with no identity label, joined to the lineage row of the rule they point at; group_key=(target_id, identity_key, sequence); join_cardinality=one lineage row per rule_id (primary key), no fan-out; pagination=n/a, a human runs this once against a psql session to see which animals need resolving; scope=whatever tenant the operator connects to
 			fmt.Println(`    SELECT oi.target_id, l.identity_key, oi."sequence", count(*), array_agg(oi.obligation_id), array_agg(oi.due_at)`)
 			fmt.Println(`    FROM obligation_instances oi JOIN protocol_rule_lineage l ON l.tenant_id = oi.tenant_id AND l.rule_id = oi.rule_id`)
 			fmt.Println(`    WHERE oi.rule_identity_key IS NULL AND oi.status IN ('scheduled','due','in_progress','deferred')`)

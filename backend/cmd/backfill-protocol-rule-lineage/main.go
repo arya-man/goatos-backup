@@ -252,6 +252,7 @@ func resolveDuplicateOpenWork(ctx context.Context, pool *pgxpool.Pool, tenantID,
 		return 0, fmt.Errorf("unknown -resolve-duplicates strategy %q (only \"keep-earliest\" is supported)", strategy)
 	}
 	const selectLosers = `
+-- projection-review: membership=open, unlabelled obligation_instances joined to the lineage row of the rule they point at, ranked within their identity group; group_key=(tenant_id, target_type, target_id, identity_key, sequence) -- the grain the uniqueness invariant is stated at; join_cardinality=one lineage row per rule_id (primary key), so the join cannot fan a row out, and row_number is per group; pagination=n/a, one set-based statement run by an explicitly-invoked cleanup, never on a request path; scope=one tenant when given, otherwise every tenant
 WITH ranked AS (
   SELECT oi.obligation_id,
          row_number() OVER (
