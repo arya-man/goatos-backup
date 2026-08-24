@@ -131,7 +131,7 @@ SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
 		}
 	}
 	if len(labels) != 1 || labels[0] != "Castro 1" {
-		t.Fatalf("Castro destination labels in one park = %v, want only the canonical parent partition \"Castro - 1\"", labels)
+		t.Fatalf("Castro destination labels in one park = %v, want only the actual shed \"Castro 1\"", labels)
 	}
 }
 
@@ -192,7 +192,7 @@ SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
 		}
 	}
 	if len(labels) != 1 || labels[0] != "Mandela 1 - Part 3" {
-		t.Fatalf("Mandela destination labels in one park = %v, want only the canonical parent partition \"Mandela 1 - Part 3\"", labels)
+		t.Fatalf("Mandela destination labels in one park = %v, want only the actual shed \"Mandela 1 - Part 3\"", labels)
 	}
 }
 
