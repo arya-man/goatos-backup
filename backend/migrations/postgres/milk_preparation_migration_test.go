@@ -28,14 +28,14 @@ LIMIT 1
 	var completionID string
 	if err := pool.QueryRow(ctx, `
 INSERT INTO public.milk_preparation_completions (
-  tenant_id, park_id, shed_id, preparation_date, feeding_date, submitted_by
+  tenant_id, park_id, preparation_date, feeding_date, submitted_by
 ) VALUES (
-  $1::uuid, $2::uuid, $3::uuid,
+  $1::uuid, $2::uuid,
   DATE '2026-07-29', DATE '2026-07-30',
   '90000000-0000-4000-8000-000000000101'
 )
 RETURNING completion_id::text
-`, tenantID, parkID, shedID).Scan(&completionID); err != nil {
+`, tenantID, parkID).Scan(&completionID); err != nil {
 		t.Fatalf("insert completion: %v", err)
 	}
 
@@ -63,59 +63,52 @@ INSERT INTO public.milk_preparation_proof_attempts (
 	}
 }
 
-func TestMilkPreparationMigrationMakesShedDayTheOnlyActiveTaskGrain(t *testing.T) {
+// Milk Preparation is ONE farm-day action (migration 000097). The shed-grain rows written by
+// 000056/000057 stay as immutable history and are retired; an ACTIVE completion carries no shed at
+// all, and there is exactly one per park per preparation date.
+func TestMilkPreparationMigrationMakesFarmDayTheOnlyActiveTaskGrain(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	var tenantID, parkID, shedA, shedB string
-	rows, err := pool.Query(ctx, `
+	var tenantID, parkID, shedID string
+	if err := pool.QueryRow(ctx, `
 SELECT tenant_id::text, parent_location_id::text, location_id::text
 FROM public.locations
 WHERE location_type = 'shed' AND parent_location_id IS NOT NULL
-ORDER BY parent_location_id, location_id`)
-	if err != nil {
-		t.Fatalf("list sheds: %v", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var tenant, park, shed string
-		if err := rows.Scan(&tenant, &park, &shed); err != nil {
-			t.Fatalf("scan shed: %v", err)
-		}
-		if shedA == "" {
-			tenantID, parkID, shedA = tenant, park, shed
-			continue
-		}
-		if tenant == tenantID && park == parkID {
-			shedB = shed
-			break
-		}
-	}
-	if shedB == "" {
-		t.Skip("fixture has no park with two sheds")
+ORDER BY parent_location_id, location_id
+LIMIT 1`).Scan(&tenantID, &parkID, &shedID); err != nil {
+		t.Fatalf("load a seeded shed: %v", err)
 	}
 
-	insert := func(shed, day string) error {
+	insertFarmDay := func(day string) error {
 		_, err := pool.Exec(ctx, `INSERT INTO public.milk_preparation_completions
-(tenant_id, park_id, shed_id, preparation_date, feeding_date, submitted_by)
-VALUES ($1::uuid,$2::uuid,$3::uuid,$4::date,$4::date + 1,'90000000-0000-4000-8000-000000000101')`,
-			tenantID, parkID, shed, day)
+(tenant_id, park_id, preparation_date, feeding_date, submitted_by)
+VALUES ($1::uuid,$2::uuid,$3::date,$3::date + 1,'90000000-0000-4000-8000-000000000101')`,
+			tenantID, parkID, day)
 		return err
 	}
-	if err := insert(shedA, "2026-07-29"); err != nil {
-		t.Fatalf("shed A: %v", err)
+	if err := insertFarmDay("2026-07-29"); err != nil {
+		t.Fatalf("farm-day completion: %v", err)
 	}
-	if err := insert(shedB, "2026-07-29"); err != nil {
-		t.Fatalf("shed B same park/day: %v", err)
+	if err := insertFarmDay("2026-07-29"); err == nil {
+		t.Fatal("a second active completion for the same park-day was accepted")
 	}
-	if err := insert(shedA, "2026-07-29"); err == nil {
-		t.Fatal("duplicate shed-day was accepted")
+	if err := insertFarmDay("2026-07-30"); err != nil {
+		t.Fatalf("next day is its own completion: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `INSERT INTO public.milk_preparation_completions
+(tenant_id, park_id, shed_id, preparation_date, feeding_date, submitted_by)
+VALUES ($1::uuid,$2::uuid,$3::uuid,'2026-07-31','2026-08-01','90000000-0000-4000-8000-000000000101')`,
+		tenantID, parkID, shedID); err == nil {
+		t.Fatal("an ACTIVE shed-grain completion was accepted")
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO public.milk_preparation_completions
-(tenant_id,park_id,preparation_date,feeding_date,submitted_by)
-VALUES ($1::uuid,$2::uuid,'2026-07-30','2026-07-31','90000000-0000-4000-8000-000000000101')`, tenantID, parkID); err == nil {
-		t.Fatal("active completion without shed was accepted")
+(tenant_id, park_id, shed_id, preparation_date, feeding_date, submitted_by, status)
+VALUES ($1::uuid,$2::uuid,$3::uuid,'2026-07-31','2026-08-01','90000000-0000-4000-8000-000000000101','retired')`,
+		tenantID, parkID, shedID); err != nil {
+		t.Fatalf("retired shed-grain history must still be writable: %v", err)
 	}
 }
