@@ -2047,11 +2047,13 @@ Storage keeps the sheds `Castro 1` and `Castro 2` as `Castro + label 1/2`. Displ
 
 **Separator rule (2026-08-16 clarification):** Numeric partitions use SPACE because the farm's sheds ARE NAMED `Castro 1`, `Gandhi 2`, etc. — that is the real name painted on the building, not a display formatting choice. Worded labels use " - " (dash) for visual boundary: `Godel 1 - Part 3` is unambiguous from the shed name.
 
-**NEVER render.** Each line is `WRONG` -> `RIGHT` so no reader can mistake the
-forbidden string for the one to copy:
+**NEVER render.** Where a forbidden string is shown it is paired with the correct
+one; the numeric-dash rule is stated in words instead, so the wrong form is not
+sitting on the page as something to copy:
 
 - `WRONG: Yashoda whole` -> `RIGHT: Yashoda` — `'whole'` is a matching key, never user copy
-- `WRONG: Castro - 1` -> `RIGHT: Castro 1` — dash form for a numeric shed contradicts the farm's physical naming
+- Numeric pens must not use dash separators: write `Castro 1`. A dash-separated
+  numeric pen name contradicts the farm's physical naming and is never rendered.
 - `WRONG: Godel 1 1` -> `RIGHT: Godel 1 - Part 1` — naive space-numeric join, truncated
 - `WRONG: Godel 1` -> `RIGHT: Godel 1 - Part 3` — the base name alone when the shed has a label; both halves always render together
 
