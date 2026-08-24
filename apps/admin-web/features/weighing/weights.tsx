@@ -11,6 +11,7 @@ import { WorklistFilters, type WorklistFilterField } from "@/components/worklist
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
+import { sharesOfWhole } from "@/lib/shares";
 import {
   firstAuthRequiredError,
   getGrowthDirector,
@@ -566,25 +567,26 @@ export async function WeighingWeightsPage({
   const gainThresholdSteps = ["hi", "mid", "lo", "under"] as const;
   const gainThresholdRows: GainThresholdRow[] = (demo?.gain_thresholds_by_breed ?? [])
     .filter((row) => row.animals > 0)
-    .map((row) => ({
-      key: row.label,
-      breed: row.label,
-      animals: row.animals,
-      marks: [
+    .map((row) => {
+      const counts = [
         row.above_250_g_per_day,
         row.band_200_to_250_g_per_day,
         row.band_180_to_200_g_per_day,
         row.at_or_below_180_g_per_day,
-      ].map(
-        (count, index) => ({
+      ];
+      return {
+        key: row.label,
+        breed: row.label,
+        animals: row.animals,
+        marks: sharesOfWhole(counts, row.animals).map((pct, index) => ({
           step: gainThresholdSteps[index],
           // Column 0 is the breed and column 1 the head count, so the bands start at 2.
           label: gainThresholdColumns[index + 2] ?? "",
-          count,
-          pct: (count / row.animals) * 100,
-        }),
-      ),
-    }));
+          count: counts[index],
+          pct,
+        })),
+      };
+    });
   // Chart first: the card exists to answer "is this breed growing", and six rows of
   // figures answer that more slowly than six rows of bars. The exact counts are one
   // click away and the chart carries them on hover, so nothing is hidden by the default.

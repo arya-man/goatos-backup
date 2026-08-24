@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { sharesOfWhole } from "../../lib/shares.ts";
 
 const source = readFileSync(new URL("./weights.tsx", import.meta.url), "utf8");
 const contract = readFileSync(
@@ -30,11 +31,50 @@ test("the four bands arrive banded from the backend, never derived by subtractio
   assert.match(source, /gainThresholdSteps = \["hi", "mid", "lo", "under"\] as const/);
 });
 
+test("the four shares are apportioned so they add up to exactly 100.0%", () => {
+  // The bands partition the breed, so a reader WILL add the column. Rounding each share
+  // independently printed 0.0 + 12.8 + 4.3 + 83.0 = 100.1% for Sojat and made a correct
+  // partition look broken. Largest remainder hands out the leftover tenths instead.
+  //
+  // This executes the SHIPPED helper (Node strips the types off lib/shares.ts), so it
+  // fails on a real behaviour change rather than on a renamed identifier.
+  const sum = (values) => values.reduce((a, b) => a + b, 0);
+  assert.equal(sum(sharesOfWhole([0, 6, 2, 39], 47)), 100, "the Sojat row that printed 100.1%");
+  assert.equal(sum(sharesOfWhole([26, 22, 15, 74], 137)), 100);
+  assert.equal(sum(sharesOfWhole([1, 9, 4, 62], 76)), 100);
+  assert.equal(sum(sharesOfWhole([1, 0, 0, 11], 12)), 100);
+
+  // A band that really is empty still reads 0.0%: apportionment may not hand a leftover
+  // tenth to a band holding no kids, which would print a share for nobody.
+  assert.equal(sharesOfWhole([0, 6, 2, 39], 47)[0], 0);
+  assert.equal(sharesOfWhole([0, 1, 0, 21], 22)[0], 0);
+
+  // Every share stays within a tenth of its true value, so reaching 100 can never move a
+  // visible amount onto the wrong band.
+  for (const [counts, whole] of [
+    [[0, 6, 2, 39], 47],
+    [[26, 22, 15, 74], 137],
+    [[1, 9, 4, 62], 76],
+    [[1, 2, 1, 28], 32],
+  ]) {
+    sharesOfWhole(counts, whole).forEach((pct, index) => {
+      const exact = (counts[index] / whole) * 100;
+      assert.ok(Math.abs(pct - exact) <= 0.1, `band ${index} moved ${Math.abs(pct - exact)} from ${exact}`);
+    });
+  }
+
+  // A breed with no kids weighed twice cannot divide by zero.
+  assert.deepEqual(sharesOfWhole([0, 0, 0, 0], 0), [0, 0, 0, 0]);
+  // The page must use it rather than rounding each share on its own.
+  assert.match(source, /sharesOfWhole\(counts, row\.animals\)/);
+  assert.doesNotMatch(source, /pct: \(count \/ row\.animals\) \* 100/);
+});
+
 test("the share is taken against the row's own backend denominator", () => {
   // `row.animals` is kids of THIS breed weighed twice — the exact key set the backend
   // filtered. Dividing by the page's animal total (which counts kids weighed once)
   // would understate every breed while still rendering a plausible percentage.
-  assert.match(source, /pct: \(count \/ row\.animals\) \* 100/);
+  assert.match(source, /sharesOfWhole\(counts, row\.animals\)/);
   assert.doesNotMatch(source, /\/ summary\.animals_weighed/);
 });
 
