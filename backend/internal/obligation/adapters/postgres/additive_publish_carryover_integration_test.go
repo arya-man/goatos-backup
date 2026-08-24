@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -448,5 +449,131 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, tenantID, clash, cause
 	}
 	if version == v2 {
 		t.Fatalf("the cause-colliding row was rebound anyway, which would have raised 23505 on a real index")
+	}
+}
+
+// The defect this whole design turns on: a rule's content can be unchanged while the date the
+// animal owes it moves, because the due date is computed from the ANIMAL's history too -- a dose
+// recorded late, a correction applied afterwards.
+//
+// Generation used to answer that by inserting, since its key includes the due date, and the animal
+// ended up owing the same dose twice. Reconciliation moves the existing row instead.
+func TestReconcileMovesTheExistingWorkInsteadOfBookingTheDoseTwice(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo, _, v2, before := seedCarryOverFixture(t, ctx, pool, fiveVaccines())
+	identity := "3:fmd|11:fmd_primary|1:1"
+	original := before["fmd_primary"]
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE obligation_instances SET rule_identity_key = $3 WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		tenantID, original.id, identity); err != nil {
+		t.Fatalf("stamp identity: %v", err)
+	}
+
+	var v2Rule string
+	if err := pool.QueryRow(ctx,
+		`SELECT rule_id::text FROM protocol_rules WHERE tenant_id = $1::uuid AND protocol_version_id = $2::uuid AND dose_code = 'fmd_primary'`,
+		tenantID, v2).Scan(&v2Rule); err != nil {
+		t.Fatalf("find v2 rule: %v", err)
+	}
+
+	// Generation now wants this dose a week later, under the new version.
+	movedDue := original.dueAt.AddDate(0, 0, 7)
+	ref, found, err := repo.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: v2, RuleID: v2Rule,
+		TargetType: "goat", TargetID: carryOverGoat, ScopeType: "park", ScopeID: cbePark,
+		DueAt: movedDue, Status: "scheduled", IdempotencyKey: "generation-owns-this-key",
+		Sequence: 1, RuleIdentityKey: identity,
+	}, movedDue)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if !found {
+		t.Fatal("reconcile found nothing, so generation would insert a SECOND open row for a dose the animal already owes")
+	}
+	if ref.ObligationID != original.id {
+		t.Fatalf("obligation id %s -> %s: the row was replaced, detaching its task, batch and proof", original.id, ref.ObligationID)
+	}
+
+	open := obligationsForGoat(t, ctx, pool, carryOverGoat)
+	if len(open) != 5 {
+		t.Fatalf("the goat now holds %d open obligations, want the same 5 -- a duplicate dose was booked", len(open))
+	}
+
+	var (
+		gotDue     time.Time
+		gotVersion string
+		gotKey     string
+		count      int
+	)
+	if err := pool.QueryRow(ctx, `
+SELECT due_at, protocol_version_id::text, idempotency_key,
+       (SELECT count(*) FROM obligation_instances d
+         WHERE d.tenant_id = $1::uuid AND d.target_id = $3::uuid AND d.rule_identity_key = $4
+           AND d.status IN ('scheduled','due','in_progress','deferred'))
+FROM obligation_instances WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		tenantID, original.id, carryOverGoat, identity).Scan(&gotDue, &gotVersion, &gotKey, &count); err != nil {
+		t.Fatalf("read reconciled row: %v", err)
+	}
+	if !gotDue.Equal(movedDue) {
+		t.Fatalf("due %s, want it moved to %s -- a stale date is the other half of this bug", gotDue, movedDue)
+	}
+	if gotVersion != v2 {
+		t.Fatalf("version did not follow the reconcile")
+	}
+	if gotKey != "generation-owns-this-key" {
+		t.Fatalf("idempotency key = %q, want the one generation owns, or the row is unaddressable", gotKey)
+	}
+	if count != 1 {
+		t.Fatalf("%d open obligations under one identity, want exactly 1", count)
+	}
+}
+
+// in_progress work is not moved underneath the operator running it, but it still counts as found
+// so generation does not insert a second row beside it.
+func TestReconcileLeavesInFlightWorkOnItsDateButStillClaimsIt(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo, _, v2, before := seedCarryOverFixture(t, ctx, pool, fiveVaccines())
+	identity := "3:fmd|11:fmd_primary|1:1"
+	original := before["fmd_primary"]
+	if _, err := pool.Exec(ctx,
+		`UPDATE obligation_instances SET rule_identity_key = $3, status = 'in_progress' WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		tenantID, original.id, identity); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+	var v2Rule string
+	if err := pool.QueryRow(ctx,
+		`SELECT rule_id::text FROM protocol_rules WHERE tenant_id = $1::uuid AND protocol_version_id = $2::uuid AND dose_code = 'fmd_primary'`,
+		tenantID, v2).Scan(&v2Rule); err != nil {
+		t.Fatalf("find rule: %v", err)
+	}
+
+	_, found, err := repo.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: v2, RuleID: v2Rule,
+		TargetType: "goat", TargetID: carryOverGoat, ScopeType: "park", ScopeID: cbePark,
+		DueAt: original.dueAt.AddDate(0, 0, 7), Status: "scheduled", IdempotencyKey: "k",
+		Sequence: 1, RuleIdentityKey: identity,
+	}, original.dueAt)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if !found {
+		t.Fatal("in-flight work was not claimed, so generation would book the dose a second time")
+	}
+	var due time.Time
+	if err := pool.QueryRow(ctx, `SELECT due_at FROM obligation_instances WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		tenantID, original.id).Scan(&due); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !due.Equal(original.dueAt) {
+		t.Fatalf("the operator's in-flight dose was moved from %s to %s underneath them", original.dueAt, due)
 	}
 }

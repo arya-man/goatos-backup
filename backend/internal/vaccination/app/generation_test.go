@@ -3119,6 +3119,8 @@ func (g *generationGoatFake) RecentVaccineAdministrationsForGoats(_ context.Cont
 }
 
 type generationObligationFake struct {
+	reconcileByIdentity    map[string]obldomain.ObligationRef
+	reconciledIdentities   []string
 	carriedOverGoats       [][]string
 	carriedOverVersions    [][]string
 	carryOverCount         int
@@ -3309,6 +3311,20 @@ func (o *generationObligationFake) OpenObligationForRepeatCycle(_ context.Contex
 
 func (o *generationObligationFake) GoatsWithVaccinationObligationsOutsideVersions(_ context.Context, _ string, goatIDs, _ []string) ([]string, error) {
 	return goatIDs, nil
+}
+
+// The fake mirrors the real reconcile: an identity the fake has already seen is treated as the
+// animal's existing work and moved, never inserted beside itself.
+func (o *generationObligationFake) ReconcileOpenObligationForRuleIdentity(_ context.Context, _ string, in obldomain.NewObligation, _ time.Time) (obldomain.ObligationRef, bool, error) {
+	if o.reconcileByIdentity == nil {
+		return obldomain.ObligationRef{}, false, nil
+	}
+	ref, ok := o.reconcileByIdentity[in.RuleIdentityKey]
+	if !ok {
+		return obldomain.ObligationRef{}, false, nil
+	}
+	o.reconciledIdentities = append(o.reconciledIdentities, in.RuleIdentityKey)
+	return ref, true, nil
 }
 
 func (o *generationObligationFake) CarryOverUnchangedVaccinationObligations(_ context.Context, _ string, goatIDs, versionIDs []string) (int, error) {

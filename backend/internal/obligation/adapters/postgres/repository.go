@@ -342,6 +342,7 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 		WindowEnd:                     pgconv.NullableTimestamptz(in.WindowEnd),
 		Status:                        in.Status,
 		IdempotencyKey:                in.IdempotencyKey,
+		RuleIdentityKey:               pgconv.Text(in.RuleIdentityKey),
 		GeneratedByTriggerID:          pgconv.NullableUUID(in.GeneratedByTriggerID),
 		Sequence:                      in.Sequence,
 		RepeatCycleSource:             repeatText(in.RepeatCycle, func(r domain.RepeatCycleSource) string { return r.Source }),
@@ -616,6 +617,7 @@ func (r *Repository) InsertDeferredObligation(ctx context.Context, in domain.New
 		WindowEnd:                     pgconv.NullableTimestamptz(in.WindowEnd),
 		Status:                        in.Status,
 		IdempotencyKey:                in.IdempotencyKey,
+		RuleIdentityKey:               pgconv.Text(in.RuleIdentityKey),
 		GeneratedByTriggerID:          pgconv.NullableUUID(in.GeneratedByTriggerID),
 		Sequence:                      in.Sequence,
 		RepeatCycleSource:             repeatText(in.RepeatCycle, func(r domain.RepeatCycleSource) string { return r.Source }),
@@ -1978,6 +1980,144 @@ func (r *Repository) OpenObligationForRepeatCycle(ctx context.Context, tenantID,
 		DueAt:          row.DueAt.Time,
 		IdempotencyKey: row.IdempotencyKey,
 	}, true, nil
+}
+
+// ReconcileOpenObligationForRuleIdentity moves the animal's EXISTING work for a rule instead of
+// writing a second row beside it.
+//
+// A rule's content can be unchanged while the date an animal owes it moves, because the due date
+// is computed from the ANIMAL's history as well as the rule -- a dose recorded late, a correction
+// applied afterwards. Generation used to answer that by inserting, since its key includes the due
+// date, and the animal ended up owing the same dose twice. Double-booking medical work is worse
+// than the churn this whole change set removes.
+//
+// So the lookup is by IDENTITY -- (target, rule identity, sequence) -- deliberately ignoring the
+// version, the rule UUID and the due date, because none of those say whether this is the same
+// piece of work. What is found is updated in place: same obligation_id, so the task, batch, proof
+// and the row on an operator's phone all survive; new due date, new version and rule pointers, and
+// the idempotency key generation now owns.
+//
+// Returns found=false when the animal has no open work under this identity, which is generation's
+// signal to insert. Terminal rows are invisible here: completed and canceled work is history, and
+// a missed dose must be free to mint its successor.
+func (r *Repository) ReconcileOpenObligationForRuleIdentity(
+	ctx context.Context,
+	tenantID string,
+	in domain.NewObligation,
+	occurredAt time.Time,
+) (domain.ObligationRef, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if strings.TrimSpace(in.RuleIdentityKey) == "" {
+		return domain.ObligationRef{}, false, nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	version, err := pgconv.UUID(in.ProtocolVersionID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: version id: %w", err)
+	}
+	rule, err := pgconv.UUID(in.RuleID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: rule id: %w", err)
+	}
+	target, err := pgconv.UUID(in.TargetID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: target id: %w", err)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: begin identity reconcile: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var (
+		ref      domain.ObligationRef
+		priorDue time.Time
+	)
+	err = tx.QueryRow(ctx, `
+SELECT obligation_id::text, status, due_at, row_version
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND target_type = $2
+  AND target_id = $3
+  AND rule_identity_key = $4
+  AND "sequence" = $5
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+FOR UPDATE`, tenant, in.TargetType, target, in.RuleIdentityKey, in.Sequence).
+		Scan(&ref.ObligationID, &ref.Status, &priorDue, &ref.RowVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ObligationRef{}, false, nil
+	}
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read identity reconcile target: %w", err)
+	}
+	ref.DueAt = priorDue
+
+	// in_progress work is left where it is. An operator part-way through a drive keeps the dose
+	// they are physically administering; moving its date underneath them is not a reconciliation,
+	// it is a surprise. It still counts as found, so generation does not insert a second row.
+	if ref.Status == "in_progress" {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit identity reconcile: %w", err)
+		}
+		return ref, true, nil
+	}
+
+	dueMoved := !priorDue.Equal(in.DueAt)
+	if _, err := tx.Exec(ctx, `
+UPDATE obligation_instances
+SET protocol_version_id = $2,
+    rule_id = $3,
+    idempotency_key = $4,
+    due_at = $5,
+    window_start = COALESCE($6, window_start),
+    window_end = COALESCE($7, window_end),
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1 AND obligation_id = $8::uuid`,
+		tenant, version, rule, in.IdempotencyKey, pgconv.Timestamptz(in.DueAt),
+		pgconv.NullableTimestamptz(in.WindowStart), pgconv.NullableTimestamptz(in.WindowEnd),
+		ref.ObligationID); err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: identity reconcile: %w", err)
+	}
+
+	// A moved date is a real event in the animal's record, not a silent edit. Recorded as
+	// event_type='scheduled' with the reason in the payload, which is this table's existing
+	// convention for a reschedule -- the reason belongs in the payload, not in a new event type
+	// every caller downstream would have to learn.
+	if dueMoved {
+		obligationUUID, convErr := pgconv.UUID(ref.ObligationID)
+		if convErr != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: reconciled obligation id: %w", convErr)
+		}
+		payload, _ := json.Marshal(map[string]string{
+			"reason":   "rule_identity_reconciled",
+			"from_due": priorDue.UTC().Format(time.RFC3339),
+			"to_due":   in.DueAt.UTC().Format(time.RFC3339),
+		})
+		eventKey := ref.ObligationID + ":rule_identity_reconciled:" + in.DueAt.UTC().Format(time.RFC3339Nano)
+		if _, err := tx.Exec(ctx, `
+INSERT INTO obligation_status_events (
+  tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key
+) VALUES ($1, $2, 'scheduled', $3, $4::jsonb, $5)
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
+			tenant, obligationUUID, occurredAt, payload, eventKey); err != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: identity reconcile event: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit identity reconcile: %w", err)
+	}
+	ref.DueAt = in.DueAt
+	return ref, true, nil
 }
 
 // CarryOverUnchangedVaccinationObligations rebinds open vaccination work from a retired protocol
