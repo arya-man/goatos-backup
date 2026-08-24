@@ -24,6 +24,7 @@
 -- neither block the index build nor be silently constrained by it.
 SET lock_timeout = '3s';
 
+-- seed-migration-guard:ignore owner=ravi issue=vaccination-additive-publish reason=nullable-column-and-partial-index-inert-until-generation-populates-it-seeded-rows-are-labelled-by-backfill-protocol-rule-lineage-not-by-the-seed-path expiry=2026-11-30
 ALTER TABLE obligation_instances
   ADD COLUMN IF NOT EXISTS rule_identity_key text;
 
@@ -39,6 +40,7 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS obligation_open_rule_identity_uni
 DROP INDEX CONCURRENTLY IF EXISTS obligation_open_rule_identity_unique_idx;
 
 SET lock_timeout = '3s';
+-- seed-migration-guard:ignore owner=ravi issue=vaccination-additive-publish reason=nullable-column-and-partial-index-inert-until-generation-populates-it-seeded-rows-are-labelled-by-backfill-protocol-rule-lineage-not-by-the-seed-path expiry=2026-11-30
 ALTER TABLE obligation_instances
   DROP COLUMN IF EXISTS rule_identity_key;
 RESET lock_timeout;

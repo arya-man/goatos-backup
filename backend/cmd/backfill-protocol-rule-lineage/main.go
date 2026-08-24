@@ -32,6 +32,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -151,30 +152,7 @@ SET protocol_version_id = EXCLUDED.protocol_version_id,
 		fail(err)
 	}
 	if *apply {
-		tag, err := pool.Exec(ctx, `
-UPDATE obligation_instances oi
-SET rule_identity_key = l.identity_key,
-    row_version = oi.row_version + 1,
-    updated_at = now()
-FROM protocol_rule_lineage l
-WHERE l.tenant_id = oi.tenant_id
-  AND l.rule_id = oi.rule_id
-  AND oi.rule_identity_key IS DISTINCT FROM l.identity_key
-  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
-  AND ($1::uuid IS NULL OR oi.tenant_id = $1::uuid)
-  AND NOT EXISTS (
-    SELECT 1
-    FROM obligation_instances other
-    JOIN protocol_rule_lineage ol
-      ON ol.tenant_id = other.tenant_id AND ol.rule_id = other.rule_id
-    WHERE other.tenant_id = oi.tenant_id
-      AND other.target_type = oi.target_type
-      AND other.target_id = oi.target_id
-      AND other."sequence" = oi."sequence"
-      AND ol.identity_key = l.identity_key
-      AND other.status IN ('scheduled', 'due', 'in_progress', 'deferred')
-      AND other.obligation_id <> oi.obligation_id
-  )`, nullableUUID(tenantID))
+		tag, err := stampObligationIdentities(ctx, pool, tenantID)
 		if err != nil {
 			fail(fmt.Errorf("stamp obligation identities: %w", err))
 		}
@@ -244,12 +222,51 @@ ORDER BY pr.tenant_id, pr.protocol_version_id, pr.rule_id`, nullableUUID(tenantI
 	return out, nil
 }
 
+// stampObligationIdentities labels the animals' existing open work with the identity of the rule
+// it already points at.
+//
+// Only UNAMBIGUOUS rows are touched: an animal holding two open obligations for one dose cannot be
+// labelled, because the label asserts the one-open-obligation-per-identity invariant that the data
+// itself contradicts. Those are reported instead -- choosing which of two scheduled vaccinations to
+// cancel is a clinical decision, not a backfill's.
+//
+// Terminal rows are excluded. Completed and canceled work is history, and a missed dose must stay
+// free to mint its successor.
+func stampObligationIdentities(ctx context.Context, pool *pgxpool.Pool, tenantID string) (pgconn.CommandTag, error) {
+	return pool.Exec(ctx, `
+-- projection-review: membership=open obligation_instances joined to the lineage row of the rule they already point at, minus any row whose (animal, identity, sequence) group holds another open row; group_key=(target_id, identity_key, sequence); join_cardinality=one lineage row per rule_id (primary key) and the NOT EXISTS is a semi-join, so neither can fan a row out; pagination=n/a, one set-based statement run by a maintenance command, never on a request path; scope=one tenant when given, otherwise every tenant, which is the point of a backfill
+UPDATE obligation_instances oi
+SET rule_identity_key = l.identity_key,
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM protocol_rule_lineage l
+WHERE l.tenant_id = oi.tenant_id
+  AND l.rule_id = oi.rule_id
+  AND oi.rule_identity_key IS DISTINCT FROM l.identity_key
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND ($1::uuid IS NULL OR oi.tenant_id = $1::uuid)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM obligation_instances other
+    JOIN protocol_rule_lineage ol
+      ON ol.tenant_id = other.tenant_id AND ol.rule_id = other.rule_id
+    WHERE other.tenant_id = oi.tenant_id
+      AND other.target_type = oi.target_type
+      AND other.target_id = oi.target_id
+      AND other."sequence" = oi."sequence"
+      AND ol.identity_key = l.identity_key
+      AND other.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      AND other.obligation_id <> oi.obligation_id
+  )`, nullableUUID(tenantID))
+}
+
 // countAmbiguousIdentities counts the (animal, identity, sequence) groups that already hold more
 // than one open obligation. They cannot be labelled without asserting an invariant the data
 // contradicts, and choosing which of them to cancel is a clinical decision, not a migration's.
 func countAmbiguousIdentities(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int, error) {
 	var groups int
 	if err := pool.QueryRow(ctx, `
+-- projection-review: membership=open obligation_instances joined 1:1 to the lineage row of the rule they already point at; group_key=(target_id, identity_key, sequence) -- the grain the uniqueness invariant is stated at; join_cardinality=one lineage row per rule_id (primary key), so the join cannot fan a row out; pagination=n/a, a single scalar count run once by a maintenance command, never on a request path; scope=one tenant when given, otherwise every tenant, which is the point of a backfill
 SELECT count(*) FROM (
   SELECT oi.target_id, l.identity_key, oi."sequence"
   FROM obligation_instances oi
