@@ -1723,6 +1723,13 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		var applied bool
 		reconciled, found, err := s.obl.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, newObligation, asOf)
 		if err != nil {
+			// An animal already holding two unlabelled open obligations for this rule is a data
+			// problem a generation pass must not paper over: picking one cancels a scheduled
+			// vaccination on a guess, inserting books a third. It fails for THIS animal, carrying
+			// the obligation ids a human needs, and the rest of the run continues.
+			if errors.Is(err, oblports.ErrAmbiguousOpenWork) {
+				res.AmbiguousOpenWork++
+			}
 			return err
 		}
 		if found {
