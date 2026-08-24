@@ -2,6 +2,9 @@ package domain
 
 import (
 	"errors"
+	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -220,9 +223,28 @@ type ExecutionDay struct {
 // PackingVarianceToleranceKg is how far a shed's measured total may sit from the directed quantity
 // before the packed-vs-given TREND counts that shed-day as differing: a scale read off a video is
 // honest to a couple hundred grams, so differences of 0.2 kg or less are treated as the same
-// number. Strictly greater-than: exactly 0.2 kg stays quiet. The bag table itself carries no
-// tolerance flag (maintainer decision 2026-08-24); this constant serves the trend counts only.
+// number. Strictly greater-than: exactly 0.2 kg stays quiet.
+//
+// SUPERSEDED IN PART (maintainer decision 2026-08-24, later the same day): the bag table now DOES
+// carry this tolerance, as a two-tone judgement on each row's difference — inside it is quiet,
+// beyond it is loud. The earlier "this constant serves the trend counts only" no longer holds. The
+// number stays here, in ONE place, so the table and the trend can never disagree about what counts
+// as the same reading.
 const PackingVarianceToleranceKg = 0.2
+
+// ExceedsPackingVarianceTolerance reports whether a signed variance, as the decimal STRING the row
+// carries, sits further from the sheet than the tolerance allows — in either direction, since
+// packing 3 kg too much and 3 kg too little are both the bag not matching the sheet.
+//
+// A value that does not parse returns false. That is deliberate: an unreadable variance is a gap in
+// the data, and painting it as a breach would accuse a crew on the strength of a parse failure.
+func ExceedsPackingVarianceTolerance(varianceKg string) bool {
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(varianceKg), 64)
+	if err != nil {
+		return false
+	}
+	return math.Abs(parsed) > PackingVarianceToleranceKg
+}
 
 // PackingVarianceRow is one MEASURED BAG: what the frozen sheet directed a pen-session to pack for
 // one feed item, against what the verifier read off the packing video (maintainer decision

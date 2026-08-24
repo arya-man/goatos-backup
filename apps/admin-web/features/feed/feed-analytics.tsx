@@ -835,12 +835,20 @@ function ExecutionTab({
                     </td>
                     <td>{`${row.verified_kg} ${fa(pageContract, "unit.kg")}`}</td>
                     <td>
-                      {/* The difference is reported as it stands -- no tolerance threshold, so no
-                          tone claims which readings are "real" discrepancies. The only tone left is
-                          the one the reading itself states: a bag that matched the sheet exactly is
-                          independent confirmation, and it carries no arrow to point. */}
+                      {/* Two tones, on the BACKEND's judgement (maintainer decision 2026-08-24,
+                          superseding the no-tolerance-flag decision made earlier the same day): a
+                          bag within the packing tolerance is quiet, a bag beyond it is loud. The
+                          threshold itself is never applied here — `exceeds_tolerance` arrives
+                          decided, from the same constant the packed-vs-given trend counts on, so a
+                          renderer cannot drift from the trend beside it. Over and under are the
+                          same breach: a bag packed heavy does not match the sheet either, and the
+                          arrow is what says which way it went. */}
                       <span
-                        className={`${num(row.variance_kg) === 0 ? "tag t-ok" : "tag t-info"} feed-stock-check-tag`}
+                        className={`${row.exceeds_tolerance ? "tag t-dng" : "tag t-ok"} feed-stock-check-tag`}
+                        title={fa(
+                          pageContract,
+                          row.exceeds_tolerance ? "variance.beyond_tolerance" : "variance.within_tolerance",
+                        )}
                       >
                         {num(row.variance_kg) === 0 ? null : (
                           <span aria-hidden="true">{num(row.variance_kg) > 0 ? "↑" : "↓"}</span>

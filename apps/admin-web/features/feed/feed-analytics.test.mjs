@@ -41,3 +41,34 @@ test("execution variance filters reset the variance table offset", () => {
   assert.match(varianceBlock, /feedHref\(PAGE_PATH, variance\.searchParams, "fav_offset"/);
   assert.doesNotMatch(varianceBlock, /pageParam="fa_offset"/);
 });
+
+// ---------------------------------------------------------------------------
+// Packed vs directed — the difference tag's two tones (maintainer, 2026-08-24).
+test("the difference tag is red beyond the packing tolerance and green within it", () => {
+  // Two tones only. `t-info` was the old no-judgement blue; a bag now either matches the sheet
+  // closely enough or it does not.
+  assert.match(source, /row\.exceeds_tolerance \? "tag t-dng" : "tag t-ok"/);
+  assert.doesNotMatch(source, /variance_kg\) === 0 \? "tag t-ok" : "tag t-info"/);
+});
+
+test("the renderer never applies the tolerance itself", () => {
+  // The threshold is a business rule. It arrives DECIDED as `exceeds_tolerance`, from the same
+  // constant the packed-vs-given trend uses; a renderer comparing 0.2 here would be a second
+  // source for one rule, and the table and the trend would drift the day it changes.
+  assert.doesNotMatch(source, /0\.2\b/);
+  assert.doesNotMatch(source, /ToleranceKg/);
+  // Over and under are both breaches, so the tone must not be conditioned on the sign.
+  assert.doesNotMatch(source, /exceeds_tolerance && num\(row\.variance_kg\) [<>]/);
+});
+
+test("the tag says in words what its colour means", () => {
+  // A colour alone is invisible to a screen reader and to a colour-blind reader.
+  assert.match(source, /variance\.beyond_tolerance/);
+  assert.match(source, /variance\.within_tolerance/);
+  const contract = readFileSync(
+    new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url),
+    "utf8",
+  );
+  assert.match(contract, /"variance\.within_tolerance":/);
+  assert.match(contract, /"variance\.beyond_tolerance":/);
+});
