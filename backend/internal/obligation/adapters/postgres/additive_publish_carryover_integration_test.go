@@ -736,3 +736,76 @@ func TestReconcileRefusesToGuessBetweenTwoUnlabelledObligations(t *testing.T) {
 		t.Fatalf("the error must name the obligations a human has to look at: %v", err)
 	}
 }
+
+// When the due date cannot move -- because obligation_instances_dup_guard already holds the key it
+// would move to, typically this obligation's own canceled twin -- the ADDRESS must still move.
+// Everything generation does next addresses the row by the key it computed, and a row left holding
+// its old key is unreachable: defer, reopen and cancel-by-key all fail the animal.
+func TestReconcileStillMovesTheAddressWhenTheDateIsBlocked(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo, _, v2, before := seedCarryOverFixture(t, ctx, pool, fiveVaccines())
+	identity := "3:fmd|11:fmd_primary|1:1"
+	original := before["fmd_primary"]
+	if _, err := pool.Exec(ctx,
+		`UPDATE obligation_instances SET rule_identity_key = $3 WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		tenantID, original.id, identity); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+
+	var v2Rule string
+	if err := pool.QueryRow(ctx,
+		`SELECT rule_id::text FROM protocol_rules WHERE tenant_id = $1::uuid AND protocol_version_id = $2::uuid AND dose_code = 'fmd_primary'`,
+		tenantID, v2).Scan(&v2Rule); err != nil {
+		t.Fatalf("find rule: %v", err)
+	}
+
+	// A CANCELED twin already occupies the key the reconcile would move onto. The duplicate guard
+	// spans terminal rows, so the date cannot move there.
+	movedDue := original.dueAt.AddDate(0, 0, 4)
+	blocker := insertObligationForRule(t, ctx, repo, v2, v2Rule, carryOverGoat, "blocking-twin", movedDue)
+	if _, err := pool.Exec(ctx,
+		`UPDATE obligation_instances SET status='canceled' WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`,
+		tenantID, blocker); err != nil {
+		t.Fatalf("cancel the twin: %v", err)
+	}
+
+	ref, found, err := repo.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: v2, RuleID: v2Rule,
+		TargetType: "goat", TargetID: carryOverGoat, ScopeType: "park", ScopeID: cbePark,
+		DueAt: movedDue, Status: "scheduled", IdempotencyKey: "key-generation-now-owns",
+		Sequence: 1, RuleIdentityKey: identity,
+	}, movedDue)
+	if err != nil {
+		t.Fatalf("a blocked date must not fail the animal: %v", err)
+	}
+	if !found {
+		t.Fatal("the obligation was not claimed, so generation would insert a duplicate beside it")
+	}
+	if !ref.DateBlocked {
+		t.Fatal("DateBlocked not reported, so a stale date would be invisible")
+	}
+	if ref.IdempotencyKey == "" {
+		t.Fatal("the ref carries no key, so the caller cannot address the row at all")
+	}
+
+	var storedKey string
+	var storedDue time.Time
+	if err := pool.QueryRow(ctx,
+		`SELECT idempotency_key, due_at FROM obligation_instances WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`,
+		tenantID, original.id).Scan(&storedKey, &storedDue); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if storedKey != ref.IdempotencyKey {
+		t.Fatalf("ref key %q does not match the stored key %q: follow-ups would address the wrong thing", ref.IdempotencyKey, storedKey)
+	}
+	if storedKey == "carryover-fmd_primary" {
+		t.Fatal("the row kept the key it was minted under; every key-addressed follow-up on it fails")
+	}
+	if !storedDue.Equal(original.dueAt) {
+		t.Fatalf("the date moved after all (%s), which the duplicate guard should have prevented", storedDue)
+	}
+}
