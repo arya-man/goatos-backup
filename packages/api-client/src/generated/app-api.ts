@@ -624,7 +624,7 @@ export interface paths {
         };
         /**
          * Get CEO-tier ADG (Average Daily Gain) / growth aggregate for a park or the herd.
-         * @description Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional; when omitted, the response aggregates across every park the caller is authorized to monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 7 days ending today when omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh.
+         * @description Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional; when omitted, the response aggregates across every park the caller is authorized to monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 15 days ending today when omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh.
          */
         get: operations["appGetWeighingLeadershipGrowth"];
         put?: never;
@@ -644,7 +644,7 @@ export interface paths {
         };
         /**
          * Get CEO-tier ADG (Average Daily Gain) / growth aggregate for a park or the herd.
-         * @description Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional; when omitted, the response aggregates across every park the caller is authorized to monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 7 days ending today when omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh.
+         * @description Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional; when omitted, the response aggregates across every park the caller is authorized to monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 15 days ending today when omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh.
          */
         get: operations["adminGetWeighingLeadershipGrowth"];
         put?: never;
@@ -664,7 +664,7 @@ export interface paths {
         };
         /**
          * Latest weight per shed, across both ways of weighing, plus the whole-filter rollup.
-         * @description Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 7 days ending today.
+         * @description Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 15 days ending today.
          *
          *     GRAIN: one row per SHED, not per campaign bucket -- a shed weighed in consecutive campaigns reports its most recent weigh only. `summary` is a WHOLE-FILTER aggregate and never changes with paging.
          *
@@ -688,7 +688,7 @@ export interface paths {
         };
         /**
          * Latest weight per shed, across both ways of weighing, plus the whole-filter rollup.
-         * @description Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 7 days ending today.
+         * @description Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 15 days ending today.
          *
          *     GRAIN: one row per SHED, not per campaign bucket -- a shed weighed in consecutive campaigns reports its most recent weigh only. `summary` is a WHOLE-FILTER aggregate and never changes with paging.
          *
@@ -712,7 +712,7 @@ export interface paths {
         };
         /**
          * Average weight by breed, sex and management stage.
-         * @description Requires WeighingMonitor, park-scoped like the other leadership reads. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 7 days ending today.
+         * @description Requires WeighingMonitor, park-scoped like the other leadership reads. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 15 days ending today.
          *
          *     This is the ONE weighing read that resolves a scanned tag to its animal (maintainer decision 2026-08-07), because breed, sex and stage exist only on the animal. Read-only, this reporting path only, never a gate on capture: a tag that resolves to nothing is counted in `unresolved_animals`, not rejected.
          *
@@ -736,7 +736,7 @@ export interface paths {
         };
         /**
          * Growth Director widgets for the admin-web Weights screen.
-         * @description Requires WeighingMonitor, park-scoped exactly like the other Weights-screen reads. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 7 days ending today.
+         * @description Requires WeighingMonitor, park-scoped exactly like the other Weights-screen reads. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 15 days ending today.
          *
          *     Served by its OWN read-only reporting module, not by weighing: weighing is isolated from the herd, while these widgets resolve scanned tags to breed and sex through the herd register and read the feed-direction sheet. This read gates nothing — a tag that resolves to no animal is counted and reported, never rejected.
          *

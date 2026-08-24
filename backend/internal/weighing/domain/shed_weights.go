@@ -218,8 +218,8 @@ const (
 )
 
 // ShedWeightsDefaultPeriodDays is the default window when the caller names
-// neither bound: the last week, matching the screen's default filter.
-const ShedWeightsDefaultPeriodDays = 7
+// neither bound: the last 15 inclusive days, matching the screen's default filter.
+const ShedWeightsDefaultPeriodDays = 15
 
 // MaxShedWeightsRows bounds the shed list. Both parks together hold well over a
 // hundred sheds, so this is a hard ceiling on one response rather than a page
