@@ -115,7 +115,7 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 	// vaccination.execute capability bounded to the leave window.
 	applied, err := svc.ApplyLeave(ctx, rosterTenant, rosterActor, domain.ApplyStaffLeaveRequest{
 		WorkforceMemberID: rosterPCMMember, ScopeType: "center", ScopeID: rosterCenterScope,
-		ReasonCode: "personal", StartsOn: "2026-08-03", EndsOn: "2026-08-05",
+		ReasonCode: "personal", StartsOn: rosterLeaveStart, EndsOn: rosterLeaveEnd,
 	}, "trace-apply")
 	if err != nil {
 		t.Fatalf("ApplyLeave: %v", err)
@@ -154,7 +154,7 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 
 	// Vaccination-ownership resolution for a day within the leave window
 	// returns the resolved replacement.
-	owner, err := svc.ResolveVaccinationOwner(ctx, rosterTenant, rosterActor, "center", rosterCenterScope, "2026-08-04", "trace-owner")
+	owner, err := svc.ResolveVaccinationOwner(ctx, rosterTenant, rosterActor, "center", rosterCenterScope, rosterLeaveMiddle, "trace-owner")
 	if err != nil {
 		t.Fatalf("ResolveVaccinationOwner: %v", err)
 	}
@@ -226,7 +226,7 @@ VALUES ($2, $1, 'OTHER-TENANT-01', 'Other Tenant Member', 'active', 'other')`, o
 
 	_, err = svc.ApplyLeave(ctx, rosterTenant, rosterActor, domain.ApplyStaffLeaveRequest{
 		WorkforceMemberID: otherTenantMember, ScopeType: "center", ScopeID: rosterCenterScope,
-		ReasonCode: "personal", StartsOn: "2026-08-03", EndsOn: "2026-08-05",
+		ReasonCode: "personal", StartsOn: rosterLeaveStart, EndsOn: rosterLeaveEnd,
 	}, "trace-cross-tenant-leave")
 	if !errors.As(err, &appErr) || appErr.Code != "workforce_member_wrong_tenant" {
 		t.Fatalf("ApplyLeave with a cross-tenant member: err=%v, want app error workforce_member_wrong_tenant", err)
@@ -536,7 +536,7 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 	key := "idem-apply-001"
 	body := domain.ApplyStaffLeaveRequest{
 		WorkforceMemberID: rosterPCMMember, ScopeType: "center", ScopeID: rosterCenterScope,
-		ReasonCode: "personal", StartsOn: "2026-08-03", EndsOn: "2026-08-05", IdempotencyKey: &key,
+		ReasonCode: "personal", StartsOn: rosterLeaveStart, EndsOn: rosterLeaveEnd, IdempotencyKey: &key,
 	}
 
 	first, err := svc.ApplyLeave(ctx, rosterTenant, rosterActor, body, "t1")
@@ -560,7 +560,7 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 	}
 
 	diff := body
-	diff.EndsOn = "2026-08-06"
+	diff.EndsOn = rosterLeaveEndPlusOne
 	if _, err := svc.ApplyLeave(ctx, rosterTenant, rosterActor, diff, "t3"); err == nil {
 		t.Fatal("same-key/different-payload ApplyLeave must be rejected, got nil error")
 	} else {
@@ -602,7 +602,7 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 
 	applied, err := svc.ApplyLeave(ctx, rosterTenant, rosterActor, domain.ApplyStaffLeaveRequest{
 		WorkforceMemberID: rosterPCMMember, ScopeType: "center", ScopeID: rosterCenterScope,
-		ReasonCode: "personal", StartsOn: "2026-08-03", EndsOn: "2026-08-05",
+		ReasonCode: "personal", StartsOn: rosterLeaveStart, EndsOn: rosterLeaveEnd,
 	}, "apply")
 	if err != nil {
 		t.Fatalf("ApplyLeave: %v", err)
@@ -854,7 +854,7 @@ WHERE tenant_id = $1::uuid AND event_type = 'vaccination.leave.changed'
 
 	applied, err := svc.ApplyLeave(ctx, tenantID, actorID, domain.ApplyStaffLeaveRequest{
 		WorkforceMemberID: operatorMember, ScopeType: "center", ScopeID: parkID,
-		ReasonCode: "personal", StartsOn: "2026-08-03", EndsOn: "2026-08-05",
+		ReasonCode: "personal", StartsOn: rosterLeaveStart, EndsOn: rosterLeaveEnd,
 	}, "lc-apply")
 	if err != nil {
 		t.Fatalf("ApplyLeave: %v", err)
@@ -1155,3 +1155,19 @@ WHERE tenant_id = $1::uuid AND absence_id IN ($2::uuid, $3::uuid)`,
 			"(the park must retain >=1 available operator on %s)", resolvedCount, reportedCount, day)
 	}
 }
+
+// Coverage resolution reads the roster ACROSS the leave window, so a leave pinned to a fixed
+// calendar date stops describing a coverable absence once the clock passes it.
+var rosterLeaveStart, rosterLeaveMiddle, rosterLeaveEnd, rosterLeaveEndPlusOne = func() (string, string, string, string) {
+	// The window must start AFTER the fixture's positions become effective (they are created
+	// during the test, so valid_from is "now"): a window opening at today's midnight predates
+	// them, effectiveBackup finds nobody, and the approval escalates instead of resolving.
+	start := time.Now().UTC().AddDate(0, 0, 14)
+	for start.Weekday() != time.Wednesday {
+		start = start.AddDate(0, 0, 1)
+	}
+	return start.Format("2006-01-02"),
+		start.AddDate(0, 0, 1).Format("2006-01-02"),
+		start.AddDate(0, 0, 2).Format("2006-01-02"),
+		start.AddDate(0, 0, 3).Format("2006-01-02")
+}()
