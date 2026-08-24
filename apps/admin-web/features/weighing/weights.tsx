@@ -354,10 +354,16 @@ export async function WeighingWeightsPage({
     (demo?.shed_composition ?? []).map((item) => [shedKey(item.location_id, item.partition_label), item]),
   );
 
+  // Alphabetical by shed/pen, the SAME order the gain view uses (maintainer decision
+  // 2026-08-22, extended to Weight 2026-08-24). Both metrics are the same sheds, and the
+  // metric toggle is a reading preference: ranking one view heaviest-first and the other
+  // A→Z reshuffled every row under the reader's eyes on a toggle they expected to change
+  // only the bars. A stable order is also how an operator finds one specific pen at all —
+  // a rank tells them nothing about where "Castro 2" will be. Sorted AFTER the map,
+  // because the label the reader scans is composed there.
   const chartData = visibleRows
     .filter((row) => row.animals_weighed > 0)
     .slice()
-    .sort((a, b) => b.average_weight_kg - a.average_weight_kg)
     .map((row) => {
       const key = shedKey(row.location_id, row.partition_label);
       const shedName = row.operational_location_display || row.shed_display_name;
@@ -372,7 +378,9 @@ export async function WeighingWeightsPage({
         value: Number(row.average_weight_kg.toFixed(1)),
         ...modeBarTag(row, pageContract),
       };
-    });
+    })
+    // `numeric` keeps "Castro 2" ahead of "Castro 10", same as the gain view.
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
   // The headline is the backend's park-level same-animal median. Do not average
   // shed medians here: the median of medians is not the herd median and produced
   // a visible 38 g card while the API/SQL truth was 120.8 g.

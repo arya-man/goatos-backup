@@ -115,6 +115,21 @@ test("small shed charts do not reserve the tall empty panel height", () => {
   assert.match(source, /<ShedMetricChart/);
 });
 
+test("both shed-chart metrics use ONE order, so the toggle only changes the bars", () => {
+  // The gain view has been alphabetical since 2026-08-22 so an operator can find a pen by
+  // name. The weight view was heaviest-first, so switching metric reshuffled every row on a
+  // control the reader expects to change only the measure. Both now sort by the composed
+  // label with numeric collation ("Castro 2" before "Castro 10").
+  // Counted, not matched once: the two call sites are formatted differently (one wraps),
+  // so this asserts BOTH series carry the same comparator rather than that one exists.
+  const alphabetical = /a\.label\.localeCompare\(b\.label, undefined, \{ numeric: true \}\)/g;
+  assert.equal((source.match(alphabetical) ?? []).length, 2, "both chart series must sort A→Z by label");
+  assert.match(source, /const gainChartData = \[[\s\S]{0,120}\.sort\(/);
+  assert.match(source, /const chartData = visibleRows[\s\S]{0,1400}\.sort\(\(a, b\) => a\.label\.localeCompare/);
+  // The weight ranking must not come back: it is the specific behaviour being replaced.
+  assert.doesNotMatch(source, /sort\(\(a, b\) => b\.average_weight_kg - a\.average_weight_kg\)[\s\S]{0,400}chartData/);
+});
+
 test("chart metric switches are local state, not route reloads", () => {
   const client = readFileSync(new URL("./metric-chart.tsx", import.meta.url), "utf8");
   assert.match(client, /"use client"/);
