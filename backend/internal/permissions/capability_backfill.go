@@ -76,44 +76,42 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("herd_register", SurfaceMobile, LevelView)),
 		one(assign("calendar", SurfaceMobile, LevelView)),
 	),
-	// The park head runs a park's execution from the phone: assigns and verifies task work,
-	// completes feed on his own ground, captures counts. Deliberately NOT admin-web.
+	// The park head runs a park's execution from the phone: supervises task work, completes
+	// feed on his own ground, captures counts. Deliberately NOT admin-web.
 	RoleParkHead: rows(
 		one(assign("vaccination", SurfaceMobile, LevelView, LevelOversee)),
 		one(assign("counts", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("feed_direction", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("aas_health", SurfaceMobile, LevelView)),
 		one(assign("procurement", SurfaceMobile, LevelView, LevelDo, LevelOversee)),
-		one(assign("people", SurfaceMobile, LevelView, LevelDo)),
+		one(assign("people", SurfaceMobile, LevelView, LevelDo, LevelOversee)),
 		one(assign("verification", SurfaceMobile, LevelOversee)),
 		one(assign("herd_register", SurfaceMobile, LevelView)),
 		one(assign("calendar", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("config", SurfaceMobile, LevelView)),
 	),
+	// PC Director owns vaccination end to end and executes it too -- unusual for a director,
+	// preserved rather than tidied away: removing it would stop him covering a shed.
 	RolePCDirector: rows(
-		bothSurfaces("vaccination", LevelView, LevelOversee, LevelConfigure),
-		bothSurfaces("aas_health", LevelView, LevelOversee),
+		bothSurfaces("vaccination", LevelView, LevelDo, LevelOversee, LevelConfigure),
+		bothSurfaces("aas_health", LevelOversee),
 		bothSurfaces("pc_care", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
+		bothSurfaces("herd_register", LevelView, LevelDo),
 		one(assign("verification", SurfaceWeb, LevelConfigure)),
 		one(assign("procurement", SurfaceWeb, LevelView)),
-		one(assign("herd_register", SurfaceWeb, LevelView)),
 		one(assign("calendar", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("config", SurfaceWeb, LevelView)),
-		// PC Director executes task work today (TaskExecute) -- unusual for a director, and
-		// preserved rather than tidied away: removing it would stop him covering a shed.
-		one(assign("vaccination", SurfaceMobile, LevelView, LevelDo, LevelOversee, LevelConfigure)),
 	),
-	// Growth Director runs Weighing and only Weighing (maintainer decision 2026-08-01). He
-	// oversees the operators and executes, but does NOT plan -- planning is CEO-only, which
-	// is why LevelConfigure is absent here.
+	// Growth Director runs Weighing and ONLY Weighing (maintainer decision 2026-08-01). He
+	// monitors, oversees the operators and executes -- and does NOT plan, which is CEO-only.
+	// He holds no health-module access at all; his GoatWriteHealth rides on herd_register.
 	RoleGrowthDirector: rows(
 		bothSurfaces("weighing", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
+		bothSurfaces("herd_register", LevelView, LevelDo),
 		one(assign("verification", SurfaceWeb, LevelOversee)),
 		one(assign("procurement", SurfaceWeb, LevelView)),
-		one(assign("herd_register", SurfaceWeb, LevelView)),
-		one(assign("aas_health", SurfaceWeb, LevelOversee)),
 		one(assign("calendar", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("config", SurfaceWeb, LevelView)),
 	),
@@ -123,31 +121,31 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	RoleFeedDirector: rows(
 		bothSurfaces("feed_direction", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
+		one(assign("herd_register", SurfaceWeb, LevelView)),
 		one(assign("verification", SurfaceWeb, LevelOversee)),
 		one(assign("procurement", SurfaceWeb, LevelView)),
-		one(assign("herd_register", SurfaceWeb, LevelView)),
 		one(assign("calendar", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("config", SurfaceWeb, LevelView)),
 	),
-	// Health Director authors the treatment rulebook and is the declared owner of Counts
-	// WITHOUT counts access -- the module is off, and ownership is not access (AGENTS.md).
-	// So counts appears at LevelView for the alerts read only, never LevelDo.
+	// Health Director authors the treatment rulebook and is the declared OWNER of Counts
+	// without Counts access -- counts at LevelView is the alerts read alone, never the
+	// screens (AGENTS.md: the module is off, and ownership is not access).
 	RoleHealthDirector: rows(
-		bothSurfaces("aas_health", LevelView, LevelOversee, LevelConfigure),
+		bothSurfaces("aas_health", LevelConfigure),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
+		bothSurfaces("herd_register", LevelView, LevelDo, LevelOversee),
 		one(assign("counts", SurfaceWeb, LevelView)),
 		one(assign("verification", SurfaceWeb, LevelOversee)),
 		one(assign("procurement", SurfaceWeb, LevelView)),
-		one(assign("herd_register", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("calendar", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("config", SurfaceWeb, LevelView)),
 	),
-	// Web-only, and narrow: vendors and source entry, nothing operational.
+	// Web-only, and narrow: the vendor desk, plus reading source entry.
 	RoleProcurementManager: rows(
 		one(assign("procurement", SurfaceWeb, LevelView)),
 		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
 	),
-	// Web-only. Reads the whole feed chain (the Hemant case) without any authority over it.
+	// Web-only. Reads the whole feed chain (the Hemant case) with no authority over it.
 	RoleProcurementDirector: rows(
 		one(assign("procurement", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
 		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
@@ -156,42 +154,41 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("config", SurfaceWeb, LevelView)),
 	),
 	// Granted BY NAME alongside a job (maintainer decision 2026-08-05). Carries approval
-	// authority and nothing else -- no bootstrap, no read, no write. LevelOversee on counts
-	// is exactly that, and LevelView is deliberately absent so this role alone still grants
-	// no counts read and no surface admission.
+	// authority and nothing else -- no read, no write. LevelView is deliberately absent.
 	RoleCountsApprover: bothSurfaces("counts", LevelOversee),
 	// The verifier casts verdicts and does not carry out the work being judged. This is the
 	// one principal for whom verification at LevelDo is correct rather than a risk.
 	RoleVerifier: rows(
 		bothSurfaces("verification", LevelView, LevelDo),
-		bothSurfaces("vaccination", LevelView, LevelOversee),
+		bothSurfaces("vaccination", LevelView),
 		one(assign("feed_direction", SurfaceWeb, LevelView)),
 		one(assign("procurement", SurfaceWeb, LevelView, LevelOversee)),
 		one(assign("people", SurfaceWeb, LevelView)),
-		one(assign("herd_register", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("herd_register", SurfaceWeb, LevelView, LevelOversee)),
 		one(assign("locations", SurfaceWeb, LevelView, LevelOversee)),
 		one(assign("calendar", SurfaceWeb, LevelView)),
 		one(assign("config", SurfaceWeb, LevelView)),
 	),
-	// Whole-org. Every module the CEO holds today, at the authority they hold it.
+	// Whole-org. Note weighing and pc_care at View+Configure and NOT Do: the CEO plans that
+	// work and never carries it out.
 	RoleCEOInternal: rows(
 		bothSurfaces("vaccination", LevelView, LevelOversee, LevelConfigure),
-		bothSurfaces("weighing", LevelView, LevelOversee, LevelConfigure),
-		bothSurfaces("counts", LevelView, LevelDo, LevelOversee),
+		bothSurfaces("weighing", LevelView, LevelConfigure),
+		bothSurfaces("pc_care", LevelView, LevelConfigure),
+		bothSurfaces("counts", LevelView, LevelDo, LevelOversee, LevelConfigure),
 		bothSurfaces("feed_direction", LevelView, LevelOversee, LevelConfigure),
 		bothSurfaces("aas_health", LevelView, LevelDo, LevelOversee, LevelConfigure),
-		bothSurfaces("pc_care", LevelView, LevelConfigure),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee, LevelConfigure),
+		bothSurfaces("herd_register", LevelView, LevelDo, LevelOversee, LevelConfigure),
 		one(assign("procurement", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
 		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
 		one(assign("sales", SurfaceWeb, LevelView, LevelDo)),
-		one(assign("verification", SurfaceWeb, LevelView, LevelConfigure)),
-		one(assign("herd_signals", SurfaceWeb, LevelView, LevelDo, LevelConfigure)),
+		one(assign("verification", SurfaceWeb, LevelConfigure)),
 		one(assign("config", SurfaceWeb, LevelView, LevelDo, LevelConfigure)),
-		one(assign("herd_register", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
-		one(assign("locations", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
+		one(assign("locations", SurfaceWeb, LevelView, LevelDo, LevelOversee, LevelConfigure)),
 		one(assign("calendar", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("operations", SurfaceWeb, LevelOversee)),
+		one(assign("herd_signals", SurfaceWeb, LevelView, LevelDo, LevelConfigure)),
 	),
 }
 
@@ -200,6 +197,9 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 // authority level and a vertical is a module -- so it maps almost one to one. It is mapped
 // by TIER here and the vertical's own module is added by verticalModule below, exactly the
 // way permissions_orgrole.go composes tierPermissions with its per-vertical additions.
+//
+// These 36 roles are dormant catalog scaffolding (AGENTS.md); only am_health and
+// manager_health are granted on STG today.
 var tierAssignments = map[Tier][]ModuleAssignment{
 	// Assistant Manager supervises ground execution; the Operator role owns capture. Counts
 	// carries Do AND Oversee together -- this tier records the count and approves it, which
@@ -220,12 +220,13 @@ var tierAssignments = map[Tier][]ModuleAssignment{
 		bothSurfaces("herd_register", LevelView),
 		bothSurfaces("calendar", LevelView, LevelDo),
 	),
-	// Head -- park/vertical oversight and standards; acts on verified items. No capture.
+	// Head -- park/vertical oversight and standards; acts on verified items. No capture, so
+	// counts carries Oversee (approve) WITHOUT Do (record).
 	TierHead: rows(
 		bothSurfaces("vaccination", LevelView, LevelOversee),
 		bothSurfaces("counts", LevelView, LevelOversee),
 		bothSurfaces("procurement", LevelView, LevelOversee),
-		bothSurfaces("people", LevelView, LevelDo),
+		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
 		bothSurfaces("herd_register", LevelView),
 		bothSurfaces("calendar", LevelView, LevelDo),
 		one(assign("verification", SurfaceWeb, LevelOversee)),
@@ -237,8 +238,7 @@ var tierAssignments = map[Tier][]ModuleAssignment{
 		bothSurfaces("counts", LevelView, LevelOversee),
 		bothSurfaces("procurement", LevelView),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
-		bothSurfaces("aas_health", LevelOversee),
-		bothSurfaces("herd_register", LevelView),
+		bothSurfaces("herd_register", LevelView, LevelDo),
 		bothSurfaces("calendar", LevelView, LevelDo),
 		one(assign("verification", SurfaceWeb, LevelOversee)),
 		one(assign("config", SurfaceWeb, LevelView, LevelConfigure)),
@@ -254,9 +254,9 @@ func verticalModule(tier Tier, vertical Vertical) []ModuleAssignment {
 		// Raising a sick-goat report is field work every health tier does; clinical diagnosis
 		// starts at Manager (maintainer decision 2026-07-30).
 		if senior {
-			return bothSurfaces("aas_health", LevelView, LevelDo, LevelOversee)
+			return bothSurfaces("aas_health", LevelView, LevelOversee)
 		}
-		return bothSurfaces("aas_health", LevelView, LevelDo)
+		return bothSurfaces("aas_health", LevelView)
 	case VerticalFeed:
 		// Oversight tiers read the feed dispatch sheet through Feed's own permission.
 		if tier == TierHead || tier == TierDirector {
