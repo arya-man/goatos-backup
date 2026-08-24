@@ -11,6 +11,7 @@ import (
 	"time"
 
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 )
 
@@ -1079,7 +1080,8 @@ func (c *WeighingLifecycleEventConsumer) handleWorkItemCadence(ctx context.Conte
 // push itself. A bare count is not actionable; see docs/decisions/2026-08-02-meaningful-notification-copy.md.
 func weighingPlanPublishedBody(shedLabels []string, startBusinessDate string) string {
 	const maxNamedSheds = 4
-	when := strings.TrimSpace(startBusinessDate)
+	// dd/mm/yyyy in visible copy (maintainer decision 2026-08-24); the ISO value stays in context.
+	when := biztime.FarmDateFromBusinessDate(strings.TrimSpace(startBusinessDate))
 	if when == "" {
 		when = "the planned start date"
 	}
