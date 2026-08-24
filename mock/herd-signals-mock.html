@@ -1169,8 +1169,7 @@ function renderDetail(){
     row('Temp sensor', x.tempOk?'OK':'Abnormal','direct')+
     row('Accelerometer', x.accelOk?'OK':'Abnormal','direct')+
     row('Mapping state', x.mapping,'derived')+
-    '</dl>'+
-    '<div class="banner info" style="margin:12px 0 0;font-size:11.5px">'+svg(IC.alert)+'<div>Tag temperature is the temperature of the tag, not the animal. No behaviour, posture or clinical state is inferred from these values.</div></div>';
+    '</dl>';
 }
 function row(k,v,src){return '<dt>'+k+'</dt><dd>'+v+'<span class="srcl '+src+'">'+src+'</span></dd>';}
 

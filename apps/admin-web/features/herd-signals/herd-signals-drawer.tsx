@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Maximize2, Radio, X } from "lucide-react";
+import { Maximize2, Radio, X } from "lucide-react";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { useLocalOverlaySelection } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
@@ -307,10 +307,6 @@ export function HerdSignalsDrawer({
               <span className="srcl derived">Derived</span>
             </dd>
           </dl>
-          <div className="banner info hs-drawer-note">
-            <AlertTriangle className="ic" />
-            <div>Tag temperature is the temperature of the tag, not the animal. No behaviour, posture or clinical state is inferred from these values.</div>
-          </div>
         </div>
       </aside>
     </>
