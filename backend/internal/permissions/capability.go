@@ -89,13 +89,17 @@ var moduleCapabilities = []ModuleCapability{
 		Levels: map[string][]string{
 			LevelView: {VaccinationRead, VaccinationOverviewRead, VaccinationAlertsRead, ObligationRead, ProtocolRead},
 			LevelDo:   {VaccinationRead, VaccinationOverviewRead, VaccinationAlertsRead, ObligationRead, ProtocolRead, TaskExecute},
+			// Supervising a park's vaccination execution: watch the drive, sign off task work.
+			// NO TaskAssign -- handing out today's work is roster authority and lives on the
+			// people module, so a supervisor with no team cannot assign work.
 			LevelOversee: {
 				VaccinationRead, VaccinationOverviewRead, VaccinationAlertsRead, ObligationRead, ProtocolRead,
-				VaccinationOverseeExecution, VaccinationVerify, TaskAssign, TaskVerify,
+				VaccinationOverseeExecution, TaskVerify,
 			},
+			// Authoring the drive itself, which is what makes this the top level.
 			LevelConfigure: {
 				VaccinationRead, VaccinationOverviewRead, VaccinationAlertsRead, ObligationRead, ProtocolRead,
-				VaccinationOverseeExecution, VaccinationVerify, TaskAssign, TaskVerify, VaccinationCampaign,
+				VaccinationOverseeExecution, TaskVerify, VaccinationVerify, VaccinationCampaign,
 			},
 		},
 	},
@@ -103,21 +107,31 @@ var moduleCapabilities = []ModuleCapability{
 		Key:      "weighing",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
-			LevelView:    {WeighingMonitor},
-			LevelDo:      {WeighingMonitor, WeighingExecute},
-			LevelOversee: {WeighingMonitor, WeighingExecute, WeighingOverseeOperators},
-			// Planning a weighing task is a separate authority from running one (maintainer
-			// decision 2026-08-01: the Growth Director monitors, oversees and executes, but the
-			// CEO raises the task). It stays the top level so granting it is a deliberate act.
-			LevelConfigure: {WeighingMonitor, WeighingExecute, WeighingOverseeOperators, WeighingPlan},
+			LevelView: {WeighingMonitor},
+			LevelDo:   {WeighingMonitor, WeighingExecute},
+			// Browsing other people's weighing work. Deliberately WITHOUT WeighingExecute:
+			// overseeing the operators and holding the scanner are different jobs.
+			LevelOversee: {WeighingMonitor, WeighingOverseeOperators},
+			// RAISING the task. CEO-only today (maintainer decision 2026-08-01) and deliberately
+			// WITHOUT Execute: the CEO plans weighing and never carries it out. A cumulative
+			// ladder would have handed the CEO the scanner.
+			LevelConfigure: {WeighingMonitor, WeighingPlan},
 		},
 	},
 	{
 		Key:      "counts",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
-			LevelView: {CountsRead, CountsAlertsRead},
-			LevelDo:   {CountsRead, CountsAlertsRead, CountsWrite},
+			// Alerts only. The Counts SCREENS are counts.read, which sits at LevelDo with the
+			// capture write: Counts is a deliberately OFF feature held back by exactly
+			// counts.read / counts.write, and the Health Director is its declared OWNER while
+			// holding neither (AGENTS.md -- ownership is not access). LevelView is what that
+			// ownership looks like: he is notified, and the module stays dark.
+			LevelView: {CountsAlertsRead},
+			// Phone capture: record a birth, a death, a shifting. Deliberately WITHOUT
+			// counts.read -- that is the admin-web Counts screens, which is a different
+			// authority and the one actually holding this OFF feature closed.
+			LevelDo: {CountsAlertsRead, CountsWrite},
 			// The three approve_* permissions travel together: they are one job (deciding a
 			// raised birth / death / shifting), and splitting them would let someone approve a
 			// death but not the shifting it implies.
@@ -129,6 +143,9 @@ var moduleCapabilities = []ModuleCapability{
 			// deliberately OFF feature held back by exactly counts.read / counts.write.
 			// Someone who needs both ticks View as well.
 			LevelOversee: {CountsApproveLifecycle, CountsApproveShifting, CountsApproveAccess},
+			// The admin-web Counts screens (counts.read). Held by ceo_internal alone today; this
+			// is the tick that would switch the feature on, so it sits at the top level.
+			LevelConfigure: {CountsAlertsRead, CountsRead, CountsWrite},
 		},
 	},
 	{
@@ -152,27 +169,31 @@ var moduleCapabilities = []ModuleCapability{
 		Key:      "aas_health",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
-			LevelView: {HealthRead},
-			LevelDo:   {HealthRead, HealthReport, HealthExecute},
+			// Reading the animal's health and RAISING a sick-goat report -- field work every
+			// tier does, including one that never carries out a course.
+			LevelView: {HealthRead, HealthReport},
+			// Carrying out the prescribed course.
+			LevelDo: {HealthRead, HealthReport, HealthExecute},
 			// Diagnosing is a clinical judgement, and writing a health fact onto an animal
 			// follows it. Executing a course someone else prescribed does not.
-			LevelOversee: {HealthRead, HealthReport, HealthDiagnose, GoatWriteHealth},
+			// Diagnosing is a clinical judgement; executing a course someone else prescribed is
+			// not. Recording the health fact ON the animal is herd_register's LevelDo, because a
+			// non-clinical role (the Growth Director) holds that write with no health read.
+			LevelOversee: {HealthRead, HealthReport, HealthDiagnose},
 			// Authoring the standing treatment rulebook (/health/config). Versioned, never
 			// edited in place -- see docs/decisions/health-config-authoring.md.
-			LevelConfigure: {
-				HealthRead, HealthReport, HealthDiagnose, GoatWriteHealth,
-				HealthConfigRead, HealthConfigWrite,
-			},
+			LevelConfigure: {HealthRead, HealthDiagnose, HealthConfigRead, HealthConfigWrite},
 		},
 	},
 	{
 		Key:      "pc_care",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
-			LevelView:      {PCCareMonitor},
-			LevelDo:        {PCCareMonitor, PCCareExecute},
-			LevelOversee:   {PCCareMonitor, PCCareExecute, PCCareOverseeOperators},
-			LevelConfigure: {PCCareMonitor, PCCareExecute, PCCareOverseeOperators, PCCarePlan},
+			LevelView:    {PCCareMonitor},
+			LevelDo:      {PCCareMonitor, PCCareExecute},
+			LevelOversee: {PCCareMonitor, PCCareOverseeOperators},
+			// Planning without executing, exactly as weighing above.
+			LevelConfigure: {PCCareMonitor, PCCarePlan},
 		},
 	},
 	{
@@ -225,6 +246,9 @@ var moduleCapabilities = []ModuleCapability{
 			LevelDo: {
 				VerificationReview, VerificationVerdict,
 				VerificationEvidenceTimeline, VerificationFilterByCaptureDate,
+				// The older per-vaccination verify and the shared task sign-off travel with the
+				// verdict: they are the same act on a different record.
+				VaccinationVerify, TaskVerify,
 			},
 			// A module director acting on a verdict someone else cast: close the work, send it
 			// back, reassign it. Deliberately WITHOUT VerificationOversee -- the company-wide
@@ -243,10 +267,12 @@ var moduleCapabilities = []ModuleCapability{
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			LevelView: {OperatorsRead, RosterRead},
-			LevelDo:   {OperatorsRead, RosterRead, OperatorsManageRoster, OperatorsManageDevice, RosterManage, TaskAssign},
+			// Running a team: manage the roster and hand out today's work.
+			LevelDo: {OperatorsRead, RosterRead, OperatorsManageRoster, RosterManage, TaskAssign},
+			// Issuing or reclaiming a person's device, and reading their audit trail.
 			LevelOversee: {
-				OperatorsRead, RosterRead, OperatorsManageRoster, OperatorsManageDevice, RosterManage, TaskAssign,
-				OperatorsViewAudit,
+				OperatorsRead, RosterRead, OperatorsManageRoster, RosterManage, TaskAssign,
+				OperatorsManageDevice, OperatorsViewAudit,
 			},
 			// Creating people, activating/deactivating them, and changing what they may do IS
 			// this screen's own authority. It is the top level deliberately: whoever holds it can
@@ -275,19 +301,26 @@ var moduleCapabilities = []ModuleCapability{
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			LevelView: {GoatRead},
-			LevelDo:   {GoatRead, GoatWriteIdentity},
+			// Recording a health fact about one animal. Held by roles with no health-module
+			// access at all (the Growth Director), which is why it lives here and not there.
+			LevelDo: {GoatRead, GoatWriteHealth},
+			// Editing the animal's identity -- tags, breed, sex.
+			LevelOversee: {GoatRead, GoatWriteIdentity},
 			// Reclassifying an animal's shed stage rewrites where the herd thinks it sits, so it
 			// sits above ordinary identity edits (today: ceo_internal alone).
-			LevelOversee: {GoatRead, GoatWriteIdentity, GoatReclassifyShedStage},
+			LevelConfigure: {GoatRead, GoatWriteIdentity, GoatReclassifyShedStage},
 		},
 	},
 	{
 		Key:      "locations",
 		Surfaces: []string{SurfaceWeb},
 		Levels: map[string][]string{
-			LevelView:    {LocationsRead},
-			LevelDo:      {LocationsRead, LocationsWrite},
-			LevelOversee: {LocationsRead, LocationsWrite, LocationsReview, LocationsRetire},
+			LevelView: {LocationsRead},
+			LevelDo:   {LocationsRead, LocationsWrite},
+			// Reviewing a proposed location WITHOUT editing or retiring one -- the verifier's
+			// shape. Bundling these handed a verifier the power to retire a shed.
+			LevelOversee:   {LocationsRead, LocationsReview},
+			LevelConfigure: {LocationsRead, LocationsWrite, LocationsReview, LocationsRetire},
 		},
 	},
 	{
