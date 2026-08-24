@@ -135,7 +135,21 @@ SET protocol_version_id = EXCLUDED.protocol_version_id,
 	// written before this column existed is invisible to it -- and generation would insert beside
 	// it, booking the same dose twice. Derived from the lineage row of whichever rule the
 	// obligation already points at, so it says exactly what the rule says.
+	// Only rows whose identity is UNAMBIGUOUS are stamped. An animal that already holds two open
+	// obligations for one dose cannot be labelled, because the label would assert the invariant
+	// -- one open obligation per identity -- that the data itself contradicts, and the unique
+	// index would reject it.
+	//
+	// Those groups are reported rather than resolved. Picking a survivor means cancelling
+	// somebody's scheduled vaccination on a guess about which of two dates is right, and a
+	// backfill is the wrong place to make that call silently. They are pre-existing duplicates:
+	// this change neither created them nor depends on fixing them, and the rows it leaves alone
+	// keep behaving exactly as they do today.
 	var stamped int64
+	conflicts, err := countAmbiguousIdentities(ctx, pool, tenantID)
+	if err != nil {
+		fail(err)
+	}
 	if *apply {
 		tag, err := pool.Exec(ctx, `
 UPDATE obligation_instances oi
@@ -147,7 +161,20 @@ WHERE l.tenant_id = oi.tenant_id
   AND l.rule_id = oi.rule_id
   AND oi.rule_identity_key IS DISTINCT FROM l.identity_key
   AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
-  AND ($1::uuid IS NULL OR oi.tenant_id = $1::uuid)`, nullableUUID(tenantID))
+  AND ($1::uuid IS NULL OR oi.tenant_id = $1::uuid)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM obligation_instances other
+    JOIN protocol_rule_lineage ol
+      ON ol.tenant_id = other.tenant_id AND ol.rule_id = other.rule_id
+    WHERE other.tenant_id = oi.tenant_id
+      AND other.target_type = oi.target_type
+      AND other.target_id = oi.target_id
+      AND other."sequence" = oi."sequence"
+      AND ol.identity_key = l.identity_key
+      AND other.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      AND other.obligation_id <> oi.obligation_id
+  )`, nullableUUID(tenantID))
 		if err != nil {
 			fail(fmt.Errorf("stamp obligation identities: %w", err))
 		}
@@ -159,6 +186,15 @@ WHERE l.tenant_id = oi.tenant_id
 		mode = "wrote"
 	}
 	fmt.Printf("backfill-protocol-rule-lineage: %s %d lineage row(s), stamped %d open obligation(s) with their rule identity, skipped %d rule(s) whose content could not be fingerprinted\n", mode, written, stamped, skipped)
+	if conflicts > 0 {
+		fmt.Printf("backfill-protocol-rule-lineage: %d (animal, rule, sequence) group(s) already hold more than one OPEN obligation and were left unlabelled.\n", conflicts)
+		fmt.Println("  These are pre-existing duplicates, not something this change introduced. Until one of each pair is closed")
+		fmt.Println("  they keep the behaviour they have today; reconciliation simply cannot claim them. List them with:")
+		fmt.Println(`    SELECT oi.target_id, l.identity_key, oi."sequence", count(*), array_agg(oi.obligation_id), array_agg(oi.due_at)`)
+		fmt.Println(`    FROM obligation_instances oi JOIN protocol_rule_lineage l ON l.tenant_id = oi.tenant_id AND l.rule_id = oi.rule_id`)
+		fmt.Println(`    WHERE oi.status IN ('scheduled','due','in_progress','deferred')`)
+		fmt.Println(`    GROUP BY 1,2,3 HAVING count(*) > 1;`)
+	}
 	if !*apply {
 		fmt.Println("re-run with -apply to write them")
 	}
@@ -206,6 +242,26 @@ ORDER BY pr.tenant_id, pr.protocol_version_id, pr.rule_id`, nullableUUID(tenantI
 		return nil, fmt.Errorf("read rules missing lineage: %w", err)
 	}
 	return out, nil
+}
+
+// countAmbiguousIdentities counts the (animal, identity, sequence) groups that already hold more
+// than one open obligation. They cannot be labelled without asserting an invariant the data
+// contradicts, and choosing which of them to cancel is a clinical decision, not a migration's.
+func countAmbiguousIdentities(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int, error) {
+	var groups int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM (
+  SELECT oi.target_id, l.identity_key, oi."sequence"
+  FROM obligation_instances oi
+  JOIN protocol_rule_lineage l ON l.tenant_id = oi.tenant_id AND l.rule_id = oi.rule_id
+  WHERE oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+    AND ($1::uuid IS NULL OR oi.tenant_id = $1::uuid)
+  GROUP BY 1, 2, 3
+  HAVING count(*) > 1
+) g`, nullableUUID(tenantID)).Scan(&groups); err != nil {
+		return 0, fmt.Errorf("count ambiguous identities: %w", err)
+	}
+	return groups, nil
 }
 
 func nullableUUID(v string) any {

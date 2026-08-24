@@ -75,6 +75,43 @@ this change, correctly.
 `sort_order` and `created_at` change nothing about what is owed. Reordering the
 vaccine list in the editor must not reschedule anything.
 
+## Obligations follow the rule's identity, not the version
+
+The mistake this design corrects is treating a version pointer as identity.
+Obligations were keyed by `(goat, protocol_version_id, rule_id, due_at,
+sequence)`. Publishing rewrites every rule row, so the same ET+TT rule is a
+different `rule_id` in every version, and the animal's existing work looked —
+to the database — like it belonged to something that no longer exists.
+Cancel-and-re-mint follows directly from that.
+
+An obligation therefore carries `rule_identity_key`: the same
+`vaccine|dose|sequence` value the publisher writes to lineage. A version becomes
+what it always should have been — history — and "is this the animal's existing
+ET+TT work?" stops depending on which version is current.
+
+**At most one open obligation per `(target, identity, sequence)`**, enforced by
+`obligation_open_rule_identity_unique_idx` rather than by generation remembering
+to check.
+
+### Reconcile before insert
+
+A rule's content can be unchanged while the date an animal owes it moves,
+because the due date is computed from the **animal's** history too — a dose
+recorded late, a correction applied afterwards. Keeping the old row untouched
+leaves a stale date; inserting a new one books the same dose twice. Neither is
+acceptable, and double-booking is the worse of the two: churn loses continuity,
+this books medical work twice.
+
+So before generation inserts, it looks for the animal's open work under that
+identity — ignoring version, rule UUID and due date, none of which say whether
+this is the same piece of work — and **moves what it finds**: same
+`obligation_id`, new due date, new version and rule pointers, and the
+idempotency key generation now owns. Only when nothing is found does it insert.
+
+In-flight work is claimed but not moved. An operator part-way through a drive
+keeps the dose they are administering; generation still does not write a second
+row beside it.
+
 ## Order of operations at generation
 
 Carry-over runs **before** supersede, and supersede before generation:
@@ -132,12 +169,20 @@ staging clone, same publish either way:
 So the order is:
 
 ```bash
-# 1. migrate (creates the empty lineage table)
+# 1. migrate (creates the lineage table and the obligation identity column)
 # 2. label the rules that already exist
 DATABASE_URL=... go run ./backend/cmd/backfill-protocol-rule-lineage -tenant-id <tenant>          # dry run
 DATABASE_URL=... go run ./backend/cmd/backfill-protocol-rule-lineage -tenant-id <tenant> -apply
 # 3. only then publish
 ```
+
+The backfill also stamps the identity onto existing OPEN obligations, without
+which reconciliation cannot see work written before the column existed — which is
+the double-booking case again. Animals that already hold two open obligations for
+one dose are reported and left unlabelled: choosing which of them to cancel is a
+clinical decision, not a migration's. On a staging clone that was 561 groups,
+pre-existing and unrelated to this change; they keep behaving exactly as they do
+today until somebody closes one of each pair.
 
 The backfill computes the fingerprint with the **same domain helpers the
 publisher uses**, from the stored rule row. Deriving it in SQL would risk a
