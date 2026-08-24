@@ -281,7 +281,7 @@ inserted AS (
     shifting_event_id, tenant_id, logical_shifting_event_key, priority, category,
     source_park_id, source_shed_id, destination_park_id, destination_shed_id,
     raised_at, effective_at, authorized_at, authorization_state, verification_state,
-    event_status, source_system, source_ref, payload_hash, idempotency_key,
+    event_status, applied_at, source_system, source_ref, payload_hash, idempotency_key,
     request_fingerprint
   )
   SELECT
@@ -289,7 +289,7 @@ inserted AS (
     $1::uuid,
     $2 || ':' || g::text,
     'high',
-    'pregnancy',
+    'growth',
     $3::uuid,
     $4::uuid,
     $5::uuid,
@@ -300,6 +300,9 @@ inserted AS (
     'authorized',
     'verified',
     event_status,
+    -- shifting_events_applied_shape_check: an applied event MUST carry applied_at, and a
+    -- non-applied one must carry neither applied_at nor applied_by.
+    CASE WHEN event_status = 'applied' THEN $7::timestamptz ELSE NULL END,
     'goatos_canonical',
     'query-plan:' || $2 || ':' || g::text,
     'query-plan-payload:' || $2 || ':' || g::text,
