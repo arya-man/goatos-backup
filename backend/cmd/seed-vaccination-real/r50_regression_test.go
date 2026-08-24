@@ -184,6 +184,7 @@ func TestPersistDobDispositionProofWritesEmptyArrayNotNullAndRollsBackWithTx(t *
 	if err != nil {
 		t.Fatalf("begin rollback tx: %v", err)
 	}
+	defer func() { _ = txRollback.Rollback(ctx) }()
 	if err := persistDobDispositionProofInTx(ctx, txRollback, runID, nil); err != nil {
 		t.Fatalf("persist (to be rolled back): %v", err)
 	}
@@ -203,6 +204,7 @@ func TestPersistDobDispositionProofWritesEmptyArrayNotNullAndRollsBackWithTx(t *
 	if err != nil {
 		t.Fatalf("begin commit tx: %v", err)
 	}
+	defer func() { _ = txCommit.Rollback(ctx) }()
 	if err := persistDobDispositionProofInTx(ctx, txCommit, runID, nil); err != nil {
 		t.Fatalf("persist: %v", err)
 	}

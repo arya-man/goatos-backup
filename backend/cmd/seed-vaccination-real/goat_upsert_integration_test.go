@@ -38,6 +38,7 @@ func TestSeedGoatUpsertRefreshesGenerationFactsOnRerun(t *testing.T) {
 		if err != nil {
 			t.Fatalf("begin goat upsert: %v", err)
 		}
+		defer func() { _ = tx.Rollback(ctx) }()
 		committed := false
 		defer func() {
 			if !committed {
@@ -54,31 +55,35 @@ func TestSeedGoatUpsertRefreshesGenerationFactsOnRerun(t *testing.T) {
 	}
 
 	base := seedGoatUpsertRow{
-		goatID:    goatID,
-		animalKey: "rerun-source-correction",
-		species:   "goat",
-		breed:     "Sojat",
-		sex:       "female",
-		lifecycle: "alive",
-		stage:     "Adult",
-		age:       "Adult",
-		shedID:    shedID,
-		parkID:    testCbePark,
+		goatID:         goatID,
+		animalKey:      "rerun-source-correction",
+		partitionLabel: "1",
+		sourceShedName: "Seed Test Shed",
+		species:        "goat",
+		breed:          "Sojat",
+		sex:            "female",
+		lifecycle:      "alive",
+		stage:          "Adult",
+		age:            "Adult",
+		shedID:         shedID,
+		parkID:         testCbePark,
 	}
 	upsert(seedGoatUpsertRow{
-		goatID:     base.goatID,
-		animalKey:  base.animalKey,
-		species:    base.species,
-		breed:      base.breed,
-		sex:        base.sex,
-		lifecycle:  base.lifecycle,
-		originType: "procured",
-		stage:      base.stage,
-		age:        base.age,
-		shedID:     base.shedID,
-		parkID:     base.parkID,
-		dob:        "2026-01-01",
-		entryDate:  "2026-01-15",
+		goatID:         base.goatID,
+		animalKey:      base.animalKey,
+		partitionLabel: base.partitionLabel,
+		sourceShedName: base.sourceShedName,
+		species:        base.species,
+		breed:          base.breed,
+		sex:            base.sex,
+		lifecycle:      base.lifecycle,
+		originType:     "procured",
+		stage:          base.stage,
+		age:            base.age,
+		shedID:         base.shedID,
+		parkID:         base.parkID,
+		dob:            "2026-01-01",
+		entryDate:      "2026-01-15",
 	}, testMeshaParty)
 
 	repo := vaccinationpg.NewRepository(pool, 5*time.Second)
@@ -94,19 +99,21 @@ func TestSeedGoatUpsertRefreshesGenerationFactsOnRerun(t *testing.T) {
 	}
 
 	upsert(seedGoatUpsertRow{
-		goatID:     base.goatID,
-		animalKey:  base.animalKey,
-		species:    base.species,
-		breed:      base.breed,
-		sex:        base.sex,
-		lifecycle:  base.lifecycle,
-		originType: "birth",
-		stage:      "K1",
-		age:        "Kid",
-		shedID:     base.shedID,
-		parkID:     base.parkID,
-		dob:        "2026-05-01",
-		entryDate:  "2026-05-01",
+		goatID:         base.goatID,
+		animalKey:      base.animalKey,
+		partitionLabel: base.partitionLabel,
+		sourceShedName: base.sourceShedName,
+		species:        base.species,
+		breed:          base.breed,
+		sex:            base.sex,
+		lifecycle:      base.lifecycle,
+		originType:     "birth",
+		stage:          "K1",
+		age:            "Kid",
+		shedID:         base.shedID,
+		parkID:         base.parkID,
+		dob:            "2026-05-01",
+		entryDate:      "2026-05-01",
 	}, correctedCustodianID)
 
 	second, ok, err := repo.GetGoatForGeneration(ctx, defaultTenantID, goatID)
@@ -159,6 +166,7 @@ func TestSeedGoatIdentifiersPreservesExistingPrimaryOnRerun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin identifier upsert: %v", err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := upsertSeedGoatIdentifiers(ctx, tx, defaultTenantID, []seedGoatUpsertRow{{
 		goatID:            goatID,
 		animalIdentifier1: "NEW-RFID",
@@ -234,18 +242,20 @@ func TestSeedGoatUpsertRejectsCrossParkChangeOnRerun(t *testing.T) {
 		shedID, defaultTenantID, testCbePark)
 
 	row := seedGoatUpsertRow{
-		goatID:    goatID,
-		animalKey: "cross-park-reject",
-		species:   "goat",
-		breed:     "Sojat",
-		sex:       "female",
-		lifecycle: "alive",
-		stage:     "Adult",
-		age:       "Adult",
-		shedID:    shedID,
-		parkID:    testCbePark,
-		dob:       "2026-01-01",
-		entryDate: "2026-01-15",
+		goatID:         goatID,
+		animalKey:      "cross-park-reject",
+		partitionLabel: "1",
+		sourceShedName: "Seed Test Shed",
+		species:        "goat",
+		breed:          "Sojat",
+		sex:            "female",
+		lifecycle:      "alive",
+		stage:          "Adult",
+		age:            "Adult",
+		shedID:         shedID,
+		parkID:         testCbePark,
+		dob:            "2026-01-01",
+		entryDate:      "2026-01-15",
 	}
 
 	// First upsert: initial placement in testCbePark. Must succeed and commit.
@@ -253,6 +263,7 @@ func TestSeedGoatUpsertRejectsCrossParkChangeOnRerun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin first upsert: %v", err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := upsertSeedGoats(ctx, tx, defaultTenantID, []seedGoatUpsertRow{row}, testMeshaParty); err != nil {
 		t.Fatalf("first upsert (initial placement) should succeed: %v", err)
 	}
@@ -269,6 +280,7 @@ func TestSeedGoatUpsertRejectsCrossParkChangeOnRerun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin second upsert: %v", err)
 	}
+	defer func() { _ = tx2.Rollback(ctx) }()
 	err = upsertSeedGoats(ctx, tx2, defaultTenantID, []seedGoatUpsertRow{movedRow}, testMeshaParty)
 	if err == nil {
 		t.Fatal("cross-park move upsert = nil error, want rejection")
@@ -318,24 +330,27 @@ func TestSeedGoatUpsertAllowsInitialPlacementWhenExistingParkIsNull(t *testing.T
 		goatID, defaultTenantID, testMeshaParty)
 
 	row := seedGoatUpsertRow{
-		goatID:    goatID,
-		animalKey: "cross-park-null-exempt",
-		species:   "goat",
-		breed:     "Sojat",
-		sex:       "female",
-		lifecycle: "alive",
-		stage:     "Adult",
-		age:       "Adult",
-		shedID:    shedID,
-		parkID:    testCbePark,
-		dob:       "2026-01-01",
-		entryDate: "2026-01-15",
+		goatID:         goatID,
+		animalKey:      "cross-park-null-exempt",
+		partitionLabel: "1",
+		sourceShedName: "Seed Test Shed",
+		species:        "goat",
+		breed:          "Sojat",
+		sex:            "female",
+		lifecycle:      "alive",
+		stage:          "Adult",
+		age:            "Adult",
+		shedID:         shedID,
+		parkID:         testCbePark,
+		dob:            "2026-01-01",
+		entryDate:      "2026-01-15",
 	}
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin upsert: %v", err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := upsertSeedGoats(ctx, tx, defaultTenantID, []seedGoatUpsertRow{row}, testMeshaParty); err != nil {
 		t.Fatalf("initial placement from NULL park should succeed: %v", err)
 	}
@@ -383,18 +398,20 @@ func TestSeedGoatUpsertAllowsIntraParkShedMove(t *testing.T) {
 		shedBID, defaultTenantID, testCbePark)
 
 	row := seedGoatUpsertRow{
-		goatID:    goatID,
-		animalKey: "intra-park-shed-move",
-		species:   "goat",
-		breed:     "Sojat",
-		sex:       "female",
-		lifecycle: "alive",
-		stage:     "Adult",
-		age:       "Adult",
-		shedID:    shedAID,
-		parkID:    testCbePark,
-		dob:       "2026-01-01",
-		entryDate: "2026-01-15",
+		goatID:         goatID,
+		animalKey:      "intra-park-shed-move",
+		partitionLabel: "1",
+		sourceShedName: "Seed Test Shed",
+		species:        "goat",
+		breed:          "Sojat",
+		sex:            "female",
+		lifecycle:      "alive",
+		stage:          "Adult",
+		age:            "Adult",
+		shedID:         shedAID,
+		parkID:         testCbePark,
+		dob:            "2026-01-01",
+		entryDate:      "2026-01-15",
 	}
 
 	// First upsert: initial placement in shed A, park testCbePark. Must succeed and commit.
@@ -402,6 +419,7 @@ func TestSeedGoatUpsertAllowsIntraParkShedMove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin first upsert: %v", err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := upsertSeedGoats(ctx, tx, defaultTenantID, []seedGoatUpsertRow{row}, testMeshaParty); err != nil {
 		t.Fatalf("first upsert (initial placement) should succeed: %v", err)
 	}
@@ -418,6 +436,7 @@ func TestSeedGoatUpsertAllowsIntraParkShedMove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin second upsert: %v", err)
 	}
+	defer func() { _ = tx2.Rollback(ctx) }()
 	if err := upsertSeedGoats(ctx, tx2, defaultTenantID, []seedGoatUpsertRow{movedRow}, testMeshaParty); err != nil {
 		t.Fatalf("intra-park shed move upsert should succeed, got error: %v", err)
 	}
