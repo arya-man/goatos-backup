@@ -159,13 +159,19 @@
   .top-date-arrow:hover{border-color:var(--brand);color:var(--brand)}
   .top-date-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
   .top-date-weekday{display:grid;place-items:center;height:24px;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase}
-  .top-date-day{display:grid;place-items:center;aspect-ratio:1;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink);font-size:12px;font-weight:650;cursor:pointer}
+  .top-date-day{position:relative;display:grid;place-items:center;aspect-ratio:1;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--ink);font-size:12px;font-weight:650;cursor:pointer}
   .top-date-day:hover{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 8%,transparent);color:var(--brand-d)}
   .top-date-day.outside{color:var(--muted);opacity:.48}
   .top-date-day.today{border-color:color-mix(in srgb,var(--brand) 48%,var(--line))}
   .top-date-day.on{border-color:var(--brand);background:var(--brand);color:#fff;box-shadow:0 4px 10px color-mix(in srgb,var(--brand) 28%,transparent)}
   .top-date-footer{display:flex;justify-content:flex-end;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
   .top-date-footer button{border:0;background:transparent;color:var(--brand);font-size:12px;font-weight:800;cursor:pointer}
+  .top-date-marker{position:absolute;left:50%;bottom:4px;width:4px;height:4px;border-radius:999px;background:var(--brand);transform:translateX(-50%);box-shadow:0 0 0 1px color-mix(in srgb,var(--panel) 72%,transparent)}
+  .top-date-day.on .top-date-marker{background:#fff;box-shadow:0 0 0 1px color-mix(in srgb,var(--brand) 35%,transparent)}
+  .top-date-marker-help{position:relative;display:inline-flex;align-items:center;gap:5px;margin-right:8px;color:var(--muted);cursor:help;outline:none}
+  .top-date-marker-help .ic{width:14px;height:14px}.top-date-marker.sample{position:static;transform:none;display:inline-block;flex:0 0 auto}
+  .top-date-marker-tip{position:absolute;right:0;bottom:calc(100% + 8px);z-index:5;display:none;width:max-content;max-width:220px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel-strong);color:var(--ink);box-shadow:0 8px 22px rgba(0,0,0,.28);font-size:11px;font-weight:700;line-height:1.25;text-align:left}
+  .top-date-marker-help:hover .top-date-marker-tip,.top-date-marker-help:focus-visible .top-date-marker-tip{display:block}
   .pscope.date-scope.stale{border-color:color-mix(in srgb,var(--warn) 48%,var(--line));background:color-mix(in srgb,var(--warn) 9%,var(--bg))}
   /* Page-body variant of the same calendar (Actions board capture-date filter). The top-bar copy
      hangs off the right edge of the shell; a filter row grows left-to-right, so the popover

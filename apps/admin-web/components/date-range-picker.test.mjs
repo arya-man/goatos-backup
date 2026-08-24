@@ -30,6 +30,32 @@ test("a future day cannot be requested", () => {
   assert.match(pickerSource, /if \(key > today\) return;/);
 });
 
+test("hosts can mark domain-specific days without giving the picker routing knowledge", () => {
+  assert.match(pickerSource, /markerDates = \[\]/);
+  assert.match(pickerSource, /markerFetchPath/);
+  assert.match(pickerSource, /const markerDateSet = useMemo\(\(\) => new Set\(visibleMarkerDates\), \[visibleMarkerDates\]\);/);
+  assert.match(pickerSource, /const marked = markerDateSet\.has\(key\);/);
+  assert.match(pickerSource, /className="top-date-marker"/);
+  assert.match(pickerSource, /className="top-date-marker-help"/);
+  assert.match(pickerSource, /className="top-date-marker-tip"/);
+  assert.match(pickerSource, /labels\.markerHint/);
+  assert.match(pickerSource, /const \[fetchedMarkerDates, setFetchedMarkerDates\] = useState<readonly string\[\]>\(\[\]\);/);
+  assert.match(pickerSource, /const visibleMarkerDates = markerFetchPath \? \(markerMonthStartsInFuture \? \[\] : fetchedMarkerDates\) : markerDates;/);
+  assert.doesNotMatch(pickerSource, /const markerDatesKey = markerDates\.join/);
+  assert.doesNotMatch(pickerSource, /setVisibleMarkerDates/);
+  assert.doesNotMatch(pickerSource, /\[cursor, markerDates, markerFetchPath, today\]/);
+});
+
+test("marker fetches use the visible calendar month, not the selected report span", () => {
+  assert.match(pickerSource, /const fromKey = monthStartKey\(cursor\);/);
+  assert.match(pickerSource, /const endKey = monthEndKey\(cursor\);/);
+  assert.match(pickerSource, /const toKey = endKey > today \? today : endKey;/);
+  assert.match(pickerSource, /url\.searchParams\.set\("from", fromKey\);/);
+  assert.match(pickerSource, /url\.searchParams\.set\("to", toKey\);/);
+  assert.doesNotMatch(pickerSource, /url\.searchParams\.set\("from", from\)/);
+  assert.doesNotMatch(pickerSource, /url\.searchParams\.set\("to", to\)/);
+});
+
 test("a range is two clicks and stays ordered whichever end is picked first", () => {
   assert.match(pickerSource, /if \(!rangeStart\) \{\s*\n\s*setRangeStart\(key\);/);
   assert.match(pickerSource, /if \(key < rangeStart\) commit\(key, rangeStart\);\s*\n\s*else commit\(rangeStart, key\);/);

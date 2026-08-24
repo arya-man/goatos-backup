@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
@@ -38,6 +38,7 @@ export type DateRangePickerLabels = {
   rangeStartHint: string;
   rangeEndHint: string;
   rangeSeparator: string;
+  markerHint?: string;
 };
 
 function parseDateKey(value: string): Date {
@@ -59,6 +60,19 @@ function sameMonth(left: Date, right: Date): boolean {
 
 function addMonths(date: Date, delta: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + delta, 1);
+}
+
+function monthStartKey(date: Date): string {
+  return dateKey(new Date(date.getFullYear(), date.getMonth(), 1));
+}
+
+function monthEndKey(date: Date): string {
+  return dateKey(new Date(date.getFullYear(), date.getMonth() + 1, 0));
+}
+
+function sameDateKeys(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }
 
 function buildMonthDays(cursor: Date): Date[] {
@@ -108,6 +122,8 @@ export function DateRangePicker({
   to,
   today,
   busy = false,
+  markerDates = [],
+  markerFetchPath,
   singleDayOnly = false,
   onChange,
 }: {
@@ -119,6 +135,15 @@ export function DateRangePicker({
   today: string;
   /** True while the host's navigation is in flight; announced on the popover. */
   busy?: boolean;
+  /** Business-day keys that should show a small marker inside the calendar grid. */
+  markerDates?: readonly string[];
+  /**
+   * Optional same-origin endpoint that accepts `from`/`to` business-day query params and returns
+   * `{ dates: string[] }` for the visible calendar month. This is deliberately separate from the
+   * selected report range: a reader opening August should see every August marker, even when the
+   * dashboard is currently reporting 15 Aug -> 25 Aug.
+   */
+  markerFetchPath?: string;
   /**
    * Hides the single/range tabs and pins the calendar to ONE day.
    *
@@ -148,6 +173,33 @@ export function DateRangePicker({
 
   const days = useMemo(() => buildMonthDays(cursor), [cursor]);
   const weekdays = useMemo(() => weekdayLabels(), []);
+  const [fetchedMarkerDates, setFetchedMarkerDates] = useState<readonly string[]>([]);
+  const markerMonthStartsInFuture = markerFetchPath ? monthStartKey(cursor) > today : false;
+  const visibleMarkerDates = markerFetchPath ? (markerMonthStartsInFuture ? [] : fetchedMarkerDates) : markerDates;
+  const markerDateSet = useMemo(() => new Set(visibleMarkerDates), [visibleMarkerDates]);
+
+  useEffect(() => {
+    if (!markerFetchPath || markerMonthStartsInFuture) return;
+    const fromKey = monthStartKey(cursor);
+    const endKey = monthEndKey(cursor);
+    const toKey = endKey > today ? today : endKey;
+    const controller = new AbortController();
+    const url = new URL(markerFetchPath, window.location.origin);
+    url.searchParams.set("from", fromKey);
+    url.searchParams.set("to", toKey);
+    fetch(url, { cache: "no-store", signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : { dates: [] }))
+      .then((body: { dates?: string[] }) => {
+        if (!controller.signal.aborted) {
+          const nextDates = Array.isArray(body.dates) ? body.dates : [];
+          setFetchedMarkerDates((current) => (sameDateKeys(current, nextDates) ? current : nextDates));
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setFetchedMarkerDates((current) => (current.length === 0 ? current : []));
+      });
+    return () => controller.abort();
+  }, [cursor, markerFetchPath, markerMonthStartsInFuture, today]);
 
   useEffect(() => {
     function onPointerDown(event: PointerEvent): void {
@@ -283,6 +335,7 @@ export function DateRangePicker({
             const future = key > today;
             const isEdge = key === previewFrom || key === previewTo;
             const inRange = strictlyBetween(key, previewFrom, previewTo);
+            const marked = markerDateSet.has(key);
             return (
               <button
                 key={key}
@@ -297,13 +350,16 @@ export function DateRangePicker({
                 ]
                   .filter(Boolean)
                   .join(" ")}
-                aria-label={formatFull(day)}
+                aria-label={marked && labels.markerHint ? `${formatFull(day)}. ${labels.markerHint}` : formatFull(day)}
                 aria-pressed={isEdge}
                 aria-current={key === today ? "date" : undefined}
                 data-date={key}
                 onClick={() => pickDay(key)}
               >
                 {day.getDate()}
+                {marked ? (
+                  <span className="top-date-marker" aria-hidden="true" title={labels.markerHint} />
+                ) : null}
               </button>
             );
           })}
@@ -312,6 +368,15 @@ export function DateRangePicker({
         <div className="top-date-footer">
           {mode === "range" ? (
             <span className="top-date-hint">{rangeStart ? labels.rangeEndHint : labels.rangeStartHint}</span>
+          ) : null}
+          {labels.markerHint && markerDateSet.size > 0 ? (
+            <span className="top-date-marker-help" tabIndex={0} aria-label={labels.markerHint}>
+              <span className="top-date-marker sample" aria-hidden="true" />
+              <Info className="ic" aria-hidden="true" />
+              <span className="top-date-marker-tip" role="tooltip">
+                {labels.markerHint}
+              </span>
+            </span>
           ) : null}
           <button type="button" onClick={() => commit(today, today)}>
             {labels.today}

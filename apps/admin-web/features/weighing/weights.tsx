@@ -55,11 +55,12 @@ function hrefWith(searchParams: RouteSearchParams, updates: Record<string, strin
   return query ? `${PAGE_PATH}?${query}` : PAGE_PATH;
 }
 
-// The window the page lands on: the 15 days before today, inclusive of both ends (maintainer,
-// 2026-08-24; 30 before that day, briefly 7 the same day). The calendar still picks any span —
-// this is only where the page starts. 15 days is wide enough that a shed weighed on a roughly
-// fortnightly round has TWO weighs in it, which is what a daily gain needs to exist at all.
+// Fallback window only. The real landing default is resolved below from the latest two lump-sum
+// weighing dates, because leadership reads this page as "latest available weigh minus the one
+// before it" rather than a clock-calendar fortnight. If that lookup cannot produce two dates, we
+// still need a stable page instead of an empty crash.
 const DEFAULT_WINDOW_DAYS = 15;
+const LATEST_LUMP_LOOKBACK_DAYS = 400;
 // Which view the gain-mark card is showing. Absent means the chart, so a shared link
 // that predates the toggle — or one copied from the default view — keeps meaning "chart".
 const GAIN_VIEW_PARAM = "gain_view";
@@ -73,13 +74,36 @@ const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
  * hand-edited URL must not take the page down. A future end is clamped to today, because a weigh
  * cannot have happened tomorrow and the reads would return an empty span for it.
  */
-function selectedWindow(params: RouteSearchParams, today: string): { from: string; to: string } {
+function explicitWindow(params: RouteSearchParams, today: string): { from: string; to: string } | null {
   const rawFrom = one(params, WINDOW_FROM_PARAM)?.trim();
   const rawTo = one(params, WINDOW_TO_PARAM)?.trim();
   if (rawFrom && rawTo && BUSINESS_DAY.test(rawFrom) && BUSINESS_DAY.test(rawTo) && rawFrom <= rawTo) {
     return { from: rawFrom > today ? today : rawFrom, to: rawTo > today ? today : rawTo };
   }
-  return defaultWindow(today);
+  if (rawFrom || rawTo) return defaultWindow(today);
+  return null;
+}
+
+async function landingWindow(params: RouteSearchParams, today: string, parkID: string): Promise<{ from: string; to: string }> {
+  const selected = explicitWindow(params, today);
+  if (selected) return selected;
+
+  const lookback = {
+    from: istDayPlus(today, -(LATEST_LUMP_LOOKBACK_DAYS - 1)),
+    to: today,
+  };
+  const result = await getShedWeights({
+    park_id: parkID || undefined,
+    ...lookback,
+  });
+  if (!result.ok) return defaultWindow(today);
+
+  const dates = [...new Set(result.data.lump_weighing_dates ?? [])].sort();
+  if (dates.length < 2) return defaultWindow(today);
+  return {
+    from: dates[dates.length - 2],
+    to: dates[dates.length - 1],
+  };
 }
 
 function defaultWindow(today: string): { from: string; to: string } {
@@ -225,7 +249,7 @@ export async function WeighingWeightsPage({
   // The window is business DAYS, not a clock offset: a weigh belongs to the Asia/Kolkata day it
   // happened on.
   const today = todayIso();
-  const window = selectedWindow(params, today);
+  const window = await landingWindow(params, today, parkFilter);
 
   const [weights, growth, demographics, growthDirector] = await Promise.all([
     getShedWeights({ park_id: parkFilter || undefined, ...window }),
@@ -246,7 +270,13 @@ export async function WeighingWeightsPage({
     );
   }
 
-  const { rows, summary, parks, period_start: periodStart, period_end: periodEnd } = weights.data;
+  const {
+    rows,
+    summary,
+    parks,
+    period_start: periodStart,
+    period_end: periodEnd,
+  } = weights.data;
 
   // Mode narrowing changes the TABLE and CHART only. The KPI cards keep reporting the backend's
   // whole-filter truth — recomputing a card from the visible slice is the capped read-time rollup
@@ -328,7 +358,9 @@ export async function WeighingWeightsPage({
         rangeStartHint: copy(pageContract, "filter.period.range_start_hint"),
         rangeEndHint: copy(pageContract, "filter.period.range_end_hint"),
         rangeSeparator: copy(pageContract, "filter.period.range_separator"),
+        markerHint: copy(pageContract, "filter.period.lump_marker_hint"),
       },
+      markerFetchPath: `/api/weighing/lump-markers${parkFilter ? `?park_id=${encodeURIComponent(parkFilter)}` : ""}`,
     },
     {
       // allowAll:false because this vocabulary ALREADY carries its own "All" (`weighing_mode`

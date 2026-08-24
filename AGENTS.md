@@ -10,15 +10,19 @@ Database: postgres://postgres:${REMOTE_POSTGRES_PASSWORD}@127.0.0.1:15432/goatos
 Tunnel:   127.0.0.1:15432 -> OCI VM 127.0.0.1:5432
 ```
 
-Do not start Colima, Docker Desktop, `goatos-local-current`, or any other local
-Postgres container just because older local-stack docs mention `5433`. Before
-starting Docker/Colima for Goat OS, first check whether the OCI tunnel on
-`15432` is active and whether the task can use it. Use local Docker Postgres
+Do not install or start Colima, Docker Desktop, Docker CLI, Lima, `goatos-local-current`,
+or any other local Postgres container just because older local-stack docs mention
+`5433` or a CI gate asks for Docker. Before any Goat OS work that appears to need
+Docker/Colima on Ravi's laptop, first check whether the OCI tunnel on `15432` is
+active and whether the task can use OCI instead. For `make land-main`,
+`validate-sqlc-plans`, query-plan proof, or any other disposable Postgres proof,
+use an OCI-hosted throwaway DB/container and clean it after the landing attempt;
+do not install Docker/Colima locally as the workaround. Use local Docker Postgres
 only when the maintainer explicitly asks for a disposable/local Docker DB, a
-Docker-specific integration test, or an isolated mutation test that must not
-touch OCI/staging-like data. If a stale `goatos-local-current` container or
-Colima VM is running while the active dev stack uses OCI, stop it instead of
-treating it as canonical.
+Docker-specific integration test, or an isolated mutation test that must not touch
+OCI/staging-like data. If a stale `goatos-local-current` container or Colima VM is
+running while the active dev stack uses OCI, stop it instead of treating it as
+canonical.
 
 ## Legacy Local Stack Canonical Ports
 
