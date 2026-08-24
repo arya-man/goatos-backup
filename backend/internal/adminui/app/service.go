@@ -3324,7 +3324,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"growth_director.road.note.pairs":      "A kid has to be weighed twice before it can move a band.",
 			"growth_director.road.note.unmatched":  "Tags that match nothing in the herd register still count — a scale reading is a scale reading — and are shown as unmatched.",
 			"growth_director.fair_fight.title":     "Fair fight — same breed, same sex",
-			"growth_director.fair_fight.caption":   "Same breed, same sex, different sheds — a fairer comparison that points at shed-level causes. Feed, age, starting weight and health can still differ; it narrows the question, it does not close it.",
+			"growth_director.fair_fight.caption":   "Same breed, same sex, different sheds — a fairer comparison that points at shed-level causes.",
 			"growth_director.fair_fight.note":      "A cohort shows once the same kind of kid, weighed twice, lives in two sheds. Sex comes from the herd register, never from the shed name.",
 			"growth_director.fair_fight.empty":     "No cohort yet — it takes two sheds each holding three kids of the same breed and sex with a second weigh.",
 			"growth_director.fair_fight.pair_noun": "kids",
