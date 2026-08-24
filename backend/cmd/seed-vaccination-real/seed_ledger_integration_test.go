@@ -33,6 +33,7 @@ func TestVerifyPersistedSourceFactsRollsBackOnDroppedRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	// A sentinel row written inside the same transaction proves the rollback actually discards work.
 	sentinelRun := "aaaaaaaa-0000-4000-8000-0000000000f1"
 	if _, err := tx.Exec(ctx,
@@ -90,6 +91,7 @@ func TestVerifyPersistedSourceFactsPassesWhenRowsCommitted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	committed := false
 	defer func() {
 		if !committed {
