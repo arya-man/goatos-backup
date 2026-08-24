@@ -121,6 +121,11 @@ type packingVarianceRowDTO struct {
 	PlannedKg  string `json:"planned_kg"`
 	VerifiedKg string `json:"verified_kg"`
 	VarianceKg string `json:"variance_kg"`
+	// ExceedsTolerance is the BACKEND's judgement of whether this bag missed the sheet by more
+	// than the packing tolerance, in either direction. It travels as a decided fact rather than a
+	// threshold each client re-applies to variance_kg: a number a renderer compares itself is a
+	// business rule living in the renderer, and two surfaces would drift the day one is changed.
+	ExceedsTolerance bool `json:"exceeds_tolerance"`
 }
 
 type feedConsumptionTrendDayDTO struct {
@@ -219,6 +224,7 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 			PlannedKg:                  v.PlannedKg,
 			VerifiedKg:                 v.VerifiedKg,
 			VarianceKg:                 v.VarianceKg,
+			ExceedsTolerance:           domain.ExceedsPackingVarianceTolerance(v.VarianceKg),
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, dto)

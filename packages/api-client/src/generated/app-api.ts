@@ -5587,7 +5587,7 @@ export interface components {
              */
             median_verify_latency_minutes?: number | null;
         };
-        /** @description One MEASURED BAG: what the frozen sheet directed a pen-session to pack for one feed item against what the verifier entered off the packing video (blind per-item entry, maintainer decision 2026-08-21). EVERY measured bag is listed, ordered by absolute difference descending (maintainer decision 2026-08-24) -- a bag that matched is evidence too, because the verifier entered it without seeing the sheet. The difference is reported as it stands, with no tolerance flag (maintainer decision 2026-08-24). LEADERSHIP-ONLY: the verifier never sees the planned figures, so this comparison must never be rendered on a verifier surface. */
+        /** @description One MEASURED BAG: what the frozen sheet directed a pen-session to pack for one feed item against what the verifier entered off the packing video (blind per-item entry, maintainer decision 2026-08-21). EVERY measured bag is listed, ordered by absolute difference descending (maintainer decision 2026-08-24) -- a bag that matched is evidence too, because the verifier entered it without seeing the sheet. Every measured bag is listed and the difference is reported as it stands; `exceeds_tolerance` is the backend's judgement of whether it missed the sheet by more than the packing tolerance, in either direction (maintainer decision 2026-08-24, superseding the no-tolerance-flag decision made earlier the same day). LEADERSHIP-ONLY: the verifier never sees the planned figures, so this comparison must never be rendered on a verifier surface. */
         FeedAnalyticsPackingVarianceRow: {
             /** Format: date */
             feed_day: string;
@@ -5619,6 +5619,8 @@ export interface components {
             verified_kg: string;
             /** @description verified minus the resolved planned quantity (0 when unresolved), signed. */
             variance_kg: string;
+            /** @description True when this bag sits further from the sheet than the packing tolerance allows, in EITHER direction — packing too much and packing too little are both a bag that does not match. Decided by the backend from the same constant the packed-vs-given trend uses, so the table and the trend can never disagree about what counts as the same reading. A variance that cannot be read is false, never true: an unreadable number is a gap in the data, not a breach. */
+            exceeds_tolerance: boolean;
         };
         /** @description One day of target-vs-actual feed totals over the same comparison rows the table shows. `actual_kg` is EMPTY on a day with no packing readings at all, so the chart draws a gap rather than a plunge to zero. */
         FeedAnalyticsConsumptionTrendDay: {
