@@ -94,6 +94,7 @@ func TestVaccinationFinalizeIdempotency(t *testing.T) {
 				ProofRefs:      proofReferences,
 			},
 			TaskState:                "needs_review",
+			ItemState:                "needs_review",
 			SubmissionFanoutRequired: true,
 		})
 		if err != nil {
@@ -150,6 +151,7 @@ func TestVaccinationFinalizeIdempotency(t *testing.T) {
 				ProofRefs:      proofReferences,
 			},
 			TaskState:                "needs_review",
+			ItemState:                "needs_review",
 			SubmissionFanoutRequired: true,
 		})
 		if err != nil {
@@ -191,6 +193,7 @@ func TestVaccinationFinalizeIdempotency(t *testing.T) {
 				ProofRefs:      proofReferences,
 			},
 			TaskState:                "needs_review",
+			ItemState:                "needs_review",
 			SubmissionFanoutRequired: true,
 		})
 		if err == nil {

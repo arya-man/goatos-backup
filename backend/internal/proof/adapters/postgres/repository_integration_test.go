@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"testing"
 	"time"
 
@@ -437,7 +438,7 @@ func TestBackfillSubmissionRetentionAppliesCommittedSOPPolicy(t *testing.T) {
 	anchor := time.Date(2026, 7, 25, 9, 0, 0, 0, time.UTC)
 	if _, err := pool.Exec(ctx, `
 INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
-VALUES ($1::uuid, $2::uuid, 'vaccination.drive', 'Vaccination Drive', 'active');
+VALUES ($1::uuid, $2::uuid, 'proof.retention.policy', 'Vaccination Drive', 'active');
 INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy)
 VALUES ($3::uuid, $2::uuid, $1::uuid, 1, 'Vaccination Drive v1', 'published', '{}'::jsonb, '{"retention_policy":"operational_90d"}'::jsonb);
 INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id)
@@ -445,6 +446,7 @@ VALUES ($4::uuid, $2::uuid, $1::uuid, $3::uuid, 'vaccination', 'Vaccination task
 INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, proof_refs, state, submitted_at, accepted_at)
 VALUES ($6::uuid, $2::uuid, $4::uuid, $3::uuid, $7::uuid, 'retention-backfill-test', '{}'::jsonb,
         jsonb_build_array(jsonb_build_object('proof_id', $8::text, 'proof_type', 'video')), 'accepted', $9, $9)`,
+		pgx.QueryExecModeSimpleProtocol,
 		sopID, tenantID, versionID, taskID, scopeID, submissionID, actorID, proof.ProofID, anchor); err != nil {
 		t.Fatalf("seed committed SOP submission: %v", err)
 	}
@@ -497,7 +499,7 @@ func TestBackfillSubmissionRetentionDedupesReusedProofRefsConservatively(t *test
 	secondAnchor := firstAnchor.Add(24 * time.Hour)
 	if _, err := pool.Exec(ctx, `
 INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
-VALUES ($1::uuid, $2::uuid, 'vaccination.drive', 'Vaccination Drive', 'active');
+VALUES ($1::uuid, $2::uuid, 'proof.retention.dedupe', 'Vaccination Drive', 'active');
 INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy)
 VALUES ($3::uuid, $2::uuid, $1::uuid, 1, 'Operational proof policy', 'retired', '{}'::jsonb, '{"retention_policy":"operational_90d"}'::jsonb),
        ($4::uuid, $2::uuid, $1::uuid, 2, 'Standard proof policy', 'published', '{}'::jsonb, '{"retention_policy":"standard_1y"}'::jsonb);
@@ -508,6 +510,7 @@ VALUES ('65000000-0000-4000-8000-000000000201'::uuid, $2::uuid, $5::uuid, $3::uu
         jsonb_build_array(jsonb_build_object('proof_id', $8::text, 'proof_type', 'video')), 'accepted', $9, $9),
        ('65000000-0000-4000-8000-000000000202'::uuid, $2::uuid, $5::uuid, $4::uuid, $7::uuid, 'retention-dedupe-1y', '{}'::jsonb,
         jsonb_build_array(jsonb_build_object('proof_id', $8::text, 'proof_type', 'video')), 'accepted', $10, $10)`,
+		pgx.QueryExecModeSimpleProtocol,
 		sopID, tenantID, version90ID, version1YID, taskID, scopeID, actorID, proof.ProofID, firstAnchor, secondAnchor); err != nil {
 		t.Fatalf("seed duplicate proof submissions: %v", err)
 	}
