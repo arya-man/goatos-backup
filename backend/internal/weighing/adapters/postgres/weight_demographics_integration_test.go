@@ -13,6 +13,7 @@ import (
 const (
 	weightDemoPartitionShed = "00000000-0000-4000-8000-00000000c001"
 	weightDemoGoat          = "00000000-0000-4000-8000-00000000c101"
+	weightDemoSlowGoat      = "00000000-0000-4000-8000-00000000c102"
 	weightDemoGodelShed     = "00000000-0000-4000-8000-00000000c201"
 	weightDemoCastroShed    = "00000000-0000-4000-8000-00000000c202"
 	weightDemoCastroOne     = "00000000-0000-4000-8000-00000000c203"
@@ -496,7 +497,25 @@ ON CONFLICT (tenant_id, normalized_value) DO UPDATE SET status='active'`, repoTe
 	seedShedWeightScan(t, ctx, pool, "thresh-1", 22.5, latest.Add(2*time.Hour))
 	seedShedWeightScan(t, ctx, pool, "thresh-1", 23.0, latest.Add(4*time.Hour))
 
-	// DATE SHIFT. A thirteenth kid weighed twice, both weighs BEFORE the window. Its pair is
+	// THE SLOWEST BAND, ON THE SAME AXES. A kid gaining 1.5 kg over 10 days = 150 g/day,
+	// re-scanned once (OneToMany) and left in a non-default capture status (StatusBuckets).
+	// The band added by this change has to survive every adversarial dimension the other
+	// three do; asserting it only in the clean two-kid fixture would prove it in the one
+	// setting where nothing can go wrong.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-920002', $3, 'female', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid)
+ON CONFLICT (goat_id) DO UPDATE SET breed=EXCLUDED.breed`,
+		weightDemoSlowGoat, repoTenant, breed, repoParty, repoExpectedShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', 'thresh-slow', 'thresh-slow', 'global', true, 'active', now(), 'test')
+ON CONFLICT (tenant_id, normalized_value) DO UPDATE SET status='active'`, repoTenant, weightDemoSlowGoat)
+	seedShedWeightScan(t, ctx, pool, "thresh-slow", 20.0, earlier.Add(30*time.Minute))
+	seedShedWeightScan(t, ctx, pool, "thresh-slow", 21.5, latest.Add(30*time.Minute))
+	seedShedWeightScan(t, ctx, pool, "thresh-slow", 21.5, latest.Add(3*time.Hour))
+
+	// DATE SHIFT. A further kid weighed twice, both weighs BEFORE the window. Its pair is
 	// perfectly computable — it is simply not in the period the reader asked about.
 	execWeighingTestSQL(t, ctx, pool, `
 INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
@@ -520,6 +539,9 @@ WHERE tenant_id=$1::uuid AND lower(btrim(scanned_identifier))='thresh-2'`, repoT
 	execWeighingTestSQL(t, ctx, pool, `
 UPDATE weighing_observations SET verification_status='rework'
 WHERE tenant_id=$1::uuid AND lower(btrim(scanned_identifier))='thresh-3'`, repoTenant)
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_observations SET verification_status='verified'
+WHERE tenant_id=$1::uuid AND lower(btrim(scanned_identifier))='thresh-slow'`, repoTenant)
 
 	windowFrom := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
 	windowTo := time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC)
@@ -532,11 +554,16 @@ WHERE tenant_id=$1::uuid AND lower(btrim(scanned_identifier))='thresh-3'`, repoT
 	if !found {
 		t.Fatalf("missing %q gain-band row in %#v", breed, out.GainThresholdsByBreed)
 	}
-	if row.Animals != 12 {
-		t.Fatalf("animals=%d, want 12: twelve kids weighed twice across all three capture statuses, the re-scanned kid counted ONCE, the out-of-window kid not at all", row.Animals)
+	if row.Animals != 13 {
+		t.Fatalf("animals=%d, want 13: twelve fast kids plus the slow one, every capture status counted, each re-scanned kid counted ONCE, the out-of-window kid not at all", row.Animals)
 	}
-	if row.Above250 != 12 || row.Band200To250 != 0 || row.Band180To200 != 0 || row.AtOrBelow180 != 0 {
-		t.Fatalf("every kid gains 300 g/day so the top band holds all twelve and the other three are empty, got %#v", row)
+	if row.Above250 != 12 || row.Band200To250 != 0 || row.Band180To200 != 0 || row.AtOrBelow180 != 1 {
+		t.Fatalf("twelve kids at 300 g/day belong to the top band and the 150 g/day kid to the slowest, got %#v", row)
+	}
+	// The partition holds under fan-out, the page boundary, the date shift and the status
+	// matrix together — not only in the clean fixture.
+	if sum := row.AtOrBelow180 + row.Band180To200 + row.Band200To250 + row.Above250; sum != row.Animals {
+		t.Fatalf("bands sum to %d but animals=%d under the adversarial fixture: %#v", sum, row.Animals, row)
 	}
 
 	// PARK SCOPE. The same window under a park these kids are not in returns nothing for this
@@ -547,6 +574,22 @@ WHERE tenant_id=$1::uuid AND lower(btrim(scanned_identifier))='thresh-3'`, repoT
 	}
 	if _, leaked := findGainThresholdRow(otherPark.GainThresholdsByBreed, breed); leaked {
 		t.Fatalf("breed %q leaked across the park scope: %#v", breed, otherPark.GainThresholdsByBreed)
+	}
+	// ParkScope for the band added by this change specifically: the slow kid is one park's
+	// fact, and a leak would show up as another park's slowest band gaining a member —
+	// a far quieter lie than a whole breed row appearing where it does not belong.
+	for _, parkScopeRow := range otherPark.GainThresholdsByBreed {
+		if parkScopeRow.AtOrBelow180 != 0 {
+			t.Fatalf("the slow kid leaked into another park's slowest band: %#v", parkScopeRow)
+		}
+	}
+
+	// PageBoundary for the same row: this aggregate is a WHOLE-WINDOW figure, so it must
+	// stand above the smallest page size the gain table's contract declares (10). A LIMIT
+	// slipped into the aggregate would still return a plausible-looking distribution.
+	const pageBoundarySmallestPageSize = 10
+	if row.Animals <= pageBoundarySmallestPageSize {
+		t.Fatalf("animals=%d does not cross the %d-row page boundary, so this fixture cannot detect a LIMIT in the aggregate", row.Animals, pageBoundarySmallestPageSize)
 	}
 }
 
