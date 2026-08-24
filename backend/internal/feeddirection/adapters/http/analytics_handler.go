@@ -118,9 +118,9 @@ type packingVarianceRowDTO struct {
 	BreedLabel                 string `json:"breed_label"`
 	// PlannedKg is "" when the frozen sheet carried no resolved quantity -- blank and zero are
 	// never conflated.
-	PlannedKg       string `json:"planned_kg"`
-	VerifiedKg      string `json:"verified_kg"`
-	VarianceKg      string `json:"variance_kg"`
+	PlannedKg  string `json:"planned_kg"`
+	VerifiedKg string `json:"verified_kg"`
+	VarianceKg string `json:"variance_kg"`
 }
 
 type feedConsumptionTrendDayDTO struct {
