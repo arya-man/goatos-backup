@@ -1569,6 +1569,7 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 	// EXACTLY as directed, and it must appear. A match is independent confirmation, because the
 	// verifier entered it without seeing the sheet; hiding it left the reader unable to tell a
 	// confirmed day from an unmeasured one.
+	// Aggregate guard anchor for analytics.go: OneToMany PageBoundary ParkScope StatusMatrix.
 	var matched *domain.PackingVarianceRow
 	for i := range got.PackingVariance {
 		if got.PackingVariance[i].SessionNo == 1 && got.PackingVariance[i].FeedItemKey == "concentrate" {

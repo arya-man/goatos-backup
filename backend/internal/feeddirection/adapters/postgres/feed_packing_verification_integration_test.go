@@ -592,9 +592,8 @@ SELECT status FROM verification_items WHERE tenant_id = $1::uuid AND item_id = $
 //
 // The rule under test, end to end: her readings UPSERT per (completion, feed_item_key); a replayed
 // approve replaces rather than duplicates; a completion this tenant does not have is refused; an
-// implausible weight is refused; and the execution analytics variance lists ONLY the items whose
-// entered reading differs from the frozen sheet's summed quantity -- a matching item never pops,
-// because a match is independent confirmation, not a finding.
+// implausible weight is refused; and the execution analytics variance lists every measured bag,
+// including exact matches, because a match is independent confirmation.
 func TestPackingVerifiedQuantitiesUpsertAndVariance(t *testing.T) {
 	ctx := context.Background()
 	repo, _ := setupFeedDirectionDB(t, ctx)
@@ -655,10 +654,9 @@ func TestPackingVerifiedQuantitiesUpsertAndVariance(t *testing.T) {
 		t.Fatalf("before any write: recorded=%v err=%v, want false/nil", recorded, err)
 	}
 
-	// First reading: concentrate sits EXACTLY 0.200 kg over the sheet's 2.000 -- the tolerance
-	// boundary, which must stay quiet (the predicate is strictly greater-than
-	// domain.PackingVarianceToleranceKg); hay is short by half, well past it. ZERO would also
-	// be a real reading -- the store must accept the full 0..10000 range.
+	// First reading: concentrate sits EXACTLY 0.200 kg over the sheet's 2.000 and hay is short by
+	// half. Both rows must appear now: the bag table carries the raw difference, not a tolerance
+	// filter. ZERO would also be a real reading -- the store must accept the full 0..10000 range.
 	first := ports.RecordPackingVerifiedQuantitiesParams{
 		TenantID: fdTenant, CompletionID: pending.CompletionID,
 		Entries: []ports.PackingVerifiedQuantity{
@@ -689,8 +687,8 @@ func TestPackingVerifiedQuantitiesUpsertAndVariance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecutionAnalytics: %v", err)
 	}
-	if len(exec.PackingVariance) != 1 {
-		t.Fatalf("variance rows = %+v, want ONLY the mismatched hay -- a concentrate reading within the 0.2 kg tolerance (exactly on the boundary) must not pop", exec.PackingVariance)
+	if len(exec.PackingVariance) != 2 {
+		t.Fatalf("variance rows = %+v, want every measured bag", exec.PackingVariance)
 	}
 	row := exec.PackingVariance[0]
 	if row.FeedItemKey != "hay" || row.FeedItemLabel != "Hay" {
@@ -713,6 +711,9 @@ func TestPackingVerifiedQuantitiesUpsertAndVariance(t *testing.T) {
 	if row.ParkLabel != "CPT" || row.ShedLabel != "Shed A" || row.OperationalLocationDisplay != "Shed A" {
 		t.Errorf("row labels = park %q shed %q display %q, want the completion's canonical location names with the oploc display", row.ParkLabel, row.ShedLabel, row.OperationalLocationDisplay)
 	}
+	if got := exec.PackingVariance[1]; got.FeedItemKey != "concentrate" || got.VarianceKg != "0.200" {
+		t.Errorf("second variance row = %+v, want concentrate on the tolerance boundary", got)
+	}
 
 	// REPLACE semantics on a replayed/re-cast approve: the new set stands, keys it no longer names
 	// are removed, and the variance follows the readings that stand.
@@ -728,10 +729,13 @@ func TestPackingVerifiedQuantitiesUpsertAndVariance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecutionAnalytics (after replace): %v", err)
 	}
-	if len(exec.PackingVariance) != 1 {
-		t.Fatalf("variance after replace = %+v, want ONLY concentrate now (hay matches)", exec.PackingVariance)
+	if len(exec.PackingVariance) != 2 {
+		t.Fatalf("variance after replace = %+v, want every measured bag", exec.PackingVariance)
 	}
 	if got := exec.PackingVariance[0]; got.FeedItemKey != "concentrate" || got.VarianceKg != "0.500" {
 		t.Errorf("variance after replace = %+v, want concentrate over by 0.500", got)
+	}
+	if got := exec.PackingVariance[1]; got.FeedItemKey != "hay" || got.VarianceKg != "0.000" {
+		t.Errorf("variance after replace match = %+v, want hay exact match", got)
 	}
 }

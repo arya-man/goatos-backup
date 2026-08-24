@@ -5503,9 +5503,9 @@ export interface components {
             date_to: string;
             days: components["schemas"]["FeedAnalyticsExecutionDay"][];
             consumption_trend: components["schemas"]["FeedAnalyticsConsumptionTrendDay"][];
-            /** @description Whether a further page of mismatches exists past the rows returned. `packing_variance` is a PAGE (see `variance_limit` / `variance_offset`); every other array and figure in this payload is a whole-window aggregate and is unaffected by paging. */
+            /** @description Whether a further page of measured bags exists past the rows returned. `packing_variance` is a PAGE (see `variance_limit` / `variance_offset`); every other array and figure in this payload is a whole-window aggregate and is unaffected by paging. */
             packing_variance_has_more: boolean;
-            /** @description Every intended-vs-entered packing mismatch in the window, newest feed day first. Always present; empty when every verified reading matched the sheet. */
+            /** @description Every measured packing bag in the window, ordered by absolute difference descending. Always present; empty only when no verified packing reading exists in the served scope. */
             packing_variance: components["schemas"]["FeedAnalyticsPackingVarianceRow"][];
         };
         /** @description One (feed day, feed item) of authored absolute kg across every experiment pen. */
