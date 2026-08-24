@@ -178,6 +178,68 @@ class FeedDistributionCompleteViewModelTest {
         assertEquals("proof-outbox-3", syncRepository.lastWaterProofOutboxItemId)
     }
 
+    @Test
+    fun `distribution proof uploads use independent outbox groups while completion keeps session group`() = runTest(dispatcher) {
+        val syncRepository = RecordingFeedDistributionSyncRepository()
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = syncRepository,
+            proofCaptureSource = FakeProofCaptureSource(
+                mutableListOf(
+                    CapturedVideo(localUri = "/proof/feed.mp4", startedAtMs = 1L, endedAtMs = 2L),
+                    CapturedVideo(localUri = "/proof/water.mp4", startedAtMs = 3L, endedAtMs = 4L),
+                ),
+            ),
+            photoCaptureSource = FakePhotoCaptureSource(
+                mutableListOf(CapturedPhoto(localUri = "/proof/feed-weight.jpg", capturedAtMs = 3L)),
+            ),
+            proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 3",
+                ),
+            ),
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.TakeFeedWeightPhoto)
+        viewModel.onEvent(FeedDistributionEvent.RecordFeedVideo)
+        viewModel.onEvent(FeedDistributionEvent.RecordWaterVideo)
+        advanceUntilIdle()
+
+        val sessionGroup = "feed-dist:2026-08-12:shed-1:part 3:1:normal"
+        assertEquals(
+            listOf(
+                "$sessionGroup:feed_weight_photo",
+                "$sessionGroup:feed_video",
+                "$sessionGroup:water_video",
+            ),
+            proofCaptureRepository.captureCalls.map { it.uploadGroupKey },
+        )
+        assertEquals(
+            "each slot must drain independently; one backed-off video must not hold the other slots",
+            3,
+            proofCaptureRepository.captureCalls.map { it.uploadGroupKey }.distinct().size,
+        )
+
+        syncRepository.setItemStatus("proof-outbox-1", SyncItemStatus.SUCCEEDED)
+        syncRepository.setItemStatus("proof-outbox-2", SyncItemStatus.SUCCEEDED)
+        syncRepository.setItemStatus("proof-outbox-3", SyncItemStatus.SUCCEEDED)
+        advanceUntilIdle()
+        viewModel.onEvent(FeedDistributionEvent.MarkDone)
+        advanceUntilIdle()
+
+        assertEquals(sessionGroup, syncRepository.lastCompletionGroupKey)
+    }
+
     /**
      * THREE operators, one pen-session: the phone that shot nothing must still be able to submit.
      *
@@ -743,6 +805,8 @@ private class RecordingFeedDistributionSyncRepository : SyncRepository {
         private set
     var lastWaterProofOutboxItemId: String? = null
         private set
+    var lastCompletionGroupKey: String? = null
+        private set
 
     // Server proof ids for slots recorded on ANOTHER operator's phone.
     var lastFeedWeightProofRef: String? = null
@@ -799,6 +863,7 @@ private class RecordingFeedDistributionSyncRepository : SyncRepository {
         waterProofRef: String?,
     ): AppResult<String> {
         completionEnqueueCount += 1
+        lastCompletionGroupKey = groupKey
         lastFeedWeightProofOutboxItemId = feedWeightProofOutboxItemId
         lastDistributionProofOutboxItemId = distributionProofOutboxItemId
         lastWaterProofOutboxItemId = waterProofOutboxItemId
