@@ -370,9 +370,11 @@ interface SyncRepository {
      * BOTH proofs are MANDATORY and passed by REFERENCE to their PROOF_UPLOAD outbox rows
      * ([feedWeightProofOutboxItemId] = feed-weight photo, [distributionProofOutboxItemId] =
      * feed-distribution video, [waterProofOutboxItemId] = water
-     * photo/video): the dispatcher resolves each uploaded proof_id and sends the pair, exactly like
-     * [enqueueShiftingComplete] resolves its mandatory evidence set. All three writes MUST share the
-     * same [groupKey] (the shed-session) so the two proofs drain strictly before this completion.
+     * photo/video): the dispatcher resolves each uploaded proof_id by outbox id and sends the pair,
+     * exactly like [enqueueShiftingComplete] resolves its mandatory evidence set. The completion stays
+     * on the shed-session [groupKey]; feed distribution proof uploads may use slot-specific groups so
+     * one backed-off upload does not strand the other proof slots. If a referenced proof has not
+     * uploaded yet, dispatch retries until that outbox row is `SUCCEEDED`.
      * [idempotencyKey] must be a STABLE caller-persisted key so a resend re-enqueues the SAME
      * verification item instead of completing twice. This is SEPARATE from
      * [enqueueFeedDirectionComplete] (the untouched packing path).

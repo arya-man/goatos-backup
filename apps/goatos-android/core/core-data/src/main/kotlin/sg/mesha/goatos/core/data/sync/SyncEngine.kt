@@ -943,11 +943,11 @@ class SyncEngine(
      * The verifier-GATED feed-DISTRIBUTION completion (docs/decisions/feed-distribution-verification.md).
      * Same idempotent-replay contract as every other `dispatch*` — the row's STORED key is passed
      * verbatim as the `Idempotency-Key` header. ALL THREE mandatory proofs are resolved from their
-     * coupled PROOF_UPLOAD outbox rows (same group, drained first) exactly like
-     * [dispatchShiftingComplete]'s single video; a missing coupling or a permanently-failed upload is
-     * terminal — a gated completion without every verifiable proof must not reach the backend. The
-     * backend re-rejects a blank proof with `422 proof_required` (terminal by [recordFailure]'s
-     * check).
+     * referenced PROOF_UPLOAD outbox rows by id. The uploads do not have to share the completion's
+     * group: a not-yet-succeeded proof row makes this completion retry, while a missing coupling or a
+     * permanently-failed upload is terminal. A gated completion without every verifiable proof must not
+     * reach the backend. The backend re-rejects a blank proof with `422 proof_required` (terminal by
+     * [recordFailure]'s check).
      *
      * THE ROLLOUT CASE, stated because it costs an operator real work: a completion queued OFFLINE by
      * a build that predates the 2026-08-11 weight photo carries only two proofs. It cannot be healed
@@ -1190,10 +1190,9 @@ class SyncEngine(
     private suspend fun dispatchFeedTransportSubmit(item:OutboxEntity):String{val payload=syncJson.decodeFromString<FeedTransportSubmitPayload>(item.payloadJson);return syncJson.encodeToString(api.submitFeedTransport(payload.taskId,item.idempotencyKey,FeedTransportSubmitRequestDto(resolveUploadedProofRef(payload.proofOutboxItemId))))}
 
     /**
-     * Resolves an uploaded proof_id from a coupled PROOF_UPLOAD outbox row (same-group ordering means
-     * it has already drained to SUCCEEDED before the completion that references it). A not-yet-drained
-     * row throws a plain exception -> a non-conflict retry until the upload finishes; a missing row or
-     * a blank proof id is terminal. Shared by the two mandatory feed-distribution proofs.
+     * Resolves an uploaded proof_id from a referenced PROOF_UPLOAD outbox row. A not-yet-drained row
+     * throws a plain exception -> a non-conflict retry until the upload finishes; a missing row or a
+     * blank proof id is terminal.
      */
     /**
      * The server proof id for ONE feed slot, from whichever side holds it.

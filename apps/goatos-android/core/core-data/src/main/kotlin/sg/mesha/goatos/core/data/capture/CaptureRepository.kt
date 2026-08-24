@@ -902,10 +902,10 @@ class DefaultProofCaptureRepository(
             // exact group key passed at capture time; startup recovery re-enqueues with this verbatim
             // to preserve proof ordering (feed, milk, packing flows) across process death.
             uploadGroupKey = uploadGroupKey?.takeIf { it.isNotBlank() },
-            // Derive clientTaskKey from uploadGroupKey when present; falls back to taskId for legacy.
-            // This is the application-level session/context id (e.g. feed workflow id, milk batch id).
-            // Recovery uses this to preserve grouping semantics across process death.
-            clientTaskKey = uploadGroupKey?.takeIf { it.isNotBlank() } ?: taskId,
+            // The outbox upload group controls FIFO ordering only. The client task key is the
+            // application-level session/context id that backend teammate-proof lookup uses, so it
+            // must remain stable even when a flow intentionally gives uploads slot-specific groups.
+            clientTaskKey = taskId,
         )
         // Gate 3: Backstop validation — file must exist && length > 0 before Room insert.
         // Mime-aware: a JPEG must never be judged by the video duration probe (OEMs that report
@@ -1277,12 +1277,11 @@ class DefaultProofCaptureRepository(
             metadata = buildMap {
                 put("field_key", JsonPrimitive(uploadEntity.fieldKey))
                 // Use persisted clientTaskKey if available; this is the application-level session/context
-                // id (e.g. feed workflow id, milk batch id). Recovery re-sends the ORIGINAL key to preserve
-                // grouping across process death. Legacy null falls back to uploadGroupKey (if present),
-                // then taskId.
+                // id (e.g. feed workflow id, milk batch id). Recovery re-sends the ORIGINAL key so backend
+                // proof lookup keeps using the shared session identity even when the upload outbox group is
+                // more specific. Legacy null falls back to taskId, not uploadGroupKey.
                 put("client_task_key", JsonPrimitive(
                     uploadEntity.clientTaskKey?.takeIf { it.isNotBlank() }
-                        ?: uploadGroupKey?.takeIf { it.isNotBlank() }
                         ?: uploadEntity.taskId
                 ))
                 // R50-027 SSOT: capture_source is read from the durable row, so the startup-recovery

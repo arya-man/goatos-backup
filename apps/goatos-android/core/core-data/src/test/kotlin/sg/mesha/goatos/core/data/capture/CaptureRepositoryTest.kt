@@ -1410,6 +1410,55 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `slot specific upload group does not replace proof client task key`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+            )
+
+            val result = repo.capture(
+                taskId = "feed-dist:2026-08-12:shed-1:part 3:1:normal",
+                fieldKey = "feed_distribution_video",
+                subject = ProofSubject.SHED,
+                subjectId = "shed-1",
+                localUri = "file:///feed-video.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "shed",
+                scopeId = "shed-1",
+                capturedStartMs = 1_000L,
+                capturedEndMs = 4_000L,
+                capturedByPrincipalId = null,
+                awaitUploadEnqueue = true,
+                uploadGroupKey = "feed-dist:2026-08-12:shed-1:part 3:1:normal:feed_video",
+            )
+
+            assertTrue("capture succeeds", result is AppResult.Ok)
+            val call = sync.enqueueCalls.single()
+            assertEquals(
+                "slot-specific upload group should still drive outbox ordering",
+                "feed-dist:2026-08-12:shed-1:part 3:1:normal:feed_video",
+                call.groupKey,
+            )
+            val clientTaskKey = (call.request.metadata["client_task_key"] as? JsonPrimitive)?.content
+            assertEquals(
+                "teammate proof lookup must keep the shared pen-session key",
+                "feed-dist:2026-08-12:shed-1:part 3:1:normal",
+                clientTaskKey,
+            )
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `startup reattaches existing proof outbox item and follows it through synced`() = runTest {
         val db = newDb()
         try {
