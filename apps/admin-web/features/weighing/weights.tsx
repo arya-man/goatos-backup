@@ -506,7 +506,6 @@ export async function WeighingWeightsPage({
   // reason it does on the shed chart — a figure drawn from two days deserves to be
   // discounted on sight.
   const byLoad = weights.ok ? weights.data.by_load : [];
-  const loadUnattributed = weights.ok ? weights.data.load_unattributed_sheds : 0;
   const loadWeightBars = byLoad
     .slice()
     .sort((a, b) => b.average_weight_kg - a.average_weight_kg)
@@ -896,11 +895,6 @@ export async function WeighingWeightsPage({
           size="short"
           wide
         />
-        {loadUnattributed > 0 ? (
-          <p className="muted small">
-            {loadUnattributed.toLocaleString("en-IN")} {copy(pageContract, "note.load.unmapped")}
-          </p>
-        ) : null}
       </div>
 
       {/* Row 3b — WHERE each load sits. The chart above says a supplier's stock is
