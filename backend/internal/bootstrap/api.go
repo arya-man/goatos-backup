@@ -484,6 +484,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 	peopleService := workforceapp.NewPeopleService(workforceRepo, workforceIdentity, cfg.Auth.Issuer)
 	peopleHandler := workforcehttp.NewPeopleHandler(peopleService, log)
+	// Per-person module access (maintainer decision 2026-08-24). Its own repository
+	// because it owns its own tables; the SAME pool, so a save and the read that
+	// enforces it see one database.
+	accessRepo := workforcepg.NewAccessRepository(pool)
+	accessService := workforceapp.NewAccessService(accessRepo)
+	accessHandler := workforcehttp.NewAccessHandler(accessService, log)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	rosterHandler := workforcehttp.NewRosterHandler(rosterService, log)
 	proofStorage, err := buildProofStorage()
@@ -1086,6 +1092,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workforcehttp.Register(protectedMux, workforceHandler)
 	workforcehttp.RegisterRoster(protectedMux, rosterHandler)
 	workforcehttp.RegisterPeople(protectedMux, peopleHandler)
+	workforcehttp.RegisterAccess(protectedMux, accessHandler)
 	proofhttp.Register(protectedMux, proofHandler)
 	sophttp.Register(protectedMux, sopHandler)
 	protocolhttp.Register(protectedMux, protocolHandler)

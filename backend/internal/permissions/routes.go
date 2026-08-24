@@ -129,6 +129,19 @@ var protectedRoutes = []Route{
 	{OperationID: "listWorkforcePeople", Method: "GET", Pattern: "/admin/workforce/people", Permissions: []string{OperatorsRead}},
 	{OperationID: "createWorkforcePerson", Method: "POST", Pattern: "/admin/workforce/people", Permissions: []string{OperatorsWrite}},
 
+	// The per-person access editor (maintainer decision 2026-08-24). READING it is
+	// OperatorsRead, the same as the directory row it opens from. WRITING it is
+	// OperatorsManageCapability -- deliberately NOT OperatorsWrite, which creates a
+	// person: adding a colleague and deciding what every colleague may do are
+	// different authorities, and this one can grant every other permission in the
+	// catalog, including itself.
+	{OperationID: "getWorkforcePersonAccess", Method: "GET", Pattern: "/admin/workforce/people/{person_id}/access", Permissions: []string{OperatorsRead}},
+	{OperationID: "saveWorkforcePersonAccess", Method: "PUT", Pattern: "/admin/workforce/people/{person_id}/access", Permissions: []string{OperatorsManageCapability}},
+	// The designation defaults an editor applies before saving. Gated on the WRITE
+	// permission, not the read: it is only useful to someone about to change access,
+	// and it describes what a grant would contain.
+	{OperationID: "getDesignationDefaults", Method: "GET", Pattern: "/admin/workforce/designations/{code}/defaults", Permissions: []string{OperatorsManageCapability}},
+
 	{OperationID: "appMe", Method: "GET", Pattern: "/app/me", Permissions: []string{AppBootstrap}},
 	{OperationID: "appBootstrap", Method: "GET", Pattern: "/app/bootstrap", Permissions: []string{AppBootstrap}},
 	{OperationID: "adminWebBootstrap", Method: "GET", Pattern: "/admin-web/bootstrap", Permissions: []string{AdminWebBootstrap}},

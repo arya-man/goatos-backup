@@ -247,6 +247,93 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/workforce/people/{person_id}/access:
+    get:
+      tags:
+        - Operator Management
+      operationId: getWorkforcePersonAccess
+      summary: Read one person's module access, with the vocabulary and options the editor renders.
+      parameters:
+        - name: person_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The whole access editor payload.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonAccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags:
+        - Operator Management
+      operationId: saveWorkforcePersonAccess
+      summary: Replace one person's module access. Version-fenced; a concurrent edit returns 409.
+      parameters:
+        - name: person_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SavePersonAccessRequest"
+      responses:
+        "200":
+          description: The stored access, read back with its new row version and recomputed warnings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonAccessResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/workforce/designations/{code}/defaults:
+    get:
+      tags:
+        - Operator Management
+      operationId: getDesignationDefaults
+      summary: What picking a designation pre-fills, so the editor applies it without a round trip per module.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 64
+      responses:
+        "200":
+          description: The designation's default module rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DesignationDefaultsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /admin/operators/{operator_id}:
     get:
       tags:
@@ -4922,6 +5009,177 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PeopleCatalogOption"
+    AccessCapabilityOption:
+      type: object
+      additionalProperties: false
+      required: [level, label, blurb]
+      properties:
+        level:
+          type: string
+          enum: [view, do, oversee, configure]
+        label:
+          type: string
+        blurb:
+          type: string
+    AccessModuleRow:
+      type: object
+      additionalProperties: false
+      required: [module_key, label, blurb, offered_web, offered_mobile, granted_web, granted_mobile]
+      properties:
+        module_key:
+          type: string
+        label:
+          description: The farm word for this module. Rendered verbatim; the client never composes a module name.
+          type: string
+        blurb:
+          type: string
+        offered_web:
+          description: Levels this module can be held at on web. EMPTY means the module does not exist on web at all, which is different from nothing being ticked.
+          type: array
+          items:
+            type: string
+        offered_mobile:
+          type: array
+          items:
+            type: string
+        granted_web:
+          type: array
+          items:
+            type: string
+        granted_mobile:
+          type: array
+          items:
+            type: string
+    AccessParkOption:
+      type: object
+      additionalProperties: false
+      required: [park_id, label]
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        label:
+          type: string
+    AccessDesignationOption:
+      type: object
+      additionalProperties: false
+      required: [code, label]
+      properties:
+        code:
+          type: string
+        label:
+          type: string
+        grade:
+          type: string
+    AccessWarning:
+      type: object
+      additionalProperties: false
+      required: [module_key, message]
+      properties:
+        module_key:
+          type: string
+        message:
+          description: Backend-composed farm copy. Rendered verbatim; never blocks a save.
+          type: string
+    PersonAccessResponse:
+      type: object
+      additionalProperties: false
+      required: [person_id, display_name, scope_mode, park_ids, modules, capabilities, parks, designations, warnings, row_version]
+      properties:
+        person_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        email:
+          type: string
+        designation_code:
+          type: string
+        scope_mode:
+          type: string
+          enum: [tenant, parks]
+        park_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessModuleRow"
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessCapabilityOption"
+        parks:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessParkOption"
+        designations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessDesignationOption"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessWarning"
+        row_version:
+          description: Fences a concurrent save. 0 means this person has never been set up.
+          type: integer
+        trace_id:
+          type: string
+    AccessModuleWrite:
+      type: object
+      additionalProperties: false
+      required: [module_key, web, mobile]
+      properties:
+        module_key:
+          type: string
+        web:
+          type: array
+          items:
+            type: string
+        mobile:
+          type: array
+          items:
+            type: string
+    SavePersonAccessRequest:
+      description: Replaces access WHOLESALE. The editor sends every module row it rendered, so an unticked module arrives as an empty list rather than a missing key -- a patch shape cannot tell "leave alone" from "remove".
+      type: object
+      additionalProperties: false
+      required: [scope_mode, modules, row_version]
+      properties:
+        designation_code:
+          type: string
+        scope_mode:
+          type: string
+          enum: [tenant, parks]
+        park_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessModuleWrite"
+        row_version:
+          type: integer
+    DesignationDefaultsResponse:
+      type: object
+      additionalProperties: false
+      required: [code, label, modules]
+      properties:
+        code:
+          type: string
+        label:
+          type: string
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessModuleWrite"
+        trace_id:
+          type: string
     PeopleListResponse:
       type: object
       additionalProperties: false
