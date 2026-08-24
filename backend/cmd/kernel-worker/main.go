@@ -168,6 +168,10 @@ func run(ctx context.Context, args []string) error {
 			kernelstages.NewReminderCadenceStage(deps, tenantID),
 			kernelstages.NewFeedDirectionLifecycleStage(deps, tenantID),
 			kernelstages.NewFeedTransportStage(deps, tenantID),
+			// Daily low-stock alert. It sits on this shared lane deliberately: the task-kernel
+			// lock forbids a module keeping its own scheduler, and "once per day" comes from the
+			// notifier's business-date idempotency key rather than from a cron expression.
+			kernelstages.NewFeedLowStockStage(deps, tenantID, logger),
 			kernelstages.NewMilkFeedingStage(deps, tenantID),
 			// WEIGHING PHASE 2 cadence. No new worker binary: the weighing
 			// work-item kernel (terminal reconcile -> roll-forward ->

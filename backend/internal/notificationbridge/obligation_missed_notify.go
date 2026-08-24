@@ -130,7 +130,12 @@ func (n *ObligationMissedNotifier) NotifyObligationMissed(ctx context.Context, t
 	}
 
 	eventKey := "obligation.missed:" + obligationID
+	// businessDate is the STRUCTURED value (ISO), carried in context for clients to parse.
+	// visibleDate is the same day written the way the farm writes dates, for the body a person
+	// reads (maintainer decision 2026-08-24). The two must never be swapped: an ISO string in copy
+	// reads as a machine artefact, and a dd/mm/yyyy string in context breaks client parsing.
 	businessDate := biztime.BusinessDate(missed.DueAt)
+	visibleDate := biztime.FarmDateFromBusinessDate(businessDate)
 
 	// Name the park the shed sits in: a shed name alone ("Godel 1 - Part 8") does not tell an
 	// operator working across several parks which one to go to. ONE lookup per missed-work event
@@ -185,7 +190,7 @@ func (n *ObligationMissedNotifier) NotifyObligationMissed(ctx context.Context, t
 			Channel:          channelPushFCM,
 			Priority:         priorityHigh,
 			Title:            "Missed " + profile.workNoun,
-			Body:             upperFirst(where) + " was not finished on " + businessDate + ". Please finish it today.",
+			Body:             upperFirst(where) + " was not finished on " + visibleDate + ". Please finish it today.",
 			TraceID:          eventKey + ":operator",
 			EventKey:         eventKey + ":operator",
 			Context:          operatorContext,
@@ -217,7 +222,7 @@ func (n *ObligationMissedNotifier) NotifyObligationMissed(ctx context.Context, t
 		Channel:          channelPushFCM,
 		Priority:         priorityHigh,
 		Title:            "Missed " + profile.workNoun,
-		Body:             upperFirst(where) + " was not finished on " + businessDate + ".",
+		Body:             upperFirst(where) + " was not finished on " + visibleDate + ".",
 		TraceID:          eventKey + ":leadership",
 		EventKey:         eventKey + ":leadership",
 		Context:          leadershipContext,

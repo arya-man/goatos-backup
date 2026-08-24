@@ -975,6 +975,119 @@ LEFT JOIN LATERAL (
 WHERE r.avg_kg > 0
 ORDER BY lp.name, feed_item_label`
 
+// Feeds whose stock will run out inside the notification horizon, for the daily low-stock alert
+// (maintainer decision 2026-08-24). Same balance and burn-rate arithmetic as the Stock cards --
+// purchased net of import consumption, minus everything fed since the bootstrap cutoff, over the
+// three most recent fed days -- so a card and an alert can never disagree about days left.
+//
+// The alert threshold is SEPARATE from domain.LowStockDays, which stays the legacy sheet's 5-day
+// red card: leadership is told a week out so a purchase order can still be raised, while the card
+// keeps meaning "nearly out". Two thresholds, deliberately.
+//
+// park_id is returned because a notification must name the park -- a farm label alone does not
+// deep-link, and a feed name alone does not tell a director which store to check.
+//
+// projection-review: membership=feed_purchases at (tenant, farm_label, feed_item_key, batch_no),
+// aggregated to (farm_label, feed_item_key); group_key=(farm_label, feed_item_key) on every side --
+// the purchase side GROUPs BY that pair and the consumption side collapses to (park_id,
+// feed_item_key, feed_day) before averaging, joined through the farm's single resolved park;
+// join_cardinality=bought LEFT JOIN directed 1:0..1 and LEFT JOIN recent 1:0..1, no side left
+// unaggregated; pagination=none -- the result is at most one row per (farm, feed) the tenant buys,
+// bounded by the catalog, and every row is delivered; scope=tenant_id throughout.
+//
+// scale-guard:ignore: 5k-50k-envelope -- bounded per-(farm, item) aggregate over the small purchase
+// ledger and locked sheets, canonical-indexed-SQL default.
+const feedLowStockSQL = `
+WITH bought AS (
+    SELECT farm_label, feed_item_key,
+           MAX(feed_item_label)                     AS feed_item_label,
+           MIN(park_id::text)                       AS park_id_text,
+           SUM(quantity_kg - consumed_at_import_kg) AS net_kg,
+           MIN(depletes_from)                       AS depletes_from
+    FROM feed_purchases
+    WHERE tenant_id = $1
+    GROUP BY farm_label, feed_item_key
+),
+fed AS (
+    SELECT park_id, feed_item_key, feed_day, SUM(kg) AS kg
+    FROM (
+        SELECT i.park_id, r.feed_item_key, i.feed_day, SUM(r.quantity_kg) AS kg
+        FROM feed_direction_issues i
+        JOIN feed_direction_issue_rows r
+          ON r.tenant_id = $1 AND r.feed_direction_issue_id = i.feed_direction_issue_id
+        WHERE i.tenant_id = $1 AND i.state = 'locked'
+        GROUP BY i.park_id, r.feed_item_key, i.feed_day
+        UNION ALL
+        SELECT x.park_id, x.feed_item_key, x.feed_day, SUM(x.quantity_kg) AS kg
+        FROM feed_external_consumption x
+        WHERE x.tenant_id = $1 AND x.park_id IS NOT NULL
+        GROUP BY x.park_id, x.feed_item_key, x.feed_day
+    ) both_sources
+    GROUP BY park_id, feed_item_key, feed_day
+),
+directed AS (
+    SELECT b.farm_label, b.feed_item_key, COALESCE(SUM(f.kg), 0) AS kg
+    FROM bought b
+    LEFT JOIN fed f
+      ON b.park_id_text IS NOT NULL
+     AND f.park_id = b.park_id_text::uuid
+     AND f.feed_item_key = b.feed_item_key
+     AND f.feed_day >= b.depletes_from
+    GROUP BY b.farm_label, b.feed_item_key
+),
+recent AS (
+    SELECT park_id, feed_item_key, AVG(kg) AS avg_kg
+    FROM (
+        SELECT park_id, feed_item_key, kg,
+               ROW_NUMBER() OVER (PARTITION BY park_id, feed_item_key ORDER BY feed_day DESC) AS rn
+        FROM fed
+    ) ranked
+    WHERE rn <= 3
+    GROUP BY park_id, feed_item_key
+)
+SELECT COALESCE(b.park_id_text, ''),
+       b.farm_label,
+       b.feed_item_label,
+       b.feed_item_key,
+       round(b.net_kg - d.kg, 1)::text                    AS balance_kg,
+       round(r.avg_kg, 1)::text                           AS avg_daily_kg,
+       GREATEST(floor((b.net_kg - d.kg) / r.avg_kg), 0)::bigint AS days_left
+FROM bought b
+JOIN directed d USING (farm_label, feed_item_key)
+JOIN recent r
+  ON b.park_id_text IS NOT NULL
+ AND r.park_id = b.park_id_text::uuid
+ AND r.feed_item_key = b.feed_item_key
+-- A feed with no recent consumption has no burn rate to divide by, so it has no days-left to be
+-- low: it is joined INNER on purpose. Alerting on it would be a guess.
+WHERE r.avg_kg > 0
+  AND floor((b.net_kg - d.kg) / r.avg_kg) < $2
+ORDER BY days_left, b.farm_label, b.feed_item_label`
+
+// LowStockFeeds lists the feeds whose stock runs out inside withinDays, for the daily alert.
+func (r *Repository) LowStockFeeds(ctx context.Context, tenantID string, withinDays int) ([]domain.LowStockFeed, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, feedLowStockSQL, tenantID, withinDays)
+	if err != nil {
+		return nil, fmt.Errorf("feed low stock: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.LowStockFeed{}
+	for rows.Next() {
+		var f domain.LowStockFeed
+		if err := rows.Scan(&f.ParkID, &f.FarmLabel, &f.FeedItemLabel, &f.FeedItemKey,
+			&f.BalanceKg, &f.AvgDailyKg, &f.DaysLeft); err != nil {
+			return nil, fmt.Errorf("feed low stock scan: %w", err)
+		}
+		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("feed low stock rows: %w", err)
+	}
+	return out, nil
+}
+
 // Expenditure: each (day, farm, item)'s directed kg — plus external
 // consumption of sheet-tracked feeds (UHT Milk) — priced at that farm's most
 // recent load rate on or before that day, matching the sheet's daily feed
