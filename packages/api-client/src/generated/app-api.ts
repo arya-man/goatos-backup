@@ -5447,7 +5447,7 @@ export interface components {
              */
             median_verify_latency_minutes?: number | null;
         };
-        /** @description One MEASURED BAG: what the frozen sheet directed a pen-session to pack for one feed item against what the verifier entered off the packing video (blind per-item entry, maintainer decision 2026-08-21). EVERY measured bag is listed, ordered by absolute difference descending (maintainer decision 2026-08-24) -- a bag that matched is evidence too, because the verifier entered it without seeing the sheet. `beyond_tolerance` flags the ones past 0.2 kg. LEADERSHIP-ONLY: the verifier never sees the planned figures, so this comparison must never be rendered on a verifier surface. */
+        /** @description One MEASURED BAG: what the frozen sheet directed a pen-session to pack for one feed item against what the verifier entered off the packing video (blind per-item entry, maintainer decision 2026-08-21). EVERY measured bag is listed, ordered by absolute difference descending (maintainer decision 2026-08-24) -- a bag that matched is evidence too, because the verifier entered it without seeing the sheet. The difference is reported as it stands, with no tolerance flag (maintainer decision 2026-08-24). LEADERSHIP-ONLY: the verifier never sees the planned figures, so this comparison must never be rendered on a verifier surface. */
         FeedAnalyticsPackingVarianceRow: {
             /** Format: date */
             feed_day: string;
@@ -5473,16 +5473,12 @@ export interface components {
             feed_item_label: string;
             /** @description The bag's breed, or "Mixed" when its sheet rows disagree; empty when the sheet row is gone. */
             breed_label: string;
-            /** @description "Kid" or "Adult", or "Mixed" when the bag's sheet rows straddle both; empty when the sheet row is gone. */
-            age_group: string;
             /** @description The frozen sheet's summed quantity as a decimal string; EMPTY when the sheet carried no resolved quantity for this item -- blank and zero are never conflated. */
             planned_kg: string;
             /** @description The verifier's entered reading. "0" is a real observation. */
             verified_kg: string;
             /** @description verified minus the resolved planned quantity (0 when unresolved), signed. */
             variance_kg: string;
-            /** @description Whether the difference exceeds the 0.2 kg tolerance. Every measured bag is listed, so this is what separates a real discrepancy from a scale read off a video that is honest to a couple hundred grams. */
-            beyond_tolerance: boolean;
         };
         /** @description One day of target-vs-actual feed totals over the same comparison rows the table shows. `actual_kg` is EMPTY on a day with no packing readings at all, so the chart draws a gap rather than a plunge to zero. */
         FeedAnalyticsConsumptionTrendDay: {

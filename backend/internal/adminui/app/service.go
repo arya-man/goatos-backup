@@ -588,7 +588,7 @@ func pages() []domain.PageContract {
 		page("feed-analytics", "/feed/analytics", "/feed/analytics", "Feed Analytics", "Directed feed, ration per animal and execution adherence across the farms — served from the frozen daily sheet and the proof-gated completions. Figures run up to yesterday and state what the sheet DIRECTED, not what was eaten.", "module-surface",
 			[]domain.TableContract{
 				tableP("directed-items", "Directed feed by item", "/feed-analytics/directed", []string{"feed_day", "feed_item", "directed_kg", "head_days", "per_head_grams"}, "directed_item_row", []int{31, 62, 92}),
-				tableP("packing-mismatches", "Packed vs directed, bag by bag", "/feed-analytics/execution", []string{"packing_day", "park", "shed", "session", "feed_item", "breed", "age_group", "planned_kg", "verified_kg", "variance_kg"}, "variance_row", []int{25, 50, 100}),
+				tableP("packing-mismatches", "Packed vs directed", "/feed-analytics/execution", []string{"packing_day", "park", "shed", "session", "feed_item", "breed", "planned_kg", "verified_kg", "variance_kg"}, "variance_row", []int{25, 50, 100}),
 			}),
 		page("feed-config", "/feed/config", "/feed/config", "Feed Config — Ration Rules", "Feed-owned authority screen for the authored ration grid, per-shed factors, session template and feeding schedule.", "module-surface",
 			[]domain.TableContract{
@@ -3634,10 +3634,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"col.consumption.target":         "Directed kg",
 			"col.consumption.actual":         "Measured kg",
 			"col.consumption.breed":          "Breed",
-			"col.consumption.age_group":      "Age group",
 			"variance.cohort_unknown":        "Not on the sheet",
-			"variance.title":                 "Packed vs directed, bag by bag",
-			"variance.hint":                  "Every bag a verifier measured, biggest difference first, dated by the PACKING day it was weighed out on. Readings are entered without seeing the sheet, so a match is independent confirmation; a difference past 0.2 kg is flagged.",
+			"variance.title":                 "Packed vs directed",
+			"variance.hint":                  "Every bag a verifier measured, biggest difference first, dated by the PACKING day it was weighed out on. Readings are entered without seeing the sheet, so a match is independent confirmation.",
 			"variance.noun":                  "measured bag",
 			"variance.empty":                 "No bag has been measured in this window yet.",
 			"col.variance.day":               "Packing day",

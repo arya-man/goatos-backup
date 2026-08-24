@@ -13130,13 +13130,14 @@ components:
         against what the verifier entered off the packing video (blind per-item entry, maintainer
         decision 2026-08-21). EVERY measured bag is listed, ordered by absolute difference
         descending (maintainer decision 2026-08-24) -- a bag that matched is evidence too, because
-        the verifier entered it without seeing the sheet. `beyond_tolerance` flags the ones past
-        0.2 kg. LEADERSHIP-ONLY: the verifier never sees the planned figures, so this comparison
-        must never be rendered on a verifier surface.
+        the verifier entered it without seeing the sheet. The difference is reported as it stands,
+        with no tolerance flag (maintainer decision 2026-08-24). LEADERSHIP-ONLY: the verifier
+        never sees the planned figures, so this comparison must never be rendered on a verifier
+        surface.
       required:
         [feed_day, park_label, shed_id, shed_label, operational_location_display, session_no,
-         workflow, feed_item_key, feed_item_label, breed_label, age_group, planned_kg, verified_kg,
-         variance_kg, packing_day, beyond_tolerance]
+         workflow, feed_item_key, feed_item_label, breed_label, planned_kg, verified_kg,
+         variance_kg, packing_day]
       properties:
         feed_day:
           type: string
@@ -13176,9 +13177,6 @@ components:
         breed_label:
           type: string
           description: The bag's breed, or "Mixed" when its sheet rows disagree; empty when the sheet row is gone.
-        age_group:
-          type: string
-          description: "\"Kid\" or \"Adult\", or \"Mixed\" when the bag's sheet rows straddle both; empty when the sheet row is gone."
         planned_kg:
           type: string
           description: >-
@@ -13190,12 +13188,6 @@ components:
         variance_kg:
           type: string
           description: verified minus the resolved planned quantity (0 when unresolved), signed.
-        beyond_tolerance:
-          type: boolean
-          description: >-
-            Whether the difference exceeds the 0.2 kg tolerance. Every measured bag is listed, so
-            this is what separates a real discrepancy from a scale read off a video that is honest
-            to a couple hundred grams.
     FeedAnalyticsConsumptionTrendDay:
       type: object
       description: >-

@@ -741,9 +741,10 @@ function ExecutionTab({
       </section>
       {/* Intended-vs-entered packing mismatches (maintainer decision 2026-08-21). The verifier
           enters her per-item readings BLIND -- this comparison exists only on this leadership
-          page, never on any verifier surface. Rows pop past the 0.2 kg tolerance. The bar narrows
-          by farm and feed item over the served rows, and the calendar re-reads the endpoint pinned
-          to one business day so older values than the page window stay reachable. */}
+          page, never on any verifier surface. Every measured bag is listed, biggest difference
+          first. The bar narrows by farm and feed item over the served rows, and the calendar
+          re-reads the endpoint pinned to one business day so older values than the page window
+          stay reachable. */}
       <section className="card" aria-label={fa(pageContract, "variance.title")}>
         <div className="hd">
           <h3>{fa(pageContract, "variance.title")}</h3>
@@ -810,7 +811,6 @@ function ExecutionTab({
                   <th>{fa(pageContract, "col.variance.session")}</th>
                   <th>{fa(pageContract, "col.variance.item")}</th>
                   <th>{fa(pageContract, "col.consumption.breed")}</th>
-                  <th>{fa(pageContract, "col.consumption.age_group")}</th>
                   <th>{fa(pageContract, "col.variance.planned")}</th>
                   <th>{fa(pageContract, "col.variance.verified")}</th>
                   <th>{fa(pageContract, "col.variance.diff")}</th>
@@ -828,7 +828,6 @@ function ExecutionTab({
                         rather than left blank, so the reader knows the cohort is unknown for this
                         bag rather than absent from the pen. */}
                     <td>{row.breed_label || fa(pageContract, "variance.cohort_unknown")}</td>
-                    <td>{row.age_group || fa(pageContract, "variance.cohort_unknown")}</td>
                     <td>
                       {row.planned_kg === ""
                         ? fa(pageContract, "variance.planned_unknown")
@@ -836,11 +835,13 @@ function ExecutionTab({
                     </td>
                     <td>{`${row.verified_kg} ${fa(pageContract, "unit.kg")}`}</td>
                     <td>
-                      {/* Every measured bag is listed now, so the TONE is the tolerance flag, not
-                          the sign: past 0.2 kg is a real discrepancy, inside it is a scale read off
-                          a video agreeing with the sheet. The arrow still says which way, and a bag
-                          that matched exactly carries no arrow to point. */}
-                      <span className={`${row.beyond_tolerance ? "tag t-dng" : "tag t-ok"} feed-stock-check-tag`}>
+                      {/* The difference is reported as it stands -- no tolerance threshold, so no
+                          tone claims which readings are "real" discrepancies. The only tone left is
+                          the one the reading itself states: a bag that matched the sheet exactly is
+                          independent confirmation, and it carries no arrow to point. */}
+                      <span
+                        className={`${num(row.variance_kg) === 0 ? "tag t-ok" : "tag t-info"} feed-stock-check-tag`}
+                      >
                         {num(row.variance_kg) === 0 ? null : (
                           <span aria-hidden="true">{num(row.variance_kg) > 0 ? "↑" : "↓"}</span>
                         )}

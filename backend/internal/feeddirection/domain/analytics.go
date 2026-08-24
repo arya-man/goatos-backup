@@ -217,18 +217,19 @@ type ExecutionDay struct {
 	MedianVerifyLatencyMinutes *int64
 }
 
-// PackingVarianceToleranceKg is how far the verifier's blind reading may sit from the directed
-// quantity before the pen-session-item pops on the leadership execution view (maintainer decision
-// 2026-08-21, second same-day decision SUPERSEDING the initial any-mismatch rule): a scale read off
-// a video is honest to a couple hundred grams, so differences of 0.2 kg or less are treated as the
-// same number. Strictly greater-than: exactly 0.2 kg stays quiet.
+// PackingVarianceToleranceKg is how far a shed's measured total may sit from the directed quantity
+// before the packed-vs-given TREND counts that shed-day as differing: a scale read off a video is
+// honest to a couple hundred grams, so differences of 0.2 kg or less are treated as the same
+// number. Strictly greater-than: exactly 0.2 kg stays quiet. The bag table itself carries no
+// tolerance flag (maintainer decision 2026-08-24); this constant serves the trend counts only.
 const PackingVarianceToleranceKg = 0.2
 
-// PackingVarianceRow is one MISMATCH between what the frozen sheet directed a pen-session to pack
-// for one feed item and what the verifier read off the packing video (maintainer decision
+// PackingVarianceRow is one MEASURED BAG: what the frozen sheet directed a pen-session to pack for
+// one feed item, against what the verifier read off the packing video (maintainer decision
 // 2026-08-21: blind per-item entry -- she never sees the planned figure, so this comparison lives
-// ONLY on the leadership execution view, never on any verifier surface). A row exists only when
-// |entered - planned| exceeds PackingVarianceToleranceKg.
+// ONLY on the leadership execution view, never on any verifier surface). Every measured bag is
+// listed and the difference is reported as it stands: there is no tolerance flag on the row
+// (maintainer decision 2026-08-24).
 type PackingVarianceRow struct {
 	FeedDay string
 	// PackingDay is FeedDay - 1: the day the bag was actually weighed out. This table is about
@@ -248,12 +249,10 @@ type PackingVarianceRow struct {
 	Workflow      string
 	FeedItemKey   string
 	FeedItemLabel string
-	// BreedLabel and AgeGroup describe the bag's cohort, resolved agree-or-go-bare: a bag whose
-	// sheet rows carry more than one breed, or straddle kid and adult, reports MixedCohortLabel
-	// rather than naming one, which would be a cohort nobody recorded. Both are empty when the
-	// frozen sheet row behind the reading is gone.
+	// BreedLabel describes the bag's cohort, resolved agree-or-go-bare: a bag whose sheet rows
+	// carry more than one breed reports MixedCohortLabel rather than naming one, which would be a
+	// cohort nobody recorded. Empty when the frozen sheet row behind the reading is gone.
 	BreedLabel string
-	AgeGroup   string
 	// PlannedKg is the frozen sheet's summed quantity for this (pen, session, item) as a decimal
 	// string; "" when the sheet carried no resolved quantity (blocked cell or missing row) -- blank
 	// and zero are never conflated.
@@ -262,14 +261,10 @@ type PackingVarianceRow struct {
 	VerifiedKg string
 	// VarianceKg is VerifiedKg minus the resolved planned quantity (0 when unresolved), signed.
 	VarianceKg string
-	// BeyondTolerance marks a bag whose difference exceeds PackingVarianceToleranceKg. Every
-	// measured bag is listed now, so this is what separates a real discrepancy from a scale read
-	// that is honest to a couple hundred grams.
-	BeyondTolerance bool
 }
 
-// MixedCohortLabel is what a bag reports when its sheet rows disagree on breed or age group. It
-// is a real answer -- the pen holds a mix -- never a missing value.
+// MixedCohortLabel is what a bag reports when its sheet rows disagree on breed. It is a real
+// answer -- the pen holds a mix -- never a missing value.
 const MixedCohortLabel = "Mixed"
 
 // FeedConsumptionTrendDay is one day of the packed-vs-given trend under the mismatch table:

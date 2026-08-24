@@ -242,11 +242,10 @@ GROUP BY 1`
 // sessions x items x window days -- physical infrastructure, never herd size; scope=tenant_id on
 // every table plus the caller's authorized park set on both sides.
 //
-// MISMATCHES BEYOND TOLERANCE ONLY (maintainer decision 2026-08-21, second same-day decision
-// superseding the initial any-mismatch rule): a row pops only when |entered - planned| exceeds
-// domain.PackingVarianceToleranceKg ($5), strictly greater-than so a difference of exactly 0.2 kg
-// stays quiet. This comparison must NEVER reach a verifier surface: she enters blind, and the page
-// serving this payload is leadership-gated.
+// EVERY MEASURED BAG, difference reported as it stands (maintainer decision 2026-08-24, superseding
+// the beyond-tolerance flag that followed the original outliers-only rule). This comparison must
+// NEVER reach a verifier surface: she enters blind, and the page serving this payload is
+// leadership-gated.
 //
 // scale-guard:ignore: 5k-50k-envelope -- bounded windowed comparison over the
 // same indexed date columns as the status counts above.
@@ -275,8 +274,8 @@ WITH readings AS (
       AND ($2::uuid[] IS NULL OR c.park_id = ANY ($2::uuid[]))
       AND c.target_date BETWEEN $3 AND $4
       AND c.status = 'completed'
-      AND ($9::text = '' OR lp.name = $9::text)
-      AND ($10::text = '' OR q.feed_item_key = $10::text)
+      AND ($8::text = '' OR lp.name = $8::text)
+      AND ($9::text = '' OR q.feed_item_key = $9::text)
 ),
 planned AS (
     SELECT i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow,
@@ -284,16 +283,10 @@ planned AS (
            SUM(r.quantity_kg)                       AS planned_kg,
            MAX(r.session_label)                     AS session_label,
            -- The cohort of the bag, agree-or-go-bare: a pen-session-item whose sheet rows carry
-           -- more than one breed or straddle kid and adult reports 'Mixed' rather than naming one,
-           -- which would be a cohort nobody recorded.
+           -- more than one breed reports 'Mixed' rather than naming one, which would be a cohort
+           -- nobody recorded.
            CASE WHEN COUNT(DISTINCT COALESCE(NULLIF(r.breed, ''), 'Unspecified')) = 1
-                THEN MAX(COALESCE(NULLIF(r.breed, ''), 'Unspecified')) ELSE $6::text END AS breed_label,
-           CASE WHEN COUNT(DISTINCT CASE
-                     WHEN feed_config_norm(COALESCE(r.ration_group, r.shed_tag, '')) LIKE '%kid%' THEN 'Kid'
-                     ELSE 'Adult' END) = 1
-                THEN MAX(CASE
-                     WHEN feed_config_norm(COALESCE(r.ration_group, r.shed_tag, '')) LIKE '%kid%' THEN 'Kid'
-                     ELSE 'Adult' END) ELSE $6::text END AS age_group
+                THEN MAX(COALESCE(NULLIF(r.breed, ''), 'Unspecified')) ELSE $5::text END AS breed_label
     FROM feed_direction_issues i
     JOIN feed_direction_issue_rows r
       ON r.tenant_id = $1
@@ -321,11 +314,9 @@ SELECT rd.target_date::text,
        rd.feed_item_key,
        rd.feed_item_label,
        COALESCE(p.breed_label, ''),
-       COALESCE(p.age_group, ''),
        COALESCE(p.planned_kg::text, ''),
        rd.entered_kg::text,
-       (rd.entered_kg - COALESCE(p.planned_kg, 0))::text,
-       (abs(rd.entered_kg - COALESCE(p.planned_kg, 0)) > $5) AS beyond_tolerance
+       (rd.entered_kg - COALESCE(p.planned_kg, 0))::text
 FROM readings rd
 LEFT JOIN planned p
   ON p.feed_day = rd.target_date
@@ -338,12 +329,12 @@ LEFT JOIN planned p
 -- EVERY measured bag, biggest difference first (maintainer decision 2026-08-24, replacing the
 -- outliers-only list). A bag that matched is evidence too -- the verifier entered it blind, so a
 -- match is independent confirmation and hiding it left the reader unable to see how much of the
--- day was confirmed. The 0.2 kg tolerance survives as the beyond_tolerance FLAG, not as a filter.
+-- day was confirmed. The difference is reported as it stands, with no tolerance flag on the row.
 -- The sort is by absolute difference so an over-pack and an equal short-pack rank together; the
 -- remaining keys are the row's own identity, so a page boundary is stable between reads.
 ORDER BY abs(rd.entered_kg - COALESCE(p.planned_kg, 0)) DESC, rd.target_date DESC,
          rd.park_label, rd.shed_label, rd.partition_label, rd.session_no, rd.feed_item_label
-LIMIT $7 OFFSET $8`
+LIMIT $6 OFFSET $7`
 
 // Target vs actual feed, at SHED grain (maintainer decision 2026-08-23).
 //
@@ -606,7 +597,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 			return domain.ExecutionAnalytics{}, err
 		}
 		varRows, err := r.pool.Query(ctx, executionPackingVarianceSQL, tenantID, parkIDs, fromArg, toArg,
-			domain.PackingVarianceToleranceKg, domain.MixedCohortLabel, varLimit+1, varOffset,
+			domain.MixedCohortLabel, varLimit+1, varOffset,
 			q.PackingVarianceParkLabel, q.PackingVarianceFeedItemKey)
 		if err != nil {
 			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance: %w", err)
@@ -618,7 +609,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 			if err := varRows.Scan(
 				&v.FeedDay, &v.PackingDay, &v.ParkLabel, &v.ShedID, &v.ShedLabel, &v.PartitionLabel,
 				&v.SessionNo, &v.SessionLabel, &v.Workflow, &v.FeedItemKey, &v.FeedItemLabel,
-				&v.BreedLabel, &v.AgeGroup, &v.PlannedKg, &v.VerifiedKg, &v.VarianceKg, &v.BeyondTolerance,
+				&v.BreedLabel, &v.PlannedKg, &v.VerifiedKg, &v.VarianceKg,
 			); err != nil {
 				return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance scan: %w", err)
 			}

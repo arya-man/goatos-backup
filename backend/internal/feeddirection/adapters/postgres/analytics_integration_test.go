@@ -1539,9 +1539,9 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 		t.Fatalf("ExecutionAnalytics: %v", err)
 	}
 
-	// The MISMATCH rows now carry the bag's cohort. Castro pen 1 session 2 was measured 2 kg short
-	// on concentrate, and its two sheet rows for that session disagree on nothing -- one breed, one
-	// ration group -- so it names them outright.
+	// The MISMATCH rows carry the bag's breed. Castro pen 1 session 2 was measured 2 kg short on
+	// concentrate, and its two sheet rows for that session agree on the breed, so it names it
+	// outright.
 	var shortBag *domain.PackingVarianceRow
 	for i := range got.PackingVariance {
 		if got.PackingVariance[i].FeedItemKey == "concentrate" && got.PackingVariance[i].SessionNo == 2 {
@@ -1551,23 +1551,24 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 	if shortBag == nil {
 		t.Fatalf("the 2 kg short concentrate bag is missing: %+v", got.PackingVariance)
 	}
-	if shortBag.BreedLabel != "Sojat" || shortBag.AgeGroup != "Kid" {
-		t.Errorf("short bag cohort = %q/%q, want Sojat/Kid", shortBag.BreedLabel, shortBag.AgeGroup)
+	if shortBag.BreedLabel != "Sojat" {
+		t.Errorf("short bag breed = %q, want Sojat", shortBag.BreedLabel)
 	}
 	if shortBag.PlannedKg != "3.000" || shortBag.VerifiedKg != "1.000" {
 		t.Errorf("short bag = %q directed / %q measured, want 3.000/1.000", shortBag.PlannedKg, shortBag.VerifiedKg)
 	}
-	// A bag whose sheet rows straddle two cohorts reports Mixed rather than naming one. Session 1
-	// carries only Beetal/adult rows, so it must NOT read Mixed -- the fixture proves both answers.
+	// A bag whose sheet rows straddle two breeds reports Mixed rather than naming one. Session 1
+	// carries only Beetal rows, so it must NOT read Mixed -- the fixture proves both answers.
 	for _, row := range got.PackingVariance {
 		if row.SessionNo == 1 && row.BreedLabel == domain.MixedCohortLabel {
 			t.Errorf("a single-cohort bag must not read Mixed: %+v", row)
 		}
 	}
-	// EVERY measured bag is listed, not only the ones past tolerance (maintainer decision
-	// 2026-08-24). Session 1 was measured EXACTLY as directed, and it must appear -- flagged false.
-	// A match is independent confirmation, because the verifier entered it without seeing the
-	// sheet; hiding it left the reader unable to tell a confirmed day from an unmeasured one.
+	// EVERY measured bag is listed, not only the ones that differ (maintainer decision 2026-08-24),
+	// and the difference is reported as it stands with no tolerance flag. Session 1 was measured
+	// EXACTLY as directed, and it must appear. A match is independent confirmation, because the
+	// verifier entered it without seeing the sheet; hiding it left the reader unable to tell a
+	// confirmed day from an unmeasured one.
 	var matched *domain.PackingVarianceRow
 	for i := range got.PackingVariance {
 		if got.PackingVariance[i].SessionNo == 1 && got.PackingVariance[i].FeedItemKey == "concentrate" {
@@ -1577,11 +1578,11 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 	if matched == nil {
 		t.Fatalf("a bag measured exactly as directed must still be listed: %+v", got.PackingVariance)
 	}
-	if matched.BeyondTolerance || matched.VarianceKg != "0.000" {
-		t.Errorf("matched bag = variance %q flagged %v, want 0.000 and false", matched.VarianceKg, matched.BeyondTolerance)
+	if matched.VarianceKg != "0.000" {
+		t.Errorf("matched bag = variance %q, want 0.000", matched.VarianceKg)
 	}
-	if shortBag.BeyondTolerance != true {
-		t.Errorf("a 2 kg short bag must be flagged past tolerance: %+v", shortBag)
+	if shortBag.VarianceKg != "-2.000" {
+		t.Errorf("short bag = variance %q, want -2.000", shortBag.VarianceKg)
 	}
 	// Biggest difference first: the row the reader must act on cannot sit below the ones that
 	// matched.

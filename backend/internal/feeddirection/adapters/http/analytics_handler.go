@@ -116,13 +116,11 @@ type packingVarianceRowDTO struct {
 	FeedItemKey                string `json:"feed_item_key"`
 	FeedItemLabel              string `json:"feed_item_label"`
 	BreedLabel                 string `json:"breed_label"`
-	AgeGroup                   string `json:"age_group"`
 	// PlannedKg is "" when the frozen sheet carried no resolved quantity -- blank and zero are
 	// never conflated.
 	PlannedKg       string `json:"planned_kg"`
 	VerifiedKg      string `json:"verified_kg"`
 	VarianceKg      string `json:"variance_kg"`
-	BeyondTolerance bool   `json:"beyond_tolerance"`
 }
 
 type feedConsumptionTrendDayDTO struct {
@@ -218,11 +216,9 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 			FeedItemKey:                v.FeedItemKey,
 			FeedItemLabel:              v.FeedItemLabel,
 			BreedLabel:                 v.BreedLabel,
-			AgeGroup:                   v.AgeGroup,
 			PlannedKg:                  v.PlannedKg,
 			VerifiedKg:                 v.VerifiedKg,
 			VarianceKg:                 v.VarianceKg,
-			BeyondTolerance:            v.BeyondTolerance,
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
