@@ -3290,6 +3290,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.load.aria":                 "Growth for each purchase load",
 			"chart.load.caption":              "Kids are bought in loads from a supplier and put into sheds. This is how each load's sheds are moving, so a supplier's stock can be judged on how it grows.",
 			"empty.load.body":                 "No load has a weighed shed yet. A load shows up here once the sheds it went into have been weighed.",
+			"note.load.unmapped":              "sheds are not counted here — they have no load recorded, or they hold more than one load and a single shed average cannot be split between two suppliers.",
 			// The load chart says a supplier's stock is growing; this says WHERE. Without
 			// it a reader cannot walk from a load bar to the shed table below it.
 			"section.load_placements.title":   "Where each load sits",

@@ -2535,7 +2535,7 @@ select:disabled { opacity: .45; }
 .gmrow .gmt i{display:block;height:100%;border-radius:5px;background:var(--gain-lo)}
 .gmrow.hi .gmt i{background:var(--gain-hi)}
 .gmrow.mid .gmt i{background:var(--gain-mid)}
-  .gmrow.under .gmt i{background:var(--gain-under)}
+.gmrow.under .gmt i{background:var(--gain-under)}
 .gmrow .gmv{font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ink);text-align:right;padding-left:4px}
 /* Its own column, so counts align under counts and never blur into the percentage
    beside them. Recessive: the percentage is what the bar encodes, the count is the
@@ -2547,7 +2547,7 @@ select:disabled { opacity: .45; }
 .gmlegend i{width:11px;height:11px;border-radius:3px;flex:none;background:var(--gain-lo)}
 .gmlegend .hi i{background:var(--gain-hi)}
 .gmlegend .mid i{background:var(--gain-mid)}
-  .gmlegend .under i{background:var(--gain-under)}
+.gmlegend .under i{background:var(--gain-under)}
 @media(max-width:900px){.gmark{grid-template-columns:minmax(0,120px) minmax(96px,1fr);gap:10px}.gmrow{grid-template-columns:minmax(0,1fr) 44px 38px;gap:5px}}
 
 /* Per-chart metric toggle. Links, not buttons, so the page stays a server
