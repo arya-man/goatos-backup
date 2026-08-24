@@ -2578,6 +2578,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.purchase_record_failed":     "Could not record this purchase. Check the fields and try again.",
 			"action.error_form":                 "Could not complete that action.",
 			"error.load":                        "Could not load the feed purchase ledger. Refresh to try again.",
+			"error.options":                     "Could not load the purchase form options. Refresh to try again.",
 			"disabled.write":                    "Your current role can view feed purchases but not record them.",
 		}
 	case "sales":

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { randomUUID } from "node:crypto";
 import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { redirect } from "next/navigation";
@@ -92,11 +93,13 @@ export async function FeedPurchasesPage({
   const spendRupees = result.ok ? result.data.spend_rupees : 0;
   const pageCount = Math.max(1, Math.ceil(total / limit));
   const pageNumber = Math.min(pageCount, Math.floor(offset / limit) + 1);
-  const options: FeedPurchaseOptions | null = optionsResult.ok ? optionsResult.data : null;
+  const optionsReady = optionsResult.ok;
+  const options: FeedPurchaseOptions | null = optionsReady ? optionsResult.data : null;
 
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
   const canRecord = controlEnabled(pageContract, "record_feed_purchase", false);
+  const canOpenRecordDrawer = canRecord && optionsReady;
   const none = copy(pageContract, "value.none");
   const columns = tableLabels(pageContract, "feed-purchases");
   const listHref = hrefWithQuery(sp, { purchase_id: null });
@@ -113,7 +116,7 @@ export async function FeedPurchasesPage({
           <div className="sub">{pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        {canRecord ? (
+        {canOpenRecordDrawer ? (
           <LocalOverlayLink
             href={hrefWithQuery(sp, { purchase_id: "new" })}
             className="btn primary"
@@ -142,6 +145,13 @@ export async function FeedPurchasesPage({
       {!result.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
           <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message || copy(pageContract, "error.load")}
+        </div>
+      ) : null}
+
+      {!optionsResult.ok ? (
+        <div className="alert" style={{ marginBottom: 14 }}>
+          <b>{optionsResult.error.code ?? optionsResult.error.kind}</b>&nbsp;
+          {optionsResult.error.message || copy(pageContract, "error.options")}
         </div>
       ) : null}
 
@@ -272,9 +282,10 @@ export async function FeedPurchasesPage({
       <FeedPurchaseDrawer
         purchases={purchases}
         options={options}
+        recordIdempotencyKey={randomUUID()}
         pageContract={pageContract}
         listHref={listHref}
-        canRecord={canRecord}
+        canRecord={canOpenRecordDrawer}
       />
     </div>
   );

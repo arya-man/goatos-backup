@@ -258,6 +258,11 @@ WHERE tenant_id = $1 AND feed_item_key = feed_config_norm($2) AND status = 'acti
 	if write.BatchNo != nil {
 		batchNo = *write.BatchNo
 	} else {
+		if _, err := tx.Exec(ctx, `
+SELECT pg_advisory_xact_lock(hashtext($1::text || ':' || $2 || ':' || feed_config_norm($3))::bigint)`,
+			tenantID, write.FarmLabel, catalogLabel); err != nil {
+			return domain.FeedPurchase{}, fmt.Errorf("procurement: lock feed batch counter: %w", err)
+		}
 		if err := tx.QueryRow(ctx, `
 SELECT COALESCE(max(batch_no), 0) + 1
 FROM public.feed_purchases

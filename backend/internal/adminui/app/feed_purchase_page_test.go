@@ -67,7 +67,7 @@ func TestFeedPurchasePageContractAndNavigation(t *testing.T) {
 		"action.save", "action.cancel", "action.close",
 		"action.purchase_recorded", "action.purchase_record_failed", "action.error_form",
 		"filter.farm", "pager.page", "pager.of", "action.next_page", "action.prev_page",
-		"empty.purchases", "empty.purchases.unset", "error.load", "disabled.write",
+		"empty.purchases", "empty.purchases.unset", "error.load", "error.options", "disabled.write",
 	} {
 		if page.Copy[key] == "" {
 			t.Fatalf("feed purchase copy missing %q", key)
