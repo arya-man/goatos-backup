@@ -20,8 +20,8 @@ func TestAllowedEmailSourceIsTenantScoped(t *testing.T) {
 		email   = "same.user@mesha.sg"
 	)
 	if _, err := pool.Exec(ctx, `
-INSERT INTO tenants (tenant_id, code, name, status)
-VALUES ($1::uuid, 'TENANTB', 'Tenant B', 'active')
+INSERT INTO tenants (tenant_id, name, status)
+VALUES ($1::uuid, 'Tenant B', 'active')
 ON CONFLICT (tenant_id) DO NOTHING`, tenantB); err != nil {
 		t.Fatalf("seed tenant B: %v", err)
 	}

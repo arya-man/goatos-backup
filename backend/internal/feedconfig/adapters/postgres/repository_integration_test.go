@@ -720,6 +720,7 @@ func TestListRationRatesPagesAndFilters(t *testing.T) {
 	pool := setupFeedConfigDB(t, ctx)
 	repo := fcRepo(pool)
 
+	fcSeedCatalog(t, ctx, pool, "Concentrate", "Green Fodder")
 	cells := []struct{ group, tag, item, grams string }{
 		{"Boer", "Pregnant", "Concentrate", "250.000"},
 		{"Boer", "Pregnant", "Green Fodder", "1000.000"},
@@ -796,6 +797,7 @@ VALUES ($1::uuid, 'Beetal', 'Beetal/Sirohi'),
 ON CONFLICT DO NOTHING`, fcTenant); err != nil {
 		t.Fatalf("seed ration groups: %v", err)
 	}
+	fcSeedCatalog(t, ctx, pool, "Concentrate", "Green Fodder", "Baking Soda")
 
 	cells := []struct{ group, tag, item, grams string }{
 		{"Beetal/Sirohi", "Pregnant", "Concentrate", "250.000"},
@@ -1109,6 +1111,7 @@ func TestListsExcludeSupersededRows(t *testing.T) {
 	pool := setupFeedConfigDB(t, ctx)
 	repo := fcRepo(pool)
 
+	fcSeedCatalog(t, ctx, pool, "Concentrate")
 	if _, err := repo.UpsertRationRate(ctx, rateCommand("key-hist-00001", "fp-a", "250.000", "2026-07-19")); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
@@ -1971,8 +1974,14 @@ func TestWithdrawSessionFeedClosesTheRowAndNeverDeletesIt(t *testing.T) {
 	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", false, "key-w-del", "2026-07-20")); err != nil {
 		t.Fatalf("withdraw: %v", err)
 	}
-	if got := declaredFeeds(t, ctx, pool, 1, "2026-07-19"); len(got) != 0 {
-		t.Fatalf("withdrawn feed is still served: %v", got)
+	// The withdrawal closes the window AT 2026-07-20, so the feed stops being served from that
+	// date -- and remains served on 2026-07-19, which is the whole point of closing the row
+	// instead of deleting it: sheets already issued for the 19th stay explainable.
+	if got := declaredFeeds(t, ctx, pool, 1, "2026-07-20"); len(got) != 0 {
+		t.Fatalf("withdrawn feed is still served on the withdrawal date: %v", got)
+	}
+	if got := declaredFeeds(t, ctx, pool, 1, "2026-07-19"); len(got) != 1 || got[0] != "Concentrate" {
+		t.Fatalf("the day before the withdrawal no longer reports what was served: %v", got)
 	}
 
 	var stored int
@@ -2130,5 +2139,20 @@ func TestDeclareSessionFeedRefusesEarlierEditAgainstFutureRecipe(t *testing.T) {
 	_, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-future-earlier", "2026-07-20"))
 	if !errors.Is(err, ports.ErrFutureDatedRow) {
 		t.Fatalf("err = %v, want ErrFutureDatedRow", err)
+	}
+}
+
+// fcSeedCatalog registers feed items as ACTIVE. The rate listing deliberately scopes itself to
+// catalogued, active items -- the authoring screen and the feed sheet must not disagree about what
+// is fed -- so a fixture that writes rates without cataloguing their item lists nothing at all.
+func fcSeedCatalog(t *testing.T, ctx context.Context, pool *pgxpool.Pool, labels ...string) {
+	t.Helper()
+	for _, label := range labels {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status)
+VALUES ($1::uuid, $2, 'active')
+ON CONFLICT DO NOTHING`, fcTenant, label); err != nil {
+			t.Fatalf("seed feed item %s: %v", label, err)
+		}
 	}
 }
