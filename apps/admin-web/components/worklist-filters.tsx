@@ -133,6 +133,8 @@ export type WorklistFilterField =
       defaultFrom: string;
       defaultTo: string;
       labels: DateRangePickerLabels;
+      markerDates?: readonly string[];
+      markerFetchPath?: string;
     };
 
 // Shared mock-shaped filter bar for backend-filtered operational worklists. Applying rewrites the
@@ -428,6 +430,8 @@ export function WorklistFilters({
                 to={shownValue(field.toParam, field.to, true) || field.defaultTo}
                 today={field.today}
                 busy={busy}
+                markerDates={field.markerDates}
+                markerFetchPath={field.markerFetchPath}
                 onChange={(from, to) => applyRange(field, from, to)}
               />
             </label>

@@ -92,6 +92,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "growth_director.trust.pending.sub": "still counted — a weigh is a weigh until a verifier bounces it",
     "growth_director.trust.rework": "Bounced by the verifier",
     "growth_director.trust.rework.sub": "left out of every gain number on this page",
+    "filter.period.lump_marker_hint": "lump-sum weighing done",
   },
   "control-tower": {
     "label.scope": "Scope",

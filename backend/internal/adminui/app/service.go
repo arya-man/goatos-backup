@@ -3171,6 +3171,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.period.range_start_hint": "Pick the first day of the range.",
 			"filter.period.range_end_hint":   "Now pick the last day of the range.",
 			"filter.period.range_separator":  "to",
+			"filter.period.lump_marker_hint": "lump-sum weighing done",
 			// Download drawer (maintainer request 2026-08-21): whole-window export in the
 			// operations Weight-check sheet's own shape, minus its video-link column. The
 			// drawer's calendar reuses the filter.period.* labels above.
