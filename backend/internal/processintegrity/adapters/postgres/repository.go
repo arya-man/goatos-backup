@@ -1253,6 +1253,7 @@ derived AS (
     CASE stateful.work_state
       WHEN 'rejected' THEN 0
       WHEN 'blocked' THEN 1
+      WHEN 'missed' THEN 1
       WHEN 'overdue' THEN 2
       WHEN 'proof_pending' THEN 3
       WHEN 'verification_pending' THEN 4
@@ -1275,6 +1276,7 @@ derived AS (
     CASE stateful.work_state
       WHEN 'completed' THEN 'No action - drive verified'
       WHEN 'rejected' THEN 'Review rejection and request rework'
+      WHEN 'missed' THEN 'Escalate missed dose to PC'
       WHEN 'blocked' THEN CASE WHEN stateful.missed_count > 0 THEN 'Escalate missed dose to PC' ELSE 'Resolve blocker before execution' END
       WHEN 'deferred' THEN 'Confirm defer reason with PC'
       WHEN 'verification_pending' THEN 'Verifier to accept or reject proof'
@@ -1372,7 +1374,7 @@ filtered AS (
     AND ($12::text = '' OR row_id = $12::text)
     AND (
       NOT $13::boolean
-      OR work_state IN ('rejected', 'blocked', 'overdue', 'proof_pending', 'verification_pending')
+      OR work_state IN ('rejected', 'blocked', 'missed', 'overdue', 'proof_pending', 'verification_pending')
     )
 ),
 -- The vaccine display label is composed in Go (domain.ControlTowerDoseLabel),
