@@ -1984,19 +1984,35 @@ Do:
   `make goat-shed-integrity-db-proof` or `tools/dev/seed-closeout.sh`.
 ## Operational Location and Partition Convention (maintainer lock, 2026-08-06; clarified 2026-08-16)
 
-Every goat's ground location is defined as: `park + physical_shed + optional partition_label`.
+**Read `docs/decisions/partition-is-operational-shed.md` FIRST. It outranks the
+storage wording below.** In product terms `Castro 1` and `Castro 2` ARE sheds —
+separate buildings, with animals physically in them. There is no operator-facing
+"parent shed plus partition". Everything in this section describes how those
+sheds are currently STORED while the operational-location migration is in
+progress; it is not a claim about the farm.
+
+Every goat's ground location is stored as: `park + physical_shed + optional
+partition_label`. That triple is one shed. `shed_id` alone never names it.
 
 **The convention is LOCKED by evidence from THREE independent sources (master registry, live BigQuery, legacy production code), with FOUR worked wrong-examples from production bugs. This section tightens the rule with those examples and a guard.**
 
 ### Rule 1: Normalize Partition Labels at Seed/Import
 
-Subdivided sheds (historically named `Godel 1`, `Mandela 2`, etc.) normalize to `shed_name + partition_label`:
-  - `Castro 1`, `Castro 2`, `Castro 3` → ONE shed `Castro` with partitions `1`, `2`, `3`
-  - `Godel 1 - Part 3` → ONE shed `Godel 1` with partition `Part 3`
+Sheds whose names share a base (`Castro 1`, `Godel 1 - Part 3`) are STORED as
+`shed_name + partition_label`. This is a storage layout, not a statement that the
+base name is a building:
+  - `Castro 1`, `Castro 2`, `Castro 3` → three sheds, stored under one `locations`
+    row `Castro` with labels `1`, `2`, `3`. `Castro` is grouping metadata; it is
+    not a shed anyone works in.
+  - `Godel 1 - Part 3` → the shed `Godel 1 - Part 3`, stored as `Godel 1` + `Part 3`
 
 Undivided sheds (numeric-suffix names that are NOT subdivided, like `Ho Chi Minh 1`, `Yashoda`) → stored with NULL / '' / 'whole' partition. The `1` in the shed name is NOT a partition.
 
-**NEVER seed raw partition strings as separate physical shed buildings.** The `locations` table is the single source of truth for which partitions exist.
+**NEVER seed raw partition strings as new `locations` rows.** The `locations`
+table is the single source of truth for which sheds exist; inventing a row from a
+label string duplicates a shed that is already stored. This is a rule about how
+to WRITE `locations`, not a claim that the labelled sheds are less real than the
+base name.
 
 ### Rule 2: Storage vs. Display Are Different (Maintainer 2026-08-05, clarified 2026-08-16)
 

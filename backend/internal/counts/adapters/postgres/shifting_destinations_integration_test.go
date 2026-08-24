@@ -41,6 +41,19 @@ const (
 
 func seedDestinationTopology(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
+	// The catalog carries the ACTIVE management-stage vocabulary alongside the destinations, read
+	// from animal_stage_lookup. Without it the movement form has no cohort to move an animal into,
+	// so the fixture seeds the vocabulary it asserts on -- including the two clinical stages, which
+	// the picker must strip.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, sort_order, status)
+VALUES ($1::uuid, 'K2', 'K2', 1, 'active'),
+       ($1::uuid, 'Mother', 'Mother', 2, 'active'),
+       ($1::uuid, 'ICU', 'ICU', 3, 'active'),
+       ($1::uuid, 'Quarantine', 'Quarantine', 4, 'active')
+ON CONFLICT DO NOTHING`, countsTenant); err != nil {
+		t.Fatalf("seed management-stage vocabulary: %v", err)
+	}
 	// retired_at is set in the INSERT rather than by a follow-up UPDATE: the schema's
 	// locations_seeded_scope_guard_update_trg blocks UPDATEs of location_type/status/retired_at on
 	// the seeded CBE/CPT/HF scope ("requires approved migration plan"), which is itself a useful
@@ -70,7 +83,7 @@ ON CONFLICT (location_id) DO NOTHING`,
 }
 
 // TestShiftingDestinationCatalogSuppressesSameParkPartitionAliases pins the live STG bug where the
-// operator saw both "Castro 1" and "Castro - 1" in the same park. The first is an old active
+// operator saw both "Castro 1" and "Castro 1" in the same park. The first is an old active
 // partition-alias location; the second is the canonical parent shed plus shed_partitions row.
 func TestShiftingDestinationCatalogSuppressesSameParkPartitionAliases(t *testing.T) {
 	ctx := context.Background()
@@ -117,7 +130,7 @@ SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
 			}
 		}
 	}
-	if len(labels) != 1 || labels[0] != "Castro - 1" {
+	if len(labels) != 1 || labels[0] != "Castro 1" {
 		t.Fatalf("Castro destination labels in one park = %v, want only the canonical parent partition \"Castro - 1\"", labels)
 	}
 }
@@ -518,7 +531,7 @@ ON CONFLICT (location_id) DO UPDATE SET animal_stage_id = EXCLUDED.animal_stage_
 	if len(byDisplay) != 2 {
 		t.Fatalf("want one entry per pen, got %d: %+v", len(byDisplay), byDisplay)
 	}
-	for display, want := range map[string]string{"Castro - 1": "K2", "Castro - 2": "Mother"} {
+	for display, want := range map[string]string{"Castro 1": "K2", "Castro 2": "Mother"} {
 		if got := byDisplay[display]; got != want {
 			t.Fatalf("%s configured cohort = %q, want %q -- a pen must report its OWN tag, not its shed's", display, got, want)
 		}
