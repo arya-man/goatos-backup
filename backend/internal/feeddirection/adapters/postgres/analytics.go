@@ -250,6 +250,13 @@ GROUP BY 1`
 //
 // scale-guard:ignore: 5k-50k-envelope -- bounded windowed comparison over the
 // same indexed date columns as the status counts above.
+// Bounded LIMIT/OFFSET over one capped window (92 days max) of MEASURED bags -- readings a verifier
+// entered, not herd data -- and the service REJECTS an offset past domain.MaxPackingVarianceOffset,
+// so the offset cannot grow with the herd. Keyset is not usable here: the sort key is a COMPUTED
+// absolute difference, neither unique nor indexable. The ORDER BY ends in the row's own identity,
+// so a page boundary never splits or repeats a bag.
+//
+// scale-guard:ignore: bounded offset over a capped window, rejected past 5000; see above.
 const executionPackingVarianceSQL = `
 WITH readings AS (
     SELECT c.completion_id, c.target_date, c.park_id, c.shed_id, c.partition_key, c.session_no,
@@ -297,6 +304,11 @@ planned AS (
     GROUP BY i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow, r.feed_item_key
 )
 SELECT rd.target_date::text,
+       -- The PACKING day, which is what this table is about: a packer works day P on the sheet the
+       -- animals eat on day P+1 (maintainer decision 2026-07-27, the axis Feed Packing already
+       -- browses by). Derived here rather than in the client, because IST day arithmetic done on a
+       -- browser clock is exactly how this page once dropped a day.
+       (rd.target_date - 1)::text AS packing_day,
        rd.park_label,
        rd.shed_id::text,
        rd.shed_label,
@@ -310,7 +322,8 @@ SELECT rd.target_date::text,
        COALESCE(p.age_group, ''),
        COALESCE(p.planned_kg::text, ''),
        rd.entered_kg::text,
-       (rd.entered_kg - COALESCE(p.planned_kg, 0))::text
+       (rd.entered_kg - COALESCE(p.planned_kg, 0))::text,
+       (abs(rd.entered_kg - COALESCE(p.planned_kg, 0)) > $5) AS beyond_tolerance
 FROM readings rd
 LEFT JOIN planned p
   ON p.feed_day = rd.target_date
@@ -320,8 +333,15 @@ LEFT JOIN planned p
  AND p.session_no = rd.session_no
  AND p.workflow = rd.workflow
  AND p.feed_item_key = rd.feed_item_key
-WHERE abs(rd.entered_kg - COALESCE(p.planned_kg, 0)) > $5
-ORDER BY rd.target_date DESC, rd.park_label, rd.shed_label, rd.partition_label, rd.session_no, rd.feed_item_label`
+-- EVERY measured bag, biggest difference first (maintainer decision 2026-08-24, replacing the
+-- outliers-only list). A bag that matched is evidence too -- the verifier entered it blind, so a
+-- match is independent confirmation and hiding it left the reader unable to see how much of the
+-- day was confirmed. The 0.2 kg tolerance survives as the beyond_tolerance FLAG, not as a filter.
+-- The sort is by absolute difference so an over-pack and an equal short-pack rank together; the
+-- remaining keys are the row's own identity, so a page boundary is stable between reads.
+ORDER BY abs(rd.entered_kg - COALESCE(p.planned_kg, 0)) DESC, rd.target_date DESC,
+         rd.park_label, rd.shed_label, rd.partition_label, rd.session_no, rd.feed_item_label
+LIMIT $7 OFFSET $8`
 
 // Target vs actual feed, at SHED grain (maintainer decision 2026-08-23).
 //
@@ -430,6 +450,7 @@ comparison AS (
     GROUP BY p.feed_day, p.park_id, p.shed_id, p.partition_key
 )
 SELECT feed_day::text,
+       (feed_day - 1)::text AS packing_day,
        SUM(target_kg)::text,
        COALESCE(SUM(actual_kg)::text, '')                                   AS actual_kg,
        COUNT(*) FILTER (WHERE actual_kg IS NOT NULL AND abs(actual_kg - target_kg) > $5)::text,
@@ -559,7 +580,7 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		for consRows.Next() {
 			var day domain.FeedConsumptionTrendDay
 			var varianceText, comparedText string
-			if err := consRows.Scan(&day.FeedDay, &day.TargetKg, &day.ActualKg, &varianceText, &comparedText); err != nil {
+			if err := consRows.Scan(&day.FeedDay, &day.PackingDay, &day.TargetKg, &day.ActualKg, &varianceText, &comparedText); err != nil {
 				return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption trend scan: %w", err)
 			}
 			if _, err := fmt.Sscan(varianceText, &day.VarianceRows); err != nil {
@@ -576,7 +597,14 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 	}
 
 	if q.Wants(domain.ExecutionSectionPackingVariance) {
-		varRows, err := r.pool.Query(ctx, executionPackingVarianceSQL, tenantID, parkIDs, fromArg, toArg, domain.PackingVarianceToleranceKg, domain.MixedCohortLabel)
+		// One row MORE than the page is asked for: if it comes back there is a next page. A COUNT(*)
+		// over the same predicate would be a second scan to learn one bit.
+		varLimit, varOffset, err := domain.NormalisePackingVariancePage(q.PackingVarianceLimit, q.PackingVarianceOffset)
+		if err != nil {
+			return domain.ExecutionAnalytics{}, err
+		}
+		varRows, err := r.pool.Query(ctx, executionPackingVarianceSQL, tenantID, parkIDs, fromArg, toArg,
+			domain.PackingVarianceToleranceKg, domain.MixedCohortLabel, varLimit+1, varOffset)
 		if err != nil {
 			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance: %w", err)
 		}
@@ -585,9 +613,9 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		for varRows.Next() {
 			var v domain.PackingVarianceRow
 			if err := varRows.Scan(
-				&v.FeedDay, &v.ParkLabel, &v.ShedID, &v.ShedLabel, &v.PartitionLabel,
+				&v.FeedDay, &v.PackingDay, &v.ParkLabel, &v.ShedID, &v.ShedLabel, &v.PartitionLabel,
 				&v.SessionNo, &v.SessionLabel, &v.Workflow, &v.FeedItemKey, &v.FeedItemLabel,
-				&v.BreedLabel, &v.AgeGroup, &v.PlannedKg, &v.VerifiedKg, &v.VarianceKg,
+				&v.BreedLabel, &v.AgeGroup, &v.PlannedKg, &v.VerifiedKg, &v.VarianceKg, &v.BeyondTolerance,
 			); err != nil {
 				return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance scan: %w", err)
 			}
@@ -600,6 +628,10 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 		}
 		if err := varRows.Err(); err != nil {
 			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance rows: %w", err)
+		}
+		if len(out.PackingVariance) > varLimit {
+			out.PackingVariance = out.PackingVariance[:varLimit]
+			out.PackingVarianceHasMore = true
 		}
 	}
 	return out, nil

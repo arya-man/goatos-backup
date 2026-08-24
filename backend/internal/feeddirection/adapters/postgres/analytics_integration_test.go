@@ -2,7 +2,10 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"testing"
 	"time"
 
@@ -1561,6 +1564,34 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 			t.Errorf("a single-cohort bag must not read Mixed: %+v", row)
 		}
 	}
+	// EVERY measured bag is listed, not only the ones past tolerance (maintainer decision
+	// 2026-08-24). Session 1 was measured EXACTLY as directed, and it must appear -- flagged false.
+	// A match is independent confirmation, because the verifier entered it without seeing the
+	// sheet; hiding it left the reader unable to tell a confirmed day from an unmeasured one.
+	var matched *domain.PackingVarianceRow
+	for i := range got.PackingVariance {
+		if got.PackingVariance[i].SessionNo == 1 && got.PackingVariance[i].FeedItemKey == "concentrate" {
+			matched = &got.PackingVariance[i]
+		}
+	}
+	if matched == nil {
+		t.Fatalf("a bag measured exactly as directed must still be listed: %+v", got.PackingVariance)
+	}
+	if matched.BeyondTolerance || matched.VarianceKg != "0.000" {
+		t.Errorf("matched bag = variance %q flagged %v, want 0.000 and false", matched.VarianceKg, matched.BeyondTolerance)
+	}
+	if shortBag.BeyondTolerance != true {
+		t.Errorf("a 2 kg short bag must be flagged past tolerance: %+v", shortBag)
+	}
+	// Biggest difference first: the row the reader must act on cannot sit below the ones that
+	// matched.
+	for i := 1; i < len(got.PackingVariance); i++ {
+		prev := math.Abs(mustFloat(t, got.PackingVariance[i-1].VarianceKg))
+		curr := math.Abs(mustFloat(t, got.PackingVariance[i].VarianceKg))
+		if curr > prev {
+			t.Errorf("rows are not ordered by difference descending: %v then %v", prev, curr)
+		}
+	}
 
 	// PARK SCOPE: another park's id must empty both arms rather than leak CBE's sheds.
 	other, err := repo.ExecutionAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
@@ -1574,4 +1605,151 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 	if len(other.ConsumptionTrend) != 0 || len(other.PackingVariance) != 0 {
 		t.Errorf("park scope leaked: trend=%+v variance=%+v", other.ConsumptionTrend, other.PackingVariance)
 	}
+}
+
+// The mismatch list is a PAGE. What must hold across a page boundary: no bag is split or repeated,
+// has-more is true only while a further page exists, and the TREND beside it stays a whole-window
+// aggregate that paging never moves -- a page-scoped graph would tell the reader the farm fed less
+// on page two.
+func TestPackingMismatchPagingKeepsBagsWholeAndLeavesTheTrendAlone(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id, display_order)
+VALUES ($2::uuid, $1::uuid, 'park', 'CBE-P', 'CBE', 'active', NULL, 1),
+       ($3::uuid, $1::uuid, 'shed', 'S-PAGE', 'Castro', 'active', $2::uuid, 1)
+ON CONFLICT (location_id) DO NOTHING`, fdiTenant, fdiPark, fdiShedA); err != nil {
+		t.Fatalf("seed locations: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, '1', $3, 'active', 'manual')
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
+		fdiTenant, fdiShedA, domain.PartitionMatchKey("1")); err != nil {
+		t.Fatalf("seed partition: %v", err)
+	}
+
+	// SIX mismatching bags: three feed items across two sessions, every one measured 2 kg short.
+	items := []struct{ label, key string }{{"Concentrate", "concentrate"}, {"Bhusa", "bhusa"}, {"Hay", "hay"}}
+	kgOf := func(v string) *string { return &v }
+	var cells []domain.StoredCell
+	var seq int32
+	for _, session := range []int32{1, 2} {
+		for i, item := range items {
+			cells = append(cells, domain.StoredCell{
+				ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+				PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+				RationGroup: "Beetal/Sirohi", SessionNo: session, SessionLabel: "S",
+				HeadCount: 10, Workflow: domain.WorkflowNormal,
+				FeedItemLabel: item.label, FeedItemKey: item.key, QuantityKg: kgOf("5.000"),
+				SessionTotalKg: "15.000", RowSeq: seq, ItemSeq: int32(i),
+			})
+			seq++
+		}
+	}
+	if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
+		TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-07-30", Workflow: domain.WorkflowNormal,
+		IssuedAt: issuedAt, Fingerprint: "fp-page", IdempotencyKey: "issue:page:1",
+		GeneratedBy: "test", Cells: cells,
+	}); err != nil {
+		t.Fatalf("PersistIssue: %v", err)
+	}
+	target := time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation())
+	for _, session := range []int32{1, 2} {
+		res, err := repo.CompletePacking(ctx, ports.CompletePackingParams{
+			TenantID: fdiTenant, ParkID: fdiPark, ShedID: fdiShedA, PartitionLabel: "1",
+			SessionNo: session, TargetDate: target, Workflow: domain.WorkflowNormal,
+			PackingProofRef: fmt.Sprintf("proof-page-%d", session), CompletedBy: fdActor,
+			IdempotencyKey: fmt.Sprintf("page-s%d", session), ActorID: fdActor, ActorType: "operator",
+			TraceID: fmt.Sprintf("trace-page-%d", session),
+		})
+		if err != nil {
+			t.Fatalf("CompletePacking(%d): %v", session, err)
+		}
+		var entries []ports.PackingVerifiedQuantity
+		for _, item := range items {
+			entries = append(entries, ports.PackingVerifiedQuantity{FeedItemKey: item.key, FeedItemLabel: item.label, EnteredKg: 3.0})
+		}
+		if err := repo.RecordPackingVerifiedQuantities(ctx, ports.RecordPackingVerifiedQuantitiesParams{
+			TenantID: fdiTenant, CompletionID: res.CompletionID, Entries: entries, RecordedBy: fdActor,
+		}); err != nil {
+			t.Fatalf("RecordPackingVerifiedQuantities(%d): %v", session, err)
+		}
+		if _, err := repo.ApplyVerifiedPacking(ctx, ports.ApplyPackingParams{
+			TenantID: fdiTenant, CompletionID: res.CompletionID, VerifiedBy: fdActor,
+			TraceID: fmt.Sprintf("apply-page-%d", session),
+		}); err != nil {
+			t.Fatalf("ApplyVerifiedPacking(%d): %v", session, err)
+		}
+	}
+
+	page := func(limit, offset int) domain.ExecutionAnalytics {
+		t.Helper()
+		got, err := repo.ExecutionAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+			DateFrom: time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation()), DateTo: target,
+			PackingVarianceLimit: limit, PackingVarianceOffset: offset,
+		})
+		if err != nil {
+			t.Fatalf("ExecutionAnalytics(limit=%d offset=%d): %v", limit, offset, err)
+		}
+		return got
+	}
+	key := func(r domain.PackingVarianceRow) string {
+		return fmt.Sprintf("%s|%d|%s", r.OperationalLocationDisplay, r.SessionNo, r.FeedItemKey)
+	}
+
+	first := page(4, 0)
+	if len(first.PackingVariance) != 4 || !first.PackingVarianceHasMore {
+		t.Fatalf("page 1 = %d rows, hasMore=%v; want 4 and true", len(first.PackingVariance), first.PackingVarianceHasMore)
+	}
+	second := page(4, 4)
+	if len(second.PackingVariance) != 2 || second.PackingVarianceHasMore {
+		t.Fatalf("page 2 = %d rows, hasMore=%v; want 2 and false", len(second.PackingVariance), second.PackingVarianceHasMore)
+	}
+	// Six DISTINCT bags across the two pages: none repeated at the boundary, none dropped.
+	seen := map[string]bool{}
+	for _, row := range append(append([]domain.PackingVarianceRow{}, first.PackingVariance...), second.PackingVariance...) {
+		if seen[key(row)] {
+			t.Errorf("bag %s appears on both pages", key(row))
+		}
+		seen[key(row)] = true
+	}
+	if len(seen) != 6 {
+		t.Errorf("paged rows cover %d bags, want all 6", len(seen))
+	}
+
+	// The trend is a WHOLE-WINDOW aggregate: identical on both pages. If paging moved it, the graph
+	// would claim the farm directed less feed simply because the reader turned a page.
+	if len(first.ConsumptionTrend) != 1 || len(second.ConsumptionTrend) != 1 {
+		t.Fatalf("trend days = %d/%d, want 1 each", len(first.ConsumptionTrend), len(second.ConsumptionTrend))
+	}
+	if first.ConsumptionTrend[0] != second.ConsumptionTrend[0] {
+		t.Errorf("paging moved the trend: %+v vs %+v", first.ConsumptionTrend[0], second.ConsumptionTrend[0])
+	}
+	// The packing day is the feed day MINUS ONE, on both the rows and the trend beside them.
+	if first.PackingVariance[0].PackingDay != "2026-07-29" || first.PackingVariance[0].FeedDay != "2026-07-30" {
+		t.Errorf("row dates = packing %q / feed %q, want 2026-07-29 / 2026-07-30",
+			first.PackingVariance[0].PackingDay, first.PackingVariance[0].FeedDay)
+	}
+	if first.ConsumptionTrend[0].PackingDay != "2026-07-29" {
+		t.Errorf("trend packing day = %q, want 2026-07-29", first.ConsumptionTrend[0].PackingDay)
+	}
+
+	// A page past the cap is REJECTED, not clamped to page one.
+	if _, err := repo.ExecutionAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
+		DateFrom: target, DateTo: target, PackingVarianceOffset: domain.MaxPackingVarianceOffset + 1,
+	}); !errors.Is(err, domain.ErrPackingVariancePageOutOfRange) {
+		t.Errorf("offset past the cap = %v, want ErrPackingVariancePageOutOfRange", err)
+	}
+}
+
+func mustFloat(t *testing.T, raw string) float64 {
+	t.Helper()
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		t.Fatalf("parse %q: %v", raw, err)
+	}
+	return value
 }
