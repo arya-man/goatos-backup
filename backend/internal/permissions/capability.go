@@ -64,12 +64,37 @@ const (
 // LevelOrder is the display order for the level picker.
 var LevelOrder = []string{LevelNone, LevelView, LevelDo, LevelOversee, LevelConfigure}
 
+// CapabilityCopy is the farm wording for one capability, rendered verbatim by the access
+// editor. The client never composes these -- "oversee" is not a word to show an admin.
+type CapabilityCopy struct {
+	Level string
+	Label string
+	Blurb string
+}
+
+// CapabilityVocabulary is the ordered capability list the editor renders, LevelNone
+// excluded: removing access is unticking everything, not a fifth chip to choose.
+var CapabilityVocabulary = []CapabilityCopy{
+	{Level: LevelView, Label: "View", Blurb: "Can open the screens and read them. Cannot change anything."},
+	{Level: LevelDo, Label: "Do", Blurb: "Carries out the work: records, captures, completes."},
+	{Level: LevelOversee, Label: "Oversee", Blurb: "Judges other people's work: approve, verify, send back."},
+	{Level: LevelConfigure, Label: "Set up", Blurb: "Authors the standing rules the work follows, and plans it."},
+}
+
 // ModuleCapability declares one module's levels. A level absent from Levels is not
 // offerable for that module -- Sales has no `configure`, so the picker must not show one.
 type ModuleCapability struct {
 	// Key is the stable module id, shared with the mobile module registry
 	// (workforce/app.moduleNavRegistry) and department_module_grants.module_key.
 	Key string
+	// Label is the FARM word for this module, rendered verbatim by the access editor.
+	// It lives here, beside the permissions, for the same reason the mobile module
+	// registry keeps its labels in Go: the client must never invent a name for a module,
+	// and a raw key like "aas_health" must never reach a screen.
+	Label string
+	// Blurb is one plain sentence about what the module covers, shown under the label so
+	// whoever assigns access does not have to guess what they are granting.
+	Blurb string
 	// Surfaces are the surfaces this module exists on at all. Feed Config is web-only;
 	// pc_care execution is phone-first. Offering a level on a surface the module does not
 	// have would grant permissions behind a screen that does not exist.
@@ -85,6 +110,8 @@ type ModuleCapability struct {
 var moduleCapabilities = []ModuleCapability{
 	{
 		Key:      "vaccination",
+		Label:    "Vaccination",
+		Blurb:    "Drives, doses and the vaccination schedule.",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			LevelView: {VaccinationRead, VaccinationOverviewRead, VaccinationAlertsRead, ObligationRead, ProtocolRead},
@@ -105,6 +132,8 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		Key:      "weighing",
+		Label:    "Weighing",
+		Blurb:    "Weighing sessions and the weights board.",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			LevelView: {WeighingMonitor},
@@ -120,6 +149,8 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		Key:      "counts",
+		Label:    "Herd Operations",
+		Blurb:    "Births, deaths and shifting animals between pens.",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			// Alerts only. The Counts SCREENS are counts.read, which sits at LevelDo with the
@@ -150,6 +181,8 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		Key:      "feed_direction",
+		Label:    "Feed",
+		Blurb:    "The daily feed sheet, packing, transport and distribution.",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			LevelView: {FeedDirectionRead, FeedPackingRead, FeedWastageRead, FeedTransportRead},
@@ -167,6 +200,8 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		Key:      "aas_health",
+		Label:    "Health",
+		Blurb:    "Sick-goat reports, diagnosis and treatment courses.",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			// Reading the animal's health and RAISING a sick-goat report -- field work every
@@ -187,6 +222,8 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		Key:      "pc_care",
+		Label:    "Preventive Care",
+		Blurb:    "Deworming, hoof and hair trimming, tick control.",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			LevelView:    {PCCareMonitor},
@@ -197,7 +234,9 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
-		Key: "procurement",
+		Key:   "procurement",
+		Label: "Procurement",
+		Blurb: "Source entry: animals bought in.",
 		// Mobile too: the operator records a source entry on the phone, so a web-only
 		// procurement module silently dropped procurement.read/write for every operator.
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
@@ -213,6 +252,8 @@ var moduleCapabilities = []ModuleCapability{
 		// a procurement manager runs the vendor desk and records no source entry. Bundling
 		// them forced one to gain the other's authority on cutover.
 		Key:      "vendors",
+		Label:    "Vendors",
+		Blurb:    "The vendor list and what each one is paid.",
 		Surfaces: []string{SurfaceWeb},
 		Levels: map[string][]string{
 			LevelView: {VendorRead},
@@ -223,6 +264,8 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		Key:      "sales",
+		Label:    "Sales",
+		Blurb:    "Animals sold and the sales ledger.",
 		Surfaces: []string{SurfaceWeb},
 		Levels: map[string][]string{
 			LevelView: {SalesRead},
@@ -231,6 +274,8 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		Key:      "verification",
+		Label:    "Video Verification",
+		Blurb:    "Reviewing the proof videos operators record.",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			// Leadership keeps the READ (see the queue, the media, the recorded verdicts) without
@@ -264,6 +309,8 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		Key:      "people",
+		Label:    "People",
+		Blurb:    "The staff directory, rosters, devices and access.",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			LevelView: {OperatorsRead, RosterRead},
@@ -285,7 +332,9 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
-		Key: "config",
+		Key:   "config",
+		Label: "Protocols & SOPs",
+		Blurb: "The standing rules and written procedures work follows.",
 		// Mobile too: a park head reads the SOP on the phone while running the work.
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
@@ -298,6 +347,8 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		Key:      "herd_register",
+		Label:    "Herd Register",
+		Blurb:    "Individual animals: tags, breed, sex and health facts.",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			LevelView: {GoatRead},
@@ -313,6 +364,8 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		Key:      "locations",
+		Label:    "Parks & Sheds",
+		Blurb:    "The park, shed and pen directory.",
 		Surfaces: []string{SurfaceWeb},
 		Levels: map[string][]string{
 			LevelView: {LocationsRead},
@@ -325,6 +378,8 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		Key:      "calendar",
+		Label:    "Calendar",
+		Blurb:    "The planned work calendar across every module.",
 		Surfaces: []string{SurfaceWeb, SurfaceMobile},
 		Levels: map[string][]string{
 			LevelView: {CalendarRead},
@@ -336,6 +391,8 @@ var moduleCapabilities = []ModuleCapability{
 		// but it must exist as a module: a permission no level grants is unassignable, and the
 		// route requiring it becomes dead to everyone.
 		Key:      "herd_signals",
+		Label:    "Herd Signals",
+		Blurb:    "Collar and sensor readings from the herd.",
 		Surfaces: []string{SurfaceWeb},
 		Levels: map[string][]string{
 			LevelView:      {HerdSignalsRead},
@@ -345,6 +402,8 @@ var moduleCapabilities = []ModuleCapability{
 	},
 	{
 		Key:      "operations",
+		Label:    "System Repair",
+		Blurb:    "Replaying failed background work. Engineering use.",
 		Surfaces: []string{SurfaceWeb},
 		Levels: map[string][]string{
 			LevelView: {},

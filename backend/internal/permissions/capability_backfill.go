@@ -10,9 +10,15 @@ import "sort"
 // capability_parity_test.go proves that claim role by role and fails on any unreviewed
 // difference.
 //
-// After the migration runs, this map is DEAD DATA kept for audit: access comes from the
-// person's own stored rows, and changing a mapping here changes nothing for anyone already
-// migrated. It is not a second, parallel access model -- do not read it at request time.
+// After the migration runs, the ROLE MAPS below (flatRoleAssignments, tierAssignments,
+// verticalModule) are DEAD DATA kept for audit: access comes from the person's own stored
+// rows, and changing a mapping there changes nothing for anyone already migrated. They are
+// not a second, parallel access model -- do not read them at request time.
+//
+// Two things in this file ARE request-path and must not be mistaken for backfill scaffolding:
+// surfaceBaseline, and PermissionsForAssignmentsWithBaseline at the bottom, which is the
+// function every authenticated request resolves a principal's permissions through. They live
+// here so the baseline reads sit beside the parity proof that justifies each one.
 
 // surfaceBaseline is granted to a principal holding at least one module on that surface.
 // These are the "you work here" reads every role carrying the surface already had:

@@ -1194,6 +1194,12 @@ export type WorkforcePerson = AdminApiComponents["schemas"]["PersonSummary"];
 export type WorkforcePeopleList = AdminApiComponents["schemas"]["PeopleListResponse"];
 export type WorkforcePeopleCatalog = AdminApiComponents["schemas"]["PeopleCatalog"];
 export type CreateWorkforcePersonRequest = AdminApiComponents["schemas"]["CreatePersonRequest"];
+export type PersonAccess = AdminApiComponents["schemas"]["PersonAccessResponse"];
+export type AccessModuleRow = AdminApiComponents["schemas"]["AccessModuleRow"];
+export type AccessCapabilityOption = AdminApiComponents["schemas"]["AccessCapabilityOption"];
+export type AccessModuleWrite = AdminApiComponents["schemas"]["AccessModuleWrite"];
+export type SavePersonAccessRequest = AdminApiComponents["schemas"]["SavePersonAccessRequest"];
+export type DesignationDefaults = AdminApiComponents["schemas"]["DesignationDefaultsResponse"];
 export type WorkforcePersonResponse = AdminApiComponents["schemas"]["PersonResponse"];
 
 /**
@@ -1242,6 +1248,47 @@ export async function createWorkforcePerson(
       headers: { "Idempotency-Key": idempotencyKey },
     }),
   );
+}
+
+/**
+ * One person's module access, plus everything the editor renders: module labels, capability
+ * labels and blurbs, the park list, the designation list, and any separation-of-duty warning.
+ * Every visible word is backend-composed — this screen must never invent a name for a module
+ * or a capability, because the raw vocabulary is `aas_health` and `oversee`.
+ */
+export async function getWorkforcePersonAccess(personId: string): Promise<ApiResult<PersonAccess>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  // Templated path, cast the way every other path-parameter call in this file does: the
+  // generated client types paths as literal keys, so an interpolated one needs the assertion.
+  const path = `/admin/workforce/people/${encodeURIComponent(personId)}/access` as keyof AdminApiPaths & string;
+  return request(() => client.request<PersonAccess>(path, { cache: "no-store" }));
+}
+
+/**
+ * Replace one person's access. WHOLESALE: every module row the editor rendered is sent, so an
+ * unticked module arrives as an empty list. Version-fenced — a concurrent edit returns 409 and
+ * the admin is told to reload rather than silently overwriting someone else's decision.
+ */
+export async function saveWorkforcePersonAccess(
+  personId: string,
+  body: SavePersonAccessRequest,
+): Promise<ApiResult<PersonAccess>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/workforce/people/${encodeURIComponent(personId)}/access` as keyof AdminApiPaths & string;
+  return request(() => client.request<PersonAccess>(path, { method: "PUT", cache: "no-store", body }));
+}
+
+/** What picking a designation pre-fills, so applying it costs one call rather than one per module. */
+export async function getDesignationDefaults(code: string): Promise<ApiResult<DesignationDefaults>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/workforce/designations/${encodeURIComponent(code)}/defaults` as keyof AdminApiPaths & string;
+  return request(() => client.request<DesignationDefaults>(path, { cache: "no-store" }));
 }
 
 /**

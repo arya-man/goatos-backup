@@ -60,6 +60,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/workforce/people/{person_id}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one person's module access, with the vocabulary and options the editor renders. */
+        get: operations["getWorkforcePersonAccess"];
+        /** Replace one person's module access. Version-fenced; a concurrent edit returns 409. */
+        put: operations["saveWorkforcePersonAccess"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/designations/{code}/defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What picking a designation pre-fills, so the editor applies it without a round trip per module. */
+        get: operations["getDesignationDefaults"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/operators/{operator_id}": {
         parameters: {
             query?: never;
@@ -2010,6 +2045,76 @@ export interface components {
         PeopleCatalog: {
             parks: components["schemas"]["PeopleCatalogOption"][];
             departments: components["schemas"]["PeopleCatalogOption"][];
+        };
+        AccessCapabilityOption: {
+            /** @enum {string} */
+            level: "view" | "do" | "oversee" | "configure";
+            label: string;
+            blurb: string;
+        };
+        AccessModuleRow: {
+            module_key: string;
+            /** @description The farm word for this module. Rendered verbatim; the client never composes a module name. */
+            label: string;
+            blurb: string;
+            /** @description Levels this module can be held at on web. EMPTY means the module does not exist on web at all, which is different from nothing being ticked. */
+            offered_web: string[];
+            offered_mobile: string[];
+            granted_web: string[];
+            granted_mobile: string[];
+        };
+        AccessParkOption: {
+            /** Format: uuid */
+            park_id: string;
+            label: string;
+        };
+        AccessDesignationOption: {
+            code: string;
+            label: string;
+            grade?: string;
+        };
+        AccessWarning: {
+            module_key: string;
+            /** @description Backend-composed farm copy. Rendered verbatim; never blocks a save. */
+            message: string;
+        };
+        PersonAccessResponse: {
+            /** Format: uuid */
+            person_id: string;
+            display_name: string;
+            email?: string;
+            designation_code?: string;
+            /** @enum {string} */
+            scope_mode: "tenant" | "parks";
+            park_ids: string[];
+            modules: components["schemas"]["AccessModuleRow"][];
+            capabilities: components["schemas"]["AccessCapabilityOption"][];
+            parks: components["schemas"]["AccessParkOption"][];
+            designations: components["schemas"]["AccessDesignationOption"][];
+            warnings: components["schemas"]["AccessWarning"][];
+            /** @description Fences a concurrent save. 0 means this person has never been set up. */
+            row_version: number;
+            trace_id?: string;
+        };
+        AccessModuleWrite: {
+            module_key: string;
+            web: string[];
+            mobile: string[];
+        };
+        /** @description Replaces access WHOLESALE. The editor sends every module row it rendered, so an unticked module arrives as an empty list rather than a missing key -- a patch shape cannot tell "leave alone" from "remove". */
+        SavePersonAccessRequest: {
+            designation_code?: string;
+            /** @enum {string} */
+            scope_mode: "tenant" | "parks";
+            park_ids?: string[];
+            modules: components["schemas"]["AccessModuleWrite"][];
+            row_version: number;
+        };
+        DesignationDefaultsResponse: {
+            code: string;
+            label: string;
+            modules: components["schemas"]["AccessModuleWrite"][];
+            trace_id?: string;
         };
         PeopleListResponse: {
             items: components["schemas"]["PersonSummary"][];
@@ -4377,6 +4482,87 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["WriteConflict"];
+        };
+    };
+    getWorkforcePersonAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole access editor payload. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonAccessResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    saveWorkforcePersonAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavePersonAccessRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored access, read back with its new row version and recomputed warnings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonAccessResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    getDesignationDefaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The designation's default module rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesignationDefaultsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     getOperator: {
