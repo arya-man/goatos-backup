@@ -19,8 +19,13 @@ test("the period control is a calendar, not a fixed-window select", () => {
   assert.doesNotMatch(contract, /"filter\.period\.12w"/);
 });
 
-test("the page lands on the 15 days before today, inclusive", () => {
+test("the page lands on the latest two lump-sum weighing dates when no period is selected", () => {
   assert.match(source, /const DEFAULT_WINDOW_DAYS = 15;/);
+  assert.match(source, /const LATEST_LUMP_LOOKBACK_DAYS = 400;/);
+  assert.match(source, /async function landingWindow/);
+  assert.match(source, /getShedWeights\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*\.\.\.lookback,/);
+  assert.match(source, /const dates = \[\.\.\.new Set\(result\.data\.lump_weighing_dates \?\? \[\]\)\]\.sort\(\);/);
+  assert.match(source, /from: dates\[dates\.length - 2\],\s*\n\s*to: dates\[dates\.length - 1\],/);
   assert.match(source, /return \{ from: istDayPlus\(today, -\(DEFAULT_WINDOW_DAYS - 1\)\), to: today \};/);
   // istDayPlus is pure calendar arithmetic on an already-resolved IST day. Re-entering a timezone
   // here (or hardcoding +05:30) is what the shared helper exists to prevent.
@@ -30,8 +35,8 @@ test("the page lands on the 15 days before today, inclusive", () => {
 
 test("the default window is passed as NAMED fields, never spread", () => {
   // `{...defaultWindow(today)}` spreads `{from, to}` — the same two keys the SELECTED window uses —
-  // and would silently overwrite the reader's choice, pinning the page to 15 days whatever they
-  // picked. It typechecks and renders; only the data is wrong.
+  // and would silently overwrite the resolved latest-two-weighings window. It typechecks and
+  // renders; only the data is wrong.
   assert.match(source, /defaultFrom: defaultWindow\(today\)\.from,\s*\n\s*defaultTo: defaultWindow\(today\)\.to,/);
   assert.doesNotMatch(source, /\.\.\.defaultWindow\(/);
 });
@@ -41,6 +46,7 @@ test("a hand-edited window falls back instead of taking the page down", () => {
   // because a weigh cannot have happened tomorrow.
   assert.match(source, /rawFrom <= rawTo/);
   assert.match(source, /rawFrom > today \? today : rawFrom/);
+  assert.match(source, /if \(rawFrom \|\| rawTo\) return defaultWindow\(today\);/);
   assert.match(source, /return defaultWindow\(today\);/);
 });
 
@@ -186,9 +192,28 @@ test("every visible string on the weighing calendar is backend-contract copy", (
     "filter.period.range_start_hint",
     "filter.period.range_end_hint",
     "filter.period.range_separator",
+    "filter.period.lump_marker_hint",
   ]) {
     const escaped = key.replace(/\./g, "\\.");
     assert.match(source, new RegExp(`copy\\(pageContract, "${escaped}"\\)`), `page: ${key}`);
     assert.match(contract, new RegExp(`"${escaped}":`), `contract: ${key}`);
   }
+});
+
+test("the weighing calendar marks backend-reported lump-sum weigh dates", () => {
+  assert.match(source, /markerHint: copy\(pageContract, "filter\.period\.lump_marker_hint"\)/);
+  assert.match(source, /markerFetchPath: `\/api\/weighing\/lump-markers/);
+  assert.doesNotMatch(source, /markerDates: lumpWeighingDates/);
+  assert.match(contract, /"filter\.period\.lump_marker_hint":/);
+});
+
+test("lump marker proxy reads a calendar window independently of the report range", () => {
+  const route = readFileSync(
+    new URL("../../app/api/weighing/lump-markers/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(route, /url\.searchParams\.get\("from"\)/);
+  assert.match(route, /url\.searchParams\.get\("to"\)/);
+  assert.match(route, /getShedWeights\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*from,\s*\n\s*to,/);
+  assert.match(route, /dates: result\.data\.lump_weighing_dates/);
 });
