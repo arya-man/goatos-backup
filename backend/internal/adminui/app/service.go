@@ -564,6 +564,11 @@ func pages() []domain.PageContract {
 				// load record to open, and a declared row click the page cannot honour
 				// would be a contract lie.
 				withoutRowClick(tableP("load-placements", "Where each load sits", "/weighing/shed-weights", []string{"load", "park", "sheds", "animals"}, "", []int{10, 25, 50})),
+				// How many kids of each breed are clearing each daily-gain mark. It rides on the
+				// SAME /weighing/weight-demographics response as the breed gain chart, and there
+				// is no breed record to open, so it declares no row click. The breed vocabulary
+				// is bounded by the herd catalogue, so it is not paged.
+				weightsGainThresholdTable(),
 			}),
 		page("milk-preparation", "/counts/milk-preparation", "/counts/milk-preparation", "Milk Preparation", "Current per-shed milk direction plus park-day step-video verification state for K1, K2, and K3 cohorts.", "module-surface",
 			[]domain.TableContract{tableP("milk-preparation", "Milk preparation worklist", "/counts/milk-preparation", []string{"park", "shed", "cohort", "head_count", "session_1", "session_2", "session_3", "session_4", "daily_total", "status"}, "milk_preparation_row", []int{10, 25, 50})}),
@@ -821,6 +826,23 @@ func feedPurchaseTable() domain.TableContract {
 		[]string{"purchase_date", "farm", "feed_item", "batch_no", "quantity_kg", "total_cost", "per_kg_cost", "vendor", "payment_status"},
 		"feed_purchase_id", []int{25, 50, 100})
 	copy := pageCopy("feed-purchases")
+	for i := range t.Columns {
+		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
+			t.Columns[i].Label = label
+		}
+	}
+	return t
+}
+
+// weightsGainThresholdTable builds the breed-wise daily gain table on /weighing/weights.
+//
+// Column labels come from the page's OWN copy map rather than humanLabel, because the marks
+// are farm figures ("Above 250 g/day"), not humanised field keys ("Above 250 G Day"). Same
+// single-source reasoning as feedPurchaseTable: the header and the cells cannot drift.
+func weightsGainThresholdTable() domain.TableContract {
+	t := withoutRowClick(tableP("gain-thresholds", "Breed-wise daily gain", "/weighing/weight-demographics",
+		[]string{"breed", "gain_animals", "above_250", "above_200", "above_180"}, "", []int{10, 25, 50}))
+	copy := pageCopy("weighing-weights")
 	for i := range t.Columns {
 		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
 			t.Columns[i].Label = label
@@ -3134,8 +3156,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.weighing.all":        "All",
 			"filter.weighing.individual": "Per animal",
 			"filter.weighing.lump":       "Lump sum",
-			// The window is picked from a CALENDAR (maintainer, 2026-08-12), landing on the 30 days
-			// before today. `filter.period.4w` / `.12w` and the `weighing_period` option group went
+			// The window is picked from a CALENDAR (maintainer, 2026-08-12), landing on the 7 days
+			// before today (30 until 2026-08-24). `filter.period.4w` / `.12w` and the `weighing_period` option group went
 			// with the fixed-window select they labelled: two preset spans could only answer the two
 			// questions someone thought of in advance, and a reader comparing one drive week against
 			// another had no way to ask.
@@ -3239,12 +3261,35 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.stage.aria":             "Average weight for each management stage",
 			"empty.demographics.body":      "No weighed kid could be matched to the herd register in this period.",
 			"note.demographics.coverage":   "Daily gain by breed, sex and stage is same-animal only. Lump-sum scale rows stay out of those growth charts because they have no scanned animal tags.",
-			"chart.load.title":             "Daily gain by load",
-			"chart.load.title_weight":      "Average weight by load",
-			"chart.load.aria":              "Growth for each purchase load",
-			"chart.load.caption":           "Kids are bought in loads from a supplier and put into sheds. This is how each load's sheds are moving, so a supplier's stock can be judged on how it grows.",
-			"empty.load.body":              "No load has a weighed shed yet. A load shows up here once the sheds it went into have been weighed.",
-			"note.load.unmapped":           "sheds are not counted here — they have no load recorded, or they hold more than one load and a single shed average cannot be split between two suppliers.",
+			// Row 2b -- how many kids of each breed are actually growing well, which a breed
+			// median cannot say. The marks are CUMULATIVE (maintainer, 2026-08-24): a kid at
+			// 260 g/day is counted under all three, so the caption says so in farm words. The
+			// renderer must not add these columns together or stack them.
+			"section.gain_thresholds.title": "Breed-wise daily gain",
+			// The card opens as a CHART and can be switched to the exact figures. Both views
+			// are the same numbers; the toggle is a reading preference, so it lives in the URL
+			// like every other toggle on this page and survives a reload or a shared link.
+			"view.chart":                        "Chart",
+			"view.table":                        "Table",
+			"section.gain_thresholds.view_aria": "Show the gain marks as a chart or a table",
+			"chart.gain_thresholds.aria":        "Share of each breed clearing each daily gain mark",
+			// Farm nouns for the head count under a breed and the hover line behind a bar.
+			"value.gain_thresholds.kids":      "kids",
+			"value.gain_thresholds.of":        "of",
+			"section.gain_thresholds.aria":    "Breed-wise daily gain",
+			"section.gain_thresholds.caption": "Counted from kids weighed one by one and weighed twice, at each kid's own daily gain. A kid growing 260 g a day is counted under all three marks, so the columns overlap and do not add up.",
+			"empty.gain_thresholds.body":      "No kid matched to a breed has a second weigh in this period yet.",
+			"column.breed":                    "Breed",
+			"column.gain_animals":             "Kids weighed twice",
+			"column.above_250":                "Above 250 g/day",
+			"column.above_200":                "Above 200 g/day",
+			"column.above_180":                "Above 180 g/day",
+			"chart.load.title":                "Daily gain by load",
+			"chart.load.title_weight":         "Average weight by load",
+			"chart.load.aria":                 "Growth for each purchase load",
+			"chart.load.caption":              "Kids are bought in loads from a supplier and put into sheds. This is how each load's sheds are moving, so a supplier's stock can be judged on how it grows.",
+			"empty.load.body":                 "No load has a weighed shed yet. A load shows up here once the sheds it went into have been weighed.",
+			"note.load.unmapped":              "sheds are not counted here — they have no load recorded, or they hold more than one load and a single shed average cannot be split between two suppliers.",
 			// The load chart says a supplier's stock is growing; this says WHERE. Without
 			// it a reader cannot walk from a load bar to the shed table below it.
 			"section.load_placements.title":   "Where each load sits",

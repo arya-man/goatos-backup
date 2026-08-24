@@ -25,10 +25,11 @@ import (
 // lump-sum counts are returned so that gap is legible rather than looking broken.
 func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.WeightDemographics, error) {
 	out := domain.WeightDemographics{
-		ByBreed:         []domain.WeightDemographicBucket{},
-		BySex:           []domain.WeightDemographicBucket{},
-		ByStage:         []domain.WeightDemographicBucket{},
-		ShedComposition: []domain.ShedComposition{},
+		GainThresholdsByBreed: []domain.WeightGainThresholdBucket{},
+		ByBreed:               []domain.WeightDemographicBucket{},
+		BySex:                 []domain.WeightDemographicBucket{},
+		ByStage:               []domain.WeightDemographicBucket{},
+		ShedComposition:       []domain.ShedComposition{},
 	}
 	if len(parkIDs) == 0 {
 		return out, nil
@@ -315,6 +316,25 @@ SELECT
        WHERE management_stage IS NOT NULL
        GROUP BY management_stage
      ) gs),
+  -- How many animals of each breed clear each daily-gain mark. CUMULATIVE, not bands
+  -- (maintainer, 2026-08-24): an animal at 260 g/day is counted by all three filters.
+  --
+  -- projection-review: membership=one row per animal in resolved_gain with a breed, i.e. exactly the population gain_by_breed reports; group_key=breed, the GROUP BY; join_cardinality=none added here, resolved_gain is already one row per tag; pagination=NONE, bounded by the breed vocabulary; scope=inherited from resolved_gain (tenant + scoped parks + window).
+  --
+  -- Ratio key sets: n and the three FILTER counts range over the IDENTICAL grouped row
+  -- set — same FROM, same GROUP BY, no branch adds a join — so a client may take
+  -- above/n as this breed's share without reaching for a second query's denominator.
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, a180, a200, a250) ORDER BY n DESC, breed), '[]'::jsonb)
+     FROM (
+       SELECT breed,
+              count(*)::bigint                       AS n,
+              count(*) FILTER (WHERE g > 180)::bigint AS a180,
+              count(*) FILTER (WHERE g > 200)::bigint AS a200,
+              count(*) FILTER (WHERE g > 250)::bigint AS a250
+       FROM resolved_gain
+       WHERE breed IS NOT NULL
+       GROUP BY breed
+     ) gt),
   (SELECT COALESCE(jsonb_agg(jsonb_build_object(
        'location_id', location_id::text,
        'partition_label', partition_label,
@@ -332,12 +352,14 @@ SELECT
 		resolvedCount, unresolvedCount, lumpTotal, lumpUnattributed int
 		breedJSON, sexJSON, stageJSON                               []byte
 		gainBreedJSON, gainSexJSON, gainStageJSON                   []byte
+		gainThresholdBreedJSON                                      []byte
 		compositionJSON                                             []byte
 	)
 	if err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,
+		&gainThresholdBreedJSON,
 		&compositionJSON,
 	); err != nil {
 		return domain.WeightDemographics{}, err
@@ -364,6 +386,9 @@ SELECT
 		return domain.WeightDemographics{}, err
 	}
 	if out.GainByStage, err = decodeWeightGainBuckets(gainStageJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.GainThresholdsByBreed, err = decodeWeightGainThresholdBuckets(gainThresholdBreedJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
 	if out.ShedComposition, err = decodeShedComposition(compositionJSON); err != nil {
@@ -491,6 +516,41 @@ func decodeWeightGainBuckets(raw []byte) ([]domain.WeightGainBucket, error) {
 	for _, row := range rows {
 		out = append(out, domain.WeightGainBucket{
 			Label: row.Label, Animals: row.Animals, MedianGainGPerDay: row.AverageWeightKg,
+		})
+	}
+	return out, nil
+}
+
+// decodeWeightGainThresholdBuckets reads the [breed, animals, >180, >200, >250]
+// tuples. A row whose counts do not parse is skipped rather than rendered as a breed
+// with zero animals clearing anything, which would read as a real growth failure.
+func decodeWeightGainThresholdBuckets(raw []byte) ([]domain.WeightGainThresholdBucket, error) {
+	out := []domain.WeightGainThresholdBucket{}
+	if len(raw) == 0 {
+		return out, nil
+	}
+	var rows [][]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if len(row) != 5 {
+			continue
+		}
+		var label string
+		if json.Unmarshal(row[0], &label) != nil || label == "" {
+			continue
+		}
+		var animals, above180, above200, above250 int
+		if json.Unmarshal(row[1], &animals) != nil ||
+			json.Unmarshal(row[2], &above180) != nil ||
+			json.Unmarshal(row[3], &above200) != nil ||
+			json.Unmarshal(row[4], &above250) != nil {
+			continue
+		}
+		out = append(out, domain.WeightGainThresholdBucket{
+			Label: label, Animals: animals,
+			Above180: above180, Above200: above200, Above250: above250,
 		})
 	}
 	return out, nil
