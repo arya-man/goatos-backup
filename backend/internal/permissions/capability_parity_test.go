@@ -67,6 +67,10 @@ var namedRoleGains = map[string]map[string]string{
 		AdminWebBootstrap: "holding a module means the app opens. This role grants nothing openable today, and on STG all three holders (Dinakar, Chandrakant, Avishek) also carry a job role -- so no real person is affected. Verified read-only against STG on 2026-08-24.",
 		AppBootstrap:      "same as admin_web.bootstrap above",
 	},
+	RoleToxinTester: {
+		AdminWebBootstrap: "holding a module means the app opens. Like counts_approver, this is a per-person authority granted BY NAME alongside a job (maintainer decision 2026-08-25: the two named PARK HEADS), so every holder already carries a job role that admits them to the surface.",
+		AppBootstrap:      "same as admin_web.bootstrap above -- and the strip test is run ON the phone, so the mobile surface is the one that matters here",
+	},
 	RoleParkHead: {
 		VerificationReview: "he holds verification.act today WITHOUT verification.review -- able to close or send back work he cannot see. This closes that gap rather than widening authority",
 		OperatorsViewAudit: "reading the audit trail of the park team he already manages",
