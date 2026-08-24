@@ -1,3 +1,4 @@
+export { FeedPurchasesPage } from "./feed-purchases";
 export { ProcurementLoadDetailPage } from "./load-detail";
 export { ProcurementPager } from "./pager";
 export { SalesPage } from "./sales";

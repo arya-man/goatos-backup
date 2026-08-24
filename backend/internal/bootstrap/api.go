@@ -648,6 +648,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// but has its own thin service: a contact book has no state machine to orchestrate.
 	procurementVendorHandler := procurementhttp.NewVendorHandler(
 		procurementapp.NewVendorService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+	// The feed PURCHASE ledger (maintainer decision 2026-08-24, retiring the read-only half of
+	// migration 000174's lock). Procurement owns the write; feeddirection keeps the stock read.
+	procurementFeedPurchaseHandler := procurementhttp.NewFeedPurchaseHandler(
+		procurementapp.NewFeedPurchaseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
 	// record with no state machine to orchestrate.
 	salesHandler := saleshttp.NewSalesHandler(
@@ -1219,6 +1223,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	processintegrityhttp.Register(protectedMux, processIntegrityHandler)
 	procurementhttp.Register(protectedMux, procurementHandler)
 	procurementhttp.RegisterVendors(protectedMux, procurementVendorHandler)
+	procurementhttp.RegisterFeedPurchases(protectedMux, procurementFeedPurchaseHandler)
 	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)
