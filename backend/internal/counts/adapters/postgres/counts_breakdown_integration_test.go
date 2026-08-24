@@ -962,10 +962,14 @@ func TestCountsBreakdownShedChartIsOneBarPerPenNamedWithItsPark(t *testing.T) {
 		t.Fatalf("park facet did not resolve two distinct park codes: %+v", got.Facets.Parks)
 	}
 	want := map[string]int64{
-		// Park first, then the pen composed by oploc — each shed keeping its own convention.
-		one + " · Castro 1 - 2":      3,
+		// Park first, then the pen composed by oploc, which is the one place this convention
+		// lives: a BARE numeral joins with a space ("Castro 1 2"), a worded label joins with
+		// " - " ("Castro 1 - Part 1"). See oploc.OperationalLocation.Display and its golden
+		// fixture -- admin-web and Android compose the same way, so a second convention here
+		// would put two different names for one pen in front of the same operator.
+		one + " · Castro 1 2":        3,
 		one + " · Castro 1 - Part 1": 1,
-		two + " · Castro 1 - 2":      2,
+		two + " · Castro 1 2":        2,
 	}
 	for label, count := range want {
 		if labels[label] != count {

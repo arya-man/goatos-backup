@@ -185,7 +185,9 @@ RETURNING location_id::text`, tenantID, parkID).Scan(&shedID); err != nil {
 		if option.PartitionLabel == nil || *option.PartitionLabel != partition {
 			t.Fatalf("option[%d].PartitionLabel = %v, want %q", index, option.PartitionLabel, partition)
 		}
-		if option.Label != "Castro - "+partition || option.OperationalLocationDisplay != "Castro - "+partition {
+		// Bare numeric partitions join with a SPACE (AGENTS.md pen-naming spec, 2026-08-16),
+		// composed in one place by oploc.Display.
+		if option.Label != "Castro "+partition || option.OperationalLocationDisplay != "Castro "+partition {
 			t.Fatalf("option[%d] display = %+v", index, option)
 		}
 	}
@@ -2015,7 +2017,7 @@ func TestReadyClosurePageBoundary_RealPostgres(t *testing.T) {
 // A shed NAME is not unique across the farm. Castro, Gandhi, Godel 1, Godel 2, Mandela 1,
 // Mandela 2 and Yashoda each exist in BOTH parks, so on 2026-08-12 nine of the sixty-seven shed
 // options in the STG queue were exact duplicate labels sitting adjacent under this query's own
-// ORDER BY -- two "Castro - 1" entries with nothing to tell them apart. The option VALUE was
+// ORDER BY -- two "Castro 1" entries with nothing to tell them apart. The option VALUE was
 // never wrong (the id is a shed UUID, never a name), so the filter worked; the reader simply
 // could not see which shed she was choosing, and the park with more pens read as the only park
 // present. The park now travels with the option so a client can group by it.
@@ -2088,7 +2090,7 @@ RETURNING location_id::text`, tenantID, parkID, "dup-shed-"+park).Scan(&shedID);
 			t.Fatalf("option %+v park_id = %q, want %q", option, option.ParkID, parkIDs[park])
 		}
 		// The whole point: same label on both, told apart by park and by id.
-		if option.Label != "Castro - 1" || option.OperationalLocationDisplay != "Castro - 1" {
+		if option.Label != "Castro 1" || option.OperationalLocationDisplay != "Castro 1" {
 			t.Fatalf("option display = %+v, want the oploc composition unchanged", option)
 		}
 		if option.ID != shedIDs[park]+"#1" {
@@ -2106,7 +2108,7 @@ RETURNING location_id::text`, tenantID, parkID, "dup-shed-"+park).Scan(&shedID);
 		Limit:    20,
 	})
 	if err != nil {
-		t.Fatalf("ListQueue(Channapatna Castro - 1): %v", err)
+		t.Fatalf("ListQueue(Channapatna Castro 1): %v", err)
 	}
 	if len(rows) != 1 || rows[0].ParkID == nil || *rows[0].ParkID != parkIDs["Channapatna"] {
 		t.Fatalf("rows = %+v, want only the Channapatna shed's item", rows)

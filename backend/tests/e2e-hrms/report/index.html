@@ -82,19 +82,19 @@
 </head>
 <body>
   <h1>HRMS Kernel Story Report</h1>
-  <p class="subtitle">Generated 2026-07-12 02:05:03 UTC &middot; backend/tests/e2e-hrms</p>
+  <p class="subtitle">Generated 2026-08-24 02:46:42 UTC &middot; backend/tests/e2e-hrms</p>
 
   <div class="summary">
     <div class="tile"><span class="n">1</span>stories</div>
-    <div class="tile pass"><span class="n">1</span>stories passed</div>
-    <div class="tile fail"><span class="n">0</span>stories failed</div>
-    <div class="tile"><span class="n">31</span>assertions checked</div>
-    <div class="tile pass"><span class="n">0</span>assertions failed</div>
+    <div class="tile pass"><span class="n">0</span>stories passed</div>
+    <div class="tile fail"><span class="n">1</span>stories failed</div>
+    <div class="tile"><span class="n">30</span>assertions checked</div>
+    <div class="tile fail"><span class="n">13</span>assertions failed</div>
   </div>
 
 
-  <section class="story pass">
-    <h2>Manager leave with backup coverage and escalation <span class="badge pass">PASS</span></h2>
+  <section class="story fail">
+    <h2>Manager leave with backup coverage and escalation <span class="badge fail">FAIL</span></h2>
     <p class="narrative">A Preventive Care Manager at a shed takes leave with an available Backup Manager. The approval auto-resolves the backup as replacement and grants them a temporary vaccination.execute capability. ResolveVaccinationOwner correctly returns the backup as effective owner on the leave dates. When the backup also becomes unavailable, ResolveVaccinationOwner escalates to the park head.</p>
 
     <div class="step">
@@ -224,16 +224,16 @@
             <td class="detail">err=&lt;nil&gt;</td>
           </tr>
 
-          <tr class="ok">
+          <tr class="bad">
             <td>approved status is approved</td>
-            <td>PASS</td>
-            <td class="detail">status=&#34;approved&#34;</td>
+            <td>FAIL</td>
+            <td class="detail">status=&#34;escalation_required&#34;</td>
           </tr>
 
-          <tr class="ok">
+          <tr class="bad">
             <td>replacement_member_id is the backup</td>
-            <td>PASS</td>
-            <td class="detail">replacement=0x140001232f0 want=91000000-0000-4000-8000-000000000002</td>
+            <td>FAIL</td>
+            <td class="detail">replacement=&lt;nil&gt; want=91000000-0000-4000-8000-000000000002</td>
           </tr>
 
           <tr class="ok">
@@ -242,15 +242,9 @@
             <td class="detail">err=&lt;nil&gt;</td>
           </tr>
 
-          <tr class="ok">
-            <td>capability window matches leave window</td>
-            <td>PASS</td>
-            <td class="detail">valid_from=&#34;2026-07-12T02:05:18Z&#34; valid_to=0x1400004e460</td>
-          </tr>
-
-          <tr class="ok">
+          <tr class="bad">
             <td>backup was granted vaccination.execute capability</td>
-            <td>PASS</td>
+            <td>FAIL</td>
             <td class="detail">no capability found</td>
           </tr>
 
@@ -273,28 +267,28 @@
             <td class="detail">err=&lt;nil&gt;</td>
           </tr>
 
-          <tr class="ok">
+          <tr class="bad">
             <td>owner is the backup manager</td>
-            <td>PASS</td>
-            <td class="detail">owner=0x1400004e540 want=91000000-0000-4000-8000-000000000002</td>
+            <td>FAIL</td>
+            <td class="detail">owner=&lt;nil&gt; want=91000000-0000-4000-8000-000000000002</td>
           </tr>
 
-          <tr class="ok">
+          <tr class="bad">
             <td>owner_source is replacement</td>
-            <td>PASS</td>
-            <td class="detail">source=&#34;replacement&#34;</td>
+            <td>FAIL</td>
+            <td class="detail">source=&#34;none&#34;</td>
           </tr>
 
-          <tr class="ok">
+          <tr class="bad">
             <td>position_id is the manager&#39;s position</td>
-            <td>PASS</td>
-            <td class="detail">position_id=0x14000123430 want=7c834c56-de60-4c5c-982c-7ff6d628831e</td>
+            <td>FAIL</td>
+            <td class="detail">position_id=&lt;nil&gt; want=bb58b93a-35b1-4179-b95d-7b175ba4563d</td>
           </tr>
 
-          <tr class="ok">
+          <tr class="bad">
             <td>no escalation required (reason is nil)</td>
-            <td>PASS</td>
-            <td class="detail">reason=&lt;nil&gt;</td>
+            <td>FAIL</td>
+            <td class="detail">reason=0x14000048fb0</td>
           </tr>
 
         </tbody>
@@ -366,22 +360,22 @@
             <td class="detail">err=&lt;nil&gt;</td>
           </tr>
 
-          <tr class="ok">
+          <tr class="bad">
             <td>owner is still the backup (durable commitment)</td>
-            <td>PASS</td>
-            <td class="detail">owner=0x1400004eab0 want=91000000-0000-4000-8000-000000000002</td>
+            <td>FAIL</td>
+            <td class="detail">owner=&lt;nil&gt; want=91000000-0000-4000-8000-000000000002</td>
           </tr>
 
-          <tr class="ok">
+          <tr class="bad">
             <td>owner_source is still replacement</td>
-            <td>PASS</td>
-            <td class="detail">source=&#34;replacement&#34; want=replacement</td>
+            <td>FAIL</td>
+            <td class="detail">source=&#34;none&#34; want=replacement</td>
           </tr>
 
-          <tr class="ok">
+          <tr class="bad">
             <td>no escalation for the resolved replacement (commitment is durable)</td>
-            <td>PASS</td>
-            <td class="detail">reason=&lt;nil&gt; should be nil</td>
+            <td>FAIL</td>
+            <td class="detail">reason=0x140000497f0 should be nil</td>
           </tr>
 
         </tbody>
@@ -403,22 +397,22 @@
             <td class="detail">err=&lt;nil&gt;</td>
           </tr>
 
-          <tr class="ok">
+          <tr class="bad">
             <td>owner is the manager (position holder)</td>
-            <td>PASS</td>
-            <td class="detail">owner=0x14000123830 want=91000000-0000-4000-8000-000000000001</td>
+            <td>FAIL</td>
+            <td class="detail">owner=&lt;nil&gt; want=91000000-0000-4000-8000-000000000001</td>
           </tr>
 
-          <tr class="ok">
+          <tr class="bad">
             <td>owner_source is position_holder</td>
-            <td>PASS</td>
-            <td class="detail">source=&#34;position_holder&#34;</td>
+            <td>FAIL</td>
+            <td class="detail">source=&#34;none&#34;</td>
           </tr>
 
-          <tr class="ok">
+          <tr class="bad">
             <td>no escalation required</td>
-            <td>PASS</td>
-            <td class="detail">reason=&lt;nil&gt;</td>
+            <td>FAIL</td>
+            <td class="detail">reason=0x14000049990</td>
           </tr>
 
         </tbody>
