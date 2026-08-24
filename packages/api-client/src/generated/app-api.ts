@@ -15885,6 +15885,10 @@ export interface operations {
                 variance_limit?: number;
                 /** @description Mismatch rows to skip (0-5000). Out of range is rejected with 400 rather than clamped: silently serving page one under a deeper page's heading answers a different question than the URL asks. */
                 variance_offset?: number;
+                /** @description Optional mismatch-table farm label filter, applied before variance_limit/variance_offset so paging is over the narrowed result set. Authorization still comes from park_id and the caller's server-side park grants; this is a table display filter, not a scope grant. */
+                variance_park_label?: string;
+                /** @description Optional mismatch-table feed item key filter, applied before variance_limit/variance_offset so a matching item on a later unfiltered page is not hidden by client-side filtering. */
+                variance_feed_item_key?: string;
                 /** @description Comma-separated arms to compute; omit for all. Each arm is several queries, so a page that needs one array from a second, differently-scoped read should ask for that arm alone. An unrequested arm comes back empty, NOT absent. An unknown name is rejected with 400 rather than ignored, because serving a payload without the array the caller asked for renders as "no data" on screen. */
                 sections?: string;
             };

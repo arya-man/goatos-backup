@@ -161,6 +161,8 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	in.PackingVarianceLimit, in.PackingVarianceOffset = limit, offset
+	in.PackingVarianceParkLabel = strings.TrimSpace(r.URL.Query().Get("variance_park_label"))
+	in.PackingVarianceFeedItemKey = strings.TrimSpace(r.URL.Query().Get("variance_feed_item_key"))
 	result, err := h.service.ExecutionAnalytics(r.Context(), in)
 	if err != nil {
 		h.writeServiceError(w, r, "feed analytics execution", err)

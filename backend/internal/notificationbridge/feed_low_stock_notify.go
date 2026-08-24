@@ -159,7 +159,6 @@ func (n *FeedLowStockNotifier) NotifyLowStock(ctx context.Context, tenantID stri
 			TenantID:         tenantID,
 			CalendarEventID:  eventKey,
 			TargetType:       "feed_stock",
-			TargetID:         feed.FarmLabel + ":" + feed.FeedItemKey,
 			NotificationType: NotificationTypeFeedLowStock,
 			Channel:          channelPushFCM,
 			Priority:         priorityHigh,

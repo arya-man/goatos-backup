@@ -275,6 +275,8 @@ WITH readings AS (
       AND ($2::uuid[] IS NULL OR c.park_id = ANY ($2::uuid[]))
       AND c.target_date BETWEEN $3 AND $4
       AND c.status = 'completed'
+      AND ($9::text = '' OR lp.name = $9::text)
+      AND ($10::text = '' OR q.feed_item_key = $10::text)
 ),
 planned AS (
     SELECT i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow,
@@ -604,7 +606,8 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 			return domain.ExecutionAnalytics{}, err
 		}
 		varRows, err := r.pool.Query(ctx, executionPackingVarianceSQL, tenantID, parkIDs, fromArg, toArg,
-			domain.PackingVarianceToleranceKg, domain.MixedCohortLabel, varLimit+1, varOffset)
+			domain.PackingVarianceToleranceKg, domain.MixedCohortLabel, varLimit+1, varOffset,
+			q.PackingVarianceParkLabel, q.PackingVarianceFeedItemKey)
 		if err != nil {
 			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics packing variance: %w", err)
 		}

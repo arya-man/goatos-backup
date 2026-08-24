@@ -68,6 +68,9 @@ func TestLowStockAlertNamesTheFarmFeedAndDaysAndDatesItTheFarmWay(t *testing.T) 
 	if msg.Context["business_date"] != "2026-08-24" {
 		t.Errorf("structured business_date = %q, want ISO for clients to parse", msg.Context["business_date"])
 	}
+	if msg.TargetID != "" {
+		t.Errorf("target_id = %q, want empty: notification_requests.target_id is uuid-typed and farm/feed identity lives in context", msg.TargetID)
+	}
 	// The copy firewall: no internal vocabulary reaches a director's phone.
 	for _, banned := range []string{"kg_key", "feed_item_key", "tenant", "payload", "API", "null"} {
 		if strings.Contains(strings.ToLower(msg.Title+" "+msg.Body), strings.ToLower(banned)) {

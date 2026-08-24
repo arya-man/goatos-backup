@@ -57,6 +57,11 @@ type DirectedAnalyticsQuery struct {
 	// DefaultPackingVariancePageSize.
 	PackingVarianceLimit  int
 	PackingVarianceOffset int
+	// PackingVarianceParkLabel and PackingVarianceFeedItemKey narrow the mismatch
+	// list before paging. They are display-table filters, not scope controls:
+	// tenant and authorized park scope are still enforced by ParkIDs.
+	PackingVarianceParkLabel   string
+	PackingVarianceFeedItemKey string
 }
 
 // Mismatch-list paging. The window is already capped at 92 days and the list carries only bags
