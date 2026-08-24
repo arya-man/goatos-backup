@@ -30,10 +30,13 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
@@ -251,10 +254,37 @@ func resolveDuplicateOpenWork(ctx context.Context, pool *pgxpool.Pool, tenantID,
 	if strategy != "keep-earliest" {
 		return 0, fmt.Errorf("unknown -resolve-duplicates strategy %q (only \"keep-earliest\" is supported)", strategy)
 	}
-	const selectLosers = `
--- projection-review: membership=open, unlabelled obligation_instances joined to the lineage row of the rule they point at, ranked within their identity group; group_key=(tenant_id, target_type, target_id, identity_key, sequence) -- the grain the uniqueness invariant is stated at; join_cardinality=one lineage row per rule_id (primary key), so the join cannot fan a row out, and row_number is per group; pagination=n/a, one set-based statement run by an explicitly-invoked cleanup, never on a request path; scope=one tenant when given, otherwise every tenant
+
+	losers, err := selectDuplicateLosers(ctx, pool, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	if !apply || len(losers) == 0 {
+		return int64(len(losers)), nil
+	}
+
+	// Closed through the repository's own cancellation primitive, not a status flip: closing
+	// scheduled clinical work has to leave a status event, an outbox record, a reason, and a
+	// repaired batch behind it. A vaccination that disappears from a drive with no trace of why is
+	// worse than the duplicate it was meant to fix.
+	repo := obligationpg.NewRepository(pool, 60*time.Second)
+	n, err := repo.CancelDuplicateOpenObligations(ctx, tenantID, losers, "duplicate_open_obligation_resolved", time.Now().UTC())
+	if err != nil {
+		return 0, fmt.Errorf("close duplicate open work: %w", err)
+	}
+	return int64(n), nil
+}
+
+// selectDuplicateLosers returns every open, unlabelled obligation that is NOT the earliest in its
+// identity group -- the rows keep-earliest would close.
+//
+// in_progress is absent on purpose: an operator is administering that dose right now, and closing
+// it from a maintenance command would erase work in flight.
+func selectDuplicateLosers(ctx context.Context, pool *pgxpool.Pool, tenantID string) ([]string, error) {
+	rows, err := pool.Query(ctx, `
+-- projection-review: membership=open, unlabelled obligation_instances joined to the lineage row of the rule they point at, ranked within their identity group; group_key=(tenant_id, target_type, target_id, identity_key, sequence); join_cardinality=one lineage row per rule_id (primary key), no fan-out, and row_number is per group; pagination=n/a, one set-based read by an explicitly-invoked cleanup, never on a request path; scope=one tenant when given, otherwise every tenant
 WITH ranked AS (
-  SELECT oi.obligation_id,
+  SELECT oi.obligation_id::text AS obligation_id,
          row_number() OVER (
            PARTITION BY oi.tenant_id, oi.target_type, oi.target_id, l.identity_key, oi."sequence"
            ORDER BY oi.due_at, oi.obligation_id
@@ -265,26 +295,23 @@ WITH ranked AS (
     AND oi.rule_identity_key IS NULL
     AND ($1::uuid IS NULL OR oi.tenant_id = $1::uuid)
 )
-SELECT obligation_id FROM ranked WHERE rank > 1`
-
-	if !apply {
-		var n int64
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM (`+selectLosers+`) x`, nullableUUID(tenantID)).Scan(&n); err != nil {
-			return 0, fmt.Errorf("count duplicate open work: %w", err)
-		}
-		return n, nil
-	}
-
-	// in_progress is absent from the statuses above on purpose: an operator is administering that
-	// dose right now, and closing it from a maintenance command would erase work in flight.
-	tag, err := pool.Exec(ctx, `
-UPDATE obligation_instances
-SET status = 'canceled', row_version = row_version + 1, updated_at = now()
-WHERE obligation_id IN (`+selectLosers+`)`, nullableUUID(tenantID))
+SELECT obligation_id FROM ranked WHERE rank > 1`, nullableUUID(tenantID))
 	if err != nil {
-		return 0, fmt.Errorf("close duplicate open work: %w", err)
+		return nil, fmt.Errorf("read duplicate open work: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan duplicate open work: %w", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read duplicate open work: %w", err)
+	}
+	return out, nil
 }
 
 // stampObligationIdentities labels the animals' existing open work with the identity of the rule

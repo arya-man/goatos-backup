@@ -1982,6 +1982,148 @@ func (r *Repository) OpenObligationForRepeatCycle(ctx context.Context, tenantID,
 	}, true, nil
 }
 
+// reconcileAddressOnly gives an obligation the version, rule and key generation now owns, without
+// touching its due date.
+//
+// Used when the date cannot move. Attempted in two steps because the identity columns are part of
+// obligation_instances_dup_guard and the key is not: if moving version and rule collides too, the
+// key alone still moves, and the key is what every follow-up addresses the row by.
+//
+// A row that ends up with neither is reported as DateBlocked with its EXISTING key in the ref, so
+// the caller can address it by what it actually holds rather than by what generation wished it
+// held.
+func (r *Repository) reconcileAddressOnly(
+	ctx context.Context,
+	tenant pgtype.UUID,
+	in domain.NewObligation,
+	ref domain.ObligationRef,
+) (domain.ObligationRef, bool, error) {
+	ref.DateBlocked = true
+
+	version, verr := pgconv.UUID(in.ProtocolVersionID)
+	rule, rerr := pgconv.UUID(in.RuleID)
+	if verr == nil && rerr == nil {
+		if _, err := r.pool.Exec(ctx, `
+UPDATE obligation_instances
+SET protocol_version_id = $2, rule_id = $3, idempotency_key = $4,
+    row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1 AND obligation_id = $5::uuid`,
+			tenant, version, rule, in.IdempotencyKey, ref.ObligationID); err == nil {
+			ref.IdempotencyKey = in.IdempotencyKey
+			return ref, true, nil
+		}
+	}
+
+	// Version and rule could not move either. The key still can: it is unique on its own, not part
+	// of the duplicate guard, and it is the address that matters most.
+	if _, err := r.pool.Exec(ctx, `
+UPDATE obligation_instances
+SET idempotency_key = $2, row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1 AND obligation_id = $3::uuid`,
+		tenant, in.IdempotencyKey, ref.ObligationID); err == nil {
+		ref.IdempotencyKey = in.IdempotencyKey
+		return ref, true, nil
+	}
+
+	// Neither moved. Hand back the key the row actually holds so the caller addresses it correctly
+	// instead of by a key that matches nothing.
+	var existing string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT idempotency_key FROM obligation_instances WHERE tenant_id = $1 AND obligation_id = $2::uuid`,
+		tenant, ref.ObligationID).Scan(&existing); err == nil {
+		ref.IdempotencyKey = existing
+	}
+	return ref, true, nil
+}
+
+// CancelDuplicateOpenObligations closes specific obligations through the same path every other
+// cancellation uses.
+//
+// The duplicate cleanup previously flipped status with raw SQL, which is the wrong tool for
+// closing clinical work: no status event, no outbox record, no batch repair, no reason on the row.
+// A vaccination that vanishes from a drive with no trace of why is worse than the duplicate it was
+// meant to fix.
+//
+// Cancellation is per-animal because the primitive is: the batch recompute and the outbox payload
+// are both scoped to one goat. The ids are grouped here rather than at the call site so callers
+// cannot get that grouping wrong.
+func (r *Repository) CancelDuplicateOpenObligations(ctx context.Context, tenantID string, obligationIDs []string, reason string, occurredAt time.Time) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if len(obligationIDs) == 0 {
+		return 0, nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "duplicate_open_obligation_resolved"
+	}
+
+	byGoat := map[string][]string{}
+	rows, err := r.pool.Query(ctx, `
+SELECT obligation_id::text, target_id::text
+FROM obligation_instances
+WHERE tenant_id = $1 AND obligation_id = ANY($2::uuid[]) AND target_type = 'goat'`, tenant, obligationIDs)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: group duplicates by animal: %w", err)
+	}
+	for rows.Next() {
+		var id, goatID string
+		if err := rows.Scan(&id, &goatID); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("obligation: scan duplicate: %w", err)
+		}
+		byGoat[goatID] = append(byGoat[goatID], id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("obligation: group duplicates by animal: %w", err)
+	}
+
+	total := 0
+	for goatID, ids := range byGoat {
+		// scale-guard:ignore: one transaction per ANIMAL, not per row, and only for animals a
+		// human has already been shown and chosen to clean up. The cancellation primitive's batch
+		// recompute and outbox payload are both goat-scoped, so batching across animals would mean
+		// reimplementing it -- the exact duplication that let the raw-SQL version skip the audit
+		// trail in the first place.
+		tx, err := r.pool.Begin(ctx)
+		if err != nil {
+			return total, fmt.Errorf("obligation: begin duplicate cancel: %w", err)
+		}
+		qtx := r.queries.WithTx(tx)
+		canceled, err := tx.Query(ctx, `
+UPDATE obligation_instances oi
+SET status = 'canceled',
+    row_version = oi.row_version + 1,
+    updated_at = now()
+WHERE oi.tenant_id = $1
+  AND oi.obligation_id = ANY($2::uuid[])
+  AND oi.status IN ('scheduled', 'due', 'deferred')
+RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenant, ids)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			return total, fmt.Errorf("obligation: cancel duplicates for %s: %w", goatID, err)
+		}
+		n, err := recordCanceledObligationRows(ctx, tx, qtx, tenant, tenantID, goatID, reason, occurredAt, canceled,
+			map[string]any{"resolution": "keep-earliest"}, "obligation.CancelDuplicateOpenObligations")
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			return total, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return total, fmt.Errorf("obligation: commit duplicate cancel: %w", err)
+		}
+		total += n
+	}
+	return total, nil
+}
+
 // ReconcileOpenObligationForRuleIdentity moves the animal's EXISTING work for a rule instead of
 // writing a second row beside it.
 //
@@ -2120,8 +2262,13 @@ WHERE tenant_id = $1 AND obligation_id = $8::uuid`,
 		// date simply does not move this pass. Failing the animal instead would take down a whole
 		// tenant's run over a row that is already correct in every way that matters.
 		if isDuplicateGuardViolation(err) {
-			ref.DateBlocked = true
-			return ref, true, nil
+			// The date cannot move -- the key it would move to is held by another row, usually this
+			// obligation's own canceled or completed twin. The ADDRESS still must, or every
+			// key-addressed follow-up generation performs next (defer, reopen, realign,
+			// cancel-by-key) looks up a key nothing holds and fails the animal.
+			//
+			// The failed statement aborted the transaction, so this runs on a fresh one.
+			return r.reconcileAddressOnly(ctx, tenant, in, ref)
 		}
 		return domain.ObligationRef{}, false, fmt.Errorf("obligation: identity reconcile: %w", err)
 	}
