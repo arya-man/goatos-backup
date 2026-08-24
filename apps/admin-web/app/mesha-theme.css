@@ -2497,7 +2497,12 @@ select:disabled { opacity: .45; }
 .wbars-short{height:150px}
 .wbars::-webkit-scrollbar{width:8px}
 .wbars::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
-.wbar{display:grid;grid-template-columns:minmax(0,clamp(160px,36%,260px)) minmax(180px,1fr) 72px;align-items:center;gap:12px;min-height:34px;font-size:12.5px}
+/* The label track carries a REAL floor (88px), not minmax(0,...). With a 0 minimum the
+   bar's own 180px floor ate the whole row inside the half-width breed/sex/stage cards:
+   the name column measured 57px at a 1440px viewport and 4px at 1280px, so "Anantapur
+   Sheep" was clipped mid-word to "Anantap / Sheep". The bar track gives way instead --
+   a bar one step shorter still compares, a name cut in half no longer identifies. */
+.wbar{display:grid;grid-template-columns:minmax(88px,clamp(160px,36%,260px)) minmax(72px,1fr) 72px;align-items:center;gap:12px;min-height:34px;font-size:12.5px}
 /* Full-width cards can afford a real label column. 132px is sized for the half-width
    charts and clips a load's supplier name to "131 · Krishnamorrth…", which defeats the
    point of putting the supplier on the label. */
