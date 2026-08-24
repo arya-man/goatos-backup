@@ -2076,9 +2076,12 @@ UPDATE obligation_instances
 SET protocol_version_id = $2,
     rule_id = $3,
     idempotency_key = $4,
-    due_at = $5,
-    window_start = COALESCE($6, window_start),
-    window_end = COALESCE($7, window_end),
+    due_at = $5::timestamptz,
+    -- The window moves WITH the due date. Keeping the old one while the date moves can leave
+    -- window_end before window_start, which the table rejects outright -- and a window that no
+    -- longer contains its own due date would be wrong even where the constraint allowed it.
+    window_start = COALESCE($6::timestamptz, $5::timestamptz),
+    window_end = $7::timestamptz,
     row_version = row_version + 1,
     updated_at = now()
 WHERE tenant_id = $1 AND obligation_id = $8::uuid`,
