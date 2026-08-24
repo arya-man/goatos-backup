@@ -60,6 +60,7 @@ type ruleRow struct {
 func main() {
 	tenant := flag.String("tenant-id", "", "restrict to one tenant (default: every tenant)")
 	apply := flag.Bool("apply", false, "write the rows; without it nothing is changed")
+	resolve := flag.String("resolve-duplicates", "", `resolve pre-existing duplicate open obligations: "keep-earliest" cancels every open row after the earliest due date in each (animal, rule, sequence) group. Off by default, because it closes somebody's scheduled vaccination.`)
 	flag.Parse()
 
 	ctx := context.Background()
@@ -136,6 +137,20 @@ SET protocol_version_id = EXCLUDED.protocol_version_id,
 	// written before this column existed is invisible to it -- and generation would insert beside
 	// it, booking the same dose twice. Derived from the lineage row of whichever rule the
 	// obligation already points at, so it says exactly what the rule says.
+	// Duplicate resolution runs FIRST when asked for, so the rows it closes stop being ambiguous
+	// and the stamping below can label the survivors in the same run.
+	if strings.TrimSpace(*resolve) != "" {
+		closed, err := resolveDuplicateOpenWork(ctx, pool, tenantID, *resolve, *apply)
+		if err != nil {
+			fail(err)
+		}
+		verb := "would close"
+		if *apply {
+			verb = "closed"
+		}
+		fmt.Printf("backfill-protocol-rule-lineage: %s %d duplicate open obligation(s), keeping the earliest due date in each group\n", verb, closed)
+	}
+
 	// Only rows whose identity is UNAMBIGUOUS are stamped. An animal that already holds two open
 	// obligations for one dose cannot be labelled, because the label would assert the invariant
 	// -- one open obligation per identity -- that the data itself contradicts, and the unique
@@ -220,6 +235,55 @@ ORDER BY pr.tenant_id, pr.protocol_version_id, pr.rule_id`, nullableUUID(tenantI
 		return nil, fmt.Errorf("read rules missing lineage: %w", err)
 	}
 	return out, nil
+}
+
+// resolveDuplicateOpenWork closes the later rows in each duplicated (animal, rule, sequence)
+// group, keeping the earliest due date.
+//
+// This is off by default and named explicitly, because it CANCELS somebody's scheduled
+// vaccination. Keeping the earliest is the defensible default -- it is the date the animal was
+// already told it owed, and a later duplicate is the artefact -- but it is still a decision about
+// medical work, so it happens only when a human asks for it by name.
+//
+// Rows are canceled, never deleted: the audit trail keeps what was there, and a wrong call is
+// recoverable by reading it back.
+func resolveDuplicateOpenWork(ctx context.Context, pool *pgxpool.Pool, tenantID, strategy string, apply bool) (int64, error) {
+	if strategy != "keep-earliest" {
+		return 0, fmt.Errorf("unknown -resolve-duplicates strategy %q (only \"keep-earliest\" is supported)", strategy)
+	}
+	const selectLosers = `
+WITH ranked AS (
+  SELECT oi.obligation_id,
+         row_number() OVER (
+           PARTITION BY oi.tenant_id, oi.target_type, oi.target_id, l.identity_key, oi."sequence"
+           ORDER BY oi.due_at, oi.obligation_id
+         ) AS rank
+  FROM obligation_instances oi
+  JOIN protocol_rule_lineage l ON l.tenant_id = oi.tenant_id AND l.rule_id = oi.rule_id
+  WHERE oi.status IN ('scheduled', 'due', 'deferred')
+    AND oi.rule_identity_key IS NULL
+    AND ($1::uuid IS NULL OR oi.tenant_id = $1::uuid)
+)
+SELECT obligation_id FROM ranked WHERE rank > 1`
+
+	if !apply {
+		var n int64
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM (`+selectLosers+`) x`, nullableUUID(tenantID)).Scan(&n); err != nil {
+			return 0, fmt.Errorf("count duplicate open work: %w", err)
+		}
+		return n, nil
+	}
+
+	// in_progress is absent from the statuses above on purpose: an operator is administering that
+	// dose right now, and closing it from a maintenance command would erase work in flight.
+	tag, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET status = 'canceled', row_version = row_version + 1, updated_at = now()
+WHERE obligation_id IN (`+selectLosers+`)`, nullableUUID(tenantID))
+	if err != nil {
+		return 0, fmt.Errorf("close duplicate open work: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 // stampObligationIdentities labels the animals' existing open work with the identity of the rule

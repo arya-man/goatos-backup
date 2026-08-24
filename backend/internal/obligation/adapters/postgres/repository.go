@@ -2111,6 +2111,18 @@ WHERE tenant_id = $1 AND obligation_id = $8::uuid`,
 		tenant, version, rule, in.IdempotencyKey, pgconv.Timestamptz(in.DueAt),
 		pgconv.NullableTimestamptz(in.WindowStart), pgconv.NullableTimestamptz(in.WindowEnd),
 		ref.ObligationID); err != nil {
+		// obligation_instances_dup_guard spans EVERY status, terminal ones included, so the key
+		// this row would move to can be occupied by its own canceled or completed twin -- exactly
+		// what a resolved duplicate leaves behind. The move is impossible; the claim is not.
+		//
+		// Leaving the row where it is and still reporting it found is the honest outcome: the
+		// animal keeps one open obligation for this dose, generation writes no second one, and the
+		// date simply does not move this pass. Failing the animal instead would take down a whole
+		// tenant's run over a row that is already correct in every way that matters.
+		if isDuplicateGuardViolation(err) {
+			ref.DateBlocked = true
+			return ref, true, nil
+		}
 		return domain.ObligationRef{}, false, fmt.Errorf("obligation: identity reconcile: %w", err)
 	}
 
