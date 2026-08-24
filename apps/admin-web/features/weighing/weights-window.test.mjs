@@ -154,7 +154,7 @@ test("full-width shed chart labels fit without overlapping rows", () => {
   assert.match(css, /\.wcols \.wbar \.wbl-text\{[^}]*text-overflow:ellipsis/);
   assert.match(css, /\.wcols \.wbar \.wbl-text\{[^}]*overflow-wrap:anywhere/);
   assert.doesNotMatch(css, /\.wcols \.wbar \.wbl\{[^}]*overflow:visible/);
-  assert.match(css, /\.wbar\{[^}]*grid-template-columns:minmax\(0,clamp\(160px,36%,260px\)\) minmax\(180px,1fr\) 72px/);
+  assert.match(css, /\.wbar\{[^}]*grid-template-columns:minmax\(88px,clamp\(160px,36%,260px\)\) minmax\(72px,1fr\) 72px/);
   assert.match(css, /\.wbar\{[^}]*min-height:34px/);
   assert.match(css, /\.wbar \.wbl\{[^}]*min-width:0/);
   assert.match(css, /\.wbar \.wbt\{[^}]*min-width:0/);
