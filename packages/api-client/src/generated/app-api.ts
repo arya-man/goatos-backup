@@ -10521,16 +10521,18 @@ export interface components {
              */
             median_gain_g_per_day: number;
         };
-        /** @description How many animals of one breed clear each daily-gain mark. The three counts are CUMULATIVE, not bands: an animal at 260 g/day is counted in all three, so they overlap by design and must never be summed or stacked -- above_180_g_per_day already contains the other two. */
+        /** @description How many animals of one breed fell into each daily-gain band. The four counts are DISJOINT: an animal at 260 g/day is counted in above_250_g_per_day only, every animal lands in exactly one band, and the four add up to animals -- so they may be read as a distribution. */
         WeighingWeightGainThresholdBucket: {
             label: string;
-            /** @description Animals of this breed with a computable gain. The denominator the three counts filter, so a share may be taken row-locally. */
+            /** @description Animals of this breed with a computable gain. The denominator the four bands partition, so a share may be taken row-locally. */
             animals: number;
-            /** @description Strictly greater than 180 g/day. */
-            above_180_g_per_day: number;
-            /** @description Strictly greater than 200 g/day. A subset of above_180_g_per_day. */
-            above_200_g_per_day: number;
-            /** @description Strictly greater than 250 g/day. A subset of above_200_g_per_day. */
+            /** @description 180 g/day or less. The leftover band, so no animal with a gain falls outside the four. */
+            at_or_below_180_g_per_day: number;
+            /** @description Greater than 180 and up to 200 g/day. */
+            band_180_to_200_g_per_day: number;
+            /** @description Greater than 200 and up to 250 g/day. */
+            band_200_to_250_g_per_day: number;
+            /** @description Strictly greater than 250 g/day. */
             above_250_g_per_day: number;
         };
         WeighingShedCompositionChip: {

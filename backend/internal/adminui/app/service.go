@@ -836,12 +836,12 @@ func feedPurchaseTable() domain.TableContract {
 
 // weightsGainThresholdTable builds the breed-wise daily gain table on /weighing/weights.
 //
-// Column labels come from the page's OWN copy map rather than humanLabel, because the marks
-// are farm figures ("Above 250 g/day"), not humanised field keys ("Above 250 G Day"). Same
+// Column labels come from the page's OWN copy map rather than humanLabel, because the bands
+// are farm figures ("200-250 g/day"), not humanised field keys ("Band 200 250"). Same
 // single-source reasoning as feedPurchaseTable: the header and the cells cannot drift.
 func weightsGainThresholdTable() domain.TableContract {
 	t := withoutRowClick(tableP("gain-thresholds", "Breed-wise daily gain", "/weighing/weight-demographics",
-		[]string{"breed", "gain_animals", "above_250", "above_200", "above_180"}, "", []int{10, 25, 50}))
+		[]string{"breed", "gain_animals", "above_250", "band_200_250", "band_180_200", "upto_180"}, "", []int{10, 25, 50}))
 	copy := pageCopy("weighing-weights")
 	for i := range t.Columns {
 		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
@@ -3262,9 +3262,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.demographics.body":      "No weighed kid could be matched to the herd register in this period.",
 			"note.demographics.coverage":   "Daily gain by breed, sex and stage is same-animal only. Lump-sum scale rows stay out of those growth charts because they have no scanned animal tags.",
 			// Row 2b -- how many kids of each breed are actually growing well, which a breed
-			// median cannot say. The marks are CUMULATIVE (maintainer, 2026-08-24): a kid at
-			// 260 g/day is counted under all three, so the caption says so in farm words. The
-			// renderer must not add these columns together or stack them.
+			// median cannot say. The bands are DISJOINT (maintainer, 2026-08-24): a kid at
+			// 260 g/day is counted in the top band ONLY, so the four columns add up to the
+			// kids weighed twice and the slowest kids finally have a column of their own.
 			"section.gain_thresholds.title": "Breed-wise daily gain",
 			// The card opens as a CHART and can be switched to the exact figures. Both views
 			// are the same numbers; the toggle is a reading preference, so it lives in the URL
@@ -3272,18 +3272,19 @@ func pageSpecificCopy(id string) map[string]string {
 			"view.chart":                        "Chart",
 			"view.table":                        "Table",
 			"section.gain_thresholds.view_aria": "Show the gain marks as a chart or a table",
-			"chart.gain_thresholds.aria":        "Share of each breed clearing each daily gain mark",
+			"chart.gain_thresholds.aria":        "Share of each breed in each daily gain band",
 			// Farm nouns for the head count under a breed and the hover line behind a bar.
 			"value.gain_thresholds.kids":      "kids",
 			"value.gain_thresholds.of":        "of",
 			"section.gain_thresholds.aria":    "Breed-wise daily gain",
-			"section.gain_thresholds.caption": "Counted from kids weighed one by one and weighed twice, at each kid's own daily gain. A kid growing 260 g a day is counted under all three marks, so the columns overlap and do not add up.",
+			"section.gain_thresholds.caption": "Counted from kids weighed one by one and weighed twice, at each kid's own daily gain. Each kid is counted in one band only, so the bands add up to the kids weighed twice.",
 			"empty.gain_thresholds.body":      "No kid matched to a breed has a second weigh in this period yet.",
 			"column.breed":                    "Breed",
 			"column.gain_animals":             "Kids weighed twice",
 			"column.above_250":                "Above 250 g/day",
-			"column.above_200":                "Above 200 g/day",
-			"column.above_180":                "Above 180 g/day",
+			"column.band_200_250":             "200-250 g/day",
+			"column.band_180_200":             "180-200 g/day",
+			"column.upto_180":                 "180 g/day or less",
 			"chart.load.title":                "Daily gain by load",
 			"chart.load.title_weight":         "Average weight by load",
 			"chart.load.aria":                 "Growth for each purchase load",
