@@ -128,9 +128,14 @@ func (r *Repository) ExportCampaignCSV(ctx context.Context, tenantID, campaignID
 //
 // Column shape follows the operations "Weight check" sheet the maintainer reconciles
 // against (maintainer request 2026-08-21), minus its video-link column: date | rfid |
-// rfid_2 | old_id | old_id_suffix | breed | gender | shed | type | count | operator |
-// approval | verified_weight_kg. `old_id_suffix` is structurally blank — the sheet
-// keeps the column and leaves it empty, and the file must line up cell-for-cell.
+// rfid_2 | old_id | old_id_suffix | breed | gender | park | shed | type | count |
+// operator | approval | verified_weight_kg. `old_id_suffix` is structurally blank — the
+// sheet keeps the column and leaves it empty, and the file must line up cell-for-cell.
+//
+// `park` sits beside `shed` because a shed name alone is ambiguous across parks — Castro,
+// Gandhi and Yashoda each exist in BOTH parks — so a multi-park export could not be read
+// without it. It is the park's own `locations.name`, joined from the campaign the bucket
+// belongs to; it names the row and gates nothing.
 //
 // Pending verification is exported as data, not filtered out; the verdict travels in
 // the `approval` column (approved / rejected / pending, the sheet's own words) so CEO
@@ -158,6 +163,7 @@ func (r *Repository) ExportCSV(ctx context.Context, tenantID string, parkIDs []s
 		"old_id_suffix",
 		"breed",
 		"gender",
+		"park",
 		"shed",
 		"type",
 		"count",
@@ -185,6 +191,7 @@ WITH individual AS (
     (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS business_date,
     'individual'::text AS weighing_type,
     o.scanned_identifier AS rfid,
+    COALESCE(park.name, '') AS park_name,
     cs.display_name AS shed_label,
     COALESCE(cs.partition_label, '') AS partition_label,
     NULL::int AS animal_count,
@@ -194,6 +201,9 @@ WITH individual AS (
   FROM weighing_observations o
   JOIN weighing_campaign_sheds cs ON cs.tenant_id=o.tenant_id AND cs.campaign_shed_id=o.campaign_shed_id
   JOIN weighing_campaigns c ON c.tenant_id=o.tenant_id AND c.campaign_id=o.campaign_id
+  -- locations is one of the four allowlisted ORG tables; the park row is 1:1 on its PK,
+  -- so this join cannot multiply an observation row.
+  LEFT JOIN locations park ON park.tenant_id=c.tenant_id AND park.location_id=c.park_id
   -- LATERAL LIMIT 1 so a person with more than one roster row can never multiply an
   -- observation row; newest row wins deterministically. workforce_members is one of
   -- the allowlisted ORG tables — this names the person, it gates nothing.
@@ -215,6 +225,7 @@ lumpsum AS (
     (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS business_date,
     'lumpsum'::text AS weighing_type,
     ''::text AS rfid,
+    COALESCE(park.name, '') AS park_name,
     cs.display_name AS shed_label,
     COALESCE(cs.partition_label, '') AS partition_label,
     so.animal_count::int AS animal_count,
@@ -224,6 +235,7 @@ lumpsum AS (
   FROM weighing_shed_observations so
   JOIN weighing_campaign_sheds cs ON cs.tenant_id=so.tenant_id AND cs.campaign_shed_id=so.campaign_shed_id
   JOIN weighing_campaigns c ON c.tenant_id=so.tenant_id AND c.campaign_id=so.campaign_id
+  LEFT JOIN locations park ON park.tenant_id=c.tenant_id AND park.location_id=c.park_id
   LEFT JOIN LATERAL (
     SELECT wm.display_name
     FROM workforce_members wm
@@ -238,14 +250,14 @@ lumpsum AS (
     AND so.accepted_at < $4::timestamptz
     AND so.withdrawn_at IS NULL
 )
-SELECT business_date::text, weighing_type, rfid, shed_label, partition_label,
+SELECT business_date::text, weighing_type, rfid, park_name, shed_label, partition_label,
        animal_count, operator, verification_status, weight_kg
 FROM (
   SELECT * FROM individual
   UNION ALL
   SELECT * FROM lumpsum
 ) exported
-ORDER BY business_date DESC, shed_label ASC, partition_label ASC, weighing_type ASC, rfid ASC
+ORDER BY business_date DESC, park_name ASC, shed_label ASC, partition_label ASC, weighing_type ASC, rfid ASC
 `, tenantID, parkIDs, periodStart, periodEnd, shedLocationIDs)
 	if err != nil {
 		return err
@@ -253,11 +265,11 @@ ORDER BY business_date DESC, shed_label ASC, partition_label ASC, weighing_type 
 	defer rows.Close()
 
 	for rows.Next() {
-		var date, kind, rfid, shedLabel, partitionLabel, operator, status string
+		var date, kind, rfid, parkName, shedLabel, partitionLabel, operator, status string
 		var weightKg *float64
 		var animalCount *int
 		if err := rows.Scan(
-			&date, &kind, &rfid, &shedLabel, &partitionLabel,
+			&date, &kind, &rfid, &parkName, &shedLabel, &partitionLabel,
 			&animalCount, &operator, &status, &weightKg,
 		); err != nil {
 			return err
@@ -271,6 +283,7 @@ ORDER BY business_date DESC, shed_label ASC, partition_label ASC, weighing_type 
 			"", // old_id_suffix — kept blank by sheet convention
 			csvText(identity.Breed),
 			csvText(identity.Sex),
+			csvText(parkName),
 			csvText(exportShedDisplay(shedLabel, partitionLabel)),
 			kind,
 			formatOptionalInt(animalCount),
