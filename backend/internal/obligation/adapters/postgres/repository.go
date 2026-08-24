@@ -2085,18 +2085,19 @@ WHERE tenant_id = $1 AND obligation_id = ANY($2::uuid[]) AND target_type = 'goat
 		return 0, fmt.Errorf("obligation: group duplicates by animal: %w", err)
 	}
 
+	// One transaction per ANIMAL, not per row, and only for animals a human has already been shown
+	// and chosen to clean up. The cancellation primitive's batch recompute and outbox payload are
+	// both goat-scoped, so batching across animals would mean reimplementing it -- the exact
+	// duplication that let the raw-SQL version skip the audit trail in the first place.
 	total := 0
 	for goatID, ids := range byGoat {
-		// scale-guard:ignore: one transaction per ANIMAL, not per row, and only for animals a
-		// human has already been shown and chosen to clean up. The cancellation primitive's batch
-		// recompute and outbox payload are both goat-scoped, so batching across animals would mean
-		// reimplementing it -- the exact duplication that let the raw-SQL version skip the audit
-		// trail in the first place.
+		// scale-guard:ignore: bounded to the duplicate animals an operator explicitly resolved; the cancel primitive is goat-scoped
 		tx, err := r.pool.Begin(ctx)
 		if err != nil {
 			return total, fmt.Errorf("obligation: begin duplicate cancel: %w", err)
 		}
 		qtx := r.queries.WithTx(tx)
+		// scale-guard:ignore: bounded to the duplicate animals an operator explicitly resolved; the cancel primitive is goat-scoped
 		canceled, err := tx.Query(ctx, `
 UPDATE obligation_instances oi
 SET status = 'canceled',
