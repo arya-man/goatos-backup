@@ -3156,8 +3156,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.weighing.all":        "All",
 			"filter.weighing.individual": "Per animal",
 			"filter.weighing.lump":       "Lump sum",
-			// The window is picked from a CALENDAR (maintainer, 2026-08-12), landing on the 7 days
-			// before today (30 until 2026-08-24). `filter.period.4w` / `.12w` and the `weighing_period` option group went
+			// The window is picked from a CALENDAR (maintainer, 2026-08-12), landing on the 15 days
+			// before today (30 until 2026-08-24, then briefly 7 the same day). `filter.period.4w` / `.12w` and the `weighing_period` option group went
 			// with the fixed-window select they labelled: two preset spans could only answer the two
 			// questions someone thought of in advance, and a reader comparing one drive week against
 			// another had no way to ask.

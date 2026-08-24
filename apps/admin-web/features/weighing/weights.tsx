@@ -54,9 +54,11 @@ function hrefWith(searchParams: RouteSearchParams, updates: Record<string, strin
   return query ? `${PAGE_PATH}?${query}` : PAGE_PATH;
 }
 
-// The window the page lands on: the 7 days before today, inclusive of both ends (maintainer,
-// 2026-08-24; it was 30). The calendar still picks any span — this is only where the page starts.
-const DEFAULT_WINDOW_DAYS = 7;
+// The window the page lands on: the 15 days before today, inclusive of both ends (maintainer,
+// 2026-08-24; 30 before that day, briefly 7 the same day). The calendar still picks any span —
+// this is only where the page starts. 15 days is wide enough that a shed weighed on a roughly
+// fortnightly round has TWO weighs in it, which is what a daily gain needs to exist at all.
+const DEFAULT_WINDOW_DAYS = 15;
 // Which view the gain-mark card is showing. Absent means the chart, so a shared link
 // that predates the toggle — or one copied from the default view — keeps meaning "chart".
 const GAIN_VIEW_PARAM = "gain_view";
@@ -308,8 +310,8 @@ export async function WeighingWeightsPage({
       from: window.from,
       to: window.to,
       today,
-      // Landing on this window clears both parameters, so a shared link keeps meaning "the last 7
-      // days" rather than freezing on the week it was copied in. Named fields, never a spread of
+      // Landing on this window clears both parameters, so a shared link keeps meaning "the last 15
+      // days" rather than freezing on the fortnight it was copied in. Named fields, never a spread of
       // defaultWindow(): `{...{from,to}}` would silently overwrite the SELECTED window above with
       // the default and pin the page to 30 days whatever the reader picked.
       defaultFrom: defaultWindow(today).from,
@@ -430,28 +432,16 @@ export async function WeighingWeightsPage({
         modeLabel: copy(pageContract, "value.weighing.lump"),
         modeTone: "mut" as const,
       }));
-  const gainRowKeys = new Set([...perAnimalGainRows, ...shedAverageGainRows].map((row) => row.key.replace(/-shed$/, "")));
-  const singleWeighRows = visibleRows
-    .filter((row) => row.animals_weighed > 0 && !gainRowKeys.has(shedKey(row.location_id, row.partition_label)))
-    .map((row) => {
-      const key = shedKey(row.location_id, row.partition_label);
-      return {
-        key: `${key}-single`,
-        park_name: row.park_name,
-        label: shedLabelWithComposition(
-          row.operational_location_display || row.shed_display_name,
-          compositionByShed.get(key),
-          pageContract,
-        ),
-        value: 0,
-        valueLabel: `${kg(row.average_weight_kg)} kg`,
-        ...modeBarTag(row, pageContract),
-      };
-    });
+  // A shed with ONE weigh in the window has NO daily gain — a gain needs two weighs, and a
+  // whole-shed weigh yields no per-animal gain at all. Such sheds used to appear here anyway,
+  // with a zero-length bar labelled in KILOGRAMS (their average weight) beside real g/day bars:
+  // two different measures on one axis, which is how "Castro 1 · 34.4 kg" came to sit in a
+  // daily-gain chart. They are not plotted here at all now. Nothing is lost — the Weight view
+  // shows every one of them, which is where a weight in kg belongs.
   // Alphabetical by shed/pen, not ranked by gain (maintainer decision 2026-08-22): every park
   // column keeps the same stable A→Z order so an operator can find a specific pen by name.
   // `numeric` keeps "Castro 2" ahead of "Castro 10".
-  const gainChartData = [...perAnimalGainRows, ...shedAverageGainRows, ...singleWeighRows].sort(
+  const gainChartData = [...perAnimalGainRows, ...shedAverageGainRows].sort(
     (a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }),
   );
 

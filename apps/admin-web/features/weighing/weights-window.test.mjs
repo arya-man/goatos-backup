@@ -19,8 +19,8 @@ test("the period control is a calendar, not a fixed-window select", () => {
   assert.doesNotMatch(contract, /"filter\.period\.12w"/);
 });
 
-test("the page lands on the 7 days before today, inclusive", () => {
-  assert.match(source, /const DEFAULT_WINDOW_DAYS = 7;/);
+test("the page lands on the 15 days before today, inclusive", () => {
+  assert.match(source, /const DEFAULT_WINDOW_DAYS = 15;/);
   assert.match(source, /return \{ from: istDayPlus\(today, -\(DEFAULT_WINDOW_DAYS - 1\)\), to: today \};/);
   // istDayPlus is pure calendar arithmetic on an already-resolved IST day. Re-entering a timezone
   // here (or hardcoding +05:30) is what the shared helper exists to prevent.
@@ -30,7 +30,7 @@ test("the page lands on the 7 days before today, inclusive", () => {
 
 test("the default window is passed as NAMED fields, never spread", () => {
   // `{...defaultWindow(today)}` spreads `{from, to}` — the same two keys the SELECTED window uses —
-  // and would silently overwrite the reader's choice, pinning the page to 7 days whatever they
+  // and would silently overwrite the reader's choice, pinning the page to 15 days whatever they
   // picked. It typechecks and renders; only the data is wrong.
   assert.match(source, /defaultFrom: defaultWindow\(today\)\.from,\s*\n\s*defaultTo: defaultWindow\(today\)\.to,/);
   assert.doesNotMatch(source, /\.\.\.defaultWindow\(/);
@@ -76,16 +76,25 @@ test("shed lists and gain chart only show sheds weighed in the selected window",
   assert.match(source, /modeFilter === "all" \? weighedRows : weighedRows\.filter/);
   assert.match(source, /const visibleRowKeys = new Set\(visibleRows\.map\(\(row\) => shedKey\(row\.location_id, row\.partition_label\)\)\);/);
   assert.match(source, /shed\.adg_pair_count > 0 && visibleRowKeys\.has\(shedKey\(shed\.location_id, shed\.partition_label\)\)/);
-  assert.match(source, /const singleWeighRows = visibleRows/);
-  assert.match(source, /row\.animals_weighed > 0 && !gainRowKeys\.has\(shedKey\(row\.location_id, row\.partition_label\)\)/);
-  assert.match(source, /valueLabel: `\$\{kg\(row\.average_weight_kg\)\} kg`/);
+  // A shed with ONE weigh has no daily gain, so it is not plotted in the gain chart at all.
+  // It used to be — with a zero-length bar labelled in KILOGRAMS beside real g/day bars, which
+  // put "Castro 1 · 34.4 kg" in a daily-gain chart. Two measures on one axis is the defect;
+  // these three assertions are what pinned it, so they now pin its absence.
+  assert.doesNotMatch(source, /const singleWeighRows/);
+  assert.match(source, /const gainChartData = \[\.\.\.perAnimalGainRows, \.\.\.shedAverageGainRows\]\.sort\(/);
+  // No hand-written kg label survives anywhere in this page's chart data. The Weight view
+  // still shows every shed's average — it carries `unit: "kg"` on the SERIES, so the unit is
+  // declared once for the whole chart and cannot leak into the gain chart beside it.
+  assert.equal(source.match(/valueLabel: `\$\{kg\(row\.average_weight_kg\)\} kg`/g)?.length ?? 0, 0);
+  assert.match(source, /unit: "kg"/);
 });
 
 test("weighed shed rows render breed and sex composition chips from the backend contract", () => {
   const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
   assert.match(source, /demo\?\.shed_composition \?\? \[\]/);
   assert.match(source, /shedLabelWithComposition/);
-  assert.equal(source.match(/label: shedLabelWithComposition\(/g)?.length, 4);
+  // Three, not four: the gain chart no longer builds a row for a shed with one weigh.
+  assert.equal(source.match(/label: shedLabelWithComposition\(/g)?.length, 3);
   assert.match(source, /replaceAll\(" · ", " - "\)/);
   assert.doesNotMatch(source, /shed avg/);
   assert.match(source, /className="wcomp-chips"/);
