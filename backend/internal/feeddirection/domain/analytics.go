@@ -377,8 +377,29 @@ type StockItem struct {
 	LowStock bool
 }
 
-// LowStockDays mirrors the legacy sheet's warning threshold.
+// LowStockDays mirrors the legacy sheet's warning threshold: the RED CARD on the Stock tab, which
+// means "nearly out".
 const LowStockDays = 5
+
+// LowStockNotifyDays is the DAILY ALERT horizon (maintainer decision 2026-08-24), deliberately
+// wider than LowStockDays: leadership is told a week out so a purchase order can still be raised,
+// while the card keeps meaning nearly out. Changing one must not silently change the other.
+const LowStockNotifyDays = 7
+
+// LowStockFeed is one farm's feed that runs out inside LowStockNotifyDays. Every field the alert
+// names is here, because a notification that cannot say WHICH farm, WHICH feed and HOW LONG is the
+// abstract-count defect the notification-specificity rule exists to stop.
+type LowStockFeed struct {
+	// ParkID is empty when the purchase ledger never resolved the farm to a park; the alert then
+	// names the farm label only rather than deep-linking somewhere it cannot reach.
+	ParkID        string
+	FarmLabel     string
+	FeedItemLabel string
+	FeedItemKey   string
+	BalanceKg     string
+	AvgDailyKg    string
+	DaysLeft      int64
+}
 
 // MeshaConcentrateStockKeys is the fixed set of in-house Mesha concentrate
 // feeds the per-farm purchase/consumption table covers (maintainer decision

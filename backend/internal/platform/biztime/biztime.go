@@ -79,3 +79,27 @@ func ParseLiveAsOfRFC3339(raw string, now time.Time) (time.Time, error) {
 	}
 	return ClampFutureAsOf(parsed, now), nil
 }
+
+// FarmDateFormat is how a date is WRITTEN TO A PERSON across Goat OS: dd/mm/yyyy, the form the
+// farm's own sheets use (maintainer decision 2026-08-24). It applies to visible copy only --
+// notification titles and bodies, screen labels. Structured payload fields (a notification
+// context's due_date, an API response, a query parameter) stay ISO YYYY-MM-DD, because clients
+// PARSE those and render their own localized string from them.
+const FarmDateFormat = "02/01/2006"
+
+// FarmDate writes an instant as dd/mm/yyyy in the operational calendar, for visible copy.
+func FarmDate(t time.Time) string {
+	return BusinessDayStart(t).Format(FarmDateFormat)
+}
+
+// FarmDateFromBusinessDate rewrites an ISO business date (YYYY-MM-DD, as BusinessDate returns and
+// as every structured field carries) into the visible dd/mm/yyyy form. A value that is not an ISO
+// date is returned UNCHANGED rather than mangled or blanked: a malformed date in copy is a bug to
+// see, not one to hide behind an empty string.
+func FarmDateFromBusinessDate(businessDate string) string {
+	parsed, err := time.ParseInLocation("2006-01-02", businessDate, DefaultLocation())
+	if err != nil {
+		return businessDate
+	}
+	return parsed.Format(FarmDateFormat)
+}
