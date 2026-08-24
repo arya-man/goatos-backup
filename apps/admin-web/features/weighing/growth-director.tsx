@@ -129,13 +129,15 @@ export function GrowthDirectorSection({
         ) : (
           <div className="ffboard">
             {fairFight.cohorts.map((cohort) => {
-              // The backend ranks these sheds fastest-first, and the RANK is still the fact
-              // this board reports — but they are LISTED alphabetically (maintainer decision
-              // 2026-08-24), like every other shed list on the page, so a reader can find the
-              // pen they came here for instead of scanning for it. The rank badge, the
-              // leader/behind chips and the spread therefore come from the backend's order,
-              // never from a row's position in this list: read them off the ranked array and
-              // look each row's standing up by key.
+              // The backend ranks these sheds fastest-first; the board LISTS them
+              // alphabetically (maintainer decision 2026-08-24), like every other shed list on
+              // the page, so a reader can find the pen they came here for.
+              //
+              // The numbers count the LIST, 1..n straight down (maintainer, 2026-08-24): a
+              // badge reading "1" three rows down looked like a mistake every time the eye
+              // passed it. The standing did not disappear with it — the leader/behind chips
+              // and the spread are still computed from the backend's ranked array, by VALUE,
+              // so "this pen is the fastest of its cohort" is still on the row that earned it.
               const ranked = cohort.sheds;
               const best = ranked[0];
               const last = ranked[ranked.length - 1];
@@ -157,9 +159,9 @@ export function GrowthDirectorSection({
                     </span>
                   </div>
                   <ol className="ffstand" aria-label={`${gd(pageContract, "fair_fight.title")} — ${cohort.breed} ${cohort.sex}`}>
-                    {sheds.map((shed) => {
-                      // Standing by KEY, not by array position: this list is alphabetical.
-                      const rank = rankByKey.get(shed.operational_key) ?? 0;
+                    {sheds.map((shed, index) => {
+                      // Standing by KEY (this list is alphabetical); the badge counts the list.
+                      const standing = rankByKey.get(shed.operational_key) ?? 0;
                       // The bar is drawn against the cohort's OWN best, so every board reads
                       // "share of the leader" rather than being scaled to a page-wide maximum
                       // that would flatten a close race into identical bars. A non-positive
@@ -169,12 +171,12 @@ export function GrowthDirectorSection({
                         best.median_adg_g_per_day > 0
                           ? Math.max(0, (shed.median_adg_g_per_day / best.median_adg_g_per_day) * 100)
                           : 0;
-                      const isLeader = rank === 0 && ranked.length > 1;
-                      const isLast = rank === ranked.length - 1 && ranked.length > 1;
+                      const isLeader = standing === 0 && ranked.length > 1;
+                      const isLast = standing === ranked.length - 1 && ranked.length > 1;
                       return (
                         <li className={`ffrow${isLeader ? " ffwin" : ""}`} key={shed.operational_key}>
                           <span className="ffrank" aria-label={gd(pageContract, "fair_fight.rank_label")}>
-                            {rank + 1}
+                            {index + 1}
                           </span>
                           {/* The name gets a LINE OF ITS OWN, because a shed's identity here is
                               park + shed + pen — thirty-odd characters — and that does not fit
