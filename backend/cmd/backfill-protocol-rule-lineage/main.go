@@ -77,7 +77,13 @@ func main() {
 		return
 	}
 
-	var written, skipped int
+	// Collected and written in ONE statement rather than a round trip per rule: a tenant's plan
+	// history runs to hundreds of rules, and a backfill that walks them one at a time is the
+	// n+1 shape the scale guard exists to stop.
+	var (
+		tenants, versions, ruleIDs, identities, fingerprints []string
+		skipped                                              int
+	)
 	for _, r := range rows {
 		identity := protodomain.RuleIdentityKey(protodomain.VaccineCodeForRule(r.eligibilityJSON), r.doseCode, r.sequence)
 		fingerprint := protodomain.RuleContentFingerprint(protodomain.NewRule{
@@ -102,21 +108,26 @@ func main() {
 			skipped++
 			continue
 		}
-		if !*apply {
-			written++
-			continue
-		}
+		tenants = append(tenants, r.tenantID)
+		versions = append(versions, r.protocolVersionID)
+		ruleIDs = append(ruleIDs, r.ruleID)
+		identities = append(identities, identity)
+		fingerprints = append(fingerprints, fingerprint)
+	}
+
+	written := len(ruleIDs)
+	if *apply && written > 0 {
 		if _, err := pool.Exec(ctx, `
 INSERT INTO protocol_rule_lineage (tenant_id, protocol_version_id, rule_id, identity_key, content_fingerprint)
-VALUES ($1, $2, $3, $4, $5)
+SELECT t::uuid, v::uuid, r::uuid, i, f
+FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[]) AS s(t, v, r, i, f)
 ON CONFLICT (tenant_id, rule_id) DO UPDATE
 SET protocol_version_id = EXCLUDED.protocol_version_id,
     identity_key = EXCLUDED.identity_key,
     content_fingerprint = EXCLUDED.content_fingerprint`,
-			r.tenantID, r.protocolVersionID, r.ruleID, identity, fingerprint); err != nil {
-			fail(fmt.Errorf("write lineage for rule %s: %w", r.ruleID, err))
+			tenants, versions, ruleIDs, identities, fingerprints); err != nil {
+			fail(fmt.Errorf("write lineage rows: %w", err))
 		}
-		written++
 	}
 
 	mode := "would write"
