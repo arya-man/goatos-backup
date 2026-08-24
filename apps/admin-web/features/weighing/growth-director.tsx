@@ -129,15 +129,22 @@ export function GrowthDirectorSection({
         ) : (
           <div className="ffboard">
             {fairFight.cohorts.map((cohort) => {
-              // Read off the ENDS of the backend's own ordering rather than recomputing a
-              // min/max: taking the extremes from a list the server already ranked keeps one
-              // definition of "best" on both sides. A one-shed cohort cannot happen (the query
-              // requires two), but the guard keeps the arithmetic honest if that ever changes.
-              const sheds = cohort.sheds;
-              const best = sheds[0];
-              const last = sheds[sheds.length - 1];
-              const spread = sheds.length > 1 ? best.median_adg_g_per_day - last.median_adg_g_per_day : null;
-              const kids = sheds.reduce((sum, shed) => sum + shed.pair_identities, 0);
+              // The backend ranks these sheds fastest-first, and the RANK is still the fact
+              // this board reports — but they are LISTED alphabetically (maintainer decision
+              // 2026-08-24), like every other shed list on the page, so a reader can find the
+              // pen they came here for instead of scanning for it. The rank badge, the
+              // leader/behind chips and the spread therefore come from the backend's order,
+              // never from a row's position in this list: read them off the ranked array and
+              // look each row's standing up by key.
+              const ranked = cohort.sheds;
+              const best = ranked[0];
+              const last = ranked[ranked.length - 1];
+              const rankByKey = new Map(ranked.map((shed, index) => [shed.operational_key, index]));
+              const sheds = [...ranked].sort((a, b) =>
+                a.shed_display_name.localeCompare(b.shed_display_name, undefined, { numeric: true }),
+              );
+              const spread = ranked.length > 1 ? best.median_adg_g_per_day - last.median_adg_g_per_day : null;
+              const kids = ranked.reduce((sum, shed) => sum + shed.pair_identities, 0);
               return (
                 <div className="ffmatch" key={`${cohort.breed}-${cohort.sex}`}>
                   <div className="ffhead">
@@ -150,7 +157,9 @@ export function GrowthDirectorSection({
                     </span>
                   </div>
                   <ol className="ffstand" aria-label={`${gd(pageContract, "fair_fight.title")} — ${cohort.breed} ${cohort.sex}`}>
-                    {sheds.map((shed, index) => {
+                    {sheds.map((shed) => {
+                      // Standing by KEY, not by array position: this list is alphabetical.
+                      const rank = rankByKey.get(shed.operational_key) ?? 0;
                       // The bar is drawn against the cohort's OWN best, so every board reads
                       // "share of the leader" rather than being scaled to a page-wide maximum
                       // that would flatten a close race into identical bars. A non-positive
@@ -160,12 +169,12 @@ export function GrowthDirectorSection({
                         best.median_adg_g_per_day > 0
                           ? Math.max(0, (shed.median_adg_g_per_day / best.median_adg_g_per_day) * 100)
                           : 0;
-                      const isLeader = index === 0 && sheds.length > 1;
-                      const isLast = index === sheds.length - 1 && sheds.length > 1;
+                      const isLeader = rank === 0 && ranked.length > 1;
+                      const isLast = rank === ranked.length - 1 && ranked.length > 1;
                       return (
                         <li className={`ffrow${isLeader ? " ffwin" : ""}`} key={shed.operational_key}>
                           <span className="ffrank" aria-label={gd(pageContract, "fair_fight.rank_label")}>
-                            {index + 1}
+                            {rank + 1}
                           </span>
                           {/* The name gets a LINE OF ITS OWN, because a shed's identity here is
                               park + shed + pen — thirty-odd characters — and that does not fit
