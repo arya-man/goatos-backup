@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,6 +53,38 @@ type DirectedAnalyticsQuery struct {
 	// deadline -- the page then showed its "rollup read failed" card while every individual query
 	// was fast. Narrowing the fetch is the fix; widening the deadline would only move the failure.
 	Sections []ExecutionSection
+	// PackingVarianceLimit / PackingVarianceOffset page the mismatch list. Zero limit means
+	// DefaultPackingVariancePageSize.
+	PackingVarianceLimit  int
+	PackingVarianceOffset int
+}
+
+// Mismatch-list paging. The window is already capped at 92 days and the list carries only bags
+// PAST tolerance, so the result set is bounded; the offset cap keeps a hand-typed page number from
+// walking a deep scan, and it is REJECTED rather than clamped so a caller asking for page 400 is
+// told the page does not exist instead of being handed page 1's rows under page 400's heading.
+const (
+	DefaultPackingVariancePageSize = 25
+	MaxPackingVariancePageSize     = 100
+	MaxPackingVarianceOffset       = 5000
+)
+
+// ErrPackingVariancePageOutOfRange is returned for a limit or offset outside the bounds above.
+var ErrPackingVariancePageOutOfRange = errors.New("feeddirection: packing variance page is out of range")
+
+// NormalisePackingVariancePage validates the requested page and fills the default size. A PRESENT
+// but out-of-range value FAILS; only an ABSENT limit takes the default.
+func NormalisePackingVariancePage(limit, offset int) (int, int, error) {
+	if limit < 0 || limit > MaxPackingVariancePageSize {
+		return 0, 0, ErrPackingVariancePageOutOfRange
+	}
+	if offset < 0 || offset > MaxPackingVarianceOffset {
+		return 0, 0, ErrPackingVariancePageOutOfRange
+	}
+	if limit == 0 {
+		limit = DefaultPackingVariancePageSize
+	}
+	return limit, offset, nil
 }
 
 // ExecutionSection names one arm of the execution payload.
@@ -192,10 +225,14 @@ const PackingVarianceToleranceKg = 0.2
 // ONLY on the leadership execution view, never on any verifier surface). A row exists only when
 // |entered - planned| exceeds PackingVarianceToleranceKg.
 type PackingVarianceRow struct {
-	FeedDay   string
-	ParkLabel string
-	ShedID    string
-	ShedLabel string
+	FeedDay string
+	// PackingDay is FeedDay - 1: the day the bag was actually weighed out. This table is about
+	// PACKING, so it is the day the reader recognises; FeedDay stays in the payload because the
+	// quantities belong to that feed day's sheet.
+	PackingDay string
+	ParkLabel  string
+	ShedID     string
+	ShedLabel  string
 	// PartitionLabel is the pen ("2", "Part 3"), empty for an undivided shed.
 	PartitionLabel string
 	// OperationalLocationDisplay is the oploc-composed shed+pen label, same as every surface.
@@ -220,6 +257,10 @@ type PackingVarianceRow struct {
 	VerifiedKg string
 	// VarianceKg is VerifiedKg minus the resolved planned quantity (0 when unresolved), signed.
 	VarianceKg string
+	// BeyondTolerance marks a bag whose difference exceeds PackingVarianceToleranceKg. Every
+	// measured bag is listed now, so this is what separates a real discrepancy from a scale read
+	// that is honest to a couple hundred grams.
+	BeyondTolerance bool
 }
 
 // MixedCohortLabel is what a bag reports when its sheet rows disagree on breed or age group. It
@@ -229,8 +270,10 @@ const MixedCohortLabel = "Mixed"
 // FeedConsumptionTrendDay is one day of the packed-vs-given trend under the mismatch table:
 // everything the sheet directed that day against everything a verifier measured.
 type FeedConsumptionTrendDay struct {
-	FeedDay  string
-	TargetKg string
+	FeedDay string
+	// PackingDay is FeedDay - 1, so the trend's axis matches the table above it.
+	PackingDay string
+	TargetKg   string
 	// ActualKg is EMPTY on a day with no packing readings at all, so the chart draws a GAP rather
 	// than a plunge to zero that would read as "the farm fed nothing that day".
 	ActualKg     string
@@ -243,8 +286,11 @@ type ExecutionAnalytics struct {
 	Days []ExecutionDay
 	// PackingVariance lists every intended-vs-entered packing mismatch in the window, newest feed
 	// day first. Leadership-only by page contract; the verifier lens never receives this payload.
-	PackingVariance  []PackingVarianceRow
-	ConsumptionTrend []FeedConsumptionTrendDay
+	PackingVariance []PackingVarianceRow
+	// PackingVarianceHasMore reports whether a further page exists beyond the rows returned. The
+	// list is a PAGE; every other figure on the screen stays a whole-window aggregate.
+	PackingVarianceHasMore bool
+	ConsumptionTrend       []FeedConsumptionTrendDay
 }
 
 // ---------------------------------------------------------------------------

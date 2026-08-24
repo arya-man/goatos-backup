@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
   getFeedAnalyticsDirected,
@@ -21,6 +21,8 @@ import { ChartHover } from "@/components/chart-hover";
 import { RangeCoverageNote } from "./range-coverage-note";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
+import { FeedPager } from "./feed-pager";
+import { feedHref, feedLimit, feedOffset } from "./feed-scope";
 import { SegmentedLinks } from "@/components/segmented-links";
 import { SvgBars } from "@/components/svg-bars";
 import {
@@ -239,6 +241,9 @@ export async function FeedAnalyticsPage({
   const favDay = one(searchParams, "fav_day") ?? "";
   const favPark = one(searchParams, "fav_park") ?? "";
   const favItem = one(searchParams, "fav_item") ?? "";
+  const variancePageSizes = tablePageSizes(pageContract, "packing-mismatches");
+  const varianceLimit = feedLimit(searchParams, "fav_limit", variancePageSizes, variancePageSizes[0]);
+  const varianceOffset = feedOffset(searchParams, "fav_offset");
   const locations = wantExperiment ? await getCensusLocations() : { parks: [] as { id: string; name: string }[], sheds: [] };
   const wantStock = tab === "overview" || tab === "items";
   const [directed, execution, experiment, stock] = await Promise.all([
@@ -246,7 +251,11 @@ export async function FeedAnalyticsPage({
       ? getFeedAnalyticsDirected(params)
       : Promise.resolve<ApiResult<FeedAnalyticsDirectedResponse> | null>(null),
     wantExecution
-      ? getFeedAnalyticsExecution(params)
+      ? getFeedAnalyticsExecution({
+          ...params,
+          variance_limit: String(varianceLimit),
+          variance_offset: String(varianceOffset),
+        })
       : Promise.resolve<ApiResult<FeedAnalyticsExecutionResponse> | null>(null),
     wantExperiment
       ? getFeedAnalyticsExperiment({ ...params, park_id: experimentParkId, wastage_day: readWastageDay(searchParams) })
@@ -257,13 +266,19 @@ export async function FeedAnalyticsPage({
   ]);
   // Second, day-pinned execution read for the mismatch table's calendar. Only its
   // packing_variance is used; the tab's charts keep the page's rolling window.
+  // fav_day is a PACKING day (maintainer decision 2026-08-24, the axis Feed Packing already
+  // browses by): a packer works day P on the sheet the animals eat on P+1, so a reader asking for
+  // "yesterday's packing" means the feed day after it. The endpoint still keys on the feed day --
+  // this is a relabel of the axis, not a second grain.
   const executionDay =
     tab === "execution" && favDay !== ""
       ? await getFeedAnalyticsExecution({
           park_id: parkId,
-          date_from: favDay,
-          date_to: favDay,
+          date_from: istDayPlus(favDay, 1),
+          date_to: istDayPlus(favDay, 1),
           sections: "packing_variance",
+          variance_limit: String(varianceLimit),
+          variance_offset: String(varianceOffset),
         })
       : null;
   const nonNull = [directed, execution, experiment, stock].filter((r) => r !== null);
@@ -325,9 +340,14 @@ export async function FeedAnalyticsPage({
           pageContract={pageContract}
           variance={{
             rows: (executionDay?.ok ? executionDay.data : execution.data).packing_variance,
+            hasMore: (executionDay?.ok ? executionDay.data : execution.data).packing_variance_has_more,
             day: favDay,
             park: favPark,
             item: favItem,
+            limit: varianceLimit,
+            offset: varianceOffset,
+            pageSizes: variancePageSizes,
+            searchParams,
           }}
         />
       ) : null}
@@ -594,9 +614,14 @@ function ExecutionTab({
   /** The mismatch table's own narrowing: rows (day-pinned when `day` is set) + applied filters. */
   variance: {
     rows: FeedAnalyticsExecutionResponse["packing_variance"];
+    hasMore: boolean;
     day: string;
     park: string;
     item: string;
+    limit: number;
+    offset: number;
+    pageSizes: number[];
+    searchParams: RouteSearchParams;
   };
 }) {
   if (data.days.length === 0) {
@@ -652,7 +677,7 @@ function ExecutionTab({
       points: data.days.map((d) => d.median_verify_latency_minutes ?? null),
     },
   ];
-  const consumptionDayLabels = data.consumption_trend.map((d) => d.feed_day);
+  const consumptionDayLabels = data.consumption_trend.map((d) => d.packing_day);
   const consumptionSeries: LineSeries[] = [
     {
       label: fa(pageContract, "col.consumption.target"),
@@ -783,7 +808,7 @@ function ExecutionTab({
               <tbody>
                 {varianceRows.map((row) => (
                   <tr key={`${row.feed_day}:${row.shed_id}:${row.partition_label ?? ""}:${row.session_no}:${row.feed_item_key}:${row.workflow}`}>
-                    <td>{fmtDate(row.feed_day)}</td>
+                    <td>{fmtDate(row.packing_day)}</td>
                     <td>{row.park_label}</td>
                     <td>{row.operational_location_display}</td>
                     <td>{row.session_label || row.session_no}</td>
@@ -800,11 +825,14 @@ function ExecutionTab({
                     </td>
                     <td>{`${row.verified_kg} ${fa(pageContract, "unit.kg")}`}</td>
                     <td>
-                      {/* Same tag anatomy as the stock check: over-packed points up, short points
-                          down, and every row here IS a mismatch, so the tag is always the danger
-                          tone for a shortfall and ok tone for an overage. */}
-                      <span className={`${num(row.variance_kg) >= 0 ? "tag t-ok" : "tag t-dng"} feed-stock-check-tag`}>
-                        <span aria-hidden="true">{num(row.variance_kg) >= 0 ? "↑" : "↓"}</span>
+                      {/* Every measured bag is listed now, so the TONE is the tolerance flag, not
+                          the sign: past 0.2 kg is a real discrepancy, inside it is a scale read off
+                          a video agreeing with the sheet. The arrow still says which way, and a bag
+                          that matched exactly carries no arrow to point. */}
+                      <span className={`${row.beyond_tolerance ? "tag t-dng" : "tag t-ok"} feed-stock-check-tag`}>
+                        {num(row.variance_kg) === 0 ? null : (
+                          <span aria-hidden="true">{num(row.variance_kg) > 0 ? "↑" : "↓"}</span>
+                        )}
                         <span>{`${nf(Math.abs(num(row.variance_kg)))} ${fa(pageContract, "unit.kg")}`}</span>
                       </span>
                     </td>
@@ -814,6 +842,19 @@ function ExecutionTab({
             </table>
           </div>
         )}
+        {/* The pager sits between the rows and the trend: it belongs to the TABLE, and the graph
+            below it is a whole-window aggregate that paging must never appear to move. */}
+        <FeedPager
+          pageContract={pageContract}
+          offset={variance.offset}
+          limit={variance.limit}
+          rowCount={varianceRows.length}
+          hasMore={variance.hasMore}
+          noun={fa(pageContract, "variance.noun")}
+          pageSizeOptions={variance.pageSizes}
+          hrefForOffset={(next) => feedHref(PAGE_PATH, variance.searchParams, "fav_offset", next === 0 ? "" : String(next))}
+          hrefForLimit={(next) => feedHref(PAGE_PATH, variance.searchParams, "fav_limit", String(next))}
+        />
         {/* The trend belongs UNDER this table (maintainer decision 2026-08-23): the table is one
             day's outliers, the graph is how packed-vs-given has run over the page's window, so the
             reader sees whether today's mismatches are an exception or a pattern. It follows the

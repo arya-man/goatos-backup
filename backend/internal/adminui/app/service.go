@@ -586,7 +586,10 @@ func pages() []domain.PageContract {
 		page("feed-packing", "/feed/packing", "/feed/packing", "Feed Packing", "Per-shed packing worklist for the selected day: what the store weighs out per shed, session and feed item.", "module-surface",
 			[]domain.TableContract{tableP("packing-worklist", "Packing worklist", "/feed-direction/generation-preview", []string{"shed", "session", "feed_item", "expected_kg", "status"}, "packing_row", []int{10, 25, 50})}),
 		page("feed-analytics", "/feed/analytics", "/feed/analytics", "Feed Analytics", "Directed feed, ration per animal and execution adherence across the farms — served from the frozen daily sheet and the proof-gated completions. Figures run up to yesterday and state what the sheet DIRECTED, not what was eaten.", "module-surface",
-			[]domain.TableContract{tableP("directed-items", "Directed feed by item", "/feed-analytics/directed", []string{"feed_day", "feed_item", "directed_kg", "head_days", "per_head_grams"}, "directed_item_row", []int{31, 62, 92})}),
+			[]domain.TableContract{
+				tableP("directed-items", "Directed feed by item", "/feed-analytics/directed", []string{"feed_day", "feed_item", "directed_kg", "head_days", "per_head_grams"}, "directed_item_row", []int{31, 62, 92}),
+				tableP("packing-mismatches", "Packed vs directed, bag by bag", "/feed-analytics/execution", []string{"packing_day", "park", "shed", "session", "feed_item", "breed", "age_group", "planned_kg", "verified_kg", "variance_kg"}, "variance_row", []int{25, 50, 100}),
+			}),
 		page("feed-config", "/feed/config", "/feed/config", "Feed Config — Ration Rules", "Feed-owned authority screen for the authored ration grid, per-shed factors, session template and feeding schedule.", "module-surface",
 			[]domain.TableContract{
 				// Every table below EXCEPT feed-items is read through a /feed-config/* endpoint that
@@ -3633,10 +3636,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"col.consumption.breed":          "Breed",
 			"col.consumption.age_group":      "Age group",
 			"variance.cohort_unknown":        "Not on the sheet",
-			"variance.title":                 "Packing quantity mismatches",
-			"variance.hint":                  "Bags where the verifier's measured quantities differ from the directed sheet by more than 0.2 kg. The verifier enters readings without seeing the sheet, so a match is independent confirmation.",
-			"variance.empty":                 "Every verified bag matched the directed quantities.",
-			"col.variance.day":               "Feed day",
+			"variance.title":                 "Packed vs directed, bag by bag",
+			"variance.hint":                  "Every bag a verifier measured, biggest difference first, dated by the PACKING day it was weighed out on. Readings are entered without seeing the sheet, so a match is independent confirmation; a difference past 0.2 kg is flagged.",
+			"variance.noun":                  "measured bag",
+			"variance.empty":                 "No bag has been measured in this window yet.",
+			"col.variance.day":               "Packing day",
 			"col.variance.park":              "Farm",
 			"col.variance.pen":               "Shed",
 			"col.variance.session":           "Session",

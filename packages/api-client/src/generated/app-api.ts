@@ -5447,10 +5447,15 @@ export interface components {
              */
             median_verify_latency_minutes?: number | null;
         };
-        /** @description One MISMATCH between what the frozen sheet directed a pen-session to pack for one feed item and what the verifier entered off the packing video (blind per-item entry, maintainer decision 2026-08-21). A row exists only when the difference exceeds the 0.2 kg tolerance -- a scale read off a video is honest to a couple hundred grams. LEADERSHIP-ONLY: the verifier never sees the planned figures, so this comparison must never be rendered on a verifier surface. */
+        /** @description One MEASURED BAG: what the frozen sheet directed a pen-session to pack for one feed item against what the verifier entered off the packing video (blind per-item entry, maintainer decision 2026-08-21). EVERY measured bag is listed, ordered by absolute difference descending (maintainer decision 2026-08-24) -- a bag that matched is evidence too, because the verifier entered it without seeing the sheet. `beyond_tolerance` flags the ones past 0.2 kg. LEADERSHIP-ONLY: the verifier never sees the planned figures, so this comparison must never be rendered on a verifier surface. */
         FeedAnalyticsPackingVarianceRow: {
             /** Format: date */
             feed_day: string;
+            /**
+             * Format: date
+             * @description `feed_day` minus one: the day the bag was actually weighed out. Packing runs on day P for the feed day P+1, and this table is about packing, so clients label the row by this date. Derived server-side so no client repeats IST day arithmetic.
+             */
+            packing_day: string;
             park_label: string;
             /** Format: uuid */
             shed_id: string;
@@ -5476,11 +5481,18 @@ export interface components {
             verified_kg: string;
             /** @description verified minus the resolved planned quantity (0 when unresolved), signed. */
             variance_kg: string;
+            /** @description Whether the difference exceeds the 0.2 kg tolerance. Every measured bag is listed, so this is what separates a real discrepancy from a scale read off a video that is honest to a couple hundred grams. */
+            beyond_tolerance: boolean;
         };
         /** @description One day of target-vs-actual feed totals over the same comparison rows the table shows. `actual_kg` is EMPTY on a day with no packing readings at all, so the chart draws a gap rather than a plunge to zero. */
         FeedAnalyticsConsumptionTrendDay: {
             /** Format: date */
             feed_day: string;
+            /**
+             * Format: date
+             * @description `feed_day` minus one, so the trend's axis matches the table above it.
+             */
+            packing_day: string;
             target_kg: string;
             actual_kg: string;
             /** Format: int64 */
@@ -5495,6 +5507,8 @@ export interface components {
             date_to: string;
             days: components["schemas"]["FeedAnalyticsExecutionDay"][];
             consumption_trend: components["schemas"]["FeedAnalyticsConsumptionTrendDay"][];
+            /** @description Whether a further page of mismatches exists past the rows returned. `packing_variance` is a PAGE (see `variance_limit` / `variance_offset`); every other array and figure in this payload is a whole-window aggregate and is unaffected by paging. */
+            packing_variance_has_more: boolean;
             /** @description Every intended-vs-entered packing mismatch in the window, newest feed day first. Always present; empty when every verified reading matched the sheet. */
             packing_variance: components["schemas"]["FeedAnalyticsPackingVarianceRow"][];
         };
@@ -15867,6 +15881,10 @@ export interface operations {
                 date_from?: string;
                 /** @description Inclusive window end, defaulting to yesterday; window capped at 92 days. */
                 date_to?: string;
+                /** @description Mismatch rows per page (1-100); absent takes the contract default of 25. */
+                variance_limit?: number;
+                /** @description Mismatch rows to skip (0-5000). Out of range is rejected with 400 rather than clamped: silently serving page one under a deeper page's heading answers a different question than the URL asks. */
+                variance_offset?: number;
                 /** @description Comma-separated arms to compute; omit for all. Each arm is several queries, so a page that needs one array from a second, differently-scoped read should ask for that arm alone. An unrequested arm comes back empty, NOT absent. An unknown name is rejected with 400 rather than ignored, because serving a payload without the array the caller asked for renders as "no data" on screen. */
                 sections?: string;
             };
