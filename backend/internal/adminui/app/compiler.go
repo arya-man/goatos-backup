@@ -794,6 +794,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileHealthConfigControls(out[i].Controls, input, out[i].Copy)
 		case "sales":
 			out[i].Controls = compileSalesControls(out[i].Controls, input, out[i].Copy)
+		case "feed-purchases":
+			out[i].Controls = compileFeedPurchaseControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 			// The breed catalog for the inline breed correction, injected the same way Feed's
@@ -886,6 +888,38 @@ func compileSalesControls(controls []domain.Control, input BootstrapInput, copy 
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /sales/buyer-leads",
+	})
+}
+
+// compileFeedPurchaseControls splits /procurement/feed-purchases by authority: FeedPurchaseRead
+// reaches the ledger; only FeedPurchaseWrite may record a purchased load.
+//
+// Same shape as compileSalesControls, and for the same reason: the control is DECLARED for every
+// principal who reaches the page and disabled with a reason for those who may not use it, because
+// a missing button reads as a broken page while a disabled one carrying "your role can view feed
+// purchases but not record them" is an answer. The route behind it requires the same permission,
+// so a principal who defeats the disabled state still gets 403 -- the control is the honest label,
+// not the lock.
+//
+// This is the capability half of the 2026-08-24 decision that retired migration 000174's
+// read-only lock. There is deliberately NO role-string conditional in the page component: the
+// difference between a Feed Director (read) and the procurement desk (write) arrives ONLY through
+// this control and the route's permission, per the role-scoped-UI-is-capability-gated lock.
+func compileFeedPurchaseControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps the control
+	// enabled, matching compileSalesControls and compileHealthConfigControls.
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.FeedPurchaseWrite})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.write", "Your current role can view feed purchases but not record them.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "record_feed_purchase",
+		Label:          controlCopy(copy, "action.record_feed_purchase.label", "Record purchase"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /procurement/feed-purchases",
 	})
 }
 
@@ -1425,6 +1459,11 @@ func permissionsForNav(id string) []string {
 		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
 		// and realized prices -- the selling side, not the intake screens operators work.
 		return []string{permissions.SalesRead}
+	case "procurement-feed-purchases":
+		// The dedicated ledger permission, NOT ProcurementRead: the purchase ledger carries
+		// supplier prices and payment state. Gating on ProcurementRead would put it in every
+		// operator's and park head's sidebar -- the same leak VendorRead exists to avoid.
+		return []string{permissions.FeedPurchaseRead}
 	case "counts-herd", "counts-breakdown":
 		return []string{permissions.GoatRead}
 	case "weighing-weights":

@@ -975,6 +975,30 @@ ref_type=feed_distribution_completion`. Canonical source:
 `docs/decisions/feed-distribution-verification.md`; migration
 `000032_feed_distribution_verification_gate.sql`.
 
+Confirmed FEED PURCHASE ENTRY rule (maintainer decision 2026-08-24, SUPERSEDING the READ-ONLY
+half — and only that half — of the 2026-08-17 lock recorded in migration `000174`): feed bought
+for CBE and CPT is now RECORDED IN THE APP on `/procurement/feed-purchases`, carrying the same
+fields the legacy Feed DB sheet's Purchase row keeps. 000174's own comment said "There is no
+authoring UI; purchase/vendor entry screens belong to the future Procurement vertical" — that
+vertical now exists, so the screen was built where the lock said it belonged.
+
+The other two decisions in 000174 STAND and are enforced on the write path: CURRENT-CATALOG FEEDS
+ONLY (an entered feed must resolve to an ACTIVE `feed_item_catalog` row, checked inside the write
+transaction; unknown feeds are rejected, never invented into the catalog) and STOCK DEPLETES AT
+SHEET LOCK (an app row sets `depletes_from = purchase_date`, `consumed_at_import_kg = 0`, so the
+existing stock/days-left read on `/feed/analytics` needed NO change). PROCUREMENT owns the write;
+feeddirection keeps the read.
+
+`feed.purchase.read` / `feed.purchase.write` are DEDICATED permissions, never a reuse of
+`ProcurementRead` — `operator` and `park_head` hold that for the source-entry screens they work,
+and this ledger carries supplier prices and payment state. `feed_director` holds READ ONLY: it
+owns what the farm feeds and is accountable for the stock cards these loads are counted from, but
+buying is the procurement desk's job. Canonical prose: `docs/decisions/feed-purchase-entry.md`;
+migration `000206_feed_purchases_app_entry.sql`. Pinned by
+`TestRecordFeedPurchaseControlIsCapabilityGated` (the feed_director row is the mutation test: it
+holds every feed permission there is, so enabling the control from a broader key turns it red),
+`TestFeedPurchaseRolePermissions` and `TestFeedPurchaseRoutesAreGatedOnTheDedicatedPermissions`.
+
 Confirmed feed-PACKING SHED-SESSION grain (maintainer decision 2026-08-11,
 REVERTING the 2026-08-10 PEN-DAY grain in full and restoring the shed-SESSION grain
 of the packing gate below): a pen's morning and evening shares are TWO SEPARATE

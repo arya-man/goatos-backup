@@ -310,9 +310,23 @@ const (
 	SalesRead = "sales.read"
 	// SalesWrite gates recording a sale (POST /sales/deals). Kept separate from SalesRead so a
 	// read-only oversight tier is expressible without a schema change.
-	SalesWrite   = "sales.write"
-	RosterRead   = "roster.read"
-	RosterManage = "roster.manage"
+	SalesWrite = "sales.write"
+	// FeedPurchaseRead gates the FEED PURCHASE LEDGER (/procurement/feed-purchases, backend
+	// /procurement/feed-purchases*): what feed the farm bought, from whom, at what landed cost, and
+	// whether it has been paid for.
+	//
+	// It is the BUYING side of the feed chain, so it lives with procurement rather than with the
+	// feed execution permissions -- but it is NOT a reuse of ProcurementRead, which seven roles
+	// including operator and park_head hold for the source-entry intake screens they work. This
+	// ledger carries supplier prices and payment state, the same class of commercial fact that
+	// earned VendorRead its own permission.
+	FeedPurchaseRead = "feed.purchase.read"
+	// FeedPurchaseWrite gates recording a purchased load (POST /procurement/feed-purchases). Kept
+	// separate from FeedPurchaseRead so a read-only oversight tier -- the Feed Director watching
+	// what the stock cards are built from -- is expressible without a schema change.
+	FeedPurchaseWrite = "feed.purchase.write"
+	RosterRead        = "roster.read"
+	RosterManage      = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
 	// (movement) event, a birth, or a death from the phone (/app/counts/*).
 	//
@@ -825,7 +839,14 @@ var rolePermissions = map[string]map[string]struct{}{
 		// the absence of FeedDirectionComplete below: the director sees every page of the feed
 		// chain including the daily transport tasks, and still cannot record one as done.
 		FeedTransportRead: {},
-		CalendarRead:      {}, CalendarAction: {},
+		// The feed PURCHASE ledger, READ only (maintainer decision 2026-08-24). The director owns
+		// what the farm feeds and is accountable for the stock cards on /feed/analytics, which are
+		// built from these loads -- so being unable to see what was bought would leave that
+		// accountability without its input. Recording a purchase stays on the procurement desk,
+		// which is why FeedPurchaseWrite is deliberately absent: the same read/write split that
+		// keeps this role out of FeedDirectionComplete above.
+		FeedPurchaseRead: {},
+		CalendarRead:     {}, CalendarAction: {},
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},
@@ -944,6 +965,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		AdminWebBootstrap: {},
 		VendorRead:        {}, VendorWrite: {}, VendorFinanceRead: {},
 		ProcurementRead: {},
+		// The feed purchase ledger and its entry form: buying feed is this desk's job, and the
+		// vendors it is bought from are already in this role's register.
+		FeedPurchaseRead: {}, FeedPurchaseWrite: {},
 	},
 	// RoleProcurementDirector: the Procurement vertical in full, plus read-only Feed oversight
 	// (maintainer decision 2026-08-21). See the constant's doc comment for the split with
@@ -977,6 +1001,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
 		SalesRead: {}, SalesWrite: {},
 		FeedDirectionRead: {}, FeedPackingRead: {}, FeedWastageRead: {}, FeedTransportRead: {},
+		// The feed purchase ledger in full (maintainer decision 2026-08-24). This is a BUYING
+		// surface, so it sits inside this director's desk rather than being one of the read-only
+		// feed oversight grants above.
+		FeedPurchaseRead: {}, FeedPurchaseWrite: {},
 	},
 	RoleCountsApprover: {
 		CountsApproveAccess:    {},
@@ -1082,6 +1110,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		// The sales module (/procurement/sales): ledger, overview and record-sale. Same
 		// founder/builder visibility invariant.
 		SalesRead: {}, SalesWrite: {},
+		// The feed purchase ledger (/procurement/feed-purchases): what feed was bought, at what
+		// landed cost, from whom. Same founder/builder visibility invariant.
+		FeedPurchaseRead: {}, FeedPurchaseWrite: {},
 	},
 }
 
