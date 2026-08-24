@@ -2053,17 +2053,40 @@ WHERE tenant_id = $1
 FOR UPDATE`, tenant, in.TargetType, target, in.RuleIdentityKey, in.Sequence).
 		Scan(&ref.ObligationID, &ref.Status, &priorDue, &ref.RowVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.ObligationRef{}, false, nil
+		// Nothing carries the label. Before concluding the animal owes nothing under this rule,
+		// look for work that PREDATES the label: rows written before rule_identity_key existed,
+		// or rows the backfill deliberately left alone because their group was ambiguous.
+		//
+		// Those rows are invisible to the unique index, which only covers labelled rows, so
+		// inserting beside them is exactly the double-booking this design exists to prevent --
+		// and it would happen on precisely the animals whose data is already worst.
+		return r.reconcileUnlabelledWork(ctx, tx, tenant, in, occurredAt)
 	}
 	if err != nil {
 		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read identity reconcile target: %w", err)
 	}
 	ref.DueAt = priorDue
 
-	// in_progress work is left where it is. An operator part-way through a drive keeps the dose
-	// they are physically administering; moving its date underneath them is not a reconciliation,
-	// it is a surprise. It still counts as found, so generation does not insert a second row.
+	// An operator part-way through a drive keeps the DATE of the dose they are physically
+	// administering; moving it underneath them is not a reconciliation, it is a surprise.
+	//
+	// Its ADDRESS still moves. Everything generation does after this -- defer, reopen, realign,
+	// cancel-by-key -- addresses the row by the key it just computed, so a row left holding the
+	// key it was minted under becomes unreachable and those follow-ups fail with "not found",
+	// taking the whole goat's pass down. Skipping the date is the intent; skipping the identity
+	// pointers was a bug.
 	if ref.Status == "in_progress" {
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_instances
+SET protocol_version_id = $2,
+    rule_id = $3,
+    idempotency_key = $4,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1 AND obligation_id = $5::uuid`,
+			tenant, version, rule, in.IdempotencyKey, ref.ObligationID); err != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: identity reconcile in-flight address: %w", err)
+		}
 		if err := tx.Commit(ctx); err != nil {
 			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit identity reconcile: %w", err)
 		}
@@ -2121,6 +2144,84 @@ ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
 	}
 	ref.DueAt = in.DueAt
 	return ref, true, nil
+}
+
+// reconcileUnlabelledWork adopts an animal's pre-label work for this rule, or refuses to guess.
+//
+// Exactly one open row for this rule and sequence is unambiguous: it is the work this rule already
+// created for this animal, and labelling it brings it under the invariant instead of leaving it
+// outside where a second row could be written beside it. More than one is the 561-group case seen
+// in real staging data, and that is not a decision a generation pass may make.
+func (r *Repository) reconcileUnlabelledWork(
+	ctx context.Context,
+	tx pgx.Tx,
+	tenant pgtype.UUID,
+	in domain.NewObligation,
+	occurredAt time.Time,
+) (domain.ObligationRef, bool, error) {
+	target, err := pgconv.UUID(in.TargetID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: target id: %w", err)
+	}
+
+	// Matched through lineage rather than by rule_id: the animal's row points at whichever
+	// version minted it, and lineage is what says two rule rows are the same rule.
+	rows, err := tx.Query(ctx, `
+SELECT oi.obligation_id::text, oi.status, oi.due_at, oi.row_version
+FROM obligation_instances oi
+JOIN protocol_rule_lineage l
+  ON l.tenant_id = oi.tenant_id AND l.rule_id = oi.rule_id
+WHERE oi.tenant_id = $1
+  AND oi.target_type = $2
+  AND oi.target_id = $3
+  AND oi."sequence" = $4
+  AND oi.rule_identity_key IS NULL
+  AND l.identity_key = $5
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+ORDER BY oi.due_at, oi.obligation_id
+FOR UPDATE`, tenant, in.TargetType, target, in.Sequence, in.RuleIdentityKey)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read unlabelled work: %w", err)
+	}
+	var found []domain.ObligationRef
+	for rows.Next() {
+		var ref domain.ObligationRef
+		if err := rows.Scan(&ref.ObligationID, &ref.Status, &ref.DueAt, &ref.RowVersion); err != nil {
+			rows.Close()
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: scan unlabelled work: %w", err)
+		}
+		found = append(found, ref)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read unlabelled work: %w", err)
+	}
+
+	switch len(found) {
+	case 0:
+		return domain.ObligationRef{}, false, nil
+	case 1:
+		// Adopt it: label it and reconcile it in the same transaction, so it leaves this branch
+		// under the invariant rather than beside it.
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_instances SET rule_identity_key = $2 WHERE tenant_id = $1 AND obligation_id = $3::uuid`,
+			tenant, in.RuleIdentityKey, found[0].ObligationID); err != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: label adopted work: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit adopted label: %w", err)
+		}
+		// Re-entering with the label in place keeps ONE code path deciding what reconciliation
+		// means -- date, window, address and the event that records the move.
+		return r.ReconcileOpenObligationForRuleIdentity(ctx, in.TenantID, in, occurredAt)
+	default:
+		ids := make([]string, 0, len(found))
+		for _, ref := range found {
+			ids = append(ids, ref.ObligationID)
+		}
+		return domain.ObligationRef{}, false, fmt.Errorf("%w: target %s, identity %q, sequence %d, obligations [%s]",
+			ports.ErrAmbiguousOpenWork, in.TargetID, in.RuleIdentityKey, in.Sequence, strings.Join(ids, ", "))
+	}
 }
 
 // CarryOverUnchangedVaccinationObligations rebinds open vaccination work from a retired protocol
