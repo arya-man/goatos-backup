@@ -296,7 +296,10 @@ export async function FeedAnalyticsPage({
         {fa(pageContract, "banner.basis")}
       </p>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
+      <div
+        className="feed-tabbar"
+        style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}
+      >
         <SegmentedLinks
           current={tab}
           options={TABS.map((t) => ({
