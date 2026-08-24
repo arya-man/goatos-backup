@@ -71,8 +71,9 @@ func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeP
 		parkIDs = []string{selectedParkID}
 	}
 	out := domain.ShedWeights{
-		Rows:  []domain.ShedWeightsRow{},
-		Parks: []domain.GrowthPark{},
+		Rows:              []domain.ShedWeightsRow{},
+		Parks:             []domain.GrowthPark{},
+		LumpWeighingDates: []string{},
 		// Initialized here, not only on the success path: the no-parks early return
 		// below would otherwise leave this nil and serialize `by_load: null` against a
 		// contract that declares an array.
@@ -349,6 +350,39 @@ ORDER BY display_order, name, location_id`, tenantID, scopeParkIDs)
 		out.Parks = append(out.Parks, park)
 	}
 	if err := parkRows.Err(); err != nil {
+		return domain.ShedWeights{}, err
+	}
+
+	dateRows, err := r.pool.Query(ctx, `
+SELECT DISTINCT to_char((sh.accepted_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS weigh_date
+FROM weighing_shed_observations sh
+JOIN weighing_campaign_sheds cs
+  ON cs.campaign_shed_id = sh.campaign_shed_id
+ AND cs.tenant_id = sh.tenant_id
+JOIN weighing_campaigns c
+  ON c.campaign_id = cs.campaign_id
+ AND c.tenant_id = cs.tenant_id
+WHERE sh.tenant_id = $1::uuid
+  AND c.park_id = ANY($2::uuid[])
+  AND cs.weighing_category = 'per_shed_partition'
+  AND cs.status <> 'canceled'
+  AND sh.withdrawn_at IS NULL
+  AND sh.verification_status <> 'rejected'
+  AND sh.accepted_at >= $3::timestamptz
+  AND sh.accepted_at <  $4::timestamptz
+ORDER BY weigh_date`, tenantID, parkIDs, periodStart, periodEnd)
+	if err != nil {
+		return domain.ShedWeights{}, err
+	}
+	defer dateRows.Close()
+	for dateRows.Next() {
+		var day string
+		if err := dateRows.Scan(&day); err != nil {
+			return domain.ShedWeights{}, err
+		}
+		out.LumpWeighingDates = append(out.LumpWeighingDates, day)
+	}
+	if err := dateRows.Err(); err != nil {
 		return domain.ShedWeights{}, err
 	}
 

@@ -10641,6 +10641,8 @@ export interface components {
             by_load: components["schemas"]["WeighingLoadGainBucket"][];
             /** @description Weighed sheds carrying no load tag, or more than one. Returned so the gap between the load chart and the shed table reads as unmapped rather than as missing weighing data. */
             load_unattributed_sheds: number;
+            /** @description Distinct business dates in the selected window where at least one live lump-sum weighing was accepted. */
+            lump_weighing_dates: string[];
             /** Format: date */
             period_start: string;
             /** Format: date */

@@ -204,6 +204,11 @@ type ShedWeights struct {
 	// ONE. Returned so the gap between the load chart and the shed table is legible
 	// as unmapped rather than looking like missing weighing data.
 	LoadUnattributedSheds int `json:"load_unattributed_sheds"`
+	// LumpWeighingDates is the distinct set of Asia/Kolkata business dates inside
+	// the resolved window where at least one live lump-sum weighing was accepted.
+	// The Weights page calendar renders these as day markers, so the marker's grain
+	// is the same park/window filter the reader is already using.
+	LumpWeighingDates []string `json:"lump_weighing_dates"`
 	// PeriodStart / PeriodEnd echo the RESOLVED window (YYYY-MM-DD, Asia/Kolkata) so
 	// the screen labels what it is actually showing rather than what it asked for.
 	PeriodStart string `json:"period_start"`
