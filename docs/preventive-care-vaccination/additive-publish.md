@@ -176,6 +176,45 @@ DATABASE_URL=... go run ./backend/cmd/backfill-protocol-rule-lineage -tenant-id 
 # 3. only then publish
 ```
 
+### Duplicates already in the data are a rollout gate
+
+An animal that already holds **more than one open obligation for a single dose** cannot be brought
+under the invariant: labelling one asserts something the data contradicts, and choosing which to
+keep cancels somebody's scheduled vaccination. On a staging clone that was **561 groups**,
+pre-existing and unrelated to this work.
+
+Generation refuses to guess. It fails **that animal**, reports `ambiguous_open_work` separately
+from `failed_goats`, prints the query to list the groups, and continues with the rest of the run.
+No re-run clears it — the data has to change.
+
+Resolving them is a deliberate, human-invoked step, never part of a deploy script:
+
+```bash
+# report only (default): shows what would be closed
+go run ./backend/cmd/backfill-protocol-rule-lineage -tenant-id <tenant> -resolve-duplicates keep-earliest
+# actually close them: BOTH flags required
+go run ./backend/cmd/backfill-protocol-rule-lineage -tenant-id <tenant> -resolve-duplicates keep-earliest -apply
+```
+
+`keep-earliest` keeps the date the animal was already told it owed and **cancels** the later rows —
+cancel, never delete, so the audit trail keeps what was there and a wrong call is readable back. It
+skips `in_progress` work outright: an operator is administering that dose right now. It runs only
+when named explicitly *and* combined with `-apply`; there is no default that closes clinical work.
+
+**Rollout order, then, is: migrate → backfill → resolve duplicates → verify
+`ambiguous_open_work=0` → publish.** Measured end to end on a staging clone: after cleanup,
+`failed_goats=0`, `ambiguous_open_work=0`, `reconciled=6319`, zero unlabelled open rows, and
+publishing a new vaccine left 6,792 of 6,792 obligations with their original id and nothing
+cancelled.
+
+### When a date cannot move
+
+`obligation_instances_dup_guard` spans every status, terminal rows included, so the key an
+obligation would move to can already be held by its own canceled or completed twin. The obligation
+is still **claimed** — the animal keeps exactly one open row and nothing is duplicated — but its
+date does not move that pass. That is reported as `date_blocked` rather than passed over in
+silence: a count that stays high across runs is telling you something.
+
 The backfill also stamps the identity onto existing OPEN obligations, without
 which reconciliation cannot see work written before the column existed — which is
 the double-booking case again. Animals that already hold two open obligations for

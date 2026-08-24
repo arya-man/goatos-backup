@@ -1547,7 +1547,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				anchorCatchUpKey = missingDueDateKey(tenantID, versionID, rule, g, anchorMissingReason(rule.TriggerType))
 			default:
 				res.SkippedNoDueDate++
-				if err := s.genMissingDueDateObligation(ctx, tenantID, versionID, rule, g, asOf, res); err != nil {
+				if err := s.genMissingDueDateObligation(ctx, tenantID, versionID, rule, ruleVaccine.Code, g, asOf, res); err != nil {
 					return err
 				}
 				continue
@@ -1736,7 +1736,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			// Same work, still open, now pointing at the current version. Nothing was generated,
 			// so it does not count as new; the persisted state is already what generation wanted.
 			res.Reconciled++
-			_ = reconciled
+			if reconciled.DateBlocked {
+				res.ReconcileDateBlocked++
+			}
 		} else if deferred {
 			_, applied, err = s.obl.InsertDeferredObligation(ctx, newObligation, deferReason, asOf)
 		} else {
@@ -1994,7 +1996,7 @@ func limitsHistoricalCatchUp(rule protodomain.Rule, baseDue, materializedDue, as
 	return asOf.After(windowEnd) && materializedDue.Equal(asOf)
 }
 
-func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, res *domain.GenerateResult) error {
+func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, vaccineCode string, g domain.EligibleGoat, asOf time.Time, res *domain.GenerateResult) error {
 	reason := missingDueDateReason(rule, g)
 	if reason == "" {
 		reason = "missing_due_date"
@@ -2008,14 +2010,18 @@ func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, ten
 		TenantID:          tenantID,
 		ProtocolVersionID: versionID,
 		RuleID:            rule.RuleID,
-		TargetType:        "goat",
-		TargetID:          g.GoatID,
-		ScopeType:         scopeType,
-		ScopeID:           scopeID,
-		DueAt:             asOf,
-		Status:            "deferred",
-		IdempotencyKey:    key,
-		Sequence:          rule.Sequence,
+		// Same identity the scheduled path writes. A placeholder row for a missing anchor is still
+		// this rule's work for this animal, and a row without an identity sits outside the
+		// one-open-obligation-per-identity index -- which is where duplicates come from.
+		RuleIdentityKey: protodomain.RuleIdentityKey(vaccineCode, rule.DoseCode, rule.Sequence),
+		TargetType:      "goat",
+		TargetID:        g.GoatID,
+		ScopeType:       scopeType,
+		ScopeID:         scopeID,
+		DueAt:           asOf,
+		Status:          "deferred",
+		IdempotencyKey:  key,
+		Sequence:        rule.Sequence,
 	})
 	if err != nil {
 		return err

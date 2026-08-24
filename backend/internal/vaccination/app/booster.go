@@ -259,7 +259,11 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		DueAt:             due,
 		Status:            status,
 		IdempotencyKey:    key,
-		Sequence:          candidate.Sequence,
+		// The booster's own rule identity, from the same helper the publisher and generation use.
+		// A booster row without one sits outside the one-open-obligation-per-identity index, which
+		// is exactly where a duplicate dose can be written beside it.
+		RuleIdentityKey: boosterRuleIdentity(*candidate),
+		Sequence:        candidate.Sequence,
 	})
 	if err != nil {
 		return false, err
@@ -280,6 +284,18 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		}
 	}
 	return applied, nil
+}
+
+// boosterRuleIdentity names the rule a booster serves, matching what the publisher writes to
+// lineage and what generation stamps on its own rows. A rule whose vaccine cannot be read yields
+// an empty identity rather than a wrong one: an unlabelled row keeps today's behaviour, while a
+// mislabelled row would let reconciliation claim another vaccine's work.
+func boosterRuleIdentity(rule protodomain.Rule) string {
+	code, err := boosterRuleVaccineCode(rule)
+	if err != nil || strings.TrimSpace(code) == "" {
+		return ""
+	}
+	return protodomain.RuleIdentityKey(code, rule.DoseCode, rule.Sequence)
 }
 
 // boosterRuleVaccineCode reads a rule's OWN vaccine identity from the per-rule
