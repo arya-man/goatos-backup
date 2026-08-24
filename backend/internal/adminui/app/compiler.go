@@ -796,6 +796,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileSalesControls(out[i].Controls, input, out[i].Copy)
 		case "feed-purchases":
 			out[i].Controls = compileFeedPurchaseControls(out[i].Controls, input, out[i].Copy)
+		case "people":
+			out[i].Controls = compilePeopleControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 			// The breed catalog for the inline breed correction, injected the same way Feed's
@@ -920,6 +922,32 @@ func compileFeedPurchaseControls(controls []domain.Control, input BootstrapInput
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /procurement/feed-purchases",
+	})
+}
+
+// compilePeopleControls gates the per-person ACCESS editor (maintainer decision 2026-08-24).
+//
+// The authority is OperatorsManageCapability, deliberately NOT the OperatorsWrite that creates a
+// person: adding a colleague and deciding what every colleague may do are different jobs, and this
+// one can grant every other permission in the catalog -- including itself.
+//
+// Declared-and-disabled rather than omitted, the same shape as sales and health config: a missing
+// button reads as a broken page, and a disabled one carrying "your role can view access but not
+// change it" is an answer. The PUT route behind it requires the same permission, so a principal
+// who defeats the disabled state still gets 403 -- the control is the honest label, not the lock.
+func compilePeopleControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.OperatorsManageCapability})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.access_write", "Your current role can view access but not change it.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "edit_access",
+		Label:          controlCopy(copy, "access.action.save", "Save access"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /admin/workforce/people/{person_id}/access",
 	})
 }
 

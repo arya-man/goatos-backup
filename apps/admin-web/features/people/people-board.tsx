@@ -7,6 +7,7 @@ import { firstAuthRequiredError, listWorkforcePeople, type WorkforcePerson } fro
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { actionFeedbackCopy, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { PersonAccessLauncher } from "./person-access-launcher";
 import { PersonAddDrawer } from "./person-add-drawer";
 
 const PAGE_SIZE = 25;
@@ -199,6 +200,10 @@ export async function PeopleBoard({
                   <th>{copy(pageContract, "column.designation")}</th>
                   <th>{copy(pageContract, "column.email")}</th>
                   <th>{copy(pageContract, "column.status")}</th>
+                  {/* Access opens its own overlay rather than the record drawer: it is a
+                      different decision about the same person, and burying it inside the
+                      record drawer hides the screen this rewrite exists to provide. */}
+                  <th>{copy(pageContract, "access.title")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -235,6 +240,13 @@ export async function PeopleBoard({
                         <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                           <Tag tone={statusTone(person.status)}>{person.status}</Tag>
                         </LocalOverlayLink>
+                      </td>
+                      <td>
+                        <PersonAccessLauncher
+                          personId={person.person_id}
+                          personName={person.display_name}
+                          pageContract={pageContract}
+                        />
                       </td>
                     </tr>
                   );

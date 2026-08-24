@@ -126,6 +126,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// point of capabilities being a set rather than a ladder.
 	RoleFeedDirector: rows(
 		bothSurfaces("feed_direction", LevelView, LevelOversee, LevelConfigure),
+		one(assign("feed_purchases", SurfaceWeb, LevelView)),
 		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
 		one(assign("herd_register", SurfaceWeb, LevelView)),
 		one(assign("verification", SurfaceWeb, LevelOversee)),
@@ -149,11 +150,13 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// Web-only, and narrow: the vendor desk, plus reading source entry.
 	RoleProcurementManager: rows(
 		one(assign("procurement", SurfaceWeb, LevelView)),
+		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
 	),
 	// Web-only. Reads the whole feed chain (the Hemant case) with no authority over it.
 	RoleProcurementDirector: rows(
 		one(assign("procurement", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
+		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
 		one(assign("sales", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("feed_direction", SurfaceWeb, LevelView)),
@@ -162,6 +165,10 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	// Granted BY NAME alongside a job (maintainer decision 2026-08-05). Carries approval
 	// authority and nothing else -- no read, no write. LevelView is deliberately absent.
 	RoleCountsApprover: bothSurfaces("counts", LevelOversee),
+	// Granted BY NAME to the park heads who run the strip test (maintainer decision
+	// 2026-08-25), the same per-person shape as counts_approver. Carries testing
+	// authority and nothing else.
+	RoleToxinTester: bothSurfaces("toxin", LevelView, LevelDo),
 	// The verifier casts verdicts and does not carry out the work being judged. This is the
 	// one principal for whom verification at LevelDo is correct rather than a risk.
 	RoleVerifier: rows(
@@ -195,6 +202,10 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("calendar", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("operations", SurfaceWeb, LevelOversee)),
 		one(assign("herd_signals", SurfaceWeb, LevelView, LevelDo, LevelConfigure)),
+		// Watches and judges the strip test; never runs one (2026-08-26).
+		bothSurfaces("toxin", LevelView, LevelOversee),
+		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("verification_policy", SurfaceWeb, LevelConfigure)),
 	),
 }
 

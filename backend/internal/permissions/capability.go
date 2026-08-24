@@ -387,6 +387,56 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// Aflatoxin strip testing on a purchased feed load (maintainer decisions 2026-08-25
+		// and 2026-08-26).
+		Key:      "toxin",
+		Label:    "Toxin Testing",
+		Blurb:    "The aflatoxin strip test every purchased feed load owes.",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView: {ToxinRead},
+			// Running the 7-step test. The named park heads hold this.
+			LevelDo: {ToxinRead, ToxinExecute},
+			// Judging the result. Deliberately WITHOUT ToxinExecute -- the CEO/CXO watches and
+			// judges but never runs a test, because someone who could film the steps would be
+			// approving their own evidence (maintainer decision 2026-08-26, correcting the
+			// 2026-08-25 grant). This is the second place in this catalog where a higher level
+			// is NOT a superset, and it is a separation of duty rather than an oversight.
+			LevelOversee: {ToxinRead, ToxinVerdict},
+		},
+	},
+	{
+		// The feed purchase ledger. DEDICATED permissions, never a reuse of ProcurementRead --
+		// operator and park_head hold that for the source-entry screens they work, and this
+		// ledger carries supplier prices and payment state (maintainer decision 2026-08-24).
+		Key:      "feed_purchases",
+		Label:    "Feed Purchases",
+		Blurb:    "Feed bought in: supplier, quantity, price and payment.",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			// The Feed Director holds READ ONLY: he owns what the farm feeds and is accountable
+			// for the stock cards these loads are counted from, but buying is the procurement desk's job.
+			LevelView: {FeedPurchaseRead},
+			LevelDo:   {FeedPurchaseRead, FeedPurchaseWrite},
+		},
+	},
+	{
+		// Setting what SHARE of proof videos a verifier must actually watch. Its own module
+		// rather than a level on `verification`, because it is a different authority: oversight
+		// WATCHES the verification workload, while this DECIDES how much of it a human must
+		// watch. The PC Director holds VerificationOversee and must NOT hold this -- a director
+		// setting the depth of the check on his own department's work is the separation of duty
+		// that keeps the verdict off leadership (maintainer decision 2026-08-26). Folding it into
+		// the verification module's top level would have handed it to him.
+		Key:      "verification_policy",
+		Label:    "Review Sampling",
+		Blurb:    "How much of each kind of proof video gets watched.",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelConfigure: {VerificationSampling},
+		},
+	},
+	{
 		// Sensor/collar signal ingestion and its mapping to animals. Small and CEO-only today,
 		// but it must exist as a module: a permission no level grants is unassignable, and the
 		// route requiring it becomes dead to everyone.
