@@ -128,8 +128,12 @@ func TestObligationMissedNotifierRoutesDownAndUp(t *testing.T) {
 	if operatorMsg.NotificationType != NotificationTypeObligationMissed {
 		t.Fatalf("operator notification type = %q", operatorMsg.NotificationType)
 	}
-	if !strings.Contains(operatorMsg.Body, "Gandhi 1") || !strings.Contains(operatorMsg.Body, "2026-07-24") {
-		t.Fatalf("operator body = %q, want the shed and the business date it was missed on", operatorMsg.Body)
+	// The visible body dates as dd/mm/yyyy; the ISO value lives in the structured context.
+	if !strings.Contains(operatorMsg.Body, "Gandhi 1") || !strings.Contains(operatorMsg.Body, "24/07/2026") {
+		t.Fatalf("operator body = %q, want the shed and the business date as dd/mm/yyyy", operatorMsg.Body)
+	}
+	if operatorMsg.Context["due_date"] != "2026-07-24" {
+		t.Fatalf("structured due_date = %q, want ISO for clients to parse", operatorMsg.Context["due_date"])
 	}
 
 	leadershipMsg := messagesByScreen(queue.queued, "vaccination_overview")
