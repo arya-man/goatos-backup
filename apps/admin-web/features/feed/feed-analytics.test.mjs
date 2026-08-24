@@ -31,3 +31,13 @@ test("execution variance table defaults to today's packing day read", () => {
   assert.match(source, /day: variancePackingDay,/);
   assert.doesNotMatch(source, /tab === "execution" && favDay !== ""/);
 });
+
+test("execution variance filters reset the variance table offset", () => {
+  const varianceBlock = source.slice(
+    source.indexOf("{/* Intended-vs-entered packing mismatches"),
+    source.indexOf("{/* The trend belongs UNDER this table", source.indexOf("{/* Intended-vs-entered packing mismatches")),
+  );
+  assert.match(varianceBlock, /pageParam="fav_offset"/);
+  assert.match(varianceBlock, /feedHref\(PAGE_PATH, variance\.searchParams, "fav_offset"/);
+  assert.doesNotMatch(varianceBlock, /pageParam="fa_offset"/);
+});
