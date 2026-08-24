@@ -18,9 +18,9 @@ type Actor struct {
 }
 
 // DefaultPeriodDays is the reporting window when the caller names no dates:
-// the last 28 inclusive Asia/Kolkata business days ending today, matching the
+// the last 7 inclusive Asia/Kolkata business days ending today, matching the
 // Weights screen this section renders under.
-const DefaultPeriodDays = 28
+const DefaultPeriodDays = 7
 
 // MaxParks caps the unpaged park vocabulary, mirroring the weighing module's
 // planner cap. Parks are physical farms; blowing this cap is a broken

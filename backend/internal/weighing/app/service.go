@@ -1349,9 +1349,8 @@ func (s *Service) GetWeightHistory(ctx context.Context, actor domain.Actor, park
 }
 
 // growthDefaultPeriodDays is the reporting window used when the caller supplies neither `from`
-// nor `to`. 90 days matches the horizon MaxWeightHistoryWeighDays already uses for the sibling
-// weight-history chart, so the two CEO-tier weighing reads default to the same lookback.
-const growthDefaultPeriodDays = 90
+// nor `to`: the last week, matching the Weights screen's default filter.
+const growthDefaultPeriodDays = domain.ShedWeightsDefaultPeriodDays
 
 // GetLeadershipGrowthADG serves the herd-level ADG (Average Daily Gain) read model for one park.
 //

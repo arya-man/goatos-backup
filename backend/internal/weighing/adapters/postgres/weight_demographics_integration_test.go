@@ -429,6 +429,50 @@ SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status
 	}
 }
 
+func TestWeightGainThresholdsUseLatestSameDayObservationBeforePairing(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		goatID = "00000000-0000-4000-8000-0000000ee001"
+		breed  = "Same Day Threshold Breed"
+		tag    = "same-day-threshold"
+	)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-991001', $3, 'female', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid)
+ON CONFLICT (goat_id) DO UPDATE SET breed=EXCLUDED.breed`,
+		goatID, repoTenant, breed, repoParty, repoExpectedShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', $3, $3, 'global', true, 'active', now(), 'test')
+ON CONFLICT (tenant_id, normalized_value) DO UPDATE SET goat_id=EXCLUDED.goat_id, status='active'`,
+		repoTenant, goatID, tag)
+
+	seedShedWeightScan(t, ctx, pool, tag, 20.0, time.Date(2026, 7, 19, 6, 0, 0, 0, time.UTC))
+	// Same business day, different threshold sides. The later same-day row must win before
+	// lag() pairs days, or this animal can randomly appear below the 250 g/day mark.
+	seedShedWeightScan(t, ctx, pool, tag, 22.0, time.Date(2026, 7, 29, 6, 0, 0, 0, time.UTC))
+	seedShedWeightScan(t, ctx, pool, tag, 23.0, time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC))
+
+	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
+		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("GetWeightDemographics: %v", err)
+	}
+	row, found := findGainThresholdRow(out.GainThresholdsByBreed, breed)
+	if !found {
+		t.Fatalf("missing %q gain-threshold row in %#v", breed, out.GainThresholdsByBreed)
+	}
+	if row.Animals != 1 || row.Above250 != 1 || row.Above200 != 1 || row.Above180 != 1 {
+		t.Fatalf("same-day latest observation was not used before threshold pairing: %#v", row)
+	}
+}
+
 // The adversarial pass over the SAME aggregate: fan-out, page boundary, date shift, park
 // scope and status buckets. Each is a way this row can lie while still looking like a
 // plausible growth figure, and none of them is visible from the number itself.

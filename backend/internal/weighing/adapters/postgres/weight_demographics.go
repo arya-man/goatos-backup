@@ -58,14 +58,19 @@ latest AS (
 -- pair is excluded: an animal cannot meaningfully gain inside one day, so that is
 -- a re-weigh or a double scan, and dividing by a fraction of a day manufactures
 -- enormous numbers (the -3,108,762 g/day headline this rule exists to prevent).
-obs AS (
-  SELECT lower(btrim(o.scanned_identifier)) AS tag, o.weight_kg, o.accepted_at,
+raw_obs AS (
+  SELECT lower(btrim(o.scanned_identifier)) AS tag, o.observation_id, o.weight_kg, o.accepted_at,
          (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d
   FROM weighing_observations o
   JOIN scoped s ON s.campaign_shed_id = o.campaign_shed_id AND s.tenant_id = o.tenant_id
   WHERE o.tenant_id = $1::uuid
     AND o.accepted_at >= ($3::timestamptz - interval '90 days') AND o.accepted_at < $4::timestamptz
     AND o.verification_status <> 'rejected' AND btrim(o.scanned_identifier) <> ''
+),
+obs AS (
+  SELECT DISTINCT ON (tag, d) tag, weight_kg, accepted_at, d
+  FROM raw_obs
+  ORDER BY tag, d, accepted_at DESC, observation_id DESC
 ),
 paired AS (
   SELECT tag, weight_kg, accepted_at, d,

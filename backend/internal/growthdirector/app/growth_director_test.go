@@ -98,6 +98,9 @@ func TestGetGrowthDirectorWeightsOmittedParkIDUsesOnlyAuthorizedParks(t *testing
 	if len(repo.gotParkIDs) != 1 || repo.gotParkIDs[0] != gdParkA {
 		t.Fatalf("expected repository scoped to park A only, got %v", repo.gotParkIDs)
 	}
+	if got := int(repo.gotEnd.Sub(repo.gotStart).Hours() / 24); got != domain.DefaultPeriodDays {
+		t.Fatalf("omitted from/to default window=%d days, want %d", got, domain.DefaultPeriodDays)
+	}
 	// The park vocabulary is backend-owned AND scoped: offering park B here
 	// would advertise a park this caller cannot read.
 	if len(out.Parks) != 1 || out.Parks[0].ParkID != gdParkA {
