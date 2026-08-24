@@ -98,8 +98,18 @@ func run(args []string) error {
 		if err != nil {
 			return fmt.Errorf("count recoverable deferred vaccination obligations: %w", err)
 		}
-		fmt.Printf("generated effective-cohort generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d stuck_recoverable_deferred=%d\n",
-			res.Generated, res.Deferred, res.Reopened, res.FailedGoats, res.SkippedNoDueDate, res.SuppressedByTrustedHistory, stuck)
+		fmt.Printf("generated effective-cohort generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d skipped_no_due_date=%d suppressed_trusted=%d stuck_recoverable_deferred=%d\n",
+			res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.SkippedNoDueDate, res.SuppressedByTrustedHistory, stuck)
+		if res.AmbiguousOpenWork > 0 {
+			// Named separately from failed_goats because it is not a transient failure: those
+			// animals already hold two open obligations for one dose, and no re-run fixes that.
+			fmt.Printf("  %d animal(s) hold more than one UNLABELLED open obligation for a single rule and were skipped.\n", res.AmbiguousOpenWork)
+			fmt.Println("  Generation refuses to guess which scheduled vaccination is real. Resolve the duplicates, then re-run. List them with:")
+			fmt.Println(`    SELECT oi.target_id, l.identity_key, oi."sequence", count(*), array_agg(oi.obligation_id), array_agg(oi.due_at)`)
+			fmt.Println(`    FROM obligation_instances oi JOIN protocol_rule_lineage l ON l.tenant_id = oi.tenant_id AND l.rule_id = oi.rule_id`)
+			fmt.Println(`    WHERE oi.rule_identity_key IS NULL AND oi.status IN ('scheduled','due','in_progress','deferred')`)
+			fmt.Println(`    GROUP BY 1,2,3 HAVING count(*) > 1;`)
+		}
 		if genErr != nil {
 			return withExitCode(exitCodePartialFailure, fmt.Errorf("generate effective cohort: %w", genErr))
 		}

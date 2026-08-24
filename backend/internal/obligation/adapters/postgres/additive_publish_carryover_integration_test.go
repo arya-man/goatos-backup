@@ -2,13 +2,16 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -575,5 +578,161 @@ func TestReconcileLeavesInFlightWorkOnItsDateButStillClaimsIt(t *testing.T) {
 	}
 	if !due.Equal(original.dueAt) {
 		t.Fatalf("the operator's in-flight dose was moved from %s to %s underneath them", original.dueAt, due)
+	}
+}
+
+// An in-flight dose keeps its DATE but must still take the new ADDRESS. Everything generation does
+// after reconciling -- defer, reopen, realign, cancel-by-key -- addresses the row by the key it
+// just computed, so a row still holding the key it was minted under is unreachable and those
+// follow-ups fail with "not found", taking the whole goat's pass down.
+func TestReconcileGivesInFlightWorkTheNewAddressEvenThoughItKeepsItsDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo, _, v2, before := seedCarryOverFixture(t, ctx, pool, fiveVaccines())
+	identity := "3:fmd|11:fmd_primary|1:1"
+	original := before["fmd_primary"]
+	if _, err := pool.Exec(ctx,
+		`UPDATE obligation_instances SET rule_identity_key = $3, status = 'in_progress' WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		tenantID, original.id, identity); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+	var v2Rule string
+	if err := pool.QueryRow(ctx,
+		`SELECT rule_id::text FROM protocol_rules WHERE tenant_id = $1::uuid AND protocol_version_id = $2::uuid AND dose_code = 'fmd_primary'`,
+		tenantID, v2).Scan(&v2Rule); err != nil {
+		t.Fatalf("find rule: %v", err)
+	}
+
+	if _, found, err := repo.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: v2, RuleID: v2Rule,
+		TargetType: "goat", TargetID: carryOverGoat, ScopeType: "park", ScopeID: cbePark,
+		DueAt: original.dueAt.AddDate(0, 0, 7), Status: "scheduled",
+		IdempotencyKey: "the-key-generation-now-owns", Sequence: 1, RuleIdentityKey: identity,
+	}, original.dueAt); err != nil || !found {
+		t.Fatalf("reconcile in-flight: found=%v err=%v", found, err)
+	}
+
+	var (
+		due     time.Time
+		key     string
+		version string
+	)
+	if err := pool.QueryRow(ctx,
+		`SELECT due_at, idempotency_key, protocol_version_id::text FROM obligation_instances WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		tenantID, original.id).Scan(&due, &key, &version); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !due.Equal(original.dueAt) {
+		t.Fatalf("the operator's in-flight dose moved from %s to %s underneath them", original.dueAt, due)
+	}
+	if key != "the-key-generation-now-owns" {
+		t.Fatalf("idempotency key = %q: every key-addressed follow-up on this row would fail with not-found", key)
+	}
+	if version != v2 {
+		t.Fatalf("in-flight row did not follow the live version")
+	}
+}
+
+// Work that predates the identity column is invisible to the unique index, so inserting beside it
+// double-books. A single such row is adopted -- labelled and reconciled -- bringing it under the
+// invariant instead of leaving it outside.
+func TestReconcileAdoptsASingleUnlabelledObligation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo, _, v2, before := seedCarryOverFixture(t, ctx, pool, fiveVaccines())
+	identity := "3:fmd|11:fmd_primary|1:1"
+	original := before["fmd_primary"]
+
+	// Lineage exists for the rule; the OBLIGATION carries no label, as every pre-migration row does.
+	var v1Rule, v2Rule string
+	if err := pool.QueryRow(ctx, `SELECT rule_id::text FROM protocol_rules WHERE tenant_id=$1::uuid AND protocol_version_id=$2::uuid AND dose_code='fmd_primary'`,
+		tenantID, v2).Scan(&v2Rule); err != nil {
+		t.Fatalf("find v2 rule: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT rule_id::text FROM obligation_instances WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`,
+		tenantID, original.id).Scan(&v1Rule); err != nil {
+		t.Fatalf("read rule: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE protocol_rule_lineage SET identity_key = $2 WHERE tenant_id = $1::uuid AND rule_id IN ($3::uuid, $4::uuid)`,
+		tenantID, identity, v1Rule, v2Rule); err != nil {
+		t.Fatalf("align lineage identity: %v", err)
+	}
+
+	moved := original.dueAt.AddDate(0, 0, 5)
+	ref, found, err := repo.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: v2, RuleID: v2Rule,
+		TargetType: "goat", TargetID: carryOverGoat, ScopeType: "park", ScopeID: cbePark,
+		DueAt: moved, Status: "scheduled", IdempotencyKey: "adopted", Sequence: 1, RuleIdentityKey: identity,
+	}, moved)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if !found {
+		t.Fatal("pre-label work was not adopted, so generation would insert beside it and book the dose twice")
+	}
+	if ref.ObligationID != original.id {
+		t.Fatalf("adopted the wrong row: %s", ref.ObligationID)
+	}
+	var label *string
+	var due time.Time
+	if err := pool.QueryRow(ctx, `SELECT rule_identity_key, due_at FROM obligation_instances WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`,
+		tenantID, original.id).Scan(&label, &due); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if label == nil || *label != identity {
+		t.Fatalf("adopted row left unlabelled, so it stays outside the unique index: %v", label)
+	}
+	if !due.Equal(moved) {
+		t.Fatalf("adopted row was not reconciled to the new date")
+	}
+}
+
+// Two unlabelled open rows for one identity is the 561-group case from real staging data. Adopting
+// one means guessing which scheduled vaccination to keep; inserting means booking a third. The pass
+// fails for THIS animal, loudly, and every other animal in the run is unaffected.
+func TestReconcileRefusesToGuessBetweenTwoUnlabelledObligations(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo, _, v2, before := seedCarryOverFixture(t, ctx, pool, fiveVaccines())
+	identity := "3:fmd|11:fmd_primary|1:1"
+	original := before["fmd_primary"]
+
+	var v1Rule, v2Rule string
+	if err := pool.QueryRow(ctx, `SELECT rule_id::text FROM protocol_rules WHERE tenant_id=$1::uuid AND protocol_version_id=$2::uuid AND dose_code='fmd_primary'`,
+		tenantID, v2).Scan(&v2Rule); err != nil {
+		t.Fatalf("find v2 rule: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT rule_id::text FROM obligation_instances WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`,
+		tenantID, original.id).Scan(&v1Rule); err != nil {
+		t.Fatalf("read rule: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE protocol_rule_lineage SET identity_key = $2 WHERE tenant_id = $1::uuid AND rule_id IN ($3::uuid, $4::uuid)`,
+		tenantID, identity, v1Rule, v2Rule); err != nil {
+		t.Fatalf("align lineage: %v", err)
+	}
+	// A second, unlabelled open row for the same dose a week later: the duplicate.
+	insertObligationForRule(t, ctx, repo, before["fmd_primary"].versionID, v1Rule, carryOverGoat,
+		"pre-existing-duplicate", original.dueAt.AddDate(0, 0, 7))
+
+	_, _, err := repo.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: v2, RuleID: v2Rule,
+		TargetType: "goat", TargetID: carryOverGoat, ScopeType: "park", ScopeID: cbePark,
+		DueAt: original.dueAt.AddDate(0, 0, 9), Status: "scheduled", IdempotencyKey: "k",
+		Sequence: 1, RuleIdentityKey: identity,
+	}, original.dueAt)
+	if !errors.Is(err, ports.ErrAmbiguousOpenWork) {
+		t.Fatalf("err = %v, want ErrAmbiguousOpenWork -- silently picking or inserting decides somebody's medical work", err)
+	}
+	if !strings.Contains(err.Error(), original.id) {
+		t.Fatalf("the error must name the obligations a human has to look at: %v", err)
 	}
 }

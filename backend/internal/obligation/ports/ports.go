@@ -116,3 +116,13 @@ type Repository interface {
 	// One bounded query, never O(N) round trips.
 	NextSuccessorSuffix(ctx context.Context, tenantID, baseKey string) (int, error)
 }
+
+// ErrAmbiguousOpenWork means an animal holds MORE THAN ONE open obligation for a single rule
+// identity that no label covers -- work predating rule_identity_key, or work the backfill left
+// alone precisely because it could not tell which row was real.
+//
+// Generation cannot proceed for that animal: adopting one row guesses which of two scheduled
+// vaccinations to keep, inserting books a third. Both decide somebody's medical work, so the pass
+// fails for this animal, reports which obligations to look at, and leaves every other animal in
+// the run untouched.
+var ErrAmbiguousOpenWork = errors.New("obligation: animal holds more than one unlabelled open obligation for this rule identity")
