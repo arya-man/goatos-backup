@@ -1688,6 +1688,10 @@
 	  .drawer .dh .x{margin-left:auto;cursor:pointer;color:var(--muted);width:34px;height:34px;display:grid;place-items:center;border-radius:9px;font-size:21px}
 	  .drawer .dh .x:hover{background:var(--bg)}
 	  .drawer .dc{flex:1;min-height:0;overflow-y:auto;padding:20px 22px;display:flex;flex-direction:column;gap:14px}
+	  /* The body is a flex column, so its blocks would otherwise SHRINK below their content height
+	     when the record is taller than the drawer -- and a `.metagrid` clips (overflow:hidden), so the
+	     last row of a card was cut in half instead of the body scrolling. Never shrink; scroll instead. */
+	  .drawer .dc>*{flex-shrink:0}
 	  /* Footer action row WRAPS (never clips a button) with consistent button sizing — fixes the mock's own
      overflow defect where a long primary label wrapped tall and the last action was cut off. */
   .drawer .df{padding:16px 22px;border-top:1px solid var(--line);background:var(--panel-2);display:flex;gap:11px;align-items:center}
