@@ -224,6 +224,15 @@ var protectedRoutes = []Route{
 	{OperationID: "updateProcurementVendorStatus", Method: "POST", Pattern: "/procurement/vendors/{vendor_id}/status", Permissions: []string{VendorWrite}},
 	{OperationID: "listProcurementVendorCatalog", Method: "GET", Pattern: "/procurement/vendor-catalog", Permissions: []string{VendorRead}},
 
+	// FEED PURCHASES (/procurement/feed-purchases on admin-web). Gated on the dedicated
+	// FeedPurchaseRead/FeedPurchaseWrite rather than ProcurementRead: the ledger carries supplier
+	// prices and payment state -- see FeedPurchaseRead's doc comment. The options route is a GET
+	// that serves the ENTRY FORM's vocabulary, so it sits on the read permission: a principal who
+	// may see the ledger may see which feeds and farms it is keyed by.
+	{OperationID: "listFeedPurchases", Method: "GET", Pattern: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseRead}},
+	{OperationID: "createFeedPurchase", Method: "POST", Pattern: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseWrite}},
+	{OperationID: "getFeedPurchaseOptions", Method: "GET", Pattern: "/procurement/feed-purchase-options", Permissions: []string{FeedPurchaseRead}},
+
 	// SALES (/procurement/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
 	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --
 	// see SalesRead's doc comment.

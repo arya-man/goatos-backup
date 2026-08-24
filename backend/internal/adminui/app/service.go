@@ -4,6 +4,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -137,6 +138,11 @@ func navigation() domain.NavigationContract {
 					navLeaf("procurement-source-entry", "Source Entry", "/procurement/source-entry", nil),
 					navLeaf("procurement-vendors", "Vendors", "/procurement/vendors", nil),
 					navLeaf("procurement-sales", "Sales", "/procurement/sales", nil),
+					// Feed Purchases — the BUYING side of the feed chain. It sits in Procurement,
+					// not under Feed, because migration 000174 recorded that purchase entry
+					// belongs to this vertical; /feed/analytics keeps the stock cards these loads
+					// feed.
+					navLeaf("procurement-feed-purchases", "Feed Purchases", "/procurement/feed-purchases", nil),
 				},
 			},
 			{
@@ -296,6 +302,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
 		{Pattern: "/procurement/vendors", Label: "Vendors", Match: "exact"},
 		{Pattern: "/procurement/sales", Label: "Sales", Match: "exact"},
+		{Pattern: "/procurement/feed-purchases", Label: "Feed Purchases", Match: "exact"},
 		{Pattern: "/counts/sops", Label: "Herd Operations SOP", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
 		{Pattern: "/counts/breakdown", Label: "Counts Breakdown", Match: "exact"},
@@ -485,6 +492,16 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
 				withoutRowClick(tableP("sales-buyers", "Buyers", "/sales/overview", []string{"buyer_name", "buyer_place", "product_types", "deals", "animals", "revenue", "share_pct"}, "", []int{10, 25, 50})),
+			}),
+		// FEED PURCHASES: the buying side of the feed chain (maintainer decision 2026-08-24,
+		// retiring the read-only half of migration 000174). One server-paged ledger table whose
+		// columns are the sheet's Purchase row, and one entry drawer behind the
+		// record_feed_purchase control. Landed cost is ONE column: the feed/transport/loading/
+		// unloading split is drawer detail, because a table that renders five money columns is a
+		// table nobody can scan.
+		page("feed-purchases", "/procurement/feed-purchases", "/procurement/feed-purchases", "Feed Purchases", "Feed bought for CBE and CPT — quantity, landed cost, vendor and payment state. These loads are what the stock and days-left cards on Feed Analytics are counted from.", "module-surface",
+			[]domain.TableContract{
+				feedPurchaseTable(),
 			}),
 		page("source-load", "/procurement/source-entry/loads/{load_id}", "/procurement/source-entry/loads/{load_id}", "Source load", "Full source-entry journey timeline, animal rows, decisions, and arrival gate.", "record-drilldown",
 			[]domain.TableContract{
@@ -787,6 +804,26 @@ func sortable(t domain.TableContract, keys ...string) domain.TableContract {
 		}
 		if !found {
 			panic(fmt.Sprintf("adminui: table %q has no column %q to mark sortable", t.ID, key))
+		}
+	}
+	return t
+}
+
+// feedPurchaseTable builds the feed purchase ledger's table contract.
+//
+// Column labels are taken from the page's OWN copy map rather than left to humanLabel, because the
+// farm says "Bought on" and "Landed cost", not "Purchase Date" and "Total Cost". Reading them from
+// pageCopy keeps ONE source: the header and the drawer's detail cells cannot drift into two
+// spellings of the same field. A key with no copy entry keeps the humanised default rather than
+// rendering blank.
+func feedPurchaseTable() domain.TableContract {
+	t := tableP("feed-purchases", "Purchases", "/procurement/feed-purchases",
+		[]string{"purchase_date", "farm", "feed_item", "batch_no", "quantity_kg", "total_cost", "per_kg_cost", "vendor", "payment_status"},
+		"feed_purchase_id", []int{25, 50, 100})
+	copy := pageCopy("feed-purchases")
+	for i := range t.Columns {
+		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
+			t.Columns[i].Label = label
 		}
 	}
 	return t
@@ -2468,6 +2505,80 @@ func pageSpecificCopy(id string) map[string]string {
 			// purpose -- see domain.VendorWrite.ValidateForCreate.
 			"required.hint.create": "Business name, record type, contact person, phone number, state, city and status are required.",
 			"disabled.write":       "Your current role can view vendors but not change them.",
+		}
+	case "feed-purchases":
+		// Backend-owned copy for the feed purchase ledger. The client renders these verbatim; per
+		// the golden rule it must not hardcode a label, an empty state or a disabled reason of its
+		// own. Farm language only -- no table, column or contract vocabulary reaches the screen.
+		return map[string]string{
+			"crumb": "Procurement",
+
+			// Header figures. Whole-filter aggregates, labelled as what they count.
+			// Both forms are published so the renderer picks one by the number rather than
+			// composing "1 loads" -- pluralisation is presentation, the WORDS are backend-owned.
+			"summary.count":      "loads",
+			"summary.count.one":  "load",
+			"summary.quantity":   "Feed bought",
+			"summary.spend":      "Spent",
+			"summary.hint":       "Across every load in this view.",
+			"summary.stock_link": "See what is left in Feed Analytics",
+
+			// Ledger columns.
+			"column.purchase_date":  "Bought on",
+			"column.farm":           "Farm",
+			"column.feed_item":      "Feed",
+			"column.batch_no":       "Load",
+			"column.quantity_kg":    "Quantity (kg)",
+			"column.total_cost":     "Landed cost",
+			"column.per_kg_cost":    "Per kg",
+			"column.vendor":         "Vendor",
+			"column.payment_status": "Payment",
+			"column.entry_source":   "Recorded",
+			"value.entry_app":       "In app",
+			"value.entry_sheet":     "From the feed book",
+			"empty.purchases":       "No feed purchases match this view.",
+			"empty.purchases.unset": "No feed purchases recorded yet. Record the first load to start the ledger.",
+
+			// Filters and paging.
+			"filter.farm":      "Farm",
+			"filter.all":       "All farms",
+			"filter.clear":     "Clear filters",
+			"action.next_page": "Next",
+			"action.prev_page": "Back",
+			"pager.page":       "Page",
+			"pager.of":         "of",
+
+			// Record-purchase drawer.
+			"action.record_feed_purchase.label": "Record purchase",
+			"drawer.record_purchase.title":      "Record a feed purchase",
+			"drawer.detail.title":               "Purchase details",
+			"field.purchase_date":               "Bought on",
+			"field.farm":                        "Farm",
+			"field.feed_item":                   "Feed",
+			"field.batch_no":                    "Load number",
+			"field.quantity_kg":                 "Quantity (kg)",
+			"field.feed_cost":                   "Feed cost",
+			"field.transport_cost":              "Transport cost",
+			"field.loading_cost":                "Loading cost",
+			"field.unloading_cost":              "Unloading cost",
+			"field.total_cost":                  "Total cost",
+			"field.per_kg_cost":                 "Per kg",
+			"field.vendor":                      "Vendor",
+			"field.payment_released":            "Payment released",
+			"field.payment_status":              "Payment status",
+			"required.hint":                     "Date, farm, feed, quantity, vendor and payment status are required.",
+			"hint.batch_no":                     "Leave blank to record this as the next load of this feed at this farm.",
+			"hint.total_cost":                   "Leave blank to add up the feed, transport, loading and unloading costs entered above.",
+			"value.none":                        "—",
+			"action.save":                       "Save",
+			"action.saving":                     "Saving...",
+			"action.cancel":                     "Cancel",
+			"action.close":                      "Close",
+			"action.purchase_recorded":          "Feed purchase recorded.",
+			"action.purchase_record_failed":     "Could not record this purchase. Check the fields and try again.",
+			"action.error_form":                 "Could not complete that action.",
+			"error.load":                        "Could not load the feed purchase ledger. Refresh to try again.",
+			"disabled.write":                    "Your current role can view feed purchases but not record them.",
 		}
 	case "sales":
 		// Backend-owned copy for the sales page. The client renders these verbatim; per the golden
@@ -5422,6 +5533,32 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 					option("director", "Director", "", ""),
 					option("manager", "Manager", "", ""),
 					option("assistant_manager", "Assistant Manager", "", ""),
+				},
+			},
+		})
+	case "feed-purchases":
+		// The FEED list is deliberately NOT here: it is live tenant rows (feed_item_catalog), and
+		// a constant list of feed labels in contract code is the banned pattern. The form reads it
+		// from GET /procurement/feed-purchase-options, which serves exactly the set the write path
+		// accepts. Farms and payment states ARE closed contract vocabulary -- the same sets the
+		// domain validates against -- so they belong here.
+		return withGenericOptionGroups([]domain.OptionGroup{
+			{
+				ID: "feed_purchase_farms",
+				Options: []domain.Option{
+					option("all", "All farms", "", ""),
+					option("CBE", "CBE", "", ""),
+					option("CPT", "CPT", "", ""),
+				},
+			},
+			{
+				// Mirrors procurement/domain.FeedPaymentStatuses -- the sheet's two states. Kept as
+				// literals rather than an import, exactly as salesOptionGroups does: the contract
+				// compiler must not depend on a feature module's package.
+				ID: "feed_purchase_payment_statuses",
+				Options: []domain.Option{
+					option("Paid", "Paid", "", "ok"),
+					option("Pending", "Pending", "", "warn"),
 				},
 			},
 		})

@@ -2468,6 +2468,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/feed-purchases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the feed purchase ledger.
+         * @description Every recorded feed load, newest purchase date first. `total`, `quantity_kg` and `spend_rupees` are WHOLE-FILTER aggregates over the same predicate as the rows, never page sums; the client derives its page count and header figures from them.
+         *
+         *     Rows carry `entry_source`: `sheet_import` for history bootstrapped from the legacy Feed DB sheet, `app` for a load recorded on this screen. These are the same purchases the stock and days-left cards on Feed Analytics are counted from.
+         */
+        get: operations["listFeedPurchases"];
+        put?: never;
+        /**
+         * Record a purchased feed load.
+         * @description Records one feed purchase. The `Idempotency-Key` header is REQUIRED: an exact replay returns the originally recorded purchase with no new side effects, and the same key replayed with different fields is rejected with 409 `idempotency_conflict`, so a retried submit can never record the same load twice -- which on this ledger would also double the farm's available stock.
+         *
+         *     `feed_item` must resolve to an ACTIVE feed catalog item; an unknown feed is rejected with 400 `feed_item_not_in_catalog` rather than invented into the catalog. `batch_no` is optional: leave it out and the next number for that farm and feed is assigned inside the write transaction. `purchase_date` may not be in the future (IST business day), because stock the farm does not have yet must not deplete a feed sheet.
+         */
+        post: operations["createFeedPurchase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/feed-purchase-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The backend-owned vocabulary behind the record-purchase form.
+         * @description Farms, the ACTIVE feed catalog, the payment-state vocabulary, and the suppliers this tenant has already bought feed from. The feed list is exactly the set the write path accepts, so the form cannot offer a feed whose submit would be refused. `vendors` is a suggestion list, not a closed vocabulary -- a new supplier must be enterable on the first load bought from them.
+         */
+        get: operations["getFeedPurchaseOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/overview": {
         parameters: {
             query?: never;
@@ -5097,6 +5145,98 @@ export interface components {
         };
         SalesRecorded: {
             recorded: boolean;
+        };
+        /** @description One purchased feed load -- one Purchase row of the legacy Feed DB sheet, or one load recorded on /procurement/feed-purchases. */
+        FeedPurchase: {
+            /** Format: uuid */
+            feed_purchase_id: string;
+            /**
+             * Format: date
+             * @description The business date the load was bought, never a timestamp.
+             */
+            purchase_date: string;
+            /** @enum {string} */
+            farm: "CBE" | "CPT";
+            /** @description The FEED CATALOG's label, not the typed one, so one feed reads with one spelling. */
+            feed_item: string;
+            /** @description The load's number within this farm and feed, counting from 1. */
+            batch_no: number;
+            quantity_kg: number;
+            feed_cost?: number | null;
+            transport_cost?: number | null;
+            loading_cost?: number | null;
+            unloading_cost?: number | null;
+            /** @description The landed cost. Null when no cost was entered at all -- a load whose cost is not yet known is a real state, and a zero would report a free load. */
+            total_cost?: number | null;
+            /** @description DERIVED from total_cost / quantity_kg, never entered, so it cannot drift from its own total. */
+            per_kg_cost?: number | null;
+            vendor: string;
+            payment_released?: number | null;
+            /** @enum {string} */
+            payment_status: "Paid" | "Pending";
+            /**
+             * @description How the row arrived: bootstrapped sheet history, or recorded in the app. The ledger shows the difference rather than presenting history as something a person typed here.
+             * @enum {string}
+             */
+            entry_source: "sheet_import" | "app";
+            /** Format: date-time */
+            created_at: string;
+        };
+        FeedPurchasePage: {
+            purchases: components["schemas"]["FeedPurchase"][];
+            /** @description The WHOLE-FILTER count, not the page length. Pagination changes rows only, never this number. */
+            total: number;
+            /** @description Whole-filter kilograms bought, over the same predicate as the rows. */
+            quantity_kg: number;
+            /** @description Whole-filter landed cost, over the same predicate as the rows. */
+            spend_rupees: number;
+            /** @description The page size actually applied, after clamping. */
+            limit: number;
+            /** @description The offset actually applied. Echoed so the client can render the page number. */
+            offset: number;
+        };
+        /**
+         * @description Record-purchase body, carrying the same fields the legacy sheet's Purchase row keeps. Farm and payment status are closed vocabularies validated server-side and rejected -- never silently defaulted -- when unrecognised.
+         *
+         *     Every optional money field is nullable so "not entered" stays distinct from "entered as 0": a zero transport cost is a real recorded fact, and coercing a blank box into it would invent that fact. total_cost may be omitted when the split parts are supplied; the backend sums them and derives per-kg cost itself.
+         */
+        FeedPurchaseWrite: {
+            /**
+             * Format: date
+             * @description May not be in the future (IST business day).
+             */
+            purchase_date: string;
+            /** @enum {string} */
+            farm: "CBE" | "CPT";
+            /** @description Must resolve to an ACTIVE feed catalog item; an unknown feed is rejected, never created. */
+            feed_item: string;
+            /** @description Omit to have the next number for this farm and feed assigned inside the write transaction. Supply one only to record a load out of order. */
+            batch_no?: number | null;
+            /** @description Required and must be more than zero. */
+            quantity_kg: number;
+            feed_cost?: number | null;
+            transport_cost?: number | null;
+            loading_cost?: number | null;
+            unloading_cost?: number | null;
+            total_cost?: number | null;
+            vendor: string;
+            payment_released?: number | null;
+            /** @enum {string} */
+            payment_status: "Paid" | "Pending";
+        };
+        /** @description The backend-owned vocabulary the record-purchase form renders. */
+        FeedPurchaseOptions: {
+            farms: ("CBE" | "CPT")[];
+            /** @description The ACTIVE feed catalog -- exactly the set the write path accepts. */
+            feed_items: {
+                /** @description The normalized matching key. A join key, never display copy. */
+                key: string;
+                /** @description The catalog label to render and to send back as feed_item. */
+                label: string;
+            }[];
+            payment_statuses: ("Paid" | "Pending")[];
+            /** @description Suppliers already bought from, most recent first. A suggestion list, not a closed vocabulary. */
+            vendors: string[];
         };
         /** @description One row of the sales ledger -- one sheet row, or one deal recorded in the app. */
         SalesDeal: {
@@ -17160,6 +17300,89 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProcurementVendorCatalog"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedPurchases: {
+        parameters: {
+            query?: {
+                farm?: "all" | "CBE" | "CPT";
+                limit?: number;
+                /** @description Rows to skip. Bounded on purpose -- the ledger grows with loads bought, never with herd size. A request past the cap is REJECTED rather than clamped, so a page number never shows the wrong rows. */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the ledger plus its whole-filter aggregates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPurchasePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createFeedPurchase: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedPurchaseWrite"];
+            };
+        };
+        responses: {
+            /** @description The recorded purchase. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPurchase"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getFeedPurchaseOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The entry form's vocabularies. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPurchaseOptions"];
                 };
             };
             401: components["responses"]["Unauthorized"];

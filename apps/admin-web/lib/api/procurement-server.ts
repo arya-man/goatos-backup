@@ -14,6 +14,10 @@ import {
   type ApiResult,
 } from "@/lib/api/server";
 import type {
+  FeedPurchase,
+  FeedPurchaseOptions,
+  FeedPurchasePage,
+  FeedPurchaseWrite,
   SalesBenchmarkWrite,
   SalesBuyerLead,
   SalesBuyerLeadPage,
@@ -259,6 +263,49 @@ export async function createSalesDeal(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<SalesDeal>("/sales/deals", {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+// ---- Feed purchases (/procurement/feed-purchases). The BUYING side of the feed chain: these are
+// the loads the stock and days-left cards on /feed/analytics are counted from. ----
+
+export async function listFeedPurchases(
+  params: { farm?: string; limit?: number; offset?: number } = {},
+): Promise<ApiResult<FeedPurchasePage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedPurchasePage>("/procurement/feed-purchases", {
+      cache: "no-store",
+      query: compactQuery({ farm: params.farm, limit: params.limit, offset: params.offset }),
+    }),
+  );
+}
+
+export async function getFeedPurchaseOptions(): Promise<ApiResult<FeedPurchaseOptions>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedPurchaseOptions>("/procurement/feed-purchase-options", { cache: "no-store" }),
+  );
+}
+
+export async function createFeedPurchase(
+  body: FeedPurchaseWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<FeedPurchase>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedPurchase>("/procurement/feed-purchases", {
       method: "POST",
       cache: "no-store",
       headers: idempotentHeaders(idempotencyKey),
