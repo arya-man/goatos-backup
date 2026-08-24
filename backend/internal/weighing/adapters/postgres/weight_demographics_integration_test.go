@@ -354,13 +354,16 @@ func assertNoCompositionChip(t *testing.T, compositions []domain.ShedComposition
 	t.Fatalf("missing composition for %s/%s in %#v", locationID, partitionLabel, compositions)
 }
 
-// The daily-gain marks are CUMULATIVE, not bands (maintainer, 2026-08-24): a kid at
-// 300 g/day is counted under >250 AND >200 AND >180. This pins that containment and the
-// STRICT comparison at the boundary — a kid at exactly 200 g/day clears 180 and not 200,
-// which is the case a `>=` typo would silently flip and no client could detect.
+// The daily-gain bands are DISJOINT (maintainer, 2026-08-24, superseding the cumulative
+// marks of the same day): a kid at 300 g/day is counted in >250 ONLY. This pins that
+// partition and the STRICT comparison at each boundary — a kid at exactly 200 g/day sits
+// in the 180-200 band, not the 200-250 band, which is the case a `>=` typo would silently
+// flip and no client could detect. It also pins the slowest band, whose whole purpose is
+// to hold the kids no cumulative mark ever showed.
 //
-// Both kids are one breed on purpose: containment is only observable inside a single row.
-func TestWeightGainThresholdsByBreedAreCumulativeAndStrictlyGreater(t *testing.T) {
+// All three kids are one breed on purpose: the partition is only observable inside a
+// single row.
+func TestWeightGainBandsByBreedAreDisjointAndStrictlyGreater(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -368,28 +371,36 @@ func TestWeightGainThresholdsByBreedAreCumulativeAndStrictlyGreater(t *testing.T
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
+	// The slow kid: a third animal, because the slowest band cannot be observed with two.
+	const repoAnimalSlow = "00000000-0000-4000-8000-000000009203"
+
 	execWeighingTestSQL(t, ctx, pool, `
 UPDATE goats SET breed='Anantapur Sheep', sex='female'
 WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, repoTenant, repoAnimal)
 	execWeighingTestSQL(t, ctx, pool, `
 INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
-VALUES ($1::uuid, $2::uuid, 'G-990002', 'Anantapur Sheep', 'male', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+VALUES
+  ($1::uuid, $2::uuid, 'G-990002', 'Anantapur Sheep', 'male', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid),
+  ($6::uuid, $2::uuid, 'G-990003', 'Anantapur Sheep', 'male', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
 ON CONFLICT (goat_id) DO UPDATE SET breed=EXCLUDED.breed, sex=EXCLUDED.sex`,
-		repoAnimalTwo, repoTenant, repoParty, repoExpectedShed, repoPark)
+		repoAnimalTwo, repoTenant, repoParty, repoExpectedShed, repoPark, repoAnimalSlow)
 	execWeighingTestSQL(t, ctx, pool, `
 INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
 VALUES
   ($1::uuid, $2::uuid, 'animal_identifier_1', 'chip-female', 'chip-female', 'global', true, 'active', now(), 'test'),
-  ($1::uuid, $3::uuid, 'animal_identifier_1', 'chip-male', 'chip-male', 'global', true, 'active', now(), 'test')
+  ($1::uuid, $3::uuid, 'animal_identifier_1', 'chip-male', 'chip-male', 'global', true, 'active', now(), 'test'),
+  ($1::uuid, $4::uuid, 'animal_identifier_1', 'chip-slow', 'chip-slow', 'global', true, 'active', now(), 'test')
 ON CONFLICT (tenant_id, normalized_value) DO UPDATE
 SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status='active'`,
-		repoTenant, repoAnimal, repoAnimalTwo)
+		repoTenant, repoAnimal, repoAnimalTwo, repoAnimalSlow)
 
-	// 10 days apart: 3.0 kg -> 300 g/day, and exactly 2.0 kg -> 200 g/day.
+	// 10 days apart: 3.0 kg -> 300 g/day, exactly 2.0 kg -> 200 g/day, 1.5 kg -> 150 g/day.
 	seedShedWeightScan(t, ctx, pool, "chip-female", 20.0, time.Date(2026, 7, 19, 6, 0, 0, 0, time.UTC))
 	seedShedWeightScan(t, ctx, pool, "chip-female", 23.0, time.Date(2026, 7, 29, 6, 0, 0, 0, time.UTC))
 	seedShedWeightScan(t, ctx, pool, "chip-male", 20.0, time.Date(2026, 7, 19, 6, 5, 0, 0, time.UTC))
 	seedShedWeightScan(t, ctx, pool, "chip-male", 22.0, time.Date(2026, 7, 29, 6, 5, 0, 0, time.UTC))
+	seedShedWeightScan(t, ctx, pool, "chip-slow", 20.0, time.Date(2026, 7, 19, 6, 10, 0, 0, time.UTC))
+	seedShedWeightScan(t, ctx, pool, "chip-slow", 21.5, time.Date(2026, 7, 29, 6, 10, 0, 0, time.UTC))
 
 	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
 		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC))
@@ -399,77 +410,38 @@ SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status
 
 	row, found := findGainThresholdRow(out.GainThresholdsByBreed, "Anantapur Sheep")
 	if !found {
-		t.Fatalf("no Anantapur Sheep gain-threshold row in %#v", out.GainThresholdsByBreed)
+		t.Fatalf("no Anantapur Sheep gain-band row in %#v", out.GainThresholdsByBreed)
 	}
-	if row.Animals != 2 {
-		t.Fatalf("animals=%d, want 2 (both kids have a second weigh)", row.Animals)
+	if row.Animals != 3 {
+		t.Fatalf("animals=%d, want 3 (all three kids have a second weigh)", row.Animals)
 	}
 	if row.Above250 != 1 {
 		t.Fatalf("above 250=%d, want 1 (only the 300 g/day kid)", row.Above250)
 	}
-	// The 200 g/day kid must NOT be here: the mark is strictly greater than 200.
-	if row.Above200 != 1 {
-		t.Fatalf("above 200=%d, want 1 — the 200 g/day kid is not ABOVE 200", row.Above200)
+	// The 300 g/day kid must NOT appear here too — that is the cumulative behaviour this
+	// change removed, and it is the one regression a reader of the numbers cannot see.
+	if row.Band200To250 != 0 {
+		t.Fatalf("200-250=%d, want 0 — the 300 g/day kid belongs to the top band only", row.Band200To250)
 	}
-	if row.Above180 != 2 {
-		t.Fatalf("above 180=%d, want 2 (300 and 200 both clear 180)", row.Above180)
+	// Strictly greater at the top: exactly 200 g/day is NOT above 200.
+	if row.Band180To200 != 1 {
+		t.Fatalf("180-200=%d, want 1 — the 200 g/day kid sits at the top of this band", row.Band180To200)
 	}
-	// Containment, stated as the invariant a client relies on to render the columns side by
-	// side without adding them up.
-	if !(row.Above250 <= row.Above200 && row.Above200 <= row.Above180 && row.Above180 <= row.Animals) {
-		t.Fatalf("marks are not cumulative: %#v", row)
+	if row.AtOrBelow180 != 1 {
+		t.Fatalf("at or below 180=%d, want 1 (the 150 g/day kid)", row.AtOrBelow180)
+	}
+	// The partition, stated as the invariant a client relies on to render the bands as a
+	// distribution: every kid with a gain lands in exactly one band.
+	if sum := row.AtOrBelow180 + row.Band180To200 + row.Band200To250 + row.Above250; sum != row.Animals {
+		t.Fatalf("bands sum to %d but animals=%d — not a partition: %#v", sum, row.Animals, row)
 	}
 
 	// Same population as the median gain chart beside it, so the two cannot disagree about
 	// how many kids of a breed were weighed twice.
 	for _, gain := range out.GainByBreed {
 		if gain.Label == "Anantapur Sheep" && gain.Animals != row.Animals {
-			t.Fatalf("gain_by_breed animals=%d but threshold animals=%d — different populations", gain.Animals, row.Animals)
+			t.Fatalf("gain_by_breed animals=%d but band animals=%d — different populations", gain.Animals, row.Animals)
 		}
-	}
-}
-
-func TestWeightGainThresholdsUseLatestSameDayObservationBeforePairing(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-	seedWeighingObservationFixture(t, ctx, pool)
-	repo := NewRepository(pool, 5*time.Second)
-
-	const (
-		goatID = "00000000-0000-4000-8000-0000000ee001"
-		breed  = "Same Day Threshold Breed"
-		tag    = "same-day-threshold"
-	)
-	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
-VALUES ($1::uuid, $2::uuid, 'G-991001', $3, 'female', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid)
-ON CONFLICT (goat_id) DO UPDATE SET breed=EXCLUDED.breed`,
-		goatID, repoTenant, breed, repoParty, repoExpectedShed, repoPark)
-	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
-VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', $3, $3, 'global', true, 'active', now(), 'test')
-ON CONFLICT (tenant_id, normalized_value) DO UPDATE SET goat_id=EXCLUDED.goat_id, status='active'`,
-		repoTenant, goatID, tag)
-
-	seedShedWeightScan(t, ctx, pool, tag, 20.0, time.Date(2026, 7, 19, 6, 0, 0, 0, time.UTC))
-	// Same business day, different threshold sides. The later same-day row must win before
-	// lag() pairs days, or this animal can randomly appear below the 250 g/day mark.
-	seedShedWeightScan(t, ctx, pool, tag, 22.0, time.Date(2026, 7, 29, 6, 0, 0, 0, time.UTC))
-	seedShedWeightScan(t, ctx, pool, tag, 23.0, time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC))
-
-	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
-		time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatalf("GetWeightDemographics: %v", err)
-	}
-	row, found := findGainThresholdRow(out.GainThresholdsByBreed, breed)
-	if !found {
-		t.Fatalf("missing %q gain-threshold row in %#v", breed, out.GainThresholdsByBreed)
-	}
-	if row.Animals != 1 || row.Above250 != 1 || row.Above200 != 1 || row.Above180 != 1 {
-		t.Fatalf("same-day latest observation was not used before threshold pairing: %#v", row)
 	}
 }
 
@@ -513,7 +485,7 @@ ON CONFLICT (tenant_id, normalized_value) DO UPDATE SET status='active'`, repoTe
 
 	for n := 1; n <= 12; n++ {
 		tag := fmt.Sprintf("thresh-%d", n)
-		// Every kid gains 3.0 kg over 10 days = 300 g/day, so all twelve clear all three marks.
+		// Every kid gains 3.0 kg over 10 days = 300 g/day, so all twelve land in the top band.
 		seedShedWeightScan(t, ctx, pool, tag, 20.0, earlier.Add(time.Duration(n)*time.Minute))
 		seedShedWeightScan(t, ctx, pool, tag, 23.0, latest.Add(time.Duration(n)*time.Minute))
 	}
@@ -558,13 +530,13 @@ WHERE tenant_id=$1::uuid AND lower(btrim(scanned_identifier))='thresh-3'`, repoT
 
 	row, found := findGainThresholdRow(out.GainThresholdsByBreed, breed)
 	if !found {
-		t.Fatalf("missing %q gain-threshold row in %#v", breed, out.GainThresholdsByBreed)
+		t.Fatalf("missing %q gain-band row in %#v", breed, out.GainThresholdsByBreed)
 	}
 	if row.Animals != 12 {
 		t.Fatalf("animals=%d, want 12: twelve kids weighed twice across all three capture statuses, the re-scanned kid counted ONCE, the out-of-window kid not at all", row.Animals)
 	}
-	if row.Above250 != 12 || row.Above200 != 12 || row.Above180 != 12 {
-		t.Fatalf("every kid gains 300 g/day so all three marks are 12, got %#v", row)
+	if row.Above250 != 12 || row.Band200To250 != 0 || row.Band180To200 != 0 || row.AtOrBelow180 != 0 {
+		t.Fatalf("every kid gains 300 g/day so the top band holds all twelve and the other three are empty, got %#v", row)
 	}
 
 	// PARK SCOPE. The same window under a park these kids are not in returns nothing for this

@@ -15,14 +15,19 @@ const openapi = readFileSync(
 /** Source with block and line comments removed, for scans that must not read documentation. */
 const stripComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-test("the marks are rendered as three independent columns, never summed or stacked", () => {
-  // The three counts OVERLAP (a kid at 260 g/day is in all three), so any arithmetic
-  // ACROSS them — a total, a stack, or a subtraction to fake a band — states a
-  // distribution nobody measured. Each cell prints its own backend count.
+test("the four bands arrive banded from the backend, never derived by subtraction", () => {
+  // The bands are DISJOINT, so the temptation is the opposite of the old one: deriving
+  // a band from two cumulative counts (>180 minus >200) in the page. That reintroduces
+  // one fact with two owners and drifts the moment a boundary moves. Every count is
+  // printed exactly as the backend banded it.
   assert.match(source, /const gainThresholdRows: GainThresholdRow\[\] =/);
-  assert.doesNotMatch(source, /above_250_g_per_day\s*\+\s*above_200_g_per_day/);
-  assert.doesNotMatch(source, /above_180_g_per_day\s*-\s*above_200_g_per_day/);
-  assert.doesNotMatch(source, /above_200_g_per_day\s*-\s*above_250_g_per_day/);
+  assert.match(source, /at_or_below_180_g_per_day/);
+  assert.match(source, /band_180_to_200_g_per_day/);
+  assert.match(source, /band_200_to_250_g_per_day/);
+  assert.doesNotMatch(source, /_g_per_day\s*[-+]\s*row\./);
+  // The slowest band is the last one and the only red step, so the card reads fastest
+  // to slowest down every breed.
+  assert.match(source, /gainThresholdSteps = \["hi", "mid", "lo", "under"\] as const/);
 });
 
 test("the share is taken against the row's own backend denominator", () => {
@@ -56,7 +61,8 @@ test("every bar states its share, its count, and the animals behind it on hover"
   assert.match(bars, /className="gml-sub"[\s\S]{0,120}row\.animals\.toLocaleString/);
   // Count on hover, against the breed's own denominator — never a page-wide total.
   assert.match(bars, /title=\{`\$\{mark\.count\.toLocaleString\("en-IN"\)\} \$\{ofLabel\} \$\{row\.animals/);
-  // The marks are cumulative, so the bars must never be summed into one stacked track.
+  // Disjoint bands could legitimately be stacked, but a stack cannot be compared band
+  // for band across breeds — which is the whole point of the card. One bar per band.
   assert.doesNotMatch(bars, /reduce\(/);
   assert.doesNotMatch(bars, /cumulativeWidth|stackOffset/);
 });
@@ -99,9 +105,13 @@ test("the table sits directly above the daily gain by load chart", () => {
   assert.ok(table < loadChart, "the gain-mark table must render before the load chart");
 });
 
-test("the contract states the marks overlap, in both the caption and the schema", () => {
-  // A reader who adds the columns gets a number larger than the herd. The caption is the
-  // only thing standing between them and that mistake, so it is pinned.
-  assert.match(contract, /counted under all three marks, so the columns overlap and do not add up/);
-  assert.match(openapi, /must never be summed or stacked/);
+test("the contract states each kid is counted once, in both the caption and the schema", () => {
+  // The previous marks OVERLAPPED and the caption said so. These bands do not, and the
+  // caption has to say THAT instead — a stale overlap warning would tell a reader the
+  // columns cannot be added when now they must add to the denominator.
+  assert.match(contract, /Each kid is counted in one band only, so the bands add up to the kids weighed twice/);
+  assert.doesNotMatch(contract, /so the columns overlap and do not add up/);
+  assert.match(openapi, /The four counts are DISJOINT/);
+  // The slowest band is a real column with its own label, not an unlabelled remainder.
+  assert.match(contract, /"column\.upto_180": *"180 g\/day or less"/);
 });

@@ -58,19 +58,14 @@ latest AS (
 -- pair is excluded: an animal cannot meaningfully gain inside one day, so that is
 -- a re-weigh or a double scan, and dividing by a fraction of a day manufactures
 -- enormous numbers (the -3,108,762 g/day headline this rule exists to prevent).
-raw_obs AS (
-  SELECT lower(btrim(o.scanned_identifier)) AS tag, o.observation_id, o.weight_kg, o.accepted_at,
+obs AS (
+  SELECT lower(btrim(o.scanned_identifier)) AS tag, o.weight_kg, o.accepted_at,
          (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d
   FROM weighing_observations o
   JOIN scoped s ON s.campaign_shed_id = o.campaign_shed_id AND s.tenant_id = o.tenant_id
   WHERE o.tenant_id = $1::uuid
     AND o.accepted_at >= ($3::timestamptz - interval '90 days') AND o.accepted_at < $4::timestamptz
     AND o.verification_status <> 'rejected' AND btrim(o.scanned_identifier) <> ''
-),
-obs AS (
-  SELECT DISTINCT ON (tag, d) tag, weight_kg, accepted_at, d
-  FROM raw_obs
-  ORDER BY tag, d, accepted_at DESC, observation_id DESC
 ),
 paired AS (
   SELECT tag, weight_kg, accepted_at, d,
@@ -321,21 +316,24 @@ SELECT
        WHERE management_stage IS NOT NULL
        GROUP BY management_stage
      ) gs),
-  -- How many animals of each breed clear each daily-gain mark. CUMULATIVE, not bands
-  -- (maintainer, 2026-08-24): an animal at 260 g/day is counted by all three filters.
+  -- How many animals of each breed fell into each daily-gain band. DISJOINT bands
+  -- (maintainer, 2026-08-24): an animal at 260 g/day is counted by the >250 filter ONLY,
+  -- and the four counts partition n exactly — every animal with a gain lands in one band.
   --
   -- projection-review: membership=one row per animal in resolved_gain with a breed, i.e. exactly the population gain_by_breed reports; group_key=breed, the GROUP BY; join_cardinality=none added here, resolved_gain is already one row per tag; pagination=NONE, bounded by the breed vocabulary; scope=inherited from resolved_gain (tenant + scoped parks + window).
   --
-  -- Ratio key sets: n and the three FILTER counts range over the IDENTICAL grouped row
+  -- Ratio key sets: n and the four FILTER counts range over the IDENTICAL grouped row
   -- set — same FROM, same GROUP BY, no branch adds a join — so a client may take
-  -- above/n as this breed's share without reaching for a second query's denominator.
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, a180, a200, a250) ORDER BY n DESC, breed), '[]'::jsonb)
+  -- band/n as this breed's share without reaching for a second query's denominator, and
+  -- b180 + b1820 + b2025 + a250 = n for every row.
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, b180, b1820, b2025, a250) ORDER BY n DESC, breed), '[]'::jsonb)
      FROM (
        SELECT breed,
-              count(*)::bigint                       AS n,
-              count(*) FILTER (WHERE g > 180)::bigint AS a180,
-              count(*) FILTER (WHERE g > 200)::bigint AS a200,
-              count(*) FILTER (WHERE g > 250)::bigint AS a250
+              count(*)::bigint                                       AS n,
+              count(*) FILTER (WHERE g <= 180)::bigint               AS b180,
+              count(*) FILTER (WHERE g > 180 AND g <= 200)::bigint   AS b1820,
+              count(*) FILTER (WHERE g > 200 AND g <= 250)::bigint   AS b2025,
+              count(*) FILTER (WHERE g > 250)::bigint                AS a250
        FROM resolved_gain
        WHERE breed IS NOT NULL
        GROUP BY breed
@@ -526,9 +524,10 @@ func decodeWeightGainBuckets(raw []byte) ([]domain.WeightGainBucket, error) {
 	return out, nil
 }
 
-// decodeWeightGainThresholdBuckets reads the [breed, animals, >180, >200, >250]
-// tuples. A row whose counts do not parse is skipped rather than rendered as a breed
-// with zero animals clearing anything, which would read as a real growth failure.
+// decodeWeightGainThresholdBuckets reads the
+// [breed, animals, <=180, 180-200, 200-250, >250] tuples. A row whose counts do not parse
+// is skipped rather than rendered as a breed with zero animals in every band, which would
+// read as a real growth failure.
 func decodeWeightGainThresholdBuckets(raw []byte) ([]domain.WeightGainThresholdBucket, error) {
 	out := []domain.WeightGainThresholdBucket{}
 	if len(raw) == 0 {
@@ -539,23 +538,25 @@ func decodeWeightGainThresholdBuckets(raw []byte) ([]domain.WeightGainThresholdB
 		return nil, err
 	}
 	for _, row := range rows {
-		if len(row) != 5 {
+		if len(row) != 6 {
 			continue
 		}
 		var label string
 		if json.Unmarshal(row[0], &label) != nil || label == "" {
 			continue
 		}
-		var animals, above180, above200, above250 int
+		var animals, atOrBelow180, band180To200, band200To250, above250 int
 		if json.Unmarshal(row[1], &animals) != nil ||
-			json.Unmarshal(row[2], &above180) != nil ||
-			json.Unmarshal(row[3], &above200) != nil ||
-			json.Unmarshal(row[4], &above250) != nil {
+			json.Unmarshal(row[2], &atOrBelow180) != nil ||
+			json.Unmarshal(row[3], &band180To200) != nil ||
+			json.Unmarshal(row[4], &band200To250) != nil ||
+			json.Unmarshal(row[5], &above250) != nil {
 			continue
 		}
 		out = append(out, domain.WeightGainThresholdBucket{
 			Label: label, Animals: animals,
-			Above180: above180, Above200: above200, Above250: above250,
+			AtOrBelow180: atOrBelow180, Band180To200: band180To200,
+			Band200To250: band200To250, Above250: above250,
 		})
 	}
 	return out, nil

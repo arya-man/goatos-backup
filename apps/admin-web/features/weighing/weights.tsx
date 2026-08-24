@@ -548,30 +548,37 @@ export async function WeighingWeightsPage({
     })
     .sort((a, b) => b.animals - a.animals);
 
-  // Row 2b — how many kids of each breed clear each daily gain mark.
+  // Row 2b — how many kids of each breed fall into each daily gain band.
   //
-  // The three counts are CUMULATIVE (maintainer, 2026-08-24): a kid at 260 g/day is counted
-  // under all three. So they are rendered as three independent columns and are NEVER summed,
-  // stacked, or subtracted from one another — "Above 180" already contains the other two.
+  // The four counts are DISJOINT (maintainer, 2026-08-24): a kid at 260 g/day is counted in
+  // the top band only, so the four add up to the row's own denominator. They are still
+  // rendered as four independent bars — each band's share is the fact, and no arithmetic
+  // ACROSS bands happens here: every count arrives from the backend already banded.
   //
   // The share is taken against the row's OWN backend-supplied denominator (kids of this breed
   // with a second weigh), which is the exact key set the backend filtered — never against the
   // page's animal total, which covers kids weighed once and would understate every breed.
   const gainThresholdColumns = tableLabels(pageContract, "gain-thresholds");
-  // The three mark columns, in contract order, paired with their ordered colour step. The
-  // labels are the table contract's own, so the chart legend and the table header cannot
-  // drift into two spellings of one mark.
-  const gainThresholdSteps = ["hi", "mid", "lo"] as const;
+  // The four band columns, in contract order, paired with their colour step. The labels are
+  // the table contract's own, so the chart legend and the table header cannot drift into two
+  // spellings of one band. `under` is the slowest band and the only red one: it is not a step
+  // on the green growth ramp, it is the kids that are not growing.
+  const gainThresholdSteps = ["hi", "mid", "lo", "under"] as const;
   const gainThresholdRows: GainThresholdRow[] = (demo?.gain_thresholds_by_breed ?? [])
     .filter((row) => row.animals > 0)
     .map((row) => ({
       key: row.label,
       breed: row.label,
       animals: row.animals,
-      marks: [row.above_250_g_per_day, row.above_200_g_per_day, row.above_180_g_per_day].map(
+      marks: [
+        row.above_250_g_per_day,
+        row.band_200_to_250_g_per_day,
+        row.band_180_to_200_g_per_day,
+        row.at_or_below_180_g_per_day,
+      ].map(
         (count, index) => ({
           step: gainThresholdSteps[index],
-          // Column 0 is the breed and column 1 the head count, so the marks start at 2.
+          // Column 0 is the breed and column 1 the head count, so the bands start at 2.
           label: gainThresholdColumns[index + 2] ?? "",
           count,
           pct: (count / row.animals) * 100,
@@ -799,8 +806,8 @@ export async function WeighingWeightsPage({
           is the question this answers. Sits directly above the load chart because both read as
           "who is growing", one by breed and one by supplier.
 
-          Every column header is the backend table contract's, and the caption states the
-          overlap — the columns must not be read as a distribution that adds to the total. */}
+          Every column header is the backend table contract's, and the caption says each kid is
+          counted once — the four bands are a real distribution that adds to the denominator. */}
       <section className="card wtable" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
         <h2 className="h">
           <Gauge className="ic" size={15} aria-hidden /> {copy(pageContract, "section.gain_thresholds.title")}
