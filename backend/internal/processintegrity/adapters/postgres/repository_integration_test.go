@@ -1270,6 +1270,24 @@ func TestProcessIntegrityAsOfTerminalEventReconstruction(t *testing.T) {
 	mustState(piTeBatchNoEvt, domain.WorkStateMissed)
 	// churn: latest terminal at/before as_of wins -> missed (NOT overdue).
 	mustState(piTeBatchChurn, domain.WorkStateMissed)
+
+	controlTower, err := listAtAsOf(t, ctx, repo, domain.Query{
+		TenantID:           piTenant,
+		AsOf:               time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore:          time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC),
+		Limit:              50,
+		OnlyBrokenOrAtRisk: true,
+	})
+	if err != nil {
+		t.Fatalf("ListRows(control tower): %v", err)
+	}
+	missedAlert := rowByBatchSubstr(controlTower.Rows, piTeBatchBefore)
+	if missedAlert == nil {
+		t.Fatalf("missed row missing from Control Tower exception filter: %#v", rowStateSignature(controlTower.Rows))
+	}
+	if missedAlert.NextAction != "Escalate missed dose to PC" {
+		t.Fatalf("missed next_action = %q, want Escalate missed dose to PC", missedAlert.NextAction)
+	}
 }
 
 // listAtAsOf reads the canonical request path directly at q.AsOf. Under the 5k-50k envelope the request
