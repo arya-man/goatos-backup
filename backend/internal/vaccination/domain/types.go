@@ -236,7 +236,12 @@ type GenerateResult struct {
 	// current version and due date instead of being re-minted beside itself. It is deliberately
 	// separate from Generated: nothing new was created, and an operator reading the run should
 	// see that the plan moved without their list churning.
-	Reconciled                 int
+	Reconciled int
+	// AmbiguousOpenWork counts animals that already hold more than one UNLABELLED open obligation
+	// for a single rule. They are a pre-existing data problem: generation refuses to guess which
+	// scheduled vaccination is real, fails for that animal alone, and reports the count so the
+	// duplicates get resolved rather than silently multiplied.
+	AmbiguousOpenWork          int
 	FailedGoats                int
 	SkippedNoDueDate           int
 	SuppressedByTrustedHistory int
