@@ -3246,7 +3246,7 @@ func pageSpecificCopy(id string) map[string]string {
 			// Distinct from the above: these sheds DO have a second weigh, they are just all
 			// losing. Reusing the "needs a second weigh" line there would be a lie.
 			"empty.gain.all_losing":        "Every shed with a second weigh is losing weight, so there is nothing to plot. The kids are listed below.",
-			"chart.gain.caption_shed":      "Same-animal rows show real daily gain. Lump-sum rows show average weight change for that exact shed or partition; shifts, sales, deaths, or new animals can also move it.",
+			"chart.gain.caption_shed":      "Same-animal rows show daily gain. Lump-sum rows show average weight change for that exact shed or partition; shifts, sales, deaths, or new animals can also move it.",
 			"section.demographics.title":   "Breed, sex and stage",
 			"section.demographics.aria":    "Weight by breed, sex and stage",
 			"section.demographics.caption": "Daily gain uses only the same animals weighed twice. Weight uses the latest weighed animals.",
