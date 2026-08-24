@@ -1,0 +1,385 @@
+package permissions
+
+import "sort"
+
+// One-time backfill mapping: what each retired ROLE becomes in the per-person model.
+//
+// This is the safety-critical half of the 2026-08-24 cutover. Every existing person is
+// migrated by expanding their current role(s) through this map, so their effective
+// permission set on the morning after release is the set they had the night before.
+// capability_parity_test.go proves that claim role by role and fails on any unreviewed
+// difference.
+//
+// After the migration runs, this map is DEAD DATA kept for audit: access comes from the
+// person's own stored rows, and changing a mapping here changes nothing for anyone already
+// migrated. It is not a second, parallel access model -- do not read it at request time.
+
+// surfaceBaseline is granted to a principal holding at least one module on that surface.
+// These are the "you work here" reads every role carrying the surface already had:
+// admission to the surface, the work list, and the location directory every screen labels
+// itself with. They are baseline precisely because making them assignable would let someone
+// be given a module whose screen cannot render its own shed names.
+var surfaceBaseline = map[string][]string{
+	SurfaceWeb:    {AdminWebBootstrap, LocationsRead},
+	SurfaceMobile: {AppBootstrap, LocationsRead, TaskRead},
+}
+
+// caps is a readability helper -- an assignment's capability set, in catalog order.
+func caps(levels ...string) []string {
+	out := make([]string, 0, len(levels))
+	for _, want := range LevelOrder {
+		for _, got := range levels {
+			if got == want {
+				out = append(out, want)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// assign builds one row.
+func assign(module, surface string, levels ...string) ModuleAssignment {
+	return ModuleAssignment{Module: module, Surface: surface, Capabilities: caps(levels...)}
+}
+
+// bothSurfaces is the common case: the same capabilities on web and phone.
+func bothSurfaces(module string, levels ...string) []ModuleAssignment {
+	return []ModuleAssignment{
+		assign(module, SurfaceWeb, levels...),
+		assign(module, SurfaceMobile, levels...),
+	}
+}
+
+func rows(groups ...[]ModuleAssignment) []ModuleAssignment {
+	out := make([]ModuleAssignment, 0, 24)
+	for _, g := range groups {
+		out = append(out, g...)
+	}
+	return out
+}
+
+func one(a ModuleAssignment) []ModuleAssignment { return []ModuleAssignment{a} }
+
+// flatRoleAssignments is the retired FLAT role catalog expressed in the new vocabulary.
+// Read each entry as "this job title meant these modules with this much authority".
+var flatRoleAssignments = map[string][]ModuleAssignment{
+	// The operator is phone-only field work: execute, capture, record. No web at all.
+	RoleOperator: rows(
+		one(assign("vaccination", SurfaceMobile, LevelView, LevelDo)),
+		one(assign("weighing", SurfaceMobile, LevelView, LevelDo)),
+		one(assign("counts", SurfaceMobile, LevelView, LevelDo)),
+		one(assign("feed_direction", SurfaceMobile, LevelView, LevelDo)),
+		one(assign("aas_health", SurfaceMobile, LevelView, LevelDo)),
+		one(assign("pc_care", SurfaceMobile, LevelView, LevelDo)),
+		one(assign("procurement", SurfaceMobile, LevelView, LevelDo)),
+		one(assign("herd_register", SurfaceMobile, LevelView)),
+		one(assign("calendar", SurfaceMobile, LevelView)),
+	),
+	// The park head runs a park's execution from the phone: assigns and verifies task work,
+	// completes feed on his own ground, captures counts. Deliberately NOT admin-web.
+	RoleParkHead: rows(
+		one(assign("vaccination", SurfaceMobile, LevelView, LevelOversee)),
+		one(assign("counts", SurfaceMobile, LevelView, LevelDo)),
+		one(assign("feed_direction", SurfaceMobile, LevelView, LevelDo)),
+		one(assign("aas_health", SurfaceMobile, LevelView)),
+		one(assign("procurement", SurfaceMobile, LevelView, LevelDo, LevelOversee)),
+		one(assign("people", SurfaceMobile, LevelView, LevelDo)),
+		one(assign("verification", SurfaceMobile, LevelOversee)),
+		one(assign("herd_register", SurfaceMobile, LevelView)),
+		one(assign("calendar", SurfaceMobile, LevelView, LevelDo)),
+		one(assign("config", SurfaceMobile, LevelView)),
+	),
+	RolePCDirector: rows(
+		bothSurfaces("vaccination", LevelView, LevelOversee, LevelConfigure),
+		bothSurfaces("aas_health", LevelView, LevelOversee),
+		bothSurfaces("pc_care", LevelView, LevelDo, LevelOversee),
+		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
+		one(assign("verification", SurfaceWeb, LevelConfigure)),
+		one(assign("procurement", SurfaceWeb, LevelView)),
+		one(assign("herd_register", SurfaceWeb, LevelView)),
+		one(assign("calendar", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("config", SurfaceWeb, LevelView)),
+		// PC Director executes task work today (TaskExecute) -- unusual for a director, and
+		// preserved rather than tidied away: removing it would stop him covering a shed.
+		one(assign("vaccination", SurfaceMobile, LevelView, LevelDo, LevelOversee, LevelConfigure)),
+	),
+	// Growth Director runs Weighing and only Weighing (maintainer decision 2026-08-01). He
+	// oversees the operators and executes, but does NOT plan -- planning is CEO-only, which
+	// is why LevelConfigure is absent here.
+	RoleGrowthDirector: rows(
+		bothSurfaces("weighing", LevelView, LevelDo, LevelOversee),
+		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
+		one(assign("verification", SurfaceWeb, LevelOversee)),
+		one(assign("procurement", SurfaceWeb, LevelView)),
+		one(assign("herd_register", SurfaceWeb, LevelView)),
+		one(assign("aas_health", SurfaceWeb, LevelOversee)),
+		one(assign("calendar", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("config", SurfaceWeb, LevelView)),
+	),
+	// Feed Director: authors the ration AND oversees the chain, and still cannot record a
+	// task as done. LevelDo is deliberately ABSENT from feed_direction -- that is the whole
+	// point of capabilities being a set rather than a ladder.
+	RoleFeedDirector: rows(
+		bothSurfaces("feed_direction", LevelView, LevelOversee, LevelConfigure),
+		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
+		one(assign("verification", SurfaceWeb, LevelOversee)),
+		one(assign("procurement", SurfaceWeb, LevelView)),
+		one(assign("herd_register", SurfaceWeb, LevelView)),
+		one(assign("calendar", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("config", SurfaceWeb, LevelView)),
+	),
+	// Health Director authors the treatment rulebook and is the declared owner of Counts
+	// WITHOUT counts access -- the module is off, and ownership is not access (AGENTS.md).
+	// So counts appears at LevelView for the alerts read only, never LevelDo.
+	RoleHealthDirector: rows(
+		bothSurfaces("aas_health", LevelView, LevelOversee, LevelConfigure),
+		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
+		one(assign("counts", SurfaceWeb, LevelView)),
+		one(assign("verification", SurfaceWeb, LevelOversee)),
+		one(assign("procurement", SurfaceWeb, LevelView)),
+		one(assign("herd_register", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("calendar", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("config", SurfaceWeb, LevelView)),
+	),
+	// Web-only, and narrow: vendors and source entry, nothing operational.
+	RoleProcurementManager: rows(
+		one(assign("procurement", SurfaceWeb, LevelView)),
+		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
+	),
+	// Web-only. Reads the whole feed chain (the Hemant case) without any authority over it.
+	RoleProcurementDirector: rows(
+		one(assign("procurement", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
+		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
+		one(assign("sales", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("feed_direction", SurfaceWeb, LevelView)),
+		one(assign("config", SurfaceWeb, LevelView)),
+	),
+	// Granted BY NAME alongside a job (maintainer decision 2026-08-05). Carries approval
+	// authority and nothing else -- no bootstrap, no read, no write. LevelOversee on counts
+	// is exactly that, and LevelView is deliberately absent so this role alone still grants
+	// no counts read and no surface admission.
+	RoleCountsApprover: bothSurfaces("counts", LevelOversee),
+	// The verifier casts verdicts and does not carry out the work being judged. This is the
+	// one principal for whom verification at LevelDo is correct rather than a risk.
+	RoleVerifier: rows(
+		bothSurfaces("verification", LevelView, LevelDo),
+		bothSurfaces("vaccination", LevelView, LevelOversee),
+		one(assign("feed_direction", SurfaceWeb, LevelView)),
+		one(assign("procurement", SurfaceWeb, LevelView, LevelOversee)),
+		one(assign("people", SurfaceWeb, LevelView)),
+		one(assign("herd_register", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("locations", SurfaceWeb, LevelView, LevelOversee)),
+		one(assign("calendar", SurfaceWeb, LevelView)),
+		one(assign("config", SurfaceWeb, LevelView)),
+	),
+	// Whole-org. Every module the CEO holds today, at the authority they hold it.
+	RoleCEOInternal: rows(
+		bothSurfaces("vaccination", LevelView, LevelOversee, LevelConfigure),
+		bothSurfaces("weighing", LevelView, LevelOversee, LevelConfigure),
+		bothSurfaces("counts", LevelView, LevelDo, LevelOversee),
+		bothSurfaces("feed_direction", LevelView, LevelOversee, LevelConfigure),
+		bothSurfaces("aas_health", LevelView, LevelDo, LevelOversee, LevelConfigure),
+		bothSurfaces("pc_care", LevelView, LevelConfigure),
+		bothSurfaces("people", LevelView, LevelDo, LevelOversee, LevelConfigure),
+		one(assign("procurement", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
+		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
+		one(assign("sales", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("verification", SurfaceWeb, LevelView, LevelConfigure)),
+		one(assign("herd_signals", SurfaceWeb, LevelView, LevelDo, LevelConfigure)),
+		one(assign("config", SurfaceWeb, LevelView, LevelDo, LevelConfigure)),
+		one(assign("herd_register", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
+		one(assign("locations", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
+		one(assign("calendar", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("operations", SurfaceWeb, LevelOversee)),
+	),
+}
+
+// tierAssignments expresses the org-role grid (tier x vertical, 36 composite roles) in the
+// new vocabulary. The grid is ALREADY the same idea this change generalises -- a tier is an
+// authority level and a vertical is a module -- so it maps almost one to one. It is mapped
+// by TIER here and the vertical's own module is added by verticalModule below, exactly the
+// way permissions_orgrole.go composes tierPermissions with its per-vertical additions.
+var tierAssignments = map[Tier][]ModuleAssignment{
+	// Assistant Manager supervises ground execution; the Operator role owns capture. Counts
+	// carries Do AND Oversee together -- this tier records the count and approves it, which
+	// is the case a single-select ladder could not express.
+	TierAssistantManager: rows(
+		bothSurfaces("vaccination", LevelView),
+		bothSurfaces("counts", LevelView, LevelDo, LevelOversee),
+		bothSurfaces("procurement", LevelView, LevelDo),
+		bothSurfaces("herd_register", LevelView),
+		bothSurfaces("calendar", LevelView),
+	),
+	// Manager runs the vertical's daily ops at a park and manages the local roster.
+	TierManager: rows(
+		bothSurfaces("vaccination", LevelView),
+		bothSurfaces("counts", LevelView, LevelDo, LevelOversee),
+		bothSurfaces("procurement", LevelView, LevelDo),
+		bothSurfaces("people", LevelView, LevelDo),
+		bothSurfaces("herd_register", LevelView),
+		bothSurfaces("calendar", LevelView, LevelDo),
+	),
+	// Head -- park/vertical oversight and standards; acts on verified items. No capture.
+	TierHead: rows(
+		bothSurfaces("vaccination", LevelView, LevelOversee),
+		bothSurfaces("counts", LevelView, LevelOversee),
+		bothSurfaces("procurement", LevelView, LevelOversee),
+		bothSurfaces("people", LevelView, LevelDo),
+		bothSurfaces("herd_register", LevelView),
+		bothSurfaces("calendar", LevelView, LevelDo),
+		one(assign("verification", SurfaceWeb, LevelOversee)),
+		one(assign("config", SurfaceWeb, LevelView)),
+	),
+	// Director -- owns the vertical: plan, set SOPs/protocols, act. No capture, no verify.
+	TierDirector: rows(
+		bothSurfaces("vaccination", LevelView, LevelOversee, LevelConfigure),
+		bothSurfaces("counts", LevelView, LevelOversee),
+		bothSurfaces("procurement", LevelView),
+		bothSurfaces("people", LevelView, LevelDo, LevelOversee),
+		bothSurfaces("aas_health", LevelOversee),
+		bothSurfaces("herd_register", LevelView),
+		bothSurfaces("calendar", LevelView, LevelDo),
+		one(assign("verification", SurfaceWeb, LevelOversee)),
+		one(assign("config", SurfaceWeb, LevelView, LevelConfigure)),
+	),
+}
+
+// verticalModule adds the vertical's OWN module on top of the tier set, mirroring the
+// per-vertical additions in permissions_orgrole.go's init().
+func verticalModule(tier Tier, vertical Vertical) []ModuleAssignment {
+	senior := tier == TierManager || tier == TierHead || tier == TierDirector
+	switch vertical {
+	case VerticalHealth:
+		// Raising a sick-goat report is field work every health tier does; clinical diagnosis
+		// starts at Manager (maintainer decision 2026-07-30).
+		if senior {
+			return bothSurfaces("aas_health", LevelView, LevelDo, LevelOversee)
+		}
+		return bothSurfaces("aas_health", LevelView, LevelDo)
+	case VerticalFeed:
+		// Oversight tiers read the feed dispatch sheet through Feed's own permission.
+		if tier == TierHead || tier == TierDirector {
+			return bothSurfaces("feed_direction", LevelView)
+		}
+	case VerticalSales:
+		if senior {
+			return one(assign("sales", SurfaceWeb, LevelView, LevelDo))
+		}
+		return one(assign("sales", SurfaceWeb, LevelView))
+	}
+	return nil
+}
+
+// AssignmentsForRole reports the per-person rows a retired role expands into, for the flat
+// roles and for every composite tier x vertical org role key. Used by the one-time migration
+// and by the parity test; NOT a request-time path.
+func AssignmentsForRole(role string) ([]ModuleAssignment, bool) {
+	if flat, ok := flatRoleAssignments[role]; ok {
+		out := make([]ModuleAssignment, len(flat))
+		copy(out, flat)
+		return mergeAssignments(out), true
+	}
+	tier, vertical, ok := ParseRoleKey(role)
+	if !ok {
+		return nil, false
+	}
+	base, ok := tierAssignments[tier]
+	if !ok {
+		return nil, false
+	}
+	combined := make([]ModuleAssignment, 0, len(base)+4)
+	combined = append(combined, base...)
+	combined = append(combined, verticalModule(tier, vertical)...)
+	return mergeAssignments(combined), true
+}
+
+// AssignmentsForRoles merges the rows for a person carrying several stacked roles -- which
+// is how the retired model expressed a real job (STG has one person wearing five). Where two
+// roles name the same module and surface, the capability sets UNION, because the person
+// demonstrably held the union of both roles' permissions. A union cannot drop a permission
+// the way a rank-based merge could, which is why capabilities being a set matters here too.
+func AssignmentsForRoles(roles []string) []ModuleAssignment {
+	all := make([]ModuleAssignment, 0, 32)
+	for _, role := range roles {
+		rowsForRole, ok := AssignmentsForRole(role)
+		if !ok {
+			continue
+		}
+		all = append(all, rowsForRole...)
+	}
+	return mergeAssignments(all)
+}
+
+// mergeAssignments collapses duplicate (module, surface) rows by unioning their capability
+// sets, and returns a stable order. Stability matters: these rows are diffed by the parity
+// test, written by the migration, and rendered to a human.
+func mergeAssignments(in []ModuleAssignment) []ModuleAssignment {
+	byKey := make(map[string]map[string]struct{}, len(in))
+	order := make([]string, 0, len(in))
+	for _, row := range in {
+		key := row.Module + "|" + row.Surface
+		set, seen := byKey[key]
+		if !seen {
+			set = make(map[string]struct{}, 4)
+			byKey[key] = set
+			order = append(order, key)
+		}
+		for _, c := range row.Capabilities {
+			set[c] = struct{}{}
+		}
+	}
+	sort.Strings(order)
+
+	out := make([]ModuleAssignment, 0, len(order))
+	for _, key := range order {
+		sep := -1
+		for i := 0; i < len(key); i++ {
+			if key[i] == '|' {
+				sep = i
+				break
+			}
+		}
+		if sep < 0 {
+			continue
+		}
+		levels := make([]string, 0, len(byKey[key]))
+		for c := range byKey[key] {
+			levels = append(levels, c)
+		}
+		out = append(out, ModuleAssignment{
+			Module:       key[:sep],
+			Surface:      key[sep+1:],
+			Capabilities: caps(levels...),
+		})
+	}
+	return out
+}
+
+// PermissionsForAssignmentsWithBaseline is PermissionsForAssignments plus the per-surface
+// baseline reads. This is the function the request path uses; the bare form exists so the
+// catalog can be tested without baseline noise.
+func PermissionsForAssignmentsWithBaseline(assignments []ModuleAssignment) []string {
+	granted := PermissionsForAssignments(assignments)
+	set := make(map[string]struct{}, len(granted)+4)
+	for _, p := range granted {
+		set[p] = struct{}{}
+	}
+	// A surface is "in use" exactly when the catalog admitted at least one row for it --
+	// re-derived from the bootstrap permission the bare form already added, so the two
+	// functions cannot disagree about which surfaces a person holds.
+	for surface, bootstrap := range surfaceBootstrap {
+		if _, holds := set[bootstrap]; !holds {
+			continue
+		}
+		for _, p := range surfaceBaseline[surface] {
+			set[p] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}
