@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -103,6 +104,7 @@ type executionDayDTO struct {
 // this comparison on a verifier surface.
 type packingVarianceRowDTO struct {
 	FeedDay                    string `json:"feed_day"`
+	PackingDay                 string `json:"packing_day"`
 	ParkLabel                  string `json:"park_label"`
 	ShedID                     string `json:"shed_id"`
 	ShedLabel                  string `json:"shed_label"`
@@ -117,13 +119,15 @@ type packingVarianceRowDTO struct {
 	AgeGroup                   string `json:"age_group"`
 	// PlannedKg is "" when the frozen sheet carried no resolved quantity -- blank and zero are
 	// never conflated.
-	PlannedKg  string `json:"planned_kg"`
-	VerifiedKg string `json:"verified_kg"`
-	VarianceKg string `json:"variance_kg"`
+	PlannedKg       string `json:"planned_kg"`
+	VerifiedKg      string `json:"verified_kg"`
+	VarianceKg      string `json:"variance_kg"`
+	BeyondTolerance bool   `json:"beyond_tolerance"`
 }
 
 type feedConsumptionTrendDayDTO struct {
 	FeedDay      string `json:"feed_day"`
+	PackingDay   string `json:"packing_day"`
 	TargetKg     string `json:"target_kg"`
 	ActualKg     string `json:"actual_kg"`
 	VarianceRows int64  `json:"variance_rows"`
@@ -135,8 +139,10 @@ type executionAnalyticsDTO struct {
 	DateTo           string                       `json:"date_to"`
 	Days             []executionDayDTO            `json:"days"`
 	ConsumptionTrend []feedConsumptionTrendDayDTO `json:"consumption_trend"`
-	// PackingVariance is always present (possibly empty) so the renderer needs no null branch.
-	PackingVariance []packingVarianceRowDTO `json:"packing_variance"`
+	// PackingVariance is always present (possibly empty) so the renderer needs no null branch. It
+	// is a PAGE; every other figure in this payload is a whole-window aggregate.
+	PackingVariance        []packingVarianceRowDTO `json:"packing_variance"`
+	PackingVarianceHasMore bool                    `json:"packing_variance_has_more"`
 }
 
 // GetExecutionAnalytics serves GET /feed-analytics/execution.
@@ -150,6 +156,11 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	in.Sections = sections
+	limit, offset, ok := executionVariancePage(w, r, h)
+	if !ok {
+		return
+	}
+	in.PackingVarianceLimit, in.PackingVarianceOffset = limit, offset
 	result, err := h.service.ExecutionAnalytics(r.Context(), in)
 	if err != nil {
 		h.writeServiceError(w, r, "feed analytics execution", err)
@@ -181,16 +192,19 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 	for _, day := range result.ConsumptionTrend {
 		dto.ConsumptionTrend = append(dto.ConsumptionTrend, feedConsumptionTrendDayDTO{
 			FeedDay:      day.FeedDay,
+			PackingDay:   day.PackingDay,
 			TargetKg:     day.TargetKg,
 			ActualKg:     day.ActualKg,
 			VarianceRows: day.VarianceRows,
 			ComparedRows: day.ComparedRows,
 		})
 	}
+	dto.PackingVarianceHasMore = result.PackingVarianceHasMore
 	dto.PackingVariance = make([]packingVarianceRowDTO, 0, len(result.PackingVariance))
 	for _, v := range result.PackingVariance {
 		dto.PackingVariance = append(dto.PackingVariance, packingVarianceRowDTO{
 			FeedDay:                    v.FeedDay,
+			PackingDay:                 v.PackingDay,
 			ParkLabel:                  v.ParkLabel,
 			ShedID:                     v.ShedID,
 			ShedLabel:                  v.ShedLabel,
@@ -206,6 +220,7 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 			PlannedKg:                  v.PlannedKg,
 			VerifiedKg:                 v.VerifiedKg,
 			VarianceKg:                 v.VarianceKg,
+			BeyondTolerance:            v.BeyondTolerance,
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, dto)
@@ -395,6 +410,38 @@ func executionSections(w http.ResponseWriter, r *http.Request, h *Handler) ([]do
 		out = append(out, section)
 	}
 	return out, true
+}
+
+// executionVariancePage reads the mismatch list's page. A present but unparseable or out-of-range
+// value is a 400: silently falling back to page one would answer a different question than the one
+// the URL asks, under the heading of the page the reader thinks they are on.
+func executionVariancePage(w http.ResponseWriter, r *http.Request, h *Handler) (int, int, bool) {
+	query := r.URL.Query()
+	read := func(name string) (int, bool) {
+		raw := strings.TrimSpace(query.Get(name))
+		if raw == "" {
+			return 0, true
+		}
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, name+" must be a whole number", nil)
+			return 0, false
+		}
+		return value, true
+	}
+	limit, ok := read("variance_limit")
+	if !ok {
+		return 0, 0, false
+	}
+	offset, ok := read("variance_offset")
+	if !ok {
+		return 0, 0, false
+	}
+	if _, _, err := domain.NormalisePackingVariancePage(limit, offset); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
+		return 0, 0, false
+	}
+	return limit, offset, true
 }
 
 // GetStockAnalytics serves GET /feed-analytics/stock.

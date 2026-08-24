@@ -28,6 +28,10 @@ type DirectedAnalyticsInput struct {
 	DateTo            time.Time
 	// Sections narrows the EXECUTION read to the arms the caller renders; empty means all.
 	Sections []domain.ExecutionSection
+	// PackingVarianceLimit / PackingVarianceOffset page the mismatch list; zero limit takes the
+	// contract default.
+	PackingVarianceLimit  int
+	PackingVarianceOffset int
 	// WastageDay is the single business day the experiment read's per-pen
 	// wastage table describes; zero lets the adapter default it. Ignored by
 	// the directed/execution/stock reads.
@@ -91,6 +95,7 @@ func (s *Service) ExecutionAnalytics(ctx context.Context, in DirectedAnalyticsIn
 	}
 	return s.analytics.ExecutionAnalytics(ctx, in.TenantID, domain.DirectedAnalyticsQuery{
 		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo, Sections: in.Sections,
+		PackingVarianceLimit: in.PackingVarianceLimit, PackingVarianceOffset: in.PackingVarianceOffset,
 	})
 }
 
