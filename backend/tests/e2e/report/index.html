@@ -97,7 +97,7 @@
 </head>
 <body>
   <h1>Vaccination Kernel Story Report</h1>
-  <p class="subtitle">Generated 2026-08-24 02:46:15 UTC &middot; backend/tests/e2e</p>
+  <p class="subtitle">Generated 2026-08-20 10:24:20 UTC &middot; backend/tests/e2e</p>
 
   <p class="subtitle">Related reports in this category:
     <a href="vaccination-closure-audit-2026-07-19.html?v=10568bc2">Vaccination Closure Audit Report (2026-07-19)</a>
@@ -107,8 +107,8 @@
     <div class="tile"><span class="n">61</span>stories</div>
     <div class="tile pass"><span class="n">33</span>stories passed</div>
     <div class="tile fail"><span class="n">28</span>stories failed</div>
-    <div class="tile"><span class="n">602</span>assertions checked</div>
-    <div class="tile fail"><span class="n">36</span>assertions failed</div>
+    <div class="tile"><span class="n">586</span>assertions checked</div>
+    <div class="tile fail"><span class="n">33</span>assertions failed</div>
     <div class="tile pass"><span class="n">61/61</span>certification surfaces declared</div>
   </div>
 
@@ -211,7 +211,7 @@
           <tr class="bad">
             <td>a brand-new obligation was created rather than the missed row being reused</td>
             <td>FAIL</td>
-            <td class="detail">newObl=&#34;&#34; missedObl=&#34;307fef72-4748-4d1a-9541-e8b0314a9e16&#34;</td>
+            <td class="detail">newObl=&#34;&#34; missedObl=&#34;edebd96c-3dcf-4437-af66-7d0649c0bb6e&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -261,7 +261,7 @@
           <tr class="ok">
             <td>orphan goat is on a batch</td>
             <td>PASS</td>
-            <td class="detail">batch_id=&#34;4a435f99-41ce-4319-a8f9-3042604b768b&#34;</td>
+            <td class="detail">batch_id=&#34;e15ffb20-81ca-4077-bf98-8643d989c64e&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -273,7 +273,7 @@
           <tr class="ok">
             <td>production sweeper created executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;e9e11457-2d76-4880-b721-01cdf65bdf3d&#34;</td>
+            <td class="detail">task_id=&#34;8a73180d-4e05-4c69-a0e2-00197bb53f05&#34;</td>
           </tr>
 
         </tbody>
@@ -946,7 +946,7 @@
           <tr class="ok">
             <td>one current obligation was generated</td>
             <td>PASS</td>
-            <td class="detail">obligation_id=7d067bae-951d-4a70-ae75-d76647e031db</td>
+            <td class="detail">obligation_id=a44dea6d-e778-471f-9a14-1cf6c3e1924a</td>
           </tr>
 
         </tbody>
@@ -1009,7 +1009,7 @@
           <tr class="ok">
             <td>sweeper created the executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;0e757b23-5f05-432c-99f9-035ad67a9505&#34;</td>
+            <td class="detail">task_id=&#34;6d0ab7a6-4cc2-4096-bf56-9343ee8eb9a8&#34;</td>
           </tr>
 
           <tr class="bad">
@@ -1103,7 +1103,7 @@
           <tr class="ok">
             <td>replay publishes, audits, then ACKs</td>
             <td>PASS</td>
-            <td class="detail">result={MatchedSource:true MatchedTarget:true Settled:true EventID:f0351f70-d4ec-4763-b258-5eb3291e4a4e BrokerID:story-ai-dlq-message Attributes:map[event_id:f0351f70-d4ec-4763-b258-5eb3291e4a4e event_type:goat.health.changed tenant_id:00000000-0000-4000-8000-000000000001]} err=&lt;nil&gt; acked=true nacked=false</td>
+            <td class="detail">result={MatchedSource:true MatchedTarget:true Settled:true EventID:8ba80d59-bb16-4193-8b2c-4b54f4885820 BrokerID:story-ai-dlq-message Attributes:map[event_id:8ba80d59-bb16-4193-8b2c-4b54f4885820 event_type:goat.health.changed tenant_id:00000000-0000-4000-8000-000000000001]} err=&lt;nil&gt; acked=true nacked=false</td>
           </tr>
 
           <tr class="ok">
@@ -1153,7 +1153,7 @@
           <tr class="ok">
             <td>drive has obligation, batch, and task ids</td>
             <td>PASS</td>
-            <td class="detail">obligation=d748e78d-914a-462c-a8c0-1d215896b9de batch=569dcc67-765f-4418-b134-3c43c87711b8 task=11e3804b-7499-4f6d-bf9c-6cc7e3ca0e82</td>
+            <td class="detail">obligation=ef625f60-65f7-4375-8fcd-17d76a6936b1 batch=b4633c31-33f2-4583-b910-e3e6407cf86d task=6e6d5da3-4eeb-409a-a82a-ca2a8eac3f3e</td>
           </tr>
 
         </tbody>
@@ -1321,7 +1321,7 @@
           <tr class="ok">
             <td>vaccination execution shows the clubbed batch</td>
             <td>PASS</td>
-            <td class="detail">batch=4fa0452b-3ef2-40ee-a25a-a5fbda077c7f rows=1</td>
+            <td class="detail">batch=f2afe8d5-41ea-41bb-b7b8-f7224517649a rows=1</td>
           </tr>
 
           <tr class="ok">
@@ -1345,7 +1345,7 @@
           <tr class="ok">
             <td>process integrity shows the clubbed batch</td>
             <td>PASS</td>
-            <td class="detail">batch=4fa0452b-3ef2-40ee-a25a-a5fbda077c7f rows=1</td>
+            <td class="detail">batch=f2afe8d5-41ea-41bb-b7b8-f7224517649a rows=1</td>
           </tr>
 
           <tr class="ok">
@@ -1456,19 +1456,19 @@
           <tr class="ok">
             <td>snapshot sweep ran without error</td>
             <td>PASS</td>
-            <td class="detail">version=c9731ad8-d201-443e-a917-a835124720fc err=&lt;nil&gt;</td>
+            <td class="detail">version=25e35d1b-9e7b-41b6-8f87-32f177ca8e62 err=&lt;nil&gt;</td>
           </tr>
 
           <tr class="ok">
             <td>snapshot sweep ran without error</td>
             <td>PASS</td>
-            <td class="detail">version=0ac34893-a93c-4330-8e75-f31a265dfce0 err=&lt;nil&gt;</td>
+            <td class="detail">version=eaa3aeee-be9e-42be-9cd6-4f1b82e9ff1c err=&lt;nil&gt;</td>
           </tr>
 
           <tr class="ok">
             <td>snapshot sweep ran without error</td>
             <td>PASS</td>
-            <td class="detail">version=4e943488-a333-4b99-b7ef-c08c9ba9ae7f err=&lt;nil&gt;</td>
+            <td class="detail">version=6e0f91db-afb2-497a-a8df-0b8413e2c2f1 err=&lt;nil&gt;</td>
           </tr>
 
           <tr class="ok">
@@ -1486,19 +1486,19 @@
           <tr class="ok">
             <td>finalization after cap-safe planning succeeds</td>
             <td>PASS</td>
-            <td class="detail">version=c9731ad8-d201-443e-a917-a835124720fc err=&lt;nil&gt;</td>
+            <td class="detail">version=25e35d1b-9e7b-41b6-8f87-32f177ca8e62 err=&lt;nil&gt;</td>
           </tr>
 
           <tr class="ok">
             <td>finalization after cap-safe planning succeeds</td>
             <td>PASS</td>
-            <td class="detail">version=0ac34893-a93c-4330-8e75-f31a265dfce0 err=&lt;nil&gt;</td>
+            <td class="detail">version=eaa3aeee-be9e-42be-9cd6-4f1b82e9ff1c err=&lt;nil&gt;</td>
           </tr>
 
           <tr class="ok">
             <td>finalization after cap-safe planning succeeds</td>
             <td>PASS</td>
-            <td class="detail">version=4e943488-a333-4b99-b7ef-c08c9ba9ae7f err=&lt;nil&gt;</td>
+            <td class="detail">version=6e0f91db-afb2-497a-a8df-0b8413e2c2f1 err=&lt;nil&gt;</td>
           </tr>
 
         </tbody>
@@ -1825,122 +1825,6 @@
       <h3>Admin moves PPR to Aug 5</h3>
       <p class="narrative">The override is stored through the production repository and then the real sweeper plans both vaccines. ET&#43;TT should remain on Jul 22; PPR should move to Aug 5; the three eligible goats are the only animal slots assigned.</p>
 
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>ettt sweep ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>ettt attached only the three eligible goats</td>
-            <td>PASS</td>
-            <td class="detail">obligations=3</td>
-          </tr>
-
-          <tr class="ok">
-            <td>ppr sweep ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>ppr attached only the three eligible goats</td>
-            <td>PASS</td>
-            <td class="detail">obligations=3</td>
-          </tr>
-
-          <tr class="ok">
-            <td>ET&#43;TT stayed on original date for exactly three eligible goats</td>
-            <td>PASS</td>
-            <td class="detail">count=3</td>
-          </tr>
-
-          <tr class="ok">
-            <td>PPR has no batch left on the original date</td>
-            <td>PASS</td>
-            <td class="detail">count=0</td>
-          </tr>
-
-          <tr class="ok">
-            <td>PPR has no raw assignment membership left on the original date</td>
-            <td>PASS</td>
-            <td class="detail">assignment_animals=0</td>
-          </tr>
-
-          <tr class="ok">
-            <td>ET&#43;TT raw assignment membership still remains on the original date</td>
-            <td>PASS</td>
-            <td class="detail">assignment_animals=3</td>
-          </tr>
-
-          <tr class="ok">
-            <td>PPR moved to override date for exactly three eligible goats</td>
-            <td>PASS</td>
-            <td class="detail">count=3</td>
-          </tr>
-
-          <tr class="ok">
-            <td>deferred goats were not batched on either date</td>
-            <td>PASS</td>
-            <td class="detail">sick_batched=0 icu_batched=0</td>
-          </tr>
-
-          <tr class="ok">
-            <td>override-date assignment animal_count totals three eligible animals</td>
-            <td>PASS</td>
-            <td class="detail">assignment_animals=3</td>
-          </tr>
-
-          <tr class="ok">
-            <td>override-date assignment dose count is also three for the single moved PPR vaccine</td>
-            <td>PASS</td>
-            <td class="detail">assignment_doses=3</td>
-          </tr>
-
-          <tr class="bad">
-            <td>operator cap of one animal per operator is preserved at assignment row grain</td>
-            <td>FAIL</td>
-            <td class="detail">max_assignment_animals=3</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>Admin moves the already-overridden PPR drive back to Jul 23</h3>
-      <p class="narrative">The second move must use the original Jul 22 drive identity, restore rows from the current Aug 5 override date, and re-split them onto Jul 23. This is the exact CEO/CXO correction path from the UI after a vaccine has already been pushed out.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="bad">
-            <td>PPR has no assignment membership left on the old Aug 5 override date after second move</td>
-            <td>FAIL</td>
-            <td class="detail">assignment_animals=3</td>
-          </tr>
-
-          <tr class="bad">
-            <td>PPR assignment membership moved back to Jul 23 for exactly three eligible goats</td>
-            <td>FAIL</td>
-            <td class="detail">assignment_animals=0</td>
-          </tr>
-
-          <tr class="ok">
-            <td>operator cap of one animal per operator is still preserved after the second move</td>
-            <td>PASS</td>
-            <td class="detail">max_assignment_animals=0</td>
-          </tr>
-
-        </tbody>
-      </table>
-
     </div>
 
   </section>
@@ -2067,7 +1951,7 @@
           <tr class="ok">
             <td>the kid&#39;s workflow carries a Record shed step</td>
             <td>PASS</td>
-            <td class="detail">workflow_id=b34b4087-ca35-4242-a9e3-64a524e10f46 action_id=9c45cc17-96b7-41b1-9e36-8e3cb0fc6f73</td>
+            <td class="detail">workflow_id=96d13077-9fc2-46ea-8214-955c872b4d08 action_id=efd92fb7-4652-47e3-8c85-46192ec94b7f</td>
           </tr>
 
         </tbody>
@@ -2240,7 +2124,7 @@
           <tr class="ok">
             <td>sweeper created the executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;6e4de1a5-2747-46c4-bfb0-8275b724754d&#34;</td>
+            <td class="detail">task_id=&#34;bd6a1466-969f-4876-9284-a619842fa77c&#34;</td>
           </tr>
 
         </tbody>
@@ -2352,7 +2236,7 @@
           <tr class="ok">
             <td>park drive has an executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;e0b44166-e942-4ecc-b317-31463dc10356&#34;</td>
+            <td class="detail">task_id=&#34;c618ded6-86a0-45f9-a53f-f378178dbd9d&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -2510,7 +2394,7 @@
           <tr class="bad">
             <td>a brand-new obligation was created rather than the missed row being reused</td>
             <td>FAIL</td>
-            <td class="detail">newOblID=&#34;&#34; oblID=&#34;d241af73-302d-4223-9cd8-7aad7e2b79c3&#34;</td>
+            <td class="detail">newOblID=&#34;&#34; oblID=&#34;43a96a1d-09ef-4995-8582-4528ce4965b7&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -2603,7 +2487,7 @@
           <tr class="ok">
             <td>the two bags are two SEPARATE completion rows</td>
             <td>PASS</td>
-            <td class="detail">both submissions returned completion_id=981daec8-0744-47f2-acaa-243ea0e340fb — one video would stand as proof for both bags</td>
+            <td class="detail">both submissions returned completion_id=72960ba8-9045-4137-aaed-f09c0488eaac — one video would stand as proof for both bags</td>
           </tr>
 
           <tr class="ok">
@@ -2672,7 +2556,7 @@
           <tr class="ok">
             <td>the correction reopened BOTH of the pen&#39;s bags — and nothing else</td>
             <td>PASS</td>
-            <td class="detail">reopened=[981daec8-0744-47f2-acaa-243ea0e340fb 7d3c89ca-615b-4d88-9908-de97aa82efbd], want both Castro - 1 bags (981daec8-0744-47f2-acaa-243ea0e340fb, 7d3c89ca-615b-4d88-9908-de97aa82efbd); Castro - 2 did not move and its packer must not refilm</td>
+            <td class="detail">reopened=[72960ba8-9045-4137-aaed-f09c0488eaac 9df2855d-712e-4434-ba05-18059802734f], want both Castro - 1 bags (72960ba8-9045-4137-aaed-f09c0488eaac, 9df2855d-712e-4434-ba05-18059802734f); Castro - 2 did not move and its packer must not refilm</td>
           </tr>
 
           <tr class="ok">
@@ -2782,7 +2666,7 @@
           <tr class="ok">
             <td>it is the SAME row, re-opened and re-submitted, not a second one</td>
             <td>PASS</td>
-            <td class="detail">completion_id 981daec8-0744-47f2-acaa-243ea0e340fb -&gt; 981daec8-0744-47f2-acaa-243ea0e340fb</td>
+            <td class="detail">completion_id 72960ba8-9045-4137-aaed-f09c0488eaac -&gt; 72960ba8-9045-4137-aaed-f09c0488eaac</td>
           </tr>
 
           <tr class="ok">
@@ -3173,7 +3057,7 @@
           <tr class="ok">
             <td>the create returns 201</td>
             <td>PASS</td>
-            <td class="detail">status=201 body=map[disease_key:foot_rot draft_version_ids:map[adult:d00bd9ba-d2e4-4bc9-88e0-d7c4f7731ae1 kid:9022ad10-7c56-4395-a09a-2ff99e6a1d32] idempotent_replay:false outcome:created version:1]</td>
+            <td class="detail">status=201 body=map[disease_key:foot_rot draft_version_ids:map[adult:e3504a2c-2529-4496-a508-ec98a878c4a0 kid:0255ff01-56bb-4a6b-9fea-e20efbd7551a] idempotent_replay:false outcome:created version:1]</td>
           </tr>
 
           <tr class="ok">
@@ -3185,7 +3069,7 @@
           <tr class="ok">
             <td>a draft was opened for BOTH age bands</td>
             <td>PASS</td>
-            <td class="detail">adult=&#34;d00bd9ba-d2e4-4bc9-88e0-d7c4f7731ae1&#34; kid=&#34;9022ad10-7c56-4395-a09a-2ff99e6a1d32&#34;</td>
+            <td class="detail">adult=&#34;e3504a2c-2529-4496-a508-ec98a878c4a0&#34; kid=&#34;0255ff01-56bb-4a6b-9fea-e20efbd7551a&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -3210,7 +3094,7 @@
           <tr class="ok">
             <td>the save succeeds</td>
             <td>PASS</td>
-            <td class="detail">status=200 body=map[age_band:adult disease_key:foot_rot idempotent_replay:false outcome:saved protocol_version_id:d00bd9ba-d2e4-4bc9-88e0-d7c4f7731ae1 version:1]</td>
+            <td class="detail">status=200 body=map[age_band:adult disease_key:foot_rot idempotent_replay:false outcome:saved protocol_version_id:e3504a2c-2529-4496-a508-ec98a878c4a0 version:1]</td>
           </tr>
 
           <tr class="ok">
@@ -3247,7 +3131,7 @@
           <tr class="ok">
             <td>the publish succeeds</td>
             <td>PASS</td>
-            <td class="detail">status=200 body=map[age_band:adult disease_key:foot_rot idempotent_replay:false outcome:published protocol_version_id:d00bd9ba-d2e4-4bc9-88e0-d7c4f7731ae1 version:1]</td>
+            <td class="detail">status=200 body=map[age_band:adult disease_key:foot_rot idempotent_replay:false outcome:published protocol_version_id:e3504a2c-2529-4496-a508-ec98a878c4a0 version:1]</td>
           </tr>
 
           <tr class="ok">
@@ -3321,7 +3205,7 @@
           <tr class="ok">
             <td>the new draft is a distinct version from the live one</td>
             <td>PASS</td>
-            <td class="detail">draft=&#34;62844eb3-594e-4163-9e42-5acd1d7f0a72&#34; live=&#34;d00bd9ba-d2e4-4bc9-88e0-d7c4f7731ae1&#34;</td>
+            <td class="detail">draft=&#34;6681c1d7-09f3-4311-94a2-0d9a86eedd59&#34; live=&#34;e3504a2c-2529-4496-a508-ec98a878c4a0&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -3345,13 +3229,13 @@
           <tr class="ok">
             <td>the second publish succeeds</td>
             <td>PASS</td>
-            <td class="detail">status=200 body=map[age_band:adult disease_key:foot_rot idempotent_replay:false outcome:published protocol_version_id:62844eb3-594e-4163-9e42-5acd1d7f0a72 retired_version_id:d00bd9ba-d2e4-4bc9-88e0-d7c4f7731ae1 version:2]</td>
+            <td class="detail">status=200 body=map[age_band:adult disease_key:foot_rot idempotent_replay:false outcome:published protocol_version_id:6681c1d7-09f3-4311-94a2-0d9a86eedd59 retired_version_id:e3504a2c-2529-4496-a508-ec98a878c4a0 version:2]</td>
           </tr>
 
           <tr class="ok">
             <td>the second publish RETIRED the first version</td>
             <td>PASS</td>
-            <td class="detail">retired=&#34;d00bd9ba-d2e4-4bc9-88e0-d7c4f7731ae1&#34; want=&#34;d00bd9ba-d2e4-4bc9-88e0-d7c4f7731ae1&#34;</td>
+            <td class="detail">retired=&#34;e3504a2c-2529-4496-a508-ec98a878c4a0&#34; want=&#34;e3504a2c-2529-4496-a508-ec98a878c4a0&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -3855,7 +3739,7 @@
           <tr class="ok">
             <td>sweeper created executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;121bfeeb-99d1-4d74-8c6d-86fb9877f4ab&#34;</td>
+            <td class="detail">task_id=&#34;a9a4b7af-508d-4546-9006-f361e7bdff56&#34;</td>
           </tr>
 
         </tbody>
@@ -3906,7 +3790,7 @@
           <tr class="ok">
             <td>sweeper created the executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;a062fc01-f1d1-44a7-8279-a67bc4444002&#34;</td>
+            <td class="detail">task_id=&#34;7edac345-0d70-44d6-9b14-111a0dd5fc61&#34;</td>
           </tr>
 
         </tbody>
@@ -4049,7 +3933,7 @@
           <tr class="ok">
             <td>a next-page cursor is returned (keyset pagination, bounded reads)</td>
             <td>PASS</td>
-            <td class="detail">next_cursor=eyJzIjoyLCJkIjoiMjAyNi0wNy0yMlQxODozMDowMFoiLCJyIjoiYmF0Y2g6MTY1N2VkNWItNDlkMS00YjEwLWFlODgtYWFlYzJlNjUxNjI1OnJ1bGU6YzNmZjFlNjItM2YxYy00OGExLWJhNjktZDBiY2Y4NmMwNWJiOnByb3RvY29sX3ZlcnNpb246Y2M2ZmI5MGMtNzQwOS00NmI5LWIxYzQtZGY5NGE4MGFjMjhhOnNoZWQ6ZWUwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMTAyOnBhcnRpdGlvbjp3aG9sZTpkYXRlOjIwMjYtMDctMjMifQ</td>
+            <td class="detail">next_cursor=eyJzIjoyLCJkIjoiMjAyNi0wNy0xOFQxODozMDowMFoiLCJyIjoiYmF0Y2g6NjY1NThiMDMtNTJkNi00OTQ1LWFhZDgtMWNjN2YwYTk0YTU1OnJ1bGU6NjYwZDVmYTgtNzJiMy00YjJiLWFlMDQtZDZkZjhmZDY4MWZhOnByb3RvY29sX3ZlcnNpb246NWUyZmJiMzAtMDk5ZS00ODg2LTlhZTYtZTJjZGQzMTdhMzhlOnNoZWQ6ZWUwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMTAyOnBhcnRpdGlvbjp3aG9sZTpkYXRlOjIwMjYtMDctMTkifQ</td>
           </tr>
 
         </tbody>
@@ -5117,7 +5001,7 @@
           <tr class="ok">
             <td>a feed snapshot was stored</td>
             <td>PASS</td>
-            <td class="detail">snapshot=&#34;{\&#34;items\&#34;: [{\&#34;quantity_grams\&#34;: \&#34;400.0000\&#34;, \&#34;feed_item_label\&#34;: \&#34;Concentrate\&#34;}], \&#34;status\&#34;: \&#34;ready\&#34;, \&#34;fingerprint\&#34;: \&#34;5c9f0f2543a46fa61d393abfdfd3b34a06043179ea390f43d1ac6d187925dfa0\&#34;, \&#34;animal_count\&#34;: 2}&#34;</td>
+            <td class="detail">snapshot=&#34;{\&#34;items\&#34;: [{\&#34;quantity_grams\&#34;: \&#34;400.0000\&#34;, \&#34;feed_item_label\&#34;: \&#34;Concentrate\&#34;}], \&#34;status\&#34;: \&#34;ready\&#34;, \&#34;fingerprint\&#34;: \&#34;a30587d5c00755ea09844cc929984cb9760af950151d9a0da98c3178d403e196\&#34;, \&#34;animal_count\&#34;: 2}&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -6074,7 +5958,7 @@
           <tr class="ok">
             <td>one scheduled obligation exists</td>
             <td>PASS</td>
-            <td class="detail">obligation_id=&#34;ebc1ab44-b75c-4862-bf93-f236a7eb5799&#34;</td>
+            <td class="detail">obligation_id=&#34;1691c5e8-64f3-46ce-881f-2a13e015617b&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -6086,7 +5970,7 @@
           <tr class="ok">
             <td>canonical read shows scheduled future work (NextDue set)</td>
             <td>PASS</td>
-            <td class="detail">status=&#34;scheduled&#34; next_due=0x14000475d90</td>
+            <td class="detail">status=&#34;scheduled&#34; next_due=0x9452d1a9b0</td>
           </tr>
 
         </tbody>
@@ -6154,13 +6038,13 @@
           <tr class="ok">
             <td>canonical read shows the reopened dose (NextDue set again)</td>
             <td>PASS</td>
-            <td class="detail">found=true next_due=0x14000284de0</td>
+            <td class="detail">found=true next_due=0x9452c721f0</td>
           </tr>
 
           <tr class="ok">
             <td>reproductive goat has one obligation</td>
             <td>PASS</td>
-            <td class="detail">obligation_id=&#34;d6062df1-aa3f-4f06-9681-896ede84369f&#34;</td>
+            <td class="detail">obligation_id=&#34;3dfebb50-f647-4785-a10d-cfa8f616f9fe&#34;</td>
           </tr>
 
         </tbody>
@@ -6254,7 +6138,7 @@
           <tr class="bad">
             <td>the recomputed obligation is re-anchored to the corrected DOB &#43; 28 days</td>
             <td>FAIL</td>
-            <td class="detail">active_due=&#34;2026-08-24&#34;</td>
+            <td class="detail">active_due=&#34;2026-08-20&#34;</td>
           </tr>
 
         </tbody>
@@ -6537,7 +6421,7 @@
           <tr class="ok">
             <td>sweeper created the executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;433b62d9-0b52-4b3d-aa04-d5dd327b913f&#34;</td>
+            <td class="detail">task_id=&#34;0cbd0ca6-09bf-4d0e-b6d5-88ac0bfca542&#34;</td>
           </tr>
 
         </tbody>
