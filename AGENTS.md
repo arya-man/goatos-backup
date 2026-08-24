@@ -2023,11 +2023,13 @@ Storage keeps the sheds `Castro 1` and `Castro 2` as `Castro + label 1/2`. Displ
 
 **Separator rule (2026-08-16 clarification):** Numeric partitions use SPACE because the farm's sheds ARE NAMED `Castro 1`, `Gandhi 2`, etc. — that is the real name painted on the building, not a display formatting choice. Worded labels use " - " (dash) for visual boundary: `Godel 1 - Part 3` is unambiguous from the shed name.
 
-**NEVER render:**
-- `Yashoda whole` — `'whole'` is a matching key, never user copy
-- `Castro - 1` — dash form for numeric partitions (contradicts farm's physical naming)
-- `Godel 1 1` — the worked wrong-example (naive space-numeric join, truncated)
-- Shed name alone when a partition exists (`Godel 1` without the partition) — both halves must always render together
+**NEVER render.** Each line is `WRONG` -> `RIGHT` so no reader can mistake the
+forbidden string for the one to copy:
+
+- `WRONG: Yashoda whole` -> `RIGHT: Yashoda` — `'whole'` is a matching key, never user copy
+- `WRONG: Castro - 1` -> `RIGHT: Castro 1` — dash form for a numeric shed contradicts the farm's physical naming
+- `WRONG: Godel 1 1` -> `RIGHT: Godel 1 - Part 1` — naive space-numeric join, truncated
+- `WRONG: Godel 1` -> `RIGHT: Godel 1 - Part 3` — the base name alone when the shed has a label; both halves always render together
 
 **Both layers must always be read together.** The normalization is a storage rule; the partition is a product rule (and the separator reflects the farm's real-world naming).
 
