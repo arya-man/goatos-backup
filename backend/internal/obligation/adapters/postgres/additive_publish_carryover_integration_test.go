@@ -390,3 +390,63 @@ func TestInFlightWorkIsReboundButNeverCancelled(t *testing.T) {
 		t.Fatalf("supersede wants to cancel %d goat(s) after a clean carry-over", len(stale))
 	}
 }
+
+// A repeat obligation is unique by its CAUSE, not its due date, and rebinding moves both key
+// columns of that index. So two rows can share a cause at DIFFERENT due dates, pass the dup-guard
+// check, and still collide -- raising 23505 and aborting the whole tenant's generation pass.
+//
+// The dup-guard test above cannot catch this: it collides on an identical due_at, which is the one
+// case the repeat index deliberately ignores.
+func TestCarryOverSkipsRepeatCauseCollisionAtADifferentDueDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo, _, v2, before := seedCarryOverFixture(t, ctx, pool, fiveVaccines())
+
+	cause := "et_tt|2026-07-24T03:30:00Z|2"
+	// The carried-over row carries a cause.
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET repeat_cycle_source = 'trusted_history', repeat_cycle_source_ref = $3
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		tenantID, before["et_tt_primary"].id, cause); err != nil {
+		t.Fatalf("mark the cause: %v", err)
+	}
+
+	// And the destination rule already holds an open row for the SAME cause, a week later.
+	var v2Rule string
+	if err := pool.QueryRow(ctx,
+		`SELECT rule_id::text FROM protocol_rules WHERE tenant_id = $1::uuid AND protocol_version_id = $2::uuid AND dose_code = 'et_tt_primary'`,
+		tenantID, v2).Scan(&v2Rule); err != nil {
+		t.Fatalf("find v2 rule: %v", err)
+	}
+	clash := insertObligationForRule(t, ctx, repo, v2, v2Rule, carryOverGoat, "carryover-cause-clash",
+		before["et_tt_primary"].dueAt.AddDate(0, 0, 7))
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET repeat_cycle_source = 'trusted_history', repeat_cycle_source_ref = $3
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, tenantID, clash, cause); err != nil {
+		t.Fatalf("mark the clashing cause: %v", err)
+	}
+
+	moved, err := repo.CarryOverUnchangedVaccinationObligations(ctx, tenantID, []string{carryOverGoat}, []string{v2})
+	if err != nil {
+		t.Fatalf("carry over must skip a cause collision, not fail the tenant's whole pass: %v", err)
+	}
+	if moved != 4 {
+		t.Fatalf("carried over %d, want 4 with the cause-colliding row left for the supersede path", moved)
+	}
+	// Assert on the specific row: the clash shares its dose_code, so a lookup by dose would read
+	// whichever of the two the scan happened to return last.
+	var version string
+	if err := pool.QueryRow(ctx,
+		`SELECT protocol_version_id::text FROM obligation_instances WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		tenantID, before["et_tt_primary"].id).Scan(&version); err != nil {
+		t.Fatalf("read the carried row: %v", err)
+	}
+	if version == v2 {
+		t.Fatalf("the cause-colliding row was rebound anyway, which would have raised 23505 on a real index")
+	}
+}

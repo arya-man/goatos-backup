@@ -111,12 +111,40 @@ These are the invariants a reviewer or a future change must not break.
 4. **Carry-over never moves a due date.** `due_at` is not in the update. If a due
    date should move, the rule content changed, and the edited path — cancel and
    regenerate — is the correct one.
-5. **Unknown lineage fails safe.** A rule with no `protocol_rule_lineage` row —
-   every rule written before the table existed — does not carry over. It takes
-   the old cancel-and-re-mint path. Failing safe means falling back to the
-   previous behaviour, never to a silent carry-over of a rule whose content
-   nothing has verified. The first publish after this ships therefore behaves
-   exactly as before; the guarantee starts from the publish after that one.
+5. **Unknown lineage fails safe.** A rule with no `protocol_rule_lineage` row
+   does not carry over. It takes the old cancel-and-re-mint path. Failing safe
+   means falling back to the previous behaviour, never to a silent carry-over of
+   a rule whose content nothing has verified.
+
+## Deploying this — the backfill is not optional
+
+Only rules published *after* the lineage table shipped get a row from the
+publisher. Every rule already live has none, so without a backfill the **first**
+publish — the one where a director adds a vaccine to a live plan — cannot prove
+the other vaccines are unchanged and churns all of them. Measured on a restored
+staging clone, same publish either way:
+
+| deploy-day publish | obligations cancelled | carried over |
+|---|---|---|
+| without the backfill | **7,289** | 0 |
+| with the backfill | **0** | 7,289 |
+
+So the order is:
+
+```bash
+# 1. migrate (creates the empty lineage table)
+# 2. label the rules that already exist
+DATABASE_URL=... go run ./backend/cmd/backfill-protocol-rule-lineage -tenant-id <tenant>          # dry run
+DATABASE_URL=... go run ./backend/cmd/backfill-protocol-rule-lineage -tenant-id <tenant> -apply
+# 3. only then publish
+```
+
+The backfill computes the fingerprint with the **same domain helpers the
+publisher uses**, from the stored rule row. Deriving it in SQL would risk a
+fingerprint differing from the publisher's by a byte, which is worse than no
+lineage at all: every rule would read as changed, forever, and never carry over.
+It is idempotent, and a rule whose content cannot be fingerprinted is skipped
+rather than given a value nothing would reproduce.
 6. **Terminal work is never touched.** `completed`, `canceled` and `missed` are
    history and are immutable. Both sweeps act only on open work.
 

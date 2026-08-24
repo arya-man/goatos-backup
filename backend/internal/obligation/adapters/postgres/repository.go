@@ -2047,9 +2047,13 @@ WHERE oi.tenant_id = $1::uuid
   AND retired.tenant_id = oi.tenant_id
   AND retired.protocol_version_id = oi.protocol_version_id
   AND retired.rule_id = oi.rule_id
-  -- obligation_instances_dup_guard spans every status, so a rebind onto a key some other row
-  -- already occupies would raise 23505 and fail the whole generation run. Leave those behind for
-  -- the supersede path instead of letting one collision abort a tenant-wide pass.
+  -- A rebind changes protocol_version_id and rule_id, and BOTH are key columns in three
+  -- different unique indexes. A collision on any of them raises 23505 and aborts the whole
+  -- tenant-wide generation pass, so each one is checked first and the row left behind for the
+  -- supersede path instead.
+  --
+  -- 1. obligation_instances_dup_guard: (tenant, version, rule, target, due_at), spanning every
+  --    status including terminal ones.
   AND NOT EXISTS (
     SELECT 1 FROM obligation_instances clash
     WHERE clash.tenant_id = oi.tenant_id
@@ -2058,6 +2062,33 @@ WHERE oi.tenant_id = $1::uuid
       AND clash.target_type = oi.target_type
       AND clash.target_id = oi.target_id
       AND clash.due_at IS NOT DISTINCT FROM oi.due_at
+      AND clash.obligation_id <> oi.obligation_id
+  )
+  -- 2. obligation_repeat_cycle_open_source_unique_idx: keyed on the CAUSE, and deliberately
+  --    free of due_at -- a repeat's due date moves with the dose before it. So two rows can
+  --    share a cause at DIFFERENT due dates and collide here while passing the check above.
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances clash
+    WHERE oi.repeat_cycle_source_ref IS NOT NULL
+      AND clash.tenant_id = oi.tenant_id
+      AND clash.protocol_version_id = er.protocol_version_id
+      AND clash.rule_id = er.rule_id
+      AND clash.target_type = oi.target_type
+      AND clash.target_id = oi.target_id
+      AND clash.repeat_cycle_source IS NOT DISTINCT FROM oi.repeat_cycle_source
+      AND clash.repeat_cycle_source_ref = oi.repeat_cycle_source_ref
+      AND clash.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      AND clash.obligation_id <> oi.obligation_id
+  )
+  -- 3. obligation_repeat_cycle_open_anchor_unique_idx: (tenant, rule, anchor). It does not
+  --    include the version, so moving rule_id alone is enough to land on an occupied key.
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances clash
+    WHERE oi.repeat_cycle_anchor_obligation_id IS NOT NULL
+      AND clash.tenant_id = oi.tenant_id
+      AND clash.rule_id = er.rule_id
+      AND clash.repeat_cycle_anchor_obligation_id = oi.repeat_cycle_anchor_obligation_id
+      AND clash.status IN ('scheduled', 'due', 'in_progress', 'deferred')
       AND clash.obligation_id <> oi.obligation_id
   )`, tenantID, goatIDs, effectiveVersionIDs)
 	if err != nil {
