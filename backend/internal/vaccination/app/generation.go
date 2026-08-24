@@ -88,6 +88,7 @@ type ObligationWriter interface {
 	// under a version that is no longer effective for them. Usually none, for one indexed read.
 	GoatsWithVaccinationObligationsOutsideVersions(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) ([]string, error)
 	CarryOverUnchangedVaccinationObligations(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) (int, error)
+	ReconcileOpenObligationForRuleIdentity(ctx context.Context, tenantID string, in obldomain.NewObligation, occurredAt time.Time) (obldomain.ObligationRef, bool, error)
 	// Finds an open row by the CAUSE it descends from, for the case where an insert was
 	// refused because another writer already created this cycle under a different key.
 	OpenObligationForRepeatCycle(ctx context.Context, tenantID, protocolVersionID, ruleID, targetType, targetID string, sequence int32, sourceRef string) (obldomain.ObligationRef, bool, error)
@@ -1702,15 +1703,34 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			WindowEnd:         obligationWindowEnd(rule, due),
 			Status:            status,
 			IdempotencyKey:    key,
-			Sequence:          rule.Sequence,
-			RepeatCycle:       historyAnchor,
+			// The rule's business identity, from the same helper the publisher writes to
+			// protocol_rule_lineage. This is what makes the animal's existing work findable
+			// across a publish: the version and rule UUIDs change, the identity does not.
+			RuleIdentityKey: protodomain.RuleIdentityKey(ruleVaccine.Code, rule.DoseCode, rule.Sequence),
+			Sequence:        rule.Sequence,
+			RepeatCycle:     historyAnchor,
 		}
 		if historyAnchor != nil {
 			finalDue := due
 			historyAnchor.DueAt = &finalDue
 		}
+		// Reconcile BEFORE inserting. The animal may already owe this rule under an older
+		// version, and the date it owes it can move even when the rule's content did not --
+		// because the due date is computed from the ANIMAL's history too. Inserting in that case
+		// books the same dose twice, which is worse than the churn carry-over removes. So the
+		// existing row is moved to the new date and version, keeping its obligation_id and
+		// everything attached to it, and no second row is written.
 		var applied bool
-		if deferred {
+		reconciled, found, err := s.obl.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, newObligation, asOf)
+		if err != nil {
+			return err
+		}
+		if found {
+			// Same work, still open, now pointing at the current version. Nothing was generated,
+			// so it does not count as new; the persisted state is already what generation wanted.
+			res.Reconciled++
+			_ = reconciled
+		} else if deferred {
 			_, applied, err = s.obl.InsertDeferredObligation(ctx, newObligation, deferReason, asOf)
 		} else {
 			_, applied, err = s.obl.InsertObligation(ctx, newObligation)

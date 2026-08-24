@@ -2307,6 +2307,7 @@ CREATE TABLE public.obligation_instances (
     status text DEFAULT 'scheduled'::text NOT NULL,
     sop_task_id uuid,
     idempotency_key text NOT NULL,
+    rule_identity_key text,
     generated_by_trigger_id uuid,
     sequence integer DEFAULT 1 NOT NULL,
     completed_at timestamp with time zone,

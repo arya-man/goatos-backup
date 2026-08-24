@@ -150,16 +150,16 @@ const insertObligationInstance = `-- name: InsertObligationInstance :one
 INSERT INTO obligation_instances (
   tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id,
   scope_type, scope_id, due_at, window_start, window_end, status,
-  idempotency_key, generated_by_trigger_id, "sequence",
+  idempotency_key, rule_identity_key, generated_by_trigger_id, "sequence",
   repeat_cycle_source, repeat_cycle_source_ref, repeat_cycle_anchor_obligation_id,
   repeat_cycle_anchor_at, repeat_cycle_due_at
 ) SELECT
   $1, $2, $3, $4, $5, $6,
   $7, $8, $9, $10, $11, $12,
-  $13, $14, $15,
-  $16, $17,
-  $18, $19,
-  $20
+  $13, $14, $15, $16,
+  $17, $18,
+  $19, $20,
+  $21
 WHERE NOT EXISTS (
   SELECT 1
   FROM obligation_instances existing
@@ -172,8 +172,8 @@ WHERE NOT EXISTS (
       -- NON-REPEAT: unchanged, deliberately byte-for-byte. This is the generic obligation
       -- insert; a broad rewrite would change behaviour for every caller of it.
       (
-        $17::text IS NULL
-        AND existing."sequence" = $15
+        $18::text IS NULL
+        AND existing."sequence" = $16
         AND existing.due_at = $9
         AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
       )
@@ -185,11 +185,11 @@ WHERE NOT EXISTS (
       -- 'missed' is absent on purpose: a missed successor is closed history, so it must
       -- free its source for the next pass to mint new work rather than block it forever.
       (
-        $17::text IS NOT NULL
+        $18::text IS NOT NULL
         AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred')
         AND (
-          existing.repeat_cycle_source = $16::text
-            AND existing.repeat_cycle_source_ref = $17::text
+          existing.repeat_cycle_source = $17::text
+            AND existing.repeat_cycle_source_ref = $18::text
           OR
           -- A row written before repeat-cycle metadata existed carries no cause, so it cannot
           -- be matched by one. It is still the same open cycle: for a repeat rule, one open
@@ -199,7 +199,7 @@ WHERE NOT EXISTS (
           -- rather than guessed at. Scoped to the repeat branch, so no other writer is
           -- affected.
           existing.repeat_cycle_source_ref IS NULL
-            AND existing."sequence" = $15
+            AND existing."sequence" = $16
         )
       )
     )
@@ -240,6 +240,7 @@ type InsertObligationInstanceParams struct {
 	WindowEnd                     pgtype.Timestamptz
 	Status                        string
 	IdempotencyKey                string
+	RuleIdentityKey               pgtype.Text
 	GeneratedByTriggerID          pgtype.UUID
 	Sequence                      int32
 	RepeatCycleSource             pgtype.Text
@@ -268,6 +269,7 @@ func (q *Queries) InsertObligationInstance(ctx context.Context, arg InsertObliga
 		arg.WindowEnd,
 		arg.Status,
 		arg.IdempotencyKey,
+		arg.RuleIdentityKey,
 		arg.GeneratedByTriggerID,
 		arg.Sequence,
 		arg.RepeatCycleSource,
