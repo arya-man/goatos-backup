@@ -174,6 +174,12 @@
      title holds its width and the hint takes the remaining space, shrinking instead. */
   .main .card .hd h3{white-space:nowrap;flex:0 0 auto}
   .main .card .hd > .small.muted{min-width:0}
+  /* This page's tab strip is its primary navigation -- five verticals of the feed day -- so it
+     carries more weight than the inline metric toggles `.metricseg` was sized for elsewhere.
+     Scoped to this row so the Weights and Counts strips keep their own density. */
+  .main .feed-tabbar{margin-top:12px}
+  .main .feed-tabbar .metricseg{padding:3px;gap:3px}
+  .main .feed-tabbar .metricseg a{padding:7px 14px;font-size:13px}
   /* Ten columns since breed and age group joined: at the default 12px each side the row needed
      more width than a laptop viewport gives, so Difference -- the column the reader came for --
      fell off the right edge behind a horizontal scroll. Tighter gutters fit the row instead of
