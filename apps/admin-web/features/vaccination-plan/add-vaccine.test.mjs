@@ -162,31 +162,51 @@ test("an existing vaccine's own row is left untouched by adding a new one", () =
 // A short code that differs only in punctuation derives the same row id as an existing row, and
 // publish rejects a matrix whose row ids repeat. Refusing the vaccine over a detail the author
 // cannot see would be worse than suffixing the id, so the id moves and the typed code does not.
-test("a new vaccine never reuses an existing matrix row id", () => {
+test("a new vaccine never reuses an existing matrix row id, and is still publishable", () => {
   const plan = fromRuleDsl(BASE_DOC, null);
   const existingRowId = BASE_DOC.matrix_rows[0].row_id;
-  // A short code differing from the existing one only in punctuation derives the SAME row id,
-  // and publish rejects a matrix whose row ids repeat. Refusing the vaccine over a detail the
-  // author cannot see would be worse than suffixing the id, so the id moves, the typed code
-  // does not, and the existing row keeps what it had.
+  // A short code differing from the existing one only in punctuation derives the SAME row id, and
+  // publish rejects a matrix whose row ids repeat. Refusing the vaccine over a detail the author
+  // cannot see would be worse than suffixing the id, so the id moves and the typed code does not.
   const added = newVaccineToEditor({
     name: "Enterotoxaemia Tetanus Repeat",
     code: existingRowId.toUpperCase(),
     disease: "Enterotoxaemia",
-    vaccineClass: "killed",
-    pathogen: "bacterial",
+    vaccineType: "killed",
+    pathogenClass: "bacterial",
     species: "both",
-    course: "single",
+    courseType: "single",
     firstDoseDays: 28,
     boosterGapDays: 0,
     repeatDays: 180,
-    maxDelayDays: 7,
+    maxLateDays: 7,
   });
   const doc = toRuleDsl(BASE_DOC, { ...plan, vaccines: [...plan.vaccines, added] });
+
   const ids = doc.matrix_rows.map((r) => r.row_id);
   assert.equal(new Set(ids).size, ids.length, `row ids collided: ${ids.join(", ")}`);
   assert.ok(ids.includes(existingRowId), "the existing row lost its id");
+
   const addedRow = doc.matrix_rows.find((r) => r.vaccine.code === existingRowId.toUpperCase());
   assert.ok(addedRow, "the added vaccine produced no row");
   assert.notEqual(addedRow.row_id, existingRowId, "the added row reused the existing row id");
+
+  // Distinct row ids alone would be a hollow assertion: a row that publish rejects for any OTHER
+  // missing field is just as unusable. So the row is checked against what publish.go requires of
+  // an individual vaccine, which is what "no collision" is supposed to be worth.
+  assert.equal(addedRow.vaccine.type, "killed", "vaccine.type missing -- publish requires it");
+  assert.equal(addedRow.vaccine.pathogen_class, "bacterial", "pathogen_class missing -- publish requires it");
+  assert.equal(addedRow.vaccine.course_type, "single", "course_type missing -- publish requires it");
+  assert.ok(addedRow.vaccine.name, "vaccine.name missing -- publish requires it");
+  assert.ok(addedRow.schedule.length > 0, "publish requires at least one schedule row");
+  for (const row of addedRow.schedule) {
+    assert.ok(row.dose_amount > 0, "dose_amount must be positive");
+    assert.ok(row.dose_unit, "dose_unit required");
+    assert.ok(row.route_site, "route_site required");
+    assert.ok(row.course_lapse_policy, "course_lapse_policy required");
+    assert.ok(row.max_delay_days >= row.due_window_days, "max_delay_days must cover the due window");
+  }
+  for (const key of ["sex", "breed", "lifecycle", "health", "reproductive"]) {
+    assert.ok(addedRow.eligibility[key], `eligibility.${key} required by publish`);
+  }
 });
