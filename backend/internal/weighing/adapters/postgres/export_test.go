@@ -21,10 +21,7 @@ func TestExportCampaignCSVWithIndividualObservations(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, "postgres://postgres:goatos@127.0.0.1:15546/goatos?sslmode=disable")
-	if err != nil {
-		t.Fatalf("failed to connect to postgres: %v", err)
-	}
+	pool := weighingExportLaneDB(t, ctx)
 	defer pool.Close()
 
 	repo := NewRepository(pool, 5*time.Second)
@@ -34,7 +31,7 @@ func TestExportCampaignCSVWithIndividualObservations(t *testing.T) {
 	campaignID := "92000000-0000-4000-8000-000000000701"
 
 	buf := bytes.NewBuffer(nil)
-	err = repo.ExportCampaignCSV(ctx, tenantID, campaignID, buf)
+	err := repo.ExportCampaignCSV(ctx, tenantID, campaignID, buf)
 	if err != nil {
 		t.Fatalf("ExportCampaignCSV failed: %v", err)
 	}
@@ -117,10 +114,7 @@ func TestExportCampaignCSVWithLumpSumObservations(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, "postgres://postgres:goatos@127.0.0.1:15546/goatos?sslmode=disable")
-	if err != nil {
-		t.Fatalf("failed to connect to postgres: %v", err)
-	}
+	pool := weighingExportLaneDB(t, ctx)
 	defer pool.Close()
 
 	repo := NewRepository(pool, 5*time.Second)
@@ -130,7 +124,7 @@ func TestExportCampaignCSVWithLumpSumObservations(t *testing.T) {
 	campaignID := "92000000-0000-4000-8000-000000000702"
 
 	buf := bytes.NewBuffer(nil)
-	err = repo.ExportCampaignCSV(ctx, tenantID, campaignID, buf)
+	err := repo.ExportCampaignCSV(ctx, tenantID, campaignID, buf)
 	if err != nil {
 		t.Fatalf("ExportCampaignCSV failed: %v", err)
 	}
@@ -171,10 +165,7 @@ func TestExportCSVWithRejectedObservations(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, "postgres://postgres:goatos@127.0.0.1:15546/goatos?sslmode=disable")
-	if err != nil {
-		t.Fatalf("failed to connect to postgres: %v", err)
-	}
+	pool := weighingExportLaneDB(t, ctx)
 	defer pool.Close()
 
 	repo := NewRepository(pool, 5*time.Second)
@@ -183,7 +174,7 @@ func TestExportCSVWithRejectedObservations(t *testing.T) {
 	campaignID := "92000000-0000-4000-8000-000000000701"
 
 	buf := bytes.NewBuffer(nil)
-	err = repo.ExportCampaignCSV(ctx, tenantID, campaignID, buf)
+	err := repo.ExportCampaignCSV(ctx, tenantID, campaignID, buf)
 	if err != nil {
 		t.Fatalf("ExportCampaignCSV failed: %v", err)
 	}
@@ -213,10 +204,7 @@ func TestExportCSVFieldEscaping(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, "postgres://postgres:goatos@127.0.0.1:15546/goatos?sslmode=disable")
-	if err != nil {
-		t.Fatalf("failed to connect to postgres: %v", err)
-	}
+	pool := weighingExportLaneDB(t, ctx)
 	defer pool.Close()
 
 	repo := NewRepository(pool, 5*time.Second)
@@ -225,7 +213,7 @@ func TestExportCSVFieldEscaping(t *testing.T) {
 	campaignID := "92000000-0000-4000-8000-000000000701"
 
 	buf := bytes.NewBuffer(nil)
-	err = repo.ExportCampaignCSV(ctx, tenantID, campaignID, buf)
+	err := repo.ExportCampaignCSV(ctx, tenantID, campaignID, buf)
 	if err != nil {
 		t.Fatalf("ExportCampaignCSV failed: %v", err)
 	}
@@ -664,4 +652,26 @@ func csvColumn(t *testing.T, header []string, column string) int {
 	}
 	t.Fatalf("CSV header missing column %q: %#v", column, header)
 	return -1
+}
+
+// weighingExportLaneDB opens the SEPARATELY-PROVISIONED weighing export lane -- a live database
+// seeded with the campaign these assertions name, not the throwaway pgtest container. On a machine
+// where that lane is not running there is nothing to assert against, so skip rather than fail.
+func weighingExportLaneDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
+	t.Helper()
+	dsn := strings.TrimSpace(os.Getenv("GOATOS_WEIGHING_EXPORT_DATABASE_URL"))
+	if dsn == "" {
+		dsn = "postgres://postgres:goatos@127.0.0.1:15546/goatos?sslmode=disable"
+	}
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("failed to connect to postgres: %v", err)
+	}
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := pool.Ping(pingCtx); err != nil {
+		pool.Close()
+		t.Skipf("weighing export lane %s is not reachable (%v); start it or set GOATOS_WEIGHING_EXPORT_DATABASE_URL", dsn, err)
+	}
+	return pool
 }
