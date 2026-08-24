@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
-import { TrendingDown, Warehouse } from "lucide-react";
+import { Gauge, TrendingDown, Warehouse } from "lucide-react";
 
 import { GrowthDirectorSection } from "./growth-director";
 import { MetricChart, ShedMetricChart } from "./metric-chart";
+import { SegmentedLinks } from "@/components/segmented-links";
+import { GainThresholdBars, type GainThresholdRow } from "./gain-threshold-bars";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
@@ -52,11 +54,12 @@ function hrefWith(searchParams: RouteSearchParams, updates: Record<string, strin
   return query ? `${PAGE_PATH}?${query}` : PAGE_PATH;
 }
 
-// The window the page lands on: the 30 days before today, inclusive of both ends (maintainer,
-// 2026-08-12). It replaces the fixed "Last 4 weeks / Last 12 weeks" select, which could only answer
-// the two questions someone thought of in advance — a reader comparing one drive week against
-// another had no way to ask.
-const DEFAULT_WINDOW_DAYS = 30;
+// The window the page lands on: the 7 days before today, inclusive of both ends (maintainer,
+// 2026-08-24; it was 30). The calendar still picks any span — this is only where the page starts.
+const DEFAULT_WINDOW_DAYS = 7;
+// Which view the gain-mark card is showing. Absent means the chart, so a shared link
+// that predates the toggle — or one copied from the default view — keeps meaning "chart".
+const GAIN_VIEW_PARAM = "gain_view";
 const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -305,8 +308,8 @@ export async function WeighingWeightsPage({
       from: window.from,
       to: window.to,
       today,
-      // Landing on this window clears both parameters, so a shared link keeps meaning "the last 30
-      // days" rather than freezing on the month it was copied in. Named fields, never a spread of
+      // Landing on this window clears both parameters, so a shared link keeps meaning "the last 7
+      // days" rather than freezing on the week it was copied in. Named fields, never a spread of
       // defaultWindow(): `{...{from,to}}` would silently overwrite the SELECTED window above with
       // the default and pin the page to 30 days whatever the reader picked.
       defaultFrom: defaultWindow(today).from,
@@ -555,6 +558,41 @@ export async function WeighingWeightsPage({
     })
     .sort((a, b) => b.animals - a.animals);
 
+  // Row 2b — how many kids of each breed clear each daily gain mark.
+  //
+  // The three counts are CUMULATIVE (maintainer, 2026-08-24): a kid at 260 g/day is counted
+  // under all three. So they are rendered as three independent columns and are NEVER summed,
+  // stacked, or subtracted from one another — "Above 180" already contains the other two.
+  //
+  // The share is taken against the row's OWN backend-supplied denominator (kids of this breed
+  // with a second weigh), which is the exact key set the backend filtered — never against the
+  // page's animal total, which covers kids weighed once and would understate every breed.
+  const gainThresholdColumns = tableLabels(pageContract, "gain-thresholds");
+  // The three mark columns, in contract order, paired with their ordered colour step. The
+  // labels are the table contract's own, so the chart legend and the table header cannot
+  // drift into two spellings of one mark.
+  const gainThresholdSteps = ["hi", "mid", "lo"] as const;
+  const gainThresholdRows: GainThresholdRow[] = (demo?.gain_thresholds_by_breed ?? [])
+    .filter((row) => row.animals > 0)
+    .map((row) => ({
+      key: row.label,
+      breed: row.label,
+      animals: row.animals,
+      marks: [row.above_250_g_per_day, row.above_200_g_per_day, row.above_180_g_per_day].map(
+        (count, index) => ({
+          step: gainThresholdSteps[index],
+          // Column 0 is the breed and column 1 the head count, so the marks start at 2.
+          label: gainThresholdColumns[index + 2] ?? "",
+          count,
+          pct: (count / row.animals) * 100,
+        }),
+      ),
+    }));
+  // Chart first: the card exists to answer "is this breed growing", and six rows of
+  // figures answer that more slowly than six rows of bars. The exact counts are one
+  // click away and the chart carries them on hover, so nothing is hidden by the default.
+  const gainThresholdView = one(params, GAIN_VIEW_PARAM) === "table" ? "table" : "chart";
+
   // The download drawer's shed list: every shed the page knows about, at the same
   // location grain the backend filter takes. The park id travels with each shed so
   // the list follows the drawer's own park select; parks are unique by name within
@@ -573,24 +611,26 @@ export async function WeighingWeightsPage({
 
   return (
     <div className="weights-page">
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <WeightsExportControl
-          pageContract={pageContract}
-          parks={parks.map((park) => ({ park_id: park.park_id, name: park.name }))}
-          sheds={exportSheds}
-          initialParkId={parkFilter}
-          initialFrom={window.from}
-          initialTo={window.to}
-          today={today}
-          openHref={hrefWith(params, { wt_export: "1" })}
-          closeHref={hrefWith(params, { wt_export: null })}
-        />
-      </div>
+      {/* The download opener rides at the far end of the filter bar, on the same line as the park
+          and period controls, rather than on a line of its own above them (maintainer, 2026-08-24). */}
       <WorklistFilters
         basePath={PAGE_PATH}
         pageParam="offset"
         fields={filterFields}
         pageContract={pageContract}
+        trailing={
+          <WeightsExportControl
+            pageContract={pageContract}
+            parks={parks.map((park) => ({ park_id: park.park_id, name: park.name }))}
+            sheds={exportSheds}
+            initialParkId={parkFilter}
+            initialFrom={window.from}
+            initialTo={window.to}
+            today={today}
+            openHref={hrefWith(params, { wt_export: "1" })}
+            closeHref={hrefWith(params, { wt_export: null })}
+          />
+        }
       />
 
       <p className="muted small" style={{ margin: "0 0 -4px" }}>
@@ -763,6 +803,74 @@ export async function WeighingWeightsPage({
         title={{ adg: copy(pageContract, "chart.gain.title"), weight: copy(pageContract, "chart.average.title") }}
         series={shedSeries}
       />
+
+      {/* Row 2b — kids clearing each daily gain mark, by breed. A breed median says where the
+          middle kid sits; it cannot say how many of the breed are actually growing well, which
+          is the question this answers. Sits directly above the load chart because both read as
+          "who is growing", one by breed and one by supplier.
+
+          Every column header is the backend table contract's, and the caption states the
+          overlap — the columns must not be read as a distribution that adds to the total. */}
+      <section className="card wtable" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
+        <h2 className="h">
+          <Gauge className="ic" size={15} aria-hidden /> {copy(pageContract, "section.gain_thresholds.title")}
+          {/* Top-right, and URL-driven like every other toggle on this page, so the choice
+              survives a reload and travels in a shared link. SegmentedLinks keeps the reader
+              beside the card instead of throwing them back to the top of a long page. */}
+          <SegmentedLinks
+            ariaLabel={copy(pageContract, "section.gain_thresholds.view_aria")}
+            current={gainThresholdView}
+            options={[
+              { value: "chart", label: copy(pageContract, "view.chart"), href: hrefWith(params, { [GAIN_VIEW_PARAM]: null }) },
+              { value: "table", label: copy(pageContract, "view.table"), href: hrefWith(params, { [GAIN_VIEW_PARAM]: "table" }) },
+            ]}
+          />
+        </h2>
+        <p className="muted small">{copy(pageContract, "section.gain_thresholds.caption")}</p>
+        {gainThresholdView === "chart" ? (
+          <GainThresholdBars
+            rows={gainThresholdRows}
+            chartLabel={copy(pageContract, "chart.gain_thresholds.aria")}
+            emptyLabel={copy(pageContract, "empty.gain_thresholds.body")}
+            kidsLabel={copy(pageContract, "value.gain_thresholds.kids")}
+            ofLabel={copy(pageContract, "value.gain_thresholds.of")}
+          />
+        ) : gainThresholdRows.length === 0 ? (
+          <div className="empty">
+            <span className="muted small">{copy(pageContract, "empty.gain_thresholds.body")}</span>
+          </div>
+        ) : (
+          <div className="tablewrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  {gainThresholdColumns.map((label, index) => (
+                    <th key={label} className={index >= 1 ? "num" : undefined}>
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {gainThresholdRows.map((row) => (
+                  <tr key={row.key}>
+                    <td>
+                      <b>{row.breed}</b>
+                    </td>
+                    <td className="num">{row.animals.toLocaleString("en-IN")}</td>
+                    {row.marks.map((mark) => (
+                      <td key={mark.step} className="num">
+                        {mark.count.toLocaleString("en-IN")}{" "}
+                        <span className="muted">({mark.pct.toFixed(1)}%)</span>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {/* Row 3 — growth by purchase load, full width: the label carries both the load
           number and the supplier, which does not fit a half-width card. */}

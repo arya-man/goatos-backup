@@ -10519,6 +10519,18 @@ export interface components {
              */
             median_gain_g_per_day: number;
         };
+        /** @description How many animals of one breed clear each daily-gain mark. The three counts are CUMULATIVE, not bands: an animal at 260 g/day is counted in all three, so they overlap by design and must never be summed or stacked -- above_180_g_per_day already contains the other two. */
+        WeighingWeightGainThresholdBucket: {
+            label: string;
+            /** @description Animals of this breed with a computable gain. The denominator the three counts filter, so a share may be taken row-locally. */
+            animals: number;
+            /** @description Strictly greater than 180 g/day. */
+            above_180_g_per_day: number;
+            /** @description Strictly greater than 200 g/day. A subset of above_180_g_per_day. */
+            above_200_g_per_day: number;
+            /** @description Strictly greater than 250 g/day. A subset of above_200_g_per_day. */
+            above_250_g_per_day: number;
+        };
         WeighingShedCompositionChip: {
             /** @description Breed label from the herd register, or Unknown breed when unresolved. */
             breed?: string;
@@ -10550,6 +10562,8 @@ export interface components {
             gain_by_breed: components["schemas"]["WeighingWeightGainBucket"][];
             gain_by_sex: components["schemas"]["WeighingWeightGainBucket"][];
             gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
+            /** @description How many animals of each breed clear 180 / 200 / 250 g per day. Same same-animal population as gain_by_breed; the marks are cumulative. */
+            gain_thresholds_by_breed: components["schemas"]["WeighingWeightGainThresholdBucket"][];
             resolved_animals: number;
             /** @description Scanned tags with no animal in the herd register. Real weighs, reported not dropped. */
             unresolved_animals: number;

@@ -25911,6 +25911,28 @@ components:
           type: number
           format: double
           description: "Median across those animals, so one scale misread cannot swing a breed."
+    WeighingWeightGainThresholdBucket:
+      type: object
+      additionalProperties: false
+      required: [label, animals, above_180_g_per_day, above_200_g_per_day, above_250_g_per_day]
+      description: >-
+        How many animals of one breed clear each daily-gain mark. The three counts are CUMULATIVE,
+        not bands: an animal at 260 g/day is counted in all three, so they overlap by design and
+        must never be summed or stacked -- above_180_g_per_day already contains the other two.
+      properties:
+        label: {type: string}
+        animals:
+          type: integer
+          description: "Animals of this breed with a computable gain. The denominator the three counts filter, so a share may be taken row-locally."
+        above_180_g_per_day:
+          type: integer
+          description: "Strictly greater than 180 g/day."
+        above_200_g_per_day:
+          type: integer
+          description: "Strictly greater than 200 g/day. A subset of above_180_g_per_day."
+        above_250_g_per_day:
+          type: integer
+          description: "Strictly greater than 250 g/day. A subset of above_200_g_per_day."
     WeighingShedCompositionChip:
       type: object
       additionalProperties: false
@@ -25947,7 +25969,7 @@ components:
     WeighingWeightDemographicsResponse:
       type: object
       additionalProperties: false
-      required: [by_breed, by_sex, by_stage, gain_by_breed, gain_by_sex, gain_by_stage, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals, shed_composition]
+      required: [by_breed, by_sex, by_stage, gain_by_breed, gain_by_sex, gain_by_stage, gain_thresholds_by_breed, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals, shed_composition]
       properties:
         by_breed:
           type: array
@@ -25971,6 +25993,10 @@ components:
         gain_by_stage:
           type: array
           items: {$ref: "#/components/schemas/WeighingWeightGainBucket"}
+        gain_thresholds_by_breed:
+          type: array
+          description: "How many animals of each breed clear 180 / 200 / 250 g per day. Same same-animal population as gain_by_breed; the marks are cumulative."
+          items: {$ref: "#/components/schemas/WeighingWeightGainThresholdBucket"}
         resolved_animals: {type: integer}
         unresolved_animals:
           type: integer

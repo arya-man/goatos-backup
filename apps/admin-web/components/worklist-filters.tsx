@@ -144,6 +144,7 @@ export function WorklistFilters({
   pageContract,
   deferApply = false,
   telemetry,
+  trailing,
   children,
 }: {
   basePath: string;
@@ -151,6 +152,12 @@ export function WorklistFilters({
   fields: WorklistFilterField[];
   pageContract: AdminUiPageContract;
   telemetry?: WorklistFilterTelemetry;
+  /**
+   * A page-owned control pinned to the END of the bar, on the same line as the filters (the Weights
+   * download drawer opener). Pushed right with `margin-left:auto` so it stays at the far edge as
+   * filters are added, and wraps with the rest of the bar on a narrow viewport.
+   */
+  trailing?: ReactNode;
   /**
    * The rows this bar filters, passed in so the bar can hold them back while an apply is in flight.
    *
@@ -560,6 +567,11 @@ export function WorklistFilters({
           {loadingLabel}
         </span>
       ) : null}
+      {trailing === undefined ? null : (
+        <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center" }}>
+          {trailing}
+        </span>
+      )}
     </div>
     {children === undefined ? null : (
       <div className={busy ? "wfbusy" : undefined} aria-busy={busy || undefined}>

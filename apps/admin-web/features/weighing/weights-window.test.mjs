@@ -19,8 +19,8 @@ test("the period control is a calendar, not a fixed-window select", () => {
   assert.doesNotMatch(contract, /"filter\.period\.12w"/);
 });
 
-test("the page lands on the 30 days before today, inclusive", () => {
-  assert.match(source, /const DEFAULT_WINDOW_DAYS = 30;/);
+test("the page lands on the 7 days before today, inclusive", () => {
+  assert.match(source, /const DEFAULT_WINDOW_DAYS = 7;/);
   assert.match(source, /return \{ from: istDayPlus\(today, -\(DEFAULT_WINDOW_DAYS - 1\)\), to: today \};/);
   // istDayPlus is pure calendar arithmetic on an already-resolved IST day. Re-entering a timezone
   // here (or hardcoding +05:30) is what the shared helper exists to prevent.
@@ -30,7 +30,7 @@ test("the page lands on the 30 days before today, inclusive", () => {
 
 test("the default window is passed as NAMED fields, never spread", () => {
   // `{...defaultWindow(today)}` spreads `{from, to}` — the same two keys the SELECTED window uses —
-  // and would silently overwrite the reader's choice, pinning the page to 30 days whatever they
+  // and would silently overwrite the reader's choice, pinning the page to 7 days whatever they
   // picked. It typechecks and renders; only the data is wrong.
   assert.match(source, /defaultFrom: defaultWindow\(today\)\.from,\s*\n\s*defaultTo: defaultWindow\(today\)\.to,/);
   assert.doesNotMatch(source, /\.\.\.defaultWindow\(/);
