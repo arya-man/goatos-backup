@@ -43,6 +43,7 @@ function subscribeToOverlayUrl(onChange: () => void): () => void {
 export function FeedPurchaseDrawer({
   purchases,
   options,
+  recordIdempotencyKey,
   pageContract,
   listHref,
   canRecord,
@@ -51,6 +52,8 @@ export function FeedPurchaseDrawer({
   purchases: FeedPurchase[];
   /** Backend-owned form vocabulary (farms, the ACTIVE feed catalog, payment states, vendors seen). */
   options: FeedPurchaseOptions | null;
+  /** Stable key for the currently rendered record form. Reusing it makes retry/double-submit safe. */
+  recordIdempotencyKey: string;
   pageContract: AdminUiPageContract;
   /** The list URL to restore on close (current farm/paging, without the purchase param). */
   listHref: string;
@@ -152,6 +155,7 @@ export function FeedPurchaseDrawer({
           <form action={recordFeedPurchaseAction} style={{ display: "contents" }}>
             <div className="dc">
               <input type="hidden" name="return_to" value={listHref} />
+              <input type="hidden" name="idempotency_key" value={recordIdempotencyKey} />
 
               <div className="note">{copy(pageContract, "required.hint")}</div>
 

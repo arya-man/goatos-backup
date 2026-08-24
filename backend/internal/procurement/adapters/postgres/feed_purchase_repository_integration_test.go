@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -149,6 +150,48 @@ FROM feed_purchases WHERE feed_purchase_id = $1`, created.FeedPurchaseID).
 		}
 		if wantCBE == parkIDByCode(t, ctx, pool, domain.FeedFarmCPT) {
 			t.Fatal("the two farms must resolve to different parks, or this assertion proves nothing")
+		}
+	})
+
+	t.Run("concurrent next-batch writes both land with consecutive batch numbers", func(t *testing.T) {
+		before, err := repo.CreateFeedPurchase(ctx, testTenant, feedWrite(), "", "concurrent-before")
+		if err != nil {
+			t.Fatalf("seed preceding load: %v", err)
+		}
+
+		start := make(chan struct{})
+		results := make(chan domain.FeedPurchase, 2)
+		errs := make(chan error, 2)
+		var wg sync.WaitGroup
+		for i, key := range []string{"concurrent-a", "concurrent-b"} {
+			wg.Add(1)
+			go func(i int, key string) {
+				defer wg.Done()
+				write := feedWrite()
+				write.Vendor = []string{"Parallel Traders A", "Parallel Traders B"}[i]
+				<-start
+				created, err := repo.CreateFeedPurchase(ctx, testTenant, write, "", key)
+				if err != nil {
+					errs <- err
+					return
+				}
+				results <- created
+			}(i, key)
+		}
+		close(start)
+		wg.Wait()
+		close(results)
+		close(errs)
+
+		for err := range errs {
+			t.Fatalf("concurrent create: %v", err)
+		}
+		got := make(map[int]bool, 2)
+		for created := range results {
+			got[created.BatchNo] = true
+		}
+		if !got[before.BatchNo+1] || !got[before.BatchNo+2] || len(got) != 2 {
+			t.Fatalf("concurrent batch numbers = %v want %d and %d", got, before.BatchNo+1, before.BatchNo+2)
 		}
 	})
 

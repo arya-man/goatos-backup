@@ -4,7 +4,7 @@
 // envelope) drives the banner the operator sees — no optimistic success.
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { actionRedirect, requiredString } from "@/lib/action-helpers";
+import { actionRedirect, optionalString, requiredString } from "@/lib/action-helpers";
 // NOTE: every actionKey below MUST start with "action." -- withActionFeedback silently rewrites
 // anything else to "action.error_form" -- and each key needs matching page-contract copy, because
 // actionFeedbackCopy throws on a missing key and takes the whole page down with it.
@@ -50,9 +50,11 @@ function readPurchaseForm(formData: FormData): FeedPurchaseWrite {
 }
 
 export async function recordFeedPurchaseAction(formData: FormData): Promise<void> {
-  // A fresh key per submit: retries of THIS action invocation cannot duplicate the load, while a
-  // deliberate second submit records a second load, which is what the operator asked for.
-  const result = await createFeedPurchase(readPurchaseForm(formData), randomUUID());
+  // The real form mints this once when rendered and carries it as a hidden field. Reading it here
+  // makes a double-submit or lost-response retry replay the SAME logical purchase instead of
+  // creating another load with the next auto-assigned batch number. The fallback covers only
+  // programmatic callers that did not post the field.
+  const result = await createFeedPurchase(readPurchaseForm(formData), optionalString(formData, "idempotency_key") ?? randomUUID());
   if (!result.ok) {
     actionRedirect(formData, "error", "action.purchase_record_failed");
   }
