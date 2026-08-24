@@ -1,0 +1,544 @@
+package permissions
+
+import "sort"
+
+// Per-person module access (maintainer decision 2026-08-24).
+//
+// Access used to be DERIVED: a person carried a role + department + park, and four
+// separate mechanisms turned those into modules and permissions. That model had already
+// broken in production -- STG carries four people wearing stacked job titles (one wears
+// FIVE), a department literally named after an individual (`avishek_health_access`), and
+// a duplicated roster row for the same human. Those are all workarounds for the same
+// missing thing: no way to say "this person, this module, this much authority".
+//
+// So access becomes ASSIGNED. A person is granted, per SURFACE (web / mobile), a LEVEL on
+// each MODULE. This file is the single place that says what a level MEANS in permissions.
+//
+// Three properties this file must keep, because each one is load-bearing:
+//
+//  1. LEVELS ARE NOT A CUMULATIVE LADDER. Each level authors its FULL permission set. It
+//     is tempting to make `oversee` mean `do` + oversight verbs, and that is exactly wrong
+//     for Feed: the Feed Director reads every page of the feed chain and deliberately
+//     CANNOT record a transport task as done (permissions.FeedDirectionComplete is absent
+//     from RoleFeedDirector on purpose, with a comment saying so). A cumulative ladder
+//     would silently hand him that authority the first time someone set him to `oversee`.
+//     Authoring full sets keeps the asymmetry expressible and auditable.
+//
+//  2. THE CATALOG IS THE CONTRACT, NOT THE UI. The admin-web screen renders levels the
+//     backend declares; it never maps a level to permissions itself. A client that could
+//     name its own permissions could grant itself any of them.
+//
+//  3. PARITY IS THE ACCEPTANCE TEST. The one-time backfill must reproduce every existing
+//     person's CURRENT effective permission set. capability_parity_test.go compares this
+//     catalog's output against rolePermissions for every role and reports the diff; a
+//     difference is either encoded here or accepted in writing. Nobody gains or loses
+//     authority on cutover day by accident.
+const (
+	// SurfaceWeb is admin-web. SurfaceMobile is the Android app. A person may hold a
+	// DIFFERENT level on the same module per surface -- a director who approves at a desk
+	// and only glances on the phone is the normal case, not an exception.
+	SurfaceWeb    = "web"
+	SurfaceMobile = "mobile"
+)
+
+// Levels, ordered least to most authority for DISPLAY. The order is a UI affordance only;
+// it does NOT imply set inclusion (see property 1 above).
+const (
+	// LevelNone is absence: the module is not in the person's menu and grants nothing.
+	// Stored explicitly rather than as a missing row so "deliberately removed" and "never
+	// considered" stay distinguishable in the audit trail.
+	LevelNone = "none"
+	// LevelView sees the module's screens and cards and can open nothing that changes state.
+	LevelView = "view"
+	// LevelDo performs the module's own field work -- execute, complete, record.
+	LevelDo = "do"
+	// LevelOversee judges other people's work -- verify, approve, reassign, oversee.
+	// Deliberately NOT a superset of LevelDo: overseeing work and doing it are different
+	// jobs, and for Feed they are separated on purpose.
+	LevelOversee = "oversee"
+	// LevelConfigure authors the standing rules the module operates under -- publish a
+	// protocol, write a ration, plan a campaign.
+	LevelConfigure = "configure"
+)
+
+// LevelOrder is the display order for the level picker.
+var LevelOrder = []string{LevelNone, LevelView, LevelDo, LevelOversee, LevelConfigure}
+
+// ModuleCapability declares one module's levels. A level absent from Levels is not
+// offerable for that module -- Sales has no `configure`, so the picker must not show one.
+type ModuleCapability struct {
+	// Key is the stable module id, shared with the mobile module registry
+	// (workforce/app.moduleNavRegistry) and department_module_grants.module_key.
+	Key string
+	// Surfaces are the surfaces this module exists on at all. Feed Config is web-only;
+	// pc_care execution is phone-first. Offering a level on a surface the module does not
+	// have would grant permissions behind a screen that does not exist.
+	Surfaces []string
+	// Levels maps a level to the COMPLETE permission set it grants. Never partial, never
+	// inherited from a lower level.
+	Levels map[string][]string
+}
+
+// moduleCapabilities is the catalog. Adding a module here is what makes it assignable;
+// there is deliberately no fallback for an unknown module key, so a typo grants nothing
+// rather than something unintended.
+var moduleCapabilities = []ModuleCapability{
+	{
+		Key:      "vaccination",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView: {VaccinationRead, VaccinationOverviewRead, VaccinationAlertsRead, ObligationRead, ProtocolRead},
+			LevelDo:   {VaccinationRead, VaccinationOverviewRead, VaccinationAlertsRead, ObligationRead, ProtocolRead, TaskExecute},
+			LevelOversee: {
+				VaccinationRead, VaccinationOverviewRead, VaccinationAlertsRead, ObligationRead, ProtocolRead,
+				VaccinationOverseeExecution, VaccinationVerify, TaskAssign, TaskVerify,
+			},
+			LevelConfigure: {
+				VaccinationRead, VaccinationOverviewRead, VaccinationAlertsRead, ObligationRead, ProtocolRead,
+				VaccinationOverseeExecution, VaccinationVerify, TaskAssign, TaskVerify, VaccinationCampaign,
+			},
+		},
+	},
+	{
+		Key:      "weighing",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView:    {WeighingMonitor},
+			LevelDo:      {WeighingMonitor, WeighingExecute},
+			LevelOversee: {WeighingMonitor, WeighingExecute, WeighingOverseeOperators},
+			// Planning a weighing task is a separate authority from running one (maintainer
+			// decision 2026-08-01: the Growth Director monitors, oversees and executes, but the
+			// CEO raises the task). It stays the top level so granting it is a deliberate act.
+			LevelConfigure: {WeighingMonitor, WeighingExecute, WeighingOverseeOperators, WeighingPlan},
+		},
+	},
+	{
+		Key:      "counts",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView: {CountsRead, CountsAlertsRead},
+			LevelDo:   {CountsRead, CountsAlertsRead, CountsWrite},
+			// The three approve_* permissions travel together: they are one job (deciding a
+			// raised birth / death / shifting), and splitting them would let someone approve a
+			// death but not the shifting it implies.
+			//
+			// Deliberately NO CountsRead/CountsAlertsRead here. The retired `counts_approver`
+			// role carries approval authority and NOTHING else -- no bootstrap, no read, no
+			// write (maintainer decision 2026-08-05, granted BY NAME to individuals). Folding
+			// the reads in would hand every named approver the Counts screens, and Counts is a
+			// deliberately OFF feature held back by exactly counts.read / counts.write.
+			// Someone who needs both ticks View as well.
+			LevelOversee: {CountsApproveLifecycle, CountsApproveShifting, CountsApproveAccess},
+		},
+	},
+	{
+		Key:      "feed_direction",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView: {FeedDirectionRead, FeedPackingRead, FeedWastageRead, FeedTransportRead},
+			LevelDo:   {FeedDirectionRead, FeedPackingRead, FeedWastageRead, FeedTransportRead, FeedDirectionComplete},
+			// THE HEMANT CASE, and the reason levels are not cumulative. Oversee reads every
+			// page of the feed chain and adds FeedDirectionOversee -- and deliberately does NOT
+			// carry FeedDirectionComplete. The director sees the daily transport tasks and still
+			// cannot record one as done. Adding Complete here reverses a recorded decision.
+			LevelOversee: {FeedDirectionRead, FeedPackingRead, FeedWastageRead, FeedTransportRead, FeedDirectionOversee},
+			LevelConfigure: {
+				FeedDirectionRead, FeedPackingRead, FeedWastageRead, FeedTransportRead, FeedDirectionOversee,
+				FeedConfigRead, FeedConfigWrite,
+			},
+		},
+	},
+	{
+		Key:      "aas_health",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView: {HealthRead},
+			LevelDo:   {HealthRead, HealthReport, HealthExecute},
+			// Diagnosing is a clinical judgement, and writing a health fact onto an animal
+			// follows it. Executing a course someone else prescribed does not.
+			LevelOversee: {HealthRead, HealthReport, HealthDiagnose, GoatWriteHealth},
+			// Authoring the standing treatment rulebook (/health/config). Versioned, never
+			// edited in place -- see docs/decisions/health-config-authoring.md.
+			LevelConfigure: {
+				HealthRead, HealthReport, HealthDiagnose, GoatWriteHealth,
+				HealthConfigRead, HealthConfigWrite,
+			},
+		},
+	},
+	{
+		Key:      "pc_care",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView:      {PCCareMonitor},
+			LevelDo:        {PCCareMonitor, PCCareExecute},
+			LevelOversee:   {PCCareMonitor, PCCareExecute, PCCareOverseeOperators},
+			LevelConfigure: {PCCareMonitor, PCCareExecute, PCCareOverseeOperators, PCCarePlan},
+		},
+	},
+	{
+		Key: "procurement",
+		// Mobile too: the operator records a source entry on the phone, so a web-only
+		// procurement module silently dropped procurement.read/write for every operator.
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView:    {ProcurementRead},
+			LevelDo:      {ProcurementRead, ProcurementWrite},
+			LevelOversee: {ProcurementRead, ProcurementReview},
+		},
+	},
+	{
+		// Vendors are a SEPARATE module from source entry, and the split is not cosmetic:
+		// a park head reviews procurement at his park and has no vendor access at all, while
+		// a procurement manager runs the vendor desk and records no source entry. Bundling
+		// them forced one to gain the other's authority on cutover.
+		Key:      "vendors",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelView: {VendorRead},
+			LevelDo:   {VendorRead, VendorWrite},
+			// What a vendor costs is a finance read, held apart from editing the vendor record.
+			LevelOversee: {VendorRead, VendorWrite, VendorFinanceRead},
+		},
+	},
+	{
+		Key:      "sales",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelView: {SalesRead},
+			LevelDo:   {SalesRead, SalesWrite},
+		},
+	},
+	{
+		Key:      "verification",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			// Leadership keeps the READ (see the queue, the media, the recorded verdicts) without
+			// the verdict itself -- maintainer decision 2026-08-03, separation of duty.
+			LevelView: {VerificationReview},
+			// SEPARATION-OF-DUTY BOUNDARY. verification.verdict belongs to the verifier alone;
+			// an independent check the checked party can sign is not independent. Under the old
+			// role model this was structurally impossible to grant to leadership. It is now a
+			// tick, so the admin-web screen MUST warn when it is combined with LevelOversee or
+			// LevelConfigure on a module the same person executes. See PermissionSeparationRisk.
+			// THE VERIFIER. Casting the verdict comes with the evidence tools needed to judge
+			// it -- the timeline and the capture-date filter.
+			LevelDo: {
+				VerificationReview, VerificationVerdict,
+				VerificationEvidenceTimeline, VerificationFilterByCaptureDate,
+			},
+			// A module director acting on a verdict someone else cast: close the work, send it
+			// back, reassign it. Deliberately WITHOUT VerificationOversee -- the company-wide
+			// module/capture-date filters are a separate authority (STG incident 2026-08-12,
+			// where those filters rendered for every role that could open the page).
+			LevelOversee: {VerificationReview, VerificationAct},
+			// Company-wide oversight: the filters, the timeline, every module's queue.
+			LevelConfigure: {
+				VerificationReview, VerificationAct, VerificationOversee,
+				VerificationFilterByCaptureDate, VerificationEvidenceTimeline,
+			},
+		},
+	},
+	{
+		Key:      "people",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView: {OperatorsRead, RosterRead},
+			LevelDo:   {OperatorsRead, RosterRead, OperatorsManageRoster, OperatorsManageDevice, RosterManage, TaskAssign},
+			LevelOversee: {
+				OperatorsRead, RosterRead, OperatorsManageRoster, OperatorsManageDevice, RosterManage, TaskAssign,
+				OperatorsViewAudit,
+			},
+			// Creating people, activating/deactivating them, and changing what they may do IS
+			// this screen's own authority. It is the top level deliberately: whoever holds it can
+			// grant everything else in this catalog.
+			LevelConfigure: {
+				OperatorsRead, RosterRead, OperatorsManageRoster, OperatorsManageDevice, RosterManage, TaskAssign,
+				OperatorsViewAudit, OperatorsWrite, OperatorsActivate, OperatorsDeactivate,
+				OperatorsManageCapability,
+			},
+		},
+	},
+	{
+		Key: "config",
+		// Mobile too: a park head reads the SOP on the phone while running the work.
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView: {ProtocolRead, SOPRead},
+			LevelDo:   {ProtocolRead, SOPRead, SOPWrite},
+			LevelConfigure: {
+				ProtocolRead, SOPRead, SOPWrite, SOPPublish, ProtocolWrite, ProtocolPublish,
+			},
+		},
+	},
+	{
+		Key:      "herd_register",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView: {GoatRead},
+			LevelDo:   {GoatRead, GoatWriteIdentity},
+			// Reclassifying an animal's shed stage rewrites where the herd thinks it sits, so it
+			// sits above ordinary identity edits (today: ceo_internal alone).
+			LevelOversee: {GoatRead, GoatWriteIdentity, GoatReclassifyShedStage},
+		},
+	},
+	{
+		Key:      "locations",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelView:    {LocationsRead},
+			LevelDo:      {LocationsRead, LocationsWrite},
+			LevelOversee: {LocationsRead, LocationsWrite, LocationsReview, LocationsRetire},
+		},
+	},
+	{
+		Key:      "calendar",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView: {CalendarRead},
+			LevelDo:   {CalendarRead, CalendarAction},
+		},
+	},
+	{
+		// Sensor/collar signal ingestion and its mapping to animals. Small and CEO-only today,
+		// but it must exist as a module: a permission no level grants is unassignable, and the
+		// route requiring it becomes dead to everyone.
+		Key:      "herd_signals",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelView:      {HerdSignalsRead},
+			LevelDo:        {HerdSignalsRead, HerdSignalsIngest},
+			LevelConfigure: {HerdSignalsRead, HerdSignalsIngest, HerdSignalsMap},
+		},
+	},
+	{
+		Key:      "operations",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelView: {},
+			// Replaying a dead-lettered message is a repair action on the event spine.
+			LevelOversee: {OperationsRepair},
+		},
+	},
+}
+
+// moduleCapabilityIndex is built once at init; lookups are hot (every request resolves a
+// principal's permissions) and a linear scan of the catalog per module row is wasteful.
+var moduleCapabilityIndex = func() map[string]ModuleCapability {
+	out := make(map[string]ModuleCapability, len(moduleCapabilities))
+	for _, mod := range moduleCapabilities {
+		if _, dup := out[mod.Key]; dup {
+			// A duplicate key would SILENTLY shadow the earlier entry and quietly change what a
+			// level grants. Fail at startup instead.
+			panic("permissions: duplicate module capability key " + mod.Key)
+		}
+		out[mod.Key] = mod
+	}
+	return out
+}()
+
+// ModuleCapabilities returns the catalog for contract compilation. The admin-web access
+// editor renders modules, surfaces, and offerable levels from THIS, never from a frontend
+// constant list -- the backend owns the vocabulary.
+func ModuleCapabilities() []ModuleCapability {
+	out := make([]ModuleCapability, len(moduleCapabilities))
+	copy(out, moduleCapabilities)
+	return out
+}
+
+// LookupModuleCapability reports the catalog entry for a module key.
+func LookupModuleCapability(moduleKey string) (ModuleCapability, bool) {
+	mod, ok := moduleCapabilityIndex[moduleKey]
+	return mod, ok
+}
+
+// ModuleSupportsSurface reports whether a module exists on a surface at all.
+func ModuleSupportsSurface(moduleKey, surface string) bool {
+	mod, ok := moduleCapabilityIndex[moduleKey]
+	if !ok {
+		return false
+	}
+	for _, s := range mod.Surfaces {
+		if s == surface {
+			return true
+		}
+	}
+	return false
+}
+
+// LevelOffered reports whether a module offers a level. LevelNone is always offerable --
+// removing access must never be blocked by the catalog.
+func LevelOffered(moduleKey, level string) bool {
+	if level == LevelNone {
+		return true
+	}
+	mod, ok := moduleCapabilityIndex[moduleKey]
+	if !ok {
+		return false
+	}
+	_, offered := mod.Levels[level]
+	return offered
+}
+
+// ModuleAssignment is one saved row of a person's access: what they hold on one module,
+// on one surface.
+//
+// Capabilities is a SET, not a single level, and that is forced by the real roster rather
+// than chosen for flexibility. Dinakar captures herd-operation counts AND approves them --
+// today he wears `operator` (counts.write) and `counts_approver` (approve only) at the same
+// time. The Assistant Manager tier does the same by construction. A single-select ladder
+// cannot say "does the work AND signs off on it", and making a higher level imply the lower
+// ones would hand the Feed Director FeedDirectionComplete (see the catalog comment). A set
+// says both things exactly, and reads on screen as "read some, write some".
+type ModuleAssignment struct {
+	Module  string
+	Surface string
+	// Capabilities are the levels held on this module/surface. Empty means no access -- the
+	// stored row is kept so "deliberately removed" stays distinguishable from "never set".
+	Capabilities []string
+}
+
+// HasCapability reports whether the row carries a capability.
+func (a ModuleAssignment) HasCapability(level string) bool {
+	for _, c := range a.Capabilities {
+		if c == level {
+			return true
+		}
+	}
+	return false
+}
+
+// surfaceBootstrap is the permission that admits a principal to a surface at all. It is
+// DERIVED, never assigned: holding at least one real module on a surface is what makes the
+// surface reachable, so a person can never be left with modules they cannot log in to see,
+// nor with a login that opens onto nothing.
+var surfaceBootstrap = map[string]string{
+	SurfaceWeb:    AdminWebBootstrap,
+	SurfaceMobile: AppBootstrap,
+}
+
+// PermissionsForAssignments resolves a person's stored access rows into the flat permission
+// set the route layer already checks. This is the ONE seam the per-person model needed: the
+// ~95 authorization call sites keep asking "does this principal hold feed_direction.read",
+// and only the source of the answer moved -- from a hardcoded role map to this function.
+//
+// Unknown modules, unknown surfaces, unoffered levels, and LevelNone all contribute NOTHING.
+// A row the catalog does not understand must never widen access; the failure mode of a typo
+// or a stale row is missing access, which is visible and reported, not silent authority.
+func PermissionsForAssignments(assignments []ModuleAssignment) []string {
+	set := make(map[string]struct{}, 32)
+	surfacesInUse := make(map[string]struct{}, 2)
+
+	for _, a := range assignments {
+		if _, known := surfaceBootstrap[a.Surface]; !known {
+			continue
+		}
+		mod, ok := moduleCapabilityIndex[a.Module]
+		if !ok {
+			continue
+		}
+		if !ModuleSupportsSurface(a.Module, a.Surface) {
+			continue
+		}
+		for _, level := range a.Capabilities {
+			if level == LevelNone || level == "" {
+				continue
+			}
+			perms, offered := mod.Levels[level]
+			if !offered {
+				continue
+			}
+			// A capability granting no permissions (operations at view) still counts as real
+			// access for the surface-bootstrap derivation below: the person was deliberately
+			// given the screen, and the screen must open.
+			surfacesInUse[a.Surface] = struct{}{}
+			for _, p := range perms {
+				set[p] = struct{}{}
+			}
+		}
+	}
+
+	for surface := range surfacesInUse {
+		set[surfaceBootstrap[surface]] = struct{}{}
+	}
+
+	out := make([]string, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	// Stable order: callers compare, log, and diff these sets (the backfill parity check
+	// most of all), and Go's map iteration would make an identical set look different on
+	// two reads.
+	sort.Strings(out)
+	return out
+}
+
+// PermissionSeparationRisk names a pair whose combination breaks a separation-of-duty rule
+// that the retired role model enforced structurally. Under per-person assignment these
+// become reachable by ticking, so the assignment screen must warn -- and the maintainer
+// must decide deliberately rather than discover it later.
+type PermissionSeparationRisk struct {
+	// Module and Level are what the person is being given.
+	Module string
+	Level  string
+	// ConflictsWithModule is what they already hold that makes the combination a risk.
+	ConflictsWithModule string
+	// Reason is farm-readable copy explaining the conflict, rendered verbatim.
+	Reason string
+}
+
+// executableModules are modules whose LevelDo means "this person performs the field work"
+// -- the work a verifier's verdict judges. Holding the verdict over your own work is the
+// separation-of-duty break this guards.
+var executableModules = map[string]string{
+	"vaccination":    "vaccination",
+	"weighing":       "weighing",
+	"feed_direction": "feed",
+	"counts":         "herd operations",
+	"aas_health":     "health",
+	"pc_care":        "preventive care",
+}
+
+// SeparationRisks reports the separation-of-duty warnings for a proposed access set. It
+// does NOT block the save -- the maintainer's recorded position is that this authority is
+// theirs to grant -- but an unwarned grant of it would be an accident, and this is exactly
+// the accident the role model used to make impossible.
+func SeparationRisks(assignments []ModuleAssignment) []PermissionSeparationRisk {
+	holdsVerdict := false
+	for _, a := range assignments {
+		if a.Module == "verification" && a.HasCapability(LevelDo) {
+			holdsVerdict = true
+			break
+		}
+	}
+	if !holdsVerdict {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(assignments))
+	out := make([]PermissionSeparationRisk, 0, len(assignments))
+	for _, a := range assignments {
+		if !a.HasCapability(LevelDo) {
+			continue
+		}
+		label, executable := executableModules[a.Module]
+		if !executable {
+			continue
+		}
+		if _, dup := seen[a.Module]; dup {
+			continue
+		}
+		seen[a.Module] = struct{}{}
+		out = append(out, PermissionSeparationRisk{
+			Module:              "verification",
+			Level:               LevelDo,
+			ConflictsWithModule: a.Module,
+			Reason: "This person would approve and reject proof for " + label +
+				" work they carry out themselves. Verification is meant to be a second pair of eyes.",
+		})
+	}
+	// Deterministic order: the warning list is rendered to a human, and the caller's
+	// assignment slice order is not guaranteed stable across two loads of the same person.
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ConflictsWithModule < out[j].ConflictsWithModule
+	})
+	return out
+}
