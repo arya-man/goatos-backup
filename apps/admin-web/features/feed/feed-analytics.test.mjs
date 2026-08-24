@@ -22,3 +22,12 @@ test("all feed item chart series use the shared non-repeating colour helper", ()
   assert.match(source, /entries=\{view\.itemLabels\.map\(\(label, s\) => \(\{\s*label,\s*colorVar: seriesColorVar\(s\),/s);
   assert.doesNotMatch(directedViewBlock, /colorVar: FEED_SERIES_VARS\[s % FEED_SERIES_VARS\.length\]/);
 });
+
+test("execution variance table defaults to today's packing day read", () => {
+  assert.match(source, /const variancePackingDay = favDay \|\| todayIso\(\);/);
+  assert.match(source, /tab === "execution"\s*\?\s*await getFeedAnalyticsExecution\(\{/s);
+  assert.match(source, /date_from: istDayPlus\(variancePackingDay, 1\),/);
+  assert.match(source, /date_to: istDayPlus\(variancePackingDay, 1\),/);
+  assert.match(source, /day: variancePackingDay,/);
+  assert.doesNotMatch(source, /tab === "execution" && favDay !== ""/);
+});

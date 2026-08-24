@@ -239,6 +239,7 @@ export async function FeedAnalyticsPage({
   // served rows, plus a calendar day (fav_day) that re-reads the execution endpoint pinned to that
   // single business day, so a reader can step back past the page's rolling window.
   const favDay = one(searchParams, "fav_day") ?? "";
+  const variancePackingDay = favDay || todayIso();
   const favPark = one(searchParams, "fav_park") ?? "";
   const favItem = one(searchParams, "fav_item") ?? "";
   const variancePageSizes = tablePageSizes(pageContract, "packing-mismatches");
@@ -273,11 +274,11 @@ export async function FeedAnalyticsPage({
   // "yesterday's packing" means the feed day after it. The endpoint still keys on the feed day --
   // this is a relabel of the axis, not a second grain.
   const executionDay =
-    tab === "execution" && favDay !== ""
+    tab === "execution"
       ? await getFeedAnalyticsExecution({
           park_id: parkId,
-          date_from: istDayPlus(favDay, 1),
-          date_to: istDayPlus(favDay, 1),
+          date_from: istDayPlus(variancePackingDay, 1),
+          date_to: istDayPlus(variancePackingDay, 1),
           sections: "packing_variance",
           variance_limit: String(varianceLimit),
           variance_offset: String(varianceOffset),
@@ -348,7 +349,7 @@ export async function FeedAnalyticsPage({
           variance={{
             rows: (executionDay?.ok ? executionDay.data : execution.data).packing_variance,
             hasMore: (executionDay?.ok ? executionDay.data : execution.data).packing_variance_has_more,
-            day: favDay,
+            day: variancePackingDay,
             park: favPark,
             item: favItem,
             limit: varianceLimit,
