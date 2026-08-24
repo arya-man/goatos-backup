@@ -626,10 +626,10 @@ ON CONFLICT (campaign_id) DO UPDATE SET status = EXCLUDED.status, planned_cap_pe
 	for _, scope := range fx.SelectedScopes {
 		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded expected-animal compatibility rows
 			`
-INSERT INTO public.weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, expected_animal_count, weighing_category, status)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT (campaign_shed_id) DO UPDATE SET display_name = EXCLUDED.display_name, expected_animal_count = EXCLUDED.expected_animal_count, weighing_category = EXCLUDED.weighing_category, status = EXCLUDED.status, updated_at = now()`,
-			scope.CampaignShedID, fx.Campaign.CampaignID, fx.TenantID, scope.LocationID, dbLocationType(scope.LocationType), scope.DisplayName, scope.ExpectedAnimalCount, scope.WeighingCategory, scopeStatus(scope, fx)); err != nil {
+INSERT INTO public.weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, expected_animal_count, weighing_category, status, operator_user_id, park_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+ON CONFLICT (campaign_shed_id) DO UPDATE SET display_name = EXCLUDED.display_name, expected_animal_count = EXCLUDED.expected_animal_count, weighing_category = EXCLUDED.weighing_category, status = EXCLUDED.status, operator_user_id = EXCLUDED.operator_user_id, park_id = EXCLUDED.park_id, updated_at = now()`,
+			scope.CampaignShedID, fx.Campaign.CampaignID, fx.TenantID, scope.LocationID, dbLocationType(scope.LocationType), scope.DisplayName, scope.ExpectedAnimalCount, scope.WeighingCategory, scopeStatus(scope, fx), operatorID, fx.ParkID); err != nil {
 			return fmt.Errorf("upsert campaign scope %s: %w", scope.DisplayName, err)
 		}
 	}
