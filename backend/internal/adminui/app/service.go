@@ -3787,8 +3787,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.perhead.hint":             "Grams per head per day by feed item",
 			"chart.execution.title":          "Daily execution status",
 			"chart.execution.hint":           "Pen-session completions by verification outcome",
-			"chart.latency.title":            "Verification latency",
-			"chart.latency.hint":             "Median minutes from proof submission to verdict, per day",
 			"consumption.empty":              "No directed feed in this window.",
 			"consumption.trend.title":        "Packed vs given over time",
 			"consumption.trend.hint":         "Daily totals across the window: what the sheet directed, against what verifiers measured. A gap means no bag was verified that day.",
