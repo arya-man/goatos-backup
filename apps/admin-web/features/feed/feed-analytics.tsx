@@ -675,13 +675,6 @@ function ExecutionTab({
   }));
   // Series colours must match the legend order above — verified is the brand
   // slot, awaiting the amber slot, rework the danger slot.
-  const latency: LineSeries[] = [
-    {
-      label: fa(pageContract, "chart.latency.title"),
-      colorVar: FEED_SERIES_VARS[1],
-      points: data.days.map((d) => d.median_verify_latency_minutes ?? null),
-    },
-  ];
   const consumptionDayLabels = data.consumption_trend.map((d) => d.packing_day);
   const consumptionSeries: LineSeries[] = [
     {
@@ -725,19 +718,6 @@ function ExecutionTab({
         <h2 className="h">{fa(pageContract, "chart.execution.title")}</h2>
         <p className="muted small">{fa(pageContract, "chart.execution.hint")}</p>
         <ExecutionStacked stacked={stacked} statuses={statuses} pageContract={pageContract} />
-      </section>
-      <section className="card wchart" aria-label={fa(pageContract, "chart.latency.title")}>
-        <h2 className="h">{fa(pageContract, "chart.latency.title")}</h2>
-        <p className="muted small">{fa(pageContract, "chart.latency.hint")}</p>
-        <ChartHover>
-          <FeedLines
-            series={latency}
-            dayLabels={data.days.map((d) => d.date)}
-            valueNoun={fa(pageContract, "unit.minutes")}
-            chartLabel={fa(pageContract, "chart.latency.title")}
-            emptyLabel={fa(pageContract, "empty.execution.body")}
-          />
-        </ChartHover>
       </section>
       {/* Intended-vs-entered packing mismatches (maintainer decision 2026-08-21). The verifier
           enters her per-item readings BLIND -- this comparison exists only on this leadership
