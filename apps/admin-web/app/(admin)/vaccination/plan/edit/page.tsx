@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { fromRuleDsl, VaccinationPlanEditor } from "@/features/vaccination-plan";
 import {
@@ -16,8 +16,9 @@ export const dynamic = "force-dynamic";
  * Preventive Care / Vaccination plan / edit a draft.
  *
  * A draft only. A published version is immutable in the database, so an editor
- * pointed at one could not save and must not pretend otherwise -- asking for one
- * is a 404 rather than a read-only editor nobody asked for.
+ * pointed at one could not save and must not pretend otherwise. A missing
+ * version parameter is still malformed, but stale draft bookmarks recover to
+ * the plan console because saves and publishes replace/retire draft rows.
  */
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   const params = await searchParams;
@@ -30,7 +31,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
     getProtocolVersion(versionId),
   ]);
 
-  if (!version.ok || version.data.status !== "draft") notFound();
+  if (!version.ok || version.data.status !== "draft") redirect("/vaccination/plan");
 
   // Sized against the current herd by the backend's own rollup. A failure here
   // hides the card rather than showing a zero, which would read as "no effect".
