@@ -2,6 +2,8 @@ package sg.mesha.goatos.analytics
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -67,6 +69,40 @@ class DurableAnalyticsQueueTest {
             true
         }
         assertTrue(secondDrainSent.isEmpty())
+    }
+
+    @Test
+    fun `concurrent drains do not send the same persisted entry twice`() = runTest {
+        val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
+        queue.enqueue(event("e1"))
+
+        val firstSendEntered = CompletableDeferred<Unit>()
+        val releaseFirstSend = CompletableDeferred<Unit>()
+        val sent = mutableListOf<String>()
+
+        val firstDrain = async {
+            queue.drain { queued ->
+                sent += queued.clientEventId
+                firstSendEntered.complete(Unit)
+                releaseFirstSend.await()
+                true
+            }
+        }
+        firstSendEntered.await()
+
+        val secondDrain = async {
+            queue.drain { queued ->
+                sent += queued.clientEventId
+                true
+            }
+        }
+
+        releaseFirstSend.complete(Unit)
+        firstDrain.await()
+        secondDrain.await()
+
+        assertEquals(listOf("e1"), sent)
+        assertEquals(0, queue.size())
     }
 
     @Test
