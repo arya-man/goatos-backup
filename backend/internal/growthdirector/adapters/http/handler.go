@@ -15,7 +15,7 @@ import (
 )
 
 type Service interface {
-	GetGrowthDirectorWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.GrowthDirectorWeights, error)
+	GetGrowthDirectorWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.GrowthDirectorWeights, error)
 }
 
 type Handler struct {
@@ -48,6 +48,7 @@ func (h *Handler) GetGrowthDirectorWeights(w http.ResponseWriter, r *http.Reques
 		r.URL.Query().Get("park_id"),
 		r.URL.Query().Get("from"),
 		r.URL.Query().Get("to"),
+		r.URL.Query().Get("sex"),
 	)
 	h.respond(w, r, result, err)
 }

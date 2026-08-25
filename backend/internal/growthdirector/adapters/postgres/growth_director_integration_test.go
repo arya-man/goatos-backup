@@ -178,7 +178,7 @@ VALUES
 
 	from, to := gdWindow()
 	repo := NewRepository(pool, 5*time.Second)
-	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark}, from, to)
+	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark}, from, to, "")
 	if err != nil {
 		t.Fatalf("GetGrowthDirectorWeights: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestGrowthDirectorFairFightAndSlowGrowthPairLogic(t *testing.T) {
 
 	from, to := gdWindow()
 	repo := NewRepository(pool, 5*time.Second)
-	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark}, from, to)
+	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark}, from, to, "")
 	if err != nil {
 		t.Fatalf("GetGrowthDirectorWeights: %v", err)
 	}
@@ -362,7 +362,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Gandhi 1 - Part 1', '', 
 
 	from, to := gdWindow()
 	repo := NewRepository(pool, 5*time.Second)
-	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark}, from, to)
+	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark}, from, to, "")
 	if err != nil {
 		t.Fatalf("GetGrowthDirectorWeights: %v", err)
 	}
@@ -552,7 +552,7 @@ VALUES
 
 	from, to := gdWindow()
 	repo := NewRepository(pool, 5*time.Second)
-	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark, gdPark2}, from, to)
+	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark, gdPark2}, from, to, "")
 	if err != nil {
 		t.Fatalf("GetGrowthDirectorWeights: %v", err)
 	}
@@ -680,7 +680,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'Gandhi 1')`, gdTenant, k.goatID, gdSh
 
 	repo := NewRepository(pool, 30*time.Second)
 	got, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark},
-		time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC))
+		time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), "")
 	if err != nil {
 		t.Fatalf("GetGrowthDirectorWeights: %v", err)
 	}

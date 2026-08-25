@@ -28,7 +28,7 @@ func NewService(repo ports.Repository) *Service {
 // Weights screen. Same capability and scope rules as the weighing leadership
 // reads (GetShedWeights / GetWeightDemographics): WeighingMonitor gate, then
 // the caller's own authorized-park scope, never wider.
-func (s *Service) GetGrowthDirectorWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.GrowthDirectorWeights, error) {
+func (s *Service) GetGrowthDirectorWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.GrowthDirectorWeights, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.GrowthDirectorWeights{}, ports.ErrForbidden
 	}
@@ -44,7 +44,7 @@ func (s *Service) GetGrowthDirectorWeights(ctx context.Context, actor domain.Act
 	if scopeErr != nil {
 		return domain.GrowthDirectorWeights{}, scopeErr
 	}
-	return s.repo.GetGrowthDirectorWeights(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive)
+	return s.repo.GetGrowthDirectorWeights(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex)
 }
 
 // resolveMonitorParkScope turns an OPTIONAL park_id into the concrete park list

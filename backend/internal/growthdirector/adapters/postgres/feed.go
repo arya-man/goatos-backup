@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
+
+	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 )
 
 // feedRowsCTE is the shared live-sheet scope: the exact feed_day range (feed is
@@ -68,7 +70,7 @@ feed_rows AS (
 // head_days still pre-collapses head_count with max() per (shed, pen, feed_day, shed_tag, breed)
 // BEFORE summing, because head_count repeats on every feed_item cell and every session of a day.
 // The kg_feed_per_kg_gain ratio now ranges over exactly one pen on BOTH numerator and denominator.
-func (r *Repository) feedVsGrowth(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string) (domain.FeedVsGrowth, error) {
+func (r *Repository) feedVsGrowth(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope) (domain.FeedVsGrowth, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	out := domain.FeedVsGrowth{Sheds: []domain.FeedVsGrowthShed{}, Estimate: true}
@@ -149,7 +151,7 @@ FROM shed_feed f
 LEFT JOIN head_days   h USING (shed_id, partition_label)
 LEFT JOIN shed_growth g USING (shed_id, partition_label)
 ORDER BY f.shed_label, f.partition_label, f.shed_id`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags)
 	if err != nil {
 		return out, err
 	}
@@ -239,7 +241,7 @@ func buildFeedVsGrowthShed(
 // feedProblems reports blocked feed-sheet cells. Blocked is STRUCTURAL:
 // quantity_kg IS NULL iff blocked_reason_code exists (schema CHECK), so no
 // heuristic is involved and an authored zero can never appear as a problem.
-func (r *Repository) feedProblems(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string) (domain.FeedProblems, error) {
+func (r *Repository) feedProblems(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope) (domain.FeedProblems, error) {
 	out := domain.FeedProblems{Items: []domain.FeedProblemItem{}}
 	if err := r.feedProblemTotals(ctx, &out, tenantID, parkIDs, startDate, endDate); err != nil {
 		return out, err

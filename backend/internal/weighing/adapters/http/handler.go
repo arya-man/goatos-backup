@@ -44,9 +44,9 @@ type Service interface {
 	WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error)
 	ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error)
 	GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error)
-	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.GrowthADG, error)
-	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.ShedWeights, error)
-	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.WeightDemographics, error)
+	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.GrowthADG, error)
+	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.ShedWeights, error)
+	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
 	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, writer io.Writer) error
 }
@@ -163,6 +163,9 @@ func (h *Handler) GetWeightHistory(w http.ResponseWriter, r *http.Request) {
 //     the caller's own authorized-park scope (never widened) -- see domain.GrowthADG.ParkIDs.
 //   - from, to (optional): INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD). Defaults to the
 //     last 90 days ending today when omitted.
+//   - sex (optional): `male` or `female` to report on that half of the herd only. Omitted means
+//     every kid. An unknown value is REJECTED rather than ignored, because silently widening a
+//     filter shows a reader more kids than the heading they are reading says.
 func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.GetLeadershipGrowthADG(
 		r.Context(),
@@ -170,6 +173,7 @@ func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request)
 		r.URL.Query().Get("park_id"),
 		r.URL.Query().Get("from"),
 		r.URL.Query().Get("to"),
+		r.URL.Query().Get("sex"),
 	)
 	h.respond(w, r, result, err)
 }
@@ -185,6 +189,7 @@ func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("park_id"),
 		r.URL.Query().Get("from"),
 		r.URL.Query().Get("to"),
+		r.URL.Query().Get("sex"),
 	)
 	h.respond(w, r, result, err)
 }
@@ -195,6 +200,7 @@ func (h *Handler) GetWeightDemographics(w http.ResponseWriter, r *http.Request) 
 	result, err := h.service.GetWeightDemographics(
 		r.Context(), actor(r),
 		r.URL.Query().Get("park_id"), r.URL.Query().Get("from"), r.URL.Query().Get("to"),
+		r.URL.Query().Get("sex"),
 	)
 	h.respond(w, r, result, err)
 }

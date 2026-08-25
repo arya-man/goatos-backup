@@ -2,10 +2,13 @@ package postgres
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/growthdirector/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+
+	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 )
 
 // weighingObsCTE is the shared scope CTE every weighing-backed widget starts
@@ -44,6 +47,11 @@ obs AS (
     AND c.period_start_date < $4::date
     AND btrim(o.scanned_identifier) <> ''
     AND o.verification_status <> 'rework'
+    -- Sex filter, applied ONCE for every widget that starts from this CTE. $5 is FALSE for the
+    -- unfiltered page, which therefore runs exactly the query it ran before. The tag list is
+    -- resolved by the weighing package's sex_scope.go, so the Weights page and these widgets
+    -- provably talk about the same kids rather than two implementations of "male".
+    AND (NOT $5::bool OR lower(btrim(o.scanned_identifier)) = ANY($6::text[]))
 )`
 
 // roundLatestCTE collapses repeat scans to ONE weigh per (identity, campaign
@@ -93,7 +101,7 @@ const breedSexJoin = `
 // GetGrowthDirectorWeights builds all six Growth Director widgets for one
 // half-open window. parkIDs must be non-empty and already authorization-checked
 // by the caller: this method does no scoping of its own.
-func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.GrowthDirectorWeights, error) {
+func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex string) (domain.GrowthDirectorWeights, error) {
 	loc := biztime.DefaultLocation()
 	out := domain.GrowthDirectorWeights{
 		Period: domain.Period{
@@ -120,28 +128,38 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 	startDate := periodStart.In(loc).Format("2006-01-02")
 	endExclusiveDate := periodEnd.In(loc).Format("2006-01-02")
 
+	// The SAME resolver the Weights page uses, called ONCE for all six widgets. Two
+	// implementations of "which kids are male" would drift, and one of the two would be the one
+	// the reader is looking at; resolving per widget would let a herd write land between two of
+	// them and show six widgets about six slightly different populations.
+	scope, scopeErr := weighingpg.ResolveSexScope(ctx, r.pool, tenantID, parkIDs, sex, periodStart, periodEnd)
+	if scopeErr != nil {
+		return out, scopeErr
+	}
+	sexFiltered := strings.TrimSpace(sex) != ""
+
 	parks, err := r.parks(ctx, tenantID, parkIDs)
 	if err != nil {
 		return out, err
 	}
 	out.Parks = parks
 
-	if out.RoadToSale, err = r.roadToSale(ctx, tenantID, parkIDs, startDate, endExclusiveDate); err != nil {
+	if out.RoadToSale, err = r.roadToSale(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
 		return out, err
 	}
-	if out.FairFight, err = r.fairFight(ctx, tenantID, parkIDs, startDate, endExclusiveDate); err != nil {
+	if out.FairFight, err = r.fairFight(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
 		return out, err
 	}
-	if out.SlowGrowth, err = r.slowGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate); err != nil {
+	if out.SlowGrowth, err = r.slowGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
 		return out, err
 	}
-	if out.FeedVsGrowth, err = r.feedVsGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate); err != nil {
+	if out.FeedVsGrowth, err = r.feedVsGrowth(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
 		return out, err
 	}
-	if out.FeedProblems, err = r.feedProblems(ctx, tenantID, parkIDs, startDate, endExclusiveDate); err != nil {
+	if out.FeedProblems, err = r.feedProblems(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
 		return out, err
 	}
-	if out.Trust, err = r.trust(ctx, tenantID, parkIDs, startDate, endExclusiveDate); err != nil {
+	if out.Trust, err = r.trust(ctx, tenantID, parkIDs, startDate, endExclusiveDate, sexFiltered, scope); err != nil {
 		return out, err
 	}
 	return out, nil
@@ -164,7 +182,7 @@ func emptyBands() []domain.WeightBand {
 // lifetime-unique (tenant_id, normalized_value) index, so no side multiplies;
 // pagination=NONE, at most six band rows; scope=tenant + park ANY + campaign
 // week overlap.
-func (r *Repository) roadToSale(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string) (domain.RoadToSale, error) {
+func (r *Repository) roadToSale(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope) (domain.RoadToSale, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	out := domain.RoadToSale{Bands: emptyBands()}
@@ -200,7 +218,7 @@ SELECT band_idx,
 FROM scored
 GROUP BY band_idx
 ORDER BY band_idx`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags)
 	if err != nil {
 		return out, err
 	}
@@ -232,7 +250,7 @@ ORDER BY band_idx`
 // count so the two views reconcile. The lump-sum side MUST filter
 // withdrawn_at IS NULL: live-row uniqueness is a PARTIAL index (000067), and
 // dropping the predicate fans out reopened buckets.
-func (r *Repository) trust(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string) (domain.Trust, error) {
+func (r *Repository) trust(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope) (domain.Trust, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	var out domain.Trust
@@ -248,6 +266,7 @@ WITH obs AS (
     AND c.period_end_date >= $3::date
     AND c.period_start_date < $4::date
     AND btrim(o.scanned_identifier) <> ''
+    AND (NOT $5::bool OR lower(btrim(o.scanned_identifier)) = ANY($6::text[]))
 ),
 tagged AS (
   SELECT o.*, (gi.goat_id IS NOT NULL) AS is_matched
@@ -263,11 +282,18 @@ shed_obs AS (
   SELECT count(*) FILTER (WHERE s.withdrawn_at IS NULL) AS live_shed_observations
   FROM weighing_shed_observations s
   JOIN weighing_campaigns c ON c.tenant_id = s.tenant_id AND c.campaign_id = s.campaign_id
+  JOIN weighing_campaign_sheds cs ON cs.tenant_id = s.tenant_id AND cs.campaign_shed_id = s.campaign_shed_id
   WHERE s.tenant_id = $1::uuid
     AND c.park_id = ANY($2::uuid[])
     AND c.status <> 'canceled'
     AND c.period_end_date >= $3::date
     AND c.period_start_date < $4::date
+    -- A whole-shed weigh has no tag, so under a filter it counts only when its shed's cohort is
+    -- that sex — the same claim rule the Weights page applies, from the same resolver.
+    AND (NOT $5::bool OR EXISTS (
+      SELECT 1 FROM unnest($7::uuid[], $8::text[]) AS b(loc, part)
+      WHERE b.loc = cs.location_id AND b.part = COALESCE(cs.partition_label, '')
+    ))
 )
 SELECT
   (SELECT count(*) FROM tagged)                                                  AS scans_total,
@@ -280,7 +306,8 @@ SELECT
   (SELECT count(*) FILTER (WHERE weigh_rounds = 1) FROM identity_rounds)         AS identities_once_only,
   s.live_shed_observations
 FROM shed_obs s`
-	err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, startDate, endDate).Scan(
+	err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, startDate, endDate,
+		sexFiltered, scope.Tags, scope.LocationIDs, scope.PartitionLabels).Scan(
 		&out.ScansTotal, &out.ScansMatched, &out.ScansUnmatched,
 		&out.ScansPendingVerification, &out.ScansRework,
 		&out.IdentitiesTotal, &out.IdentitiesWithPair, &out.IdentitiesOnceOnly,

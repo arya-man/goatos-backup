@@ -46,7 +46,7 @@ import (
 //	HAVING count(*) = 1 excludes it, and it is counted in the unattributed scalar
 //	instead. One shed average cannot be divided between two suppliers; apportioning
 //	it by head count would invent a distribution nobody measured.
-func (r *Repository) loadWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) ([]domain.LoadGainBucket, int, error) {
+func (r *Repository) loadWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) ([]domain.LoadGainBucket, int, error) {
 	out := []domain.LoadGainBucket{}
 	if len(parkIDs) == 0 {
 		return out, 0, nil
@@ -81,6 +81,13 @@ lump_daily AS (
    AND o.accepted_at >= $3::timestamptz
    AND o.accepted_at <  $4::timestamptz
   WHERE s.weighing_category = 'per_shed_partition'
+    -- Sex filter, same rule as the shed table: a load's growth is read from whole-shed weighs,
+    -- so a shed is counted only when its cohort is entirely this sex. $5 is FALSE for the
+    -- unfiltered page, which therefore runs the query unchanged.
+    AND (NOT $5::bool OR EXISTS (
+      SELECT 1 FROM unnest($6::uuid[], $7::text[]) AS b(loc, part)
+      WHERE b.loc = s.location_id AND b.part = COALESCE(s.partition_label, '')
+    ))
 ),
 ind_daily AS (
   -- ONE ROW PER ANIMAL PER DAY, not one per capture: weighing_observations keeps
@@ -219,7 +226,7 @@ LEFT JOIN locations pk ON pk.location_id = sp.park_id AND pk.tenant_id = $1::uui
 GROUP BY t.load_ref, t.owner_name
 ORDER BY 6 DESC NULLS LAST, t.load_ref`
 
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, periodStart, periodEnd)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope.LocationIDs, scope.PartitionLabels)
 	if err != nil {
 		return nil, 0, err
 	}

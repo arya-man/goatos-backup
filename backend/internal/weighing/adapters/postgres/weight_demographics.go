@@ -23,7 +23,7 @@ import (
 // than by_stage: a whole-shed weigh has no tags, so it reaches the stage rows via
 // its shed's cohort but never the breed or sex rows. The resolved / unresolved /
 // lump-sum counts are returned so that gap is legible rather than looking broken.
-func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.WeightDemographics, error) {
+func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex string) (domain.WeightDemographics, error) {
 	out := domain.WeightDemographics{
 		GainThresholdsByBreed: []domain.WeightGainThresholdBucket{},
 		ByBreed:               []domain.WeightDemographicBucket{},
@@ -33,6 +33,14 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	}
 	if len(parkIDs) == 0 {
 		return out, nil
+	}
+	// This read already resolves a tag to its animal, so the Sex filter is applied natively here
+	// rather than through the tag list sex_scope.go hands the other reads: filtering on the goat
+	// row it has already joined is one predicate instead of a second round trip, and it keeps the
+	// whole-shed attribution below on the SAME cohort rule the rest of the page uses.
+	sexFilter, sexErr := normalizeSexFilter(sex)
+	if sexErr != nil {
+		return domain.WeightDemographics{}, sexErr
 	}
 
 	const q = ` -- scale-guard:ignore: bounded 28/84-day weighing leadership aggregate over tenant+authorized parks; current release envelope accepts this read-model query with repository integration coverage, and it does not touch obligation/kernel hot tables
@@ -98,12 +106,17 @@ resolved AS (
   FROM latest l
   LEFT JOIN ident i ON i.tag = l.tag
   LEFT JOIN goats g ON g.goat_id = i.goat_id AND g.tenant_id = $1::uuid
+  -- Sex filter. An empty $5 is the unfiltered page and keeps every row, INCLUDING the ones whose
+  -- tag resolves to no animal: those are real weighs and the coverage counts below exist to make
+  -- that gap legible. A filtered page cannot keep them — an unresolved tag has no sex to match.
+  WHERE $5::text = '' OR lower(btrim(g.sex)) = $5::text
 ),
 resolved_gain AS (
   SELECT ag.g, gt.breed, gt.sex, gt.management_stage
   FROM animal_gain ag
   LEFT JOIN ident i ON i.tag = ag.tag
   LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
+  WHERE $5::text = '' OR lower(btrim(gt.sex)) = $5::text
 ),
 -- A whole-shed weigh is attributed by the cohort its shed holds. The bucket points
 -- at a PARTITION (Castro 1), but the herd register puts the animals on the physical
@@ -144,6 +157,9 @@ shed_targets AS (
                   '') AS resolved_partition_label
   FROM scoped s
 ),
+-- Whole-shed weighs under a Sex filter follow the same rule as the rest of the page: a bucket is
+-- claimed only when its cohort is entirely the selected sex, so the sexes = 1 test below gains a
+-- second condition rather than being replaced. A mixed shed is claimed by neither side.
 shed_cohort AS (
   -- projection-review: membership=one row per scoped location+partition that resolves to live goats, either its own location or a physical shed+partition fallback; group_key=(src.location_id,src.partition_label), exactly the GROUP BY; join_cardinality=goats/gsp is 0..N and is COLLAPSED by the aggregate; pagination=NONE; scope=tenant_id plus scoped park rows.
   --
@@ -181,9 +197,15 @@ shed_cohort_detail AS (
            COALESCE(NULLIF(g.management_stage, ''), 'Unknown stage')
 ),
 shed_stage AS (
-  SELECT location_id, partition_label, stage FROM shed_cohort WHERE stages = 1
+  -- Under a Sex filter a whole-shed weigh reaches the stage rows only when its cohort is that
+  -- sex, the same claim rule the breed and sex arms apply. Narrowing HERE rather than at each
+  -- use keeps one definition of "this shed counts for this reader".
+  SELECT location_id, partition_label, stage FROM shed_cohort
+  WHERE stages = 1 AND ($5::text = '' OR (sexes = 1 AND lower(btrim(sex)) = $5::text))
 ),
 lump AS (
+  -- The lump-sum coverage counters follow the filter too: under Male, "kids in whole-shed weighs"
+  -- must mean the male ones, or the page reports a coverage gap the reader cannot act on.
   SELECT s.location_id, s.partition_label, sh.animal_count, sh.average_weight_kg
   FROM scoped s
   JOIN weighing_shed_observations sh
@@ -192,6 +214,11 @@ lump AS (
    AND sh.accepted_at >= $3::timestamptz AND sh.accepted_at < $4::timestamptz
    AND sh.verification_status <> 'rejected'
   WHERE s.weighing_category = 'per_shed_partition'
+    AND ($5::text = '' OR EXISTS (
+      SELECT 1 FROM shed_cohort sc
+      WHERE sc.location_id = s.location_id AND sc.partition_label = COALESCE(s.partition_label, '')
+        AND sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text
+    ))
 ),
 lump_span AS (
   -- Selected-range movement matching the shed rows: first weighed date in the
@@ -278,7 +305,7 @@ SELECT
              UNION ALL
              SELECT sc.breed, sum(l.animal_count)::bigint, sum(l.animal_count*l.average_weight_kg)::float8
               FROM lump l JOIN shed_cohort sc ON sc.location_id = l.location_id AND sc.partition_label = l.partition_label
-              WHERE sc.breeds = 1 GROUP BY sc.breed) bp GROUP BY breed) b),
+              WHERE sc.breeds = 1 AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text)) GROUP BY sc.breed) bp GROUP BY breed) b),
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(sex, n, avg) ORDER BY n DESC), '[]'::jsonb)
      FROM (SELECT sex, sum(n)::bigint n, (sum(total)/NULLIF(sum(n),0))::float8 avg FROM (
              SELECT sex, count(*)::bigint n, sum(weight_kg)::float8 total FROM resolved
@@ -286,7 +313,7 @@ SELECT
              UNION ALL
              SELECT sc.sex, sum(l.animal_count)::bigint, sum(l.animal_count*l.average_weight_kg)::float8
               FROM lump l JOIN shed_cohort sc ON sc.location_id = l.location_id AND sc.partition_label = l.partition_label
-              WHERE sc.sexes = 1 GROUP BY sc.sex) sp GROUP BY sex) x),
+              WHERE sc.sexes = 1 AND ($5::text = '' OR lower(btrim(sc.sex)) = $5::text) GROUP BY sc.sex) sp GROUP BY sex) x),
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(stage, n, avg) ORDER BY n DESC), '[]'::jsonb)
      FROM (
        SELECT stage, sum(n)::bigint n, (sum(total) / NULLIF(sum(n), 0))::float8 avg
@@ -333,7 +360,7 @@ SELECT
          SELECT sc.sex, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
          FROM lump_span ls JOIN shed_cohort sc
            ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
-         WHERE sc.sexes = 1 GROUP BY sc.sex
+         WHERE sc.sexes = 1 AND ($5::text = '' OR lower(btrim(sc.sex)) = $5::text) GROUP BY sc.sex
        ) parts GROUP BY sex
      ) gx),
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(stage, n, g) ORDER BY n DESC), '[]'::jsonb)
@@ -401,7 +428,7 @@ SELECT
 		gainThresholdBreedJSON                                      []byte
 		compositionJSON                                             []byte
 	)
-	if err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd).Scan(
+	if err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, sexFilter).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,

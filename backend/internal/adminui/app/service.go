@@ -3282,16 +3282,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.gain_thresholds.aria":    "Breed-wise daily gain",
 			"section.gain_thresholds.caption": "Counted from kids weighed one by one and weighed twice, at each kid's own daily gain. Each kid is counted in one band only, so the bands add up to the kids weighed twice.",
 			"empty.gain_thresholds.body":      "No kid matched to a breed has a second weigh in this period yet.",
-			// The card also carries a SEX filter, in the page's own filter bar beside Weighing
-			// (maintainer, 2026-08-25). It auto-selects every kid: the breed comparison the card
-			// exists for is the whole breed's, and a reader who wants the male or the female half
-			// asks for it. The backend reports both grains, so picking a side re-reads the card at
-			// that grain rather than filtering a combined number on the client — a share of male
-			// kids is taken against the male kids, never against the breed.
-			"filter.gain_sex.label": "Sex",
-			"view.sex.all":          "All kids",
-			"view.sex.male":         "Male",
-			"view.sex.female":       "Female",
+			// The page carries a SEX filter in its own filter bar, beside Weighing (maintainer,
+			// 2026-08-26). It auto-selects every kid, and picking a side re-reads the WHOLE page at
+			// that half: every KPI, the shed table, both leaderboards, the load chart and this card.
+			// A page whose cards disagreed about which kids they counted would have no true number
+			// on it, which is why this is a page filter and not a card control.
+			"filter.sex.label": "Sex",
+			"view.sex.male":    "Male",
+			"view.sex.female":  "Female",
 			// One caption per grain, because the denominator sentence has to name the kids it
 			// actually counted. Reusing the combined caption under the male view would tell a
 			// reader the bands add up to the kids weighed twice when they add up to the MALE kids

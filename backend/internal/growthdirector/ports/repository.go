@@ -36,5 +36,5 @@ type Repository interface {
 	//   - weighing_shed_observations reads filter withdrawn_at IS NULL
 	//   - verification_status='rework' excluded from growth math, included in trust
 	//   - feed quantity_kg NULL = blocked and is never COALESCEd to 0
-	GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.GrowthDirectorWeights, error)
+	GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex string) (domain.GrowthDirectorWeights, error)
 }
