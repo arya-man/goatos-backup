@@ -300,48 +300,103 @@ SELECT
          FROM lump l JOIN shed_stage ss ON ss.location_id = l.location_id AND ss.partition_label = l.partition_label GROUP BY ss.stage
        ) parts GROUP BY stage
      ) st),
+  -- Gain by breed/sex/stage: same-animal pairs PLUS lump-sum sheds (maintainer
+  -- decision 2026-08-25). A lump-sum shed has no per-animal identity, so its
+  -- animals ride at the SHED grain: every animal of the shed carries the shed's
+  -- own average-weight change (lump_span.g_per_day), and the shed joins a
+  -- breed/sex/stage bucket ONLY when its live cohort is homogeneous for that
+  -- dimension (shed_cohort breeds/sexes/stages = 1) — a mixed shed still names
+  -- nothing rather than guessing, per the standing whole-shed attribution rule.
+  --
+  -- projection-review: producer grain of the lump arm is one row per
+  -- (location_id, partition_label) from lump_span (rn=1 latest x rn=1 first,
+  -- provably one row per key), joined 1:1 to shed_cohort (GROUPed by the same
+  -- key); animals is the latest submission's frozen head count, so sum(animals)
+  -- ranges over disjoint sheds. The weighted mean's numerator and denominator
+  -- range over the identical UNION row set (same FROM, same GROUP BY).
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, g) ORDER BY n DESC), '[]'::jsonb)
      FROM (
-       SELECT breed, count(*)::bigint n, avg(g)::float8 g
-       FROM resolved_gain
-       WHERE breed IS NOT NULL
-       GROUP BY breed
+       SELECT breed, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
+         SELECT breed, count(*)::bigint n, sum(g)::float8 gsum
+         FROM resolved_gain WHERE breed IS NOT NULL GROUP BY breed
+         UNION ALL
+         SELECT sc.breed, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
+         FROM lump_span ls JOIN shed_cohort sc
+           ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+         WHERE sc.breeds = 1 GROUP BY sc.breed
+       ) parts GROUP BY breed
      ) gb),
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(sex, n, g) ORDER BY n DESC), '[]'::jsonb)
      FROM (
-       SELECT sex, count(*)::bigint n, avg(g)::float8 g
-       FROM resolved_gain
-       WHERE sex IS NOT NULL
-       GROUP BY sex
+       SELECT sex, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
+         SELECT sex, count(*)::bigint n, sum(g)::float8 gsum
+         FROM resolved_gain WHERE sex IS NOT NULL GROUP BY sex
+         UNION ALL
+         SELECT sc.sex, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
+         FROM lump_span ls JOIN shed_cohort sc
+           ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+         WHERE sc.sexes = 1 GROUP BY sc.sex
+       ) parts GROUP BY sex
      ) gx),
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(management_stage, n, g) ORDER BY n DESC), '[]'::jsonb)
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(stage, n, g) ORDER BY n DESC), '[]'::jsonb)
      FROM (
-       SELECT management_stage, count(*)::bigint n, avg(g)::float8 g
-       FROM resolved_gain
-       WHERE management_stage IS NOT NULL
-       GROUP BY management_stage
+       SELECT stage, sum(n)::bigint n, (sum(gsum) / NULLIF(sum(n), 0))::float8 g FROM (
+         SELECT management_stage AS stage, count(*)::bigint n, sum(g)::float8 gsum
+         FROM resolved_gain WHERE management_stage IS NOT NULL GROUP BY management_stage
+         UNION ALL
+         SELECT ss.stage, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
+         FROM lump_span ls JOIN shed_stage ss
+           ON ss.location_id = ls.location_id AND ss.partition_label = ls.partition_label
+         GROUP BY ss.stage
+       ) parts GROUP BY stage
      ) gs),
   -- How many animals of each breed fell into each daily-gain band. DISJOINT bands
   -- (maintainer, 2026-08-24): an animal at 260 g/day is counted by the >250 filter ONLY,
   -- and the four counts partition n exactly — every animal with a gain lands in one band.
   --
-  -- projection-review: membership=one row per animal in resolved_gain with a breed, i.e. exactly the population gain_by_breed reports; group_key=breed, the GROUP BY; join_cardinality=none added here, resolved_gain is already one row per tag; pagination=NONE, bounded by the breed vocabulary; scope=inherited from resolved_gain (tenant + scoped parks + window).
+  -- LUMP-SUM SHEDS INCLUDED (maintainer decision 2026-08-25): a homogeneous-breed
+  -- lump-sum shed contributes ALL of its animals to the ONE band its own
+  -- average-weight change (lump_span.g_per_day) falls into — the shed average is
+  -- the only measured fact, so every animal is kept in that range and none is
+  -- spread across bands. A mixed-breed shed still joins no breed row.
   --
-  -- Ratio key sets: n and the four FILTER counts range over the IDENTICAL grouped row
-  -- set — same FROM, same GROUP BY, no branch adds a join — so a client may take
-  -- band/n as this breed's share without reaching for a second query's denominator, and
-  -- b180 + b1820 + b2025 + a250 = n for every row.
+  -- projection-review: membership=one row per same-animal gain (resolved_gain, one
+  -- row per tag) UNIONed with one row per homogeneous lump-sum shed
+  -- (lump_span x shed_cohort, 1:1 on (location_id, partition_label) — both sides
+  -- are grouped/deduplicated on that key); group_key=breed, the GROUP BY;
+  -- join_cardinality=the lump arm's join adds no fan-out (see the gain buckets
+  -- above); pagination=NONE, bounded by the breed vocabulary; scope=inherited
+  -- (tenant + scoped parks + window).
+  --
+  -- Ratio key sets: n and the four band sums range over the IDENTICAL UNION row
+  -- set — same FROM, same GROUP BY — and each UNION arm's four bands partition its
+  -- own n (an animal lands in one FILTER; a shed's animals land in one CASE arm),
+  -- so b180 + b1820 + b2025 + a250 = n still holds for every row.
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, b180, b1820, b2025, a250) ORDER BY n DESC, breed), '[]'::jsonb)
      FROM (
-       SELECT breed,
-              count(*)::bigint                                       AS n,
-              count(*) FILTER (WHERE g <= 180)::bigint               AS b180,
-              count(*) FILTER (WHERE g > 180 AND g <= 200)::bigint   AS b1820,
-              count(*) FILTER (WHERE g > 200 AND g <= 250)::bigint   AS b2025,
-              count(*) FILTER (WHERE g > 250)::bigint                AS a250
-       FROM resolved_gain
-       WHERE breed IS NOT NULL
-       GROUP BY breed
+       SELECT breed, sum(n)::bigint AS n, sum(b180)::bigint AS b180, sum(b1820)::bigint AS b1820,
+              sum(b2025)::bigint AS b2025, sum(a250)::bigint AS a250
+       FROM (
+         SELECT breed,
+                count(*)::bigint                                       AS n,
+                count(*) FILTER (WHERE g <= 180)::bigint               AS b180,
+                count(*) FILTER (WHERE g > 180 AND g <= 200)::bigint   AS b1820,
+                count(*) FILTER (WHERE g > 200 AND g <= 250)::bigint   AS b2025,
+                count(*) FILTER (WHERE g > 250)::bigint                AS a250
+         FROM resolved_gain
+         WHERE breed IS NOT NULL
+         GROUP BY breed
+         UNION ALL
+         SELECT sc.breed,
+                sum(ls.animals)::bigint,
+                sum(ls.animals) FILTER (WHERE ls.g_per_day <= 180)::bigint,
+                sum(ls.animals) FILTER (WHERE ls.g_per_day > 180 AND ls.g_per_day <= 200)::bigint,
+                sum(ls.animals) FILTER (WHERE ls.g_per_day > 200 AND ls.g_per_day <= 250)::bigint,
+                sum(ls.animals) FILTER (WHERE ls.g_per_day > 250)::bigint
+         FROM lump_span ls JOIN shed_cohort sc
+           ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
+         WHERE sc.breeds = 1 GROUP BY sc.breed
+       ) parts GROUP BY breed
      ) gt),
   (SELECT COALESCE(jsonb_agg(jsonb_build_object(
        'location_id', location_id::text,

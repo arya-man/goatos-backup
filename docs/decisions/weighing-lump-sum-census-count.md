@@ -71,3 +71,25 @@ the maintainer ruled:
   grains / never validated on submit.
 - Guard self-test fixtures in `check-weighing-free-flow-guard.mjs` — the census
   read passes ONLY in its exempt file.
+
+## Follow-up (maintainer decision 2026-08-25): lump-sum sheds join the gain charts
+
+The Breed-wise daily gain chart (and the gain-by-breed/sex/stage buckets) used
+to count same-animal pairs only, so a shed weighed lump-sum every week never
+appeared in it. The maintainer directed: include lump-sum — take the shed's
+average, and keep every animal of that shed in that range.
+
+- A lump-sum shed's gain is its own average-weight change between its first and
+  latest weigh in the selected window (`lump_span.g_per_day`).
+- When the shed's live cohort is HOMOGENEOUS for the reported dimension, ALL of
+  its animals (the frozen census count of the latest weigh) land in the ONE
+  band that average falls into, and join the dimension's gain bucket as a
+  weighted mean alongside the same-animal pairs.
+- A MIXED shed still joins no breed/sex row — the standing rule stands: one
+  shed average is never split across a mix.
+- A shed weighed once contributes no gain (a single average is a level).
+
+Pinned by `lump_sum_gain_bands_integration_test.go`
+(`TestBreedGainBandsIncludeHomogeneousLumpSumShedsAtShedAverage`,
+`TestSingleLumpSumWeighContributesNoGain`). The coverage note on the Weights
+page (`note.demographics.coverage`) says the new rule in farm words.

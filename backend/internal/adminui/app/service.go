@@ -3263,7 +3263,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.stage.title_gain":       "Daily gain by stage",
 			"chart.stage.aria":             "Average weight for each management stage",
 			"empty.demographics.body":      "No weighed kid could be matched to the herd register in this period.",
-			"note.demographics.coverage":   "Daily gain by breed, sex and stage is same-animal only. Lump-sum scale rows stay out of those growth charts because they have no scanned animal tags.",
+			"note.demographics.coverage":   "Daily gain by breed, sex and stage counts animals weighed one by one, plus whole-shed weighs: every animal of a shed weighed as one total is counted at that shed's own average change.",
 			// Row 2b -- how many kids of each breed are actually growing well, which a breed
 			// median cannot say. The bands are DISJOINT (maintainer, 2026-08-24): a kid at
 			// 260 g/day is counted in the top band ONLY, so the four columns add up to the
