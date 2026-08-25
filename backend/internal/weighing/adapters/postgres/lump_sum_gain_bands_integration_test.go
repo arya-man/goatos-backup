@@ -320,15 +320,20 @@ ON CONFLICT (goat_id) DO NOTHING`, goat.id, repoTenant, goat.display, repoParty,
 	if err != nil {
 		t.Fatalf("GetWeightDemographics(one park): %v", err)
 	}
+	var scopedFound bool
 	for _, row := range out.GainThresholdsByBreed {
 		switch row.Label {
 		case "Anantapur Sheep":
+			scopedFound = true
 			if row.Animals != 4 || row.Above250 != 4 {
 				t.Fatalf("three weighs must contribute the shed's animals ONCE at the first→latest span: %+v", row)
 			}
 		case "Jamnapari":
 			t.Fatalf("another park's shed leaked into a park-scoped read: %+v", row)
 		}
+	}
+	if !scopedFound {
+		t.Fatal("Anantapur Sheep missing from park-scoped lump-sum gain bands")
 	}
 
 	// Both parks selected: Jamnapari joins with its own 2 animals (200 g/day ⇒ 180–200 band).
