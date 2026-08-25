@@ -259,6 +259,7 @@ type configItemResponse struct {
 	Status            string     `json:"status"`
 	EffectiveFrom     *time.Time `json:"effective_from,omitempty"`
 	EffectiveTo       *time.Time `json:"effective_to,omitempty"`
+	RetiredAt         *time.Time `json:"retired_at,omitempty"`
 	SopVersionID      string     `json:"sop_version_id,omitempty"`
 	PublishedBy       string     `json:"published_by,omitempty"`
 	PublishedAt       *time.Time `json:"published_at,omitempty"`
@@ -295,7 +296,7 @@ func (h *Handler) ListConfigs(w http.ResponseWriter, r *http.Request) {
 			ProtocolID: it.ProtocolID, Code: it.Code, Name: it.Name, Category: it.Category,
 			ProtocolVersionID: it.ProtocolVersionID, Version: it.Version, VersionLabel: it.VersionLabel,
 			ScopeType: it.ScopeType, ScopeID: it.ScopeID, ScopeLabel: it.ScopeLabel, Status: it.Status,
-			EffectiveFrom: it.EffectiveFrom, EffectiveTo: it.EffectiveTo,
+			EffectiveFrom: it.EffectiveFrom, EffectiveTo: it.EffectiveTo, RetiredAt: it.RetiredAt,
 			SopVersionID: it.SopVersionID, PublishedBy: it.PublishedBy,
 			PublishedAt: it.PublishedAt, UpdatedAt: it.UpdatedAt,
 			SourceSystem: it.SourceSystem, SourceRef: it.SourceRef,

@@ -178,19 +178,17 @@ export function VaccinationPlanEditor(props: Props) {
         return;
       }
       setBaseline(plan);
-      // The save REPLACED the draft, so the id in the URL is already dead. Point at
-      // the new one BEFORE attempting the publish: if the publish then fails, the
-      // user is still on a live draft with their edits, rather than stranded on a
-      // discarded id where the next click 404s and the saved work is only reachable
-      // from the list.
+      // The save REPLACED the draft, so the publish must target the replacement id.
+      // Do not navigate before publishing: replacing the route can interrupt this
+      // client action and leave the user on a saved-but-unpublished draft.
       const liveId = savedResult.versionId ?? liveVersionId.current;
-      if (liveId !== liveVersionId.current) {
-        liveVersionId.current = liveId;
-        router.replace(`/vaccination/plan/edit?version=${liveId}`);
-      }
+      liveVersionId.current = liveId;
       const published = await publishPlan(liveId);
       if (!published.ok) {
         setError(published.error);
+        if (liveId !== props.draftVersionId) {
+          router.replace(`/vaccination/plan/edit?version=${liveId}`);
+        }
         router.refresh();
         return;
       }

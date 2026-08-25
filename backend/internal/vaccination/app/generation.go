@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -634,7 +635,7 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 	if err != nil {
 		return res, err
 	}
-	for _, p := range allPlans {
+	for i, p := range allPlans {
 		p.opts = runOpts
 		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
 			if shouldAbortGeneration(err) {
@@ -642,6 +643,9 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 			}
 			recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
 			continue
+		}
+		if runOpts.heartbeat != nil && (i+1)%100 == 0 {
+			runOpts.heartbeat(ctx)
 		}
 	}
 	if res.FailedGoats > 0 {
@@ -875,7 +879,9 @@ func (s *GenerationService) generateForVersionWithRun(ctx context.Context, tenan
 		lastError = genErr.Error()
 	}
 	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=generation-run-finish-absolute-instant-storage expiry=2026-12-31
-	if err := s.runs.FinishGenerationRun(ctx, tenantID, run.RunID, res, "", lastError, time.Now().UTC()); err != nil && genErr == nil {
+	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer finishCancel()
+	if err := s.runs.FinishGenerationRun(finishCtx, tenantID, run.RunID, res, "", lastError, time.Now().UTC()); err != nil && genErr == nil {
 		genErr = err
 	}
 	return run, res, genErr
@@ -1150,6 +1156,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		if err := s.supersedeRetiredPlanWork(ctx, tenantID, activeGoats, effectiveVersionsByPark, asOf); err != nil {
 			return res, err
 		}
+		slog.Info("vaccination_generation_page_superseded", "tenant_id", tenantID, "version_id", versionID, "active_goats", len(activeGoats), "after_goat_id", after)
 		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
 		for _, g := range activeGoats {
 			if !goatMatchesEligibility(g, elig, policies.Pregnancy, asOf) {
@@ -1202,14 +1209,20 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 	if err != nil {
 		return res, err
 	}
-	for _, p := range allPlans {
+	for i, p := range allPlans {
 		p.opts = runOpts
+		if i == 0 || (i+1)%25 == 0 {
+			slog.Info("vaccination_generation_plan_progress", "tenant_id", tenantID, "version_id", versionID, "plan_index", i+1, "plan_count", len(allPlans), "goat_id", p.goat.GoatID)
+		}
 		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
 			if shouldAbortGeneration(err) {
 				return res, err
 			}
 			recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
 			continue
+		}
+		if runOpts.heartbeat != nil && (i+1)%100 == 0 {
+			runOpts.heartbeat(ctx)
 		}
 	}
 	if res.FailedGoats > 0 {
@@ -1345,14 +1358,16 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 	}
 	if batch, ok := s.evidence.(BatchCompletionEvidenceReader); ok {
 		for versionID, candidates := range candidatesByVersion {
-			hits, err := batch.HasTrustedCompletionEvidenceBatch(ctx, tenantID, versionID, candidates, asOf)
-			if err != nil {
-				return nil, err
-			}
 			lookup := lookups[versionID]
-			for _, candidate := range candidates {
-				key := candidate.Key()
-				lookup.record(key, hits[key])
+			for _, chunk := range trustedCompletionCandidateChunks(candidates, 200) {
+				hits, err := batch.HasTrustedCompletionEvidenceBatch(ctx, tenantID, versionID, chunk, asOf)
+				if err != nil {
+					return nil, err
+				}
+				for _, candidate := range chunk {
+					key := candidate.Key()
+					lookup.record(key, hits[key])
+				}
 			}
 		}
 		return lookups, nil
@@ -1368,6 +1383,24 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 		}
 	}
 	return lookups, nil
+}
+
+func trustedCompletionCandidateChunks(candidates []domain.TrustedCompletionCandidate, size int) [][]domain.TrustedCompletionCandidate {
+	if len(candidates) == 0 {
+		return nil
+	}
+	if size <= 0 || size >= len(candidates) {
+		return [][]domain.TrustedCompletionCandidate{candidates}
+	}
+	chunks := make([][]domain.TrustedCompletionCandidate, 0, (len(candidates)+size-1)/size)
+	for start := 0; start < len(candidates); start += size {
+		end := start + size
+		if end > len(candidates) {
+			end = len(candidates)
+		}
+		chunks = append(chunks, candidates[start:end])
+	}
+	return chunks
 }
 
 func (s *GenerationService) hasTrustedCompletionEvidence(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, due, asOf time.Time, trustedLookup trustedEvidenceLookup) (bool, error) {
@@ -1826,15 +1859,20 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				// Goat is no longer in a defer state: if a held (deferred) obligation exists for this
 				// key, reopen it so the recovered goat's due work becomes schedulable again. A no-op
 				// when the row is already schedulable/terminal (safe recovery-recheck replay).
-				if opts.healthRecoveryAlign {
-					reschedule, err = s.recoveryRescheduleForRule(ctx, tenantID, versionID, rule, ruleVaccine, g, asOf, policies.Recovery, policies.Compatibility, vaccineHistory)
+				if !opts.healthRecoveryAlign && actionableObligationForSpacing(reconciled) &&
+					!strings.EqualFold(strings.TrimSpace(reconciled.Status), "deferred") {
+					finalRef = reconciled
+				} else {
+					if opts.healthRecoveryAlign {
+						reschedule, err = s.recoveryRescheduleForRule(ctx, tenantID, versionID, rule, ruleVaccine, g, asOf, policies.Recovery, policies.Compatibility, vaccineHistory)
+						if err != nil {
+							return err
+						}
+					}
+					finalRef, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, reconcileKey, asOf, reschedule)
 					if err != nil {
 						return err
 					}
-				}
-				finalRef, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, reconcileKey, asOf, reschedule)
-				if err != nil {
-					return err
 				}
 				if changed {
 					res.Reopened++

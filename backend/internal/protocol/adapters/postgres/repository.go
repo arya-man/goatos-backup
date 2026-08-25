@@ -2327,6 +2327,10 @@ func (r *Repository) ListConfigs(ctx context.Context, tenantID, category string)
 			t := row.PublishedAt.Time
 			item.PublishedAt = &t
 		}
+		if row.RetiredAt.Valid {
+			t := row.RetiredAt.Time
+			item.RetiredAt = &t
+		}
 		if row.UpdatedAt.Valid {
 			t := row.UpdatedAt.Time
 			item.UpdatedAt = &t

@@ -169,6 +169,7 @@ type ConfigListItem struct {
 	Status            string // draft | published | retired
 	EffectiveFrom     *time.Time
 	EffectiveTo       *time.Time
+	RetiredAt         *time.Time
 	SopVersionID      string
 	PublishedBy       string
 	PublishedAt       *time.Time

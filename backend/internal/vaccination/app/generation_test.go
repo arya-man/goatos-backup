@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,26 @@ import (
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
+
+func TestTrustedCompletionCandidateChunksBoundsBatchSize(t *testing.T) {
+	candidates := make([]domain.TrustedCompletionCandidate, 0, 405)
+	for i := 0; i < 405; i++ {
+		candidates = append(candidates, domain.TrustedCompletionCandidate{GoatID: "goat-" + strconv.Itoa(i)})
+	}
+
+	chunks := trustedCompletionCandidateChunks(candidates, 200)
+	if len(chunks) != 3 {
+		t.Fatalf("chunks=%d, want 3", len(chunks))
+	}
+	for i, want := range []int{200, 200, 5} {
+		if got := len(chunks[i]); got != want {
+			t.Fatalf("chunk %d length=%d, want %d", i, got, want)
+		}
+	}
+	if chunks[0][0].GoatID != "goat-0" || chunks[2][4].GoatID != "goat-404" {
+		t.Fatal("chunking changed candidate order")
+	}
+}
 
 func TestGenerateForVersionAppliesCrossVaccineGap(t *testing.T) {
 	ctx := context.Background()
@@ -789,6 +810,33 @@ func TestManualCampaignHTTPRunPoisonGoatFailsRunAfterCountingFailure(t *testing.
 		if !obligation.DueAt.Equal(wantDue) {
 			t.Fatalf("inserted[%d].DueAt = %s, want original as_of business day %s", i, obligation.DueAt, wantDue)
 		}
+	}
+}
+
+func TestGenerationRunFailureFinishesWithNonCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	proto := &generationProtoFake{rules: []protodomain.Rule{
+		{RuleID: "rule-1", DoseCode: "dose-1", Sequence: 1, TriggerType: "manual_campaign"},
+		{RuleID: "rule-2", DoseCode: "dose-2", Sequence: 2, TriggerType: "manual_campaign"},
+	}}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-1", LifecycleStatus: "alive"},
+		{GoatID: "goat-2", LifecycleStatus: "alive"},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}, failOnceAfterInserted: 1, cancelOnFailure: cancel}
+	runs := &generationRunRecorderFake{byKey: map[string]domain.GenerationRun{}}
+	gen := NewGenerationService(proto, goats, obl).WithGenerationRunRecorder(runs)
+
+	_, _, err := gen.GenerateManualCampaignForVersionWithHTTPRun(ctx, "tenant-1", "version-1", "catchup", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC), "manual-key-canceled-failure", "hash-1")
+	if !errors.Is(err, errGenerationPartialFailures) {
+		t.Fatalf("generate err=%v, want partial failure", err)
+	}
+	run := runs.byKey["manual-key-canceled-failure"]
+	if run.Status != "failed" || run.LastError == "" || run.CompletedAt == nil {
+		t.Fatalf("run=%#v, want failed run with completed_at and last_error", run)
+	}
+	if len(runs.finishCtxErrors) != 1 || runs.finishCtxErrors[0] != nil {
+		t.Fatalf("finish ctx errors=%#v, want one non-canceled finish context", runs.finishCtxErrors)
 	}
 }
 
@@ -3139,6 +3187,7 @@ type generationObligationFake struct {
 	nearbyDrive            *time.Time
 	nearestBatchLookups    []nearestBatchLookup
 	failOnceAfterInserted  int
+	cancelOnFailure        context.CancelFunc
 	failErr                error
 	failed                 bool
 	recordedStatusEvents   []obldomain.NewStatusEvent
@@ -3175,6 +3224,9 @@ func (o *generationObligationFake) InsertObligation(ctx context.Context, in obld
 	}
 	if o.failOnceAfterInserted > 0 && len(o.inserted) >= o.failOnceAfterInserted && !o.failed {
 		o.failed = true
+		if o.cancelOnFailure != nil {
+			o.cancelOnFailure()
+		}
 		if o.failErr != nil {
 			return "", false, o.failErr
 		}
@@ -3355,8 +3407,9 @@ func (o *generationObligationFake) NextSuccessorSuffix(_ context.Context, _, _ s
 }
 
 type generationRunRecorderFake struct {
-	byKey       map[string]domain.GenerationRun
-	startInputs []domain.GenerationRunInput
+	byKey           map[string]domain.GenerationRun
+	startInputs     []domain.GenerationRunInput
+	finishCtxErrors []error
 }
 
 func (r *generationRunRecorderFake) StartGenerationRun(_ context.Context, in domain.GenerationRunInput) (domain.GenerationRun, bool, error) {
@@ -3390,7 +3443,8 @@ func (r *generationRunRecorderFake) HeartbeatGenerationRun(_ context.Context, _,
 	return nil
 }
 
-func (r *generationRunRecorderFake) FinishGenerationRun(_ context.Context, tenantID, runID string, result domain.GenerateResult, _ string, lastError string, completedAt time.Time) error {
+func (r *generationRunRecorderFake) FinishGenerationRun(ctx context.Context, tenantID, runID string, result domain.GenerateResult, _ string, lastError string, completedAt time.Time) error {
+	r.finishCtxErrors = append(r.finishCtxErrors, ctx.Err())
 	for key, run := range r.byKey {
 		if run.RunID != runID {
 			continue

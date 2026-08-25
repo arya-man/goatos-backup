@@ -508,18 +508,24 @@ func TestReconcileMovesTheExistingWorkInsteadOfBookingTheDoseTwice(t *testing.T)
 	}
 
 	var (
-		gotDue     time.Time
-		gotVersion string
-		gotKey     string
-		count      int
+		gotDue       time.Time
+		gotVersion   string
+		gotKey       string
+		rowVersion   int
+		statusEvents int
+		count        int
 	)
 	if err := pool.QueryRow(ctx, `
-SELECT due_at, protocol_version_id::text, idempotency_key,
+SELECT due_at, protocol_version_id::text, idempotency_key, row_version,
+       (SELECT count(*) FROM obligation_status_events e
+         WHERE e.tenant_id = $1::uuid AND e.obligation_id = $2::uuid
+           AND e.event_type = 'scheduled'
+           AND e.payload->>'reason' = 'rule_identity_reconciled'),
        (SELECT count(*) FROM obligation_instances d
          WHERE d.tenant_id = $1::uuid AND d.target_id = $3::uuid AND d.rule_identity_key = $4
            AND d.status IN ('scheduled','due','in_progress','deferred'))
 FROM obligation_instances WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
-		tenantID, original.id, carryOverGoat, identity).Scan(&gotDue, &gotVersion, &gotKey, &count); err != nil {
+		tenantID, original.id, carryOverGoat, identity).Scan(&gotDue, &gotVersion, &gotKey, &rowVersion, &statusEvents, &count); err != nil {
 		t.Fatalf("read reconciled row: %v", err)
 	}
 	if !gotDue.Equal(movedDue) {
@@ -533,6 +539,36 @@ FROM obligation_instances WHERE tenant_id = $1::uuid AND obligation_id = $2::uui
 	}
 	if count != 1 {
 		t.Fatalf("%d open obligations under one identity, want exactly 1", count)
+	}
+
+	_, found, err = repo.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: v2, RuleID: v2Rule,
+		TargetType: "goat", TargetID: carryOverGoat, ScopeType: "park", ScopeID: cbePark,
+		DueAt: movedDue, Status: "scheduled", IdempotencyKey: "generation-owns-this-key",
+		Sequence: 1, RuleIdentityKey: identity,
+	}, movedDue)
+	if err != nil {
+		t.Fatalf("exact replay reconcile: %v", err)
+	}
+	if !found {
+		t.Fatal("exact replay lost the reconciled row")
+	}
+	var replayRowVersion, replayStatusEvents int
+	if err := pool.QueryRow(ctx, `
+SELECT row_version,
+       (SELECT count(*) FROM obligation_status_events e
+         WHERE e.tenant_id = $1::uuid AND e.obligation_id = $2::uuid
+           AND e.event_type = 'scheduled'
+           AND e.payload->>'reason' = 'rule_identity_reconciled')
+FROM obligation_instances WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		tenantID, original.id).Scan(&replayRowVersion, &replayStatusEvents); err != nil {
+		t.Fatalf("read exact replay row: %v", err)
+	}
+	if replayRowVersion != rowVersion {
+		t.Fatalf("exact replay row_version = %d, want unchanged %d", replayRowVersion, rowVersion)
+	}
+	if replayStatusEvents != statusEvents {
+		t.Fatalf("exact replay wrote another reconcile event: %d -> %d", statusEvents, replayStatusEvents)
 	}
 }
 
