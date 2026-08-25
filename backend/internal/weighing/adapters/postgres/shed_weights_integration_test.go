@@ -58,7 +58,7 @@ func TestShedWeightsOneToManyDeduplicatesRepeatScansPerTag(t *testing.T) {
 	seedShedWeightScan(t, ctx, pool, "TAG-B", 30.0, day)
 
 	from, to := shedWeightsWindow()
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to)
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestShedWeightsStatusMatrixExcludesOnlyCanceledFromScope(t *testing.T) {
 			`UPDATE weighing_campaign_sheds SET status = $1 WHERE campaign_shed_id = $2::uuid`,
 			status, repoAnimalScope)
 
-		out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to)
+		out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "")
 		if err != nil {
 			t.Fatalf("GetShedWeights(%s): %v", status, err)
 		}
@@ -141,7 +141,7 @@ func TestShedWeightsPaginationSummaryMatchesAllReturnedRows(t *testing.T) {
 	seedShedWeightScan(t, ctx, pool, "PAGE-2", 22.0, day)
 
 	from, to := shedWeightsWindow()
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to)
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -215,7 +215,7 @@ ON CONFLICT (campaign_shed_id) DO NOTHING`,
 		repoTenant, repoPark, repoCampaign, repoOperator)
 
 	from, to := shedWeightsWindow()
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to)
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestShedWeightsParkScopeReturnsNothingOutsideTheRequestedParks(t *testing.T
 
 	from, to := shedWeightsWindow()
 	other := "00000000-0000-4000-8000-0000000030ff"
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{other}, "", from, to)
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{other}, "", from, to, "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestShedWeightsDateShiftHonoursHalfOpenWindow(t *testing.T) {
 	seedShedWeightScan(t, ctx, pool, "WINDOW-OUT", 40.0, boundary)
 
 	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
-		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), boundary)
+		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), boundary, "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestShedWeightsSelectedWindowGainUsesFirstAndLatestInWindow(t *testing.T) {
 
 	from := time.Date(2026, 7, 29, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to)
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestShedWeightsSelectedWindowGainPartitionOneToManyPageBoundaryParkScopeSta
 
 	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
 		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC))
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestShedWeightsGainNeedsTwoWeighedDatesInsideSelectedWindow(t *testing.T) {
 
 	from := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
-	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to)
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}

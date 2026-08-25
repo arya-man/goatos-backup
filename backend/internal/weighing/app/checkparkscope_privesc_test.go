@@ -303,15 +303,15 @@ func (r *parkScopeCheckRepo) GetWeightHistory(context.Context, string, []string,
 	return domain.WeightHistory{}, nil
 }
 
-func (r *parkScopeCheckRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time) (domain.GrowthADG, error) {
+func (r *parkScopeCheckRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time, string) (domain.GrowthADG, error) {
 	return domain.GrowthADG{}, nil
 }
 
-func (r *parkScopeCheckRepo) GetShedWeights(context.Context, string, []string, string, time.Time, time.Time) (domain.ShedWeights, error) {
+func (r *parkScopeCheckRepo) GetShedWeights(context.Context, string, []string, string, time.Time, time.Time, string) (domain.ShedWeights, error) {
 	return domain.ShedWeights{}, nil
 }
 
-func (r *parkScopeCheckRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time) (domain.WeightDemographics, error) {
+func (r *parkScopeCheckRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string) (domain.WeightDemographics, error) {
 	return domain.WeightDemographics{}, nil
 }
 

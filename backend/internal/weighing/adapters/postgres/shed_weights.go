@@ -63,13 +63,24 @@ import (
 // weighing_observations_campaign_scanned_identifier_idx rather than seq-scanning
 // once per bucket — the same fix measured in 000080 (3873ms -> 554ms at 400
 // buckets x 300 observations).
-func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time) (domain.ShedWeights, error) {
+func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex string) (domain.ShedWeights, error) {
 	// The ROWS honour the selection; the VOCABULARY below is built from the whole scope. Keeping
 	// them separate is the fix for a dropdown that collapsed to the park already chosen.
 	parkIDs := scopeParkIDs
 	if selectedParkID != "" {
 		parkIDs = []string{selectedParkID}
 	}
+	// The Sex filter narrows WHICH WEIGHS are counted, never which sheds exist: sheds_in_scope
+	// stays the whole scope, so "N of 65 sheds weighed" keeps one denominator across every filter
+	// position and a reader can see that the male half covers fewer sheds. Resolving identity is
+	// sex_scope.go's job — nothing in THIS file knows what an animal is; it is handed a list of
+	// tag strings and a list of buckets.
+	scope, scopeErr := r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
+	if scopeErr != nil {
+		return domain.ShedWeights{}, scopeErr
+	}
+	sexFiltered := strings.TrimSpace(sex) != ""
+
 	out := domain.ShedWeights{
 		Rows:              []domain.ShedWeightsRow{},
 		Parks:             []domain.GrowthPark{},
@@ -139,6 +150,10 @@ ind AS (
       -- A rejected proof is not a real weight. Pending IS included: an unverified
       -- weight is still a measurement, matching weight_history.go and growth.go.
       AND o.verification_status <> 'rejected'
+      -- Sex filter. $8 is FALSE for the unfiltered page, so this query runs exactly as it did
+      -- before the filter existed; when it is on, an EMPTY tag list correctly matches nothing
+      -- rather than silently meaning "everyone", which is why the flag is a separate bind.
+      AND (NOT $8::bool OR lower(btrim(o.scanned_identifier)) = ANY($9::text[]))
     ORDER BY COALESCE(NULLIF(lower(btrim(o.scanned_identifier)), ''), o.observation_id::text),
              o.accepted_at DESC, o.observation_id DESC
   ) latest ON true
@@ -166,6 +181,13 @@ lump AS (
    AND sh.accepted_at <  $4::timestamptz
    AND sh.verification_status <> 'rejected'
   WHERE s.weighing_category = 'per_shed_partition'
+    -- A whole-shed weigh carries no tag, so it is claimed only when its shed's cohort is
+    -- entirely this sex (sex_scope.go proves that); a shed holding both is claimed by neither
+    -- side rather than split, because one shed average cannot be divided between two cohorts.
+    AND (NOT $8::bool OR EXISTS (
+      SELECT 1 FROM unnest($10::uuid[], $11::text[]) AS b(loc, part)
+      WHERE b.loc = s.location_id AND b.part = COALESCE(s.partition_label, '')
+    ))
 ),
 -- Whole-shed movement inside the selected window, per operational row
 -- (location_id + partition_label) rather than per bucket: each weigh of a shed is
@@ -190,6 +212,10 @@ shed_span AS (
     WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
       AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
       AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
+      AND (NOT $8::bool OR EXISTS (
+        SELECT 1 FROM unnest($10::uuid[], $11::text[]) AS b(loc, part)
+        WHERE b.loc = cs2.location_id AND b.part = COALESCE(cs2.partition_label, '')
+      ))
   ) latest
   JOIN (
     SELECT cs2.location_id, COALESCE(cs2.partition_label, '') AS partition_label, o.average_weight_kg,
@@ -201,6 +227,10 @@ shed_span AS (
     WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
       AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
       AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
+      AND (NOT $8::bool OR EXISTS (
+        SELECT 1 FROM unnest($10::uuid[], $11::text[]) AS b(loc, part)
+        WHERE b.loc = cs2.location_id AND b.part = COALESCE(cs2.partition_label, '')
+      ))
   ) first ON first.location_id = latest.location_id
     AND first.partition_label = latest.partition_label
     AND first.rn = 1
@@ -259,7 +289,8 @@ LIMIT $7`
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs,
 		periodStart, periodEnd,
 		domain.SaleThresholdLowerKg, domain.SaleThresholdUpperKg,
-		domain.MaxShedWeightsRows)
+		domain.MaxShedWeightsRows,
+		sexFiltered, scope.Tags, scope.LocationIDs, scope.PartitionLabels)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}
@@ -370,7 +401,14 @@ WHERE sh.tenant_id = $1::uuid
   AND sh.verification_status <> 'rejected'
   AND sh.accepted_at >= $3::timestamptz
   AND sh.accepted_at <  $4::timestamptz
-ORDER BY weigh_date`, tenantID, parkIDs, periodStart, periodEnd)
+  -- The calendar's lump markers follow the filter too: a day whose only whole-shed weigh
+  -- belongs to the other sex is not a day this reader has data for.
+  AND (NOT $5::bool OR EXISTS (
+    SELECT 1 FROM unnest($6::uuid[], $7::text[]) AS b(loc, part)
+    WHERE b.loc = cs.location_id AND b.part = COALESCE(cs.partition_label, '')
+  ))
+ORDER BY weigh_date`, tenantID, parkIDs, periodStart, periodEnd,
+		sexFiltered, scope.LocationIDs, scope.PartitionLabels)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}
@@ -396,7 +434,7 @@ ORDER BY weigh_date`, tenantID, parkIDs, periodStart, periodEnd)
 	// read rather than another CTE here: it collapses to LOAD grain, not shed grain,
 	// and folding a different grain into this query is how a shed ends up counted
 	// once per load it touches.
-	byLoad, unattributed, err := r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd)
+	byLoad, unattributed, err := r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}

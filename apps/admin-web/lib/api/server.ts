@@ -698,6 +698,8 @@ export async function getShedWeights(params: {
   park_id?: string;
   from?: string;
   to?: string;
+  /** `male` / `female` narrows every figure to that half of the herd; omitted means every kid. */
+  sex?: string;
 }): Promise<ApiResult<ShedWeightsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -737,6 +739,8 @@ export async function getWeightDemographics(params: {
   park_id?: string;
   from?: string;
   to?: string;
+  /** `male` / `female` narrows every figure to that half of the herd; omitted means every kid. */
+  sex?: string;
 }): Promise<ApiResult<WeightDemographicsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -756,6 +760,8 @@ export async function getWeighingGrowth(params: {
   park_id?: string;
   from?: string;
   to?: string;
+  /** `male` / `female` narrows every figure to that half of the herd; omitted means every kid. */
+  sex?: string;
 }): Promise<ApiResult<WeighingGrowthResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;
@@ -778,6 +784,8 @@ export async function getGrowthDirector(params: {
   park_id?: string;
   from?: string;
   to?: string;
+  /** `male` / `female` narrows every figure to that half of the herd; omitted means every kid. */
+  sex?: string;
 }): Promise<ApiResult<GrowthDirectorWeightsResponse>> {
   const config = await getServerConfig();
   if (!config.ok) return config;

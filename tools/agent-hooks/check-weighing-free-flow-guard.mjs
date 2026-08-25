@@ -250,11 +250,33 @@ function stripComments(text) {
 // verbatim, unknown tags still counted), and the only gate it adds is the
 // maintainer-ruled zero-census refusal (ports.ErrShedCountUnavailable).
 //
+// THE THIRD RECORDED EXCEPTION (maintainer decision 2026-08-26): the WEIGHTS
+// SEX FILTER, sex_scope.go. The maintainer asked for the Weights page's Sex
+// filter to govern the WHOLE page — the shed table, the KPI row, the growth
+// leaderboard and the Growth Director widgets — and a weighing row knows only a
+// scanned string, so something must say which strings belong to a male kid.
+//
+// The alternative was to let shed_weights.go, growth.go and the Growth Director
+// reads each join goat_identifiers, which is exactly the leak the 2026-08-04
+// defect was about. Instead ONE file answers the question and hands the other
+// reads an OPAQUE list — tag strings and (location, partition) buckets — so
+// those files still name no herd table and still know nothing about animals.
+//
+// Its boundaries: READ-ONLY and REPORTING-ONLY, no capture/submit/close/verdict
+// path calls it; NO scan is gated on identity; an empty sex resolves to an empty
+// scope that every caller reads as "no filter", so the unfiltered page runs the
+// query it ran before this file existed; and a whole-shed weigh is claimed only
+// when its cohort is provably one sex, never split across a mix.
+//
 // Adding a file here is a MAINTAINER decision, never a developer convenience.
 const HERD_JOIN_EXEMPT_FILES = new Map([
   [
     "backend/internal/weighing/adapters/postgres/weight_demographics.go",
     "maintainer decisions 2026-08-07/2026-08-19: average weight by breed/sex/stage and lump-sum shed/partition composition on the Weights screen",
+  ],
+  [
+    "backend/internal/weighing/adapters/postgres/sex_scope.go",
+    "maintainer decision 2026-08-26: resolves the Weights page's Sex filter to a tag list and a lump-sum bucket list, so the other weighing reads filter without naming a herd table",
   ],
   [
     "backend/internal/weighing/adapters/postgres/lump_sum_census.go",

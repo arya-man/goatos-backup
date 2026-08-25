@@ -4,10 +4,7 @@ import { Gauge, TrendingDown, Warehouse } from "lucide-react";
 import { GrowthDirectorSection } from "./growth-director";
 import { MetricChart, ShedMetricChart } from "./metric-chart";
 import { SegmentedLinks } from "@/components/segmented-links";
-import { type GainThresholdRow } from "./gain-threshold-bars";
-import { GainThresholdCard, type GainThresholdGrain } from "./gain-threshold-card";
-import { GainSexFilter } from "./gain-sex-filter";
-import { GainSexProvider, type GainSex } from "./gain-sex-scope";
+import { GainThresholdBars, type GainThresholdRow } from "./gain-threshold-bars";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
@@ -67,11 +64,9 @@ const LATEST_LUMP_LOOKBACK_DAYS = 400;
 // Which view the gain-mark card is showing. Absent means the chart, so a shared link
 // that predates the toggle — or one copied from the default view — keeps meaning "chart".
 const GAIN_VIEW_PARAM = "gain_view";
-// Which kids the gain card counts. Absent means ALL of them (maintainer, 2026-08-25), so a link
-// that predates the Sex control keeps meaning the whole breed, which is what it showed when it was
-// written. Only the two register values are honoured; a hand-edited value falls back to the
-// combined grain rather than emptying the card.
-const GAIN_SEX_PARAM = "gain_sex";
+// Which kids the WHOLE PAGE counts (maintainer, 2026-08-26). Absent means all of them, so a link
+// that predates the Sex filter keeps meaning what it showed when it was written.
+const SEX_PARAM = "sex";
 const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -100,6 +95,9 @@ async function landingWindow(params: RouteSearchParams, today: string, parkID: s
     from: istDayPlus(today, -(LATEST_LUMP_LOOKBACK_DAYS - 1)),
     to: today,
   };
+  // Deliberately UNFILTERED by sex: this call only asks WHEN the farm last weighed, and the answer
+  // must not move when a reader switches to Male — a window that jumped on every filter change
+  // would silently compare two different fortnights.
   const result = await getShedWeights({
     park_id: parkID || undefined,
     ...lookback,
@@ -242,6 +240,10 @@ export async function WeighingWeightsPage({
   const params = searchParams ?? {};
   const parkFilter = one(params, "park") ?? "";
   const modeFilter = one(params, "weighing") ?? "all";
+  // Only the two values the herd register carries are honoured; anything else falls back to every
+  // kid rather than emptying the page, because a hand-edited URL must not take the screen down.
+  const rawSex = one(params, SEX_PARAM);
+  const sexFilter = rawSex === "male" || rawSex === "female" ? rawSex : "";
   const limit = boundedLimit(one(params, "limit"));
   const offset = boundedOffset(one(params, "offset"));
   const losingOffset = boundedOffset(one(params, "losing_offset"));
@@ -259,11 +261,15 @@ export async function WeighingWeightsPage({
   const today = todayIso();
   const window = await landingWindow(params, today, parkFilter);
 
+  // EVERY read carries the Sex filter (maintainer, 2026-08-26). It is a page filter, not a card
+  // one: a page where the shed table counts every kid while the breed card counts the male half
+  // has no true number on it. That is also why this filter lives in the URL like Park and Period
+  // and costs a server render — unlike the grain switch it replaced, it changes what is fetched.
   const [weights, growth, demographics, growthDirector] = await Promise.all([
-    getShedWeights({ park_id: parkFilter || undefined, ...window }),
-    getWeighingGrowth({ park_id: parkFilter || undefined, ...window }),
-    getWeightDemographics({ park_id: parkFilter || undefined, ...window }),
-    getGrowthDirector({ park_id: parkFilter || undefined, ...window }),
+    getShedWeights({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined }),
+    getWeighingGrowth({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined }),
+    getWeightDemographics({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined }),
+    getGrowthDirector({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined }),
   ]);
 
   if (firstAuthRequiredError(weights, growth, demographics, growthDirector))
@@ -305,7 +311,10 @@ export async function WeighingWeightsPage({
     parkFilter === "" && parks.length > 1
       ? await Promise.all(
           parks.map(async (park) => {
-            const result = await getWeighingGrowth({ park_id: park.park_id, ...window });
+            // The per-park gain cards carry the filter too. They were the one read that did not,
+            // and the page then showed a filtered headline above two unfiltered park cards — three
+            // numbers about three different populations, side by side, with nothing saying so.
+            const result = await getWeighingGrowth({ park_id: park.park_id, ...window, sex: sexFilter || undefined });
             const headline = result.ok ? result.data.headline : null;
             return {
               name: park.name,
@@ -382,6 +391,26 @@ export async function WeighingWeightsPage({
       value: modeFilter,
       allowAll: false,
       options: modeOptions.map((option) => ({ value: option.key, label: option.label })),
+    },
+    {
+      // The Sex filter governs the WHOLE page (maintainer, 2026-08-26): every KPI, the shed table,
+      // both leaderboards, the load chart and the breed gain card follow it, because a page whose
+      // cards disagree about which kids they counted has no true number on it.
+      //
+      // A whole-shed weigh carries no tag and is claimed only when its shed's cohort is entirely
+      // one sex, which is the farm's own rule for how those sheds are stocked; a shed the register
+      // shows as mixed is claimed by neither side rather than split.
+      kind: "select",
+      param: SEX_PARAM,
+      label: copy(pageContract, "filter.sex.label"),
+      value: sexFilter,
+      // allowAll:true, so the blank option IS "every kid" and clearing the filter is the same act
+      // as choosing it — there is no second spelling of the default to disagree with.
+      allowAll: true,
+      options: [
+        { value: "male", label: copy(pageContract, "view.sex.male") },
+        { value: "female", label: copy(pageContract, "view.sex.female") },
+      ],
     },
   ];
 
@@ -613,60 +642,51 @@ export async function WeighingWeightsPage({
   // spellings of one band. `under` is the slowest band and the only red one: it is not a step
   // on the green growth ramp, it is the kids that are not growing.
   const gainThresholdSteps = ["hi", "mid", "lo", "under"] as const;
-  // The card is read at ONE grain at a time and the backend reports every breed at two — combined
-  // (sex "") and once per sex — which OVERLAP, so a grain is selected and they are never added.
-  // ALL THREE are prepared here, because all three already arrived in the SAME response: switching
-  // between them is then a re-render in the browser rather than another page load. Preparing only
-  // the selected one would force a server round trip for rows the reader had been sent.
-  const rawGainSex = one(params, GAIN_SEX_PARAM);
-  const gainSex: GainSex = rawGainSex === "male" || rawGainSex === "female" ? rawGainSex : "all";
-  const gainThresholdRowsFor = (sex: GainSex): GainThresholdRow[] =>
-    (demo?.gain_thresholds_by_breed ?? [])
-      .filter((row) => (row.sex ?? "") === (sex === "all" ? "" : sex))
-      .filter((row) => row.animals > 0)
-      .map((row) => {
-        const counts = [
-          row.above_250_g_per_day,
-          row.band_200_to_250_g_per_day,
-          row.band_180_to_200_g_per_day,
-          row.at_or_below_180_g_per_day,
-        ];
-        return {
-          // One grain is rendered at a time, so the breed is unique inside a list — but the sex
-          // rides in the key anyway, so a future change that renders two grains at once cannot
-          // silently collide two rows onto one React key.
-          key: `${row.label}|${row.sex ?? ""}`,
-          breed: row.label,
-          animals: row.animals,
-          marks: sharesOfWhole(counts, row.animals).map((pct, index) => ({
-            step: gainThresholdSteps[index],
-            // Column 0 is the breed and column 1 the head count, so the bands start at 2.
-            label: gainThresholdColumns[index + 2] ?? "",
-            count: counts[index],
-            pct,
-          })),
-        };
-      });
-  const gainThresholdGrains: Record<GainSex, GainThresholdGrain> = {
-    all: {
-      rows: gainThresholdRowsFor("all"),
-      caption: copy(pageContract, "section.gain_thresholds.caption"),
-      kidsLabel: copy(pageContract, "value.gain_thresholds.kids"),
-      emptyLabel: copy(pageContract, "empty.gain_thresholds.body"),
-    },
-    male: {
-      rows: gainThresholdRowsFor("male"),
-      caption: copy(pageContract, "section.gain_thresholds.caption_male"),
-      kidsLabel: copy(pageContract, "value.gain_thresholds.kids_male"),
-      emptyLabel: copy(pageContract, "empty.gain_thresholds.male"),
-    },
-    female: {
-      rows: gainThresholdRowsFor("female"),
-      caption: copy(pageContract, "section.gain_thresholds.caption_female"),
-      kidsLabel: copy(pageContract, "value.gain_thresholds.kids_female"),
-      emptyLabel: copy(pageContract, "empty.gain_thresholds.female"),
-    },
-  };
+  // The page is ALREADY filtered by the time these rows arrive: the backend returns the combined
+  // row (sex "") for an unfiltered page and the per-sex row for a filtered one, so the card
+  // renders the grain it was sent rather than choosing between grains. Selecting the sex here
+  // too would be a second implementation of one rule, and the two would drift.
+  const gainThresholdRows: GainThresholdRow[] = (demo?.gain_thresholds_by_breed ?? [])
+    .filter((row) => (row.sex ?? "") === (sexFilter === "" ? "" : sexFilter))
+    .filter((row) => row.animals > 0)
+    .map((row) => {
+      const counts = [
+        row.above_250_g_per_day,
+        row.band_200_to_250_g_per_day,
+        row.band_180_to_200_g_per_day,
+        row.at_or_below_180_g_per_day,
+      ];
+      return {
+        // One grain is rendered at a time, so the breed is unique inside the list — but the sex
+        // rides in the key anyway, so a future change that renders two grains at once cannot
+        // silently collide two rows onto one React key.
+        key: `${row.label}|${row.sex ?? ""}`,
+        breed: row.label,
+        animals: row.animals,
+        marks: sharesOfWhole(counts, row.animals).map((pct, index) => ({
+          step: gainThresholdSteps[index],
+          // Column 0 is the breed and column 1 the head count, so the bands start at 2.
+          label: gainThresholdColumns[index + 2] ?? "",
+          count: counts[index],
+          pct,
+        })),
+      };
+    });
+  // Caption, head-count noun and empty line name the kids the page counted, so they follow the
+  // filter — a combined caption under Male would say the bands add up to the kids weighed twice
+  // when they add up to the male kids weighed twice. All backend-contract copy.
+  const gainCaption = copy(
+    pageContract,
+    sexFilter === "" ? "section.gain_thresholds.caption" : `section.gain_thresholds.caption_${sexFilter}`,
+  );
+  const gainKidsLabel = copy(
+    pageContract,
+    sexFilter === "" ? "value.gain_thresholds.kids" : `value.gain_thresholds.kids_${sexFilter}`,
+  );
+  const gainEmptyLabel = copy(
+    pageContract,
+    sexFilter === "" ? "empty.gain_thresholds.body" : `empty.gain_thresholds.${sexFilter}`,
+  );
   // Chart first: the card exists to answer "is this breed growing", and six rows of
   // figures answer that more slowly than six rows of bars. The exact counts are one
   // click away and the chart carries them on hover, so nothing is hidden by the default.
@@ -689,9 +709,6 @@ export async function WeighingWeightsPage({
   const exportSheds = [...exportShedsById.values()].sort((a, b) => a.label.localeCompare(b.label));
 
   return (
-    // The Sex control sits in the filter bar at the top and the card it governs ~2,600px below, so
-    // the grain they share is held by this provider rather than by either of them.
-    <GainSexProvider initialSex={gainSex} searchParamName={GAIN_SEX_PARAM}>
     <div className="weights-page">
       {/* The download opener rides at the far end of the filter bar, on the same line as the park
           and period controls, rather than on a line of its own above them (maintainer, 2026-08-24).
@@ -705,16 +722,6 @@ export async function WeighingWeightsPage({
         pageParam="offset"
         fields={filterFields}
         pageContract={pageContract}
-        inlineTrailing={
-          <GainSexFilter
-            label={copy(pageContract, "filter.gain_sex.label")}
-            optionLabels={{
-              all: copy(pageContract, "view.sex.all"),
-              male: copy(pageContract, "view.sex.male"),
-              female: copy(pageContract, "view.sex.female"),
-            }}
-          />
-        }
         trailing={
           <WeightsExportControl
             pageContract={pageContract}
@@ -923,17 +930,50 @@ export async function WeighingWeightsPage({
             ]}
           />
         </h2>
-        {/* Caption and body live in the card component, because the caption NAMES the kids the
-            selected grain counted and would otherwise say one thing while the bars below it showed
-            another. The Chart/Table choice stays a URL toggle and is passed down, so it still
-            governs whichever grain is showing. */}
-        <GainThresholdCard
-          grains={gainThresholdGrains}
-          view={gainThresholdView}
-          columns={gainThresholdColumns}
-          chartLabel={copy(pageContract, "chart.gain_thresholds.aria")}
-          ofLabel={copy(pageContract, "value.gain_thresholds.of")}
-        />
+        <p className="muted small">{gainCaption}</p>
+        {gainThresholdView === "chart" ? (
+          <GainThresholdBars
+            rows={gainThresholdRows}
+            chartLabel={copy(pageContract, "chart.gain_thresholds.aria")}
+            emptyLabel={gainEmptyLabel}
+            kidsLabel={gainKidsLabel}
+            ofLabel={copy(pageContract, "value.gain_thresholds.of")}
+          />
+        ) : gainThresholdRows.length === 0 ? (
+          <div className="empty">
+            <span className="muted small">{gainEmptyLabel}</span>
+          </div>
+        ) : (
+          <div className="tablewrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  {gainThresholdColumns.map((label, index) => (
+                    <th key={label} className={index >= 1 ? "num" : undefined}>
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {gainThresholdRows.map((row) => (
+                  <tr key={row.key}>
+                    <td>
+                      <b>{row.breed}</b>
+                    </td>
+                    <td className="num">{row.animals.toLocaleString("en-IN")}</td>
+                    {row.marks.map((mark) => (
+                      <td key={mark.step} className="num">
+                        {mark.count.toLocaleString("en-IN")}{" "}
+                        <span className="muted">({mark.pct.toFixed(1)}%)</span>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {/* Row 3 — growth by purchase load, full width: the label carries both the load
@@ -1190,6 +1230,5 @@ export async function WeighingWeightsPage({
       </section>
       <GrowthDirectorSection result={growthDirector} pageContract={pageContract} />
     </div>
-    </GainSexProvider>
   );
 }

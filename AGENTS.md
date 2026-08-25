@@ -230,6 +230,32 @@ COUNT of the bucket's own (shed, pen), no per-animal identity, individual
 free-flow capture untouched — are stated in the guard header and the census file
 itself. Canonical prose: `docs/decisions/weighing-lump-sum-census-count.md`.
 
+THIRD RECORDED EXCEPTION (maintainer decision 2026-08-26): the WEIGHTS SEX FILTER. The
+admin-web Weights page carries a **Sex** filter in its own filter bar, beside Weighing, and it
+governs the WHOLE page — every KPI, the shed table, both leaderboards, the load chart, the
+Growth Director widgets and the breed gain card. A page whose cards disagree about which kids
+they counted has no true number on it, which is why this is a page filter and not a card
+control. A weighing row knows only a scanned string, so exactly one more file may resolve it:
+`backend/internal/weighing/adapters/postgres/sex_scope.go`, allowlisted BY NAME in
+`check-weighing-free-flow-guard.mjs`.
+
+That file answers "which weighs belong to this sex" ONCE and hands the other reads an OPAQUE
+list — tag strings and (location, partition) buckets — so `shed_weights.go`, `growth.go`,
+`load_weights.go` and the Growth Director reads still name no herd table and still know nothing
+about animals. Letting each of them join `goat_identifiers` instead is exactly the leak the
+2026-08-04 defect was about. It is READ-ONLY and REPORTING-ONLY: no capture, submit, close or
+verdict path calls it, NO scan is gated on identity, and an empty sex resolves to an empty scope
+that every caller reads as "no filter", so the unfiltered page runs the query it ran before this
+file existed and reads no goat row at all.
+
+An individual weigh is claimed through the animal its tag resolves to. A WHOLE-SHED weigh has
+no tag and is claimed only when its shed's resident cohort is entirely that sex — the
+maintainer's own rule is that a lump-sum shed holds one sex — and a shed the register shows as
+mixed is claimed by NEITHER side rather than split, because one shed average cannot be divided
+between two cohorts. A tag that resolves to nothing is still recorded and still counted in the
+unfiltered view; it simply cannot answer a question about sex, so the filtered halves do not add
+up to the unfiltered total, and that gap is honest rather than missing data.
+
 ALLOWED besides `weighing_*`: proof / idempotency / audit / outbox plumbing, and
 exactly four ORG tables — `locations`, `workforce_members`, `user_scope_grants`,
 `shed_partitions` (a task belongs to a park, a person, and a physical partition).

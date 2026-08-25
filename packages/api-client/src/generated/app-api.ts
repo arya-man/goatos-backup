@@ -14070,6 +14070,8 @@ export interface operations {
                 park_id?: string;
                 from?: string;
                 to?: string;
+                /** @description `male` or `female` to report on that half of the herd only; omitted means every kid. An unknown value is REJECTED rather than ignored, because silently widening a filter shows a reader more kids than the heading they are reading says. An individual weigh is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed shed is claimed by neither side rather than split. */
+                sex?: "male" | "female";
             };
             header?: never;
             path?: never;
@@ -14100,6 +14102,8 @@ export interface operations {
                 park_id?: string;
                 from?: string;
                 to?: string;
+                /** @description `male` or `female` to report on that half of the herd only; omitted means every kid. An unknown value is REJECTED rather than ignored, because silently widening a filter shows a reader more kids than the heading they are reading says. An individual weigh is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed shed is claimed by neither side rather than split. */
+                sex?: "male" | "female";
             };
             header?: never;
             path?: never;

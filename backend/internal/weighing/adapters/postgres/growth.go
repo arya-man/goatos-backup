@@ -60,6 +60,11 @@ base AS (
     AND wo.verification_status <> 'rejected'
     AND wo.accepted_at >= $3::timestamptz
     AND wo.accepted_at < $4::timestamptz
+    -- Sex filter, applied ONCE for every read built on this CTE. $6 is FALSE for the unfiltered
+    -- page, so those reads run exactly as they did before the filter existed; when it is on, an
+    -- empty tag list correctly matches nothing rather than silently meaning "every kid". Which
+    -- tags belong to which sex is sex_scope.go's business: this file is handed strings.
+    AND (NOT $6::bool OR lower(btrim(wo.scanned_identifier)) = ANY($7::text[]))
 ),
 ordered AS (
   SELECT *,
@@ -105,9 +110,18 @@ qualifying AS (
 //
 // periodStart/periodEnd are Asia/Kolkata business-day boundaries expressed as UTC instants by
 // the caller (the service layer), half-open [periodStart, periodEnd).
-func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.GrowthADG, error) {
+func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex string) (domain.GrowthADG, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
+
+	// Resolved ONCE for the whole read: every widget below must talk about the same kids, and
+	// resolving per helper would let a slow herd write land between two of them and show a
+	// leaderboard whose animals are not the ones the headline counted.
+	scope, scopeErr := r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
+	if scopeErr != nil {
+		return domain.GrowthADG{}, scopeErr
+	}
+	sexFiltered := strings.TrimSpace(sex) != ""
 
 	periodLen := periodEnd.Sub(periodStart)
 	prevStart := periodStart.Add(-periodLen)
@@ -115,11 +129,11 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	lookbackStart := periodStart.Add(-growthLookbackDays * 24 * time.Hour)
 	prevLookbackStart := prevStart.Add(-growthLookbackDays * 24 * time.Hour)
 
-	headline, err := r.growthHeadlineStats(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd)
+	headline, err := r.growthHeadlineStats(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
-	prevHeadline, err := r.growthHeadlineStats(ctx, tenantID, parkIDs, prevLookbackStart, prevStart, prevEnd)
+	prevHeadline, err := r.growthHeadlineStats(ctx, tenantID, parkIDs, prevLookbackStart, prevStart, prevEnd, sexFiltered, scope)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
@@ -147,17 +161,17 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		return domain.GrowthADG{}, err
 	}
 
-	trend, err := r.growthTrend(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd)
+	trend, err := r.growthTrend(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
 
-	leaderboard, err := r.growthShedLeaderboard(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd)
+	leaderboard, err := r.growthShedLeaderboard(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
 
-	distribution, err := r.growthDistribution(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd)
+	distribution, err := r.growthDistribution(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
@@ -167,7 +181,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		return domain.GrowthADG{}, err
 	}
 
-	lumpSum, err := r.growthLumpSumTrend(ctx, tenantID, parkIDs, periodStart, periodEnd)
+	lumpSum, err := r.growthLumpSumTrend(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
@@ -183,7 +197,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
-	losing, err := r.growthLosingAnimals(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd)
+	losing, err := r.growthLosingAnimals(ctx, tenantID, parkIDs, lookbackStart, periodStart, periodEnd, sexFiltered, scope)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
@@ -206,7 +220,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	}, nil
 }
 
-func (r *Repository) growthHeadlineStats(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time) (domain.GrowthADGHeadline, error) {
+func (r *Repository) growthHeadlineStats(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) (domain.GrowthADGHeadline, error) {
 	q := `WITH ` + growthPairsCTE + `),
 -- projection-review: membership=weighing_observations; group_key=park_aggregate; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
 inperiod AS (
@@ -228,7 +242,7 @@ SELECT
 	// median/percent are left as SQL NULL (never COALESCEd to 0) when inperiod is empty, and
 	// scanned straight into pointer fields -- this is the ZERO-vs-UNKNOWN fix: a park where every
 	// animal was weighed exactly once must come back with these fields absent, not "0".
-	err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart).Scan(
+	err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags).Scan(
 		&h.MedianADGGPerDay, &h.PairCount, &h.PositiveADGPercent, &h.NegativeADGCount,
 		&h.UnverifiedObservationCount,
 	)
@@ -287,7 +301,7 @@ SELECT COUNT(*) FILTER (WHERE n >= 2), COUNT(*) FROM per_animal`,
 	return e, err
 }
 
-func (r *Repository) growthTrend(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time) ([]domain.GrowthTrendPoint, error) {
+func (r *Repository) growthTrend(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) ([]domain.GrowthTrendPoint, error) {
 	// projection-review: membership=weighing_observations; group_key=week_start; join_cardinality=one_to_many; pagination=multi_row; scope=park_ids
 	q := `WITH ` + growthPairsCTE + `),
 inperiod AS (
@@ -304,7 +318,7 @@ GROUP BY week_start
 -- is never interpolated with a fabricated zero or a carried-forward value, and no week is ever
 -- flagged as "missed" or "overdue".
 ORDER BY week_start`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +336,7 @@ ORDER BY week_start`
 	return out, rows.Err()
 }
 
-func (r *Repository) growthShedLeaderboard(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time) ([]domain.GrowthShedLeaderboardRow, error) {
+func (r *Repository) growthShedLeaderboard(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) ([]domain.GrowthShedLeaderboardRow, error) {
 	// projection-review: membership=weighing_observations; group_key=location_id; join_cardinality=one_to_many; pagination=multi_row; scope=park_ids
 	q := `WITH ` + growthPairsCTE + `),
 inperiod AS (
@@ -370,7 +384,7 @@ SELECT sw.location_id, sw.shed_name, sw.partition_label, sw.park_name, sw.n, sw.
 FROM shed_weight sw
 LEFT JOIN shed_adg sa ON sa.location_id = sw.location_id AND COALESCE(sa.partition_label, '') = COALESCE(sw.partition_label, '')
 ORDER BY sw.shed_name, sw.partition_label`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags)
 	if err != nil {
 		return nil, err
 	}
@@ -411,24 +425,28 @@ const (
 	growthDistributionBinCount = 12
 )
 
-func (r *Repository) growthDistribution(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time) ([]domain.GrowthDistributionBucket, error) {
+func (r *Repository) growthDistribution(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) ([]domain.GrowthDistributionBucket, error) {
 	var negativeCount int
 	// projection-review: membership=weighing_observations; group_key=bucket; join_cardinality=one_to_many; pagination=multi_row; scope=park_ids
 	if err := r.pool.QueryRow(ctx, `WITH `+growthPairsCTE+`),
 inperiod AS (SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz)
 SELECT COUNT(*) FROM inperiod WHERE adg_g_per_day < 0`,
-		tenantID, parkIDs, lookbackStart, periodEnd, periodStart).Scan(&negativeCount); err != nil {
+		tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags).Scan(&negativeCount); err != nil {
 		return nil, err
 	}
 
 	maxEdge := growthDistributionBinWidth * growthDistributionBinCount
+	// $6/$7 belong to the shared pairs CTE (the sex flag and its tag list), so this query's own
+	// two parameters start at $8. Every consumer of growthPairsCTE binds those two in the same
+	// positions, which is what lets the CTE carry one predicate for all of them.
 	rows, err := r.pool.Query(ctx, `WITH `+growthPairsCTE+`),
 inperiod AS (SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz AND adg_g_per_day >= 0)
-SELECT LEAST(width_bucket(adg_g_per_day, 0, $6::float8, $7::int), $7::int) AS bucket, COUNT(*)
+SELECT LEAST(width_bucket(adg_g_per_day, 0, $8::float8, $9::int), $9::int) AS bucket, COUNT(*)
 FROM inperiod
 GROUP BY bucket
 ORDER BY bucket`,
-		tenantID, parkIDs, lookbackStart, periodEnd, periodStart, maxEdge, growthDistributionBinCount)
+		tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags,
+		maxEdge, growthDistributionBinCount)
 	if err != nil {
 		return nil, err
 	}
@@ -505,7 +523,7 @@ FROM latest`, tenantID, parkIDs)
 	return s, rows.Err()
 }
 
-func (r *Repository) growthLumpSumTrend(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.GrowthLumpSum, error) {
+func (r *Repository) growthLumpSumTrend(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) (domain.GrowthLumpSum, error) {
 	// Lump-sum shed totals are read HERE, entirely separately from the individual-observation
 	// queries above -- see the GrowthLumpSum domain comment for why a per-animal ADG must never
 	// be derived from the delta between two shed-level averages.
@@ -588,6 +606,8 @@ func (r *Repository) growthLosingAnimals(
 	tenantID string,
 	parkIDs []string,
 	lookbackStart, periodStart, periodEnd time.Time,
+	sexFiltered bool,
+	scope SexScope,
 ) ([]domain.GrowthLosingAnimal, error) {
 	q := `WITH ` + growthPairsCTE + `),
 inperiod AS (
@@ -605,7 +625,7 @@ FROM latest_pair
 WHERE adg_g_per_day < 0
 ORDER BY adg_g_per_day ASC
 LIMIT 200`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags)
 	if err != nil {
 		return nil, err
 	}
