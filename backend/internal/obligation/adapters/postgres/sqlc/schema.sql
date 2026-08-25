@@ -7542,6 +7542,7 @@ CREATE TABLE public.protocol_rule_dimensions (
     lifecycle text DEFAULT 'alive'::text NOT NULL,
     health text DEFAULT 'any'::text NOT NULL,
     reproductive text DEFAULT 'any'::text NOT NULL,
+    procurement_purpose text DEFAULT 'all'::text NOT NULL,
     min_age_days integer,
     max_age_days integer,
     trigger_type text DEFAULT ''::text NOT NULL,
@@ -7559,6 +7560,7 @@ CREATE TABLE public.protocol_rule_dimensions (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT protocol_rule_dimensions_animal_stage_check CHECK ((animal_stage <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_breed_check CHECK ((breed <> ''::text)),
+    CONSTRAINT protocol_rule_dimensions_procurement_purpose_check CHECK ((procurement_purpose <> ''::text)),
     CONSTRAINT protocol_rule_dimensions_sex_check CHECK ((sex = ANY (ARRAY['female'::text, 'male'::text, 'all'::text]))),
     CONSTRAINT protocol_rule_dimensions_species_check CHECK ((species <> ''::text))
 );
@@ -13768,7 +13770,7 @@ CREATE INDEX protocol_rule_dimensions_age_idx ON public.protocol_rule_dimensions
 -- Name: protocol_rule_dimensions_match_folded_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX protocol_rule_dimensions_match_folded_idx ON public.protocol_rule_dimensions USING btree (tenant_id, protocol_version_id, category, species, lower(animal_stage), sex, lower(breed));
+CREATE INDEX protocol_rule_dimensions_match_folded_idx ON public.protocol_rule_dimensions USING btree (tenant_id, protocol_version_id, category, species, lower(animal_stage), sex, lower(breed), procurement_purpose);
 
 
 --

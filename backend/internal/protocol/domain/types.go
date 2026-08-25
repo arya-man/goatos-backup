@@ -136,6 +136,7 @@ type RuleDimension struct {
 	Lifecycle                 string
 	Health                    string
 	Reproductive              string
+	ProcurementPurpose        string
 	MinAgeDays                *int32
 	MaxAgeDays                *int32
 	TriggerType               string

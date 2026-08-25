@@ -866,3 +866,7 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // Coupling review 2026-08-16: Flushing is a writable stage-catalog row with NULL age_band for
 // shifting destination-tag parity. It is not a new source column, source date, HRMS roster field, SOP
 // proof field, or operator-capacity input, so this raw source validator remains unchanged.
+// Coupling review 2026-08-26: protocol_rule_dimensions.procurement_purpose is compiled from
+// authored rule DSL at publish time and defaults existing dimensions to all. It is not a raw
+// HRMS/vaccination source column, date, roster field, SOP proof field, or validation input, so this
+// source validator remains unchanged.

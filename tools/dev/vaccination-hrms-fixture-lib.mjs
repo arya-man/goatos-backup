@@ -631,6 +631,10 @@ export function updateManifestHashes(directory, manifest) {
 // 000181_pc_care_module_grants.sql applies the same grant to already-seeded databases. This
 // changes runtime module/navigation authorization only; it does not change HRMS roster rows,
 // vaccination history, source dates, fixture bytes, hashes, or counts.
+// Coupling review 2026-08-26: protocol_rule_dimensions.procurement_purpose is publish-time
+// compiled selector metadata with DEFAULT 'all'. It is not read from the fixture, not validated
+// here, and changes no HRMS/vaccination source bytes, hashes, row counts, SOP proof grain, or
+// operator-capacity contract.
 
 // 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.
 
