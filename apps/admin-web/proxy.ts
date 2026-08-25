@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
   FIREBASE_ID_TOKEN_COOKIE,
+  FIREBASE_REFRESH_TOKEN_COOKIE,
   LOGIN_PATH,
   maxAgeForFirebaseIdToken,
 } from "@/lib/auth/session-cookie";
@@ -23,8 +24,10 @@ export function proxy(request: NextRequest) {
   }
 
   const pathname = request.nextUrl.pathname;
+  const hasRefreshToken = Boolean(request.cookies.get(FIREBASE_REFRESH_TOKEN_COOKIE)?.value.trim());
   const sessionIsValid =
     maxAgeForFirebaseIdToken(request.cookies.get(FIREBASE_ID_TOKEN_COOKIE)?.value.trim() || "") !== null ||
+    hasRefreshToken ||
     hasLocalBearerFallback();
   if (isLoginPath(pathname) && sessionIsValid) {
     return NextResponse.redirect(loginNextUrl(request));
