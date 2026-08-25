@@ -1102,6 +1102,7 @@ class CaptureRepositoryTest {
         try {
             val sync = FakeSyncRepository()
             val gallery = RecordingGalleryProofSaver()
+            val telemetryEvents = mutableListOf<Pair<String, Map<String, String>>>()
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
@@ -1110,6 +1111,7 @@ class CaptureRepositoryTest {
                 dispatchers = unconfinedDispatchers,
                 mediaProcessor = ThrowingProofMediaProcessor(),
                 galleryProofSaver = gallery,
+                telemetry = ProofCaptureTelemetry { event, props -> telemetryEvents += event to props },
             )
 
             val captured = (
@@ -1142,11 +1144,79 @@ class CaptureRepositoryTest {
             assertEquals("uploadOriginal must stay false — nothing is queued", false, row?.uploadOriginal)
             assertEquals("Original file path preserved (safety kept)", "file://original-proof.mp4", row?.localUri)
             assertEquals("syncStatus stays PENDING — never FAILED for a processing failure", CaptureSyncStatus.PENDING.name, row?.syncStatus)
+            assertTrue(
+                "processing failure must emit a durable forensic event",
+                telemetryEvents.any { it.first == "proof_processing_failed" },
+            )
+            assertTrue(
+                "awaitUploadEnqueue with no outbox must emit the missing-driver breadcrumb",
+                telemetryEvents.any {
+                    it.first == "proof_upload_driver_missing" &&
+                        it.second["reason"] == "missing_outbox_item_after_capture"
+                },
+            )
+            assertEquals(
+                "state-event log must preserve the missing-driver breadcrumb too",
+                1,
+                db.proofCaptureDao().countStateEvents(captured.id, "upload_driver_missing_after_capture"),
+            )
 
             // Startup/process-death recovery must not resurrect the auto-upload either — it is
             // idempotent through the same AWAITING_RETRY short-circuit, not a second enqueue.
             repo.reconcileRecoverableUploadsNow()
             assertEquals("Recovery must not enqueue the raw original", emptyList<String>(), sync.enqueueCalls)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `enqueueProofUpload failure marks proof failed and emits enqueue-failed telemetry`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository(proofUploadFailure = "outbox unavailable")
+            val telemetryEvents = mutableListOf<Pair<String, Map<String, String>>>()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+                telemetry = ProofCaptureTelemetry { event, props -> telemetryEvents += event to props },
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = "task-enqueue-fails",
+                    fieldKey = "feed_distribution_video",
+                    subject = ProofSubject.SHED,
+                    localUri = "file://proof.mp4",
+                    mimeType = "video/mp4",
+                    caption = "Feed direction proof",
+                    scopeType = "task",
+                    scopeId = "task-enqueue-fails",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
+                ) as AppResult.Ok
+                ).value
+
+            val row = db.proofCaptureDao().findById(captured.id)
+            assertEquals(CaptureSyncStatus.FAILED.name, row?.syncStatus)
+            assertEquals("outbox unavailable", row?.lastError)
+            assertTrue(
+                "outbox enqueue failure must emit a durable forensic event",
+                telemetryEvents.any {
+                    it.first == "proof_upload_enqueue_failed" &&
+                        it.second["reason"] == "outbox unavailable"
+                },
+            )
+            assertEquals(
+                1,
+                db.proofCaptureDao().countStateEvents(captured.id, "upload_enqueue_failed"),
+            )
         } finally {
             db.close()
         }
@@ -3416,6 +3486,7 @@ private class FakeSyncRepository(
     private val deleteOutboxItemFailure: String? = null,
     private val cancelOutboxItemFailure: String? = null,
     private val deleteUploadedProofFailure: String? = null,
+    private val proofUploadFailure: String? = null,
     // Simulates the guarded cancel losing the race to the dispatcher (item was IN_FLIGHT at the
     // instant of the DELETE): returns Ok(false) and removes nothing, regardless of observed status.
     private val cancelAlwaysMisses: Boolean = false,
@@ -3515,6 +3586,7 @@ private class FakeSyncRepository(
         durationMs: Long?,
     ): AppResult<String> {
         allEnqueueRequests += request
+        proofUploadFailure?.let { return AppResult.Err(it) }
         // Mirror the real outbox's idempotency (ON CONFLICT (tenant, idempotency_key)): a repeat
         // enqueue of the SAME proof (capture() and the init-block reconciliation both enqueue the
         // same stable idempotencyKey) returns the EXISTING outbox id instead of minting a new one.

@@ -25,9 +25,9 @@ import javax.inject.Provider
  *
  * P2 backend-analytics-durability fix (2026-08-15): the small, hand-picked
  * [CRITICAL_EVENT_ALLOWLIST] subset -- the forensic events actually used to debug offline/failure
- * incidents -- IS now durable. A failed send for one of those event names is persisted to
- * [queue] (a minimal, capped, file-backed queue -- see [DurableAnalyticsQueue]'s kdoc for what it
- * does and does NOT do) and retried opportunistically the next time [track] runs on ANY event
+ * incidents -- IS now durable. Those events are written to [queue] before [track] returns, then
+ * delivered from that queue (a minimal, capped, file-backed queue -- see [DurableAnalyticsQueue]'s
+ * kdoc for what it does and does NOT do) and retried opportunistically the next time [track] runs on ANY event
  * (see [drainQueuedEvents]). This is intentionally not full parity with the app's existing
  * Room-backed write outbox: no WorkManager-scheduled background drain, no exponential backoff,
  * and only NETWORK-ACTIVITY-triggered draining rather than a dedicated connectivity callback --
@@ -61,6 +61,18 @@ class BackendAnalyticsAdapter(
             clientEventId = clientEventId,
         )
         val isCritical = event in CRITICAL_EVENT_ALLOWLIST
+        val queuedEvent = QueuedAnalyticsEvent(
+            clientEventId = clientEventId,
+            eventName = event,
+            properties = mergedProps,
+            clientEventTimeMs = request.clientEventTimeMs,
+            flavor = request.flavor,
+            appVersionName = request.appVersionName,
+            appVersionCode = request.appVersionCode,
+        )
+        if (isCritical) {
+            queue.enqueueBlocking(queuedEvent)
+        }
         appScope.launch {
             // Opportunistic drain: any live network activity from this adapter is itself evidence
             // connectivity may be back, so flush previously-queued critical events first. See
@@ -69,22 +81,11 @@ class BackendAnalyticsAdapter(
             runCatching { drainQueuedEvents() }
                 .onFailure { Log.w(TAG, "Durable analytics queue drain failed", it) }
 
+            if (isCritical) return@launch
+
             runCatching { apiProvider.get().recordAnalyticsEvent(request) }
                 .onFailure { error ->
                     Log.w(TAG, "Backend analytics failed for event=$event", error)
-                    if (isCritical) {
-                        queue.enqueue(
-                            QueuedAnalyticsEvent(
-                                clientEventId = clientEventId,
-                                eventName = event,
-                                properties = mergedProps,
-                                clientEventTimeMs = request.clientEventTimeMs,
-                                flavor = request.flavor,
-                                appVersionName = request.appVersionName,
-                                appVersionCode = request.appVersionCode,
-                            ),
-                        )
-                    }
                 }
         }
     }
@@ -125,9 +126,9 @@ class BackendAnalyticsAdapter(
         /**
          * The forensic-debugging event subset that must survive being offline, per the P2
          * backend-analytics-durability fix: proof-processing failures, dead outbox writes,
-         * feed-distribution live-status transitions, teammate proof-capture reads, and weighing
-         * capture failures. Deliberately small and hand-picked -- everything else stays
-         * fire-and-forget, matching this adapter's pre-existing best-effort contract.
+         * feed-distribution proof funnel transitions, teammate proof-capture reads, and weighing
+         * capture failures. Deliberately hand-picked -- everything else stays fire-and-forget,
+         * matching this adapter's pre-existing best-effort contract.
          */
         val CRITICAL_EVENT_ALLOWLIST = setOf(
             // core-data's CaptureRepository tracks this by string literal (proofProcessingFailedEvent)
@@ -137,10 +138,25 @@ class BackendAnalyticsAdapter(
             "proof_upload_started",
             "proof_upload_completed",
             "proof_upload_failed",
+            "proof_upload_enqueue_failed",
+            "proof_upload_driver_missing",
             "proof_upload_registered",
             AnalyticsEvents.SYNC_WRITE_DEAD,
+            AnalyticsEvents.FEED_DISTRIBUTION_OPENED,
+            AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED,
+            AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,
+            AnalyticsEvents.FEED_DISTRIBUTION_PROOF_UPLOAD_SYNCED,
+            AnalyticsEvents.FEED_DISTRIBUTION_PROOF_REUPLOAD_TAPPED,
+            AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_BLOCKED,
+            AnalyticsEvents.FEED_DISTRIBUTION_SYNC_TAPPED,
+            AnalyticsEvents.FEED_DISTRIBUTION_WEIGHT_PHOTO_CAPTURED,
+            AnalyticsEvents.FEED_DISTRIBUTION_VIDEO_CAPTURED,
+            AnalyticsEvents.FEED_DISTRIBUTION_WATER_PROOF_CAPTURED,
+            AnalyticsEvents.FEED_DISTRIBUTION_SUBMITTED,
             AnalyticsEvents.FEED_DISTRIBUTION_LIVE_STATUS_CHANGED,
             AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_CAPTURES_READ,
+            AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_PROOF_ADOPTED,
+            AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
             // The ONLY event carrying all three split-operator slot sources (weight/feed/water:
             // local vs teammate). Firebase intentionally drops feed_video_source/water_video_source
             // under the 25-param cap, so losing the backend copy loses the forensic record

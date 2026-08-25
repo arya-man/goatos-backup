@@ -272,6 +272,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
+            var captureThrew = false
             val captured = try {
                 photoCaptureSource.capturePhoto(
                     PhotoCaptureContext(
@@ -280,11 +281,20 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     ),
                 )
             } catch (error: Exception) {
+                captureThrew = true
                 crashReporter.recordException(error, "feed distribution feed weight photo capture failed")
+                trackCaptureFailure("feed_weight_photo", "camera_exception")
                 null
             }
             if (captured == null) {
-                _state.update { it.copy(isCapturingFeedWeightPhoto = false) }
+                if (!captureThrew) trackCaptureFailure("feed_weight_photo", "camera_returned_null")
+                _state.update {
+                    it.copy(
+                        isCapturingFeedWeightPhoto = false,
+                        feedWeightPhotoStatus = if (replacing) it.feedWeightPhotoStatus else FeedDistributionProofStatus.FAILED,
+                        feedWeightPhotoMessage = if (replacing) it.feedWeightPhotoMessage else PROOF_FAILED,
+                    )
+                }
                 return@launch
             }
             // Build the evidence slot for re-capture. captureReplacingLatest ensures
@@ -314,7 +324,14 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     val proofOutboxId = result.value.outboxItemId
                     if (proofOutboxId.isNullOrBlank()) {
-                        _state.update { it.copy(isCapturingFeedWeightPhoto = false, feedWeightPhotoMessage = PROOF_FAILED) }
+                        trackCaptureFailure("feed_weight_photo", "missing_upload_outbox")
+                        _state.update {
+                            it.copy(
+                                isCapturingFeedWeightPhoto = false,
+                                feedWeightPhotoStatus = FeedDistributionProofStatus.FAILED,
+                                feedWeightPhotoMessage = PROOF_FAILED,
+                            )
+                        }
                         return@launch
                     }
                     feedWeightPhotoProofItemId.value = proofOutboxId
@@ -373,14 +390,24 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
+            var captureThrew = false
             val captured = try {
                 proofCaptureSource.captureVideo(feedVideoContext())
             } catch (error: Exception) {
+                captureThrew = true
                 crashReporter.recordException(error, "feed distribution video capture failed")
+                trackCaptureFailure("feed_video", "camera_exception")
                 null
             }
             if (captured == null) {
-                _state.update { it.copy(isCapturingVideo = false) }
+                if (!captureThrew) trackCaptureFailure("feed_video", "camera_returned_null")
+                _state.update {
+                    it.copy(
+                        isCapturingVideo = false,
+                        videoStatus = if (replacing) it.videoStatus else FeedDistributionProofStatus.FAILED,
+                        videoMessage = if (replacing) it.videoMessage else PROOF_FAILED,
+                    )
+                }
                 return@launch
             }
             // Build the evidence slot for re-capture. captureReplacingLatest ensures
@@ -410,7 +437,14 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     val proofOutboxId = result.value.outboxItemId
                     if (proofOutboxId.isNullOrBlank()) {
-                        _state.update { it.copy(isCapturingVideo = false, videoMessage = PROOF_FAILED) }
+                        trackCaptureFailure("feed_video", "missing_upload_outbox")
+                        _state.update {
+                            it.copy(
+                                isCapturingVideo = false,
+                                videoStatus = FeedDistributionProofStatus.FAILED,
+                                videoMessage = PROOF_FAILED,
+                            )
+                        }
                         return@launch
                     }
                     videoProofItemId.value = proofOutboxId
@@ -468,14 +502,24 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
+            var captureThrew = false
             val captured = try {
                 proofCaptureSource.captureVideo(waterVideoContext())
             } catch (error: Exception) {
+                captureThrew = true
                 crashReporter.recordException(error, "feed distribution water video capture failed")
+                trackCaptureFailure("water_video", "camera_exception")
                 null
             }
             if (captured == null) {
-                _state.update { it.copy(isCapturingWaterVideo = false) }
+                if (!captureThrew) trackCaptureFailure("water_video", "camera_returned_null")
+                _state.update {
+                    it.copy(
+                        isCapturingWaterVideo = false,
+                        waterVideoStatus = if (replacing) it.waterVideoStatus else FeedDistributionProofStatus.FAILED,
+                        waterVideoMessage = if (replacing) it.waterVideoMessage else PROOF_FAILED,
+                    )
+                }
                 return@launch
             }
             // Build the evidence slot for re-capture. captureReplacingLatest ensures
@@ -505,7 +549,14 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 is AppResult.Ok -> {
                     val proofOutboxId = result.value.outboxItemId
                     if (proofOutboxId.isNullOrBlank()) {
-                        _state.update { it.copy(isCapturingWaterVideo = false, waterVideoMessage = PROOF_FAILED) }
+                        trackCaptureFailure("water_video", "missing_upload_outbox")
+                        _state.update {
+                            it.copy(
+                                isCapturingWaterVideo = false,
+                                waterVideoStatus = FeedDistributionProofStatus.FAILED,
+                                waterVideoMessage = PROOF_FAILED,
+                            )
+                        }
                         return@launch
                     }
                     waterVideoProofItemId.value = proofOutboxId
@@ -1160,6 +1211,16 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             )
         }
         recomputeCanComplete()
+    }
+
+    private fun trackCaptureFailure(kind: String, reason: String) {
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
+            mapOf(
+                AnalyticsEvents.Params.KIND to kind,
+                AnalyticsEvents.Params.REASON to reason,
+            ),
+        )
     }
 
     private fun List<ProofCaptureRow>.latestFor(fieldKey: String): ProofCaptureRow? =
