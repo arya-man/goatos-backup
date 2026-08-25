@@ -8,12 +8,30 @@ const source = readFileSync(join(here, "source-entry-board.tsx"), "utf8");
 
 assert.match(
   source,
-  /Promise\.all\(loads\.map\(async \(load\) => \[load\.load_id, await getProcurementLoad\(load\.load_id\)\] as const\)\)/,
-  "source-entry list must fetch details for every visible row while purpose/tagging/HF/goat-count columns depend on detail-only data",
+  /if \(selectedLoadId && loads\.some\([\s\S]*?getProcurementLoad\(selectedLoadId\)/,
+  "source-entry list may fetch detail for the selected drawer row only until the list API exposes row facets",
 );
 
 assert.doesNotMatch(
   source,
-  /if \(selectedLoadId && loads\.some\([\s\S]*?getProcurementLoad\(selectedLoadId\)/,
-  "source-entry list must not fetch only the selected load detail while rendering detail-derived columns for every row",
+  /Promise\.all\(loads\.map\(async \(load\) => \[load\.load_id, await getProcurementLoad\(load\.load_id\)\] as const\)\)/,
+  "source-entry page load must not fire one full-detail request per visible row",
+);
+
+assert.match(
+  source,
+  /function taggingLabel[\s\S]*?if \(!detail\) return copy\(pageContract, "label\.placeholder"\);/,
+  "tagging must render unavailable when detail was not fetched, not 0/expected",
+);
+
+assert.match(
+  source,
+  /function hfVaccinationLabel[\s\S]*?if \(!detail\) \{[\s\S]*?label: copy\(pageContract, "label\.placeholder"\), tone: "mut"/,
+  "HF vaccination must render unavailable when detail was not fetched, not due",
+);
+
+assert.match(
+  source,
+  /goatsInLoad: detail \? String\(detail\.goats\.length\) : copy\(pageContract, "label\.placeholder"\)/,
+  "drawer goat count must render unavailable when detail was not fetched, not 0",
 );

@@ -117,13 +117,17 @@ function purposeLabel(detail: ProcurementLoadDetail | undefined, pageContract: A
   return copy(pageContract, "label.mixed");
 }
 
-function taggingLabel(detail: ProcurementLoadDetail | undefined, expectedCount: number): string {
+function taggingLabel(detail: ProcurementLoadDetail | undefined, expectedCount: number, pageContract: AdminUiPageContract): string {
+  if (!detail) return copy(pageContract, "label.placeholder");
 	const goats = detail?.goats ?? [];
 	const tagged = goats.filter((g) => Boolean(g.animal_identifier_1 && g.animal_identifier_2)).length;
 	return `${tagged}/${expectedCount}`;
 }
 
 function hfVaccinationLabel(detail: ProcurementLoadDetail | undefined, pageContract: AdminUiPageContract): { label: string; tone: Tone } {
+  if (!detail) {
+    return { label: copy(pageContract, "label.placeholder"), tone: "mut" };
+  }
   const evidence = detail?.hf_vaccination_evidence ?? [];
   let key = "due";
   if (evidence.some((row) => row.review_status === "trusted")) key = "trusted";
@@ -167,13 +171,9 @@ export async function SourceEntryBoardPage({
     : [];
   // request-plan:ignore owner=procurement-platform issue=C35-016 expires=2026-09-30 reason=list contract lacks card facets; replace with enriched paged list or batch detail API
   const detailByLoad = new Map<string, ProcurementLoadDetail>();
-  const detailResults = result.ok
-    ? await Promise.all(loads.map(async (load) => [load.load_id, await getProcurementLoad(load.load_id)] as const))
-    : [];
-  for (const [loadId, detailResult] of detailResults) {
-    if (detailResult.ok) {
-      detailByLoad.set(loadId, detailResult.data.detail);
-    }
+  if (selectedLoadId && loads.some((load) => load.load_id === selectedLoadId)) {
+    const selectedDetail = await getProcurementLoad(selectedLoadId);
+    if (selectedDetail.ok) detailByLoad.set(selectedLoadId, selectedDetail.data.detail);
   }
   const nextCursor = result.ok ? result.data.next_cursor ?? null : null;
   const nextHref = hrefWithCursor(pathname, sp, nextCursor);
@@ -189,9 +189,9 @@ export async function SourceEntryBoardPage({
       sourceParty: sourcePartyLabel(load),
       purpose: purposeLabel(detail, pageContract),
       expectedCount: load.expected_count,
-      goatsInLoad: detail?.goats?.length ?? 0,
+      goatsInLoad: detail ? String(detail.goats.length) : copy(pageContract, "label.placeholder"),
       warmup: warmupCell(load, detail, pageContract),
-      tagging: taggingLabel(detail, load.expected_count),
+      tagging: taggingLabel(detail, load.expected_count, pageContract),
       hfVaccination: hfVaccinationLabel(detail, pageContract),
       healthSelection: healthSelectionLabel(load.status, pageContract),
       status: {
@@ -358,7 +358,7 @@ export async function SourceEntryBoardPage({
                       </td>
                       <td>
                         <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
-                          <Tag tone="mut">{taggingLabel(detail, load.expected_count)}</Tag>
+                          <Tag tone="mut">{taggingLabel(detail, load.expected_count, pageContract)}</Tag>
                         </LocalOverlayLink>
                       </td>
                       <td>
