@@ -95,25 +95,38 @@ export function FaroProvider(): null {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const readRoute = (): void => setRouteKey(`${window.location.pathname}${window.location.search}`);
+    let routeReadTimer: number | undefined;
+    const readRoute = (): void => {
+      routeReadTimer = undefined;
+      setRouteKey(`${window.location.pathname}${window.location.search}`);
+    };
+    const scheduleRouteRead = (): void => {
+      if (routeReadTimer !== undefined) {
+        window.clearTimeout(routeReadTimer);
+      }
+      routeReadTimer = window.setTimeout(readRoute, 0);
+    };
     const originalPushState = window.history.pushState;
     const originalReplaceState = window.history.replaceState;
     window.history.pushState = function pushState(...args) {
       const result = originalPushState.apply(this, args);
-      readRoute();
+      scheduleRouteRead();
       return result;
     };
     window.history.replaceState = function replaceState(...args) {
       const result = originalReplaceState.apply(this, args);
-      readRoute();
+      scheduleRouteRead();
       return result;
     };
-    queueMicrotask(readRoute);
-    window.addEventListener("popstate", readRoute);
+    scheduleRouteRead();
+    window.addEventListener("popstate", scheduleRouteRead);
     return () => {
+      if (routeReadTimer !== undefined) {
+        window.clearTimeout(routeReadTimer);
+      }
       window.history.pushState = originalPushState;
       window.history.replaceState = originalReplaceState;
-      window.removeEventListener("popstate", readRoute);
+      window.removeEventListener("popstate", scheduleRouteRead);
     };
   }, []);
 
