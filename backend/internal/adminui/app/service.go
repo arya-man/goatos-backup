@@ -3282,18 +3282,38 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.gain_thresholds.aria":    "Breed-wise daily gain",
 			"section.gain_thresholds.caption": "Counted from kids weighed one by one and weighed twice, at each kid's own daily gain. Each kid is counted in one band only, so the bands add up to the kids weighed twice.",
 			"empty.gain_thresholds.body":      "No kid matched to a breed has a second weigh in this period yet.",
-			"column.breed":                    "Breed",
-			"column.gain_animals":             "Kids weighed twice",
-			"column.above_250":                "Above 250 g/day",
-			"column.band_200_250":             "200-250 g/day",
-			"column.band_180_200":             "180-200 g/day",
-			"column.upto_180":                 "180 g/day or less",
-			"chart.load.title":                "Daily gain by load",
-			"chart.load.title_weight":         "Average weight by load",
-			"chart.load.aria":                 "Growth for each purchase load",
-			"chart.load.caption":              "Kids are bought in loads from a supplier and put into sheds. This is how each load's sheds are moving, so a supplier's stock can be judged on how it grows.",
-			"empty.load.body":                 "No load has a weighed shed yet. A load shows up here once the sheds it went into have been weighed.",
-			"note.load.unmapped":              "sheds are not counted here — they have no load recorded, or they hold more than one load and a single shed average cannot be split between two suppliers.",
+			// The card also carries a SEX filter, in the page's own filter bar beside Weighing
+			// (maintainer, 2026-08-25). It auto-selects every kid: the breed comparison the card
+			// exists for is the whole breed's, and a reader who wants the male or the female half
+			// asks for it. The backend reports both grains, so picking a side re-reads the card at
+			// that grain rather than filtering a combined number on the client — a share of male
+			// kids is taken against the male kids, never against the breed.
+			"filter.gain_sex.label": "Sex",
+			"view.sex.all":          "All kids",
+			"view.sex.male":         "Male",
+			"view.sex.female":       "Female",
+			// One caption per grain, because the denominator sentence has to name the kids it
+			// actually counted. Reusing the combined caption under the male view would tell a
+			// reader the bands add up to the kids weighed twice when they add up to the MALE kids
+			// weighed twice.
+			"section.gain_thresholds.caption_male":   "Counted from male kids weighed one by one and weighed twice, at each kid's own daily gain. Each kid is counted in one band only, so the bands add up to the male kids weighed twice.",
+			"section.gain_thresholds.caption_female": "Counted from female kids weighed one by one and weighed twice, at each kid's own daily gain. Each kid is counted in one band only, so the bands add up to the female kids weighed twice.",
+			"value.gain_thresholds.kids_male":        "male kids",
+			"value.gain_thresholds.kids_female":      "female kids",
+			"empty.gain_thresholds.male":             "No male kid matched to a breed has a second weigh in this period yet.",
+			"empty.gain_thresholds.female":           "No female kid matched to a breed has a second weigh in this period yet.",
+			"column.breed":                           "Breed",
+			"column.gain_animals":                    "Kids weighed twice",
+			"column.above_250":                       "Above 250 g/day",
+			"column.band_200_250":                    "200-250 g/day",
+			"column.band_180_200":                    "180-200 g/day",
+			"column.upto_180":                        "180 g/day or less",
+			"chart.load.title":                       "Daily gain by load",
+			"chart.load.title_weight":                "Average weight by load",
+			"chart.load.aria":                        "Growth for each purchase load",
+			"chart.load.caption":                     "Kids are bought in loads from a supplier and put into sheds. This is how each load's sheds are moving, so a supplier's stock can be judged on how it grows.",
+			"empty.load.body":                        "No load has a weighed shed yet. A load shows up here once the sheds it went into have been weighed.",
+			"note.load.unmapped":                     "sheds are not counted here — they have no load recorded, or they hold more than one load and a single shed average cannot be split between two suppliers.",
 			// The load chart says a supplier's stock is growing; this says WHERE. Without
 			// it a reader cannot walk from a load bar to the shed table below it.
 			"section.load_placements.title":   "Where each load sits",

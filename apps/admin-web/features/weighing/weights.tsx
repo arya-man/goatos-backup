@@ -4,7 +4,10 @@ import { Gauge, TrendingDown, Warehouse } from "lucide-react";
 import { GrowthDirectorSection } from "./growth-director";
 import { MetricChart, ShedMetricChart } from "./metric-chart";
 import { SegmentedLinks } from "@/components/segmented-links";
-import { GainThresholdBars, type GainThresholdRow } from "./gain-threshold-bars";
+import { type GainThresholdRow } from "./gain-threshold-bars";
+import { GainThresholdCard, type GainThresholdGrain } from "./gain-threshold-card";
+import { GainSexFilter } from "./gain-sex-filter";
+import { GainSexProvider, type GainSex } from "./gain-sex-scope";
 import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
@@ -64,6 +67,11 @@ const LATEST_LUMP_LOOKBACK_DAYS = 400;
 // Which view the gain-mark card is showing. Absent means the chart, so a shared link
 // that predates the toggle — or one copied from the default view — keeps meaning "chart".
 const GAIN_VIEW_PARAM = "gain_view";
+// Which kids the gain card counts. Absent means ALL of them (maintainer, 2026-08-25), so a link
+// that predates the Sex control keeps meaning the whole breed, which is what it showed when it was
+// written. Only the two register values are honoured; a hand-edited value falls back to the
+// combined grain rather than emptying the card.
+const GAIN_SEX_PARAM = "gain_sex";
 const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -605,28 +613,60 @@ export async function WeighingWeightsPage({
   // spellings of one band. `under` is the slowest band and the only red one: it is not a step
   // on the green growth ramp, it is the kids that are not growing.
   const gainThresholdSteps = ["hi", "mid", "lo", "under"] as const;
-  const gainThresholdRows: GainThresholdRow[] = (demo?.gain_thresholds_by_breed ?? [])
-    .filter((row) => row.animals > 0)
-    .map((row) => {
-      const counts = [
-        row.above_250_g_per_day,
-        row.band_200_to_250_g_per_day,
-        row.band_180_to_200_g_per_day,
-        row.at_or_below_180_g_per_day,
-      ];
-      return {
-        key: row.label,
-        breed: row.label,
-        animals: row.animals,
-        marks: sharesOfWhole(counts, row.animals).map((pct, index) => ({
-          step: gainThresholdSteps[index],
-          // Column 0 is the breed and column 1 the head count, so the bands start at 2.
-          label: gainThresholdColumns[index + 2] ?? "",
-          count: counts[index],
-          pct,
-        })),
-      };
-    });
+  // The card is read at ONE grain at a time and the backend reports every breed at two — combined
+  // (sex "") and once per sex — which OVERLAP, so a grain is selected and they are never added.
+  // ALL THREE are prepared here, because all three already arrived in the SAME response: switching
+  // between them is then a re-render in the browser rather than another page load. Preparing only
+  // the selected one would force a server round trip for rows the reader had been sent.
+  const rawGainSex = one(params, GAIN_SEX_PARAM);
+  const gainSex: GainSex = rawGainSex === "male" || rawGainSex === "female" ? rawGainSex : "all";
+  const gainThresholdRowsFor = (sex: GainSex): GainThresholdRow[] =>
+    (demo?.gain_thresholds_by_breed ?? [])
+      .filter((row) => (row.sex ?? "") === (sex === "all" ? "" : sex))
+      .filter((row) => row.animals > 0)
+      .map((row) => {
+        const counts = [
+          row.above_250_g_per_day,
+          row.band_200_to_250_g_per_day,
+          row.band_180_to_200_g_per_day,
+          row.at_or_below_180_g_per_day,
+        ];
+        return {
+          // One grain is rendered at a time, so the breed is unique inside a list — but the sex
+          // rides in the key anyway, so a future change that renders two grains at once cannot
+          // silently collide two rows onto one React key.
+          key: `${row.label}|${row.sex ?? ""}`,
+          breed: row.label,
+          animals: row.animals,
+          marks: sharesOfWhole(counts, row.animals).map((pct, index) => ({
+            step: gainThresholdSteps[index],
+            // Column 0 is the breed and column 1 the head count, so the bands start at 2.
+            label: gainThresholdColumns[index + 2] ?? "",
+            count: counts[index],
+            pct,
+          })),
+        };
+      });
+  const gainThresholdGrains: Record<GainSex, GainThresholdGrain> = {
+    all: {
+      rows: gainThresholdRowsFor("all"),
+      caption: copy(pageContract, "section.gain_thresholds.caption"),
+      kidsLabel: copy(pageContract, "value.gain_thresholds.kids"),
+      emptyLabel: copy(pageContract, "empty.gain_thresholds.body"),
+    },
+    male: {
+      rows: gainThresholdRowsFor("male"),
+      caption: copy(pageContract, "section.gain_thresholds.caption_male"),
+      kidsLabel: copy(pageContract, "value.gain_thresholds.kids_male"),
+      emptyLabel: copy(pageContract, "empty.gain_thresholds.male"),
+    },
+    female: {
+      rows: gainThresholdRowsFor("female"),
+      caption: copy(pageContract, "section.gain_thresholds.caption_female"),
+      kidsLabel: copy(pageContract, "value.gain_thresholds.kids_female"),
+      emptyLabel: copy(pageContract, "empty.gain_thresholds.female"),
+    },
+  };
   // Chart first: the card exists to answer "is this breed growing", and six rows of
   // figures answer that more slowly than six rows of bars. The exact counts are one
   // click away and the chart carries them on hover, so nothing is hidden by the default.
@@ -649,14 +689,32 @@ export async function WeighingWeightsPage({
   const exportSheds = [...exportShedsById.values()].sort((a, b) => a.label.localeCompare(b.label));
 
   return (
+    // The Sex control sits in the filter bar at the top and the card it governs ~2,600px below, so
+    // the grain they share is held by this provider rather than by either of them.
+    <GainSexProvider initialSex={gainSex} searchParamName={GAIN_SEX_PARAM}>
     <div className="weights-page">
       {/* The download opener rides at the far end of the filter bar, on the same line as the park
-          and period controls, rather than on a line of its own above them (maintainer, 2026-08-24). */}
+          and period controls, rather than on a line of its own above them (maintainer, 2026-08-24).
+
+          The Sex control sits IN LINE with the filters, beside Weighing, and is shaped like the
+          fields next to it — but it is held in client state, not the URL: all three grains arrive
+          in one response, so it changes nothing the server has to fetch and must not cost a page
+          render. See gain-sex-scope. */}
       <WorklistFilters
         basePath={PAGE_PATH}
         pageParam="offset"
         fields={filterFields}
         pageContract={pageContract}
+        inlineTrailing={
+          <GainSexFilter
+            label={copy(pageContract, "filter.gain_sex.label")}
+            optionLabels={{
+              all: copy(pageContract, "view.sex.all"),
+              male: copy(pageContract, "view.sex.male"),
+              female: copy(pageContract, "view.sex.female"),
+            }}
+          />
+        }
         trailing={
           <WeightsExportControl
             pageContract={pageContract}
@@ -865,50 +923,17 @@ export async function WeighingWeightsPage({
             ]}
           />
         </h2>
-        <p className="muted small">{copy(pageContract, "section.gain_thresholds.caption")}</p>
-        {gainThresholdView === "chart" ? (
-          <GainThresholdBars
-            rows={gainThresholdRows}
-            chartLabel={copy(pageContract, "chart.gain_thresholds.aria")}
-            emptyLabel={copy(pageContract, "empty.gain_thresholds.body")}
-            kidsLabel={copy(pageContract, "value.gain_thresholds.kids")}
-            ofLabel={copy(pageContract, "value.gain_thresholds.of")}
-          />
-        ) : gainThresholdRows.length === 0 ? (
-          <div className="empty">
-            <span className="muted small">{copy(pageContract, "empty.gain_thresholds.body")}</span>
-          </div>
-        ) : (
-          <div className="tablewrap">
-            <table className="tbl">
-              <thead>
-                <tr>
-                  {gainThresholdColumns.map((label, index) => (
-                    <th key={label} className={index >= 1 ? "num" : undefined}>
-                      {label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {gainThresholdRows.map((row) => (
-                  <tr key={row.key}>
-                    <td>
-                      <b>{row.breed}</b>
-                    </td>
-                    <td className="num">{row.animals.toLocaleString("en-IN")}</td>
-                    {row.marks.map((mark) => (
-                      <td key={mark.step} className="num">
-                        {mark.count.toLocaleString("en-IN")}{" "}
-                        <span className="muted">({mark.pct.toFixed(1)}%)</span>
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {/* Caption and body live in the card component, because the caption NAMES the kids the
+            selected grain counted and would otherwise say one thing while the bars below it showed
+            another. The Chart/Table choice stays a URL toggle and is passed down, so it still
+            governs whichever grain is showing. */}
+        <GainThresholdCard
+          grains={gainThresholdGrains}
+          view={gainThresholdView}
+          columns={gainThresholdColumns}
+          chartLabel={copy(pageContract, "chart.gain_thresholds.aria")}
+          ofLabel={copy(pageContract, "value.gain_thresholds.of")}
+        />
       </section>
 
       {/* Row 3 — growth by purchase load, full width: the label carries both the load
@@ -1165,5 +1190,6 @@ export async function WeighingWeightsPage({
       </section>
       <GrowthDirectorSection result={growthDirector} pageContract={pageContract} />
     </div>
+    </GainSexProvider>
   );
 }
