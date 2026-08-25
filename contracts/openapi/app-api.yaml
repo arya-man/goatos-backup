@@ -1557,18 +1557,24 @@ paths:
 
         Served by its OWN read-only reporting module in the Growth Director's
         shape: weighing stays isolated (this read consumes weighing tables and
-        gates nothing), the sales lock stays intact (the deal row is reached
-        through the identity-owned goat_sale_allocations mapping by its opaque
-        id), and nothing here writes anything.
+        gates nothing), the sales lock stays intact (sales_deals is read at deal
+        grain and never joined to a herd table), and nothing here writes
+        anything.
 
 
         Every rupee figure is an ESTIMATE and the response says so: feed cost is
         what the sheet DIRECTED priced at the latest purchase load, not what was
-        eaten; per-animal sale revenue is the deal value split evenly across its
-        animals, because no per-animal price is recorded anywhere. Deal-side
-        figures (realized price, sold revenue) are tenant-wide — the sales
-        ledger records a farm label, not a park id — while animal and feed
+        eaten. There is no per-animal sale figure anywhere in this response,
+        because no per-animal sale price is recorded anywhere in the system.
+        Deal-side figures (realized price, sold revenue) are tenant-wide — the
+        sales ledger records a farm label, not a park id — while animal and feed
         figures follow the park filter.
+
+
+        A weight change within 3% of starting body weight is scored FLAT (gut
+        fill / scale drift, the same rule the Growth Director read uses). This
+        module divides BY the gain, so without that floor a near-zero
+        denominator turns scale noise into a confident-looking rupee figure.
       parameters:
         - name: park_id
           in: query
@@ -24222,11 +24228,12 @@ components:
       type: object
       additionalProperties: false
       description: >-
-        The Sales → Economics page: pulse tiles, per-animal daily economics,
-        break-even weight bands and the sold-animal panel. `estimate` is always
-        true — feed cost is directed-and-priced, not eaten; per-animal revenue
-        is an even head split of the deal value.
-      required: [period, parks, pulse, animals, bands, sold, estimate]
+        The Sales → Economics page: pulse tiles, per-animal daily economics and
+        break-even weight bands. `estimate` is always true — feed cost is
+        directed-and-priced, not eaten. There is deliberately no per-animal sale
+        panel: no per-animal sale price is recorded anywhere, so the honest
+        sale figure is the deal-grain realized price per kg on the pulse.
+      required: [period, parks, pulse, animals, bands, estimate]
       properties:
         period:
           $ref: "#/components/schemas/GrowthDirectorPeriod"
@@ -24250,11 +24257,6 @@ components:
           description: Always all six weight bands (<15, 15-20, 20-25, 25-30, 30-35, 35+), ascending.
           items:
             $ref: "#/components/schemas/EconomicsBand"
-        sold:
-          type: array
-          description: Sale-tagged animals of the window, newest sale first, capped at 200 rows.
-          items:
-            $ref: "#/components/schemas/EconomicsSoldAnimal"
         estimate:
           type: boolean
     EconomicsPulse:
@@ -24408,48 +24410,6 @@ components:
           nullable: true
         sell_signal:
           type: boolean
-    EconomicsSoldAnimal:
-      type: object
-      additionalProperties: false
-      description: >-
-        One animal tagged to a sale in the window, through the identity-owned
-        allocation mapping. apportioned_revenue_rupees is the deal value divided
-        by its live tagged allocations — an even head split, disclosed as an
-        estimate; no per-animal price exists anywhere.
-      required:
-        - tag_number
-        - sale_date
-        - buyer_name
-        - farm
-        - shed_display
-        - deal_animals
-        - apportioned_revenue_rupees
-        - last_weight_kg
-        - realized_per_kg
-      properties:
-        tag_number:
-          type: string
-        sale_date:
-          type: string
-          format: date
-        buyer_name:
-          type: string
-        farm:
-          type: string
-        shed_display:
-          type: string
-          description: Where the animal stood when it was tagged to the sale (snapshot, park-prefixed).
-        deal_animals:
-          type: integer
-        apportioned_revenue_rupees:
-          type: number
-          nullable: true
-        last_weight_kg:
-          type: number
-          nullable: true
-        realized_per_kg:
-          type: number
-          nullable: true
     GrowthDirectorWeightsResponse:
       type: object
       additionalProperties: false

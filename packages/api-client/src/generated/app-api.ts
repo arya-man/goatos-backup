@@ -738,9 +738,11 @@ export interface paths {
          * Business economics for the admin-web Sales → Economics page.
          * @description Requires the dedicated SalesEconomicsRead capability (leadership only: this page lays feed spend, growth and sale margins side by side). `park_id` is optional; when omitted the response covers every park the caller is authorized to read, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 90 days ending today.
          *
-         *     Served by its OWN read-only reporting module in the Growth Director's shape: weighing stays isolated (this read consumes weighing tables and gates nothing), the sales lock stays intact (the deal row is reached through the identity-owned goat_sale_allocations mapping by its opaque id), and nothing here writes anything.
+         *     Served by its OWN read-only reporting module in the Growth Director's shape: weighing stays isolated (this read consumes weighing tables and gates nothing), the sales lock stays intact (sales_deals is read at deal grain and never joined to a herd table), and nothing here writes anything.
          *
-         *     Every rupee figure is an ESTIMATE and the response says so: feed cost is what the sheet DIRECTED priced at the latest purchase load, not what was eaten; per-animal sale revenue is the deal value split evenly across its animals, because no per-animal price is recorded anywhere. Deal-side figures (realized price, sold revenue) are tenant-wide — the sales ledger records a farm label, not a park id — while animal and feed figures follow the park filter.
+         *     Every rupee figure is an ESTIMATE and the response says so: feed cost is what the sheet DIRECTED priced at the latest purchase load, not what was eaten. There is no per-animal sale figure anywhere in this response, because no per-animal sale price is recorded anywhere in the system. Deal-side figures (realized price, sold revenue) are tenant-wide — the sales ledger records a farm label, not a park id — while animal and feed figures follow the park filter.
+         *
+         *     A weight change within 3% of starting body weight is scored FLAT (gut fill / scale drift, the same rule the Growth Director read uses). This module divides BY the gain, so without that floor a near-zero denominator turns scale noise into a confident-looking rupee figure.
          */
         get: operations["adminGetSalesEconomics"];
         put?: never;
@@ -9814,7 +9816,7 @@ export interface components {
             parks: components["schemas"]["WeighingPark"][];
             trace_id?: string;
         };
-        /** @description The Sales → Economics page: pulse tiles, per-animal daily economics, break-even weight bands and the sold-animal panel. `estimate` is always true — feed cost is directed-and-priced, not eaten; per-animal revenue is an even head split of the deal value. */
+        /** @description The Sales → Economics page: pulse tiles, per-animal daily economics and break-even weight bands. `estimate` is always true — feed cost is directed-and-priced, not eaten. There is deliberately no per-animal sale panel: no per-animal sale price is recorded anywhere, so the honest sale figure is the deal-grain realized price per kg on the pulse. */
         BusinessEconomicsResponse: {
             period: components["schemas"]["GrowthDirectorPeriod"];
             /** @description Park filter vocabulary, limited to the caller's authorized scope. */
@@ -9824,8 +9826,6 @@ export interface components {
             animals: components["schemas"]["EconomicsAnimal"][];
             /** @description Always all six weight bands (<15, 15-20, 20-25, 25-30, 30-35, 35+), ascending. */
             bands: components["schemas"]["EconomicsBand"][];
-            /** @description Sale-tagged animals of the window, newest sale first, capped at 200 rows. */
-            sold: components["schemas"]["EconomicsSoldAnimal"][];
             estimate: boolean;
         };
         /** @description Headline figures. Money fields are nullable and null NEVER means zero — it means the input that would make the figure honest is missing, with the reason readable from the disclosure counts beside it. Deal figures (realized price, sold revenue) are tenant-wide: the sales ledger records a farm label, not a park id. */
@@ -9878,20 +9878,6 @@ export interface components {
             value_added_per_day_rupees: number | null;
             net_per_day_rupees: number | null;
             sell_signal: boolean;
-        };
-        /** @description One animal tagged to a sale in the window, through the identity-owned allocation mapping. apportioned_revenue_rupees is the deal value divided by its live tagged allocations — an even head split, disclosed as an estimate; no per-animal price exists anywhere. */
-        EconomicsSoldAnimal: {
-            tag_number: string;
-            /** Format: date */
-            sale_date: string;
-            buyer_name: string;
-            farm: string;
-            /** @description Where the animal stood when it was tagged to the sale (snapshot, park-prefixed). */
-            shed_display: string;
-            deal_animals: number;
-            apportioned_revenue_rupees: number | null;
-            last_weight_kg: number | null;
-            realized_per_kg: number | null;
         };
         /** @description The Growth Director section of the Weights screen: six widgets over weighing, herd-register and feed-direction data. Every widget carries its own denominators — there is no expected-animal roster, so every count is an actual-scan/identity count, never "of expected". */
         GrowthDirectorWeightsResponse: {

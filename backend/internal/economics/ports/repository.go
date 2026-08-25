@@ -36,6 +36,7 @@ type Repository interface {
 	//   - a feed item with no purchase on record prices NOTHING and is counted
 	//     in pulse.unpriced_feed_items instead of being invented
 	//   - deal figures (realized price, sold revenue) are tenant-wide: the
-	//     sales ledger records a farm label, not a park id
+	//     sales ledger records a farm label, not a park id (deal grain only —
+	//     there is no per-animal sale panel; see the domain doc)
 	GetBusinessEconomics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.BusinessEconomics, error)
 }

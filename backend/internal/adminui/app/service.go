@@ -520,7 +520,6 @@ func pages() []domain.PageContract {
 		page("sales-economics", "/sales/economics", "/sales/economics", "Economics", "The core of the business, animal by animal — what a day of feed costs, what a day of growth returns, what a kg of gain costs to put on, and what a kg actually sells for.", "module-surface",
 			[]domain.TableContract{
 				economicsAnimalsTable(),
-				economicsSoldTable(),
 			}),
 		// FEED PURCHASES: the buying side of the feed chain (maintainer decision 2026-08-24,
 		// retiring the read-only half of migration 000174). One server-paged ledger table whose
@@ -888,21 +887,6 @@ func weightsGainThresholdTable() domain.TableContract {
 func economicsAnimalsTable() domain.TableContract {
 	t := withoutRowClick(tableP("economics-animals", "Per-animal economics", "/economics/overview",
 		[]string{"tag", "animal", "shed", "latest_weight", "adg", "feed_cost_day", "cost_per_kg_gain", "value_per_day", "net_per_day", "signal"},
-		"", []int{10, 25, 50}))
-	copy := pageCopy("sales-economics")
-	for i := range t.Columns {
-		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
-			t.Columns[i].Label = label
-		}
-	}
-	return t
-}
-
-// economicsSoldTable builds the sold-animals panel table on /sales/economics. Same
-// copy-sourced labels as economicsAnimalsTable.
-func economicsSoldTable() domain.TableContract {
-	t := withoutRowClick(tableP("economics-sold", "Sold animals", "/economics/overview",
-		[]string{"tag_number", "sale_date", "buyer", "farm", "shed", "last_weight", "apportioned_revenue", "realized_per_kg"},
 		"", []int{10, 25, 50}))
 	copy := pageCopy("sales-economics")
 	for i := range t.Columns {
@@ -2708,7 +2692,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"trust.paired":         "weighed twice or more — the animals a daily gain exists for",
 			"trust.costed":         "with a priced ration matched — the animals a cost exists for",
 			"trust.unpriced_items": "feed items had no purchase on record, so their cost is missing from every rupee figure",
-			"trust.estimate":       "Feed cost is what the sheet directed, priced at the latest load — not what was eaten. Sale revenue per animal is the deal value split evenly across its animals — no per-animal price is recorded anywhere.",
+			"trust.estimate":       "Feed cost is what the sheet directed, priced at the latest load — not what was eaten. A weight change within 3% of body weight is treated as flat: that is gut fill or scale drift, not growth, so those animals show a cost but no gain figure.",
 			"trust.deals_scope":    "Deal figures cover both farms: a sale is recorded against a farm, not a park.",
 
 			// Break-even bands.
@@ -2747,18 +2731,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.per_kg_suffix":      "per kg",
 			"animals.capped":           "Showing the animals that need attention first. The headline figures above cover every weighed animal, not only these rows.",
 			"empty.animals":            "No animal has two weighs in this window yet. Economics starts with a second weigh.",
-
-			// Sold animals panel.
-			"section.sold.title":       "Sold animals",
-			"section.sold.subtitle":    "Animals tagged to closed sales, newest first. Revenue per animal is the deal value split evenly across its animals.",
-			"column.tag_number":        "Tag",
-			"column.sale_date":         "Sold on",
-			"column.buyer":             "Buyer",
-			"column.farm":              "Farm",
-			"column.last_weight":       "Last weight",
-			"column.apportioned_revenue": "Revenue share",
-			"column.realized_per_kg":   "Realized per kg",
-			"empty.sold":               "No animals tagged to a sale in this window yet.",
 
 			// Page-level states.
 			"error.load": "Could not load the economics figures. Refresh to try again.",

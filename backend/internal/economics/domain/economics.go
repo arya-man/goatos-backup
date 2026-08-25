@@ -2,14 +2,13 @@
 //
 // Business Economics is a READ-ONLY reporting module under the Sales vertical:
 // what an animal costs the farm per day (priced feed direction), what it gains
-// per day (weighing pairs), and what animals actually sell for (the sales
-// ledger through the goat_sale_allocations mapping). It mirrors the Growth
-// Director module's shape and boundary on purpose: weighing stays isolated
-// (this module CONSUMES weighing tables read-only and never gates any weighing
-// behaviour), the sales lock stays intact (sales still reads nothing from the
-// herd; THIS module joins goat_sale_allocations — the identity-owned mapping —
-// to the deal row by its opaque id, exactly the read path migration 000177
-// describes), and nothing here writes anything, ever.
+// per day (weighing pairs), and what a kg of that gain sells for (the sales
+// ledger, at DEAL grain). It mirrors the Growth Director module's shape and
+// boundary on purpose: weighing stays isolated (this module CONSUMES weighing
+// tables read-only and never gates any weighing behaviour), the sales lock
+// stays intact (it reads sales_deals only — never joined to a herd table, and
+// since the sold panel was dropped it does not read the goat_sale_allocations
+// mapping either), and nothing here writes anything, ever.
 package domain
 
 // Actor is the authenticated caller, resolved from auth grants by the HTTP layer.
@@ -33,9 +32,6 @@ const MaxParks = 100
 // figures are whole-filter aggregates computed independently of this cap, so
 // truncating the table never bends a summary number.
 const MaxAnimalRows = 200
-
-// MaxSoldRows caps the sold-animal panel, newest sale first.
-const MaxSoldRows = 200
 
 // PeriodResolutionCampaignWeek discloses the window semantics: weighing data is
 // selected by CAMPAIGN-WEEK OVERLAP while feed and sales rows use the exact
@@ -83,17 +79,20 @@ type Period struct {
 }
 
 // BusinessEconomics is the whole Sales → Economics page: the pulse tiles, the
-// per-animal table, the break-even bands and the sold-animal panel. Estimate is
-// ALWAYS true: feed cost is what the sheet DIRECTED priced at the latest load,
-// not what was eaten; per-animal sale revenue is the deal value apportioned
-// per head, not a per-animal negotiated price (no such price exists anywhere).
+// per-animal table and the break-even bands. Estimate is ALWAYS true: feed cost
+// is what the sheet DIRECTED priced at the latest load, not what was eaten.
+//
+// There is deliberately NO per-animal sale panel (maintainer decision
+// 2026-08-25). No per-animal sale price is recorded anywhere, so such a panel
+// could only show the deal value split evenly across its animals — a number the
+// farm never negotiated. The realized price per kg on the pulse is the honest
+// deal-grain figure, and the Sales page owns the deals themselves.
 type BusinessEconomics struct {
 	Period   Period            `json:"period"`
 	Parks    []Park            `json:"parks"`
 	Pulse    Pulse             `json:"pulse"`
 	Animals  []AnimalEconomics `json:"animals"`
 	Bands    []BandEconomics   `json:"bands"`
-	Sold     []SoldAnimal      `json:"sold"`
 	Estimate bool              `json:"estimate"`
 }
 
@@ -173,23 +172,4 @@ type BandEconomics struct {
 	ValueAddedPerDayRupees *float64 `json:"value_added_per_day_rupees"`
 	NetPerDayRupees        *float64 `json:"net_per_day_rupees"`
 	SellSignal             bool     `json:"sell_signal"`
-}
-
-// SoldAnimal is one animal tagged to a sale in the window, through the
-// identity-owned goat_sale_allocations mapping. ApportionedRevenueRupees is
-// the deal's recorded value divided by its LIVE tagged allocations — an
-// even head split, disclosed as an estimate, because no per-animal price is
-// recorded anywhere. LastWeightKg is the animal's last accepted weighing by
-// tag, whole history, and RealizedPerKg divides the apportioned revenue by it.
-type SoldAnimal struct {
-	TagNumber   string   `json:"tag_number"`
-	SaleDate    string   `json:"sale_date"`
-	BuyerName   string   `json:"buyer_name"`
-	Farm        string   `json:"farm"`
-	ShedDisplay string   `json:"shed_display"`
-	DealAnimals int      `json:"deal_animals"`
-
-	ApportionedRevenueRupees *float64 `json:"apportioned_revenue_rupees"`
-	LastWeightKg             *float64 `json:"last_weight_kg"`
-	RealizedPerKg            *float64 `json:"realized_per_kg"`
 }

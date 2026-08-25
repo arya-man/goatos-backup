@@ -25,7 +25,9 @@ func TestSalesEconomicsPageContractAndNavigation(t *testing.T) {
 		t.Fatalf("economics must be a module surface, got %q", page.SurfaceKind)
 	}
 
-	if len(page.Tables) != 2 || page.Tables[0].ID != "economics-animals" || page.Tables[1].ID != "economics-sold" {
+	// One table only: the sold-animal panel was dropped (maintainer decision
+	// 2026-08-25) because no per-animal sale price exists to render.
+	if len(page.Tables) != 1 || page.Tables[0].ID != "economics-animals" {
 		t.Fatalf("economics tables = %+v", page.Tables)
 	}
 	for _, tbl := range page.Tables {
@@ -76,7 +78,6 @@ func TestSalesEconomicsPageContractAndNavigation(t *testing.T) {
 		"signal.earning", "signal.burning", "signal.watch",
 		"value.none", "value.kg_suffix", "value.g_per_day_suffix", "value.per_day_suffix", "value.per_kg_suffix",
 		"animals.capped", "empty.animals",
-		"section.sold.title", "section.sold.subtitle", "empty.sold",
 		"error.load",
 	} {
 		if page.Copy[key] == "" {
