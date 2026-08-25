@@ -233,11 +233,9 @@ func (r *Repository) GetItemProofRefs(ctx context.Context, tenantID string, item
 		if err := rows.Scan(&itemID, &raw); err != nil {
 			return nil, err
 		}
-		refs := []string{}
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &refs); err != nil {
-				return nil, fmt.Errorf("verification: unmarshal media_refs for item %s: %w", itemID, err)
-			}
+		refs, err := decodeMediaRefs(raw)
+		if err != nil {
+			return nil, fmt.Errorf("verification: unmarshal media_refs for item %s: %w", itemID, err)
 		}
 		out[itemID] = refs
 	}
@@ -2407,6 +2405,56 @@ func scanItemRow(row rowScanner) (domain.Item, error) {
 	return scanItem(row)
 }
 
+func decodeMediaRefs(raw []byte) ([]string, error) {
+	if len(raw) == 0 {
+		return []string{}, nil
+	}
+	var refs []string
+	if err := json.Unmarshal(raw, &refs); err == nil {
+		return refs, nil
+	}
+	var entries []any
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil, err
+	}
+	refs = make([]string, 0, len(entries))
+	for _, entry := range entries {
+		switch value := entry.(type) {
+		case string:
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				refs = append(refs, trimmed)
+			}
+		case map[string]any:
+			if ref := mediaRefFromObject(value); ref != "" {
+				refs = append(refs, ref)
+			}
+		}
+	}
+	return refs, nil
+}
+
+func mediaRefFromObject(value map[string]any) string {
+	for _, key := range []string{
+		"proof_id",
+		"proofId",
+		"proof_ref",
+		"proofRef",
+		"proof_artifact_id",
+		"proofArtifactId",
+		"artifact_id",
+		"artifactId",
+		"id",
+		"ref",
+	} {
+		if raw, ok := value[key].(string); ok {
+			if trimmed := strings.TrimSpace(raw); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
+}
+
 func scanItem(row rowScanner) (domain.Item, error) {
 	var (
 		item                                                                            domain.Item
@@ -2445,11 +2493,11 @@ func scanItem(row rowScanner) (domain.Item, error) {
 	item.CapturedAt = item.CapturedAt.UTC()
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.UpdatedAt = item.UpdatedAt.UTC()
-	if len(mediaJSON) > 0 {
-		if err := json.Unmarshal(mediaJSON, &item.MediaRefs); err != nil {
-			return domain.Item{}, fmt.Errorf("verification: unmarshal media_refs: %w", err)
-		}
+	mediaRefs, err := decodeMediaRefs(mediaJSON)
+	if err != nil {
+		return domain.Item{}, fmt.Errorf("verification: unmarshal media_refs: %w", err)
 	}
+	item.MediaRefs = mediaRefs
 	if len(contextJSON) > 0 {
 		if err := json.Unmarshal(contextJSON, &item.ContextRows); err != nil {
 			return domain.Item{}, fmt.Errorf("verification: unmarshal context_rows: %w", err)
@@ -2507,11 +2555,11 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 	item.CapturedAt = item.CapturedAt.UTC()
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.UpdatedAt = item.UpdatedAt.UTC()
-	if len(mediaJSON) > 0 {
-		if err := json.Unmarshal(mediaJSON, &item.MediaRefs); err != nil {
-			return domain.Item{}, fmt.Errorf("verification: unmarshal media_refs: %w", err)
-		}
+	mediaRefs, err := decodeMediaRefs(mediaJSON)
+	if err != nil {
+		return domain.Item{}, fmt.Errorf("verification: unmarshal media_refs: %w", err)
 	}
+	item.MediaRefs = mediaRefs
 	if len(contextJSON) > 0 {
 		if err := json.Unmarshal(contextJSON, &item.ContextRows); err != nil {
 			return domain.Item{}, fmt.Errorf("verification: unmarshal context_rows: %w", err)
