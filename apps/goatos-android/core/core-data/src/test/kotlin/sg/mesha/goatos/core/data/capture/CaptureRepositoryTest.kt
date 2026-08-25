@@ -890,6 +890,8 @@ class CaptureRepositoryTest {
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
+            val telemetryEvents = mutableListOf<Pair<String, Map<String, String>>>()
+            val uploadGroupKey = "feed-dist:2026-08-25:shed-1:part-3:1:normal:water_video"
             db.proofCaptureDao().insert(
                 proofEntity(
                     id = "proof-stale-outbox",
@@ -897,6 +899,7 @@ class CaptureRepositoryTest {
                     fieldKey = "feed_distribution_water_video",
                     idempotencyKey = "proof-upload:task-stale-outbox:proof-stale-outbox",
                     outboxItemId = "outbox-pruned-before-row-updated",
+                    uploadGroupKey = uploadGroupKey,
                 ).copy(
                     localUri = "file://processed-water-video.mp4",
                     originalUri = "file://original-water-video.mp4",
@@ -912,6 +915,7 @@ class CaptureRepositoryTest {
                 appScope = backgroundScope,
                 reconcileOnStartup = false,
                 dispatchers = unconfinedDispatchers,
+                telemetry = ProofCaptureTelemetry { event, props -> telemetryEvents += event to props },
             )
 
             repo.observeProofs("task-stale-outbox").first()
@@ -921,8 +925,22 @@ class CaptureRepositoryTest {
             assertEquals(1, sync.enqueueCalls.size)
             assertEquals("proof-upload:task-stale-outbox:proof-stale-outbox", sync.enqueueCalls.single().idempotencyKey)
             assertEquals("file://processed-water-video.mp4", sync.enqueueCalls.single().localFilePath)
+            assertEquals(uploadGroupKey, sync.enqueueCalls.single().groupKey)
+            assertEquals(uploadGroupKey, row?.uploadGroupKey)
             assertEquals("outbox-0", row?.outboxItemId)
             assertEquals(CaptureSyncStatus.PENDING.name, row?.syncStatus)
+            assertEquals(
+                1,
+                db.proofCaptureDao().countStateEvents("proof-stale-outbox", "missing_outbox_driver_during_recovery"),
+            )
+            assertTrue(
+                telemetryEvents.any { (event, props) ->
+                    event == "proof_upload_driver_missing" &&
+                        props["reason"] == "missing_outbox_driver_during_recovery" &&
+                        props["proof_id"] == "proof-stale-outbox" &&
+                        props["field_key"] == "feed_distribution_water_video"
+                },
+            )
         } finally {
             db.close()
         }

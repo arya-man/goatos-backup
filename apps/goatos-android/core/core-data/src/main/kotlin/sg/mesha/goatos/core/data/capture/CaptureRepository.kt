@@ -1849,11 +1849,24 @@ class DefaultProofCaptureRepository(
             return fireSlotRetirementIfPending(entity.id) + retireSupersededRowIfAny(entity)
         }
         if (!entity.isRecoverableUploadState()) return emptySet()
+        val uploadGroupKey = entity.uploadGroupKey?.takeIf { it.isNotBlank() }
+        recordProofEvent(
+            entity,
+            stage = "missing_outbox_driver_during_recovery",
+            toState = entity.processingState,
+            attempt = entity.stateAttempt,
+            errorClass = "missing_outbox_driver_during_recovery",
+            retryable = true,
+        )
+        telemetry.track(
+            proofUploadDriverMissingEvent,
+            proofAnalyticsProps(entity) + ("reason" to "missing_outbox_driver_during_recovery"),
+        )
         dao.setOutboxItemId(entity.id, null)
         dao.updateStatus(entity.id, EntitySyncStatus.PENDING.name, null, null)
         val recovered = (dao.findById(entity.id) ?: entity.copy(outboxItemId = null, syncStatus = EntitySyncStatus.PENDING.name))
         val (scopeType, scopeId) = recoveryScope(recovered)
-        enqueueRegistrationNow(recovered, scopeType, scopeId)
+        enqueueRegistrationNow(recovered, scopeType, scopeId, uploadGroupKey = uploadGroupKey)
         return emptySet()
     }
 
