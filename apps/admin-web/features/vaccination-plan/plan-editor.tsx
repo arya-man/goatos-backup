@@ -212,20 +212,19 @@ export function VaccinationPlanEditor(props: Props) {
 
   return (
     <div className="vplan">
-      <a
-        className="backlink"
-        href="/vaccination/plan"
-        onClick={(e) => {
-          if (!dirty) return;
-          if (!window.confirm("Leave without saving? Your changes to this draft will be lost.")) {
-            e.preventDefault();
-          }
-        }}
-      >
-        <ArrowLeft size={14} aria-hidden /> Vaccination plan
-      </a>
-
       <header className="head">
+        <a
+          className="backlink"
+          href="/vaccination/plan"
+          onClick={(e) => {
+            if (!dirty) return;
+            if (!window.confirm("Leave without saving? Your changes to this draft will be lost.")) {
+              e.preventDefault();
+            }
+          }}
+        >
+          <ArrowLeft size={15} aria-hidden /> Back to plans
+        </a>
         <div className="head-top">
           <div>
             <div className="eyebrow">
