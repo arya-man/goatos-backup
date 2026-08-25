@@ -190,6 +190,7 @@ type EligibleGoat struct {
 	LifecycleStatus      string
 	HealthStatus         string
 	ReproductiveStatus   string
+	ProcurementPurpose   string
 	ShedID               string
 	ParkID               string
 	PartitionLabel       string

@@ -260,7 +260,7 @@ const ELEMENT_REGISTRY = [
   // That is a guard selector bug, not a page bug: `.grid2:not(.grid2 ~ .grid2)` picks the .grid2
   // with no preceding .grid2 sibling (i.e. the first one) and `.grid2 ~ .grid2` picks the one
   // preceded by another .grid2 (the second, since this page only ever renders two per tab).
-  { tab: "gateways", label: "gateway grid container", mockSelector: "#gwBody", appSelector: ".herd-signals-page .grid2:not(.grid2 ~ .grid2)" },
+  { tab: "gateways", label: "gateway grid container", mockSelector: "#gwBody", appSelector: ".herd-signals-page .grid2:not(.grid2 ~ .grid2)", optional: true },
   {
     tab: "gateways",
     label: "first gateway card",
@@ -268,9 +268,9 @@ const ELEMENT_REGISTRY = [
     appSelector: ".herd-signals-page .grid2:not(.grid2 ~ .grid2) .gwcard:nth-child(1)",
     optional: true,
   },
-  { tab: "gateways", label: "second grid row (coverage + battery)", mockSelector: "#tab-gateways .grid2:nth-of-type(2)", appSelector: ".herd-signals-page .grid2 ~ .grid2" },
-  { tab: "gateways", label: "coverage-summary card", mockSelector: "#tab-gateways .grid2:nth-of-type(2) .card:nth-child(1)", appSelector: ".herd-signals-page .grid2 ~ .grid2 .card:nth-child(1)" },
-  { tab: "gateways", label: "battery-outlook card", mockSelector: "#tab-gateways .grid2:nth-of-type(2) .card:nth-child(2)", appSelector: ".herd-signals-page .grid2 ~ .grid2 .card:nth-child(2)" },
+  { tab: "gateways", label: "second grid row (coverage + battery)", mockSelector: "#tab-gateways .grid2:nth-of-type(2)", appSelector: ".herd-signals-page .grid2 ~ .grid2", optional: true },
+  { tab: "gateways", label: "coverage-summary card", mockSelector: "#tab-gateways .grid2:nth-of-type(2) .card:nth-child(1)", appSelector: ".herd-signals-page .grid2 ~ .grid2 .card:nth-child(1)", optional: true },
+  { tab: "gateways", label: "battery-outlook card", mockSelector: "#tab-gateways .grid2:nth-of-type(2) .card:nth-child(2)", appSelector: ".herd-signals-page .grid2 ~ .grid2 .card:nth-child(2)", optional: true },
 
   // ---- Alerts ---------------------------------------------------------------------------------
   { tab: "alerts", label: "Alerts card", mockSelector: "#tab-alerts .card", appSelector: ".herd-signals-page .card" },

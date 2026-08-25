@@ -1,8 +1,8 @@
-// seed-fixture-guard:ignore: this change reconciles and supersedes EXISTING obligations and
-// reads no seed source. It adds no seed input, changes no fixture column, and moves no
-// canonical schema, so the fixture manifest, the source-CSV validators and the seed-source
-// date contract have nothing to record. The migrations it ships beside are additive and
-// declare their own no-seed-impact reason.
+// seed-fixture-guard:ignore: this generator change reconciles and supersedes EXISTING obligations,
+// uses already-seeded procurement purpose data, and reads no new seed source. It adds no seed input,
+// changes no fixture column, and moves no canonical seed schema, so the fixture manifest, the
+// source-CSV validators and the seed-source date contract have nothing to record. The migrations it
+// ships beside are additive and declare their own no-seed-impact reason.
 package app
 
 import (
@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +20,7 @@ import (
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	oblports "github.com/vgoats/goatos/backend/internal/obligation/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
@@ -84,6 +84,7 @@ type ObligationWriter interface {
 	RealignOpenObligationForGeneration(ctx context.Context, tenantID, idempotencyKey string, dueAt time.Time, windowEnd *time.Time, occurredAt time.Time) (obldomain.ObligationRef, bool, error)
 	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, vaccineCode, shedID, parkID string, from, to time.Time) (*time.Time, error)
 	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
+	CancelOpenVaccinationObligationsForExitedGoats(ctx context.Context, tenantID, reason string, occurredAt time.Time) (int, error)
 	CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error)
 	// Bounded pre-filter for plan replacement: which of these animals still hold open work
 	// under a version that is no longer effective for them. Usually none, for one indexed read.
@@ -354,6 +355,7 @@ type genEligibility struct {
 	Lifecycle                 genStringList `json:"lifecycle"`
 	Health                    genStringList `json:"health"`
 	Reproductive              genStringList `json:"reproductive"`
+	ProcurementPurpose        genStringList `json:"procurement_purpose"`
 	ExcludeReproductiveStates []string      `json:"exclude_reproductive_states"`
 	DeferStates               []string      `json:"defer_states"`
 	MinAgeDays                *int32        `json:"min_age_days"`
@@ -484,6 +486,9 @@ func mergeEligibility(base, override genEligibility) genEligibility {
 	if len(override.Reproductive) > 0 {
 		out.Reproductive = override.Reproductive
 	}
+	if len(override.ProcurementPurpose) > 0 {
+		out.ProcurementPurpose = override.ProcurementPurpose
+	}
 	if len(override.ExcludeReproductiveStates) > 0 {
 		out.ExcludeReproductiveStates = override.ExcludeReproductiveStates
 	}
@@ -506,6 +511,9 @@ func mergeVaccineProfile(base vaccineProfile, meta genVaccineMeta) vaccineProfil
 	out := base
 	if strings.TrimSpace(meta.Code) != "" {
 		out.Code = strings.TrimSpace(meta.Code)
+	}
+	if strings.TrimSpace(meta.Name) != "" {
+		out.Name = strings.TrimSpace(meta.Name)
 	}
 	if strings.TrimSpace(meta.Type) != "" {
 		out.Type = strings.TrimSpace(meta.Type)
@@ -559,6 +567,9 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, tenantID string, asOf time.Time, baseOpts generationOptions) (domain.GenerateResult, error) {
 	var res domain.GenerateResult
 	if err := s.requireEvidenceReader(); err != nil {
+		return res, err
+	}
+	if _, err := s.obl.CancelOpenVaccinationObligationsForExitedGoats(ctx, tenantID, "ineligible_after_exit", asOf); err != nil {
 		return res, err
 	}
 	filter := domain.ImpactFilter{TenantID: tenantID}
@@ -881,7 +892,7 @@ func (s *GenerationService) generateForVersionWithRun(ctx context.Context, tenan
 	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=generation-run-finish-absolute-instant-storage expiry=2026-12-31
 	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer finishCancel()
-	if err := s.runs.FinishGenerationRun(finishCtx, tenantID, run.RunID, res, "", lastError, time.Now().UTC()); err != nil && genErr == nil {
+	if err := s.runs.FinishGenerationRun(finishCtx, tenantID, run.RunID, res, "", lastError, time.Now().In(biztime.DefaultLocation())); err != nil && genErr == nil {
 		genErr = err
 	}
 	return run, res, genErr
@@ -949,8 +960,9 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 		safeThrough time.Time
 	}
 	type candidate struct {
-		goatKey   string
-		cohortKey string
+		goatKey     string
+		cohortKey   string
+		overrideDue time.Time
 	}
 	type cohortMember struct {
 		goatKey   string
@@ -1029,9 +1041,14 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 			if hasVaccineAdministrationHistory(ruleVaccine, history) {
 				continue
 			}
+			procDue, procOK := procurementPurposePrimaryDue(plan.goat, rule, ruleVaccine, plan.policies.Procurement)
+			if !procOK {
+				continue
+			}
 			candidates = append(candidates, candidate{
-				goatKey:   campaignDueGoatKey(plan.versionID, rule.RuleID, plan.goat.GoatID),
-				cohortKey: adultCampaignCohortKey(plan.versionID, plan.goat.ParkID, ruleVaccine.Code),
+				goatKey:     campaignDueGoatKey(plan.versionID, rule.RuleID, plan.goat.GoatID),
+				cohortKey:   adultCampaignCohortKey(plan.versionID, plan.goat.ParkID, ruleVaccine.Code),
+				overrideDue: procDue,
 			})
 		}
 	}
@@ -1067,15 +1084,78 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 	}
 	for _, c := range candidates {
 		campaignDate := campaignStart
+		if !c.overrideDue.IsZero() {
+			campaignDate = c.overrideDue
+		}
 		// Missing-history adults follow the established normal drive for this
 		// vaccine and park. They do not form an earlier offset-based micro-drive.
-		if cohortDate, found := cohortDates[c.cohortKey]; found {
+		if c.overrideDue.IsZero() {
+			if cohortDate, found := cohortDates[c.cohortKey]; found {
+				campaignDate = cohortDate
+				aligned[c.goatKey] = true
+			}
+		} else if cohortDate, found := cohortDates[c.cohortKey]; found && cohortDate.After(campaignDate) {
 			campaignDate = cohortDate
 			aligned[c.goatKey] = true
 		}
 		out[c.goatKey] = campaignDate
 	}
 	return out, aligned, nil
+}
+
+func procurementPurposePrimaryDue(g domain.EligibleGoat, rule protodomain.Rule, vaccine vaccineProfile, policy genProcurementPolicy) (time.Time, bool) {
+	purpose := strings.ToLower(strings.TrimSpace(g.ProcurementPurpose))
+	if purpose == "" || purpose == "unspecified" {
+		return time.Time{}, true
+	}
+	plan, ok := policy.PurposePlans[purpose]
+	if !ok || purpose == "non_breeding" {
+		return time.Time{}, true
+	}
+	vaccineName := procurementVaccineName(vaccine)
+	base := warmingEntryAt(g)
+	if base == nil {
+		return time.Time{}, false
+	}
+	if containsProcurementVaccine(plan.FirstWave, vaccineName) {
+		return adjustPostArrivalDue(g, protodomain.Rule{TriggerType: "post_arrival", OffsetDays: 0, DueWindowDays: rule.DueWindowDays}, policy), true
+	}
+	secondWave := plan.GoatSecondWave
+	if strings.EqualFold(strings.TrimSpace(g.Species), "sheep") {
+		secondWave = plan.SheepSecondWave
+	}
+	if containsProcurementVaccine(secondWave, vaccineName) {
+		days := int32(28)
+		if plan.SecondWaveAfterDays != nil {
+			days = *plan.SecondWaveAfterDays
+		}
+		return adjustPostArrivalDue(g, protodomain.Rule{TriggerType: "post_arrival", OffsetDays: days, DueWindowDays: rule.DueWindowDays}, policy), true
+	}
+	return time.Time{}, false
+}
+
+func procurementVaccineName(v vaccineProfile) string {
+	name := strings.TrimSpace(v.Name)
+	if name != "" {
+		return name
+	}
+	return strings.TrimSpace(v.Code)
+}
+
+func containsProcurementVaccine(values genStringList, vaccine string) bool {
+	needle := normalizeProcurementVaccine(vaccine)
+	for _, value := range values {
+		if normalizeProcurementVaccine(value) == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeProcurementVaccine(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	replacer := strings.NewReplacer(" ", "", "_", "", "+", "", "-", "")
+	return replacer.Replace(value)
 }
 
 func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, versionID string, asOf time.Time, opts generationOptions) (domain.GenerateResult, error) {
@@ -1156,7 +1236,6 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		if err := s.supersedeRetiredPlanWork(ctx, tenantID, activeGoats, effectiveVersionsByPark, asOf); err != nil {
 			return res, err
 		}
-		slog.Info("vaccination_generation_page_superseded", "tenant_id", tenantID, "version_id", versionID, "active_goats", len(activeGoats), "after_goat_id", after)
 		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
 		for _, g := range activeGoats {
 			if !goatMatchesEligibility(g, elig, policies.Pregnancy, asOf) {
@@ -1211,9 +1290,6 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 	}
 	for i, p := range allPlans {
 		p.opts = runOpts
-		if i == 0 || (i+1)%25 == 0 {
-			slog.Info("vaccination_generation_plan_progress", "tenant_id", tenantID, "version_id", versionID, "plan_index", i+1, "plan_count", len(allPlans), "goat_id", p.goat.GoatID)
-		}
 		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
 			if shouldAbortGeneration(err) {
 				return res, err
@@ -1469,6 +1545,13 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !ruleMatchesSchedulePath(rule, path) {
 			continue
 		}
+		procPurposeDue, procPurposeOK := procurementPurposePrimaryDue(g, rule, ruleVaccine, policies.Procurement)
+		if path == schedulePathAdultProcurement && isAdultCampaignRule(rule) &&
+			(strings.EqualFold(strings.TrimSpace(rule.TriggerType), "post_arrival") ||
+				strings.EqualFold(strings.TrimSpace(rule.TriggerType), "manual_campaign")) &&
+			!procPurposeOK {
+			continue
+		}
 		// History outranks DOB/arrival, per DOSE: once THIS rule's own dose has been administered, it
 		// must not be regenerated — even AFTER a DOB/entry-date correction makes dueAt resolvable — so
 		// a later identity correction can never replace, duplicate, or replay that already-given dose.
@@ -1506,6 +1589,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			ok = true
 		} else {
 			baseDue, ok, skip = dueAt(versionID, rule, g, asOf, opts, policies)
+		}
+		if ok && !procPurposeDue.IsZero() {
+			baseDue = procPurposeDue
 		}
 		if skip {
 			trusted, err := s.hasTrustedCompletionEvidence(ctx, tenantID, versionID, rule, g, asOf, asOf, trustedLookup)
@@ -1834,7 +1920,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 					}
 				}
 			}
-			if missingKey != "" {
+			if missingKey != "" && missingKey != key && missingKey != reconcileKey {
 				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, missingKey, "missing_due_date_resolved", asOf); err != nil {
 					return err
 				}
@@ -1859,7 +1945,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				// Goat is no longer in a defer state: if a held (deferred) obligation exists for this
 				// key, reopen it so the recovered goat's due work becomes schedulable again. A no-op
 				// when the row is already schedulable/terminal (safe recovery-recheck replay).
-				if !opts.healthRecoveryAlign && actionableObligationForSpacing(reconciled) &&
+				if found && actionableObligationForSpacing(reconciled) &&
 					!strings.EqualFold(strings.TrimSpace(reconciled.Status), "deferred") {
 					finalRef = reconciled
 				} else {
@@ -2184,6 +2270,14 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 	if err != nil {
 		return res, err
 	}
+	runOpts := opts
+	runOpts.campaignDueByGoat, runOpts.cohortAlignedCampaignByGoat, err = campaignDueOverrides(pagePlans, asOf, vaccineHistoryByGoat)
+	if err != nil {
+		return res, err
+	}
+	for i := range pagePlans {
+		pagePlans[i].opts = runOpts
+	}
 	trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf, vaccineHistoryByGoat)
 	if err != nil {
 		return res, err
@@ -2467,6 +2561,9 @@ func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, preg genPre
 		}
 	}
 	if !selectorMatches(g.ReproductiveStatus, e.Reproductive) {
+		return false
+	}
+	if !selectorMatches(g.ProcurementPurpose, e.ProcurementPurpose) {
 		return false
 	}
 	if !selectorMatches(g.AgeBand, e.AgeBand) {

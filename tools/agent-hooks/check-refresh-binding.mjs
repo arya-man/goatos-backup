@@ -11,9 +11,19 @@
 
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const authDir = path.resolve(here, "../../apps/admin-web/lib/auth");
+
+if (!process.execArgv.includes("--experimental-strip-types")) {
+  const rerun = spawnSync(
+    process.execPath,
+    ["--experimental-strip-types", ...process.execArgv, fileURLToPath(import.meta.url), ...process.argv.slice(2)],
+    { stdio: "inherit" },
+  );
+  process.exit(rerun.status ?? 1);
+}
 
 const { resolveBoundRefreshToken, refreshCookieState } = await import(
   path.join(authDir, "refresh-binding.ts")

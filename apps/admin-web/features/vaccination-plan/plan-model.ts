@@ -15,7 +15,7 @@
  * See docs/preventive-care-vaccination/design/MOCK-BEHAVIOUR-SPEC.md §4.
  */
 
-import { formatDays } from "./duration-field";
+import { formatDays } from "./duration-format.ts";
 
 export type ScheduleRule = {
   dose_code?: string;
@@ -133,14 +133,18 @@ export function humanDays(days: number | undefined | null): string {
  * there is no change-note column, and a note a human typed could disagree with
  * what the version actually says. A derived line cannot.
  */
-export function describeChange(current: VaccineGroup[], previous: VaccineGroup[] | null): string {
+export function describeChange(
+  current: VaccineGroup[],
+  previous: VaccineGroup[] | null,
+  displayNameByCode: ReadonlyMap<string, string> = new Map(),
+): string {
   const onNow = current.filter((g) => g.inPlan);
   if (!previous) return `First plan, with ${onNow.length} vaccine${onNow.length === 1 ? "" : "s"}.`;
   const onBefore = previous.filter((g) => g.inPlan);
   const before = new Set(onBefore.map((g) => g.code));
   const after = new Set(onNow.map((g) => g.code));
-  const added = onNow.filter((g) => !before.has(g.code)).map((g) => g.name);
-  const removed = onBefore.filter((g) => !after.has(g.code)).map((g) => g.name);
+  const added = onNow.filter((g) => !before.has(g.code)).map((g) => displayName(g, displayNameByCode));
+  const removed = onBefore.filter((g) => !after.has(g.code)).map((g) => displayName(g, displayNameByCode));
 
   const parts: string[] = [];
   if (added.length > 0) parts.push(`Added ${added.join(", ")}`);
@@ -148,6 +152,10 @@ export function describeChange(current: VaccineGroup[], previous: VaccineGroup[]
   if (parts.length > 0) return `${parts.join(" · ")}.`;
 
   return fingerprint(onNow) === fingerprint(onBefore) ? "No change to the vaccines." : "Timing changed.";
+}
+
+function displayName(group: VaccineGroup, displayNameByCode: ReadonlyMap<string, string>): string {
+  return displayNameByCode.get(group.code) ?? group.name;
 }
 
 function fingerprint(groups: VaccineGroup[]): string {

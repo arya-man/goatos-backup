@@ -17,7 +17,7 @@ import { ArrowLeft, Check, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { DurationField, formatDays } from "./duration-field";
-import type { EditorPlan, EditorVaccine, NewVaccineInput } from "./editor-model";
+import type { EditorPlan, EditorVaccine, NewVaccineInput, ProcurementPurpose } from "./editor-model";
 import { newVaccineToEditor } from "./editor-model";
 import { publishPlan, saveDraftPlan } from "./plan-actions";
 import { humanDays } from "./plan-model";
@@ -89,6 +89,7 @@ export function VaccinationPlanEditor(props: Props) {
     () => JSON.stringify(plan) !== JSON.stringify(baseline),
     [plan, baseline],
   );
+  const selectedSetting = selected === "__procurement" || selected === "__safety" ? selected : null;
   const current = plan.vaccines.find((v) => v.code === selected) ?? plan.vaccines[0];
   const onCount = plan.vaccines.filter((v) => v.on).length;
 
@@ -290,7 +291,7 @@ export function VaccinationPlanEditor(props: Props) {
                 <li key={v.code}>
                   <button
                     className={`v-item${v.on ? "" : " off"}`}
-                    aria-current={v.code === current.code}
+                    aria-current={!selectedSetting && v.code === current.code}
                     onClick={() => setSelected(v.code)}
                     type="button"
                   >
@@ -307,9 +308,51 @@ export function VaccinationPlanEditor(props: Props) {
               + Add a vaccine
             </button>
           </nav>
+          <nav className="rail" aria-label="Plan settings">
+            <div className="rail-h">
+              <div className="t">Plan settings</div>
+              <div className="s">Shared rules</div>
+            </div>
+            <ul className="vlist">
+              <li>
+                <button
+                  className="v-item setting"
+                  aria-current={selected === "__procurement"}
+                  onClick={() => setSelected("__procurement")}
+                  type="button"
+                >
+                  <span className="sw">PH</span>
+                  <span className="v-txt">
+                    <span className="v-name">Procurement holding</span>
+                    <span className="v-sched">breeding/fattening waves</span>
+                  </span>
+                </button>
+              </li>
+              <li>
+                <button
+                  className="v-item setting"
+                  aria-current={selected === "__safety"}
+                  onClick={() => setSelected("__safety")}
+                  type="button"
+                >
+                  <span className="sw">SR</span>
+                  <span className="v-txt">
+                    <span className="v-name">Automatic safety rules</span>
+                    <span className="v-sched">spacing and defer rules</span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+          </nav>
         </div>
 
         <div>
+          {selected === "__procurement" ? (
+            <ProcurementCard plan={plan} setPlan={setPlan} onEdit={() => setSaved(false)} />
+          ) : selected === "__safety" ? (
+            <SafetyCard plan={plan} />
+          ) : (
+          <>
           <section className="card">
             <div className="card-h">
               <div>
@@ -528,9 +571,9 @@ export function VaccinationPlanEditor(props: Props) {
           </section>
 
           <ProofCard mode={plan.proofMode} />
-          <ProcurementCard plan={plan} setPlan={setPlan} onEdit={() => setSaved(false)} />
-          <SafetyCard plan={plan} />
           <ImpactCard impact={props.impact} />
+          </>
+          )}
         </div>
       </div>
 
@@ -615,6 +658,8 @@ function AddVaccineModal({
   const [vaccineType, setVaccineType] = useState<"live" | "killed">("killed");
   const [pathogenClass, setPathogenClass] = useState<"bacterial" | "viral">("bacterial");
   const [species, setSpecies] = useState<"goat" | "sheep" | "both">("both");
+  const [procurementPurpose, setProcurementPurpose] =
+    useState<"all" | "breeding" | "fattening" | "non_breeding">("all");
   const [courseType, setCourseType] = useState<"single" | "booster">("single");
   const [firstDoseDays, setFirstDoseDays] = useState(84); // 12 weeks, the mock's own default
   const [boosterGapDays, setBoosterGapDays] = useState(21); // 3 weeks
@@ -650,6 +695,7 @@ function AddVaccineModal({
       vaccineType,
       pathogenClass,
       species,
+      procurementPurpose,
       courseType,
       firstDoseDays,
       boosterGapDays,
@@ -748,6 +794,29 @@ function AddVaccineModal({
                 <option value="goat">Goats only</option>
                 <option value="sheep">Sheep only</option>
               </select>
+            </label>
+            <label className="vp-nvf vp-nvwide">
+              <span>Procurement purpose</span>
+              <span className="vp-seg" role="group" aria-label="Procurement purpose">
+                {[
+                  ["all", "All purposes"],
+                  ["breeding", "Breeding"],
+                  ["fattening", "Fattening"],
+                  ["non_breeding", "Non-breeding"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={procurementPurpose === value ? "is-on" : ""}
+                    aria-pressed={procurementPurpose === value}
+                    onClick={() =>
+                      setProcurementPurpose(value as "all" | "breeding" | "fattening" | "non_breeding")
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </span>
             </label>
           </div>
 
@@ -848,6 +917,16 @@ function ProcurementCard({
 }) {
   const { warmupNoVaccinationDays, kidsNormalScheduleUntilWeeks, adultPriorVaccinationAllowed } =
     plan.procurement;
+  const [activePurpose, setActivePurpose] = useState<ProcurementPurpose>("breeding");
+  const procurementPurposeOptions = [
+    ["breeding", "Breeding · 843"],
+    ["fattening", "Fattening · 713"],
+  ] as const;
+  const vaccineChips = plan.vaccines.filter((v) => v.on).map((v) => ({ code: v.code, name: v.name }));
+  const activePurposePlan = plan.procurement.purposePlans[activePurpose];
+  const firstWave = activePurposePlan.firstWave;
+  const goatSecondWave = activePurposePlan.goatSecondWave;
+  const sheepSecondWave = activePurposePlan.sheepSecondWave;
 
   return (
     <section className="card">
@@ -899,7 +978,7 @@ function ProcurementCard({
                 }));
               }}
             />{" "}
-            follows the normal kid schedule. Older animals join the next drive.
+            follows the normal kid schedule above. Older animals use the waves below.
           </div>
         ) : null}
 
@@ -939,9 +1018,187 @@ function ProcurementCard({
             </span>
           </div>
         ) : null}
+
+        <div className="proc-purpose">
+          <div className="sec-label">What we bought them for</div>
+          <span className="seg" role="group" aria-label="Procurement animal purpose">
+            {procurementPurposeOptions.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className="segb"
+                aria-pressed={activePurpose === value}
+                onClick={() => setActivePurpose(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </span>
+        </div>
+
+        <p className="proc-note">
+          Breeding stock stays for years, so it needs the full schedule. Fattening animals are sold
+          before most repeats come round, so long-interval vaccines can waste doses.
+        </p>
+
+        <ProcurementWave
+          title={
+            activePurpose === "fattening"
+              ? "First wave for fattening animals"
+              : "First wave for breeding stock"
+          }
+          vaccines={vaccineChips}
+          selected={firstWave}
+          onToggle={(vaccine) => {
+            onEdit();
+            setPlan((p) => ({
+              ...p,
+                procurement: {
+                  ...p.procurement,
+                  purposePlans: updatePurposePlan(p.procurement.purposePlans, activePurpose, {
+                    firstWave: toggleVaccineSelection(p.procurement.purposePlans[activePurpose].firstWave, vaccine),
+                  }),
+              },
+            }));
+          }}
+        />
+
+        {activePurposePlan.secondWaveAfterDays !== null ? (
+          <div className="sent">
+            <span className="lead">Gap</span>
+            Wait{" "}
+            <DurationField
+              days={activePurposePlan.secondWaveAfterDays}
+              title="Second wave gap"
+              onChange={(days) => {
+                onEdit();
+                setPlan((p) => ({
+                  ...p,
+                  procurement: {
+                    ...p.procurement,
+                    purposePlans: updatePurposePlan(p.procurement.purposePlans, activePurpose, {
+                      secondWaveAfterDays: days,
+                    }),
+                  },
+                }));
+              }}
+            />{" "}
+            after the first wave before the second visit.
+          </div>
+        ) : null}
+
+        <p className="proc-note">
+          Live vaccines in the second wave still wait out the live-to-live spacing window. ET + TT
+          dose 2 uses its own course gap.
+        </p>
+
+        <div className="proc-waves">
+          <ProcurementWave
+            title="Goat second wave"
+            vaccines={vaccineChips}
+            selected={goatSecondWave}
+            onToggle={(vaccine) => {
+              onEdit();
+              setPlan((p) => ({
+                ...p,
+                procurement: {
+                  ...p.procurement,
+                  purposePlans: updatePurposePlan(p.procurement.purposePlans, activePurpose, {
+                    goatSecondWave: toggleVaccineSelection(
+                      p.procurement.purposePlans[activePurpose].goatSecondWave,
+                      vaccine,
+                    ),
+                  }),
+                },
+              }));
+            }}
+          />
+          <ProcurementWave
+            title="Sheep second wave"
+            vaccines={vaccineChips}
+            selected={sheepSecondWave}
+            onToggle={(vaccine) => {
+              onEdit();
+              setPlan((p) => ({
+                ...p,
+                procurement: {
+                  ...p.procurement,
+                  purposePlans: updatePurposePlan(p.procurement.purposePlans, activePurpose, {
+                    sheepSecondWave: toggleVaccineSelection(
+                      p.procurement.purposePlans[activePurpose].sheepSecondWave,
+                      vaccine,
+                    ),
+                  }),
+                },
+              }));
+            }}
+          />
+        </div>
       </div>
     </section>
   );
+}
+
+function ProcurementWave({
+  title,
+  vaccines,
+  selected,
+  onToggle,
+}: {
+  title: string;
+  vaccines: Array<{ code: string; name: string }>;
+  selected: string[];
+  onToggle: (vaccineName: string) => void;
+}) {
+  if (vaccines.length === 0) return null;
+  const active = new Set(selected.map((item) => normaliseVaccineName(item)));
+  const isActive = (vaccine: { code: string; name: string }) =>
+    active.has(normaliseVaccineName(vaccine.code)) || active.has(normaliseVaccineName(vaccine.name));
+  return (
+    <div className="proc-wave">
+      <div className="sec-label">{title}</div>
+      <div className="proc-chips">
+        {vaccines.map((vaccine) => (
+          <button
+            type="button"
+            className={isActive(vaccine) ? "proc-chip on" : "proc-chip"}
+            aria-pressed={isActive(vaccine)}
+            key={vaccine.code}
+            onClick={() => onToggle(vaccine.name)}
+          >
+            {vaccine.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function updatePurposePlan(
+  purposePlans: EditorPlan["procurement"]["purposePlans"],
+  purpose: ProcurementPurpose,
+  patch: Partial<EditorPlan["procurement"]["purposePlans"][ProcurementPurpose]>,
+): EditorPlan["procurement"]["purposePlans"] {
+  return {
+    ...purposePlans,
+    [purpose]: {
+      ...purposePlans[purpose],
+      ...patch,
+    },
+  };
+}
+
+function toggleVaccineSelection(selected: string[], vaccineName: string): string[] {
+  const normalized = normaliseVaccineName(vaccineName);
+  const exists = selected.some((item) => normaliseVaccineName(item) === normalized);
+  if (exists) {
+    return selected.filter((item) => normaliseVaccineName(item) !== normalized);
+  }
+  return [...selected, vaccineName];
+}
+
+function normaliseVaccineName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 /**

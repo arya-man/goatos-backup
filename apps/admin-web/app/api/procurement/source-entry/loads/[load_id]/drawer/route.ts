@@ -9,6 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ load_id: string }> },
 ) {
   const { load_id: loadID } = await params;
+  // serial-await: allow getProcurementLoad depends on the dynamic route param.
   const result = await getProcurementLoad(loadID);
   if (!result.ok) {
     return NextResponse.json(

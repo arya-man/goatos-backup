@@ -146,3 +146,27 @@ func (f *Fixture) SeedProcurementGoat(goatID, shedID string, entryDate time.Time
 		 VALUES ($1, $2, 'alive', 'healthy', 'goat', $3, 'female', COALESCE($4::uuid, $5::uuid), $5, $4, $6, $7::date, $8::date, 'procured')`,
 		goatID, fxTenant, fxParty, shed, fxPark, stage, dob, entryDate)
 }
+
+func (f *Fixture) SeedProcurementPurpose(goatID, purpose string, entryDate time.Time) {
+	f.T.Helper()
+	loadID := "ec000000-0000-4000-8000-" + goatID[len(goatID)-12:]
+	f.exec("procurement load "+goatID,
+		`INSERT INTO procurement_loads (
+				load_id, tenant_id, source_party_id, expected_count, purchase_date, status, idempotency_key
+			 ) VALUES (
+				$1::uuid, $2, $3, 1, $4::date, 'accepted_intake', $5
+			 ) ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
+		loadID, fxTenant, fxParty, entryDate, "e2e-proc-purpose-"+goatID)
+	f.exec("procurement load goat purpose "+goatID,
+		`INSERT INTO procurement_load_goats (
+			tenant_id, load_id, goat_id, purpose, selection_state, current_state, source_entry_state,
+			ownership_state, health_state, warmup_started_at, intake_accepted_at
+		 ) VALUES (
+			$1, $2::uuid, $3::uuid, $4, 'accepted', 'accepted_herd_intake', 'accepted',
+			'mesha_owned', 'passed', $5::timestamptz, $5::timestamptz
+		 ) ON CONFLICT (tenant_id, load_id, goat_id) DO UPDATE
+		   SET purpose = EXCLUDED.purpose,
+		       current_state = EXCLUDED.current_state,
+		       intake_accepted_at = EXCLUDED.intake_accepted_at`,
+		fxTenant, loadID, goatID, purpose, entryDate)
+}

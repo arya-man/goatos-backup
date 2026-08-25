@@ -3160,6 +3160,7 @@ func eligibleGoatFromGenerationRow(
 	goatID string,
 	dob, entryDate, breedingDate, lastDeliveryDate pgtype.Date,
 	lifecycle, health, reproductive, species, originType string,
+	procurementPurpose string,
 	warmingEntryAt pgtype.Timestamptz,
 	shedID, parkID, partitionLabel, sex, breed, stage, ageBand string,
 	locationIsQuarantine, locationIsICU bool,
@@ -3176,6 +3177,7 @@ func eligibleGoatFromGenerationRow(
 		LifecycleStatus:      lifecycle,
 		HealthStatus:         health,
 		ReproductiveStatus:   reproductive,
+		ProcurementPurpose:   procurementPurpose,
 		ShedID:               shedID,
 		ParkID:               parkID,
 		PartitionLabel:       partitionLabel,
@@ -3228,6 +3230,7 @@ func (r *Repository) ListEligibleGoatsForGeneration(ctx context.Context, f domai
 		out = append(out, eligibleGoatFromGenerationRow(
 			row.GoatID, row.Dob, row.EntryDate, row.BreedingDate, row.LastDeliveryDate,
 			row.LifecycleStatus, row.HealthStatus, row.ReproductiveStatus, row.Species, row.OriginType,
+			row.ProcurementPurpose,
 			row.WarmingEntryAt,
 			row.ShedID, row.ParkID, row.PartitionLabel, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
 			row.LocationIsQuarantine, row.LocationIsIcu,
@@ -3260,6 +3263,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
        COALESCE(g.species, 'goat')::text AS species,
        COALESCE(g.origin_type, '')::text AS origin_type,
+       COALESCE(proc.procurement_purpose, '')::text AS procurement_purpose,
        proc.warming_entry_at,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(park.location_id::text, '')::text AS park_id,
@@ -3273,7 +3277,8 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
 FROM goats g
 CROSS JOIN compiled c
 LEFT JOIN LATERAL (
-  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
+  SELECT plg.purpose AS procurement_purpose,
+         COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
   FROM procurement_load_goats plg
   WHERE plg.tenant_id = g.tenant_id
     AND plg.goat_id = g.goat_id
@@ -3348,11 +3353,11 @@ LIMIT $9`, tenant, vid, f.Stage, f.Sex, f.Breed, pgconv.NullableUUID(f.ParkID), 
 	out := make([]domain.EligibleGoat, 0, limit)
 	for rows.Next() {
 		var (
-			goatID, lifecycle, health, reproductive, species, originType string
-			shedID, parkID, partitionLabel, sex, breed, stage, ageBand   string
-			dob, entryDate, breedingDate, lastDeliveryDate               pgtype.Date
-			warmingEntryAt                                               pgtype.Timestamptz
-			locationIsQuarantine, locationIsICU                          bool
+			goatID, lifecycle, health, reproductive, species, originType, procurementPurpose string
+			shedID, parkID, partitionLabel, sex, breed, stage, ageBand                       string
+			dob, entryDate, breedingDate, lastDeliveryDate                                   pgtype.Date
+			warmingEntryAt                                                                   pgtype.Timestamptz
+			locationIsQuarantine, locationIsICU                                              bool
 		)
 		if err := rows.Scan(
 			&goatID,
@@ -3365,6 +3370,7 @@ LIMIT $9`, tenant, vid, f.Stage, f.Sex, f.Breed, pgconv.NullableUUID(f.ParkID), 
 			&reproductive,
 			&species,
 			&originType,
+			&procurementPurpose,
 			&warmingEntryAt,
 			&shedID,
 			&parkID,
@@ -3381,6 +3387,7 @@ LIMIT $9`, tenant, vid, f.Stage, f.Sex, f.Breed, pgconv.NullableUUID(f.ParkID), 
 		out = append(out, eligibleGoatFromGenerationRow(
 			goatID, dob, entryDate, breedingDate, lastDeliveryDate,
 			lifecycle, health, reproductive, species, originType,
+			procurementPurpose,
 			warmingEntryAt,
 			shedID, parkID, partitionLabel, sex, breed, stage, ageBand,
 			locationIsQuarantine, locationIsICU,
@@ -3414,6 +3421,7 @@ func (r *Repository) GetGoatForGeneration(ctx context.Context, tenantID, goatID 
 	return eligibleGoatFromGenerationRow(
 		row.GoatID, row.Dob, row.EntryDate, row.BreedingDate, row.LastDeliveryDate,
 		row.LifecycleStatus, row.HealthStatus, row.ReproductiveStatus, row.Species, row.OriginType,
+		row.ProcurementPurpose,
 		row.WarmingEntryAt,
 		row.ShedID, row.ParkID, row.PartitionLabel, row.Sex, row.Breed, row.ManagementStage, row.AgeBand,
 		row.LocationIsQuarantine, row.LocationIsIcu,

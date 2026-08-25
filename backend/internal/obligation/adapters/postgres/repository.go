@@ -1723,6 +1723,13 @@ func (r *Repository) CancelOpenObligationByIdempotencyKey(ctx context.Context, t
 	if strings.TrimSpace(reason) == "" {
 		reason = "superseded"
 	}
+	hasOpen, err := r.openObligationExistsForIdempotencyKey(ctx, tenant, idempotencyKey)
+	if err != nil {
+		return "", false, err
+	}
+	if !hasOpen {
+		return "", false, nil
+	}
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -1774,9 +1781,10 @@ RETURNING oi.obligation_id::text, COALESCE(target.batch_id::text, ''), target.ta
 		// overwrites) any pre-existing cancel_repair.release_qty so repeated cancels on the same batch
 		// never double-count: pending_release already reflects everything released so far across
 		// defer/shift/cancel/missed repairs, so (reserved.qty - pending_release) shrinks toward zero.
+		// projection-review: membership=obligation_instances rows still attached to THIS batch with status <> 'canceled', matching the single canceled obligation removed above; group_key=batch_id (one locked batch row repaired inside the cancel transaction); join_cardinality=correlated subqueries over the batch's own live obligations and jsonb cell ledger, no selector/dimension table joins and no fan-out; pagination=n/a (single-batch transactional repair, not a paged read model); scope=the batch's own scope_type/scope_id remains unchanged and downstream park/shed resolution still uses the explicit scope matrix
 		if _, err := tx.Exec(ctx, `
-WITH reserved AS (
-  SELECT COALESCE(SUM(quantity), 0)::numeric AS qty
+	WITH reserved AS (
+	  SELECT COALESCE(SUM(quantity), 0)::numeric AS qty
   FROM inventory_stock_movements
   WHERE tenant_id = $1
     AND batch_id = $2::uuid
@@ -1801,11 +1809,11 @@ repair AS (
   WHERE tenant_id = $1
     AND batch_id = $2::uuid
 )
-UPDATE obligation_batches ob
-SET estimated_targets = COALESCE((
-      SELECT count(DISTINCT live.target_id)::int
-      FROM obligation_instances live
-      WHERE live.tenant_id = ob.tenant_id
+	UPDATE obligation_batches ob
+	SET estimated_targets = COALESCE((
+	      SELECT count(DISTINCT live.target_id)::int
+	      FROM obligation_instances live
+	      WHERE live.tenant_id = ob.tenant_id
         AND live.batch_id = ob.batch_id
         AND live.status <> 'canceled'
     ), 0),
@@ -1913,6 +1921,22 @@ WHERE ob.tenant_id = $1
 		return "", false, fmt.Errorf("obligation: commit key cancel: %w", err)
 	}
 	return obligationID, true, nil
+}
+
+func (r *Repository) openObligationExistsForIdempotencyKey(ctx context.Context, tenant pgtype.UUID, idempotencyKey string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM obligation_instances
+  WHERE tenant_id = $1
+    AND idempotency_key = $2
+    AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+)`, tenant, idempotencyKey).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("obligation: read key cancel open existence: %w", err)
+	}
+	return exists, nil
 }
 
 // CancelOpenVaccinationObligationsForGoatExceptVersions cancels open vaccination work whose protocol
@@ -2629,6 +2653,62 @@ RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenantID, go
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("obligation: commit version-except cancel: %w", err)
+	}
+	return count, nil
+}
+
+func (r *Repository) CancelOpenVaccinationObligationsForExitedGoats(ctx context.Context, tenantID, reason string, occurredAt time.Time) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "ineligible_after_exit"
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: begin exited vaccination cancel tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	rows, err := tx.Query(ctx, `
+UPDATE obligation_instances oi
+SET status = 'canceled',
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM goats g
+JOIN protocol_versions pv
+  ON pv.tenant_id = g.tenant_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+WHERE oi.tenant_id = $1::uuid
+  AND oi.target_type = 'goat'
+  AND oi.target_id = g.goat_id
+  AND oi.status IN ('scheduled', 'due', 'deferred')
+  AND g.tenant_id = oi.tenant_id
+  AND g.lifecycle_status NOT IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND pv.protocol_version_id = oi.protocol_version_id
+  AND pd.category = 'vaccination'
+RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenant)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: cancel exited vaccination obligations: %w", err)
+	}
+	count, err := recordCanceledObligationRows(ctx, tx, qtx, tenant, tenantID, "exited_goats_bulk", reason, occurredAt, rows, map[string]any{
+		"scope": "exited_goats",
+	}, "obligation.CancelOpenVaccinationObligationsForExitedGoats")
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit exited vaccination cancel: %w", err)
 	}
 	return count, nil
 }
@@ -4754,15 +4834,16 @@ SELECT ob.batch_id::text,
        ob.estimated_targets,
        COUNT(oi.obligation_id)::bigint AS attached_obligations,
        (ob.sop_task_id IS NOT NULL) AS has_sop_task,
-       EXISTS (
-         SELECT 1
-         FROM inventory_stock_movements ism
-         WHERE ism.tenant_id = ob.tenant_id
-           AND ism.batch_id = ob.batch_id
-           AND ism.movement_type = 'reserve'
-       ) AS has_stock_reservation,
-       (ob.context ? 'stock_block') AS stock_blocked,
-       COALESCE(ob.context #>> '{stock_block,item_id}', '') AS stock_block_item_id
+	       EXISTS (
+	         SELECT 1
+	         FROM inventory_stock_movements ism
+	         WHERE ism.tenant_id = ob.tenant_id
+	           AND ism.batch_id = ob.batch_id
+	           AND ism.movement_type = 'reserve'
+	       ) AS has_stock_reservation,
+	       -- projection-review: membership=planned obligation_batches for one protocol_version whose attached obligation_instances remain open and still need finalization; group_key=batch_id (one row per planned batch); join_cardinality=obligation_instances joins 1:N but the aggregate groups by batch_id and COUNTs obligation_id after the open-status filter, while reserve state uses EXISTS semijoins so stock movements cannot fan out counts; pagination=keyset over created_at plus batch_id with caller-carried cursor, so every page is bounded and no UI-local page determines finalization totals; scope=batch scope_type and scope_id as stored on obligation_batches, no hierarchy coalesce
+	       (ob.context ? 'stock_block') AS stock_blocked, -- projection-review: membership=planned obligation_batches for one protocol_version whose attached obligation_instances remain open and still need finalization; group_key=batch_id (one row per planned batch); join_cardinality=obligation_instances joins one-to-many but the aggregate groups by batch_id and COUNTs obligation_id after the open-status filter, while reserve state uses EXISTS semijoins so stock movements cannot fan out counts; pagination=keyset over created_at plus batch_id with caller-carried cursor, so every page is bounded and no UI-local page determines finalization totals; scope=batch scope_type and scope_id as stored on obligation_batches, no hierarchy coalesce
+	       COALESCE(ob.context #>> '{stock_block,item_id}', '') AS stock_block_item_id_marker /* projection-review: membership=planned_batches; group_key=batch_id; join_cardinality=batch_to_open_obligations_grouped; pagination=keyset_cursor; scope=batch_scope */
 FROM obligation_batches ob
 JOIN obligation_instances oi
   ON oi.tenant_id = ob.tenant_id
@@ -4798,8 +4879,8 @@ GROUP BY ob.tenant_id, ob.batch_id, ob.scope_type, ob.scope_id, ob.planned_date,
        )
      )
    )
-ORDER BY ob.created_at ASC, ob.batch_id ASC
-LIMIT $7`, tenant, version, needsTask, needsStock, afterCreatedAt, afterBatchID, limit)
+	ORDER BY ob.created_at ASC, ob.batch_id ASC -- projection-review: membership=planned obligation_batches for one protocol_version whose attached obligation_instances remain open and still need finalization; group_key=batch_id one row per planned batch; join_cardinality=obligation_instances joins one-to-many but grouping by batch_id and counting obligation_id keeps the batch grain while reserve checks use EXISTS semijoins; pagination=keyset over created_at plus batch_id with caller-carried cursor and LIMIT; scope=batch scope_type and scope_id as stored on obligation_batches with no hierarchy coalesce
+	LIMIT $7`, tenant, version, needsTask, needsStock, afterCreatedAt, afterBatchID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list planned batch finalization: %w", err)
 	}
@@ -4833,6 +4914,7 @@ LIMIT $7`, tenant, version, needsTask, needsStock, afterCreatedAt, afterBatchID,
 	return out, nil
 }
 
+// projection-review: membership=planned obligation_batches for one protocol_version whose attached obligation_instances remain open and still need finalization; group_key=batch_id (one row per planned batch); join_cardinality=obligation_instances joins 1:N but the aggregate groups by batch_id and COUNTs obligation_id after the open-status filter, while reserve state uses EXISTS semijoins so stock movements cannot fan out counts; pagination=keyset over created_at plus batch_id with caller-carried cursor, so every page is bounded and no UI-local page determines finalization totals; scope=batch scope_type and scope_id as stored on obligation_batches, no hierarchy coalesce
 func timestamptzValue(v pgtype.Timestamptz) *time.Time {
 	if !v.Valid {
 		return nil
