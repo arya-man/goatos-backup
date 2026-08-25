@@ -452,7 +452,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
     : { right: 24, bottom: 24 };
 
   return (
-    <div className="mzai-root" style={rootStyle}>
+    <div className={`mzai-root ${open ? "mzai-open" : "mzai-closed"}`} style={rootStyle}>
       <CeoAiStyles />
       {open ? (
         <section className="mzai-panel" aria-label={copy.title}>

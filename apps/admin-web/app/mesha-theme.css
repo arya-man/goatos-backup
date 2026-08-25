@@ -2348,6 +2348,7 @@ button.scrim{
 }
 button.scrim.on{display:block;opacity:1;pointer-events:auto}
 aside.drawer{z-index:220;width:498px;max-width:94vw;background:var(--bg);box-shadow:-12px 0 40px rgba(0,0,0,.4)}
+aside.drawer:not(.on){visibility:hidden;pointer-events:none}
 aside.drawer.on{transform:none}
 .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); width: min(440px, 92vw); overflow: hidden; }
 .modal .mh { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
@@ -2899,10 +2900,12 @@ select:disabled { opacity: .45; }
 /* Deals ledger: single-line cells. The global .celllink overflow-wrap:anywhere otherwise splits
    "2026-08-11" -> "2026-08-" / "11" and "CPT" character-by-character (known failure mode 4b). */
 .main table.sales-deals-table th,.main table.sales-deals-table td,.main table.sales-deals-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+.main table.sales-deals-table td .celllink{max-width:none;min-width:max-content}
 
 /* Market check is wider than the sales card once the left nav is open. Let the table own horizontal
    scroll and keep the loss signal pinned instead of clipping it at the card edge. */
 .sales-market-wrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+.sales-kpi-row .kpi .dl{color:var(--muted)}
 .main table.sales-market-table{min-width:1720px}
 .main table.sales-market-table th,.main table.sales-market-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
 .main table.sales-market-table th:nth-child(1),.main table.sales-market-table td:nth-child(1){min-width:270px}
@@ -3666,7 +3669,7 @@ select:disabled { opacity: .45; }
   padding: 20px 22px; box-shadow: var(--shadow); margin-bottom: 16px; }
 .vplan .head-top { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
 .vplan .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
-  color: var(--faint); margin-bottom: 6px; }
+  color: var(--muted); margin-bottom: 6px; }
 .vplan h1 { font-size: clamp(22px, 2.8vw, 30px); font-weight: 800; letter-spacing: -.022em; line-height: 1.13; }
 .vplan .sub { color: var(--muted); font-size: 14px; margin: 7px 0 0; max-width: 62ch; }
 .vplan .hactions { display: flex; gap: 9px; flex-wrap: wrap; }
@@ -3697,7 +3700,7 @@ select:disabled { opacity: .45; }
 .vplan .livegrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 1px;
   background: var(--line); border: 1px solid var(--line); border-radius: 11px; overflow: hidden; }
 .vplan .livegrid > div { background: var(--panel-2); padding: 12px 14px; }
-.vplan .k { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-weight: 600; }
+.vplan .k { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 .vplan .lv { margin-top: 5px; font-weight: 600; font-size: 15px; }
 .vplan .vby { display: block; font-size: 11.5px; color: var(--faint); font-variant-numeric: normal; }
 
@@ -3720,27 +3723,27 @@ select:disabled { opacity: .45; }
 .vplan .scroll { overflow-x: auto; margin-top: 14px; }
 .vplan .tabl { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 520px; }
 .vplan .tabl th { text-align: left; font-size: 10.5px; letter-spacing: .11em; text-transform: uppercase;
-  color: var(--faint); font-weight: 600; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  color: var(--muted); font-weight: 600; padding: 0 12px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .vplan .tabl td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .vplan .tabl tr:last-child td { border-bottom: none; }
 /* Same reasoning as `.vplan .pill`: the app's `.tag` adds letter-spacing and its own
    padding/radius, which this rule must state rather than inherit. */
 .vplan .tag { display: inline-block; font-size: 11px; font-weight: 600; border-radius: 5px; padding: 2px 8px;
-  border: 1px solid var(--line); color: var(--faint); white-space: nowrap;
+  border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
   letter-spacing: normal; text-transform: none; background: transparent; }
 .vplan .tag.on { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-d); }
 .vplan .tag.no { border-color: var(--warn); background: var(--warnx); color: var(--warn); }
 .vplan .vst { margin-left: 8px; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
   border-radius: 5px; padding: 1px 7px; border: 1px solid var(--brand); color: var(--brand-d); background: var(--brand-soft); }
 .vplan .vst.draft { border-color: var(--warn); color: var(--warn); background: var(--warnx); }
-.vplan tr.voff td { opacity: .5; }
+.vplan tr.voff td { color: var(--muted); }
 
 /* list screen + versions — remainder of the mock's own rules */
 .vplan .backlink { font-size: 13.5px; font-weight: 600; color: var(--muted); cursor: pointer; padding: 6px 0; margin-bottom: 6px; }
 .vplan .backlink:hover { color: var(--brand-d); }
 .vplan .verline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-weight: 600; font-size: 14.5px; }
 .vplan .vbtn { font-size: 12.5px; font-weight: 600; border: 1px solid var(--line); border-radius: 8px;
-  padding: 5px 11px; cursor: pointer; color: var(--ink); white-space: nowrap; background: none; }
+  padding: 5px 11px; cursor: pointer; color: var(--ink); white-space: nowrap; background: none; min-height: 40px; }
 .vplan .vbtn:hover:not(:disabled) { border-color: var(--brand); color: var(--brand-d); background: var(--brand-soft); }
 .vplan .vbtn:disabled { opacity: .42; cursor: not-allowed; }
 .vplan tr.vlive td { background: var(--brand-soft); }

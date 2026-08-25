@@ -10,6 +10,11 @@ type PerformanceEventBody = {
 
 const MAX_STRING = 500;
 const MAX_ARRAY_ITEMS = 20;
+const ALLOWED_EVENT_PREFIXES = [
+  "feed_config_filter_apply_",
+  "admin_route_",
+  "admin_backend_api_",
+];
 
 export async function POST(request: Request) {
   let body: PerformanceEventBody;
@@ -20,7 +25,7 @@ export async function POST(request: Request) {
   }
 
   const eventName = boundedString(body.event_name);
-  if (!eventName || !eventName.startsWith("feed_config_filter_apply_")) {
+  if (!eventName || !ALLOWED_EVENT_PREFIXES.some((prefix) => eventName.startsWith(prefix))) {
     return NextResponse.json({ ok: false, error: "unsupported_event" }, { status: 400 });
   }
 

@@ -134,6 +134,9 @@ export function CeoAiStyles(): ReactElement {
   .goat-bubble{animation:none !important}
   .goat-eye-left,.goat-eye-right,.goat-ear{animation:none !important}
 }
+@media (max-width:620px) {
+  .mzai-root.mzai-closed{display:none}
+}
 .mzai-panel{display:flex;flex-direction:column;height:100%;background:var(--panel);
   border:1px solid var(--line);border-radius:20px;overflow:hidden;
   box-shadow:0 20px 60px rgba(0,0,0,.2),0 0 1px rgba(0,0,0,.1);
