@@ -3328,6 +3328,7 @@ WHERE g.tenant_id = $1
         AND (prd.animal_stage = 'all' OR lower(prd.animal_stage) = lower(COALESCE(asl.stage_code, g.management_stage, '')))
         AND (prd.sex = 'all' OR prd.sex = lower(g.sex))
         AND (prd.breed = 'all' OR lower(prd.breed) = lower(g.breed))
+        AND (prd.procurement_purpose = 'all' OR lower(prd.procurement_purpose) = lower(COALESCE(proc.procurement_purpose, '')))
         AND (
           (prd.min_age_days IS NULL AND prd.max_age_days IS NULL)
           OR (

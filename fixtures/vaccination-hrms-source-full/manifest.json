@@ -277,6 +277,11 @@
       "date": "2026-08-21",
       "change": "seed-roster-real adds pc_care (deworming / ticks removal / hoof trimming / hair trimming) to the preventive_care department module grant; migration 000181_pc_care_module_grants.sql applies the same grant to already-seeded databases.",
       "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, or source vaccination dates. This is runtime module/navigation authorization only: preventive_care members gain the pc_care bottom-bar module; no vaccination roster, history, or obligation data changes."
+    },
+    {
+      "date": "2026-08-26",
+      "change": "migration 000210 adds protocol_rule_dimensions.procurement_purpose and includes it in the compiled vaccination dimension match index so procurement breeding/fattening purpose plans can be prefiltered in SQL.",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, source vaccination dates, roster capacity, or seed closeout. Existing compiled dimensions backfill to all, and new values derive from authored rule DSL at publish time rather than from HRMS/vaccination source files."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows.",

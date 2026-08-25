@@ -1321,6 +1321,7 @@ func derivedDimensionsFingerprint(dimensions []domain.RuleDimension) string {
 			strings.TrimSpace(dim.AnimalStage),
 			strings.TrimSpace(dim.Sex),
 			strings.TrimSpace(dim.Breed),
+			defaultRuleDimensionProcurementPurpose(dim.ProcurementPurpose),
 			fmt.Sprint(dim.OffsetDays),
 			fmt.Sprint(dim.MaxDelayDays),
 		)
@@ -2227,15 +2228,15 @@ const insertProtocolRuleDimensionSQL = `
 INSERT INTO protocol_rule_dimensions (
   tenant_id, protocol_version_id, rule_id, category, ruleset_family, matrix_row_id, selector_key,
   dose_code, source_dose_code, vaccine_code, vaccine_type, pathogen_class, compatibility_group,
-  species, animal_stage, sex, breed, lifecycle, health, reproductive, min_age_days, max_age_days,
+  species, animal_stage, sex, breed, lifecycle, health, reproductive, procurement_purpose, min_age_days, max_age_days,
   trigger_type, sequence, offset_days, due_window_days, min_gap_days, repeat, catch_up,
   max_delay_days, revaccination_interval_days, eligibility_json, vaccine_json, schedule_json
 ) VALUES (
   $1, $2, $3, $4, $5, $6, $7,
   $8, $9, $10, $11, $12, $13,
-  $14, $15, $16, $17, $18, $19, $20, $21, $22,
-	$23, $24, $25, $26, $27, $28, $29,
-	$30, $31, $32, $33, $34
+  $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+	$24, $25, $26, $27, $28, $29, $30,
+	$31, $32, $33, $34, $35
 )`
 
 // insertProtocolRuleDimensionsTx preserves the all-or-nothing publish transaction while sending
@@ -2255,7 +2256,7 @@ func insertProtocolRuleDimensionsTx(ctx context.Context, tx pgx.Tx, tenant pgtyp
 		batch.Queue(insertProtocolRuleDimensionSQL, tenant, vid, ruleID,
 			dim.Category, dim.RulesetFamily, dim.MatrixRowID, dim.SelectorKey,
 			dim.DoseCode, dim.SourceDoseCode, dim.VaccineCode, dim.VaccineType, dim.PathogenClass, dim.CompatibilityGroup,
-			dim.Species, dim.AnimalStage, dim.Sex, dim.Breed, dim.Lifecycle, dim.Health, dim.Reproductive, pgconv.Int4(dim.MinAgeDays), pgconv.Int4(dim.MaxAgeDays),
+			dim.Species, dim.AnimalStage, dim.Sex, dim.Breed, dim.Lifecycle, dim.Health, dim.Reproductive, defaultRuleDimensionProcurementPurpose(dim.ProcurementPurpose), pgconv.Int4(dim.MinAgeDays), pgconv.Int4(dim.MaxAgeDays),
 			dim.TriggerType, dim.Sequence, dim.OffsetDays, dim.DueWindowDays, dim.MinGapDays, dim.Repeat, dim.CatchUp,
 			dim.MaxDelayDays, dim.RevaccinationIntervalDays, pgconv.JSONB(defaultJSON(dim.EligibilityJSON)), pgconv.JSONB(defaultJSON(dim.VaccineJSON)), pgconv.JSONB(defaultJSON(dim.ScheduleJSON)),
 		)
@@ -2279,6 +2280,14 @@ func defaultJSON(raw []byte) []byte {
 		return []byte(`{}`)
 	}
 	return raw
+}
+
+func defaultRuleDimensionProcurementPurpose(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "all"
+	}
+	return value
 }
 
 // ListConfigs returns every protocol version (draft/published/retired) in a category for a tenant,

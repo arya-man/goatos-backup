@@ -1674,6 +1674,7 @@ func compileVaccinationRuleDimensions(v domain.Version, env ruleDSLEnvelope, rul
 										Lifecycle:                 lifecycle,
 										Health:                    health,
 										Reproductive:              repro,
+										ProcurementPurpose:        procPurpose,
 										MinAgeDays:                minAge,
 										MaxAgeDays:                maxAge,
 										TriggerType:               rule.TriggerType,

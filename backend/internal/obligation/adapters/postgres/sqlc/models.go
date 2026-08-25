@@ -2674,6 +2674,7 @@ type ProtocolRuleDimension struct {
 	Lifecycle                 string
 	Health                    string
 	Reproductive              string
+	ProcurementPurpose        string
 	MinAgeDays                pgtype.Int4
 	MaxAgeDays                pgtype.Int4
 	TriggerType               string
