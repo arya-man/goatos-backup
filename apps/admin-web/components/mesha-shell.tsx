@@ -373,7 +373,7 @@ export function MeshaShell({
     const pending = pendingNavigationRef.current;
     if (pending) {
       const committedAt = performance.now();
-      const route = `${pathname}${searchKey}`;
+      const route = searchKey ? `${pathname}?${searchKey}` : pathname;
       if (pending.timedOut && pending.to !== route) {
         pendingNavigationRef.current = null;
       } else {
