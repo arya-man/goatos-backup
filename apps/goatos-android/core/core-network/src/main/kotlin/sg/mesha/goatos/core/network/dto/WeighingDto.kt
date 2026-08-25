@@ -373,8 +373,12 @@ data class WeighingAnimalObservationRequestDto(
 data class WeighingShedObservationRequestDto(
     @SerialName("campaign_shed_id") val campaignShedId: String,
     @SerialName("weight_kg") val weightKg: Double,
-    @SerialName("animal_count") val animalCount: Int = 1,
-    @SerialName("average_weight_kg") val averageWeightKg: Double = weightKg,
+    // The head count and average stopped being client inputs on 2026-08-24: the
+    // backend snapshots the count from the herd register at submit and derives
+    // the average itself. Nullable-with-default so a NEW submit omits both while
+    // an OLD queued outbox row (which recorded them) still decodes and replays.
+    @SerialName("animal_count") val animalCount: Int? = null,
+    @SerialName("average_weight_kg") val averageWeightKg: Double? = null,
     @SerialName("proof_artifact_id") val proofArtifactId: String,
     @SerialName("proof_artifact_ids") val proofArtifactIds: List<String> = emptyList(),
 )

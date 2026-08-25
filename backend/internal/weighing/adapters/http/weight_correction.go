@@ -52,9 +52,10 @@ type weightCorrectionRequest struct {
 	// inferring it.
 	RefType  string   `json:"ref_type"`
 	WeightKg *float64 `json:"weight_kg"`
-	// AnimalCount is LUMP-SUM ONLY and optional: omitted or 0 leaves the recorded
-	// head count alone, which is the normal case. Sending it on an individual
-	// capture is refused rather than ignored -- see domain.ValidateWeightCorrection.
+	// AnimalCount is kept on the wire ONLY so an installed APK that still offers
+	// count editing gets an honest refusal: any non-zero value is rejected with
+	// animal_count_not_applicable (maintainer decision 2026-08-24 — the lump-sum
+	// head count is snapshotted from the herd register at submit and is frozen).
 	AnimalCount    int    `json:"animal_count,omitempty"`
 	Reason         string `json:"reason,omitempty"`
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
@@ -70,8 +71,7 @@ var weightCorrectionMessages = map[string]string{
 	"invalid_ref_type":            "This video is not a weighing record, so there is no weight to correct.",
 	"missing_weight":              "Enter the correct weight in kg.",
 	"weight_out_of_range":         "Enter a weight in kg between 0.001 and 100000.",
-	"animal_count_out_of_range":   "Enter how many goats were on the scale, up to 100000.",
-	"animal_count_not_applicable": "This video is one animal's weight, so it carries no goat count.",
+	"animal_count_not_applicable": "The goat count is recorded automatically and can't be changed. Correct the weight only.",
 }
 
 func weightCorrectionMessage(code string) string {

@@ -2881,8 +2881,11 @@ fun weighingShedResult(weightKg: Double, unit: String = "kg"): JsonObject = buil
 
 private data class WeighingShedResultValues(
     val totalWeightKg: Double,
-    val animalCount: Int,
-    val averageWeightKg: Double,
+    // Nullable since 2026-08-24: a new capture records no count (the backend
+    // snapshots it from the herd register at submit); an OLD draft written by a
+    // previous build still carries one and must keep replaying byte-identically.
+    val animalCount: Int?,
+    val averageWeightKg: Double?,
 )
 
 private fun weighingShedResultValues(resultJson: String): WeighingShedResultValues? =
@@ -2890,9 +2893,10 @@ private fun weighingShedResultValues(resultJson: String): WeighingShedResultValu
         // exception:exempt JSON parse fallback; malformed result returns null for null-coalescing
         val result = Json.parseToJsonElement(resultJson).jsonObject
         val total = (result["total_weight_kg"] ?: result["weight"])?.jsonPrimitive?.doubleOrNull ?: return@runCatching null
-        val count = result["animal_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1
-        if (total <= 0 || count <= 0) return@runCatching null
-        WeighingShedResultValues(total, count, total / count)
+        if (total <= 0) return@runCatching null
+        val count = result["animal_count"]?.jsonPrimitive?.content?.toIntOrNull()
+        if (count != null && count <= 0) return@runCatching null
+        WeighingShedResultValues(total, count, count?.let { total / it })
     }.getOrNull()
 
 private fun normalizedProofArtifactIds(primary: String?, ids: List<String>): List<String> =

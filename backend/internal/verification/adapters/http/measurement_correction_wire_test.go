@@ -13,7 +13,12 @@ import (
 // with no write behind it), and the head-count field appearing on the grain whose
 // write path refuses it.
 
-func weighingSpec() *domain.MeasurementCorrectionSpec {
+// countBearingSpec is a SYNTHETIC spec exercising the count-field mechanics.
+// No production category declares a CountLabel any more: weighing's lump-sum
+// head count was the only user and was retired on 2026-08-24 (the count is a
+// frozen herd-register snapshot taken at submit). The wire mechanism stays for
+// a future category, so these tests keep pinning it with a fixture of their own.
+func countBearingSpec() *domain.MeasurementCorrectionSpec {
 	return &domain.MeasurementCorrectionSpec{
 		Title:         "Correct the weight",
 		Help:          "Enter the weight you can see in the video. It replaces the weight recorded here.",
@@ -41,14 +46,14 @@ func TestLumpSumCarriesTheHeadCountFieldAndIndividualDoesNot(t *testing.T) {
 	// field there would invite a value the server rejects, so the two must agree.
 	lump := toQueueItemResponse(domain.QueueRow{Item: domain.Item{
 		Source: domain.SourceRef{Module: "weighing", RefType: "weighing_shed_observation", RefID: "shed-obs-1"},
-	}}, weighingSpec()).MeasurementCorrection
+	}}, countBearingSpec()).MeasurementCorrection
 	if lump == nil || lump.CountLabel != "Goats on the scale" {
 		t.Fatalf("a lump-sum item must carry the head-count field, got %+v", lump)
 	}
 
 	individual := toQueueItemResponse(domain.QueueRow{Item: domain.Item{
 		Source: domain.SourceRef{Module: "weighing", RefType: "weighing_observation", RefID: "obs-1"},
-	}}, weighingSpec()).MeasurementCorrection
+	}}, countBearingSpec()).MeasurementCorrection
 	if individual == nil {
 		t.Fatal("an individual weighing item must still carry the correction control")
 	}
@@ -63,7 +68,7 @@ func TestCorrectionBlockAddressesTheItemsOwnSourceRecord(t *testing.T) {
 	// must echo the item's source verbatim.
 	block := toQueueItemResponse(domain.QueueRow{Item: domain.Item{
 		Source: domain.SourceRef{Module: "weighing", RefType: "weighing_shed_observation", RefID: "shed-obs-7"},
-	}}, weighingSpec()).MeasurementCorrection
+	}}, countBearingSpec()).MeasurementCorrection
 	if block.RefType != "weighing_shed_observation" || block.ObservationID != "shed-obs-7" {
 		t.Fatalf("the control must address the item's own source record, got %+v", block)
 	}
@@ -74,7 +79,7 @@ func TestCorrectionBlockMarshalsEveryLabelItPromises(t *testing.T) {
 	// empty ships a blank heading or an unlabelled input on the verifier's screen.
 	raw, err := json.Marshal(toQueueItemResponse(domain.QueueRow{Item: domain.Item{
 		Source: domain.SourceRef{Module: "weighing", RefType: "weighing_shed_observation", RefID: "shed-obs-1"},
-	}}, weighingSpec()).MeasurementCorrection)
+	}}, countBearingSpec()).MeasurementCorrection)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}

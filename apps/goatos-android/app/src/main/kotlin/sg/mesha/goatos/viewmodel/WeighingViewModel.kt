@@ -142,7 +142,6 @@ class WeighingViewModel @Inject constructor(
         ?.let { weighingScopeKey(campaignId, workGroupId, campaignShedId) }
     private val scanInput = MutableStateFlow("")
     private val weightInput = MutableStateFlow("")
-    private val animalCountInput = MutableStateFlow("")
     // Restored from SavedStateHandle so typed-but-unsubmitted per-animal weights survive a
     // process death mid-scan -- see KEY_ANIMAL_WEIGHT_INPUT_IDS/VALUES in the companion object
     // for why SavedStateHandle (not Room) is the right durability layer for this map.
@@ -442,13 +441,12 @@ class WeighingViewModel @Inject constructor(
     }
 
     private val weightState: StateFlow<WeighingWeightState> =
-        combine(weightInput, animalCountInput, animalWeightInputs, updatingWeightAnimalIds) {
+        combine(weightInput, animalWeightInputs, updatingWeightAnimalIds) {
                 weight,
-                animalCount,
                 animalWeights,
                 updatingAnimalIds,
             ->
-            WeighingWeightState(weight, animalCount, animalWeights, updatingAnimalIds)
+            WeighingWeightState(weight, animalWeights, updatingAnimalIds)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingWeightState())
 
     private val formState: StateFlow<WeighingFormState> =
@@ -456,7 +454,6 @@ class WeighingViewModel @Inject constructor(
             WeighingFormState(
                 scan,
                 weights.weight,
-                weights.animalCount,
                 weights.animalWeights,
                 weights.updatingAnimalIds,
                 selected,
@@ -1042,7 +1039,6 @@ class WeighingViewModel @Inject constructor(
             scope.toUiState(
                 scan = form.scan,
                 weight = form.weight,
-                animalCount = form.animalCount,
                 animalWeights = form.animalWeights,
                 updatingAnimalIds = form.updatingAnimalIds,
                 selected = form.selected,
@@ -1726,11 +1722,6 @@ class WeighingViewModel @Inject constructor(
         saveLumpSumInputDraft()
     }
 
-    fun onAnimalCountInputChange(value: String) {
-        animalCountInput.value = sanitizeWeighingAnimalCountInput(value)
-        saveLumpSumInputDraft()
-    }
-
     fun onAnimalWeightInputChange(animalId: String, value: String) {
         if (animalId.isBlank()) return
         val filtered = sanitizeWeighingWeightInput(value)
@@ -2128,8 +2119,9 @@ class WeighingViewModel @Inject constructor(
     fun recordShedPartition(onSubmitted: () -> Unit = {}) {
         val key = scopeKey ?: return
         val weightKg = parsePositiveWeighingWeight(weightInput.value) ?: return
-        val animalCount = parsePositiveWeighingAnimalCount(animalCountInput.value) ?: return
-        val averageWeightKg = weightKg / animalCount
+        // No animal count: the head count is snapshotted from the herd register by
+        // the backend at submit (maintainer decision 2026-08-24), so the phone
+        // sends only the total weight and the videos.
         val activeProofs = activeWeighingProofs(observedProofs.value, scopeState.value)
         val syncedProof = activeProofs
             .filter { it.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY }
@@ -2153,7 +2145,6 @@ class WeighingViewModel @Inject constructor(
         val lumpSumProps = weighingCaptureProps(PER_SHED_PARTITION_CATEGORY) +
             mapOf(
                 AnalyticsEvents.Params.WEIGHT_KG to weightKg.toString(),
-                AnalyticsEvents.Params.ANIMAL_COUNT to animalCount.toString(),
                 AnalyticsEvents.Params.PROOF_CAPTURED to "true",
                 AnalyticsEvents.Params.PROOF_UPLOADED to "true",
                 AnalyticsEvents.Params.PROOF_ID to syncedProof.id,
@@ -2165,8 +2156,6 @@ class WeighingViewModel @Inject constructor(
             try {
                 val resultJson = buildJsonObject {
                     put("total_weight_kg", weightKg)
-                    put("animal_count", animalCount)
-                    put("average_weight_kg", averageWeightKg)
                     put("category", PER_SHED_PARTITION_CATEGORY)
                     put("expected_location_id", expectedLocationId)
                     put("expected_location_label", expectedLocationLabel.ifBlank { routeTitle })
@@ -2307,13 +2296,11 @@ class WeighingViewModel @Inject constructor(
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY) return
         val weight = weightInput.value
-        val animalCount = animalCountInput.value
         val draftKey = lumpSumDraftKey(key)
-        if (weight.isBlank() && animalCount.isBlank()) {
+        if (weight.isBlank()) {
             clearLumpSumInputDraft(draftKey)
         } else {
             savedStateHandle[lumpSumWeightKey(draftKey)] = weight
-            savedStateHandle[lumpSumCountKey(draftKey)] = animalCount
         }
     }
 
@@ -2321,23 +2308,21 @@ class WeighingViewModel @Inject constructor(
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY) return
         val draftKey = lumpSumDraftKey(key)
-        val draftWeight = savedStateHandle.get<String>(lumpSumWeightKey(draftKey))
-        val draftCount = savedStateHandle.get<String>(lumpSumCountKey(draftKey))
-        if (draftWeight == null && draftCount == null) return
-        if (weightInput.value.isBlank()) weightInput.value = draftWeight.orEmpty()
-        if (animalCountInput.value.isBlank()) animalCountInput.value = draftCount.orEmpty()
+        val draftWeight = savedStateHandle.get<String>(lumpSumWeightKey(draftKey)) ?: return
+        if (weightInput.value.isBlank()) weightInput.value = draftWeight
     }
 
     private fun clearLumpSumInputDraft(draftKey: String) {
         savedStateHandle.remove<String>(lumpSumWeightKey(draftKey))
-        savedStateHandle.remove<String>(lumpSumCountKey(draftKey))
+        // The animal-count draft key is gone with the count input itself (the head
+        // count is a backend register snapshot since 2026-08-24); stale entries from
+        // an older build simply age out with the destination.
     }
 
     private fun lumpSumDraftKey(scope: String): String =
         listOf(tenantId.ifBlank { "unknown_tenant" }, currentPrincipalId ?: "unknown_principal", scope).joinToString(":")
 
     private fun lumpSumWeightKey(draftKey: String): String = "weighing.lumpSum.weight:$draftKey"
-    private fun lumpSumCountKey(draftKey: String): String = "weighing.lumpSum.count:$draftKey"
 
     private fun captureShedVideo(replacingProofId: String?) {
         val key = scopeKey ?: return
@@ -2973,7 +2958,6 @@ class WeighingViewModel @Inject constructor(
     private fun WeighingScopeState?.toUiState(
         scan: String,
         weight: String,
-        animalCount: String,
         animalWeights: Map<String, String>,
         updatingAnimalIds: Set<String>,
         selected: WeighingRosterRowEntity?,
@@ -3002,7 +2986,6 @@ class WeighingViewModel @Inject constructor(
                 hasScope = true,
                 scanInput = scan,
                 weightInput = weight,
-                animalCountInput = animalCount,
                 selectedAnimalId = selected?.animalId,
                 selectedAnimalLabel = selected?.displayAnimalId,
                 message = currentMessage,
@@ -3020,7 +3003,6 @@ class WeighingViewModel @Inject constructor(
         val scope = this ?: return WeighingUiState(
             scanInput = scan,
             weightInput = weight,
-            animalCountInput = animalCount,
             message = currentMessage,
             assignments = availableAssignments
                 .filter { selectedParkId == null || it.parkId == selectedParkId }
@@ -3070,7 +3052,6 @@ class WeighingViewModel @Inject constructor(
             selectedAnimalLabel = selected?.displayAnimalId,
             scanInput = scan,
             weightInput = weight,
-            animalCountInput = animalCount,
             message = currentMessage,
             actionInFlight = busy,
             category = category,
@@ -3496,7 +3477,6 @@ private fun String.toWeighingReadMessage(): String {
 private data class WeighingFormState(
     val scan: String = "",
     val weight: String = "",
-    val animalCount: String = "",
     val animalWeights: Map<String, String> = emptyMap(),
     val updatingAnimalIds: Set<String> = emptySet(),
     val selected: WeighingRosterRowEntity? = null,
@@ -3507,7 +3487,6 @@ private data class WeighingFormState(
 
 private data class WeighingWeightState(
     val weight: String = "",
-    val animalCount: String = "",
     val animalWeights: Map<String, String> = emptyMap(),
     val updatingAnimalIds: Set<String> = emptySet(),
 )
@@ -3549,14 +3528,8 @@ internal fun sanitizeWeighingWeightInput(value: String): String =
         candidate.all { it.isDigit() || it == '.' } && candidate.count { it == '.' } <= 1
     }.orEmpty()
 
-internal fun sanitizeWeighingAnimalCountInput(value: String): String =
-    value.take(6).takeIf { candidate -> candidate.all(Char::isDigit) }.orEmpty()
-
 internal fun parsePositiveWeighingWeight(value: String?): Double? =
     value?.toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 }
-
-internal fun parsePositiveWeighingAnimalCount(value: String?): Int? =
-    value?.toIntOrNull()?.takeIf { it > 0 }
 
 /**
  * Reconstructs the typed-but-unsubmitted per-animal weight map from [SavedStateHandle], parallel

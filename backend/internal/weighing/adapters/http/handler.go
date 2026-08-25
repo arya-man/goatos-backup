@@ -747,6 +747,11 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 			FieldErrors: fieldErrors,
 			TraceID:     traceID(r),
 		}, nil)
+	case errors.Is(err, ports.ErrShedCountUnavailable):
+		// 422, not 409: the request is well-formed but the herd register holds no
+		// animals for this shed/pen, so there is no head count to snapshot. The
+		// remedy is a register fix, never a retry of the same submit.
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "shed_count_unavailable", Message: "No animals are recorded in this shed right now, so the weight can't be submitted. Update the herd register, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrProofNotReady):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_video_missing", Message: "This shed's video is not ready yet. Wait for the video to finish uploading, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrRejectedProofReuse):

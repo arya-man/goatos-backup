@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-// VERIFIER WEIGHT CORRECTION (maintainer decision 2026-08-17).
+// VERIFIER WEIGHT CORRECTION (maintainer decision 2026-08-17; head-count editing
+// RETIRED by maintainer decision 2026-08-24).
 //
 // The verifier watches the proof video and can fix the number the operator typed.
 // She is the only role that may: this rides on permissions.VerificationVerdict,
@@ -16,8 +17,11 @@ import (
 //
 // THE CORRECTED VALUE REPLACES THE RECORDED ONE. On an individual capture it
 // replaces that one animal's weight and nothing else; on a lump-sum capture it
-// replaces the shed total, and the head count travels with it because a
-// miscounted shed makes the average wrong for reasons the total cannot fix.
+// replaces the shed total and the stored average is recomputed against the
+// RECORDED head count. The head count itself is NOT correctable by anyone: since
+// 2026-08-24 it is snapshotted from the herd register at submit time and frozen
+// on the row forever, so a correction that names a count is refused rather than
+// silently ignored.
 //
 // It is deliberately NOT coupled to her verdict. She may correct before deciding,
 // or after — including on an item she already approved — until the bucket closes.
@@ -42,12 +46,12 @@ type WeightCorrectionCommand struct {
 	// WeightKg is the corrected weight: one animal's weight for an individual
 	// capture, the whole shed total for a lump-sum one.
 	WeightKg float64
-	// AnimalCount is the corrected head count and applies to LUMP-SUM ONLY. Zero
-	// means "leave the recorded count alone", which is the normal case: she is
-	// usually fixing a mistyped total, not a miscount. It is rejected outright on
-	// an individual capture — an individual observation weighs exactly one animal,
-	// so a head count there is a value with no meaning, and silently dropping it
-	// would let a client believe a correction landed that never did.
+	// AnimalCount is REFUSED whenever it is non-zero, on BOTH grains (maintainer
+	// decision 2026-08-24). The lump-sum head count is snapshotted from the herd
+	// register at submit and is immutable; an individual observation weighs
+	// exactly one animal. Zero means "no count sent", the only accepted value.
+	// The field stays on the wire so an installed APK that still sends a count
+	// gets an honest refusal instead of a silently dropped edit.
 	AnimalCount int
 	// Reason is the verifier's own words. Optional: the video is the evidence and
 	// the corrected number speaks for itself, so requiring prose would only teach
@@ -111,8 +115,6 @@ type WeightCorrectionResult struct {
 const (
 	MinCorrectableWeightKg = 0.001
 	MaxCorrectableWeightKg = 100000
-	// MaxCorrectableAnimalCount bounds a lump-sum head count for the same reason.
-	MaxCorrectableAnimalCount = 100000
 )
 
 // ValidateWeightCorrection is the ONE place the correction rules live, so the HTTP
@@ -156,17 +158,12 @@ func ValidateWeightCorrection(cmd WeightCorrectionCommand) (WeightCorrectionComm
 		return cmd, "weight_out_of_range"
 	}
 
-	if cmd.RefType == VerificationRefTypeAnimal {
-		// A head count on an individual capture is meaningless, and accepting it
-		// silently would report success for a correction that did nothing.
-		if cmd.AnimalCount != 0 {
-			return cmd, "animal_count_not_applicable"
-		}
-		return cmd, ""
-	}
-
-	if cmd.AnimalCount < 0 || cmd.AnimalCount > MaxCorrectableAnimalCount {
-		return cmd, "animal_count_out_of_range"
+	// A head count is refused on BOTH grains (maintainer decision 2026-08-24): an
+	// individual capture weighs one animal, and a lump-sum count is snapshotted
+	// from the herd register at submit and frozen. Accepting it silently would
+	// report success for an edit that did nothing.
+	if cmd.AnimalCount != 0 {
+		return cmd, "animal_count_not_applicable"
 	}
 	return cmd, ""
 }

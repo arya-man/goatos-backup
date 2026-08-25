@@ -39,12 +39,14 @@ func (f *fakeRelabeler) RelabelWeighingVerification(_ context.Context, tenantID,
 }
 
 func lumpSumCommand() domain.WeightCorrectionCommand {
+	// No AnimalCount: the head count stopped being correctable on 2026-08-24 (it
+	// is snapshotted from the herd register at submit and frozen), so a valid
+	// lump-sum correction carries the weight alone.
 	return domain.WeightCorrectionCommand{
 		TenantID:       "11111111-1111-1111-1111-111111111111",
 		ObservationID:  "22222222-2222-2222-2222-222222222222",
 		RefType:        domain.VerificationRefTypeShed,
 		WeightKg:       732,
-		AnimalCount:    31,
 		CorrectedBy:    "33333333-3333-3333-3333-333333333333",
 		IdempotencyKey: "correction-1",
 	}
@@ -122,7 +124,8 @@ func TestCorrectionWorksWithNoRelabelerWired(t *testing.T) {
 func TestServiceRefusesAnInvalidCorrectionBeforeWriting(t *testing.T) {
 	store := &fakeCorrectionStore{}
 	cmd := lumpSumCommand()
-	cmd.RefType = domain.VerificationRefTypeAnimal // an individual capture carries no head count
+	cmd.RefType = domain.VerificationRefTypeAnimal
+	cmd.AnimalCount = 31 // a head count is refused on every grain since 2026-08-24
 
 	_, err := NewWeightCorrectionService(store, nil).CorrectObservationWeight(context.Background(), cmd)
 	if err == nil {
@@ -138,6 +141,26 @@ func TestServiceRefusesAnInvalidCorrectionBeforeWriting(t *testing.T) {
 	// Still ErrInvalidArgument to every existing handler branch.
 	if !errors.Is(err, ports.ErrInvalidArgument) {
 		t.Fatal("the refusal must stay errors.Is-comparable to ErrInvalidArgument")
+	}
+}
+
+// A lump-sum correction naming a head count is refused too (maintainer decision
+// 2026-08-24): the count is a frozen register snapshot, and silently dropping
+// the edit would let the verifier believe it landed.
+func TestServiceRefusesAHeadCountOnALumpSumCorrection(t *testing.T) {
+	store := &fakeCorrectionStore{}
+	cmd := lumpSumCommand()
+	cmd.AnimalCount = 31
+
+	_, err := NewWeightCorrectionService(store, nil).CorrectObservationWeight(context.Background(), cmd)
+	if err == nil {
+		t.Fatal("a lump-sum correction carrying a head count must be refused")
+	}
+	if code := CorrectionCode(err); code != "animal_count_not_applicable" {
+		t.Fatalf("the refusal must carry its field-level code, got %q", code)
+	}
+	if len(store.calls) != 0 {
+		t.Fatalf("an invalid correction must not reach the store, got %d writes", len(store.calls))
 	}
 }
 

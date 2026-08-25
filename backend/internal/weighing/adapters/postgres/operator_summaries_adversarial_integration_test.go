@@ -106,7 +106,17 @@ func TestOperatorSummaryOneToManyJoinsDoNotMultiply(t *testing.T) {
 	lcpInsertProof(t, ctx, pool, proofA2, shedA2)
 	lcpInsertProof(t, ctx, pool, proofB1, shedB1)
 
+	// The lump-sum head count is the herd register's census at submit (maintainer
+	// decision 2026-08-24), so the bucket's shed must actually house the seven
+	// residents this test counts — the typed AnimalCount below is ignored.
 	const lumpSumHead = 7
+	for i := 0; i < lumpSumHead; i++ {
+		execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, $3, 'female', 'adult', 'alive', 'adult', $4::uuid, $5::uuid, $6::uuid, $5::uuid)
+ON CONFLICT (goat_id) DO NOTHING`,
+			lcpUUID(17050+i), repoTenant, fmt.Sprintf("G-9917%02d", i), repoParty, shedA2, repoPark)
+	}
 	if _, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
 		TenantID:        repoTenant,
 		CampaignID:      campaignTwo,

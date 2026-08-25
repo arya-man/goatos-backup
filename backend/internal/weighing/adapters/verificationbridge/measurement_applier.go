@@ -17,9 +17,8 @@ import (
 // the write through this adapter.
 //
 // Nothing here is new behaviour: it is the SAME WeightCorrectionService the correction route calls,
-// so the range checks, the lump-sum-only head count, the closed-bucket refusal, the audit row and
-// the relabel are one implementation. The route stays served for installed APKs that still show
-// their own save button.
+// so the range checks, the closed-bucket refusal, the audit row and the relabel are one
+// implementation. The route stays served for installed APKs that still show their own save button.
 
 // weightCorrector is the seam onto weighing's own correction service, kept as an interface so a
 // test can drive the applier without a database.
@@ -44,9 +43,11 @@ var _ verificationapp.MeasurementApplier = (*MeasurementApplier)(nil)
 // The observation id and ref type come from the ITEM's source, which is the same pair
 // EnqueueWeighingVerification put there -- the verifier's client names a number and nothing else.
 func (a *MeasurementApplier) ApplyMeasurement(ctx context.Context, in verificationapp.MeasurementApply) error {
-	// Zero means "leave the recorded count alone" in the weighing command, which is exactly what a
-	// nil count means here. The service refuses a count outright on an individual capture, so a
-	// stray one fails loudly rather than being dropped.
+	// The head count is not editable by anyone since 2026-08-24 (it is snapshotted from the herd
+	// register at submit and frozen). Verification's own validateMeasurement already refuses a
+	// count for weighing because the category spec carries no CountLabel; the pass-through below
+	// stays so a value that somehow arrives fails loudly in ValidateWeightCorrection rather than
+	// being dropped.
 	animalCount := 0
 	if in.Count != nil {
 		animalCount = *in.Count

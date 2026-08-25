@@ -104,6 +104,14 @@ var (
 	// exists as a submitted capture, so the request cannot proceed as issued.
 	ErrDuplicateScan = errors.New("weighing: duplicate scan")
 
+	// ErrShedCountUnavailable refuses a lump-sum submit whose bucket resolves to
+	// ZERO residents in the herd register (maintainer decision 2026-08-24: the
+	// head count is snapshotted from the register at submit, not typed by the
+	// operator). A weighed shed the register says is empty means the register is
+	// behind, and inventing a count would store an average nobody measured —
+	// so the submit fails closed with copy naming the real remedy.
+	ErrShedCountUnavailable = errors.New("weighing: shed head count unavailable")
+
 	// ErrVerificationPending is the leadership close gate: a bucket may only be
 	// closed on the NORMAL path once every submitted video has a verdict. It is
 	// deliberately distinct from ErrImmutable ("alreadyterminal") because the

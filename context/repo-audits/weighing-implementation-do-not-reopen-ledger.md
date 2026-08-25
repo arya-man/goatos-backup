@@ -623,3 +623,32 @@ Scope of the reopening — anything outside this is still banned:
 The exemption is file-scoped rather than added to the global allowlist precisely
 because a global entry would silently unlock the write path — the original defect.
 Widening it is a maintainer decision.
+
+## E-2 — Lump-sum head count: operator entry RETIRED, census snapshot at submit (maintainer decision 2026-08-24)
+
+The 2026-08-03 lump-sum contract ("total weight, animal count, video(s)") let the
+operator type the head count, and wrong counts kept reaching the farm's averages.
+The maintainer ruled the count out of the operator's hands entirely:
+
+- `RecordShedObservation` snapshots the bucket's live resident count from the
+  herd register (`goats` + `goat_shed_partitions`) INSIDE the submit
+  transaction, via ONE file: `backend/internal/weighing/adapters/postgres/
+  lump_sum_census.go`, the SECOND `HERD_JOIN_EXEMPT_FILES` entry. This is a
+  recorded WRITE-PATH read, deliberately — do not "fix" it back out, and do not
+  widen it (another caller, another column, another table) without a new
+  maintainer decision.
+- The snapshot is FROZEN: no herd move recomputes it, an idempotent replay
+  returns the original, and the verifier's correction is WEIGHT ONLY on both
+  grains (`animal_count_not_applicable` refuses a count; the verification
+  measurement spec declares no CountLabel any more — do not reintroduce one).
+- A register-empty bucket refuses the submit (`shed_count_unavailable`) rather
+  than inventing a count. This is the ONE identity-adjacent gate lump-sum
+  carries; individual free-flow capture is untouched.
+- Historical rows keep their operator-entered counts; no backfill.
+- Do NOT reopen: operator/verifier count entry, client-computed averages for
+  lump-sum, or recomputing a stored snapshot from today's census.
+
+Canonical prose: `docs/decisions/weighing-lump-sum-census-count.md`. Pinned by
+`lump_sum_census_integration_test.go` (production-path Postgres E2E),
+`weight_correction_test.go` (both grains refuse a count), and the guard
+self-test fixtures for the exempt file.

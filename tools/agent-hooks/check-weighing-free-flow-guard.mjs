@@ -236,11 +236,29 @@ function stripComments(text) {
 // behaviour, no scan is gated on identity, and a tag that resolves to nothing is
 // counted and reported rather than rejected — free-flow capture is untouched.
 //
+// THE SECOND RECORDED EXCEPTION (maintainer decision 2026-08-24): the LUMP-SUM
+// CENSUS SNAPSHOT, lump_sum_census.go. Operators kept typing wrong head counts,
+// so the maintainer ruled that the lump-sum submit no longer accepts a typed
+// count: RecordShedObservation snapshots the bucket's live resident count from
+// goats + goat_shed_partitions inside the submit transaction, freezes it on the
+// row forever, and derives the average from it. This is knowingly a WRITE-PATH
+// read — the guard's cross-file scanning would not see the call from
+// RecordShedObservation into this helper, so the exemption is recorded here
+// EXPLICITLY rather than left to that blind spot. Its boundaries: one COUNT of
+// the bucket's own (shed, pen) residents, no per-animal identity leaves the
+// query, individual free-flow capture is untouched (scans still accepted
+// verbatim, unknown tags still counted), and the only gate it adds is the
+// maintainer-ruled zero-census refusal (ports.ErrShedCountUnavailable).
+//
 // Adding a file here is a MAINTAINER decision, never a developer convenience.
 const HERD_JOIN_EXEMPT_FILES = new Map([
   [
     "backend/internal/weighing/adapters/postgres/weight_demographics.go",
     "maintainer decisions 2026-08-07/2026-08-19: average weight by breed/sex/stage and lump-sum shed/partition composition on the Weights screen",
+  ],
+  [
+    "backend/internal/weighing/adapters/postgres/lump_sum_census.go",
+    "maintainer decision 2026-08-24: lump-sum submit snapshots the bucket's resident head count from the herd register (frozen on the row; operator no longer types it)",
   ],
 ]);
 
@@ -1658,6 +1676,36 @@ func (r *Repository) ResolveCampaignPartition(ctx context.Context) error {
   if (exemptMode16.length) {
     throw new Error(
       `self-test failed: mode 16 false positive on goat_shed_partitions inside the Weights reporting exception. got: ${JSON.stringify(exemptMode16)}`,
+    );
+  }
+  // Maintainer decision 2026-08-24: the lump-sum census snapshot file is the
+  // SECOND file-scoped exemption (goats + goat_shed_partitions, one COUNT of a
+  // bucket's residents). The same herd read in ANY OTHER weighing file must
+  // still be a finding — the bad fixture above already proves that half.
+  const censusRead = `
+func (r *Repository) lumpSumCensusCountTx(ctx context.Context) error {
+  _, err := r.pool.Exec(ctx, ` + "`" + `
+    SELECT COUNT(*)
+    FROM goats g
+    LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+    WHERE g.tenant_id=$1 AND g.shed_id=$2
+  ` + "`" + `)
+  return err
+}
+`;
+  const exemptCensus = anyPathTableFindings(
+    "backend/internal/weighing/adapters/postgres/lump_sum_census.go",
+    censusRead,
+  );
+  if (exemptCensus.length) {
+    throw new Error(
+      `self-test failed: mode 16 false positive on the lump-sum census snapshot exemption (maintainer decision 2026-08-24). got: ${JSON.stringify(exemptCensus)}`,
+    );
+  }
+  const nonExemptCensus = anyPathTableFindings("fake.go", censusRead);
+  if (!nonExemptCensus.some((f) => f.rule === "weighing-reads-non-weighing-table")) {
+    throw new Error(
+      `self-test failed: mode 16 must still flag the census read outside its exempt file. got: ${JSON.stringify(nonExemptCensus)}`,
     );
   }
 
