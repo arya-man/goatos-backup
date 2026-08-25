@@ -413,10 +413,54 @@ export function apiClientOptions(config: ServerConfig) {
     baseUrl: config.baseUrl,
     bearerToken: config.bearerToken,
     tenantId: config.tenantId || undefined,
+    fetchImpl: timedBackendFetch,
     // See the ServerConfig.traceparent comment: forwards the browser's Faro-instrumented trace
     // context (if any) onto the backend call so RUM and backend spans join one trace.
     getTraceHeaders: traceparent ? () => ({ traceparent }) : undefined,
   };
+}
+
+async function timedBackendFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const startedAt = performance.now();
+  const url = typeof input === "string" || input instanceof URL ? new URL(input) : new URL(input.url);
+  const method = init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
+  const traceparent = init?.headers ? new Headers(init.headers).get("traceparent") : null;
+  try {
+    const response = await fetch(input, init);
+    const durationMs = Math.round(performance.now() - startedAt);
+    console.info(JSON.stringify({
+      severity: response.status >= 500 ? "ERROR" : "INFO",
+      message: "admin_backend_api_fetch",
+      event_name: "admin_backend_api_fetch",
+      surface: "admin_web_server",
+      method,
+      path: url.pathname,
+      status: response.status,
+      status_class: `${Math.floor(response.status / 100)}xx`,
+      duration_ms: durationMs,
+      traceparent,
+    }));
+    return response;
+  } catch (error) {
+    const durationMs = Math.round(performance.now() - startedAt);
+    const errorName = error instanceof Error ? error.name : "FetchError";
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.info(JSON.stringify({
+      severity: "ERROR",
+      message: "admin_backend_api_fetch",
+      event_name: "admin_backend_api_fetch",
+      surface: "admin_web_server",
+      method,
+      path: url.pathname,
+      status: 0,
+      status_class: "network_error",
+      duration_ms: durationMs,
+      traceparent,
+      error_name: errorName,
+      error_message: errorMessage,
+    }));
+    throw error;
+  }
 }
 
 export function isAuthRequiredError(error: ApiUiError): boolean {

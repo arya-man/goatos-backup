@@ -97,7 +97,7 @@ func navigation() domain.NavigationContract {
 	return domain.NavigationContract{
 		Primary: []domain.NavigationItem{
 			navItem("control-tower", "Control Tower", "/", "tower-control", ""),
-			navItem("action-center", "Action Center", "/action-center", "zap", "action_center_open_work"),
+			navItem("action-center", "Action Center", "/action-center", "zap", ""),
 			navItem("calendar", "Calendar", "/calendar", "calendar-days", ""),
 			navItem("protocol-adherence", "Protocol Adherence", "/protocol-adherence", "clipboard-check", ""),
 			navItem("workflows", "Workflows", "/workflows", "workflow", ""),
@@ -118,7 +118,7 @@ func navigation() domain.NavigationContract {
 		},
 		Groups: []domain.NavigationGroup{
 			{
-				ID: "pc", Label: "Preventive Care (PC)", Icon: "heart-pulse", DefaultOpen: true, BadgeKey: "pc_open_work",
+				ID: "pc", Label: "Preventive Care (PC)", Icon: "heart-pulse", DefaultOpen: true,
 				Leaves: []domain.NavigationItem{
 					navLeafDomain("preventive-care-vaccination", "Vaccination", "/vaccination", "pc.vaccination", nil),
 					navLeafDomain("vaccination-live-tracker", "Live Drive Tracker", "/vaccination/live-tracker", "pc.vaccination", nil),

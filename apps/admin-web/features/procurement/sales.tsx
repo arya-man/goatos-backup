@@ -96,7 +96,7 @@ function OverviewSections({
   return (
     <>
           {/* 1 — headline figures, verbatim from the overview summary. */}
-          <section className="grid g4 kpi-row" aria-label={copy(pageContract, "section.headline.aria")}>
+          <section className="grid g4 kpi-row sales-kpi-row" aria-label={copy(pageContract, "section.headline.aria")}>
             <div className="kpi">
               <div className="lab">{copy(pageContract, "kpi.revenue")}</div>
               <div className="val">{inr(summary.revenue)}</div>
@@ -224,7 +224,7 @@ function OverviewSections({
             {overview.market_benchmarks.length === 0 ? (
               <div className="empty">{copy(pageContract, "empty.market")}</div>
             ) : (
-              <div className="twrap sales-market-wrap">
+              <div className="twrap sales-market-wrap" tabIndex={0}>
                 <table className="sales-market-table">
                   <thead>
                     <tr>

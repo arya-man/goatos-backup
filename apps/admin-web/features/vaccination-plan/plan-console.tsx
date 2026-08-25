@@ -196,7 +196,7 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
             </div>
 
             {catalog.length > 0 ? (
-              <div className="scroll">
+              <div className="scroll" tabIndex={0}>
                 <table className="tabl">
                   <thead>
                     <tr>
@@ -225,6 +225,17 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
                     ))}
                   </tbody>
                 </table>
+                <div className="pager2">
+                  <span className="muted small">
+                    Page 1 · {catalog.length} vaccine{catalog.length === 1 ? "" : "s"} on this page
+                  </span>
+                  <span className="btn sm" aria-disabled style={{ opacity: 0.45, cursor: "not-allowed" }}>
+                    Previous
+                  </span>
+                  <span className="btn sm" aria-disabled style={{ opacity: 0.45, cursor: "not-allowed" }}>
+                    Next
+                  </span>
+                </div>
               </div>
             ) : null}
 
@@ -296,7 +307,7 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
             </div>
           </div>
           <div className="card-b">
-            <div className="scroll">
+            <div className="scroll" tabIndex={0}>
               <table className="tabl">
                 <thead>
                   <tr>

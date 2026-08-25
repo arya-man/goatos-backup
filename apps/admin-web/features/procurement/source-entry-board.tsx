@@ -165,13 +165,10 @@ export async function SourceEntryBoardPage({
   const loads: ProcurementLoad[] = result.ok
     ? [...result.data.items].sort((a, b) => sourceLoadStatusOrder.indexOf(a.status) - sourceLoadStatusOrder.indexOf(b.status))
     : [];
-  // request-plan:ignore owner=procurement-platform issue=C35-016 expires=2026-09-30 reason=list contract lacks card facets; replace with enriched paged list or batch detail API
-  const detailResults = result.ok
-    ? await Promise.all(loads.map(async (load) => [load.load_id, await getProcurementLoad(load.load_id)] as const))
-    : [];
   const detailByLoad = new Map<string, ProcurementLoadDetail>();
-  for (const [loadId, detailResult] of detailResults) {
-    if (detailResult.ok) detailByLoad.set(loadId, detailResult.data.detail);
+  if (selectedLoadId && loads.some((load) => load.load_id === selectedLoadId)) {
+    const selectedDetail = await getProcurementLoad(selectedLoadId);
+    if (selectedDetail.ok) detailByLoad.set(selectedLoadId, selectedDetail.data.detail);
   }
   const nextCursor = result.ok ? result.data.next_cursor ?? null : null;
   const nextHref = hrefWithCursor(pathname, sp, nextCursor);
@@ -382,9 +379,7 @@ export async function SourceEntryBoardPage({
             </tbody>
           </table>
         </div>
-        {loads.length > 0 || page > 1 ? (
-	          <ProcurementPager prevHref={prevHref} nextHref={nextHref} page={page} count={loads.length} noun={loadLabels[0].toLowerCase()} />
-        ) : null}
+        <ProcurementPager prevHref={prevHref} nextHref={nextHref} page={page} count={loads.length} noun={loadLabels[0].toLowerCase()} forceVisible />
       </section>
       <SourceEntryLocalDrawer
         items={drawerItems}
