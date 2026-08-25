@@ -207,26 +207,24 @@ lump_span AS (
           / NULLIF(latest.d - first.d, 0) AS g_per_day,
          latest.animal_count                 AS animals
   FROM (
-    SELECT cs2.location_id, COALESCE(cs2.partition_label, '') AS partition_label,
+    SELECT s.location_id, s.partition_label,
            so.average_weight_kg, so.animal_count,
            (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
-           row_number() OVER (PARTITION BY cs2.location_id, COALESCE(cs2.partition_label, '') ORDER BY so.accepted_at DESC) AS rn
+           row_number() OVER (PARTITION BY s.location_id, s.partition_label ORDER BY so.accepted_at DESC) AS rn
     FROM weighing_shed_observations so
-    JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = so.campaign_shed_id
-    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
-    WHERE so.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
+    JOIN scoped s ON s.campaign_shed_id = so.campaign_shed_id AND s.tenant_id = so.tenant_id
+    WHERE so.tenant_id = $1::uuid AND s.weighing_category = 'per_shed_partition'
       AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
       AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
   ) latest
   JOIN (
-    SELECT cs2.location_id, COALESCE(cs2.partition_label, '') AS partition_label,
+    SELECT s.location_id, s.partition_label,
            so.average_weight_kg,
            (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
-           row_number() OVER (PARTITION BY cs2.location_id, COALESCE(cs2.partition_label, '') ORDER BY so.accepted_at ASC) AS rn
+           row_number() OVER (PARTITION BY s.location_id, s.partition_label ORDER BY so.accepted_at ASC) AS rn
     FROM weighing_shed_observations so
-    JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = so.campaign_shed_id
-    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
-    WHERE so.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
+    JOIN scoped s ON s.campaign_shed_id = so.campaign_shed_id AND s.tenant_id = so.tenant_id
+    WHERE so.tenant_id = $1::uuid AND s.weighing_category = 'per_shed_partition'
       AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
       AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
   ) first ON first.location_id = latest.location_id
