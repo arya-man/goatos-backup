@@ -86,7 +86,25 @@ items AS (
 refs AS (
   SELECT i.item_id, i.shed_id, i.partition_label, i.park_id, i.module, ref.proof_id AS proof_ref
   FROM items i
-  JOIN LATERAL jsonb_array_elements_text(i.media_refs) AS ref(proof_id) ON true
+  JOIN LATERAL (
+    SELECT CASE jsonb_typeof(raw.ref)
+      WHEN 'string' THEN raw.ref #>> '{}'
+      WHEN 'object' THEN COALESCE(
+        raw.ref->>'proof_id',
+        raw.ref->>'proofId',
+        raw.ref->>'proof_ref',
+        raw.ref->>'proofRef',
+        raw.ref->>'proof_artifact_id',
+        raw.ref->>'proofArtifactId',
+        raw.ref->>'artifact_id',
+        raw.ref->>'artifactId',
+        raw.ref->>'id',
+        raw.ref->>'ref'
+      )
+      ELSE ''
+    END AS proof_id
+    FROM jsonb_array_elements(i.media_refs) AS raw(ref)
+  ) AS ref ON true
   WHERE ref.proof_id ~ $6
 ),
 arrivals AS (
@@ -215,7 +233,26 @@ items AS (
 valid_refs AS (
   SELECT i.item_id, ref.proof_id, ref.ord
   FROM items i
-  JOIN LATERAL jsonb_array_elements_text(i.media_refs) WITH ORDINALITY AS ref(proof_id, ord) ON true
+  JOIN LATERAL (
+    SELECT CASE jsonb_typeof(raw.ref)
+      WHEN 'string' THEN raw.ref #>> '{}'
+      WHEN 'object' THEN COALESCE(
+        raw.ref->>'proof_id',
+        raw.ref->>'proofId',
+        raw.ref->>'proof_ref',
+        raw.ref->>'proofRef',
+        raw.ref->>'proof_artifact_id',
+        raw.ref->>'proofArtifactId',
+        raw.ref->>'artifact_id',
+        raw.ref->>'artifactId',
+        raw.ref->>'id',
+        raw.ref->>'ref'
+      )
+      ELSE ''
+    END AS proof_id,
+    raw.ord
+    FROM jsonb_array_elements(i.media_refs) WITH ORDINALITY AS raw(ref, ord)
+  ) AS ref ON true
   WHERE ref.proof_id ~ $9
 ),
 proofs AS (

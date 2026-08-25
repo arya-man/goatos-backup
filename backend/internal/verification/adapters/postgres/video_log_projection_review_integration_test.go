@@ -238,6 +238,48 @@ func TestVideoLogDetailDropsMalformedMediaRefsBeforeUUIDCast(t *testing.T) {
 	}
 }
 
+func TestVideoLogReadsObjectShapedMediaRefs(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVideoLogTenant(t, ctx, pool)
+	item := seedVideoLogItem(t, ctx, pool, "feed", "feed_packing", "pending", videoLogTestParkA, videoLogTestShedA, "1")
+	proofID := seedVideoLogProof(t, ctx, pool, item, 1, "video", "06:12")
+	if _, err := pool.Exec(ctx, `
+		UPDATE verification_items
+		SET media_refs = jsonb_build_array(jsonb_build_object(
+			'proof_id', $3::text,
+			'object_key', $4::text,
+			'proof_type', 'video',
+			'proof_grain', 'shed_partition'
+		))
+		WHERE tenant_id = $1::uuid AND item_id = $2::uuid`,
+		videoLogTestTenantID, item, proofID, videoLogTestTenantID+"/2026/08/15/"+proofID); err != nil {
+		t.Fatalf("replace media_ref with object shape: %v", err)
+	}
+
+	repo := NewRepository(pool, 10*time.Second)
+	sheds, err := repo.VideoLogShedSummary(ctx, ports.VideoLogParams{TenantID: videoLogTestTenantID, BusinessDate: videoLogDay})
+	if err != nil {
+		t.Fatalf("VideoLogShedSummary: %v", err)
+	}
+	if len(sheds) != 1 || sheds[0].ProofCount != 1 {
+		t.Fatalf("summary = %+v, want one object-shaped proof", sheds)
+	}
+	rows, truncated, err := repo.VideoLogShedRows(ctx, ports.VideoLogParams{
+		TenantID: videoLogTestTenantID, BusinessDate: videoLogDay,
+		ShedID: videoLogTestShedA + "#1", Limit: 50,
+	})
+	if err != nil {
+		t.Fatalf("VideoLogShedRows: %v", err)
+	}
+	if truncated || len(rows) != 1 || len(rows[0].Proofs) != 1 || rows[0].Proofs[0].ProofID != proofID {
+		t.Fatalf("detail truncated=%v rows=%+v, want the object-shaped proof %s", truncated, rows, proofID)
+	}
+}
+
 func TestVideoLogStatusMatrixKeepsDecidedArrivalsAndDropsWithdrawn(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -421,7 +463,7 @@ func seedVideoLogItem(t *testing.T, ctx context.Context, pool *pgxpool.Pool, mod
 // seedVideoLogProof inserts a completed proof artifact and APPENDS its id to the item's media_refs,
 // mirroring how a producer builds the array. hhmm is the IST wall-clock arrival time on the fixed
 // business day.
-func seedVideoLogProof(t *testing.T, ctx context.Context, pool *pgxpool.Pool, itemID string, ordinal int, proofType, hhmm string) {
+func seedVideoLogProof(t *testing.T, ctx context.Context, pool *pgxpool.Pool, itemID string, ordinal int, proofType, hhmm string) string {
 	t.Helper()
 	var proofID string
 	if err := pool.QueryRow(ctx, `
@@ -442,4 +484,5 @@ func seedVideoLogProof(t *testing.T, ctx context.Context, pool *pgxpool.Pool, it
 		videoLogTestTenantID, itemID, proofID); err != nil {
 		t.Fatalf("append media_ref: %v", err)
 	}
+	return proofID
 }
