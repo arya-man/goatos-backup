@@ -47,10 +47,11 @@ nothing, and needs no new guard exemptions:
   `goat_identifiers.normalized_value = upper(tag_key)` with the one-hop merge
   redirect, the same join growthdirector uses. A tag that resolves to nothing
   simply stays out of this report (the pulse discloses the denominators).
-- **Sales lock (000173)**: untouched — sales still reads no herd table. This
-  module reaches the deal row through the identity-owned
-  `goat_sale_allocations` mapping by its **opaque** `sales_deal_id`, the exact
-  read path migration `000177` describes.
+- **Sales lock (000173)**: untouched — sales still reads no herd table, and
+  this module reads `sales_deals` at DEAL grain only, never joined to a herd
+  table. (An earlier draft reached per-animal through the identity-owned
+  `goat_sale_allocations` mapping; with the sold panel removed that read is
+  gone entirely.)
 
 ### Estimate semantics (`estimate: true`, always)
 
