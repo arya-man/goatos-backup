@@ -18,7 +18,7 @@ export type SourceEntryDrawerItem = {
   sourceParty: string;
   purpose: string;
   expectedCount: number;
-  goatsInLoad: number;
+  goatsInLoad: string;
   warmup: { label: string; tone: Tone };
   tagging: string;
   hfVaccination: { label: string; tone: Tone };
