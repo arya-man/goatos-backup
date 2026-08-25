@@ -1170,6 +1170,16 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+        "422":
+          description: >-
+            `shed_count_unavailable` — the herd register holds no animals for this
+            shed/pen, so there is no head count to snapshot (the count is taken
+            from the register at submit since 2026-08-24, never typed by the
+            operator). The remedy is a register fix, then resubmit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           $ref: "#/components/responses/ServerError"
   /app/weighing/alerts:
@@ -24950,7 +24960,6 @@ components:
       required:
         - campaign_shed_id
         - weight_kg
-        - animal_count
       properties:
         campaign_shed_id:
           type: string
@@ -24961,9 +24970,22 @@ components:
         average_weight_kg:
           type: number
           exclusiveMinimum: 0
+          deprecated: true
+          description: >-
+            IGNORED since 2026-08-24. The server derives the average from the
+            snapshotted head count. Accepted only so installed clients that
+            still send it keep working.
         animal_count:
           type: integer
           minimum: 1
+          deprecated: true
+          description: >-
+            IGNORED since 2026-08-24 (maintainer decision): the head count is
+            snapshotted server-side from the herd register inside the submit
+            transaction and frozen on the observation forever. Accepted only so
+            installed clients that still send it keep working. A bucket whose
+            register census is zero refuses the submit with 422
+            `shed_count_unavailable`.
         proof_artifact_id:
           type: string
           format: uuid
@@ -25344,12 +25366,13 @@ components:
           maximum: 100000
         animal_count:
           type: integer
+          deprecated: true
           description: >-
-            The corrected head count. LUMP-SUM ONLY -- omitted or 0 leaves the recorded count
-            alone, which is the normal case. Sending it on an individual capture is refused
-            (422 `animal_count_not_applicable`) rather than ignored, because an individual
-            observation weighs exactly one animal and silently dropping it would report a
-            correction that never happened.
+            NOT EDITABLE since 2026-08-24 (maintainer decision): the lump-sum head count is
+            snapshotted from the herd register at submit and frozen, so any non-zero value is
+            refused (422 `animal_count_not_applicable`) on BOTH grains rather than ignored --
+            silently dropping it would report an edit that never happened. Kept on the wire
+            only so installed clients that still offer count editing get an honest refusal.
           minimum: 0
           maximum: 100000
         reason:
@@ -28684,9 +28707,11 @@ components:
           minimum: 1
           description: >-
             The accompanying whole-number field, allowed ONLY where the item's
-            measurement_correction carries a count_label (a lump-sum shed weigh's head count).
-            Omit to leave the recorded count alone. Sending one where the item carries none is
-            refused rather than dropped.
+            measurement_correction carries a count_label. NO category carries one today: the
+            lump-sum weighing head count stopped being editable on 2026-08-24 (it is snapshotted
+            from the herd register at submit and frozen), so its spec no longer declares a
+            count_label. Sending a count where the item carries none is refused
+            (`measurement_count_not_supported`) rather than dropped.
         reason:
           type: string
           description: The verifier's optional note on why the recorded number was wrong.

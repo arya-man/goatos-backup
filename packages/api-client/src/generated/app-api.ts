@@ -10107,8 +10107,16 @@ export interface components {
             /** Format: uuid */
             campaign_shed_id: string;
             weight_kg: number;
+            /**
+             * @deprecated
+             * @description IGNORED since 2026-08-24. The server derives the average from the snapshotted head count. Accepted only so installed clients that still send it keep working.
+             */
             average_weight_kg?: number;
-            animal_count: number;
+            /**
+             * @deprecated
+             * @description IGNORED since 2026-08-24 (maintainer decision): the head count is snapshotted server-side from the herd register inside the submit transaction and frozen on the observation forever. Accepted only so installed clients that still send it keep working. A bucket whose register census is zero refuses the submit with 422 `shed_count_unavailable`.
+             */
+            animal_count?: number;
             /** Format: uuid */
             proof_artifact_id?: string;
             proof_artifact_ids?: string[];
@@ -10263,7 +10271,10 @@ export interface components {
              * @description The corrected weight in kg. One animal's weight for an individual capture, the whole shed total for a lump-sum one. Rounded to three decimals, the scale the column stores.
              */
             weight_kg: number;
-            /** @description The corrected head count. LUMP-SUM ONLY -- omitted or 0 leaves the recorded count alone, which is the normal case. Sending it on an individual capture is refused (422 `animal_count_not_applicable`) rather than ignored, because an individual observation weighs exactly one animal and silently dropping it would report a correction that never happened. */
+            /**
+             * @deprecated
+             * @description NOT EDITABLE since 2026-08-24 (maintainer decision): the lump-sum head count is snapshotted from the herd register at submit and frozen, so any non-zero value is refused (422 `animal_count_not_applicable`) on BOTH grains rather than ignored -- silently dropping it would report an edit that never happened. Kept on the wire only so installed clients that still offer count editing get an honest refusal.
+             */
             animal_count?: number;
             /** @description The verifier's own words. Optional -- the video is the evidence. */
             reason?: string;
@@ -11663,7 +11674,7 @@ export interface components {
         VerificationVerdictMeasurement: {
             /** @description The single-value reading in the category's own unit (kg for weighing and wastage). ZERO IS VALID for wastage — an empty trough is a real measurement — so omit the whole block rather than sending 0 to mean "not entered". Omit on per-field items; the readings travel on entries. */
             value?: number;
-            /** @description The accompanying whole-number field, allowed ONLY where the item's measurement_correction carries a count_label (a lump-sum shed weigh's head count). Omit to leave the recorded count alone. Sending one where the item carries none is refused rather than dropped. */
+            /** @description The accompanying whole-number field, allowed ONLY where the item's measurement_correction carries a count_label. NO category carries one today: the lump-sum weighing head count stopped being editable on 2026-08-24 (it is snapshotted from the herd register at submit and frozen), so its spec no longer declares a count_label. Sending a count where the item carries none is refused (`measurement_count_not_supported`) rather than dropped. */
             count?: number;
             /** @description The verifier's optional note on why the recorded number was wrong. */
             reason?: string;
@@ -13861,6 +13872,15 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            /** @description `shed_count_unavailable` — the herd register holds no animals for this shed/pen, so there is no head count to snapshot (the count is taken from the register at submit since 2026-08-24, never typed by the operator). The remedy is a register fix, then resubmit. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             500: components["responses"]["ServerError"];
         };
     };

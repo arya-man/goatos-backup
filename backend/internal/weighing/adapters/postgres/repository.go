@@ -2199,9 +2199,6 @@ SELECT EXISTS (
 }
 
 func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.RecordShedObservation) (domain.Observation, error) {
-	if cmd.AverageWeightKg <= 0 {
-		cmd.AverageWeightKg = cmd.WeightKg
-	}
 	if len(cmd.ProofArtifactIDs) == 0 && cmd.ProofArtifactID != "" {
 		cmd.ProofArtifactIDs = []string{cmd.ProofArtifactID}
 	}
@@ -2226,6 +2223,39 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 	// completeCampaignIfDone, so the campaign lock must be acquired here,
 	// up front, not implicitly deferred to that later statement.
 	if err := r.lockCampaignRowForNoKeyUpdate(ctx, tx, cmd.TenantID, cmd.CampaignID); err != nil {
+		return domain.Observation{}, err
+	}
+	// CENSUS SNAPSHOT (maintainer decision 2026-08-24): the head count is NEVER
+	// the client's — it is the bucket's live resident count from the herd
+	// register at this instant, frozen on the row forever. cmd.AnimalCount /
+	// cmd.AverageWeightKg still participate in the idempotency fingerprint above
+	// (older APKs keep sending them, and their replays must stay byte-identical)
+	// but neither reaches the INSERT. A bucket the register says is EMPTY fails
+	// closed: storing an invented count would fabricate an average nobody
+	// measured. A bucket id that resolves to no row at all falls through to the
+	// INSERT below, whose empty scope CTE routes it to the existing rejection
+	// classifier.
+	censusCount := 0
+	censusAverage := 0.0
+	var bucketShedID, bucketPartition string
+	switch err := tx.QueryRow(ctx, `
+SELECT location_id::text, COALESCE(partition_label, '')
+FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`,
+		cmd.TenantID, cmd.CampaignShedID).Scan(&bucketShedID, &bucketPartition); {
+	case err == nil:
+		censusCount, err = r.lumpSumCensusCountTx(ctx, tx, cmd.TenantID, bucketShedID, bucketPartition)
+		if err != nil {
+			return domain.Observation{}, err
+		}
+		if censusCount <= 0 {
+			return domain.Observation{}, ports.ErrShedCountUnavailable
+		}
+		censusAverage = cmd.WeightKg / float64(censusCount)
+	case errors.Is(err, pgx.ErrNoRows):
+		// Missing bucket: leave the zero placeholders; the INSERT selects no rows
+		// and classifyShedObservationRejection names the real refusal.
+	default:
 		return domain.Observation{}, err
 	}
 	var obs domain.Observation
@@ -2296,7 +2326,7 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 	ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 	RETURNING shed_observation_id::text, campaign_id::text, campaign_shed_id::text,
 	  weight_kg::float8, average_weight_kg::float8, animal_count, proof_artifact_id::text, accepted_at`,
-		cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.WeightKg, cmd.ProofArtifactIDs, cmd.IdempotencyKey, cmd.RecordedBy, cmd.AverageWeightKg, cmd.AnimalCount).
+		cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.WeightKg, cmd.ProofArtifactIDs, cmd.IdempotencyKey, cmd.RecordedBy, censusAverage, censusCount).
 		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.WeightKg, &obs.AverageWeightKg, &obs.AnimalCount, &obs.ProofArtifactID, &obs.AcceptedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Observation{}, r.classifyShedObservationRejection(ctx, tx, cmd)

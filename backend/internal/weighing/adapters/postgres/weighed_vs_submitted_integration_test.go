@@ -145,12 +145,16 @@ func TestLumpSumWeighedIsAnimalGrainOnBothSurfaces(t *testing.T) {
 
 	baseWeighed, baseSubmitted := operatorFacts(t, ctx, repo)
 
-	const head = 40
+	// The client-typed 40 is IGNORED since 2026-08-24: the stored head count is
+	// the herd register's census for the bucket's shed (this fixture houses ONE
+	// resident in repoExpectedShed). Both surfaces must agree on that snapshot.
+	const typedHead = 40
+	const censusHead = 1
 	if _, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
 		TenantID:        repoTenant,
 		CampaignID:      campaignID,
 		CampaignShedID:  bucketID,
-		AnimalCount:     head,
+		AnimalCount:     typedHead,
 		WeightKg:        1200,
 		ProofArtifactID: repoExpectedShedProof,
 		RecordedBy:      repoOperator,
@@ -159,8 +163,8 @@ func TestLumpSumWeighedIsAnimalGrainOnBothSurfaces(t *testing.T) {
 		t.Fatalf("record lump sum: %v", err)
 	}
 
-	assertBucketFacts(t, ctx, repo, campaignID, bucketID, head, head, "lump-sum bucket")
-	assertOperatorFacts(t, ctx, repo, baseWeighed+head, baseSubmitted+head, "lump-sum operator")
+	assertBucketFacts(t, ctx, repo, campaignID, bucketID, censusHead, censusHead, "lump-sum bucket")
+	assertOperatorFacts(t, ctx, repo, baseWeighed+censusHead, baseSubmitted+censusHead, "lump-sum operator")
 }
 
 func assertBucketFacts(t *testing.T, ctx context.Context, repo *Repository, campaignID, bucketID string, wantWeighed, wantSubmitted int, label string) {

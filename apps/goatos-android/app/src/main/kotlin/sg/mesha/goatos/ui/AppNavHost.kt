@@ -1749,7 +1749,6 @@ fun AppNavHost(
                     onScanInputChange = vm::onScanInputChange,
                     onScanSubmit = vm::submitTypedScan,
                     onWeightChange = vm::onWeightInputChange,
-                    onAnimalCountChange = vm::onAnimalCountInputChange,
                     onWeightEntryActive = vm::setWeightEntryActive,
                     onAnimalWeightChange = vm::onAnimalWeightInputChange,
                     onRecordAnimalWeight = vm::recordIndividual,

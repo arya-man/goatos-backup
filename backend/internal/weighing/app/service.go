@@ -931,15 +931,22 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	}
 	cmd.TenantID = actor.TenantID
 	cmd.RecordedBy = actor.UserID
-	if !isPositiveFinite(cmd.WeightKg) || cmd.AnimalCount <= 0 {
+	if !isPositiveFinite(cmd.WeightKg) {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
-	cmd.AverageWeightKg = cmd.WeightKg / float64(cmd.AnimalCount)
+	// THE OPERATOR NO LONGER SUPPLIES THE HEAD COUNT (maintainer decision
+	// 2026-08-24, superseding the operator-entered count half of the 2026-08-03
+	// lump-sum contract). The client-sent animal_count / average_weight_kg are
+	// carried through UNCHANGED so an older APK's replay fingerprint stays
+	// byte-identical, but the repository ignores both: it snapshots the bucket's
+	// resident head count from the herd register inside the submit transaction
+	// and derives the average from that snapshot. The snapshot is frozen on the
+	// row forever — no later census change and no verifier edit moves it.
 	cmd.ProofArtifactIDs = normalizeProofArtifactIDs(cmd.ProofArtifactID, cmd.ProofArtifactIDs)
 	if len(cmd.ProofArtifactIDs) > 0 {
 		cmd.ProofArtifactID = cmd.ProofArtifactIDs[0]
 	}
-	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || !isPositiveFinite(cmd.AverageWeightKg) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
+	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
 	if len(cmd.ProofArtifactIDs) < 1 || len(cmd.ProofArtifactIDs) > domain.MaxShedProofArtifacts {

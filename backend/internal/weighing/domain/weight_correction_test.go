@@ -28,7 +28,11 @@ func TestIndividualCorrectionRefusesAHeadCount(t *testing.T) {
 	}
 }
 
-func TestLumpSumCorrectionAcceptsAHeadCountAndIndividualAcceptsNone(t *testing.T) {
+// Maintainer decision 2026-08-24: the lump-sum head count is snapshotted from
+// the herd register at submit and FROZEN, so a correction naming one is refused
+// on BOTH grains — never silently dropped — while a weight-only correction on
+// either grain stays valid.
+func TestCorrectionRefusesAHeadCountOnBothGrainsAndAcceptsWeightOnly(t *testing.T) {
 	base := WeightCorrectionCommand{
 		TenantID:       "11111111-1111-1111-1111-111111111111",
 		ObservationID:  "22222222-2222-2222-2222-222222222222",
@@ -36,11 +40,17 @@ func TestLumpSumCorrectionAcceptsAHeadCountAndIndividualAcceptsNone(t *testing.T
 		CorrectedBy:    "33333333-3333-3333-3333-333333333333",
 		IdempotencyKey: "k",
 	}
+	lumpWithCount := base
+	lumpWithCount.RefType = VerificationRefTypeShed
+	lumpWithCount.AnimalCount = 31
+	if _, code := ValidateWeightCorrection(lumpWithCount); code != "animal_count_not_applicable" {
+		t.Fatalf("lump-sum correction with a head count must be refused (frozen census snapshot), got %q", code)
+	}
+
 	lump := base
 	lump.RefType = VerificationRefTypeShed
-	lump.AnimalCount = 31
 	if _, code := ValidateWeightCorrection(lump); code != "" {
-		t.Fatalf("lump-sum correction with a head count must be accepted, refused as %q", code)
+		t.Fatalf("lump-sum weight-only correction must be accepted, refused as %q", code)
 	}
 
 	individual := base

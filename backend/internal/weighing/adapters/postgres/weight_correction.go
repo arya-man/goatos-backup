@@ -117,10 +117,12 @@ func (r *Repository) CorrectObservationWeight(ctx context.Context, cmd domain.We
 		return domain.WeightCorrectionResult{}, ports.ErrImmutable
 	}
 
+	// The head count is NEVER taken from the command (maintainer decision
+	// 2026-08-24): it was snapshotted from the herd register at submit and is
+	// frozen on the row. domain.ValidateWeightCorrection already refused any
+	// command carrying a non-zero count; the recorded count is reused here so a
+	// weight correction recomputes the average against the same frozen head count.
 	animalCount := scope.AnimalCount
-	if cmd.RefType == domain.VerificationRefTypeShed && cmd.AnimalCount > 0 {
-		animalCount = cmd.AnimalCount
-	}
 
 	correctedAt, err := r.applyWeightCorrection(ctx, tx, cmd, scope, animalCount)
 	if err != nil {

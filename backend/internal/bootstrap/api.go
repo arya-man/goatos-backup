@@ -707,11 +707,14 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 				Help:        "Enter the weight you can see in the video. It replaces the weight recorded here.",
 				ValueLabel:  "Corrected weight (kg)",
 				SubmitLabel: "Save corrected weight",
-				// Only the lump-sum grain carries a head count: one shed total covers many
-				// goats and the count is what turns it into an average. An individual capture
-				// weighs exactly one animal, so it gets the weight field alone.
-				CountLabel:    "Goats on the scale",
-				CountRefTypes: []string{weighingdomain.VerificationRefTypeShed},
+				// NO CountLabel / CountRefTypes, deliberately (maintainer decision
+				// 2026-08-24, retiring the 2026-08-17 head-count edit): the lump-sum
+				// head count is snapshotted from the herd register at submit and is
+				// frozen, so NOBODY — verifier included — may change it. Both clients
+				// render the count input only when this spec carries a CountLabel, so
+				// omitting it here removes the field from the phone and the admin-web
+				// drawer alike, and verification's own validateMeasurement refuses any
+				// count a stale client still sends (measurement_count_not_supported).
 			},
 			NavigationModule: "weighing", NavigationModuleLabel: "Weighing",
 			PageKey: "weighing", PageLabel: "Weighing", PageOrder: 1,

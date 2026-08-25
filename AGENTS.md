@@ -205,6 +205,23 @@ splitting one shed average across a mix invents a distribution nobody measured.
 Widening this exemption — another file, another table, or any write path — is a
 MAINTAINER decision, never a developer convenience.
 
+SECOND RECORDED EXCEPTION (maintainer decision 2026-08-24): the LUMP-SUM CENSUS
+SNAPSHOT. Operators kept typing wrong lump-sum head counts, so the operator no
+longer enters one: `RecordShedObservation` snapshots the bucket's live resident
+count from `goats` + `goat_shed_partitions` INSIDE the submit transaction via
+exactly one file — `backend/internal/weighing/adapters/postgres/lump_sum_census.go`,
+allowlisted BY NAME in `check-weighing-free-flow-guard.mjs` — stores it frozen on
+`weighing_shed_observations.animal_count`, and derives the average from it. The
+snapshot never changes afterwards: herd moves do not recompute it, replays return
+the original, and the verifier's weight correction is WEIGHT ONLY on both grains
+(a correction naming a count is refused, `animal_count_not_applicable`; the
+verification spec no longer declares a count field). A register-empty bucket
+refuses the submit (422 `shed_count_unavailable`) rather than inventing a count.
+This is knowingly a WRITE-PATH read and is recorded as such; its boundaries — one
+COUNT of the bucket's own (shed, pen), no per-animal identity, individual
+free-flow capture untouched — are stated in the guard header and the census file
+itself. Canonical prose: `docs/decisions/weighing-lump-sum-census-count.md`.
+
 ALLOWED besides `weighing_*`: proof / idempotency / audit / outbox plumbing, and
 exactly four ORG tables — `locations`, `workforce_members`, `user_scope_grants`,
 `shed_partitions` (a task belongs to a park, a person, and a physical partition).
@@ -508,7 +525,9 @@ not exist, and the maintainer keeps re-explaining them. This is the WHOLE featur
 ```
 CEO assigns sheds to an operator or a director (the Growth Director executes too)
 individual  → scan RFID, enter weight, record video — per animal
-lump-sum    → total weight, animal count, video(s) — per shed
+lump-sum    → total weight, video(s) — per shed (head count is snapshotted
+              server-side from the herd register at submit; maintainer decision
+              2026-08-24, frozen forever, verifier edits weight only)
 submit
 ```
 

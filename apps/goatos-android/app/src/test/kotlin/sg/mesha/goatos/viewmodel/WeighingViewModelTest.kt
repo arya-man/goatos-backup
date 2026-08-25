@@ -256,19 +256,6 @@ class WeighingViewModelTest {
     }
 
     @Test
-    fun `animal count validation accepts positive integers only`() {
-        assertEquals("125", sanitizeWeighingAnimalCountInput("125"))
-        assertEquals(125, parsePositiveWeighingAnimalCount("125"))
-        assertEquals("", sanitizeWeighingAnimalCountInput("1.5"))
-        assertEquals("", sanitizeWeighingAnimalCountInput("-2"))
-        assertEquals("", sanitizeWeighingAnimalCountInput("two"))
-        assertNull(parsePositiveWeighingAnimalCount(""))
-        assertNull(parsePositiveWeighingAnimalCount("0"))
-        assertNull(parsePositiveWeighingAnimalCount("-1"))
-        assertNull(parsePositiveWeighingAnimalCount("1.5"))
-    }
-
-    @Test
     fun `restored accepted weight shows updating only while edit request is active`() = runTest(dispatcher) {
         val original = acceptedDraft(weightKg = 12.0)
         val gate = CompletableDeferred<AppResult<IndividualWeighingDraft>>()
@@ -1546,7 +1533,6 @@ class WeighingViewModelTest {
         advanceUntilIdle()
 
         firstVm.onWeightInputChange("42.5")
-        firstVm.onAnimalCountInputChange("7")
         advanceUntilIdle()
 
         // Process death: the ViewModel instance is gone, but the SavedStateHandle's Bundle
@@ -1561,11 +1547,9 @@ class WeighingViewModelTest {
             "42.5",
             recreatedVm.state.value.weightInput,
         )
-        assertEquals(
-            "the lump-sum animal count the operator had typed must reload after a simulated process death",
-            "7",
-            recreatedVm.state.value.animalCountInput,
-        )
+        // No animal-count assertion: the head count stopped being a typed input on
+        // 2026-08-24 (backend register snapshot at submit), so there is no count
+        // draft to survive process death any more.
     }
 
     @Test
@@ -1990,7 +1974,6 @@ class WeighingViewModelTest {
         advanceUntilIdle()
 
         vm.onWeightInputChange("120")
-        vm.onAnimalCountInputChange("10")
         advanceUntilIdle()
 
         // Double-tap: the FIRST call's coroutine is held suspended on recordGate, so the

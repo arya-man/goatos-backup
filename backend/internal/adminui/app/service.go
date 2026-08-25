@@ -1418,11 +1418,13 @@ func pageSpecificCopy(id string) map[string]string {
 			// Each refusal has a distinct remedy, so each gets its own sentence: a closed bucket
 			// needs a manager, an out-of-range value needs a different number, and an already-used
 			// key needs a reload. One shared "that failed" would leave her with no next step.
-			"feedback.weight_corrected":            "Weight corrected. The record now shows the weight you entered.",
-			"feedback.missing_weight":              "Enter the correct weight in kg.",
-			"feedback.weight_out_of_range":         "Enter a weight in kg between 0.001 and 100000.",
-			"feedback.animal_count_out_of_range":   "Enter how many goats were on the scale, up to 100000.",
-			"feedback.animal_count_not_applicable": "This video is one animal's weight, so it carries no goat count.",
+			"feedback.weight_corrected":    "Weight corrected. The record now shows the weight you entered.",
+			"feedback.missing_weight":      "Enter the correct weight in kg.",
+			"feedback.weight_out_of_range": "Enter a weight in kg between 0.001 and 100000.",
+			// The goat count stopped being correctable on 2026-08-24: it is recorded
+			// automatically from the herd register at submit and frozen, so the one
+			// count refusal left says exactly that.
+			"feedback.animal_count_not_applicable": "The goat count is recorded automatically and can't be changed. Correct the weight only.",
 			"feedback.weighing_bucket_closed":      "This shed's weighing is already closed. Ask a manager to reopen it before correcting the weight.",
 			// The VERIFIER's feed-wastage measurement (maintainer decision 2026-08-18). Same shape
 			// as the weight correction above: the control's own copy travels on the item; these are

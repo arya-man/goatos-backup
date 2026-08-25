@@ -88,10 +88,13 @@ type MeasurementCorrectionSpec struct {
 	// NO fields (the producer's frozen sheet was unreadable at submit -- a deliberate fail-open)
 	// stays approvable rather than stranded behind a requirement it cannot render.
 	PerItemFields bool
-	// CountLabel names an accompanying whole-number field ("Goats on the scale"), and
-	// is rendered ONLY for the ref types in CountRefTypes. A lump-sum shed proof
-	// carries a head count that scales its average; a single animal's proof does not,
-	// and offering the field there would invite a value the write path refuses.
+	// CountLabel names an accompanying whole-number field, and is rendered ONLY
+	// for the ref types in CountRefTypes. NO category declares one today:
+	// weighing's lump-sum head count ("Goats on the scale") was the only user
+	// and was retired on 2026-08-24, when the count became a frozen herd-register
+	// snapshot taken at submit. The mechanism stays for a future category whose
+	// measurement genuinely pairs a value with a count; offering the field on a
+	// ref type whose write path refuses it invites a value the server rejects.
 	CountLabel string
 	// CountRefTypes lists the source ref types whose items carry the count field.
 	// Empty means no item in this category does.
