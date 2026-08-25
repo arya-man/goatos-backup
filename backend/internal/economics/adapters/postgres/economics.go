@@ -2,19 +2,18 @@ package postgres
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/economics/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
-// SQL row caps, kept in lockstep with domain.MaxAnimalRows / domain.MaxSoldRows
-// (queries are consts, so the literals live here; a drift is caught by
-// TestRowCapLiteralsMatchDomain).
-const (
-	maxAnimalRowsSQL = "200"
-	maxSoldRowsSQL   = "200"
-)
+// SQL row cap for the sold panel, kept in lockstep with domain.MaxSoldRows
+// (the query is a const, so the literal lives here; a drift is caught by
+// TestRowCapLiteralsMatchDomain). The animal table's cap is applied in Go
+// (assembleGrowth) against domain.MaxAnimalRows directly.
+const maxSoldRowsSQL = "200"
 
 // The CTE chain below mirrors the Growth Director module's weighing reads
 // (same identity, round and pair semantics) and the feed-analytics pricing
@@ -97,6 +96,11 @@ matched AS (
          btrim(COALESCE(COALESCE(canon.breed, g.breed), ''))                       AS breed,
          btrim(COALESCE(COALESCE(canon.sex, g.sex), ''))                           AS sex,
          btrim(COALESCE(COALESCE(canon.management_stage, g.management_stage), '')) AS stage,
+         -- feed_config_norm() ONCE PER ROW here, never inside a join condition:
+         -- as a join-time expression the planner re-evaluates it per probe pair,
+         -- which turned this read into minutes of plpgsql calls.
+         feed_config_norm(COALESCE(COALESCE(canon.management_stage, g.management_stage), '')) AS stage_key,
+         feed_config_norm(COALESCE(COALESCE(canon.breed, g.breed), ''))                       AS breed_key,
          COALESCE(canon.shed_id, g.shed_id) AS shed_id,
          COALESCE(canon.park_id, g.park_id) AS park_id,
          COALESCE(NULLIF(gsp.partition_label, 'whole'), '') AS pen
@@ -171,21 +175,30 @@ feed_cell AS (
 // normalizer the feed chain uses everywhere. A MIXED pen's sheet row carries
 // '_+_'-joined composite keys ('osmanabadi_+_malai_+_sojat',
 // 'f2_female_+_f2_male') covering the whole cohort one bag feeds, so the match
-// is SET MEMBERSHIP, not equality — the row's per-head cost applies to every
-// animal in that cohort. The rare animal matching more than one of its pen's
-// cells collapses with avg() so econ stays one row per identity. A miss leaves
-// cost NULL (honest: no authored+priced ration reaches this animal).
+// is SET MEMBERSHIP: feed_cell_members unnests each cell's two key lists into
+// plain (tag member × breed member) rows so the membership test becomes a
+// HASHABLE equi-join — the array-membership form evaluated these per probe
+// pair and was catastrophically slow under a generic plan. The rare animal
+// matching more than one of its pen's cells collapses with avg() so econ stays
+// one row per identity. A miss leaves cost NULL (honest: no authored+priced
+// ration reaches this animal).
 const econCTE = `
+feed_cell_members AS (
+  SELECT fc.shed_id, fc.pen, tag_member, breed_member, fc.cost_per_head_day
+  FROM feed_cell fc
+  CROSS JOIN LATERAL unnest(string_to_array(fc.shed_tag_key, '_+_')) AS tag_member
+  CROSS JOIN LATERAL unnest(string_to_array(fc.breed_key, '_+_'))    AS breed_member
+),
 econ AS (
   SELECT m.tag_key, m.w_last, m.adg_g_day, m.span_days,
          m.display_id, m.breed, m.sex, m.stage, m.shed_id, m.park_id, m.pen,
-         avg(fc.cost_per_head_day) AS cost_per_head_day
+         avg(fcm.cost_per_head_day) AS cost_per_head_day
   FROM matched m
-  LEFT JOIN feed_cell fc
-    ON fc.shed_id = m.shed_id
-   AND fc.pen = m.pen
-   AND feed_config_norm(m.stage) = ANY(string_to_array(fc.shed_tag_key, '_+_'))
-   AND feed_config_norm(m.breed) = ANY(string_to_array(fc.breed_key, '_+_'))
+  LEFT JOIN feed_cell_members fcm
+    ON fcm.shed_id = m.shed_id
+   AND fcm.pen = m.pen
+   AND fcm.tag_member = m.stage_key
+   AND fcm.breed_member = m.breed_key
   GROUP BY m.tag_key, m.w_last, m.adg_g_day, m.span_days,
            m.display_id, m.breed, m.sex, m.stage, m.shed_id, m.park_id, m.pen
 )`
@@ -240,19 +253,243 @@ func (r *Repository) GetBusinessEconomics(ctx context.Context, tenantID string, 
 	out.Pulse.PriceBasis = priceBasis
 	out.Pulse.RealizedPricePerKg = realizedPerKg
 
-	if err := r.pulse(ctx, &out.Pulse, tenantID, parkIDs, startDate, endExclusiveDate, realizedPerKg); err != nil {
+	// ONE execution of the heavy weighing+feed chain serves the animal table,
+	// the bands and the pulse growth figures alike: econ is at most one row per
+	// paired identity (bounded by the 5k-50k envelope), so aggregating those
+	// rows in Go is cheap, while re-running the chain per widget was three
+	// multi-second scans for the same answer.
+	econRows, err := r.econRows(ctx, tenantID, parkIDs, startDate, endExclusiveDate)
+	if err != nil {
 		return out, err
 	}
-	if out.Animals, err = r.animals(ctx, tenantID, parkIDs, startDate, endExclusiveDate, realizedPerKg); err != nil {
+	assembleGrowth(&out, econRows, realizedPerKg)
+
+	if out.Pulse.WeighedIdentities, err = r.weighedIdentities(ctx, tenantID, parkIDs, startDate, endExclusiveDate); err != nil {
 		return out, err
 	}
-	if out.Bands, err = r.bands(ctx, tenantID, parkIDs, startDate, endExclusiveDate, realizedPerKg); err != nil {
+	if err := r.pulseBurn(ctx, &out.Pulse, tenantID, parkIDs, startDate, endExclusiveDate); err != nil {
+		return out, err
+	}
+	if err := r.pulseDeals(ctx, &out.Pulse, tenantID, startDate, endExclusiveDate); err != nil {
 		return out, err
 	}
 	if out.Sold, err = r.sold(ctx, tenantID, parkIDs, startDate, endExclusiveDate); err != nil {
 		return out, err
 	}
 	return out, nil
+}
+
+// econRow is one paired, matched, live animal with its (possibly missing) feed
+// cost — the single grain every growth-side widget is derived from.
+type econRow struct {
+	tag            string
+	displayID      string
+	breed          string
+	sex            string
+	stage          string
+	shedName       string
+	pen            string
+	parkName       string
+	latestWeightKg float64
+	adgGPerDay     float64
+	spanDays       int
+	costPerHeadDay *float64
+}
+
+// econRows runs the shared chain ONCE and returns every econ row with its
+// display names resolved.
+//
+// projection-review: membership=paired matched live animals of the window;
+// group_key=tag_key — econ is one row per identity by construction (pairs
+// groups by tag_key, every later join is 0..1: goat_identifiers lifetime-
+// unique, goats PK, canon PK, gsp PK, feed_cell_members grouped back to one
+// row by the avg() over the animal's own grain-cell memberships, shed/park
+// locations PK); join_cardinality=all 0..1 as listed, no fan-out;
+// pagination=NONE here — the full bounded row set is fetched once and the
+// 200-row table cap is applied in Go AFTER the whole-filter aggregates are
+// taken from the same rows, so the cap can never bend a summary;
+// scope=tenant + park ANY + campaign-week overlap window.
+//
+// scale-guard:ignore: 5k-50k-envelope — bounded windowed read, same chain
+// shape as the Growth Director widgets.
+func (r *Repository) econRows(ctx context.Context, tenantID string, parkIDs []string, startDate, endExclusiveDate string) ([]econRow, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	const q = econChain + `
+SELECT e.tag_key, e.display_id, e.breed, e.sex, e.stage,
+       COALESCE(shed.name, '') AS shed_name, e.pen, COALESCE(park.name, '') AS park_name,
+       e.w_last::float8, e.adg_g_day::float8, e.span_days,
+       e.cost_per_head_day
+FROM econ e
+LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = e.shed_id
+LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = e.park_id`
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endExclusiveDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []econRow{}
+	for rows.Next() {
+		var row econRow
+		if err := rows.Scan(
+			&row.tag, &row.displayID, &row.breed, &row.sex, &row.stage,
+			&row.shedName, &row.pen, &row.parkName,
+			&row.latestWeightKg, &row.adgGPerDay, &row.spanDays,
+			&row.costPerHeadDay,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+// assembleGrowth derives the animal table, the bands and the pulse growth
+// figures from the one econ row set, so all three agree by construction.
+func assembleGrowth(out *domain.BusinessEconomics, rows []econRow, realizedPerKg *float64) {
+	costPerKg := make([]float64, 0, len(rows))
+	var totalGainKgPerDay float64
+	var hasGain bool
+
+	animals := make([]domain.AnimalEconomics, 0, len(rows))
+	bandRows := make([][]econRow, len(domain.BandLabels))
+	for _, row := range rows {
+		animal := domain.AnimalEconomics{
+			TagDisplay:           row.tag,
+			DisplayID:            row.displayID,
+			Breed:                row.breed,
+			Sex:                  row.sex,
+			Stage:                row.stage,
+			ShedDisplay:          operationalLabel(row.parkName, row.shedName, row.pen),
+			LatestWeightKg:       row.latestWeightKg,
+			ADGGPerDay:           row.adgGPerDay,
+			SpanDays:             row.spanDays,
+			FeedCostPerDayRupees: row.costPerHeadDay,
+		}
+		deriveAnimalMoney(&animal, realizedPerKg)
+		animals = append(animals, animal)
+
+		idx := weightBandIndex(row.latestWeightKg)
+		bandRows[idx] = append(bandRows[idx], row)
+
+		if row.adgGPerDay > 0 {
+			totalGainKgPerDay += row.adgGPerDay / 1000.0
+			hasGain = true
+			if row.costPerHeadDay != nil {
+				costPerKg = append(costPerKg, *row.costPerHeadDay/(row.adgGPerDay/1000.0))
+			}
+		}
+	}
+
+	out.Pulse.PairedAnimals = len(rows)
+	out.Pulse.CostAnimals = len(costPerKg)
+	if median, ok := medianOf(costPerKg); ok {
+		out.Pulse.MedianCostPerKgGain = &median
+	}
+	if hasGain && realizedPerKg != nil {
+		v := totalGainKgPerDay * *realizedPerKg
+		out.Pulse.ValueAddedPerDayRupees = &v
+	}
+
+	// Worst daily net first — the burners the CEO should look at — then the
+	// costliest, then the tag for a stable order; capped AFTER the aggregates
+	// above so the cap never bends a headline number.
+	sort.SliceStable(animals, func(i, j int) bool {
+		return animalRowLess(animals[i], animals[j])
+	})
+	if len(animals) > domain.MaxAnimalRows {
+		animals = animals[:domain.MaxAnimalRows]
+	}
+	out.Animals = animals
+
+	bands := emptyBands()
+	for idx, members := range bandRows {
+		band := &bands[idx]
+		band.Animals = len(members)
+		adgs := make([]float64, 0, len(members))
+		costs := make([]float64, 0, len(members))
+		for _, row := range members {
+			adgs = append(adgs, row.adgGPerDay)
+			if row.costPerHeadDay != nil {
+				costs = append(costs, *row.costPerHeadDay)
+			}
+		}
+		if median, ok := medianOf(adgs); ok {
+			band.MedianADGGPerDay = &median
+		}
+		if median, ok := medianOf(costs); ok {
+			band.FeedCostPerDayRupees = &median
+		}
+		if band.MedianADGGPerDay != nil && realizedPerKg != nil && *band.MedianADGGPerDay > 0 {
+			v := (*band.MedianADGGPerDay / 1000.0) * *realizedPerKg
+			band.ValueAddedPerDayRupees = &v
+		}
+		if band.ValueAddedPerDayRupees != nil && band.FeedCostPerDayRupees != nil {
+			net := *band.ValueAddedPerDayRupees - *band.FeedCostPerDayRupees
+			band.NetPerDayRupees = &net
+			band.SellSignal = net <= 0
+		}
+	}
+	out.Bands = bands
+}
+
+// animalRowLess orders the table worst daily net first (nulls last), then
+// costliest first (nulls last), then tag.
+func animalRowLess(a, b domain.AnimalEconomics) bool {
+	switch {
+	case a.NetPerDayRupees != nil && b.NetPerDayRupees != nil && *a.NetPerDayRupees != *b.NetPerDayRupees:
+		return *a.NetPerDayRupees < *b.NetPerDayRupees
+	case (a.NetPerDayRupees != nil) != (b.NetPerDayRupees != nil):
+		return a.NetPerDayRupees != nil
+	case a.FeedCostPerDayRupees != nil && b.FeedCostPerDayRupees != nil && *a.FeedCostPerDayRupees != *b.FeedCostPerDayRupees:
+		return *a.FeedCostPerDayRupees > *b.FeedCostPerDayRupees
+	case (a.FeedCostPerDayRupees != nil) != (b.FeedCostPerDayRupees != nil):
+		return a.FeedCostPerDayRupees != nil
+	default:
+		return a.TagDisplay < b.TagDisplay
+	}
+}
+
+// weightBandIndex mirrors SQL width_bucket over the 15/20/25/30/35 thresholds.
+func weightBandIndex(weightKg float64) int {
+	idx := 0
+	for _, threshold := range [...]float64{15, 20, 25, 30, 35} {
+		if weightKg >= threshold {
+			idx++
+		}
+	}
+	return idx
+}
+
+// medianOf is percentile_cont(0.5): the middle value, linearly interpolated
+// for an even count.
+func medianOf(values []float64) (float64, bool) {
+	if len(values) == 0 {
+		return 0, false
+	}
+	sorted := append([]float64(nil), values...)
+	sort.Float64s(sorted)
+	mid := len(sorted) / 2
+	if len(sorted)%2 == 1 {
+		return sorted[mid], true
+	}
+	return (sorted[mid-1] + sorted[mid]) / 2, true
+}
+
+// weighedIdentities counts the window's distinct weighed tag identities — the
+// honest outer denominator the paired count is read against.
+//
+// projection-review: membership=window scans (obs CTE); group_key=whole-set
+// count(DISTINCT tag_key); join_cardinality=obs joins campaigns 1:1 per scan;
+// pagination=NONE (one row); scope=tenant + park ANY + campaign-week overlap.
+func (r *Repository) weighedIdentities(ctx context.Context, tenantID string, parkIDs []string, startDate, endExclusiveDate string) (int, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	const q = `WITH ` + weighingObsCTE + `
+SELECT count(DISTINCT tag_key) FROM obs`
+	var count int
+	err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, startDate, endExclusiveDate).Scan(&count)
+	return count, err
 }
 
 func emptyBands() []domain.BandEconomics {
@@ -321,55 +558,7 @@ func (r *Repository) realizedPriceOnce(ctx context.Context, q, tenantID, startDa
 	return &perKg, nil
 }
 
-// pulse fills the headline strip: growth-side denominators and medians off the
-// shared econ chain, the whole-farm feed burn, the unpriced-item disclosure and
-// the window's closed-deal figures.
-func (r *Repository) pulse(ctx context.Context, out *domain.Pulse, tenantID string, parkIDs []string, startDate, endExclusiveDate string, realizedPerKg *float64) error {
-	if err := r.pulseGrowth(ctx, out, tenantID, parkIDs, startDate, endExclusiveDate, realizedPerKg); err != nil {
-		return err
-	}
-	if err := r.pulseBurn(ctx, out, tenantID, parkIDs, startDate, endExclusiveDate); err != nil {
-		return err
-	}
-	return r.pulseDeals(ctx, out, tenantID, startDate, endExclusiveDate)
-}
 
-// projection-review: membership=paired matched live animals of the window
-// (econ CTE) plus the distinct weighed identities of round_latest;
-// group_key=whole-set aggregates, no GROUP BY — every FILTERed aggregate and
-// the median range over the same econ row set; join_cardinality=goat_identifiers
-// 0..1 (lifetime-unique), goats 1 (PK), canon 0..1 (PK), goat_shed_partitions
-// 0..1 (PK tenant,goat), feed_cell 0..1 (grouped on its full join key), so no
-// econ row multiplies; pagination=NONE (one row); scope=tenant + park ANY +
-// campaign-week overlap window.
-//
-// scale-guard:ignore: 5k-50k-envelope — bounded windowed aggregate over the
-// same chain shape as the Growth Director read.
-func (r *Repository) pulseGrowth(ctx context.Context, out *domain.Pulse, tenantID string, parkIDs []string, startDate, endExclusiveDate string, realizedPerKg *float64) error {
-	ctx, cancel := r.timeout(ctx)
-	defer cancel()
-	const q = econChain + `
-SELECT
-  (SELECT count(DISTINCT tag_key) FROM round_latest) AS weighed_identities,
-  count(*) AS paired_matched,
-  count(*) FILTER (WHERE cost_per_head_day IS NOT NULL AND adg_g_day > 0) AS cost_animals,
-  (percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_per_head_day / (adg_g_day / 1000.0))
-     FILTER (WHERE cost_per_head_day IS NOT NULL AND adg_g_day > 0))::float8 AS median_cost_per_kg_gain,
-  sum(adg_g_day / 1000.0) FILTER (WHERE adg_g_day > 0)::float8 AS total_gain_kg_per_day
-FROM econ`
-	var totalGainKgPerDay *float64
-	if err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, startDate, endExclusiveDate).Scan(
-		&out.WeighedIdentities, &out.PairedAnimals, &out.CostAnimals,
-		&out.MedianCostPerKgGain, &totalGainKgPerDay,
-	); err != nil {
-		return err
-	}
-	if totalGainKgPerDay != nil && realizedPerKg != nil {
-		v := *totalGainKgPerDay * *realizedPerKg
-		out.ValueAddedPerDayRupees = &v
-	}
-	return nil
-}
 
 // pulseBurn is the whole-farm daily feed spend: every directed cell — normal
 // AND experiment, plus non-sheet external consumption — priced at the latest
@@ -472,63 +661,6 @@ WHERE tenant_id = $1::uuid
 	return nil
 }
 
-// animals serves the per-animal economics table: worst daily net first (the
-// burners the CEO should look at), capped at MaxAnimalRows with the pulse
-// carrying the uncapped denominators. $5 is the realized price per kg (may be
-// NULL), used only for the ORDER so SQL and Go agree on "worst".
-//
-// projection-review: membership=paired matched live animals (econ CTE);
-// group_key=tag_key — econ is one row per identity by construction (pairs
-// groups by tag_key, every later join is 0..1: goat_identifiers lifetime-
-// unique, goats PK, canon PK, gsp PK, feed_cell grouped on its full join key,
-// shed/park locations PK); join_cardinality=all 0..1 as listed, no fan-out;
-// pagination=LIMIT MaxAnimalRows worst-net-first, summaries computed
-// independently in pulseGrowth so the cap never bends a total; scope=tenant +
-// park ANY + campaign-week overlap window.
-//
-// scale-guard:ignore: 5k-50k-envelope — bounded windowed read, same chain
-// shape as the Growth Director widgets.
-func (r *Repository) animals(ctx context.Context, tenantID string, parkIDs []string, startDate, endExclusiveDate string, realizedPerKg *float64) ([]domain.AnimalEconomics, error) {
-	ctx, cancel := r.timeout(ctx)
-	defer cancel()
-	out := []domain.AnimalEconomics{}
-	const q = econChain + `
-SELECT e.tag_key, e.display_id, e.breed, e.sex, e.stage,
-       COALESCE(shed.name, '') AS shed_name, e.pen, COALESCE(park.name, '') AS park_name,
-       e.w_last::float8, e.adg_g_day::float8, e.span_days,
-       e.cost_per_head_day
-FROM econ e
-LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = e.shed_id
-LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = e.park_id
-ORDER BY CASE WHEN $5::float8 IS NOT NULL AND e.cost_per_head_day IS NOT NULL AND e.adg_g_day > 0
-              THEN (e.adg_g_day / 1000.0) * $5::float8 - e.cost_per_head_day END ASC NULLS LAST,
-         e.cost_per_head_day DESC NULLS LAST,
-         e.tag_key
-LIMIT ` + maxAnimalRowsSQL
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endExclusiveDate, realizedPerKg)
-	if err != nil {
-		return out, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var row domain.AnimalEconomics
-		var shedName, parkName, pen string
-		var spanDays int
-		if err := rows.Scan(
-			&row.TagDisplay, &row.DisplayID, &row.Breed, &row.Sex, &row.Stage,
-			&shedName, &pen, &parkName,
-			&row.LatestWeightKg, &row.ADGGPerDay, &spanDays,
-			&row.FeedCostPerDayRupees,
-		); err != nil {
-			return out, err
-		}
-		row.SpanDays = spanDays
-		row.ShedDisplay = operationalLabel(parkName, shedName, pen)
-		deriveAnimalMoney(&row, realizedPerKg)
-		out = append(out, row)
-	}
-	return out, rows.Err()
-}
 
 // deriveAnimalMoney fills the derived money fields and the signal. Null never
 // means zero: a missing side leaves the derived field nil and the signal on
@@ -555,60 +687,6 @@ func deriveAnimalMoney(row *domain.AnimalEconomics, realizedPerKg *float64) {
 	}
 }
 
-// bands is the break-even read at weight-band grain, always all six bands.
-//
-// projection-review: membership=paired matched live animals (econ CTE), same
-// one-row-per-identity grain proven on animals(); group_key=width_bucket of
-// the latest weight — count, both medians and the filtered median all range
-// over exactly the band's econ rows; join_cardinality=inherited from econ, no
-// new join; pagination=NONE, at most six band rows; scope=tenant + park ANY +
-// campaign-week overlap window.
-//
-// scale-guard:ignore: 5k-50k-envelope — bounded windowed aggregate, same chain
-// shape as the Growth Director widgets.
-func (r *Repository) bands(ctx context.Context, tenantID string, parkIDs []string, startDate, endExclusiveDate string, realizedPerKg *float64) ([]domain.BandEconomics, error) {
-	ctx, cancel := r.timeout(ctx)
-	defer cancel()
-	out := emptyBands()
-	const q = econChain + `
-SELECT width_bucket(w_last, ARRAY[15,20,25,30,35]::numeric[]) AS band_idx,
-       count(*) AS animals,
-       (percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_day))::float8 AS median_adg,
-       (percentile_cont(0.5) WITHIN GROUP (ORDER BY cost_per_head_day)
-          FILTER (WHERE cost_per_head_day IS NOT NULL))::float8 AS median_cost_per_day
-FROM econ
-GROUP BY band_idx
-ORDER BY band_idx`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endExclusiveDate)
-	if err != nil {
-		return out, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var bandIdx, animals int
-		var medianADG, medianCost *float64
-		if err := rows.Scan(&bandIdx, &animals, &medianADG, &medianCost); err != nil {
-			return out, err
-		}
-		if bandIdx < 0 || bandIdx >= len(out) {
-			continue
-		}
-		band := &out[bandIdx]
-		band.Animals = animals
-		band.MedianADGGPerDay = medianADG
-		band.FeedCostPerDayRupees = medianCost
-		if medianADG != nil && realizedPerKg != nil && *medianADG > 0 {
-			v := (*medianADG / 1000.0) * *realizedPerKg
-			band.ValueAddedPerDayRupees = &v
-		}
-		if band.ValueAddedPerDayRupees != nil && medianCost != nil {
-			net := *band.ValueAddedPerDayRupees - *medianCost
-			band.NetPerDayRupees = &net
-			band.SellSignal = net <= 0
-		}
-	}
-	return out, rows.Err()
-}
 
 // sold lists the window's sale-tagged animals through the identity-owned
 // goat_sale_allocations mapping, joined to the deal row by its OPAQUE id — the
