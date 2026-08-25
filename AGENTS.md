@@ -46,6 +46,14 @@ Do not infer the local DB from a previous temp worktree, a random Docker port,
 or a stale shell variable. If a temp stack is unavoidable, clearly label it as
 throwaway and do not call it "the local DB".
 
+**HARD RULE - No circular OCI/E2E retries.** Before rerunning any long OCI DB,
+generation, Chrome E2E, CI, or landing command after a failure, identify the
+specific changed condition that makes the retry different: a code patch, data
+repair, tunnel repair, config change, or narrower diagnostic. Use an explicit
+timeout and capture the terminal result. If the same command fails twice with
+the same blocker, stop repeating it and switch to diagnosis or report the exact
+blocker; do not start another blind long run.
+
 **HARD RULE - Weights/admin-web fixes require Chrome proof after the final
 edit.** For any change that touches `apps/admin-web` Weights UI, Weights page
 copy, Weights charts, generated API contracts used by Weights, or backend

@@ -22,7 +22,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
@@ -60,7 +62,9 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	baseCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(baseCtx, cfg.Timeout)
 	defer cancel()
 
 	shutdown, err := observability.SetupTelemetry(ctx, observability.Config{Service: "generate-vaccination-obligations"})
@@ -145,8 +149,8 @@ func run(args []string) error {
 		if err != nil && !vaccinationapp.IsGenerationPartialFailure(err) {
 			return fmt.Errorf("generate version %s: %w", versionID, err)
 		}
-		fmt.Printf("generated run=%s version=%s generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
-			run.RunID, versionID, res.Generated, res.Deferred, res.Reopened, res.FailedGoats, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
+		fmt.Printf("generated run=%s version=%s generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
+			run.RunID, versionID, res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.ReconcileDateBlocked, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
 		if err != nil {
 			return withExitCode(exitCodePartialFailure, fmt.Errorf("generate version %s: %w", versionID, err))
 		}

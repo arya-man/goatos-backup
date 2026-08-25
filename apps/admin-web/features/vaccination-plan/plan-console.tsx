@@ -90,7 +90,7 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
     }
     setSheet({
       label: version.version_label || `V${version.version}`,
-      inForce: `${formatDate(version.effective_from)} – ${formatDate(version.effective_to)}`,
+      inForce: formatInForceRange(version),
       published: formatDate(version.published_at),
       vaccines: readVaccines(result.ruleDsl),
     });
@@ -325,7 +325,7 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
                         <b>{v.version_label || `V${v.version}`}</b>
                       </td>
                       <td className="num">
-                        {formatDate(v.effective_from)} – {formatDate(v.effective_to)}
+                        {formatInForceRange(v)}
                       </td>
                       <td className="num">
                         {formatDate(v.published_at)}
@@ -386,6 +386,13 @@ function personName(value: string | undefined | null): string | null {
   const trimmed = (value ?? "").trim();
   if (!trimmed || UUID_RE.test(trimmed)) return null;
   return trimmed;
+}
+
+function formatInForceRange(version: ProtocolConfigItem): string {
+  const retiredAt =
+    "retired_at" in version && typeof version.retired_at === "string" ? version.retired_at : null;
+  const end = version.effective_to ?? retiredAt;
+  return `${formatDate(version.effective_from)} – ${formatDate(end)}`;
 }
 
 function formatDate(value: string | undefined | null): string {

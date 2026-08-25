@@ -244,6 +244,7 @@ SELECT
   pv.status                                                     AS status,
   pv.effective_from                                             AS effective_from,
   pv.effective_to                                               AS effective_to,
+  pv.retired_at                                                 AS retired_at,
   COALESCE(pv.sop_version_id::text, '')::text                   AS sop_version_id,
   COALESCE(pv.published_by::text, '')::text                     AS published_by,
   pv.published_at                                               AS published_at,
@@ -289,6 +290,7 @@ type ListProtocolConfigsForCategoryRow struct {
 	Status            string
 	EffectiveFrom     pgtype.Date
 	EffectiveTo       pgtype.Date
+	RetiredAt         pgtype.Timestamptz
 	SopVersionID      string
 	PublishedBy       string
 	PublishedAt       pgtype.Timestamptz
@@ -328,6 +330,7 @@ func (q *Queries) ListProtocolConfigsForCategory(ctx context.Context, arg ListPr
 			&i.Status,
 			&i.EffectiveFrom,
 			&i.EffectiveTo,
+			&i.RetiredAt,
 			&i.SopVersionID,
 			&i.PublishedBy,
 			&i.PublishedAt,

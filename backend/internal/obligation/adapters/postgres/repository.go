@@ -2174,6 +2174,17 @@ func (r *Repository) ReconcileOpenObligationForRuleIdentity(
 		occurredAt = time.Now().UTC()
 	}
 
+	if ref, ok, err := r.reconciledRuleIdentityNoop(ctx, tenant, in); err != nil {
+		return domain.ObligationRef{}, false, err
+	} else if ok {
+		return ref, true, nil
+	}
+	if ref, ok, err := r.reconcileRuleIdentityAddressOnlyNoop(ctx, tenant, version, rule, target, in); err != nil {
+		return domain.ObligationRef{}, false, err
+	} else if ok {
+		return ref, true, nil
+	}
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return domain.ObligationRef{}, false, fmt.Errorf("obligation: begin identity reconcile: %w", err)
@@ -2181,11 +2192,18 @@ func (r *Repository) ReconcileOpenObligationForRuleIdentity(
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var (
-		ref      domain.ObligationRef
-		priorDue time.Time
+		ref              domain.ObligationRef
+		priorDue         time.Time
+		priorVersionID   string
+		priorRuleID      string
+		priorKey         string
+		priorWindowStart pgtype.Timestamptz
+		priorWindowEnd   pgtype.Timestamptz
 	)
 	err = tx.QueryRow(ctx, `
-SELECT obligation_id::text, status, due_at, row_version
+SELECT obligation_id::text, status, due_at, row_version,
+       protocol_version_id::text, rule_id::text, idempotency_key,
+       window_start, window_end
 FROM obligation_instances
 WHERE tenant_id = $1
   AND target_type = $2
@@ -2194,7 +2212,7 @@ WHERE tenant_id = $1
   AND "sequence" = $5
   AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
 FOR UPDATE`, tenant, in.TargetType, target, in.RuleIdentityKey, in.Sequence).
-		Scan(&ref.ObligationID, &ref.Status, &priorDue, &ref.RowVersion)
+		Scan(&ref.ObligationID, &ref.Status, &priorDue, &ref.RowVersion, &priorVersionID, &priorRuleID, &priorKey, &priorWindowStart, &priorWindowEnd)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Nothing carries the label. Before concluding the animal owes nothing under this rule,
 		// look for work that PREDATES the label: rows written before rule_identity_key existed,
@@ -2209,6 +2227,18 @@ FOR UPDATE`, tenant, in.TargetType, target, in.RuleIdentityKey, in.Sequence).
 		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read identity reconcile target: %w", err)
 	}
 	ref.DueAt = priorDue
+	if ref.Status != "in_progress" &&
+		priorVersionID == in.ProtocolVersionID &&
+		priorRuleID == in.RuleID &&
+		priorKey == in.IdempotencyKey &&
+		priorDue.Equal(in.DueAt) &&
+		timestamptzEqualEffectiveWindowStart(priorWindowStart, in.WindowStart, in.DueAt) &&
+		timestamptzEqualPtr(priorWindowEnd, in.WindowEnd) {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit identity reconcile noop: %w", err)
+		}
+		return ref, true, nil
+	}
 
 	// An operator part-way through a drive keeps the DATE of the dose they are physically
 	// administering; moving it underneath them is not a reconciliation, it is a surprise.
@@ -2811,9 +2841,8 @@ INSERT INTO obligation_status_events (
 			return 0, fmt.Errorf("obligation: bulk insert cancel events: %w", err)
 		}
 	}
-	// Insert outbox events per obligation (separate table, kept per-record for transaction atomicity)
-	for _, id := range ids {
-		if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, id, obligationCanceledEventType, "canceled", occurredAt, outboxExtra, producer); err != nil {
+	if len(ids) > 0 {
+		if err := insertCanceledObligationLifecycleOutboxBatch(ctx, tx, tenantID, ids, occurredAt, outboxExtra, producer); err != nil {
 			return 0, err
 		}
 	}
@@ -4812,6 +4841,116 @@ func timestamptzValue(v pgtype.Timestamptz) *time.Time {
 	return &t
 }
 
+func timestamptzEqualTime(v pgtype.Timestamptz, t time.Time) bool {
+	return v.Valid && v.Time.Equal(t)
+}
+
+func timestamptzEqualPtr(v pgtype.Timestamptz, t *time.Time) bool {
+	if !v.Valid {
+		return t == nil
+	}
+	return t != nil && v.Time.Equal(*t)
+}
+
+func timestamptzEqualEffectiveWindowStart(v pgtype.Timestamptz, windowStart *time.Time, dueAt time.Time) bool {
+	if windowStart != nil {
+		return timestamptzEqualPtr(v, windowStart)
+	}
+	return v.Valid && v.Time.Equal(dueAt)
+}
+
+func (r *Repository) reconciledRuleIdentityNoop(ctx context.Context, tenant pgtype.UUID, in domain.NewObligation) (domain.ObligationRef, bool, error) {
+	var (
+		ref         domain.ObligationRef
+		versionID   string
+		ruleID      string
+		key         string
+		windowStart pgtype.Timestamptz
+		windowEnd   pgtype.Timestamptz
+	)
+	err := r.pool.QueryRow(ctx, `
+SELECT obligation_id::text, status, due_at, row_version,
+       protocol_version_id::text, rule_id::text, idempotency_key,
+       window_start, window_end
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND target_type = $2
+  AND target_id = $3::uuid
+  AND rule_identity_key = $4
+  AND "sequence" = $5
+  AND status = $6
+  AND protocol_version_id = $7::uuid
+  AND rule_id = $8::uuid
+  AND idempotency_key = $9
+  AND due_at = $10::timestamptz
+  AND window_start IS NOT DISTINCT FROM COALESCE($11::timestamptz, $10::timestamptz)
+  AND window_end IS NOT DISTINCT FROM $12::timestamptz
+  AND status IN ('scheduled', 'due')
+LIMIT 1`,
+		tenant, in.TargetType, in.TargetID, in.RuleIdentityKey, in.Sequence, in.Status,
+		in.ProtocolVersionID, in.RuleID, in.IdempotencyKey, pgconv.Timestamptz(in.DueAt),
+		pgconv.NullableTimestamptz(in.WindowStart), pgconv.NullableTimestamptz(in.WindowEnd),
+	).Scan(&ref.ObligationID, &ref.Status, &ref.DueAt, &ref.RowVersion, &versionID, &ruleID, &key, &windowStart, &windowEnd)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ObligationRef{}, false, nil
+	}
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read identity reconcile noop: %w", err)
+	}
+	if versionID != in.ProtocolVersionID || ruleID != in.RuleID || key != in.IdempotencyKey ||
+		!timestamptzEqualEffectiveWindowStart(windowStart, in.WindowStart, in.DueAt) ||
+		!timestamptzEqualPtr(windowEnd, in.WindowEnd) {
+		return domain.ObligationRef{}, false, nil
+	}
+	return ref, true, nil
+}
+
+func (r *Repository) reconcileRuleIdentityAddressOnlyNoop(
+	ctx context.Context,
+	tenant pgtype.UUID,
+	version pgtype.UUID,
+	rule pgtype.UUID,
+	target pgtype.UUID,
+	in domain.NewObligation,
+) (domain.ObligationRef, bool, error) {
+	var ref domain.ObligationRef
+	err := r.pool.QueryRow(ctx, `
+UPDATE obligation_instances
+SET protocol_version_id = $7::uuid,
+    rule_id = $8::uuid,
+    idempotency_key = $9,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1
+  AND target_type = $2
+  AND target_id = $3
+  AND rule_identity_key = $4
+  AND "sequence" = $5
+  AND status IN ('scheduled', 'due', 'deferred')
+  AND due_at = $6::timestamptz
+  AND window_start IS NOT DISTINCT FROM COALESCE($10::timestamptz, $6::timestamptz)
+  AND window_end IS NOT DISTINCT FROM $11::timestamptz
+  AND (
+    protocol_version_id <> $7::uuid OR
+    rule_id <> $8::uuid OR
+    idempotency_key <> $9
+  )
+RETURNING obligation_id::text, status, due_at, row_version`,
+		tenant, in.TargetType, target, in.RuleIdentityKey, in.Sequence, pgconv.Timestamptz(in.DueAt),
+		version, rule, in.IdempotencyKey, pgconv.NullableTimestamptz(in.WindowStart), pgconv.NullableTimestamptz(in.WindowEnd),
+	).Scan(&ref.ObligationID, &ref.Status, &ref.DueAt, &ref.RowVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ObligationRef{}, false, nil
+	}
+	if err != nil {
+		if isDuplicateGuardViolation(err) {
+			return domain.ObligationRef{}, false, nil
+		}
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: identity reconcile address-only noop: %w", err)
+	}
+	return ref, true, nil
+}
+
 func obligationUUIDs(values []string) ([]pgtype.UUID, error) {
 	ids := make([]pgtype.UUID, 0, len(values))
 	for _, id := range values {
@@ -6209,6 +6348,97 @@ ON CONFLICT DO NOTHING`,
 		obligationID, obligationMissedTopic, envelope, headers, idempotencyKey)
 	if err != nil {
 		return fmt.Errorf("obligation: %s outbox: %w", eventType, err)
+	}
+	return nil
+}
+
+func insertCanceledObligationLifecycleOutboxBatch(ctx context.Context, tx pgx.Tx, tenantID string, obligationIDs []string, occurredAt time.Time, extra map[string]any, producer string) error {
+	if len(obligationIDs) == 0 {
+		return nil
+	}
+	eventIDs := make([]string, 0, len(obligationIDs))
+	aggregateIDs := make([]string, 0, len(obligationIDs))
+	payloads := make([]string, 0, len(obligationIDs))
+	headers := make([]string, 0, len(obligationIDs))
+	idempotencyKeys := make([]string, 0, len(obligationIDs))
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	occurred := occurredAt.UTC().Format(time.RFC3339Nano)
+	for _, obligationID := range obligationIDs {
+		idempotencyKey := obligationCanceledEventType + ":" + obligationID
+		eventID := platformoutbox.DeterministicUUID(obligationCanceledEventType + ":" + tenantID + ":" + obligationID)
+		payload := map[string]any{
+			"tenant_id":     tenantID,
+			"obligation_id": obligationID,
+			"status":        "canceled",
+		}
+		for k, v := range extra {
+			if v != nil {
+				payload[k] = v
+			}
+		}
+		envelope, err := json.Marshal(map[string]any{
+			"event_id":       eventID,
+			"event_type":     obligationCanceledEventType,
+			"schema_version": obligationMissedSchemaVersion,
+			"schema_ref":     obligationMissedSchemaRef,
+			"aggregate_type": "obligation_instance",
+			"aggregate_id":   obligationID,
+			"occurred_at":    occurred,
+			"recorded_at":    now,
+			"producer": map[string]any{
+				"service": "goatos-api",
+				"module":  "obligation",
+				"version": nil,
+			},
+			"idempotency_key": idempotencyKey,
+			"actor": map[string]any{
+				"actor_type": "system_rule",
+				"actor_id":   nil,
+				"actor_ref":  nil,
+			},
+			"subject_type": "obligation_instance",
+			"subject_id":   obligationID,
+			"visibility_scope": map[string]any{
+				"tenant_id": tenantID,
+			},
+			"evidence_refs": []map[string]string{{
+				"evidence_type": "obligation_status_event",
+				"evidence_id":   obligationID + ":canceled",
+			}},
+			"payload":  payload,
+			"trace_id": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("obligation: %s envelope: %w", obligationCanceledEventType, err)
+		}
+		header, err := json.Marshal(map[string]any{
+			"producer":        producer,
+			"schema_version":  obligationMissedSchemaVersion,
+			"obligation_id":   obligationID,
+			"idempotency_key": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("obligation: %s headers: %w", obligationCanceledEventType, err)
+		}
+		eventIDs = append(eventIDs, eventID)
+		aggregateIDs = append(aggregateIDs, obligationID)
+		payloads = append(payloads, string(envelope))
+		headers = append(headers, string(header))
+		idempotencyKeys = append(idempotencyKeys, idempotencyKey)
+	}
+	_, err := tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) SELECT
+  $1::uuid, event_id::uuid, $2, $3, 'obligation_instance', aggregate_id::uuid,
+  $4, payload::jsonb, headers::jsonb, idempotency_key, idempotency_key, 'pending', now()
+FROM UNNEST($5::text[], $6::text[], $7::text[], $8::text[], $9::text[]) AS t(event_id, aggregate_id, payload, headers, idempotency_key)
+ON CONFLICT DO NOTHING`,
+		tenantID, obligationCanceledEventType, obligationMissedSchemaVersion, obligationMissedTopic,
+		eventIDs, aggregateIDs, payloads, headers, idempotencyKeys)
+	if err != nil {
+		return fmt.Errorf("obligation: %s outbox batch: %w", obligationCanceledEventType, err)
 	}
 	return nil
 }
