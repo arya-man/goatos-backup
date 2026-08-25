@@ -1,3 +1,5 @@
+// seed-fixture-guard:ignore: procurement purpose plans use the existing procured-goat purpose field
+// and add no seed input or fixture/schema column; the schedule policy only reads already-loaded data.
 package app
 
 import (
@@ -40,13 +42,24 @@ type genProcurementPolicy struct {
 	// AdultPriorVaccinationAllowed is a pointer so an EXPLICIT false is distinguishable from an
 	// omitted field (R2-03). A plain bool made active() require a positive field, so publishing only
 	// {"adult_prior_vaccination_allowed": false} left the policy "inactive" and the false was ignored.
-	AdultPriorVaccinationAllowed *bool `json:"adult_prior_vaccination_allowed"`
+	AdultPriorVaccinationAllowed *bool                                `json:"adult_prior_vaccination_allowed"`
+	PurposePlans                 map[string]genProcurementPurposePlan `json:"purpose_plans"`
+}
+
+type genProcurementPurposePlan struct {
+	FirstWave           genStringList `json:"first_wave"`
+	SecondWaveAfterDays *int32        `json:"second_wave_after_days"`
+	GoatSecondWave      genStringList `json:"goat_second_wave"`
+	SheepSecondWave     genStringList `json:"sheep_second_wave"`
 }
 
 func (p genProcurementPolicy) active() bool {
 	// An explicitly-present adult-prior flag (true OR false) makes the procurement policy active,
 	// even when every numeric field is zero -- R2-03.
-	return p.WarmupNoVaccinationDays > 0 || p.KidsNormalScheduleUntilWeeks > 0 || p.AdultPriorVaccinationAllowed != nil
+	return p.WarmupNoVaccinationDays > 0 ||
+		p.KidsNormalScheduleUntilWeeks > 0 ||
+		p.AdultPriorVaccinationAllowed != nil ||
+		len(p.PurposePlans) > 0
 }
 
 // adultPriorAllowed reports whether adult prior vaccination history may suppress/anchor adult work.

@@ -153,6 +153,20 @@ These are the invariants a reviewer or a future change must not break.
    means falling back to the previous behaviour, never to a silent carry-over of
    a rule whose content nothing has verified.
 
+### Open E2E item from procurement-purpose clarification
+
+Maintainer screenshot, 2026-08-25: while procuring animals, breeding and
+fattening vaccine requirements differ. That is not closed by the basic
+add-vaccine or edit-existing-vaccine publish tests.
+
+Before this work is called complete, a clean staging-clone E2E must prove how
+additive publish behaves for procurement animals whose purpose is `breeding`,
+`fattening`, or `non_breeding`. At minimum, the proof must show that trusted
+procurement vaccination evidence and future generated work are scoped to the
+right procurement purpose, and that adding or editing one vaccine does not
+silently carry over/suppress obligations for a purpose whose vaccine rule
+actually changed.
+
 ## Deploying this — the backfill is not optional
 
 Only rules published *after* the lineage table shipped get a row from the

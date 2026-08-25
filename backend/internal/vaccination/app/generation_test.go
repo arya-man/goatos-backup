@@ -37,6 +37,37 @@ func TestTrustedCompletionCandidateChunksBoundsBatchSize(t *testing.T) {
 	}
 }
 
+func TestGoatMatchesEligibilityUsesProcurementPurpose(t *testing.T) {
+	asOf := time.Date(2026, 8, 25, 10, 0, 0, 0, time.UTC)
+	eligibility := genEligibility{
+		Species:            genStringList{"goat"},
+		AnimalStage:        genStringList{"adult"},
+		Sex:                genStringList{"female"},
+		Breed:              genStringList{"all"},
+		Lifecycle:          genStringList{"alive"},
+		Health:             genStringList{"healthy"},
+		Reproductive:       genStringList{"any"},
+		ProcurementPurpose: genStringList{"breeding"},
+	}
+	goat := domain.EligibleGoat{
+		Species:            "goat",
+		Stage:              "adult",
+		Sex:                "female",
+		Breed:              "barbari",
+		LifecycleStatus:    "alive",
+		HealthStatus:       "healthy",
+		ReproductiveStatus: "open",
+		ProcurementPurpose: "breeding",
+	}
+	if !goatMatchesEligibility(goat, eligibility, genPregnancyPolicy{}, asOf) {
+		t.Fatal("breeding procurement goat should match breeding-only eligibility")
+	}
+	goat.ProcurementPurpose = "fattening"
+	if goatMatchesEligibility(goat, eligibility, genPregnancyPolicy{}, asOf) {
+		t.Fatal("fattening procurement goat must not match breeding-only eligibility")
+	}
+}
+
 func TestGenerateForVersionAppliesCrossVaccineGap(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC) // ~14w at asOf: inside the kid start window
@@ -3391,6 +3422,11 @@ func (o *generationObligationFake) CancelOpenVaccinationObligationsForGoatExcept
 	return 0, nil
 }
 
+func (o *generationObligationFake) CancelOpenVaccinationObligationsForExitedGoats(_ context.Context, _ string, reason string, _ time.Time) (int, error) {
+	o.cancelReasons = append(o.cancelReasons, reason)
+	return 0, nil
+}
+
 func (o *generationObligationFake) CancelOpenVaccinationObligationsForGoatVersion(_ context.Context, _, _, versionID, reason string, _ time.Time) (int, error) {
 	o.canceledVersions = append(o.canceledVersions, versionID)
 	o.cancelReasons = append(o.cancelReasons, reason)
@@ -4444,7 +4480,7 @@ func TestGenerationMovesTheSurvivingRepeatCycleInsteadOfLeavingItStale(t *testin
 // empty, so the plan-replacement sweep saw no effective version for that park and skipped --
 // and the previous plan's open work sat beside the new plan's for exactly the animals a park
 // override exists to move. Nothing failed; the lists just showed both.
-func TestParkScopedGenerationStillSupersedesTheWorkItReplaces(t *testing.T) {
+func TestParkScopeGenerationStillSupersedesTheWorkItReplaces(t *testing.T) {
 	ctx := context.Background()
 	parkGoatDOB := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{

@@ -41,6 +41,7 @@ type config struct {
 	TenantID            string
 	VersionID           string
 	UnsafeVersionRun    bool
+	GoatIDs             []string
 	AsOf                time.Time
 	Timeout             time.Duration
 	RecoveryRepairLimit int
@@ -84,6 +85,28 @@ func run(args []string) error {
 	obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, pgCfg.QueryTimeout)
 	gen := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
+
+	if len(cfg.GoatIDs) > 0 {
+		var total vaccinationdomain.GenerateResult
+		for _, goatID := range cfg.GoatIDs {
+			res, err := gen.GenerateForGoat(ctx, cfg.TenantID, goatID, cfg.AsOf)
+			if err != nil && !vaccinationapp.IsGenerationPartialFailure(err) {
+				return fmt.Errorf("generate goat %s: %w", goatID, err)
+			}
+			fmt.Printf("generated goat=%s generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
+				goatID, res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.ReconcileDateBlocked, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
+			mergeGenerateResult(&total, res)
+			total.Reconciled += res.Reconciled
+			total.AmbiguousOpenWork += res.AmbiguousOpenWork
+			total.ReconcileDateBlocked += res.ReconcileDateBlocked
+			if err != nil {
+				return withExitCode(exitCodePartialFailure, fmt.Errorf("generate goat %s: %w", goatID, err))
+			}
+		}
+		fmt.Printf("generated goat-scope total_goats=%d generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
+			len(cfg.GoatIDs), total.Generated, total.Reconciled, total.Deferred, total.Reopened, total.FailedGoats, total.AmbiguousOpenWork, total.ReconcileDateBlocked, total.SkippedNoDueDate, total.SuppressedByTrustedHistory)
+		return nil
+	}
 
 	if cfg.VersionID == "" {
 		repair, repairCandidates, missedBatchRepaired, repairErr := runRecoveryRepair(ctx, obligationRepo, vaccinationRepo, gen, cfg.TenantID, cfg.AsOf, cfg.RecoveryRepairAge, cfg.RecoveryRepairLimit)
@@ -247,6 +270,7 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	fs.StringVar(&cfg.TenantID, "tenant-id", strings.TrimSpace(os.Getenv("GOATOS_TENANT_ID")), "tenant id")
 	fs.StringVar(&cfg.VersionID, "version-id", "", "unsafe repair-only protocol version id; empty uses effective per-goat protocol resolution")
 	fs.BoolVar(&cfg.UnsafeVersionRun, "unsafe-version-id-bypass-effective-resolution", false, "allow version-id to bypass effective per-goat protocol resolution for a targeted repair run")
+	goatIDsRaw := fs.String("goat-id", "", "comma-separated goat ids to generate through effective-version resolution")
 	fs.DurationVar(&cfg.Timeout, "timeout", 120*time.Second, "generation timeout")
 	fs.IntVar(&cfg.RecoveryRepairLimit, "recovery-repair-limit", 1000, "max old deferred/missed vaccination goats to repair before the full effective-cohort scan; 0 disables")
 	fs.DurationVar(&cfg.RecoveryRepairAge, "recovery-repair-age", 7*24*time.Hour, "minimum age of deferred/missed vaccination obligations considered stuck/recoverable")
@@ -276,6 +300,20 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	}
 	if cfg.RecoveryRepairAge < 0 {
 		return config{}, errors.New("recovery-repair-age must be non-negative")
+	}
+	if strings.TrimSpace(*goatIDsRaw) != "" {
+		for _, raw := range strings.Split(*goatIDsRaw, ",") {
+			goatID := strings.TrimSpace(raw)
+			if goatID != "" {
+				cfg.GoatIDs = append(cfg.GoatIDs, goatID)
+			}
+		}
+		if len(cfg.GoatIDs) == 0 {
+			return config{}, errors.New("goat-id must include at least one non-empty id")
+		}
+		if strings.TrimSpace(cfg.VersionID) != "" {
+			return config{}, errors.New("goat-id uses effective-version resolution; omit version-id")
+		}
 	}
 	return cfg, nil
 }

@@ -374,6 +374,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
        COALESCE(g.species, 'goat')::text AS species,
        COALESCE(g.origin_type, '')::text AS origin_type,
+       COALESCE(proc.procurement_purpose, '')::text AS procurement_purpose,
        proc.warming_entry_at,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(park.location_id::text, '')::text AS park_id,
@@ -386,7 +387,8 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        COALESCE(loa.is_icu, false)::boolean AS location_is_icu
 FROM goats g
 LEFT JOIN LATERAL (
-  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
+  SELECT plg.purpose AS procurement_purpose,
+         COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
   FROM procurement_load_goats plg
   WHERE plg.tenant_id = g.tenant_id
     AND plg.goat_id = g.goat_id
@@ -433,6 +435,7 @@ type GetGoatForGenerationRow struct {
 	ReproductiveStatus   string
 	Species              string
 	OriginType           string
+	ProcurementPurpose   string
 	WarmingEntryAt       pgtype.Timestamptz
 	ShedID               string
 	ParkID               string
@@ -460,6 +463,7 @@ func (q *Queries) GetGoatForGeneration(ctx context.Context, arg GetGoatForGenera
 		&i.ReproductiveStatus,
 		&i.Species,
 		&i.OriginType,
+		&i.ProcurementPurpose,
 		&i.WarmingEntryAt,
 		&i.ShedID,
 		&i.ParkID,
@@ -550,6 +554,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
        COALESCE(g.species, 'goat')::text AS species,
        COALESCE(g.origin_type, '')::text AS origin_type,
+       COALESCE(proc.procurement_purpose, '')::text AS procurement_purpose,
        proc.warming_entry_at,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(park.location_id::text, '')::text AS park_id,
@@ -562,7 +567,8 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        COALESCE(loa.is_icu, false)::boolean AS location_is_icu
 FROM goats g
 LEFT JOIN LATERAL (
-  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
+  SELECT plg.purpose AS procurement_purpose,
+         COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
   FROM procurement_load_goats plg
   WHERE plg.tenant_id = g.tenant_id
     AND plg.goat_id = g.goat_id
@@ -624,6 +630,7 @@ type ListEligibleGoatsForGenerationRow struct {
 	ReproductiveStatus   string
 	Species              string
 	OriginType           string
+	ProcurementPurpose   string
 	WarmingEntryAt       pgtype.Timestamptz
 	ShedID               string
 	ParkID               string
@@ -668,6 +675,7 @@ func (q *Queries) ListEligibleGoatsForGeneration(ctx context.Context, arg ListEl
 			&i.ReproductiveStatus,
 			&i.Species,
 			&i.OriginType,
+			&i.ProcurementPurpose,
 			&i.WarmingEntryAt,
 			&i.ShedID,
 			&i.ParkID,

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { fromRuleDsl, newVaccineToEditor, toRuleDsl } from "./editor-model.ts";
+import { describeChange, readVaccines } from "./plan-model.ts";
 
 /**
  * "+ Add a vaccine" needs no new backend endpoint: appending a matrix row to
@@ -53,6 +54,7 @@ test("newVaccineToEditor turns a booster course into two kid doses, second offse
     vaccineType: "killed",
     pathogenClass: "bacterial",
     species: "both",
+    procurementPurpose: "all",
     courseType: "booster",
     firstDoseDays: 119, // 17 weeks
     boosterGapDays: 21,
@@ -74,6 +76,7 @@ test("a first dose of 17 weeks and a deadline of 5 months both round-trip exactl
     vaccineType: "killed",
     pathogenClass: "bacterial",
     species: "both",
+    procurementPurpose: "all",
     courseType: "single",
     firstDoseDays: 17 * 7,
     boosterGapDays: 0,
@@ -93,6 +96,7 @@ test("toRuleDsl appends a brand new matrix row with every field publish requires
     vaccineType: "killed",
     pathogenClass: "bacterial",
     species: "goat",
+    procurementPurpose: "all",
     courseType: "single",
     firstDoseDays: 84,
     boosterGapDays: 0,
@@ -120,7 +124,7 @@ test("toRuleDsl appends a brand new matrix row with every field publish requires
     "quarantine",
   ]);
 
-  assert.equal(row.schedule.length, 2, "one kid dose, one repeat rule");
+  assert.equal(row.schedule.length, 3, "one kid dose, one adult drive dose, one repeat rule");
   const kid = row.schedule.find((s) => s.trigger_type === "birth_age");
   assert.equal(kid.offset_days, 84);
   assert.equal(kid.dose_amount, 1);
@@ -130,15 +134,48 @@ test("toRuleDsl appends a brand new matrix row with every field publish requires
   assert.equal(kid.due_window_days, 14);
   assert.equal(kid.max_delay_days, 14);
 
+  const adult = row.schedule.find((s) => s.trigger_type === "manual_campaign");
+  assert.equal(adult.offset_days, 84);
+  assert.equal(adult.dose_code, "bru_adult_w1");
+  assert.equal(adult.repeat, "none");
+  assert.equal(adult.due_window_days, 14);
+
   const repeat = row.schedule.find((s) => s.repeat === "every_n_days");
   assert.equal(repeat.offset_days, 365);
 
   // The flat top-level schedule is the union of every row, new one included.
-  assert.equal(doc.schedule.length, 3);
+  assert.equal(doc.schedule.length, 4);
 });
 
 test("an existing vaccine's own row is left untouched by adding a new one", () => {
-  const plan = fromRuleDsl(BASE_DOC, null);
+  const baseWithLongRepeatWindow = {
+    ...BASE_DOC,
+    matrix_rows: [
+      {
+        ...BASE_DOC.matrix_rows[0],
+        schedule: [
+          ...BASE_DOC.matrix_rows[0].schedule,
+          {
+            dose_code: "et_tt_revac",
+            sequence: 2,
+            trigger_type: "after_previous_completion",
+            offset_days: 182,
+            min_gap_days: 182,
+            repeat: "every_n_days",
+            catch_up: "next_cycle",
+            due_window_days: 30,
+            max_delay_days: 30,
+            dose_amount: 2,
+            dose_unit: "ml",
+            route_site: "subcutaneous",
+            course_lapse_policy: "pc_review",
+          },
+        ],
+      },
+    ],
+  };
+  const before = structuredClone(baseWithLongRepeatWindow.matrix_rows[0]);
+  const plan = fromRuleDsl(baseWithLongRepeatWindow, null);
   const added = newVaccineToEditor({
     name: "Brucella",
     code: "BRU",
@@ -146,6 +183,7 @@ test("an existing vaccine's own row is left untouched by adding a new one", () =
     vaccineType: "live",
     pathogenClass: "viral",
     species: "both",
+    procurementPurpose: "all",
     courseType: "single",
     firstDoseDays: 84,
     boosterGapDays: 0,
@@ -153,10 +191,9 @@ test("an existing vaccine's own row is left untouched by adding a new one", () =
     maxLateDays: 7,
   });
   const nextPlan = { ...plan, vaccines: [...plan.vaccines, added] };
-  const doc = toRuleDsl(BASE_DOC, nextPlan);
+  const doc = toRuleDsl(baseWithLongRepeatWindow, nextPlan);
   const original = doc.matrix_rows.find((r) => r.vaccine.code === "ET+TT");
-  assert.equal(original.schedule[0].offset_days, 28);
-  assert.equal(original.schedule[0].dose_amount, 2);
+  assert.deepEqual(original, before);
 });
 
 // A short code that differs only in punctuation derives the same row id as an existing row, and
@@ -175,6 +212,7 @@ test("a new vaccine never reuses an existing matrix row id, and is still publish
     vaccineType: "killed",
     pathogenClass: "bacterial",
     species: "both",
+    procurementPurpose: "all",
     courseType: "single",
     firstDoseDays: 28,
     boosterGapDays: 0,
@@ -209,4 +247,168 @@ test("a new vaccine never reuses an existing matrix row id, and is still publish
   for (const key of ["sex", "breed", "lifecycle", "health", "reproductive"]) {
     assert.ok(addedRow.eligibility[key], `eligibility.${key} required by publish`);
   }
+});
+
+test("a new vaccine can target breeding procurement animals only", () => {
+  const plan = fromRuleDsl(BASE_DOC, null);
+  const added = newVaccineToEditor({
+    name: "Breeding Fever",
+    code: "BFV",
+    disease: "Breeding fever",
+    vaccineType: "killed",
+    pathogenClass: "bacterial",
+    species: "goat",
+    procurementPurpose: "breeding",
+    courseType: "single",
+    firstDoseDays: 84,
+    boosterGapDays: 0,
+    repeatDays: null,
+    maxLateDays: 14,
+  });
+  const doc = toRuleDsl(BASE_DOC, { ...plan, vaccines: [...plan.vaccines, added] });
+  const row = doc.matrix_rows.find((r) => r.vaccine.code === "BFV");
+
+  assert.deepEqual(row.eligibility.procurement_purpose, ["breeding"]);
+});
+
+test("all-purpose newly added vaccine rows stay unrestricted when the plan has a default purpose", () => {
+  const plan = fromRuleDsl(
+    {
+      ...BASE_DOC,
+      procurement_policy: { procurement_purpose: "fattening" },
+    },
+    null,
+  );
+  assert.equal(plan.procurement.procurementPurpose, "fattening");
+
+  const added = newVaccineToEditor({
+    name: "Purpose Default",
+    code: "PDF",
+    disease: "Purpose default",
+    vaccineType: "killed",
+    pathogenClass: "bacterial",
+    species: "goat",
+    procurementPurpose: "all",
+    courseType: "single",
+    firstDoseDays: 84,
+    boosterGapDays: 0,
+    repeatDays: null,
+    maxLateDays: 14,
+  });
+  const doc = toRuleDsl(BASE_DOC, { ...plan, vaccines: [...plan.vaccines, added] });
+  const row = doc.matrix_rows.find((r) => r.vaccine.code === "PDF");
+
+  assert.equal(row.eligibility.procurement_purpose, undefined);
+  assert.equal(doc.procurement_policy.procurement_purpose, "fattening");
+});
+
+test("procurement holding stores separate breeding and fattening wave choices", () => {
+  const plan = fromRuleDsl(BASE_DOC, null);
+  const doc = toRuleDsl(BASE_DOC, {
+    ...plan,
+    vaccines: [
+      ...plan.vaccines,
+      namedVaccine("Z1+Z3", "ZZ"),
+      namedVaccine("PPR", "PPR"),
+      namedVaccine("FMD", "FMD"),
+      namedVaccine("HS", "HS"),
+      namedVaccine("Goat Pox", "GP"),
+      namedVaccine("Sheep Pox", "SP"),
+    ],
+    procurement: {
+      ...plan.procurement,
+      purposePlans: {
+        breeding: {
+          firstWave: ["ET+TT", "Z1+Z3"],
+          secondWaveAfterDays: 28,
+          goatSecondWave: ["Goat Pox"],
+          sheepSecondWave: ["Sheep Pox"],
+        },
+        fattening: {
+          firstWave: ["PPR"],
+          secondWaveAfterDays: 14,
+          goatSecondWave: ["FMD", "HS"],
+          sheepSecondWave: ["ET+TT"],
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(doc.procurement_policy.purpose_plans.breeding.first_wave, ["ET+TT", "Z1+Z3"]);
+  assert.deepEqual(doc.procurement_policy.purpose_plans.fattening.first_wave, ["PPR"]);
+  assert.deepEqual(doc.procurement_policy.purpose_plans.fattening.goat_second_wave, ["FMD", "HS"]);
+
+  const readBack = fromRuleDsl(doc, null);
+  assert.deepEqual(readBack.procurement.purposePlans.breeding.firstWave, ["ET+TT", "Z1+Z3"]);
+  assert.deepEqual(readBack.procurement.purposePlans.fattening.firstWave, ["PPR"]);
+  assert.deepEqual(readBack.procurement.purposePlans.fattening.goatSecondWave, ["FMD", "HS"]);
+});
+
+test("procurement holding prunes wave choices for vaccines that are not in this plan", () => {
+  const plan = fromRuleDsl(BASE_DOC, null);
+  const doc = toRuleDsl(BASE_DOC, {
+    ...plan,
+    vaccines: [...plan.vaccines, { ...namedVaccine("PPR", "PPR"), on: false }],
+    procurement: {
+      ...plan.procurement,
+      purposePlans: {
+        ...plan.procurement.purposePlans,
+        fattening: {
+          firstWave: ["PPR", "ET+TT"],
+          secondWaveAfterDays: 14,
+          goatSecondWave: ["Missing Vaccine"],
+          sheepSecondWave: [],
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(doc.procurement_policy.purpose_plans.fattening.first_wave, ["ET+TT"]);
+  assert.deepEqual(doc.procurement_policy.purpose_plans.fattening.goat_second_wave, []);
+});
+
+function namedVaccine(name, code) {
+  return newVaccineToEditor({
+    name,
+    code,
+    disease: name,
+    vaccineType: "killed",
+    pathogenClass: "bacterial",
+    species: "both",
+    procurementPurpose: "all",
+    courseType: "single",
+    firstDoseDays: 84,
+    boosterGapDays: 0,
+    repeatDays: null,
+    maxLateDays: 14,
+  });
+}
+
+test("history change notes use the current display name for an added vaccine code", () => {
+  const previous = readVaccines(BASE_DOC);
+  const oldName = readVaccines({
+    ...BASE_DOC,
+    matrix_rows: [
+      ...BASE_DOC.matrix_rows,
+      {
+        row_id: "z13",
+        vaccine: { code: "Z13", name: "Z1Z3", type: "killed" },
+        schedule: [
+          {
+            dose_code: "z13_12w",
+            sequence: 1,
+            trigger_type: "birth_age",
+            offset_days: 84,
+            due_window_days: 7,
+            max_delay_days: 7,
+            repeat: "none",
+          },
+        ],
+      },
+    ],
+  });
+
+  const note = describeChange(oldName, previous, new Map([["Z13", "Z1+Z3"]]));
+
+  assert.equal(note, "Added Z1+Z3.");
 });

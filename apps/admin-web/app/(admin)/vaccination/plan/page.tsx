@@ -45,6 +45,13 @@ export default async function Page() {
   const groupsById = new Map(documents.map((d) => [d.versionId, d]));
   const live = versions.find((item) => item.status === "published");
   const catalog = live ? (groupsById.get(live.protocol_version_id)?.groups ?? []) : [];
+  const displayNameByCode = new Map<string, string>();
+  for (const document of documents) {
+    if (!document.loaded) continue;
+    for (const group of document.groups) {
+      if (!displayNameByCode.has(group.code)) displayNameByCode.set(group.code, group.name);
+    }
+  }
 
   // A version's note compares it with the one immediately before it. Only
   // computed where BOTH documents were actually read -- a failed fetch must not
@@ -57,12 +64,14 @@ export default async function Page() {
     if (!olderItem) {
       // Oldest one we read. It is only truly "the first plan" if it is also the
       // oldest that exists; otherwise there is nothing to compare against.
-      if (recent.length === ordered.length) changeNotes[recent[i].protocol_version_id] = describeChange(current.groups, null);
+      if (recent.length === ordered.length) {
+        changeNotes[recent[i].protocol_version_id] = describeChange(current.groups, null, displayNameByCode);
+      }
       continue;
     }
     const older = groupsById.get(olderItem.protocol_version_id);
     if (!older?.loaded) continue;
-    changeNotes[recent[i].protocol_version_id] = describeChange(current.groups, older.groups);
+    changeNotes[recent[i].protocol_version_id] = describeChange(current.groups, older.groups, displayNameByCode);
   }
 
   return (

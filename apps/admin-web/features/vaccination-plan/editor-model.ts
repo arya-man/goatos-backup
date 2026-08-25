@@ -36,6 +36,8 @@ export type EditorVaccine = {
   driveDoses: Dose[];
   /** Days a dose may be late. Forward from the due day only. */
   maxLateDays: number | null;
+  /** The value read from storage; used so an unchanged editor does not rewrite per-rule windows. */
+  originalMaxLateDays?: number | null;
   /** Repeat interval in days, or null when the vaccine does not repeat. */
   repeatDays: number | null;
   /**
@@ -49,6 +51,8 @@ export type EditorVaccine = {
   courseType?: string;
   /** "goat" | "sheep" | "both". Same "new row only" scope as pathogenClass. */
   species?: string;
+  /** "all" | "breeding" | "fattening" | "non_breeding". Same "new row only" scope as pathogenClass. */
+  procurementPurpose?: string;
 };
 
 /** Everything "+ Add a vaccine" collects, before it becomes an EditorVaccine + a matrix row. */
@@ -59,6 +63,7 @@ export type NewVaccineInput = {
   vaccineType: "live" | "killed";
   pathogenClass: "bacterial" | "viral";
   species: "goat" | "sheep" | "both";
+  procurementPurpose: "all" | "breeding" | "fattening" | "non_breeding";
   courseType: "single" | "booster";
   firstDoseDays: number;
   /** Only meaningful when courseType is "booster". */
@@ -94,19 +99,41 @@ export function newVaccineToEditor(input: NewVaccineInput): EditorVaccine {
     disease: input.disease.trim(),
     on: true,
     kidDoses,
-    driveDoses: [],
+    driveDoses: [
+      {
+        offsetDays: input.firstDoseDays,
+        triggerType: "manual_campaign",
+        doseCode: `${code.toLowerCase()}_adult_w1`,
+      },
+    ],
     maxLateDays: input.maxLateDays,
     repeatDays: input.repeatDays,
     pathogenClass: input.pathogenClass,
     courseType: input.courseType,
     species: input.species,
+    procurementPurpose: input.procurementPurpose,
   };
 }
+
+export type ProcurementPurpose = "breeding" | "fattening";
+
+export type ProcurementPurposePlan = {
+  firstWave: string[];
+  secondWaveAfterDays: number | null;
+  goatSecondWave: string[];
+  sheepSecondWave: string[];
+};
 
 export type ProcurementHolding = {
   warmupNoVaccinationDays: number | null;
   kidsNormalScheduleUntilWeeks: number | null;
   adultPriorVaccinationAllowed: boolean | null;
+  procurementPurpose: "all" | "breeding" | "fattening" | "non_breeding";
+  firstWave: string[];
+  secondWaveAfterDays: number | null;
+  goatSecondWave: string[];
+  sheepSecondWave: string[];
+  purposePlans: Record<ProcurementPurpose, ProcurementPurposePlan>;
 };
 
 export type SafetyRules = {
@@ -139,6 +166,8 @@ export function fromRuleDsl(ruleDsl: unknown, proofPolicy: unknown): EditorPlan 
   const drive = asObject(doc.drive_policy);
   const proc = asObject(doc.procurement_policy);
   const elig = asObject(doc.eligibility);
+  const flatProcurementPlan = readProcurementPurposePlan(proc);
+  const storedPurposePlans = asObject(proc.purpose_plans);
 
   return {
     vaccines: rows.map(readVaccine),
@@ -147,6 +176,15 @@ export function fromRuleDsl(ruleDsl: unknown, proofPolicy: unknown): EditorPlan 
       kidsNormalScheduleUntilWeeks: numberOrNull(proc.kids_normal_schedule_until_weeks),
       adultPriorVaccinationAllowed:
         typeof proc.adult_prior_vaccination_allowed === "boolean" ? proc.adult_prior_vaccination_allowed : null,
+      procurementPurpose: readProcurementPurpose(proc.procurement_purpose),
+      firstWave: stringArray(proc.first_wave),
+      secondWaveAfterDays: numberOrNull(proc.second_wave_after_days),
+      goatSecondWave: stringArray(proc.goat_second_wave),
+      sheepSecondWave: stringArray(proc.sheep_second_wave),
+      purposePlans: {
+        breeding: readProcurementPurposePlan(asObject(storedPurposePlans.breeding), flatProcurementPlan),
+        fattening: readProcurementPurposePlan(asObject(storedPurposePlans.fattening), flatProcurementPlan),
+      },
     },
     safety: {
       liveToLiveGapDays: numberOrUndefined(compat.live_to_live_gap_days),
@@ -179,6 +217,7 @@ function readVaccine(row: unknown): EditorVaccine {
   const schedule = live.length > 0 ? live : parked;
   const repeats = schedule.filter((s) => s.repeat && s.repeat !== "none");
   const firsts = schedule.filter((s) => !s.repeat || s.repeat === "none");
+  const maxLateDays = numberOrNull(firsts[0]?.due_window_days ?? repeats[0]?.due_window_days);
 
   return {
     code: String(vaccine.code ?? r.row_id ?? ""),
@@ -190,7 +229,8 @@ function readVaccine(row: unknown): EditorVaccine {
     driveDoses: firsts.filter((s) => s.trigger_type !== "birth_age").map(toDose),
     // Every dose in a course carries the same window in this document; the
     // editor shows one value rather than pretending they are independent.
-    maxLateDays: numberOrNull(firsts[0]?.due_window_days ?? repeats[0]?.due_window_days),
+    maxLateDays,
+    originalMaxLateDays: maxLateDays,
     repeatDays: numberOrNull(repeats[0]?.offset_days),
     pathogenClass: typeof vaccine.pathogen_class === "string" ? vaccine.pathogen_class : undefined,
     courseType: typeof vaccine.course_type === "string" ? vaccine.course_type : undefined,
@@ -268,7 +308,7 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
   const newRows = plan.vaccines
     .filter((v) => !seenCodes.has(v.code))
     .map((v) => {
-      const row = buildNewMatrixRow(v, doc, takenRowIds);
+      const row = buildNewMatrixRow(v, doc, takenRowIds, plan.procurement.procurementPurpose);
       takenRowIds.add(String(row.row_id));
       return row;
     });
@@ -291,9 +331,65 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
   if (plan.procurement.adultPriorVaccinationAllowed !== null) {
     proc.adult_prior_vaccination_allowed = plan.procurement.adultPriorVaccinationAllowed;
   }
+  const activeVaccines = plan.vaccines.filter((v) => v.on);
+  const sanitizeProcurementWave = (items: string[]) => filterActiveProcurementVaccines(items, activeVaccines);
+  proc.procurement_purpose = plan.procurement.procurementPurpose;
+  const purposePlansPayload = {
+    breeding: {
+      first_wave: sanitizeProcurementWave(plan.procurement.purposePlans.breeding.firstWave),
+      second_wave_after_days: plan.procurement.purposePlans.breeding.secondWaveAfterDays,
+      goat_second_wave: sanitizeProcurementWave(plan.procurement.purposePlans.breeding.goatSecondWave),
+      sheep_second_wave: sanitizeProcurementWave(plan.procurement.purposePlans.breeding.sheepSecondWave),
+    },
+    fattening: {
+      first_wave: sanitizeProcurementWave(plan.procurement.purposePlans.fattening.firstWave),
+      second_wave_after_days: plan.procurement.purposePlans.fattening.secondWaveAfterDays,
+      goat_second_wave: sanitizeProcurementWave(plan.procurement.purposePlans.fattening.goatSecondWave),
+      sheep_second_wave: sanitizeProcurementWave(plan.procurement.purposePlans.fattening.sheepSecondWave),
+    },
+  };
+  proc.purpose_plans = purposePlansPayload;
+  proc.first_wave = purposePlansPayload.breeding.first_wave;
+  if (plan.procurement.purposePlans.breeding.secondWaveAfterDays !== null) {
+    proc.second_wave_after_days = plan.procurement.purposePlans.breeding.secondWaveAfterDays;
+  }
+  proc.goat_second_wave = purposePlansPayload.breeding.goat_second_wave;
+  proc.sheep_second_wave = purposePlansPayload.breeding.sheep_second_wave;
   doc.procurement_policy = proc;
 
   return doc;
+}
+
+function filterActiveProcurementVaccines(items: string[], vaccines: EditorVaccine[]): string[] {
+  const active = new Map<string, string>();
+  for (const vaccine of vaccines) {
+    active.set(normaliseVaccineName(vaccine.code), vaccine.name);
+    active.set(normaliseVaccineName(vaccine.name), vaccine.name);
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const name = active.get(normaliseVaccineName(item));
+    if (!name) continue;
+    const key = normaliseVaccineName(name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
+function normaliseVaccineName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function readProcurementPurposePlan(value: Record<string, unknown>, fallback?: ProcurementPurposePlan): ProcurementPurposePlan {
+  return {
+    firstWave: stringArray(value.first_wave ?? fallback?.firstWave),
+    secondWaveAfterDays: numberOrNull(value.second_wave_after_days ?? fallback?.secondWaveAfterDays),
+    goatSecondWave: stringArray(value.goat_second_wave ?? fallback?.goatSecondWave),
+    sheepSecondWave: stringArray(value.sheep_second_wave ?? fallback?.sheepSecondWave),
+  };
 }
 
 /**
@@ -310,6 +406,7 @@ function newRule(
   kind: "kid" | "drive" | "repeat",
   offsetDays: number,
   sequence: number,
+  doseCode?: string,
 ): ScheduleRule {
   const base: Record<string, unknown> = template ? { ...(template as Record<string, unknown>) } : {};
   // With no sibling dose to copy from, publish's own required fields
@@ -325,7 +422,7 @@ function newRule(
     base.route_site = "subcutaneous";
     base.course_lapse_policy = "pc_review";
   }
-  base.dose_code = `${code.toLowerCase()}_${kind}_${sequence}`;
+  base.dose_code = doseCode || `${code.toLowerCase()}_${kind}_${sequence}`;
   base.source_dose_code = base.dose_code;
   base.sequence = sequence;
   base.offset_days = offsetDays;
@@ -344,6 +441,9 @@ function applyEdits(schedule: ScheduleRule[], edited: EditorVaccine, code: strin
   const template = schedule[0];
   const existingRepeat = schedule.find((r) => r.repeat && r.repeat !== "none");
   let nextSequence = schedule.reduce((max, r) => Math.max(max, Number(r.sequence ?? 0)), 0);
+  const maxLateDays = edited.maxLateDays;
+  const deadlineChanged =
+    maxLateDays !== null && (edited.originalMaxLateDays === undefined || maxLateDays !== edited.originalMaxLateDays);
 
   const kept = schedule.map((rule) => {
     const next: ScheduleRule = { ...rule };
@@ -360,9 +460,9 @@ function applyEdits(schedule: ScheduleRule[], edited: EditorVaccine, code: strin
       const dose = drive.shift();
       if (dose) next.offset_days = dose.offsetDays;
     }
-    if (edited.maxLateDays !== null) {
-      next.due_window_days = edited.maxLateDays;
-      next.max_delay_days = edited.maxLateDays;
+    if (deadlineChanged) {
+      next.due_window_days = maxLateDays;
+      next.max_delay_days = maxLateDays;
     }
     return next;
   });
@@ -373,11 +473,11 @@ function applyEdits(schedule: ScheduleRule[], edited: EditorVaccine, code: strin
   const added: ScheduleRule[] = [];
   for (const dose of kid) {
     nextSequence += 1;
-    added.push(withWindow(newRule(template, code, "kid", dose.offsetDays, nextSequence), edited));
+    added.push(withWindow(newRule(template, code, "kid", dose.offsetDays, nextSequence, dose.doseCode), edited));
   }
   for (const dose of drive) {
     nextSequence += 1;
-    added.push(withWindow(newRule(template, code, "drive", dose.offsetDays, nextSequence), edited));
+    added.push(withWindow(newRule(template, code, "drive", dose.offsetDays, nextSequence, dose.doseCode), edited));
   }
   if (edited.repeatDays !== null && !existingRepeat) {
     nextSequence += 1;
@@ -426,6 +526,7 @@ function buildNewMatrixRow(
   v: EditorVaccine,
   doc: Record<string, unknown>,
   takenRowIds: ReadonlySet<string> = new Set(),
+  defaultProcurementPurpose: "all" | "breeding" | "fattening" | "non_breeding" = "all",
 ): Record<string, unknown> {
   const topEligibility = asObject(doc.eligibility);
   const species = v.species === "goat" ? ["goat"] : v.species === "sheep" ? ["sheep"] : ["goat", "sheep"];
@@ -447,6 +548,13 @@ function buildNewMatrixRow(
       "quarantine",
     ],
   };
+  const procurementPurpose =
+    v.procurementPurpose === undefined || v.procurementPurpose === null
+      ? defaultProcurementPurpose
+      : v.procurementPurpose;
+  if (procurementPurpose !== "all") {
+    rowEligibility.procurement_purpose = [procurementPurpose];
+  }
 
   const schedule = applyEdits([], v, v.code);
 
@@ -495,4 +603,12 @@ function numberOrNull(value: unknown): number | null {
 
 function numberOrUndefined(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readProcurementPurpose(value: unknown): "all" | "breeding" | "fattening" | "non_breeding" {
+  return value === "breeding" || value === "fattening" || value === "non_breeding" ? value : "all";
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }

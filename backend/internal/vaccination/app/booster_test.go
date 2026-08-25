@@ -567,6 +567,10 @@ func (f *boosterObligationWriterFake) CancelOpenVaccinationObligationsForGoatExc
 	return 0, nil
 }
 
+func (f *boosterObligationWriterFake) CancelOpenVaccinationObligationsForExitedGoats(context.Context, string, string, time.Time) (int, error) {
+	return 0, nil
+}
+
 func (f *boosterObligationWriterFake) CancelOpenVaccinationObligationsForGoatVersion(context.Context, string, string, string, string, time.Time) (int, error) {
 	return 0, nil
 }

@@ -969,6 +969,29 @@ func TestPublishVersionRejectsVaccinationComboCapBelowApprovedSessionSize(t *tes
 	}
 }
 
+func TestPublishVersionRejectsPurposePlanSecondWaveGapWithWrongType(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	dsl := validVaccinationMatrixRuleDSL()
+	dsl = strings.Replace(
+		dsl,
+		`"second_wave_after_days":28,"goat_second_wave":["Goat Pox"]`,
+		`"second_wave_after_days":28,"purpose_plans":{"breeding":{"first_wave":["ET+TT"],"second_wave_after_days":"28","goat_second_wave":["Goat Pox"]}},"goat_second_wave":["Goat Pox"]`,
+		1,
+	)
+	repo.version.RuleDsl = []byte(dsl)
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("publish invalid purpose gap err=%v, want ErrNotPublishable", err)
+	}
+	if repo.createRuleCalled || repo.publishCalled {
+		t.Fatalf("invalid purpose plan gap should not create rules or publish")
+	}
+}
+
 func validPublishVersion(status string) domain.Version {
 	return domain.Version{
 		ProtocolVersionID: "version-1",

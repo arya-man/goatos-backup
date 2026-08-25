@@ -64,6 +64,66 @@ func TestGenerateForVersionSkipsAdultRulesForKidPath(t *testing.T) {
 	}
 }
 
+func TestGenerateForVersionUsesProcurementPurposePlans(t *testing.T) {
+	ctx := context.Background()
+	entry := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{
+			"eligibility":{"animal_stage":"adult","species":["goat"],"sex":["female"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"]},
+			"procurement_policy":{
+				"kids_normal_schedule_until_weeks":16,
+				"purpose_plans":{
+					"breeding":{"first_wave":["ET+TT"],"second_wave_after_days":28,"goat_second_wave":["FMD"],"sheep_second_wave":[]},
+					"fattening":{"first_wave":["PPR"],"second_wave_after_days":28,"goat_second_wave":["HS"],"sheep_second_wave":[]}
+				}
+			}
+		}`),
+		rules: []protodomain.Rule{
+			{RuleID: "rule-et", DoseCode: "et_tt_adult_w1", Sequence: 1, TriggerType: "manual_campaign", DueWindowDays: 7, EligibilityJSON: []byte(`{"vaccine":{"code":"ET_TT","name":"ET+TT","type":"killed","pathogen_class":"bacterial"}}`)},
+			{RuleID: "rule-ppr", DoseCode: "ppr_adult_w1", Sequence: 2, TriggerType: "manual_campaign", DueWindowDays: 7, EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","name":"PPR","type":"live","pathogen_class":"viral"}}`)},
+			{RuleID: "rule-fmd", DoseCode: "fmd_adult_w1", Sequence: 3, TriggerType: "manual_campaign", DueWindowDays: 7, EligibilityJSON: []byte(`{"vaccine":{"code":"FMD","name":"FMD","type":"killed","pathogen_class":"viral"}}`)},
+			{RuleID: "rule-hs", DoseCode: "hs_adult_w1", Sequence: 4, TriggerType: "manual_campaign", DueWindowDays: 7, EligibilityJSON: []byte(`{"vaccine":{"code":"HS","name":"HS","type":"killed","pathogen_class":"bacterial"}}`)},
+		},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{
+			GoatID: "breeding-goat", LifecycleStatus: "alive", HealthStatus: "healthy",
+			ReproductiveStatus: "open", Species: "goat", Sex: "female", Breed: "barbari",
+			Stage: "adult", OriginType: "procured", ProcurementPurpose: "breeding",
+			EntryDate: &entry, WarmingEntryAt: &entry, ShedID: "shed-1", ParkID: "park-1",
+		},
+		{
+			GoatID: "fattening-goat", LifecycleStatus: "alive", HealthStatus: "healthy",
+			ReproductiveStatus: "open", Species: "goat", Sex: "female", Breed: "barbari",
+			Stage: "adult", OriginType: "procured", ProcurementPurpose: "fattening",
+			EntryDate: &entry, WarmingEntryAt: &entry, ShedID: "shed-1", ParkID: "park-1",
+		},
+	}}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", entry)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 4 || len(obl.inserted) != 4 {
+		t.Fatalf("result=%#v inserted=%#v, want four purpose-filtered obligations", result, obl.inserted)
+	}
+	got := map[string]map[string]bool{}
+	for _, in := range obl.inserted {
+		if got[in.TargetID] == nil {
+			got[in.TargetID] = map[string]bool{}
+		}
+		got[in.TargetID][in.RuleID] = true
+	}
+	if !got["breeding-goat"]["rule-et"] || !got["breeding-goat"]["rule-fmd"] || len(got["breeding-goat"]) != 2 {
+		t.Fatalf("breeding rules = %#v, want ET+TT and FMD only", got["breeding-goat"])
+	}
+	if !got["fattening-goat"]["rule-ppr"] || !got["fattening-goat"]["rule-hs"] || len(got["fattening-goat"]) != 2 {
+		t.Fatalf("fattening rules = %#v, want PPR and HS only", got["fattening-goat"])
+	}
+}
+
 func TestGenerateForVersionSchedulesPregnantWithoutBreedingDate(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
