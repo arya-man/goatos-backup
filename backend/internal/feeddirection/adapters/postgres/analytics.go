@@ -564,7 +564,22 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 	}
 
 	if q.Wants(domain.ExecutionSectionConsumption) {
-		consRows, err := r.pool.Query(ctx, executionConsumptionSQL, tenantID, parkIDs, fromArg, toArg, domain.PackingVarianceToleranceKg, domain.MixedCohortLabel)
+		// ONE FEED DAY PAST THE WINDOW, so the trend's PACKING-day axis is not cut short.
+		//
+		// A bag is packed the day BEFORE the feed day it serves, and this arm plots packing days.
+		// Reading only the caller's feed-day window therefore ended the axis a day early: with the
+		// page's window closing on yesterday's feed day, the newest packing day it could ever draw
+		// was the day before yesterday. YESTERDAY's packing -- a finished day, already weighed by a
+		// verifier -- was never visible on the one chart built to show it. Observed on 2026-08-25:
+		// 199 measured bags totalling 2,107 kg hidden, while the mismatch table beside it already
+		// offered that day, because the page translates ITS packing-day picker with the same +1.
+		//
+		// Only the FAR end moves. `from` is untouched, and the window keeps meaning FEED days for
+		// every other arm and for this query's own predicate -- the extra day is one more sheet
+		// read, not a second grain. Today's packing still cannot appear: it serves tomorrow's feed
+		// day, which is past even the extended end, so a day mid-pack never lands half-finished.
+		consTo := to.AddDate(0, 0, 1).Format("2006-01-02")
+		consRows, err := r.pool.Query(ctx, executionConsumptionSQL, tenantID, parkIDs, fromArg, consTo, domain.PackingVarianceToleranceKg, domain.MixedCohortLabel)
 		if err != nil {
 			return domain.ExecutionAnalytics{}, fmt.Errorf("feed analytics consumption trend: %w", err)
 		}

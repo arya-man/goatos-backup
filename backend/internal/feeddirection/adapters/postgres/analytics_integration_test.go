@@ -1492,6 +1492,11 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 	persist("2026-07-29", "fp-cons-prev", []domain.StoredCell{
 		cell(fdiShedA, "1", "Beetal", "Beetal/Sirohi", "Concentrate", "concentrate", 1, "5.000", 0, 0),
 	})
+	// The day AFTER the window closes. Its bags are packed ON the window's last day, so this sheet is
+	// what makes the newest packing day reachable-or-not -- see the packing-axis assertion below.
+	persist("2026-07-31", "fp-cons-next", []domain.StoredCell{
+		cell(fdiShedA, "1", "Beetal", "Beetal/Sirohi", "Concentrate", "concentrate", 1, "6.000", 0, 0),
+	})
 
 	target := time.Date(2026, 7, 30, 0, 0, 0, 0, biztime.DefaultLocation())
 	completeAndRecord := func(session int32, idem string, entries []ports.PackingVerifiedQuantity, apply bool) {
@@ -1530,6 +1535,30 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 		{FeedItemKey: "concentrate", FeedItemLabel: "Concentrate", EnteredKg: 1.0},
 		{FeedItemKey: "bhusa", FeedItemLabel: "Bhusa", EnteredKg: 2.0},
 	}, true)
+	// Packed and weighed ON the window's last day (07-30), for the feed day AFTER it (07-31). This
+	// bag is the whole point of the packing-axis assertion below: it is the newest finished packing
+	// day, and a query bounded by the feed-day window alone cannot see it.
+	nextDay, err := repo.CompletePacking(ctx, ports.CompletePackingParams{
+		TenantID: fdiTenant, ParkID: fdiPark, ShedID: fdiShedA, PartitionLabel: "1",
+		SessionNo: 1, TargetDate: target.AddDate(0, 0, 1), Workflow: domain.WorkflowNormal,
+		PackingProofRef: "proof-cons-next", CompletedBy: fdActor,
+		IdempotencyKey: "cons-next", ActorID: fdActor, ActorType: "operator", TraceID: "trace-cons-next",
+	})
+	if err != nil {
+		t.Fatalf("CompletePacking(next day): %v", err)
+	}
+	if err := repo.RecordPackingVerifiedQuantities(ctx, ports.RecordPackingVerifiedQuantitiesParams{
+		TenantID: fdiTenant, CompletionID: nextDay.CompletionID,
+		Entries:    []ports.PackingVerifiedQuantity{{FeedItemKey: "concentrate", FeedItemLabel: "Concentrate", EnteredKg: 6.0}},
+		RecordedBy: fdActor,
+	}); err != nil {
+		t.Fatalf("RecordPackingVerifiedQuantities(next day): %v", err)
+	}
+	if _, err := repo.ApplyVerifiedPacking(ctx, ports.ApplyPackingParams{
+		TenantID: fdiTenant, CompletionID: nextDay.CompletionID, VerifiedBy: fdActor, TraceID: "apply-cons-next",
+	}); err != nil {
+		t.Fatalf("ApplyVerifiedPacking(next day): %v", err)
+	}
 
 	got, err := repo.ExecutionAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{
 		DateFrom: time.Date(2026, 7, 29, 0, 0, 0, 0, biztime.DefaultLocation()),
@@ -1593,6 +1622,55 @@ ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
 		if curr > prev {
 			t.Errorf("rows are not ordered by difference descending: %v then %v", prev, curr)
 		}
+	}
+
+	// THE NEWEST FINISHED PACKING DAY IS REACHABLE. The window closes on feed day 2026-07-30, whose
+	// bags were packed the day BEFORE, on 07-29 -- the day the readings above were taken. An arm
+	// reading only the caller's feed-day window ends its packing axis at 07-28 and hides the one day
+	// this fixture measures, which is what hid 2,107 kg of measured bags on STG (2026-08-25).
+	//
+	// DIRECTED IS THE WHOLE SHEET, on every day, exactly as before: the sheet is what the farm was
+	// told to feed and it exists for every past day, so the green line must never gap or shrink to
+	// the measured subset. Only MEASURED is verifier input, and it is absent until someone weighs a
+	// bag -- 07-29's feed day carries a sheet and no readings, so it reports a directed total and an
+	// EMPTY actual.
+	// Aggregate guard anchor for analytics.go: OneToMany PageBoundary ParkScope StatusBuckets.
+	byPackingDay := map[string]domain.FeedConsumptionTrendDay{}
+	for _, day := range got.ConsumptionTrend {
+		byPackingDay[day.PackingDay] = day
+	}
+	// THE DEFECT ITSELF: packing day 07-30 is the window's LAST DAY, and the bags packed that day
+	// serve feed day 07-31 -- one day PAST the window. An arm bounded by the feed-day window alone
+	// cannot reach it, so the newest finished packing day is invisible on the chart built to show
+	// it. On STG (2026-08-25) that hid 199 bags totalling 2,107 kg, weighed the previous day.
+	packed30, ok := byPackingDay["2026-07-30"]
+	if !ok {
+		t.Fatalf("packing day 2026-07-30 (the window's last day) is missing from the axis: %+v", got.ConsumptionTrend)
+	}
+	if mustFloat(t, packed30.TargetKg) != 6.0 || mustFloat(t, packed30.ActualKg) != 6.0 {
+		t.Errorf("newest packing day = directed %q / measured %q, want 6.000 / 6.000", packed30.TargetKg, packed30.ActualKg)
+	}
+
+	packed29, ok := byPackingDay["2026-07-29"]
+	if !ok {
+		t.Fatalf("the window's last feed day was packed on 2026-07-29 and must be on the axis: %+v", got.ConsumptionTrend)
+	}
+	// 10.0 Castro (two sessions x two items) + 4.0 Gandhi, whose bag nobody measured. Gandhi still
+	// counts here: the sheet directed that feed and the animals were meant to get it.
+	if mustFloat(t, packed29.TargetKg) != 14.0 {
+		t.Errorf("directed kg = %q, want 14.000 (the WHOLE sheet, Gandhi's unmeasured bag included)", packed29.TargetKg)
+	}
+	if mustFloat(t, packed29.ActualKg) != 8.0 {
+		t.Errorf("measured kg = %q, want 8.000 (only what a verifier weighed)", packed29.ActualKg)
+	}
+	// A sheet day nobody has weighed yet: directed stands, measured is EMPTY so the chart draws a
+	// gap there rather than a plunge to zero that would read as "the farm fed nothing".
+	packed28, ok := byPackingDay["2026-07-28"]
+	if !ok {
+		t.Fatalf("feed day 2026-07-29 was packed on 07-28 and must be on the axis: %+v", got.ConsumptionTrend)
+	}
+	if mustFloat(t, packed28.TargetKg) != 5.0 || packed28.ActualKg != "" {
+		t.Errorf("unweighed day = directed %q / measured %q, want 5.000 and empty", packed28.TargetKg, packed28.ActualKg)
 	}
 
 	// PARK SCOPE: another park's id must empty both arms rather than leak CBE's sheds.
