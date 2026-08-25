@@ -272,8 +272,12 @@ ON CONFLICT (campaign_shed_id) DO NOTHING`, c.bucketID, c.campaignID, repoTenant
 	seedLumpSumObservation(t, ctx, pool, repoShedScope, 4, 20.0, time.Date(2026, 8, 1, 6, 0, 0, 0, time.UTC))
 	seedLumpSumObservation(t, ctx, pool, lgPerShedBkt2, 4, 21.0, time.Date(2026, 8, 4, 6, 0, 0, 0, time.UTC))
 	seedLumpSumObservation(t, ctx, pool, lgPerShedBkt3, 4, 22.8, time.Date(2026, 8, 8, 6, 0, 0, 0, time.UTC))
-	// A LATER weigh past the window's end: were the boundary leaky, the span would
-	// become 20.0 → 60.0 and the band would jump. It must be invisible.
+	// CANCELED and later-past-window weighs are both invisible. Were either boundary
+	// leaky, the span would become 20.0 → 60.0 and the count/band would jump.
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_campaign_sheds SET status='canceled'
+WHERE campaign_shed_id=$1::uuid`, lgPerShedBkt4)
+	seedLumpSumObservation(t, ctx, pool, lgPerShedBkt4, 99, 60.0, time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC))
 	seedLumpSumObservation(t, ctx, pool, lgPerShedBkt4, 4, 60.0, time.Date(2026, 8, 12, 6, 0, 0, 0, time.UTC))
 
 	// Another PARK with its own homogeneous shed and a valid pair.
