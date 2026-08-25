@@ -1870,7 +1870,7 @@ func mergedEligibilityJSON(baseRaw, overrideRaw json.RawMessage) (json.RawMessag
 }
 
 func canonicalizeEligibilitySelectors(obj map[string]json.RawMessage) error {
-	for _, field := range []string{"species", "animal_stage", "sex", "breed", "lifecycle", "health", "reproductive"} {
+	for _, field := range []string{"species", "animal_stage", "sex", "breed", "lifecycle", "health", "reproductive", "procurement_purpose"} {
 		raw, ok := obj[field]
 		if !ok || strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
 			continue
@@ -2070,7 +2070,7 @@ func normalizeSelectorValue(field, value string) (string, error) {
 
 func selectorFieldUsesAllWildcard(field string) bool {
 	switch field {
-	case "species", "animal_stage", "sex", "breed", "lifecycle", "health", "reproductive":
+	case "species", "animal_stage", "sex", "breed", "lifecycle", "health", "reproductive", "procurement_purpose":
 		return true
 	default:
 		return false
