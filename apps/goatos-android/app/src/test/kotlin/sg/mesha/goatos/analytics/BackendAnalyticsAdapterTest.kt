@@ -58,7 +58,7 @@ class BackendAnalyticsAdapterTest {
         )
 
     @Test
-    fun `a critical event is persisted when the send fails offline`() = runTest {
+    fun `a critical event is persisted asynchronously when the send fails offline`() = runTest {
         val api = FakeAppApi(shouldFail = true)
         val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
         val backend = adapter(api, this, queue)
@@ -129,12 +129,51 @@ class BackendAnalyticsAdapterTest {
     }
 
     @Test
+    fun `feed distribution failure is durable and drains from the queue`() = runTest {
+        val api = FakeAppApi(shouldFail = true)
+        val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
+        val backend = adapter(api, this, queue)
+
+        backend.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
+            mapOf("kind" to "feed_video", AnalyticsEvents.Params.REASON to "missing_upload_outbox"),
+        )
+        advanceUntilIdle()
+        assertEquals(1, queue.size())
+        val originalId = api.received.single().clientEventId
+        api.received.clear()
+
+        api.shouldFail = false
+        backend.track(AnalyticsEvents.APP_OPEN)
+        advanceUntilIdle()
+
+        assertEquals(0, queue.size())
+        val drained = api.received.single { it.eventName == AnalyticsEvents.FEED_DISTRIBUTION_FAILURE }
+        assertEquals(originalId, drained.clientEventId)
+        assertEquals("feed_video", drained.properties["kind"])
+        assertEquals("missing_upload_outbox", drained.properties[AnalyticsEvents.Params.REASON])
+    }
+
+    @Test
     fun `the critical event allowlist covers the documented forensic events`() {
         val allowlist = BackendAnalyticsAdapter.CRITICAL_EVENT_ALLOWLIST
         assertTrue(allowlist.contains("proof_processing_failed"))
         assertTrue(allowlist.contains(AnalyticsEvents.SYNC_WRITE_DEAD))
+        assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_OPENED))
+        assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED))
+        assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED))
+        assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_PROOF_UPLOAD_SYNCED))
+        assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_PROOF_REUPLOAD_TAPPED))
+        assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_BLOCKED))
+        assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_SYNC_TAPPED))
+        assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_WEIGHT_PHOTO_CAPTURED))
+        assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_VIDEO_CAPTURED))
+        assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_WATER_PROOF_CAPTURED))
+        assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_SUBMITTED))
         assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_LIVE_STATUS_CHANGED))
         assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_CAPTURES_READ))
+        assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_PROOF_ADOPTED))
+        assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_FAILURE))
         assertTrue(allowlist.contains(AnalyticsEvents.WEIGHING_CAPTURE_FAILURE))
         assertTrue(allowlist.contains(AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_FAILURE))
         assertTrue(allowlist.contains(AnalyticsEvents.WEIGHING_PROOF_CAPTURE_FAILURE))
