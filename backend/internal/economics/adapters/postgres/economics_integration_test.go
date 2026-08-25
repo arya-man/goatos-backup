@@ -329,25 +329,25 @@ func TestEconomicsParkScopeNarrowsAnimalsNotDeals(t *testing.T) {
 }
 
 // STATUS MATRIX. The read must honour every status boundary at once: a rework
-// weigh never makes a pair, a non-closed deal never prices anything, a
-// RELEASED allocation leaves the sold panel while the deal's live count is the
-// apportioning denominator, a blocked feed cell (NULL) never becomes zero, and
-// an unpriced feed item is disclosed instead of invented.
-func TestEconomicsStatusMatrixReworkDealsAllocationsAndBlockedFeed(t *testing.T) {
+// weigh never makes a pair, a non-closed deal never prices anything, a blocked
+// feed cell (NULL) never becomes zero, and an unpriced feed item is disclosed
+// instead of invented.
+func TestEconomicsStatusMatrixReworkDealsAndBlockedFeed(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	seedEconomicsFixture(t, ctx, pool)
 
-	// EC-R's second round is rework: one trusted round only → not paired.
+	// EC-R's second round is rework: one trusted round only -> not paired.
 	seedEcGoat(t, ctx, pool, "22222222-0000-4000-8000-000000000901", "0901", "EC-R", "Sojat", "male", "F2-Male", ecPark, ecShed, "Part 1")
 	seedEcScan(t, ctx, pool, ecCampaignW1, ecBucketW1, "EC-R", 20.0, ecDay(8, 6), "pending")
 	seedEcScan(t, ctx, pool, ecCampaignW2, ecBucketW2, "EC-R", 24.0, ecDay(15, 6), "rework")
 
-	// EC-K pairs cleanly and sits in a pen whose ONLY cells are a blocked row
-	// and an unpriced item: cost must stay NULL (blocked is not zero, unpriced
-	// is not free) and the item must be disclosed.
+	// EC-K pairs cleanly (20.0 -> 21.4 is a 7% change, clear of the noise floor)
+	// and sits in a pen whose ONLY cells are a blocked row and an unpriced item:
+	// cost must stay NULL (blocked is not zero, unpriced is not free) and the
+	// item must be disclosed.
 	seedEcGoat(t, ctx, pool, "22222222-0000-4000-8000-000000000902", "0902", "EC-K", "Sojat", "female", "F2-Female", ecPark, ecShed, "Part 2")
 	seedEcScan(t, ctx, pool, ecCampaignW1, ecBucketW1, "EC-K", 20.0, ecDay(8, 6), "pending")
 	seedEcScan(t, ctx, pool, ecCampaignW2, ecBucketW2, "EC-K", 21.4, ecDay(15, 6), "pending")
@@ -361,36 +361,6 @@ INSERT INTO sales_deals (id, tenant_id, sale_date, farm, buyer_name, product_typ
 VALUES ($1::uuid, $2::uuid, '2026-07-21', 'CBE', 'Open Buyer', 'Sheep', 'Sojat', 3, 100, 99999, 'In Discussion')`,
 		ecDealOpen, ecTenant)
 
-	// The closed deal carries three allocations: two live, one released. The
-	// apportioning denominator is the LIVE count (2), and the released tag must
-	// not appear in the panel.
-	allocSeq := 0
-	alloc := func(suffix, tag, status string) {
-		allocSeq++
-		goatID := "22222222-0000-4000-8000-00000000" + suffix
-		// The allocation FK needs a real animal; a confirmed sale exits it, so
-		// these goats are seeded already-sold (they must never join the live
-		// per-animal table).
-		execEC(t, ctx, pool, `
-INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id, exited_at, exit_reason)
-VALUES ($1::uuid, $2::uuid, $3, 'Sojat', 'male', 'adult', 'sold', 'F2-Male', $4::uuid, $5::uuid, $6::uuid, $5::uuid, now(), 'sold')`,
-			goatID, ecTenant, fmt.Sprintf("G-9797%02d", allocSeq), ecParty, ecShed, ecPark)
-		execEC(t, ctx, pool, `
-INSERT INTO goat_sale_allocations (allocation_id, tenant_id, goat_id, sales_deal_id, park_id, shed_id, partition_label, tag_number, status, idempotency_key, released_at, released_by, release_reason)
-VALUES ($1::uuid, $2::uuid, $1::uuid, $3::uuid, $4::uuid, $5::uuid, 'Part 1', $6, $7,
-        'ec:alloc:'||$6,
-        CASE WHEN $7 = 'released' THEN now() END,
-        CASE WHEN $7 = 'released' THEN $8::uuid END,
-        CASE WHEN $7 = 'released' THEN 'test release' END)`,
-			goatID, ecTenant, ecDealClosed, ecPark, ecShed, tag, status, ecOperator)
-	}
-	alloc("0a01", "EC-SOLD-1", "tagged")
-	alloc("0a02", "EC-SOLD-2", "tagged")
-	alloc("0a03", "EC-SOLD-3", "released")
-	// EC-SOLD-1 has a weighing history (30 kg latest, rework 40 kg excluded).
-	seedEcScan(t, ctx, pool, ecCampaignW1, ecBucketW1, "EC-SOLD-1", 30.0, ecDay(9, 6), "pending")
-	seedEcScan(t, ctx, pool, ecCampaignW2, ecBucketW2, "EC-SOLD-1", 40.0, ecDay(15, 6), "rework")
-
 	from, to := ecWindow()
 	repo := NewRepository(pool, 5*time.Second)
 	out, err := repo.GetBusinessEconomics(ctx, ecTenant, []string{ecPark}, from, to)
@@ -398,11 +368,8 @@ VALUES ($1::uuid, $2::uuid, $1::uuid, $3::uuid, $4::uuid, $5::uuid, 'Part 1', $6
 		t.Fatalf("GetBusinessEconomics: %v", err)
 	}
 
-	// Rework: EC-R never paired. EC-K and EC-SOLD-1 pair (EC-SOLD-1's rework
-	// round is excluded but its two trusted rounds are W1-only → one round, not
-	// paired). So exactly EC-K is a table row.
 	if len(out.Animals) != 1 || out.Animals[0].TagDisplay != "ec-k" {
-		t.Fatalf("animals = %+v, want exactly ec-k", out.Animals)
+		t.Fatalf("animals = %+v, want exactly ec-k (rework leaves EC-R unpaired)", out.Animals)
 	}
 	row := out.Animals[0]
 	if row.FeedCostPerDayRupees != nil {
@@ -425,28 +392,88 @@ VALUES ($1::uuid, $2::uuid, $1::uuid, $3::uuid, $4::uuid, $5::uuid, 'Part 1', $6
 	if out.Pulse.RealizedPricePerKg == nil || !almostEqual(*out.Pulse.RealizedPricePerKg, 400) {
 		t.Fatalf("realized price = %v, want 400 (the In-Discussion deal must not price anything)", out.Pulse.RealizedPricePerKg)
 	}
+}
 
-	// Sold panel: two live allocations, ₹20,000 each; the released one is gone.
-	if len(out.Sold) != 2 {
-		t.Fatalf("sold rows = %d, want 2 (released allocation excluded)", len(out.Sold))
+// SCALE-NOISE FLOOR. This module DIVIDES BY the gain, so a sub-noise weight
+// change would turn scale drift into a confident rupee figure: on the live herd
+// 21% of pairs sit inside the 3% band and rendered "cost per kg" in the
+// thousands. A flat animal keeps its row and its real feed cost, but must carry
+// NO cost-per-kg, NO value-added and the Watch verdict.
+//
+// Mutation test: delete the CASE in adgCTE and EC-FLAT starts reporting a
+// four-figure cost per kg, turning this red.
+func TestEconomicsSubNoiseGainScoresFlatAndIsNeverPriced(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedEconomicsFixture(t, ctx, pool)
+
+	// EC-FLAT: 20.00 -> 20.40 over 7 days. That is +2% of body weight — inside
+	// the 3% gut-fill band — so it is NOT growth, even though the arithmetic
+	// would happily say 57 g/day and (at a real ration) hundreds of rupees a kg.
+	seedEcGoat(t, ctx, pool, "22222222-0000-4000-8000-000000000a11", "1011", "EC-FLAT", "Sojat", "male", "F2-Male", ecPark, ecShed, "Part 1")
+	seedEcScan(t, ctx, pool, ecCampaignW1, ecBucketW1, "EC-FLAT", 20.0, ecDay(8, 6), "pending")
+	seedEcScan(t, ctx, pool, ecCampaignW2, ecBucketW2, "EC-FLAT", 20.4, ecDay(15, 6), "pending")
+
+	// EC-REAL: 20.0 -> 21.4 over 7 days = +7%, real growth at 200 g/day.
+	seedEcGoat(t, ctx, pool, "22222222-0000-4000-8000-000000000a12", "1012", "EC-REAL", "Sojat", "male", "F2-Male", ecPark, ecShed, "Part 1")
+	seedEcScan(t, ctx, pool, ecCampaignW1, ecBucketW1, "EC-REAL", 20.0, ecDay(8, 6), "pending")
+	seedEcScan(t, ctx, pool, ecCampaignW2, ecBucketW2, "EC-REAL", 21.4, ecDay(15, 6), "pending")
+
+	// Both animals share one priced ration cell: ₹10/kg × 2 kg over 4 heads = ₹5/head/day.
+	seedEcPurchase(t, ctx, pool, "Maize Crush", 1, "2026-07-01", 100, 1000)
+	seedEcFeedIssue(t, ctx, pool, ecFeedIssue, "2026-07-15", "normal")
+	seedEcFeedRow(t, ctx, pool, ecFeedIssue, ecShed, "Part 1", "F2-Male", "Sojat", "Maize Crush", 2.0, nil, 4, false, "normal", 1)
+
+	from, to := ecWindow()
+	repo := NewRepository(pool, 5*time.Second)
+	out, err := repo.GetBusinessEconomics(ctx, ecTenant, []string{ecPark}, from, to)
+	if err != nil {
+		t.Fatalf("GetBusinessEconomics: %v", err)
 	}
-	for _, sold := range out.Sold {
-		if sold.TagNumber == "EC-SOLD-3" {
-			t.Fatal("released allocation must not appear in the sold panel")
-		}
-		if sold.DealAnimals != 2 {
-			t.Fatalf("deal animals = %d, want the LIVE allocation count 2", sold.DealAnimals)
-		}
-		if sold.ApportionedRevenueRupees == nil || !almostEqual(*sold.ApportionedRevenueRupees, 20000) {
-			t.Fatalf("apportioned revenue = %v, want 20000", sold.ApportionedRevenueRupees)
-		}
-		if sold.TagNumber == "EC-SOLD-1" {
-			if sold.LastWeightKg == nil || !almostEqual(*sold.LastWeightKg, 30) {
-				t.Fatalf("last weight = %v, want 30 (the rework 40 kg capture is untrusted)", sold.LastWeightKg)
-			}
-			if sold.RealizedPerKg == nil || !almostEqual(*sold.RealizedPerKg, 20000.0/30.0) {
-				t.Fatalf("realized/kg = %v", sold.RealizedPerKg)
-			}
-		}
+
+	byTag := map[string]domain.AnimalEconomics{}
+	for _, row := range out.Animals {
+		byTag[row.TagDisplay] = row
+	}
+	flat, ok := byTag["ec-flat"]
+	if !ok {
+		t.Fatal("a flat animal must KEEP its row — its feed cost is real and worth seeing")
+	}
+	if flat.ADGGPerDay != 0 {
+		t.Fatalf("sub-noise change must score 0 g/day, got %v", flat.ADGGPerDay)
+	}
+	if flat.CostPerKgGainRupees != nil {
+		t.Fatalf("a gain that was not measured cannot be priced: cost/kg = %v", *flat.CostPerKgGainRupees)
+	}
+	if flat.ValueAddedPerDayRupees != nil || flat.NetPerDayRupees != nil {
+		t.Fatalf("flat animal must carry no value/net, got %v/%v", flat.ValueAddedPerDayRupees, flat.NetPerDayRupees)
+	}
+	if flat.Signal != domain.SignalWatch {
+		t.Fatalf("flat animal signal = %q, want watch", flat.Signal)
+	}
+	if flat.FeedCostPerDayRupees == nil || !almostEqual(*flat.FeedCostPerDayRupees, 5) {
+		t.Fatalf("flat animal must still show its real feed cost, got %v", flat.FeedCostPerDayRupees)
+	}
+
+	real, ok := byTag["ec-real"]
+	if !ok {
+		t.Fatal("the genuinely growing animal must be present")
+	}
+	if !almostEqual(real.ADGGPerDay, 200) {
+		t.Fatalf("real gain = %v, want 200 g/day", real.ADGGPerDay)
+	}
+	if real.CostPerKgGainRupees == nil || !almostEqual(*real.CostPerKgGainRupees, 25) {
+		t.Fatalf("real cost/kg = %v, want 25", real.CostPerKgGainRupees)
+	}
+
+	// The flat animal must not drag the medians either: only measured growth is
+	// priced, so cost_animals counts EC-REAL alone.
+	if out.Pulse.CostAnimals != 1 {
+		t.Fatalf("cost animals = %d, want 1 (the flat animal has no priceable gain)", out.Pulse.CostAnimals)
+	}
+	if out.Pulse.PairedAnimals != 2 {
+		t.Fatalf("paired animals = %d, want 2 (both were weighed twice)", out.Pulse.PairedAnimals)
 	}
 }

@@ -15,7 +15,6 @@ const DEFAULT_WINDOW = 90;
 type Pulse = BusinessEconomicsResponse["pulse"];
 type AnimalRow = BusinessEconomicsResponse["animals"][number];
 type BandRow = BusinessEconomicsResponse["bands"][number];
-type SoldRow = BusinessEconomicsResponse["sold"][number];
 
 function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | null>): string {
   const query = new URLSearchParams();
@@ -101,21 +100,14 @@ export async function EconomicsPage({
   const parks = data ? data.parks : [];
 
   const animalColumns = tableLabels(pageContract, "economics-animals");
-  const soldColumns = tableLabels(pageContract, "economics-sold");
   const animalPageSize = tablePageSizes(pageContract, "economics-animals")[1] ?? 25;
-  const soldPageSize = tablePageSizes(pageContract, "economics-sold")[0] ?? 10;
 
   const animals: AnimalRow[] = data ? data.animals : [];
   const bands: BandRow[] = data ? data.bands : [];
-  const sold: SoldRow[] = data ? data.sold : [];
 
   const animalPageCount = Math.max(1, Math.ceil(animals.length / animalPageSize));
   const animalPage = Math.min(boundedInt(one(sp, "apage"), 1, 1, animalPageCount), animalPageCount);
   const animalRows = animals.slice((animalPage - 1) * animalPageSize, animalPage * animalPageSize);
-
-  const soldPageCount = Math.max(1, Math.ceil(sold.length / soldPageSize));
-  const soldPage = Math.min(boundedInt(one(sp, "spage"), 1, 1, soldPageCount), soldPageCount);
-  const soldRows = sold.slice((soldPage - 1) * soldPageSize, soldPage * soldPageSize);
 
   const priceBasisHint = pulse ? copy(pageContract, `kpi.realized_price.${pulse.price_basis}`) : "";
 
@@ -134,14 +126,14 @@ export async function EconomicsPage({
       {/* Scope + window chips. Park narrows animal and feed figures; deal figures stay
           both-farms, which the honesty strip below states. */}
       <div className="row" style={{ gap: 8, flexWrap: "wrap", margin: "4px 0 14px" }}>
-        <Link className={`btn small${park === "" ? " primary" : ""}`} href={hrefWithQuery(sp, { park: null, apage: null, spage: null })}>
+        <Link className={`btn small${park === "" ? " primary" : ""}`} href={hrefWithQuery(sp, { park: null, apage: null })}>
           {copy(pageContract, "filter.park.all")}
         </Link>
         {parks.map((p) => (
           <Link
             key={p.park_id}
             className={`btn small${park === p.park_id ? " primary" : ""}`}
-            href={hrefWithQuery(sp, { park: p.park_id, apage: null, spage: null })}
+            href={hrefWithQuery(sp, { park: p.park_id, apage: null })}
           >
             {p.name}
           </Link>
@@ -154,7 +146,7 @@ export async function EconomicsPage({
           <Link
             key={d}
             className={`btn small${windowDays === d ? " primary" : ""}`}
-            href={hrefWithQuery(sp, { days: String(d), apage: null, spage: null })}
+            href={hrefWithQuery(sp, { days: String(d), apage: null })}
           >
             {d}d
           </Link>
@@ -343,59 +335,6 @@ export async function EconomicsPage({
             </div>
           </section>
 
-          {/* 4 — sold animals. */}
-          <section className="card" style={{ marginBottom: 14 }} aria-label={copy(pageContract, "section.sold.title")}>
-            <div className="hd">
-              <h3>{copy(pageContract, "section.sold.title")}</h3>
-              <div className="sub">{copy(pageContract, "section.sold.subtitle")}</div>
-            </div>
-            <div className="bd">
-              {sold.length === 0 ? (
-                <div className="muted small" style={{ padding: "14px 2px", textAlign: "center" }}>
-                  {copy(pageContract, "empty.sold")}
-                </div>
-              ) : (
-                <>
-                  <div className="tbl-wrap" style={{ overflowX: "auto" }}>
-                    <table className="tbl">
-                      <thead>
-                        <tr>
-                          {soldColumns.map((label) => (
-                            <th key={label}>{label}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {soldRows.map((row, index) => (
-                          <tr key={`${row.tag_number}-${row.sale_date}-${index}`}>
-                            <td>
-                              <b>{row.tag_number}</b>
-                            </td>
-                            <td>{humanDate(row.sale_date)}</td>
-                            <td>{row.buyer_name || none}</td>
-                            <td>{row.farm || none}</td>
-                            <td>{row.shed_display || none}</td>
-                            <td>
-                              {row.last_weight_kg === null || row.last_weight_kg === undefined
-                                ? none
-                                : `${num(row.last_weight_kg, 1)} ${kg}`}
-                            </td>
-                            <td>{money(row.apportioned_revenue_rupees, none)}</td>
-                            <td>{money(row.realized_per_kg, none, perKg)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <Pager
-                    page={soldPage}
-                    pageCount={soldPageCount}
-                    hrefFor={(page) => hrefWithQuery(sp, { spage: page === 1 ? null : String(page) })}
-                  />
-                </>
-              )}
-            </div>
-          </section>
         </>
       ) : null}
     </div>

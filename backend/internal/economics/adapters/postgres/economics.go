@@ -9,12 +9,6 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
-// SQL row cap for the sold panel, kept in lockstep with domain.MaxSoldRows
-// (the query is a const, so the literal lives here; a drift is caught by
-// TestRowCapLiteralsMatchDomain). The animal table's cap is applied in Go
-// (assembleGrowth) against domain.MaxAnimalRows directly.
-const maxSoldRowsSQL = "200"
-
 // The CTE chain below mirrors the Growth Director module's weighing reads
 // (same identity, round and pair semantics) and the feed-analytics pricing
 // LATERAL, so the three screens agree on what a weigh, a gain and a rupee of
@@ -70,12 +64,26 @@ pairs AS (
   HAVING count(*) >= 2
 )`
 
-// adgCTE derives each pair's daily gain. Losses steeper than 0.30 kg/day are
-// excluded as bad scans, matching the Growth Director convention.
+// adgCTE derives each pair's daily gain, applying the Growth Director's TWO
+// weighing conventions. Both matter more here than anywhere else, because this
+// module DIVIDES BY the gain and a near-zero denominator turns scale noise into
+// a confident-looking rupee figure:
+//
+//  1. A change within 3% of starting body weight is gut fill or scale drift,
+//     not growth, and is scored FLAT (0 g/day) — the same rule and threshold
+//     as growthdirector's slow-growth read. On the live herd this is 21% of
+//     all pairs (68 of 326); without the floor those rendered as "₹10,149 per
+//     kg of gain", which reads as precision and is noise.
+//  2. Losses steeper than 0.30 kg/day are excluded as bad scans.
+//
+// A flat animal KEEPS its row — its feed cost is real and worth seeing — but
+// gets no cost-per-kg and no value-added, because a gain that was not measured
+// cannot be priced. That is what the "Watch" verdict says.
 const adgCTE = `
 adg AS (
   SELECT p.*,
-         (w_last - w_first) * 1000.0 / (t_last::date - t_first::date) AS adg_g_day,
+         CASE WHEN abs(w_last - w_first) <= 0.03 * w_first THEN 0
+              ELSE (w_last - w_first) * 1000.0 / (t_last::date - t_first::date) END AS adg_g_day,
          (t_last::date - t_first::date) AS span_days
   FROM pairs p
   WHERE t_last::date > t_first::date
@@ -88,7 +96,7 @@ adg AS (
 // lifetime-unique per tenant, 0..1, so it can never fan out. One-hop merge
 // redirect; exited animals drop out of the economics table (the sold panel
 // carries the sold ones). The pen comes from goat_shed_partitions, whose
-// 'whole' sentinel normalizes to the '' the feed sheet rows carry.
+// 'whole' sentinel normalizes to the ” the feed sheet rows carry.
 const matchedCTE = `
 matched AS (
   SELECT a.tag_key, a.w_last, a.adg_g_day, a.span_days,
@@ -227,7 +235,6 @@ func (r *Repository) GetBusinessEconomics(ctx context.Context, tenantID string, 
 		Pulse:    domain.Pulse{PriceBasis: domain.PriceBasisNone},
 		Animals:  []domain.AnimalEconomics{},
 		Bands:    emptyBands(),
-		Sold:     []domain.SoldAnimal{},
 		Estimate: true,
 	}
 	if len(parkIDs) == 0 {
@@ -271,9 +278,6 @@ func (r *Repository) GetBusinessEconomics(ctx context.Context, tenantID string, 
 		return out, err
 	}
 	if err := r.pulseDeals(ctx, &out.Pulse, tenantID, startDate, endExclusiveDate); err != nil {
-		return out, err
-	}
-	if out.Sold, err = r.sold(ctx, tenantID, parkIDs, startDate, endExclusiveDate); err != nil {
 		return out, err
 	}
 	return out, nil
@@ -558,8 +562,6 @@ func (r *Repository) realizedPriceOnce(ctx context.Context, q, tenantID, startDa
 	return &perKg, nil
 }
 
-
-
 // pulseBurn is the whole-farm daily feed spend: every directed cell — normal
 // AND experiment, plus non-sheet external consumption — priced at the latest
 // load and summed per day, averaged over the days that have a sheet. Same
@@ -661,7 +663,6 @@ WHERE tenant_id = $1::uuid
 	return nil
 }
 
-
 // deriveAnimalMoney fills the derived money fields and the signal. Null never
 // means zero: a missing side leaves the derived field nil and the signal on
 // "watch".
@@ -685,105 +686,4 @@ func deriveAnimalMoney(row *domain.AnimalEconomics, realizedPerKg *float64) {
 			row.Signal = domain.SignalBurning
 		}
 	}
-}
-
-
-// sold lists the window's sale-tagged animals through the identity-owned
-// goat_sale_allocations mapping, joined to the deal row by its OPAQUE id — the
-// exact read path migration 000177 describes; sales still reads no herd table
-// and identity still stores no price.
-//
-// projection-review: membership=live ('tagged') allocations whose deal
-// sale_date (allocation day when the deal row is missing) falls in the window;
-// group_key=allocation row — deal_counts is pre-aggregated to one row per
-// sales_deal_id over ALL live allocations of those deals (the apportioning
-// denominator deliberately ignores the window: a deal's value splits across
-// every animal on it, not the window's slice), last_weight is DISTINCT ON
-// (tag_key) so 0..1, deals/locations join on PKs 0..1 — no side multiplies;
-// pagination=LIMIT MaxSoldRows newest sale first, the pulse deal figures are
-// computed independently; scope=tenant + snapshot park ANY (NULL-park rows
-// kept: the caller here is tenant-wide by permission) + window.
-//
-// scale-guard:ignore: 5k-50k-envelope — the last_weight scan is one bounded
-// pass over the tenant's weighing observations, the same whole-history shape
-// the weighing demographics export uses.
-func (r *Repository) sold(ctx context.Context, tenantID string, parkIDs []string, startDate, endExclusiveDate string) ([]domain.SoldAnimal, error) {
-	ctx, cancel := r.timeout(ctx)
-	defer cancel()
-	out := []domain.SoldAnimal{}
-	const q = `
-WITH alloc AS (
-  SELECT a.tag_number, a.sales_deal_id, a.shed_id, a.park_id,
-         COALESCE(NULLIF(a.partition_label, 'whole'), '') AS pen,
-         a.allocated_at
-  FROM goat_sale_allocations a
-  WHERE a.tenant_id = $1::uuid
-    AND a.status = 'tagged'
-    AND (a.park_id IS NULL OR a.park_id = ANY($2::uuid[]))
-),
-deal_counts AS (
-  SELECT sales_deal_id, count(*) AS live_allocs
-  FROM goat_sale_allocations
-  WHERE tenant_id = $1::uuid AND status = 'tagged'
-  GROUP BY sales_deal_id
-),
-last_weight AS (
-  SELECT DISTINCT ON (tag_key) tag_key, weight_kg
-  FROM (
-    SELECT lower(btrim(o.scanned_identifier)) AS tag_key, o.weight_kg, o.accepted_at, o.observation_id
-    FROM weighing_observations o
-    WHERE o.tenant_id = $1::uuid
-      AND btrim(o.scanned_identifier) <> ''
-      AND o.verification_status <> 'rework'
-  ) t
-  ORDER BY tag_key, accepted_at DESC, observation_id DESC
-)
-SELECT al.tag_number,
-       COALESCE(d.sale_date::text, (al.allocated_at AT TIME ZONE 'Asia/Kolkata')::date::text) AS sale_date,
-       COALESCE(d.buyer_name, '') AS buyer_name,
-       COALESCE(d.farm, '') AS farm,
-       COALESCE(dc.live_allocs, 0),
-       d.sales_value::float8,
-       COALESCE(sh.name, '') AS shed_name, al.pen, COALESCE(pk.name, '') AS park_name,
-       lw.weight_kg::float8
-FROM alloc al
-LEFT JOIN sales_deals d  ON d.tenant_id = $1::uuid AND d.id = al.sales_deal_id
-LEFT JOIN deal_counts dc ON dc.sales_deal_id = al.sales_deal_id
-LEFT JOIN locations sh   ON sh.tenant_id = $1::uuid AND sh.location_id = al.shed_id
-LEFT JOIN locations pk   ON pk.tenant_id = $1::uuid AND pk.location_id = al.park_id
-LEFT JOIN last_weight lw ON lw.tag_key = lower(btrim(al.tag_number))
-WHERE COALESCE(d.sale_date, (al.allocated_at AT TIME ZONE 'Asia/Kolkata')::date) >= $3::date
-  AND COALESCE(d.sale_date, (al.allocated_at AT TIME ZONE 'Asia/Kolkata')::date) < $4::date
-ORDER BY COALESCE(d.sale_date, (al.allocated_at AT TIME ZONE 'Asia/Kolkata')::date) DESC, al.allocated_at DESC, al.tag_number
-LIMIT ` + maxSoldRowsSQL
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endExclusiveDate)
-	if err != nil {
-		return out, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var row domain.SoldAnimal
-		var salesValue, lastWeight *float64
-		var shedName, pen, parkName string
-		if err := rows.Scan(
-			&row.TagNumber, &row.SaleDate, &row.BuyerName, &row.Farm,
-			&row.DealAnimals, &salesValue,
-			&shedName, &pen, &parkName,
-			&lastWeight,
-		); err != nil {
-			return out, err
-		}
-		row.ShedDisplay = operationalLabel(parkName, shedName, pen)
-		row.LastWeightKg = lastWeight
-		if salesValue != nil && row.DealAnimals > 0 {
-			v := *salesValue / float64(row.DealAnimals)
-			row.ApportionedRevenueRupees = &v
-			if lastWeight != nil && *lastWeight > 0 {
-				perKg := v / *lastWeight
-				row.RealizedPerKg = &perKg
-			}
-		}
-		out = append(out, row)
-	}
-	return out, rows.Err()
 }

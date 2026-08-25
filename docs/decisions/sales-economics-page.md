@@ -68,9 +68,13 @@ Every rupee figure is a disclosed estimate:
   grain cell. A mixed pen's sheet row carries `'_+_'`-joined composite keys, so
   the match is SET MEMBERSHIP, collapsed with avg() to keep one row per animal
   (`TestEconomicsOneToManyFeedCellsCollapsePerAnimal`).
-- **Per-animal sale revenue** is the deal's `sales_value` split EVENLY across
-  its live tagged allocations — no per-animal price is recorded anywhere in the
-  system, and the page's copy says so.
+- **There is no per-animal sale figure.** A sold panel splitting the deal value
+  evenly across its animals was built and then REMOVED (maintainer decision,
+  same day): no per-animal price is recorded anywhere, so an even split is a
+  number the farm never negotiated, shown at a grain it was never agreed at.
+  The honest sale figure is the deal-grain realized price per kg on the pulse,
+  and the Sales page owns the deals themselves. The module no longer reads
+  `goat_sale_allocations` at all.
 - **Deal figures are tenant-wide** (realized price, sold revenue): the sales
   ledger records a farm label, not a park id, so the park filter narrows animal
   and feed figures only (`TestEconomicsParkScopeNarrowsAnimalsNotDeals`).
@@ -78,11 +82,22 @@ Every rupee figure is a disclosed estimate:
   falling back to the trailing 365 days, falling back to null — never a made-up
   price.
 
+### The scale-noise floor is load-bearing here
+
+A weight change within 3% of starting body weight is scored FLAT (0 g/day) —
+the same rule and threshold as `growthdirector`'s slow-growth read. It matters
+more on this page than anywhere else because this module DIVIDES BY the gain:
+on the live herd 21% of pairs (68 of 326) sit inside that band, and without the
+floor they rendered "₹10,149 per kg of gain", which reads as precision and is
+scale drift. A flat animal KEEPS its row (its feed cost is real) but carries no
+cost-per-kg, no value-added and the Watch verdict — a gain that was not
+measured cannot be priced. Pinned and mutation-tested by
+`TestEconomicsSubNoiseGainScoresFlatAndIsNeverPriced`.
+
 ### Grain and caps
 
-The per-animal table and sold panel are capped at 200 rows (worst daily net
-first / newest sale first); every pulse and band figure is a whole-filter
+The per-animal table is capped at 200 rows (worst daily net first); every pulse and band figure is a whole-filter
 aggregate computed independently, so the caps never bend a headline number
 (`TestEconomicsPaginationCapNeverBendsSummaries`). Status boundaries
-(rework weighs, non-closed deals, released allocations, blocked cells) are
-pinned by `TestEconomicsStatusMatrixReworkDealsAllocationsAndBlockedFeed`.
+(rework weighs, non-closed deals, blocked cells) are pinned by
+`TestEconomicsStatusMatrixReworkDealsAndBlockedFeed`.
