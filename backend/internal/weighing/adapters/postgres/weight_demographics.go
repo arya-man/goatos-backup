@@ -389,10 +389,10 @@ SELECT
          UNION ALL
          SELECT sc.breed,
                 sum(ls.animals)::bigint,
-                sum(ls.animals) FILTER (WHERE ls.g_per_day <= 180)::bigint,
-                sum(ls.animals) FILTER (WHERE ls.g_per_day > 180 AND ls.g_per_day <= 200)::bigint,
-                sum(ls.animals) FILTER (WHERE ls.g_per_day > 200 AND ls.g_per_day <= 250)::bigint,
-                sum(ls.animals) FILTER (WHERE ls.g_per_day > 250)::bigint
+                COALESCE(sum(ls.animals) FILTER (WHERE ls.g_per_day <= 180), 0)::bigint,
+                COALESCE(sum(ls.animals) FILTER (WHERE ls.g_per_day > 180 AND ls.g_per_day <= 200), 0)::bigint,
+                COALESCE(sum(ls.animals) FILTER (WHERE ls.g_per_day > 200 AND ls.g_per_day <= 250), 0)::bigint,
+                COALESCE(sum(ls.animals) FILTER (WHERE ls.g_per_day > 250), 0)::bigint
          FROM lump_span ls JOIN shed_cohort sc
            ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
          WHERE sc.breeds = 1 GROUP BY sc.breed
