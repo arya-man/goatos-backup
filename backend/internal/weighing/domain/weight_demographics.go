@@ -95,13 +95,20 @@ type WeightDemographics struct {
 	// ByStage covers per-animal weighs PLUS whole-shed weighs attributed to their
 	// shed's cohort, which is why its total exceeds the other two.
 	ByStage []WeightDemographicBucket `json:"by_stage"`
-	// The same three dimensions measured as daily gain. A whole-shed weigh yields no
-	// per-animal gain at all, so unlike ByStage these cover scanned animals only.
+	// The same three dimensions measured as daily gain: same-animal pairs PLUS
+	// lump-sum sheds (maintainer decision 2026-08-25). A whole-shed weigh has no
+	// per-animal identity, so its animals ride at the SHED grain — every animal of
+	// the shed carries the shed's own average-weight change between its first and
+	// latest lump-sum weigh in the window — and the shed joins a bucket only when
+	// its live cohort is homogeneous for that dimension. Mixed sheds join nothing.
 	GainByBreed []WeightGainBucket `json:"gain_by_breed"`
 	GainBySex   []WeightGainBucket `json:"gain_by_sex"`
 	GainByStage []WeightGainBucket `json:"gain_by_stage"`
-	// How many animals of each breed fell into each daily-gain band. DISJOINT bands over
-	// the same same-animal population GainByBreed uses — see the type.
+	// How many animals of each breed fell into each daily-gain band. DISJOINT bands
+	// over the same population GainByBreed uses — same-animal pairs plus
+	// homogeneous lump-sum sheds, each shed's animals landing whole in the ONE band
+	// its shed-average change falls into (maintainer decision 2026-08-25: the shed
+	// average is the only measured fact, so every animal is kept in that range).
 	GainThresholdsByBreed []WeightGainThresholdBucket `json:"gain_thresholds_by_breed"`
 	// Coverage, reported so the difference between the three is visible instead of
 	// reading as missing data. An unresolved tag is a real weigh of an animal the
