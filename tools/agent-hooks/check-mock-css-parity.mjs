@@ -494,7 +494,7 @@ async function assertServerUp(url, label) {
 }
 
 async function gotoAppTab(page, tab) {
-  await page.goto(APP_TAB_URL(tab), { waitUntil: "networkidle" });
+  await page.goto(APP_TAB_URL(tab), { waitUntil: "domcontentloaded" });
   await page.waitForSelector(".herd-signals-page", { timeout: 15000 });
   // Next.js streams this page (Suspense boundaries for the per-tab data fetch resolve after the
   // initial HTML/JS is already "networkidle"), so content can still swap in a beat after the
