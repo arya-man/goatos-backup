@@ -85,10 +85,19 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		}
 	}
 
-	// Nav: the Sales leaf lives in the Procurement group and points at the page.
+	// Nav: since the 2026-08-25 regrouping the Sales leaf lives in its OWN Sales
+	// group (nav regrouping, not a route change — the href is unchanged), and it
+	// must NOT reappear in Procurement.
 	foundLeaf := false
 	for _, group := range resp.Navigation.Groups {
-		if group.ID != "procurement" {
+		if group.ID == "procurement" {
+			for _, leaf := range group.Leaves {
+				if leaf.ID == "procurement-sales" {
+					t.Fatal("procurement-sales leaf must not remain in the Procurement nav group after the Sales split")
+				}
+			}
+		}
+		if group.ID != "sales" {
 			continue
 		}
 		for _, leaf := range group.Leaves {
@@ -101,7 +110,7 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		}
 	}
 	if !foundLeaf {
-		t.Fatal("procurement-sales leaf missing from the Procurement nav group")
+		t.Fatal("procurement-sales leaf missing from the Sales nav group")
 	}
 
 	// Breadcrumb rule.

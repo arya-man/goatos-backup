@@ -311,6 +311,15 @@ const (
 	// SalesWrite gates recording a sale (POST /sales/deals). Kept separate from SalesRead so a
 	// read-only oversight tier is expressible without a schema change.
 	SalesWrite = "sales.write"
+	// SalesEconomicsRead gates the ECONOMICS page under the Sales vertical
+	// (/sales/economics, backend GET /economics/overview): per-animal daily feed
+	// cost, measured gain, cost per kg of gain, realized sale price and the
+	// break-even read. It is NOT a reuse of SalesRead: this page lays feed
+	// spend, growth and sale margins side by side — the core unit economics of
+	// the whole business — and is leadership-only by maintainer decision
+	// (2026-08-25). Granted to ceo_internal alone; widening it to a director is
+	// a one-line grant change, never a page change.
+	SalesEconomicsRead = "sales.economics.read"
 	// FeedPurchaseRead gates the FEED PURCHASE LEDGER (/procurement/feed-purchases, backend
 	// /procurement/feed-purchases*): what feed the farm bought, from whom, at what landed cost, and
 	// whether it has been paid for.
@@ -1110,6 +1119,11 @@ var rolePermissions = map[string]map[string]struct{}{
 		// The sales module (/procurement/sales): ledger, overview and record-sale. Same
 		// founder/builder visibility invariant.
 		SalesRead: {}, SalesWrite: {},
+		// The Sales → Economics page (/sales/economics): per-animal feed cost, gain
+		// and margin side by side. Leadership-only by maintainer decision 2026-08-25
+		// — deliberately NOT granted to procurement_director or growth_director, who
+		// would each see the other's money numbers.
+		SalesEconomicsRead: {},
 		// The feed purchase ledger (/procurement/feed-purchases): what feed was bought, at what
 		// landed cost, from whom. Same founder/builder visibility invariant.
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {},

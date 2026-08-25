@@ -1541,6 +1541,56 @@ paths:
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFoundOrNotAllowed"}
         "500": {$ref: "#/components/responses/ServerError"}
+  /economics/overview:
+    get:
+      tags: [Sales]
+      operationId: adminGetSalesEconomics
+      summary: Business economics for the admin-web Sales → Economics page.
+      description: >
+        Requires the dedicated SalesEconomicsRead capability (leadership only:
+        this page lays feed spend, growth and sale margins side by side).
+        `park_id` is optional; when omitted the response covers every park the
+        caller is authorized to read, never wider. `from`/`to` are INCLUSIVE
+        Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 90 days
+        ending today.
+
+
+        Served by its OWN read-only reporting module in the Growth Director's
+        shape: weighing stays isolated (this read consumes weighing tables and
+        gates nothing), the sales lock stays intact (the deal row is reached
+        through the identity-owned goat_sale_allocations mapping by its opaque
+        id), and nothing here writes anything.
+
+
+        Every rupee figure is an ESTIMATE and the response says so: feed cost is
+        what the sheet DIRECTED priced at the latest purchase load, not what was
+        eaten; per-animal sale revenue is the deal value split evenly across its
+        animals, because no per-animal price is recorded anywhere. Deal-side
+        figures (realized price, sold revenue) are tenant-wide — the sales
+        ledger records a farm label, not a park id — while animal and feed
+        figures follow the park filter.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            The park to report on. When omitted, covers the caller's own authorized-park scope.
+          schema:
+            type: string
+            format: uuid
+        - {name: from, in: query, required: false, schema: {type: string, format: date}}
+        - {name: to, in: query, required: false, schema: {type: string, format: date}}
+      responses:
+        "200":
+          description: The economics pulse, per-animal table, break-even bands and sold panel.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/BusinessEconomicsResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFoundOrNotAllowed"}
+        "500": {$ref: "#/components/responses/ServerError"}
   /growth-director/weights:
     get:
       tags: [Weighing]
@@ -24168,6 +24218,238 @@ components:
             $ref: "#/components/schemas/WeighingPark"
         trace_id:
           type: string
+    BusinessEconomicsResponse:
+      type: object
+      additionalProperties: false
+      description: >-
+        The Sales → Economics page: pulse tiles, per-animal daily economics,
+        break-even weight bands and the sold-animal panel. `estimate` is always
+        true — feed cost is directed-and-priced, not eaten; per-animal revenue
+        is an even head split of the deal value.
+      required: [period, parks, pulse, animals, bands, sold, estimate]
+      properties:
+        period:
+          $ref: "#/components/schemas/GrowthDirectorPeriod"
+        parks:
+          type: array
+          description: Park filter vocabulary, limited to the caller's authorized scope.
+          items:
+            $ref: "#/components/schemas/WeighingPark"
+        pulse:
+          $ref: "#/components/schemas/EconomicsPulse"
+        animals:
+          type: array
+          description: >-
+            Per-animal daily economics, worst daily net first, capped at 200 rows.
+            The pulse carries the uncapped denominators, so the cap never bends a
+            headline figure.
+          items:
+            $ref: "#/components/schemas/EconomicsAnimal"
+        bands:
+          type: array
+          description: Always all six weight bands (<15, 15-20, 20-25, 25-30, 30-35, 35+), ascending.
+          items:
+            $ref: "#/components/schemas/EconomicsBand"
+        sold:
+          type: array
+          description: Sale-tagged animals of the window, newest sale first, capped at 200 rows.
+          items:
+            $ref: "#/components/schemas/EconomicsSoldAnimal"
+        estimate:
+          type: boolean
+    EconomicsPulse:
+      type: object
+      additionalProperties: false
+      description: >-
+        Headline figures. Money fields are nullable and null NEVER means zero —
+        it means the input that would make the figure honest is missing, with the
+        reason readable from the disclosure counts beside it. Deal figures
+        (realized price, sold revenue) are tenant-wide: the sales ledger records
+        a farm label, not a park id.
+      required:
+        - feed_cost_per_day_rupees
+        - value_added_per_day_rupees
+        - realized_price_per_kg
+        - price_basis
+        - median_cost_per_kg_gain
+        - weighed_identities
+        - paired_animals
+        - cost_animals
+        - unpriced_feed_items
+        - closed_deals
+        - animals_sold
+        - sold_revenue_rupees
+      properties:
+        feed_cost_per_day_rupees:
+          type: number
+          nullable: true
+          description: Average daily priced feed direction over the window, whole scope.
+        value_added_per_day_rupees:
+          type: number
+          nullable: true
+          description: Measured daily gain of paired animals, priced at the realized price per kg.
+        realized_price_per_kg:
+          type: number
+          nullable: true
+        price_basis:
+          type: string
+          enum: [window, trailing_year, none]
+          description: >-
+            Where the realized price came from — the window's own closed deals,
+            the trailing 365 days when the window had none, or nothing at all.
+        median_cost_per_kg_gain:
+          type: number
+          nullable: true
+        weighed_identities:
+          type: integer
+        paired_animals:
+          type: integer
+        cost_animals:
+          type: integer
+        unpriced_feed_items:
+          type: integer
+          description: >-
+            Feed items directed in the window with NO purchase on record to price
+            them — their kg is missing from every rupee figure.
+        closed_deals:
+          type: integer
+        animals_sold:
+          type: integer
+        sold_revenue_rupees:
+          type: number
+    EconomicsAnimal:
+      type: object
+      additionalProperties: false
+      description: >-
+        One live, matched animal weighed at least twice in the window. Money
+        fields are nullable; null means "not computable", never zero.
+      required:
+        - tag_display
+        - display_id
+        - breed
+        - sex
+        - stage
+        - shed_display
+        - latest_weight_kg
+        - adg_g_per_day
+        - span_days
+        - feed_cost_per_day_rupees
+        - cost_per_kg_gain_rupees
+        - value_added_per_day_rupees
+        - net_per_day_rupees
+        - signal
+      properties:
+        tag_display:
+          type: string
+        display_id:
+          type: string
+        breed:
+          type: string
+        sex:
+          type: string
+        stage:
+          type: string
+        shed_display:
+          type: string
+          description: Park-prefixed shed + pen, composed by the backend per the operational-location rule.
+        latest_weight_kg:
+          type: number
+        adg_g_per_day:
+          type: number
+        span_days:
+          type: integer
+        feed_cost_per_day_rupees:
+          type: number
+          nullable: true
+        cost_per_kg_gain_rupees:
+          type: number
+          nullable: true
+        value_added_per_day_rupees:
+          type: number
+          nullable: true
+        net_per_day_rupees:
+          type: number
+          nullable: true
+        signal:
+          type: string
+          enum: [earning, burning, watch]
+    EconomicsBand:
+      type: object
+      additionalProperties: false
+      description: >-
+        One weight band's break-even read: the band's median animal's gain, cost
+        and return per day. sell_signal is true when the median net is zero or
+        negative — keeping the median animal of this band loses money at today's
+        realized price.
+      required:
+        - band
+        - animals
+        - median_adg_g_per_day
+        - feed_cost_per_day_rupees
+        - value_added_per_day_rupees
+        - net_per_day_rupees
+        - sell_signal
+      properties:
+        band:
+          type: string
+        animals:
+          type: integer
+        median_adg_g_per_day:
+          type: number
+          nullable: true
+        feed_cost_per_day_rupees:
+          type: number
+          nullable: true
+        value_added_per_day_rupees:
+          type: number
+          nullable: true
+        net_per_day_rupees:
+          type: number
+          nullable: true
+        sell_signal:
+          type: boolean
+    EconomicsSoldAnimal:
+      type: object
+      additionalProperties: false
+      description: >-
+        One animal tagged to a sale in the window, through the identity-owned
+        allocation mapping. apportioned_revenue_rupees is the deal value divided
+        by its live tagged allocations — an even head split, disclosed as an
+        estimate; no per-animal price exists anywhere.
+      required:
+        - tag_number
+        - sale_date
+        - buyer_name
+        - farm
+        - shed_display
+        - deal_animals
+        - apportioned_revenue_rupees
+        - last_weight_kg
+        - realized_per_kg
+      properties:
+        tag_number:
+          type: string
+        sale_date:
+          type: string
+          format: date
+        buyer_name:
+          type: string
+        farm:
+          type: string
+        shed_display:
+          type: string
+          description: Where the animal stood when it was tagged to the sale (snapshot, park-prefixed).
+        deal_animals:
+          type: integer
+        apportioned_revenue_rupees:
+          type: number
+          nullable: true
+        last_weight_kg:
+          type: number
+          nullable: true
+        realized_per_kg:
+          type: number
+          nullable: true
     GrowthDirectorWeightsResponse:
       type: object
       additionalProperties: false

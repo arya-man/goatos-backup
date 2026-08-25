@@ -248,6 +248,10 @@ var protectedRoutes = []Route{
 	{OperationID: "createSalesMarketBenchmark", Method: "POST", Pattern: "/sales/market-benchmarks", Permissions: []string{SalesWrite}},
 	{OperationID: "createSalesSoldTags", Method: "POST", Pattern: "/sales/sold-tags", Permissions: []string{SalesWrite}},
 	{OperationID: "createSalesWeightCheck", Method: "POST", Pattern: "/sales/weight-checks", Permissions: []string{SalesWrite}},
+	// Sales -> Economics: per-animal cost, gain and margin. Leadership-only by
+	// maintainer decision 2026-08-25; the dedicated SalesEconomicsRead, never a
+	// reuse of SalesRead.
+	{OperationID: "adminGetSalesEconomics", Method: "GET", Pattern: "/economics/overview", Permissions: []string{SalesEconomicsRead}},
 	// Procurement command-lens data is served by the TOP-LEVEL command screens via ?domain=procurement,
 	// not nested /procurement/source-entry/* routes. Those nested lens routes are intentionally not registered.
 

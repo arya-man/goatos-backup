@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bell,
+  Banknote,
   BarChart3,
   CalendarDays,
   Check,
@@ -47,6 +48,9 @@ type PendingNavigationTiming = {
 };
 
 const iconByToken: Record<string, ElementType> = {
+  // Sales is its own vertical in the backend nav contract; without this token the group would
+  // silently fall back to the Control Tower icon (the same defect `wheat` and `milk` hit).
+  banknote: Banknote,
   "bar-chart-3": BarChart3,
   "calendar-days": CalendarDays,
   "clipboard-check": ClipboardCheck,

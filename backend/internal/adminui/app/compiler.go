@@ -1459,6 +1459,12 @@ func permissionsForNav(id string) []string {
 		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
 		// and realized prices -- the selling side, not the intake screens operators work.
 		return []string{permissions.SalesRead}
+	case "sales-economics":
+		// The dedicated economics permission, NOT SalesRead: this page lays feed
+		// spend, growth and sale margins side by side and is leadership-only by
+		// maintainer decision 2026-08-25. Gating it on SalesRead would put it in
+		// the procurement director's sidebar.
+		return []string{permissions.SalesEconomicsRead}
 	case "procurement-feed-purchases":
 		// The dedicated ledger permission, NOT ProcurementRead: the purchase ledger carries
 		// supplier prices and payment state. Gating on ProcurementRead would put it in every
