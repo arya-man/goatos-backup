@@ -58,13 +58,12 @@ class BackendAnalyticsAdapterTest {
         )
 
     @Test
-    fun `a critical event is persisted when the send fails offline`() = runTest {
+    fun `a critical event is persisted asynchronously when the send fails offline`() = runTest {
         val api = FakeAppApi(shouldFail = true)
         val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
         val backend = adapter(api, this, queue)
 
         backend.track(AnalyticsEvents.SYNC_WRITE_DEAD, mapOf(AnalyticsEvents.Params.REASON to "conflict"))
-        assertEquals("critical event must be durable before async send/drain runs", 1, queue.size())
         advanceUntilIdle()
 
         assertEquals(1, queue.size())
@@ -139,7 +138,6 @@ class BackendAnalyticsAdapterTest {
             AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
             mapOf("kind" to "feed_video", AnalyticsEvents.Params.REASON to "missing_upload_outbox"),
         )
-        assertEquals(1, queue.size())
         advanceUntilIdle()
         assertEquals(1, queue.size())
         val originalId = api.received.single().clientEventId

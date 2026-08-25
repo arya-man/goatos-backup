@@ -25,7 +25,7 @@ import javax.inject.Provider
  *
  * P2 backend-analytics-durability fix (2026-08-15): the small, hand-picked
  * [CRITICAL_EVENT_ALLOWLIST] subset -- the forensic events actually used to debug offline/failure
- * incidents -- IS now durable. Those events are written to [queue] before [track] returns, then
+ * incidents -- IS now durable. Those events are handed to [appScope], written to [queue], then
  * delivered from that queue (a minimal, capped, file-backed queue -- see [DurableAnalyticsQueue]'s
  * kdoc for what it does and does NOT do) and retried opportunistically the next time [track] runs on ANY event
  * (see [drainQueuedEvents]). This is intentionally not full parity with the app's existing
@@ -70,10 +70,11 @@ class BackendAnalyticsAdapter(
             appVersionName = request.appVersionName,
             appVersionCode = request.appVersionCode,
         )
-        if (isCritical) {
-            queue.enqueueBlocking(queuedEvent)
-        }
         appScope.launch {
+            if (isCritical) {
+                queue.enqueue(queuedEvent)
+            }
+
             // Opportunistic drain: any live network activity from this adapter is itself evidence
             // connectivity may be back, so flush previously-queued critical events first. See
             // this class's kdoc for why this call site -- not a ConnectivityManager callback or a

@@ -2,6 +2,8 @@ package sg.mesha.goatos.analytics
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import org.json.JSONArray
@@ -31,11 +33,10 @@ data class QueuedAnalyticsEvent(
  *
  * - Persistence is one JSON-array file under [Context.filesDir], written with a temp-file-then-
  *   rename swap so a process death mid-write cannot leave a truncated/corrupt queue behind.
- * - [enqueue] is drop-oldest capped at [maxEntries] (default 500): a device offline for a long
+ * - [enqueue] runs on [ioDispatcher] and is drop-oldest capped at [maxEntries] (default 500): a device offline for a long
  *   stretch loses its OLDEST unsent critical events rather than growing this file unbounded.
- * - [drain] sends entries in FIFO order and stops at the first failure, so a single offline/
- *   backend-down stretch cannot skip ahead and desync ordering; entries are only removed from the
- *   file once [drain]'s `send` callback reports success for them.
+ * - [drain] is guarded by a process-local mutex across read/send/remove. Concurrent track() calls
+ *   cannot read and send the same persisted entries before either removes them.
  * - No backoff/scheduling of its own: [BackendAnalyticsAdapter.track] calls [drain] opportunistically
  *   on every subsequent track() call (see its kdoc) since any live network attempt is itself
  *   evidence connectivity may be back. This deliberately avoids a second background trigger
@@ -62,6 +63,7 @@ class DurableAnalyticsQueue(
     private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val lock = ReentrantLock()
+    private val drainMutex = Mutex()
     private val queueFile: File? = context?.applicationContext?.let { File(it.filesDir, QUEUE_FILE_NAME) }
 
     /** Persists one event, applying the drop-oldest cap. Safe to call from any coroutine. */
@@ -77,21 +79,6 @@ class DurableAnalyticsQueue(
     }
 
     /**
-     * Synchronous enqueue for critical breadcrumbs. BackendAnalyticsAdapter.track() is not suspend,
-     * so this is the only way to make a critical event durable before returning to the caller.
-     */
-    fun enqueueBlocking(event: QueuedAnalyticsEvent) {
-        val file = queueFile ?: return
-        lock.withLock {
-            runCatching {
-                val entries = readAllLocked(file) + event
-                val bounded = if (entries.size > maxEntries) entries.takeLast(maxEntries) else entries
-                writeAllLocked(file, bounded)
-            }.onFailure { Log.w(TAG, "DurableAnalyticsQueue enqueue failed", it) }
-        }
-    }
-
-    /**
      * Attempts to send every persisted entry, in order, via [send]. Stops at the first entry
      * [send] reports as not-sent (returns `false` or throws) so later entries are never sent out
      * of order ahead of an earlier one still stuck. Entries [send] confirmed are removed from the
@@ -99,25 +86,27 @@ class DurableAnalyticsQueue(
      */
     suspend fun drain(send: suspend (QueuedAnalyticsEvent) -> Boolean) {
         val file = queueFile ?: return
-        val entries = withContext(ioDispatcher) {
-            lock.withLock { runCatching { readAllLocked(file) }.getOrElse { emptyList() } }
-        }
-        if (entries.isEmpty()) return
-        var sentCount = 0
-        for (entry in entries) {
-            // exception:exempt send failure IS the signal — drain stops and the entry stays queued for the next attempt
-            val sent = runCatching { send(entry) }.getOrDefault(false)
-            if (!sent) break
-            sentCount++
-        }
-        if (sentCount > 0) {
-            withContext(ioDispatcher) {
-                lock.withLock {
-                    val current = runCatching { readAllLocked(file) }.getOrElse { emptyList() }
-                    val sentIds = entries.take(sentCount).map { it.clientEventId }.toSet()
-                    val remaining = current.filterNot { it.clientEventId in sentIds }
-                    runCatching { writeAllLocked(file, remaining) }
-                        .onFailure { Log.w(TAG, "DurableAnalyticsQueue post-drain rewrite failed", it) }
+        drainMutex.withLock {
+            val entries = withContext(ioDispatcher) {
+                lock.withLock { runCatching { readAllLocked(file) }.getOrElse { emptyList() } }
+            }
+            if (entries.isEmpty()) return
+            var sentCount = 0
+            for (entry in entries) {
+                // exception:exempt send failure IS the signal — drain stops and the entry stays queued for the next attempt
+                val sent = runCatching { send(entry) }.getOrDefault(false)
+                if (!sent) break
+                sentCount++
+            }
+            if (sentCount > 0) {
+                withContext(ioDispatcher) {
+                    lock.withLock {
+                        val current = runCatching { readAllLocked(file) }.getOrElse { emptyList() }
+                        val sentIds = entries.take(sentCount).map { it.clientEventId }.toSet()
+                        val remaining = current.filterNot { it.clientEventId in sentIds }
+                        runCatching { writeAllLocked(file, remaining) }
+                            .onFailure { Log.w(TAG, "DurableAnalyticsQueue post-drain rewrite failed", it) }
+                    }
                 }
             }
         }
