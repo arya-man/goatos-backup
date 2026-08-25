@@ -137,12 +137,28 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeaf("procurement-source-entry", "Source Entry", "/procurement/source-entry", nil),
 					navLeaf("procurement-vendors", "Vendors", "/procurement/vendors", nil),
-					navLeaf("procurement-sales", "Sales", "/procurement/sales", nil),
+					// Sales moved OUT of this group into its own Sales vertical
+					// (maintainer decision 2026-08-25): selling is not buying.
 					// Feed Purchases — the BUYING side of the feed chain. It sits in Procurement,
 					// not under Feed, because migration 000174 recorded that purchase entry
 					// belongs to this vertical; /feed/analytics keeps the stock cards these loads
 					// feed.
 					navLeaf("procurement-feed-purchases", "Feed Purchases", "/procurement/feed-purchases", nil),
+				},
+			},
+			// Sales is its own VERTICAL (maintainer decision 2026-08-25): the selling
+			// side of the business, split out of Procurement the way Milk was split out
+			// of Counts. The Sales page KEEPS its /procurement/sales href — this is a
+			// nav regrouping, not a route change, exactly as the Milk split kept
+			// /counts/milk-preparation (see that group's note).
+			{
+				ID: "sales", Label: "Sales", Icon: "banknote", DefaultOpen: false,
+				Leaves: []domain.NavigationItem{
+					navLeaf("procurement-sales", "Sales", "/procurement/sales", nil),
+					// Economics — the core business read: what an animal costs per day,
+					// what it gains per day, what a kg of gain costs to put on, and what
+					// a kg actually sells for. Leadership-only (SalesEconomicsRead).
+					navLeaf("sales-economics", "Economics", "/sales/economics", nil),
 				},
 			},
 			{
@@ -302,6 +318,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
 		{Pattern: "/procurement/vendors", Label: "Vendors", Match: "exact"},
 		{Pattern: "/procurement/sales", Label: "Sales", Match: "exact"},
+		{Pattern: "/sales/economics", Label: "Economics", Match: "exact"},
 		{Pattern: "/procurement/feed-purchases", Label: "Feed Purchases", Match: "exact"},
 		{Pattern: "/counts/sops", Label: "Herd Operations SOP", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
@@ -492,6 +509,18 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
 				withoutRowClick(tableP("sales-buyers", "Buyers", "/sales/overview", []string{"buyer_name", "buyer_place", "product_types", "deals", "animals", "revenue", "share_pct"}, "", []int{10, 25, 50})),
+			}),
+		// Sales → Economics: the core-of-the-business read. Both tables ride on the
+		// one GET /economics/overview response and are paged in the renderer, so the
+		// contracts declare page sizes and no row click — there is no economics
+		// record to open, and a declared row click the page cannot honour would be a
+		// contract lie. Rows are capped server-side (worst daily net first / newest
+		// sale first) with every summary computed whole-filter, so the caps never
+		// bend a headline number.
+		page("sales-economics", "/sales/economics", "/sales/economics", "Economics", "The core of the business, animal by animal — what a day of feed costs, what a day of growth returns, what a kg of gain costs to put on, and what a kg actually sells for.", "module-surface",
+			[]domain.TableContract{
+				economicsAnimalsTable(),
+				economicsSoldTable(),
 			}),
 		// FEED PURCHASES: the buying side of the feed chain (maintainer decision 2026-08-24,
 		// retiring the read-only half of migration 000174). One server-paged ledger table whose
@@ -843,6 +872,39 @@ func weightsGainThresholdTable() domain.TableContract {
 	t := withoutRowClick(tableP("gain-thresholds", "Breed-wise daily gain", "/weighing/weight-demographics",
 		[]string{"breed", "gain_animals", "above_250", "band_200_250", "band_180_200", "upto_180"}, "", []int{10, 25, 50}))
 	copy := pageCopy("weighing-weights")
+	for i := range t.Columns {
+		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
+			t.Columns[i].Label = label
+		}
+	}
+	return t
+}
+
+// economicsAnimalsTable builds the per-animal economics table on /sales/economics.
+//
+// Column labels come from the page's OWN copy map rather than humanLabel, because the farm
+// says "Gain per day" and "Cost per kg gain", not "Adg" and "Cost Per Kg Gain". Same
+// single-source reasoning as feedPurchaseTable: the header and the cells cannot drift.
+func economicsAnimalsTable() domain.TableContract {
+	t := withoutRowClick(tableP("economics-animals", "Per-animal economics", "/economics/overview",
+		[]string{"tag", "animal", "shed", "latest_weight", "adg", "feed_cost_day", "cost_per_kg_gain", "value_per_day", "net_per_day", "signal"},
+		"", []int{10, 25, 50}))
+	copy := pageCopy("sales-economics")
+	for i := range t.Columns {
+		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
+			t.Columns[i].Label = label
+		}
+	}
+	return t
+}
+
+// economicsSoldTable builds the sold-animals panel table on /sales/economics. Same
+// copy-sourced labels as economicsAnimalsTable.
+func economicsSoldTable() domain.TableContract {
+	t := withoutRowClick(tableP("economics-sold", "Sold animals", "/economics/overview",
+		[]string{"tag_number", "sale_date", "buyer", "farm", "shed", "last_weight", "apportioned_revenue", "realized_per_kg"},
+		"", []int{10, 25, 50}))
+	copy := pageCopy("sales-economics")
 	for i := range t.Columns {
 		if label := strings.TrimSpace(copy["column."+t.Columns[i].Key]); label != "" {
 			t.Columns[i].Label = label
@@ -2605,12 +2667,110 @@ func pageSpecificCopy(id string) map[string]string {
 			"error.options":                     "Could not load the purchase form options. Refresh to try again.",
 			"disabled.write":                    "Your current role can view feed purchases but not record them.",
 		}
+	case "sales-economics":
+		// Backend-owned copy for the Sales → Economics page. The client renders these
+		// verbatim; per the golden rule it must not hardcode a label, an empty state
+		// or a disclosure of its own. Farm language only.
+		return map[string]string{
+			"crumb": "Sales",
+
+			// Scope + window controls.
+			"filter.park.all": "Both parks",
+			"filter.window":   "Window",
+			"period.covering": "Covering",
+
+			// Pulse tiles.
+			"section.pulse.title": "Business pulse",
+			"section.pulse.aria":  "Business economics headline figures",
+
+			"kpi.feed_burn":      "Feed spend per day",
+			"kpi.feed_burn.hint": "Every priced feed sheet cell plus milk, averaged over the window's feed days.",
+
+			"kpi.value_added":      "Growth value per day",
+			"kpi.value_added.hint": "Measured daily gain of weighed animals, priced at the realized price per kg.",
+
+			"kpi.realized_price":               "Realized price per kg",
+			"kpi.realized_price.window":        "From this window's closed deals.",
+			"kpi.realized_price.trailing_year": "No closed deals in this window — priced from the last 12 months.",
+			"kpi.realized_price.none":          "No closed weighed deals on record yet.",
+
+			"kpi.cost_per_kg_gain":      "Cost per kg of gain",
+			"kpi.cost_per_kg_gain.hint": "Median across animals with a priced ration and a measured gain.",
+
+			"kpi.sold":        "Sold in this window",
+			"kpi.sold.detail": "closed animal deals, both farms",
+			"kpi.deals":       "deals",
+			"kpi.animals":     "animals",
+
+			// Honesty strip: what the figures cover and what they cannot.
+			"trust.title":          "What these figures cover",
+			"trust.weighed":        "tag identities weighed in this window",
+			"trust.paired":         "weighed twice or more — the animals a daily gain exists for",
+			"trust.costed":         "with a priced ration matched — the animals a cost exists for",
+			"trust.unpriced_items": "feed items had no purchase on record, so their cost is missing from every rupee figure",
+			"trust.estimate":       "Feed cost is what the sheet directed, priced at the latest load — not what was eaten. Sale revenue per animal is the deal value split evenly across its animals — no per-animal price is recorded anywhere.",
+			"trust.deals_scope":    "Deal figures cover both farms: a sale is recorded against a farm, not a park.",
+
+			// Break-even bands.
+			"section.bands.title":    "Where the money turns",
+			"section.bands.subtitle": "Each weight band's median animal: what it gains, costs and returns per day at today's realized price. A band in the red is the sell-point conversation.",
+			"bands.animals":          "animals",
+			"bands.gain":             "Gain per day",
+			"bands.cost":             "Feed cost per day",
+			"bands.value":            "Value added per day",
+			"bands.net":              "Net per day",
+			"bands.sell":             "Keeping loses money",
+			"bands.keep":             "Still earning",
+			"bands.unknown":          "Not enough data",
+			"empty.bands":            "No animals weighed twice in this window yet — a second weigh is what a daily gain is made of.",
+
+			// Per-animal table.
+			"section.animals.title":    "Per-animal economics",
+			"section.animals.subtitle": "Every live animal weighed twice in the window, worst daily net first. Cost is the animal's own pen and ration cell, priced at the latest load.",
+			"column.tag":               "Tag",
+			"column.animal":            "Animal",
+			"column.shed":              "Shed",
+			"column.latest_weight":     "Latest weight",
+			"column.adg":               "Gain per day",
+			"column.feed_cost_day":     "Feed cost per day",
+			"column.cost_per_kg_gain":  "Cost per kg gain",
+			"column.value_per_day":     "Value per day",
+			"column.net_per_day":       "Net per day",
+			"column.signal":            "Verdict",
+			"signal.earning":           "Earning",
+			"signal.burning":           "Burning",
+			"signal.watch":             "Watch",
+			"value.none":               "—",
+			"value.kg_suffix":          "kg",
+			"value.g_per_day_suffix":   "g/day",
+			"value.per_day_suffix":     "per day",
+			"value.per_kg_suffix":      "per kg",
+			"animals.capped":           "Showing the animals that need attention first. The headline figures above cover every weighed animal, not only these rows.",
+			"empty.animals":            "No animal has two weighs in this window yet. Economics starts with a second weigh.",
+
+			// Sold animals panel.
+			"section.sold.title":       "Sold animals",
+			"section.sold.subtitle":    "Animals tagged to closed sales, newest first. Revenue per animal is the deal value split evenly across its animals.",
+			"column.tag_number":        "Tag",
+			"column.sale_date":         "Sold on",
+			"column.buyer":             "Buyer",
+			"column.farm":              "Farm",
+			"column.last_weight":       "Last weight",
+			"column.apportioned_revenue": "Revenue share",
+			"column.realized_per_kg":   "Realized per kg",
+			"empty.sold":               "No animals tagged to a sale in this window yet.",
+
+			// Page-level states.
+			"error.load": "Could not load the economics figures. Refresh to try again.",
+		}
 	case "sales":
 		// Backend-owned copy for the sales page. The client renders these verbatim; per the golden
 		// rule it must not hardcode a label, an empty state or a disabled reason of its own. Farm
 		// language only.
 		return map[string]string{
-			"crumb": "Procurement",
+			// Sales is its own vertical since 2026-08-25 (nav regrouping; the href is
+			// unchanged), so the breadcrumb names the Sales group, not Procurement.
+			"crumb": "Sales",
 
 			// Section headings.
 			"section.headline.title":    "Sales at a glance",

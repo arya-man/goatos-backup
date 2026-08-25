@@ -791,6 +791,28 @@ export async function getGrowthDirector(params: {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Sales → Economics — the core-of-the-business read. One request serves the whole page; every
+// aggregate (pulse tiles, band medians, realized price) is computed by the backend over the whole
+// filter, so this layer never re-derives a number from a row slice.
+export type BusinessEconomicsResponse = AppApiComponents["schemas"]["BusinessEconomicsResponse"];
+
+export async function getSalesEconomics(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+}): Promise<ApiResult<BusinessEconomicsResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<BusinessEconomicsResponse>("/economics/overview", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
 // Feed vertical — Direction, Packing and Config.
 //
 // Two facts drive every signature below and must survive any refactor:

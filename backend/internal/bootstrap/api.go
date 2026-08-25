@@ -48,6 +48,9 @@ import (
 	feeddirectionverificationbridge "github.com/vgoats/goatos/backend/internal/feeddirection/adapters/verificationbridge"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
+	economicshttp "github.com/vgoats/goatos/backend/internal/economics/adapters/http"
+	economicspg "github.com/vgoats/goatos/backend/internal/economics/adapters/postgres"
+	economicsapp "github.com/vgoats/goatos/backend/internal/economics/app"
 	growthdirectorhttp "github.com/vgoats/goatos/backend/internal/growthdirector/adapters/http"
 	growthdirectorpg "github.com/vgoats/goatos/backend/internal/growthdirector/adapters/postgres"
 	growthdirectorapp "github.com/vgoats/goatos/backend/internal/growthdirector/app"
@@ -521,6 +524,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// the feed sheet.
 	growthDirectorService := growthdirectorapp.NewService(growthdirectorpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	growthDirectorHandler := growthdirectorhttp.NewHandler(growthDirectorService, log)
+	// Business Economics: read-only reporting over weighing + herd + feed + sales
+	// tables for the Sales -> Economics page. Its OWN module, in the Growth
+	// Director's shape, for the same isolation reasons.
+	economicsService := economicsapp.NewService(economicspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	economicsHandler := economicshttp.NewHandler(economicsService, log)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
 	adminUIService := adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout))
@@ -1232,6 +1240,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccexechttp.Register(protectedMux, vaccExecHandler)
 	weighinghttp.Register(protectedMux, weighingHandler)
 	growthdirectorhttp.Register(protectedMux, growthDirectorHandler)
+	economicshttp.Register(protectedMux, economicsHandler)
 	calendarhttp.Register(protectedMux, calendarHandler)
 	adminuihttp.Register(protectedMux, adminUIHandler)
 	appanalyticshttp.Register(protectedMux, appAnalyticsHandler)
