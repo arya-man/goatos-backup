@@ -784,6 +784,7 @@ func TestPublishVersionMatrixInheritsVersionEligibilityAndCanonicalizesAny(t *te
 		"lifecycle":                   []any{"alive"},
 		"health":                      []any{"*"},
 		"reproductive":                []any{"any"},
+		"procurement_purpose":         []any{"any"},
 		"exclude_reproductive_states": []any{"pregnant_late"},
 		"defer_states":                []any{"sick", "under_treatment", "recovering", "icu", "quarantine"},
 	}
@@ -810,7 +811,7 @@ func TestPublishVersionMatrixInheritsVersionEligibilityAndCanonicalizesAny(t *te
 		t.Fatalf("dimensions=%#v, want 1 wildcard sex row with inherited sheep/all/all", repo.dimensions)
 	}
 	for _, dim := range repo.dimensions {
-		if dim.Species != "sheep" || dim.AnimalStage != "all" || dim.Sex != "all" || dim.Breed != "all" {
+		if dim.Species != "sheep" || dim.AnimalStage != "all" || dim.Sex != "all" || dim.Breed != "all" || dim.ProcurementPurpose != "all" {
 			t.Fatalf("dimension did not inherit/canonicalize selectors: %#v", dim)
 		}
 	}
@@ -821,12 +822,13 @@ func TestPublishVersionMatrixInheritsVersionEligibilityAndCanonicalizesAny(t *te
 		t.Fatalf("derived eligibility json: %v", err)
 	}
 	for field, want := range map[string]string{
-		"species":      "sheep",
-		"animal_stage": "all",
-		"sex":          "all",
-		"breed":        "all",
-		"health":       "all",
-		"reproductive": "all",
+		"species":             "sheep",
+		"animal_stage":        "all",
+		"sex":                 "all",
+		"breed":               "all",
+		"health":              "all",
+		"reproductive":        "all",
+		"procurement_purpose": "all",
 	} {
 		values, err := rawSelectorValues(payload.Eligibility[field])
 		if err != nil || len(values) != 1 || values[0] != want {
