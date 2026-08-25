@@ -2,14 +2,14 @@ package sg.mesha.goatos.analytics
 
 import android.content.Context
 import android.util.Log
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import org.json.JSONArray
 import org.json.JSONObject
 import sg.mesha.goatos.core.analytics.AnalyticsAppContext
 import java.io.File
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /** One persisted, not-yet-confirmed-delivered backend analytics event. */
 data class QueuedAnalyticsEvent(
@@ -61,19 +61,34 @@ class DurableAnalyticsQueue(
     /** Injectable so tests can run file I/O on the test dispatcher's virtual time. */
     private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
 ) {
-    private val mutex = Mutex()
+    private val lock = ReentrantLock()
     private val queueFile: File? = context?.applicationContext?.let { File(it.filesDir, QUEUE_FILE_NAME) }
 
     /** Persists one event, applying the drop-oldest cap. Safe to call from any coroutine. */
     suspend fun enqueue(event: QueuedAnalyticsEvent) {
         val file = queueFile ?: return
-        mutex.withLock { withContext(ioDispatcher) {
+        withContext(ioDispatcher) { lock.withLock {
             runCatching {
                 val entries = readAllLocked(file) + event
                 val bounded = if (entries.size > maxEntries) entries.takeLast(maxEntries) else entries
                 writeAllLocked(file, bounded)
             }.onFailure { Log.w(TAG, "DurableAnalyticsQueue enqueue failed", it) }
         } }
+    }
+
+    /**
+     * Synchronous enqueue for critical breadcrumbs. BackendAnalyticsAdapter.track() is not suspend,
+     * so this is the only way to make a critical event durable before returning to the caller.
+     */
+    fun enqueueBlocking(event: QueuedAnalyticsEvent) {
+        val file = queueFile ?: return
+        lock.withLock {
+            runCatching {
+                val entries = readAllLocked(file) + event
+                val bounded = if (entries.size > maxEntries) entries.takeLast(maxEntries) else entries
+                writeAllLocked(file, bounded)
+            }.onFailure { Log.w(TAG, "DurableAnalyticsQueue enqueue failed", it) }
+        }
     }
 
     /**
@@ -84,28 +99,35 @@ class DurableAnalyticsQueue(
      */
     suspend fun drain(send: suspend (QueuedAnalyticsEvent) -> Boolean) {
         val file = queueFile ?: return
-        mutex.withLock { withContext(ioDispatcher) {
-            val entries = runCatching { readAllLocked(file) }.getOrElse { emptyList() }
-            if (entries.isEmpty()) return@withContext
-            var sentCount = 0
-            for (entry in entries) {
-                // exception:exempt send failure IS the signal — drain stops and the entry stays queued for the next attempt
-                val sent = runCatching { send(entry) }.getOrDefault(false)
-                if (!sent) break
-                sentCount++
+        val entries = withContext(ioDispatcher) {
+            lock.withLock { runCatching { readAllLocked(file) }.getOrElse { emptyList() } }
+        }
+        if (entries.isEmpty()) return
+        var sentCount = 0
+        for (entry in entries) {
+            // exception:exempt send failure IS the signal — drain stops and the entry stays queued for the next attempt
+            val sent = runCatching { send(entry) }.getOrDefault(false)
+            if (!sent) break
+            sentCount++
+        }
+        if (sentCount > 0) {
+            withContext(ioDispatcher) {
+                lock.withLock {
+                    val current = runCatching { readAllLocked(file) }.getOrElse { emptyList() }
+                    val sentIds = entries.take(sentCount).map { it.clientEventId }.toSet()
+                    val remaining = current.filterNot { it.clientEventId in sentIds }
+                    runCatching { writeAllLocked(file, remaining) }
+                        .onFailure { Log.w(TAG, "DurableAnalyticsQueue post-drain rewrite failed", it) }
+                }
             }
-            if (sentCount > 0) {
-                runCatching { writeAllLocked(file, entries.drop(sentCount)) }
-                    .onFailure { Log.w(TAG, "DurableAnalyticsQueue post-drain rewrite failed", it) }
-            }
-        } }
+        }
     }
 
     /** Current persisted entry count -- test/diagnostic hook, not on any hot path. */
     suspend fun size(): Int {
         val file = queueFile ?: return 0
         // exception:exempt diagnostic size probe; readAllLocked logs corrupt files itself
-        return mutex.withLock { withContext(ioDispatcher) { runCatching { readAllLocked(file) }.getOrDefault(emptyList()).size } }
+        return withContext(ioDispatcher) { lock.withLock { runCatching { readAllLocked(file) }.getOrDefault(emptyList()).size } }
     }
 
     private fun readAllLocked(file: File): List<QueuedAnalyticsEvent> {

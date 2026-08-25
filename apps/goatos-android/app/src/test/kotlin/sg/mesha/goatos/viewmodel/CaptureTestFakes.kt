@@ -21,6 +21,7 @@ import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.database.capture.ProofProcessingState
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
@@ -226,6 +227,10 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
      *  resets itself — drives "cancelled/failed re-capture must not lose the old proof" tests. */
     var failNextCapture: Boolean = false
 
+    /** Simulates a production processing/enqueue failure after the local proof row is saved but
+     * before a proof-upload outbox item exists. */
+    var omitNextOutboxItem: Boolean = false
+
     /** Deferred retirement actions, keyed by the NEW proof row id, matching production's durable
      *  supersession contract: old rows are only removed once the new row reaches SYNCED with a
      *  serverProofId. Tests call [driveSlotRetirementIfPending] to simulate this transition. */
@@ -352,10 +357,16 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
             capturedByPrincipalId = capturedByPrincipalId,
             syncStatus = CaptureSyncStatus.PENDING,
             serverProofId = null,
-            outboxItemId = if (awaitUploadEnqueue) "proof-outbox-${nextId}" else null,
+            outboxItemId = if (awaitUploadEnqueue && !omitNextOutboxItem) "proof-outbox-${nextId}" else null,
             lastError = null,
             partitionKey = partitionKey,
+            processingState = if (omitNextOutboxItem) {
+                ProofProcessingState.PROCESSING_FAILED_AWAITING_RETRY.name
+            } else {
+                "CAPTURED_ORIGINAL"
+            },
         )
+        omitNextOutboxItem = false
         rows += TrackedRow(taskId = taskId, row = row)
         flow.value = rows.toList()
         return AppResult.Ok(row)

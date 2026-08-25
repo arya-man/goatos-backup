@@ -111,6 +111,133 @@ class FeedDistributionCompleteViewModelTest {
     }
 
     @Test
+    fun `missing proof upload outbox marks feed video failed and records failure event`() = runTest(dispatcher) {
+        val proofCaptureRepository = FakeProofCaptureRepository().apply {
+            omitNextOutboxItem = true
+        }
+        val analytics = FakeAnalyticsPort()
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(
+                mutableListOf(CapturedVideo(localUri = "/proof/feed.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+            ),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                ),
+            ),
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.RecordFeedVideo)
+        advanceUntilIdle()
+
+        assertEquals(FeedDistributionProofStatus.FAILED, viewModel.state.value.videoStatus)
+        assertEquals(false, viewModel.state.value.submitEnabled)
+        assertEquals(
+            true,
+            analytics.events.any {
+                it.first == "feed_distribution_failure" &&
+                    it.second["kind"] == "feed_video" &&
+                    it.second["reason"] == "missing_upload_outbox"
+            },
+        )
+    }
+
+    @Test
+    fun `missing proof upload outbox marks feed weight photo failed and records failure event`() = runTest(dispatcher) {
+        val proofCaptureRepository = FakeProofCaptureRepository().apply {
+            omitNextOutboxItem = true
+        }
+        val analytics = FakeAnalyticsPort()
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(
+                mutableListOf(CapturedPhoto(localUri = "/proof/feed-weight.jpg", capturedAtMs = 1L)),
+            ),
+            proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                ),
+            ),
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.TakeFeedWeightPhoto)
+        advanceUntilIdle()
+
+        assertEquals(FeedDistributionProofStatus.FAILED, viewModel.state.value.feedWeightPhotoStatus)
+        assertEquals(
+            true,
+            analytics.events.any {
+                it.first == "feed_distribution_failure" &&
+                    it.second["kind"] == "feed_weight_photo" &&
+                    it.second["reason"] == "missing_upload_outbox"
+            },
+        )
+    }
+
+    @Test
+    fun `missing proof upload outbox marks water video failed and records failure event`() = runTest(dispatcher) {
+        val proofCaptureRepository = FakeProofCaptureRepository().apply {
+            omitNextOutboxItem = true
+        }
+        val analytics = FakeAnalyticsPort()
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(
+                mutableListOf(CapturedVideo(localUri = "/proof/water.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+            ),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                ),
+            ),
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.RecordWaterVideo)
+        advanceUntilIdle()
+
+        assertEquals(FeedDistributionProofStatus.FAILED, viewModel.state.value.waterVideoStatus)
+        assertEquals(
+            true,
+            analytics.events.any {
+                it.first == "feed_distribution_failure" &&
+                    it.second["kind"] == "water_video" &&
+                    it.second["reason"] == "missing_upload_outbox"
+            },
+        )
+    }
+
+    @Test
     fun `completion unlocks after all three proof uploads sync and then submits`() = runTest(dispatcher) {
         val syncRepository = RecordingFeedDistributionSyncRepository()
         val videoSource = FakeProofCaptureSource(
