@@ -3739,8 +3739,12 @@ select:disabled { opacity: .45; }
 .vplan tr.voff td { color: var(--muted); }
 
 /* list screen + versions — remainder of the mock's own rules */
-.vplan .backlink { font-size: 13.5px; font-weight: 600; color: var(--muted); cursor: pointer; padding: 6px 0; margin-bottom: 6px; }
-.vplan .backlink:hover { color: var(--brand-d); }
+.vplan .backlink { display: inline-flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%;
+  min-height: 32px; margin: 0 0 14px; padding: 5px 10px 5px 8px; border: 1px solid transparent;
+  border-radius: 9px; color: var(--muted); font-size: 13px; font-weight: 700; line-height: 1; cursor: pointer; }
+.vplan .backlink svg { flex: none; }
+.vplan .backlink:hover { border-color: var(--line); background: var(--panel-2); color: var(--brand-d); }
+.vplan .backlink:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .vplan .verline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-weight: 600; font-size: 14.5px; }
 .vplan .vbtn { font-size: 12.5px; font-weight: 600; border: 1px solid var(--line); border-radius: 8px;
   padding: 5px 11px; cursor: pointer; color: var(--ink); white-space: nowrap; background: none; min-height: 40px; }
