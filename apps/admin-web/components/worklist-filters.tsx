@@ -146,6 +146,7 @@ export function WorklistFilters({
   pageContract,
   deferApply = false,
   telemetry,
+  inlineTrailing,
   trailing,
   children,
 }: {
@@ -154,6 +155,17 @@ export function WorklistFilters({
   fields: WorklistFilterField[];
   pageContract: AdminUiPageContract;
   telemetry?: WorklistFilterTelemetry;
+  /**
+   * A page-owned control that sits IN LINE with the filters, immediately after the last one, as
+   * though it were another field.
+   *
+   * For a control that belongs beside the filters but is not one of them, because it changes
+   * nothing the server has to fetch — the Weights Sex control switches between grains that all
+   * arrived in one response, so routing it through the URL would cost a full page render to show
+   * rows the reader already has. It is rendered raw and owns its own label and state; this bar
+   * neither reads nor writes it.
+   */
+  inlineTrailing?: ReactNode;
   /**
    * A page-owned control pinned to the END of the bar, on the same line as the filters (the Weights
    * download drawer opener). Pushed right with `margin-left:auto` so it stays at the far edge as
@@ -536,6 +548,7 @@ export function WorklistFilters({
         </label>
         );
       })}
+      {inlineTrailing}
       {hasAnyFilter ? (
         <button type="button" className="btn sm" onClick={clearAll}>
           {copy(pageContract, "filter.clear_all")}

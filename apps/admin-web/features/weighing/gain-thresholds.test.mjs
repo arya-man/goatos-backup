@@ -4,6 +4,9 @@ import test from "node:test";
 import { sharesOfWhole } from "../../lib/shares.ts";
 
 const source = readFileSync(new URL("./weights.tsx", import.meta.url), "utf8");
+const card = readFileSync(new URL("./gain-threshold-card.tsx", import.meta.url), "utf8");
+const scope = readFileSync(new URL("./gain-sex-scope.tsx", import.meta.url), "utf8");
+const sexFilter = readFileSync(new URL("./gain-sex-filter.tsx", import.meta.url), "utf8");
 const contract = readFileSync(
   new URL("../../../../backend/internal/adminui/app/service.go", import.meta.url),
   "utf8",
@@ -21,7 +24,7 @@ test("the four bands arrive banded from the backend, never derived by subtractio
   // a band from two cumulative counts (>180 minus >200) in the page. That reintroduces
   // one fact with two owners and drifts the moment a boundary moves. Every count is
   // printed exactly as the backend banded it.
-  assert.match(source, /const gainThresholdRows: GainThresholdRow\[\] =/);
+  assert.match(source, /const gainThresholdRowsFor = \(sex: GainSex\): GainThresholdRow\[\] =>/);
   assert.match(source, /at_or_below_180_g_per_day/);
   assert.match(source, /band_180_to_200_g_per_day/);
   assert.match(source, /band_200_to_250_g_per_day/);
@@ -126,11 +129,35 @@ test("every visible string on the table is backend-contract copy", () => {
     "view.chart",
     "view.table",
     "section.gain_thresholds.aria",
-    "section.gain_thresholds.caption",
-    "empty.gain_thresholds.body",
+    "filter.gain_sex.label",
+    "view.sex.all",
+    "view.sex.male",
+    "view.sex.female",
   ]) {
     assert.match(source, new RegExp(`copy\\(pageContract, "${key.replace(/\./g, "\\.")}"\\)`));
     assert.ok(contract.includes(`"${key}":`), `contract is missing copy key ${key}`);
+  }
+  // The three grains each carry their OWN caption, head-count noun and empty line, because each
+  // names the kids that grain counted: a combined caption under Male would say the bands add up to
+  // the kids weighed twice when they add up to the MALE kids weighed twice. All nine are resolved
+  // in the page and passed down, so the backend still owns every word.
+  for (const key of [
+    "section.gain_thresholds.caption",
+    "section.gain_thresholds.caption_male",
+    "section.gain_thresholds.caption_female",
+    "value.gain_thresholds.kids",
+    "value.gain_thresholds.kids_male",
+    "value.gain_thresholds.kids_female",
+    "empty.gain_thresholds.body",
+    "empty.gain_thresholds.male",
+    "empty.gain_thresholds.female",
+  ]) {
+    assert.match(source, new RegExp(`copy\\(pageContract, "${key.replace(/\./g, "\\.")}"\\)`));
+    assert.ok(contract.includes(`"${key}":`), `contract is missing copy key ${key}`);
+  }
+  // Neither client half renders copy of its own.
+  for (const clientSource of [card, sexFilter]) {
+    assert.doesNotMatch(stripComments(clientSource), /"(All kids|Male|Female|Sex|Counted from|No male|No female|kids)"/);
   }
   // Column headers come from the table contract, not literals in the page.
   assert.match(source, /tableLabels\(pageContract, "gain-thresholds"\)/);
@@ -154,4 +181,80 @@ test("the contract states each kid is counted once, in both the caption and the 
   assert.match(openapi, /The four counts are DISJOINT/);
   // The slowest band is a real column with its own label, not an unlabelled remainder.
   assert.match(contract, /"column\.upto_180": *"180 g\/day or less"/);
+});
+
+test("the card counts every kid until a sex is picked, and never adds the two grains", () => {
+  // Combined is the DEFAULT (maintainer, 2026-08-25): the breed comparison the card exists for is
+  // the whole breed's, and an absent parameter has to keep meaning what the card showed before the
+  // control existed — otherwise every shared link silently changes grain.
+  assert.match(source, /const GAIN_SEX_PARAM = "gain_sex"/);
+  assert.match(source, /rawGainSex === "male" \|\| rawGainSex === "female" \? rawGainSex : "all"/);
+  assert.match(scope, /if \(next === "all"\) url\.searchParams\.delete\(searchParamName\)/);
+
+  // The backend emits each breed combined AND per sex, and the grains OVERLAP. Exactly one is
+  // rendered; the page must never sum a breed's male and female rows, or add a per-sex row to the
+  // combined one, which would count every kid twice.
+  assert.match(source, /\.filter\(\(row\) => \(row\.sex \?\? ""\) === \(sex === "all" \? "" : sex\)\)/);
+  assert.doesNotMatch(stripComments(source), /gain_thresholds_by_breed[\s\S]{0,600}\breduce\(/);
+  // The share stays row-local: a male share is taken against that row's own denominator, which is
+  // the male kids weighed twice, never against the breed's combined total.
+  assert.match(source, /sharesOfWhole\(counts, row\.animals\)/);
+  // The figures view reads the SAME grain, so switching to the table cannot hand back every kid.
+  assert.match(card, /view === "chart" \?[\s\S]{0,400}rows=\{grain\.rows\}/);
+  assert.match(card, /grain\.rows\.map\(\(row\) => \(/);
+});
+
+test("picking a sex costs no page load, because all three grains are already here", () => {
+  // Park, Period and Weighing change what the SERVER must fetch, so they belong in the URL and
+  // cost a render. This one does not: the backend sends all three grains in ONE response, and
+  // routing it through the URL re-rendered the whole page — every card, every read — to show rows
+  // the reader already had (1.4-5.7s per switch on the local stack).
+  for (const grain of ['rows: gainThresholdRowsFor("all")', 'rows: gainThresholdRowsFor("male")', 'rows: gainThresholdRowsFor("female")']) {
+    assert.ok(source.includes(grain), `the page must prepare the ${grain} grain up front`);
+  }
+  // No navigation anywhere in the control or the state it writes to: a router push, an anchor or a
+  // Link is the round trip being removed. The URL is still kept in step so a link carries the grain.
+  for (const clientSource of [scope, sexFilter, card]) {
+    assert.doesNotMatch(clientSource, /useRouter|router\.(push|replace)|next\/link|<a\b/);
+  }
+  assert.match(scope, /window\.history\.replaceState/);
+  assert.match(scope, /useState<GainSex>\(initialSex\)/);
+  // The bar renders the control raw and neither reads nor writes it, so no filter-bar state can
+  // start racing the grain.
+  const bar = readFileSync(new URL("../../components/worklist-filters.tsx", import.meta.url), "utf8");
+  assert.match(bar, /inlineTrailing\?: ReactNode;/);
+  assert.match(bar, /\{inlineTrailing\}/);
+});
+
+test("the Sex control sits beside the filters and looks like one", () => {
+  // Beside Weighing, in line with the fields — not pinned to the far end, which is the download
+  // opener's slot, and not on a line of its own.
+  const inline = source.indexOf("inlineTrailing={");
+  const trailing = source.indexOf("trailing={");
+  assert.ok(inline > 0 && trailing > inline, "the Sex control renders before the trailing slot");
+  assert.match(source, /<GainSexFilter/);
+  // Same markup as the bar's own selects, so a reader cannot tell which control costs a page load.
+  assert.match(sexFilter, /className="tsize"/);
+  assert.match(sexFilter, /<span className="muted">\{label\}<\/span>/);
+  // The control is at the top of the page and the card ~2,600px below it, so the grain they share
+  // is held by a provider around both rather than by either one.
+  assert.match(source, /<GainSexProvider initialSex=\{gainSex\} searchParamName=\{GAIN_SEX_PARAM\}>/);
+  assert.match(source, /<\/GainSexProvider>/);
+});
+
+test("the backend reports both grains and the wire can tell them apart", () => {
+  const repo = readFileSync(
+    new URL("../../../../backend/internal/weighing/adapters/postgres/weight_demographics.go", import.meta.url),
+    "utf8",
+  );
+  // Two grouping sets, so a per-sex row and its breed's combined row come from one pass over one
+  // population and cannot disagree about who was counted.
+  assert.match(repo, /GROUP BY GROUPING SETS \(\(breed\), \(breed, sex\)\)/);
+  // GROUPING(sex) keeps the combined row distinguishable from a kid whose register carries no sex:
+  // the combined row is empty, that kid's row says so in words.
+  assert.match(repo, /CASE WHEN GROUPING\(sex\) = 1 THEN ''/);
+  assert.match(repo, /ELSE COALESCE\(NULLIF\(sex, ''\), 'unknown sex'\) END AS sex/);
+  // The contract declares sex required, so a client cannot read a combined row as a male one by
+  // finding the field absent.
+  assert.match(openapi, /required: \[label, sex, animals,/);
 });

@@ -350,51 +350,36 @@ SELECT
      ) gs),
   -- How many animals of each breed fell into each daily-gain band. DISJOINT bands
   -- (maintainer, 2026-08-24): an animal at 260 g/day is counted by the >250 filter ONLY,
-  -- and the four counts partition n exactly — every animal with a gain lands in one band.
+  -- and the four counts partition n exactly -- every animal with a gain lands in one band.
   --
-  -- LUMP-SUM SHEDS INCLUDED (maintainer decision 2026-08-25): a homogeneous-breed
-  -- lump-sum shed contributes ALL of its animals to the ONE band its own
-  -- average-weight change (lump_span.g_per_day) falls into — the shed average is
-  -- the only measured fact, so every animal is kept in that range and none is
-  -- spread across bands. A mixed-breed shed still joins no breed row.
+  -- TWO GRAINS IN ONE ARRAY (maintainer, 2026-08-25): the card gained a male/female filter,
+  -- so each breed is emitted BOTH combined (sex '') and once per sex. The two grains OVERLAP
+  -- by construction -- every per-sex row's animals are also counted in its breed's combined
+  -- row -- so a client picks exactly ONE grain for the selected filter position and must
+  -- never sum across them, which would double every kid. GROUPING(sex) is what keeps the
+  -- combined row distinguishable from a per-sex row for animals whose register carries no
+  -- sex: the combined row is '' and theirs is 'unknown sex'.
   --
-  -- projection-review: membership=one row per same-animal gain (resolved_gain, one
-  -- row per tag) UNIONed with one row per homogeneous lump-sum shed
-  -- (lump_span x shed_cohort, 1:1 on (location_id, partition_label) — both sides
-  -- are grouped/deduplicated on that key); group_key=breed, the GROUP BY;
-  -- join_cardinality=the lump arm's join adds no fan-out (see the gain buckets
-  -- above); pagination=NONE, bounded by the breed vocabulary; scope=inherited
-  -- (tenant + scoped parks + window).
+  -- projection-review: membership=one row per animal in resolved_gain with a breed, counted once in the (breed) set and once in the (breed, sex) set, i.e. exactly the population gain_by_breed reports; group_key=(breed) and (breed, sex), the two GROUPING SETS, carried on the wire as breed + sex where '' names the combined grain; join_cardinality=none added here, resolved_gain is already one row per tag; pagination=NONE, bounded by the breed vocabulary times the three sex values; scope=inherited from resolved_gain (tenant + scoped parks + window).
   --
-  -- Ratio key sets: n and the four band sums range over the IDENTICAL UNION row
-  -- set — same FROM, same GROUP BY — and each UNION arm's four bands partition its
-  -- own n (an animal lands in one FILTER; a shed's animals land in one CASE arm),
-  -- so b180 + b1820 + b2025 + a250 = n still holds for every row.
-  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, b180, b1820, b2025, a250) ORDER BY n DESC, breed), '[]'::jsonb)
+  -- Ratio key sets: within EACH emitted row, n and the four FILTER counts range over the
+  -- IDENTICAL grouped row set -- same FROM, same grouping set, no branch adds a join -- so a
+  -- client may take band/n as that row's own share without reaching for a second query's
+  -- denominator, and b180 + b1820 + b2025 + a250 = n for every row, combined and per-sex
+  -- alike. A breed's per-sex n values also add up to its combined n.
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, sex, n, b180, b1820, b2025, a250) ORDER BY n DESC, breed, sex), '[]'::jsonb)
      FROM (
-       SELECT breed, sum(n)::bigint AS n, sum(b180)::bigint AS b180, sum(b1820)::bigint AS b1820,
-              sum(b2025)::bigint AS b2025, sum(a250)::bigint AS a250
-       FROM (
-         SELECT breed,
-                count(*)::bigint                                       AS n,
-                count(*) FILTER (WHERE g <= 180)::bigint               AS b180,
-                count(*) FILTER (WHERE g > 180 AND g <= 200)::bigint   AS b1820,
-                count(*) FILTER (WHERE g > 200 AND g <= 250)::bigint   AS b2025,
-                count(*) FILTER (WHERE g > 250)::bigint                AS a250
-         FROM resolved_gain
-         WHERE breed IS NOT NULL
-         GROUP BY breed
-         UNION ALL
-         SELECT sc.breed,
-                sum(ls.animals)::bigint,
-                COALESCE(sum(ls.animals) FILTER (WHERE ls.g_per_day <= 180), 0)::bigint,
-                COALESCE(sum(ls.animals) FILTER (WHERE ls.g_per_day > 180 AND ls.g_per_day <= 200), 0)::bigint,
-                COALESCE(sum(ls.animals) FILTER (WHERE ls.g_per_day > 200 AND ls.g_per_day <= 250), 0)::bigint,
-                COALESCE(sum(ls.animals) FILTER (WHERE ls.g_per_day > 250), 0)::bigint
-         FROM lump_span ls JOIN shed_cohort sc
-           ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
-         WHERE sc.breeds = 1 GROUP BY sc.breed
-       ) parts GROUP BY breed
+       SELECT breed,
+              CASE WHEN GROUPING(sex) = 1 THEN ''
+                   ELSE COALESCE(NULLIF(sex, ''), 'unknown sex') END AS sex,
+              count(*)::bigint                                       AS n,
+              count(*) FILTER (WHERE g <= 180)::bigint               AS b180,
+              count(*) FILTER (WHERE g > 180 AND g <= 200)::bigint   AS b1820,
+              count(*) FILTER (WHERE g > 200 AND g <= 250)::bigint   AS b2025,
+              count(*) FILTER (WHERE g > 250)::bigint                AS a250
+       FROM resolved_gain
+       WHERE breed IS NOT NULL
+       GROUP BY GROUPING SETS ((breed), (breed, sex))
      ) gt),
   (SELECT COALESCE(jsonb_agg(jsonb_build_object(
        'location_id', location_id::text,
@@ -583,9 +568,12 @@ func decodeWeightGainBuckets(raw []byte) ([]domain.WeightGainBucket, error) {
 }
 
 // decodeWeightGainThresholdBuckets reads the
-// [breed, animals, <=180, 180-200, 200-250, >250] tuples. A row whose counts do not parse
-// is skipped rather than rendered as a breed with zero animals in every band, which would
-// read as a real growth failure.
+// [breed, sex, animals, <=180, 180-200, 200-250, >250] tuples. A row whose counts do not
+// parse is skipped rather than rendered as a breed with zero animals in every band, which
+// would read as a real growth failure.
+//
+// Sex is the only field allowed to be empty, and an empty sex is the COMBINED grain (every
+// kid of that breed), which is what the card shows until a reader picks a sex.
 func decodeWeightGainThresholdBuckets(raw []byte) ([]domain.WeightGainThresholdBucket, error) {
 	out := []domain.WeightGainThresholdBucket{}
 	if len(raw) == 0 {
@@ -596,23 +584,27 @@ func decodeWeightGainThresholdBuckets(raw []byte) ([]domain.WeightGainThresholdB
 		return nil, err
 	}
 	for _, row := range rows {
-		if len(row) != 6 {
+		if len(row) != 7 {
 			continue
 		}
 		var label string
 		if json.Unmarshal(row[0], &label) != nil || label == "" {
 			continue
 		}
+		var sex string
+		if json.Unmarshal(row[1], &sex) != nil {
+			continue
+		}
 		var animals, atOrBelow180, band180To200, band200To250, above250 int
-		if json.Unmarshal(row[1], &animals) != nil ||
-			json.Unmarshal(row[2], &atOrBelow180) != nil ||
-			json.Unmarshal(row[3], &band180To200) != nil ||
-			json.Unmarshal(row[4], &band200To250) != nil ||
-			json.Unmarshal(row[5], &above250) != nil {
+		if json.Unmarshal(row[2], &animals) != nil ||
+			json.Unmarshal(row[3], &atOrBelow180) != nil ||
+			json.Unmarshal(row[4], &band180To200) != nil ||
+			json.Unmarshal(row[5], &band200To250) != nil ||
+			json.Unmarshal(row[6], &above250) != nil {
 			continue
 		}
 		out = append(out, domain.WeightGainThresholdBucket{
-			Label: label, Animals: animals,
+			Label: label, Sex: sex, Animals: animals,
 			AtOrBelow180: atOrBelow180, Band180To200: band180To200,
 			Band200To250: band200To250, Above250: above250,
 		})

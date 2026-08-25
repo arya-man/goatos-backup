@@ -54,8 +54,18 @@ type WeightGainBucket struct {
 // denominator lands in exactly one band, so the four counts sum to Animals and may be
 // read as a real distribution. Boundaries are strictly-greater at the top of each band,
 // so an animal at exactly 200 g/day sits in Band180To200, not Band200To250.
+//
+// EACH BREED IS REPORTED AT TWO GRAINS (maintainer, 2026-08-25), because the card carries a
+// male/female filter: once COMBINED (Sex "") and once per sex. The grains OVERLAP — a per-sex
+// row's animals are also counted in its breed's combined row — so a reader picks ONE grain and
+// never adds them, which would count every kid twice.
 type WeightGainThresholdBucket struct {
 	Label string `json:"label"`
+	// Sex is "" for the combined row covering every kid of the breed, and otherwise the herd
+	// register's own value ("male", "female", or "unknown sex" for a kid whose register carries
+	// none). A combined row and an unknown-sex row are therefore never confusable, which they
+	// would be if both arrived blank.
+	Sex string `json:"sex"`
 	// Animals is the denominator: animals of this breed with a computable gain in the
 	// window. It is the SAME key set the four bands partition, so a percentage may be
 	// taken against it row-locally, and the four bands add up to it exactly.
@@ -109,6 +119,8 @@ type WeightDemographics struct {
 	// homogeneous lump-sum sheds, each shed's animals landing whole in the ONE band
 	// its shed-average change falls into (maintainer decision 2026-08-25: the shed
 	// average is the only measured fact, so every animal is kept in that range).
+	// Each breed appears once combined (sex "") and once per sex; the grains overlap, so a
+	// client renders one of them at a time.
 	GainThresholdsByBreed []WeightGainThresholdBucket `json:"gain_thresholds_by_breed"`
 	// Coverage, reported so the difference between the three is visible instead of
 	// reading as missing data. An unresolved tag is a real weigh of an animal the
