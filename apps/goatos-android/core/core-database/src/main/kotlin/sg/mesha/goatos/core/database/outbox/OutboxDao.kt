@@ -90,6 +90,10 @@ interface OutboxDao {
             "AND (older.conflict = 1 " +
             "  OR older.attemptCount >= older.maxAttempts " +
             "  OR older.nextAttemptAt > :now) " +
+            "AND NOT (" +
+            "  older.opType IN ('PC_CARE_TASK_SUBMIT', 'PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER') " +
+            "  AND candidate.opType IN ('PROOF_UPLOAD', 'PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER')" +
+            ") " +
             ") " +
             "ORDER BY candidate.createdAt ASC, candidate.rowid ASC LIMIT :limit",
     )

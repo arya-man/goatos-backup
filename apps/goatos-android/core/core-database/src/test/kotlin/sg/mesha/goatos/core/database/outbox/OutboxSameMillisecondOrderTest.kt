@@ -169,4 +169,108 @@ class OutboxSameMillisecondOrderTest {
         assertEquals(listOf("other-submit"), eligible)
         database.close()
     }
+
+    @Test
+    fun `a terminal pc care submit does not block later proof repair rows`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "stale-submit",
+                "PC_CARE_TASK_SUBMIT",
+                "pc-care:task:task-77",
+                createdAt = 5L,
+                status = "FAILED",
+                nextAttemptAt = Long.MAX_VALUE,
+                attempts = 8,
+            ),
+        )
+        dao.insert(row("proof-upload", "PROOF_UPLOAD", "pc-care:task:task-77", createdAt = 6L))
+        dao.insert(row("proof-register", "PC_CARE_TASK_PROOF_REGISTER", "pc-care:task:task-77", createdAt = 7L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "a stale failed submit must not strand corrective proof uploads behind a loader",
+            listOf("proof-upload", "proof-register"),
+            eligible,
+        )
+        database.close()
+    }
+
+    @Test
+    fun `a terminal pc care submit still blocks a later non repair submit`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "stale-submit",
+                "PC_CARE_TASK_SUBMIT",
+                "pc-care:task:task-77",
+                createdAt = 5L,
+                status = "FAILED",
+                nextAttemptAt = Long.MAX_VALUE,
+                attempts = 8,
+            ),
+        )
+        dao.insert(row("new-submit", "PC_CARE_TASK_SUBMIT", "pc-care:task:task-77", createdAt = 6L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(emptyList<String>(), eligible)
+        database.close()
+    }
+
+    @Test
+    fun `a terminal pc care proof register does not block later proof repair rows`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "stale-register",
+                "PC_CARE_TASK_PROOF_REGISTER",
+                "pc-care:task:task-77",
+                createdAt = 5L,
+                status = "FAILED",
+                conflict = true,
+                nextAttemptAt = Long.MAX_VALUE,
+                attempts = 1,
+            ),
+        )
+        dao.insert(row("replacement-upload", "PROOF_UPLOAD", "pc-care:task:task-77", createdAt = 6L))
+        dao.insert(row("replacement-register", "PC_CARE_TASK_PROOF_REGISTER", "pc-care:task:task-77", createdAt = 7L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "a stale failed proof registration must not strand replacement proof uploads behind a loader",
+            listOf("replacement-upload", "replacement-register"),
+            eligible,
+        )
+        database.close()
+    }
+
+    @Test
+    fun `a terminal pc care proof register still blocks submit`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "stale-register",
+                "PC_CARE_TASK_PROOF_REGISTER",
+                "pc-care:task:task-77",
+                createdAt = 5L,
+                status = "FAILED",
+                conflict = true,
+                nextAttemptAt = Long.MAX_VALUE,
+                attempts = 1,
+            ),
+        )
+        dao.insert(row("submit", "PC_CARE_TASK_SUBMIT", "pc-care:task:task-77", createdAt = 6L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(emptyList<String>(), eligible)
+        database.close()
+    }
 }

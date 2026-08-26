@@ -148,7 +148,7 @@ class PcCareInventoryTaskProofTest {
             listOf(PcCareTaskProofDto(slotKey = stockVideoSlot.fieldKey, proofRef = "server-proof-2", capturedByName = "Chandrakant")),
             null,
         )
-        assertEquals(PcCareSlotState.PEER, serverCaptured.state)
+        assertEquals(PcCareSlotState.SYNCED, serverCaptured.state)
         assertEquals("Captured by Chandrakant", serverCaptured.statusLabel)
         assertTrue(serverCaptured.canRecord)
     }
@@ -167,7 +167,26 @@ class PcCareInventoryTaskProofTest {
             null,
         )
 
-        assertEquals(PcCareSlotState.PEER, captured.state)
+        assertEquals(PcCareSlotState.SYNCED, captured.state)
+        assertEquals("Proof sent", captured.statusLabel)
+        assertTrue(captured.canRecord)
+    }
+
+    @Test
+    fun `server task proof wins over stale pending local task proof row`() {
+        val stalePendingPhoto = proof(
+            fieldKey = stockPhotoSlot.fieldKey,
+            syncStatus = CaptureSyncStatus.PENDING,
+            mimeType = "image/jpeg",
+        )
+        val captured = pcCareBuildTaskProofSlot(
+            stockPhotoSlot,
+            listOf(stalePendingPhoto),
+            listOf(PcCareTaskProofDto(slotKey = stockPhotoSlot.fieldKey, proofRef = "server-proof-photo", capturedByName = "")),
+            null,
+        )
+
+        assertEquals(PcCareSlotState.SYNCED, captured.state)
         assertEquals("Proof sent", captured.statusLabel)
         assertTrue(captured.canRecord)
     }
@@ -193,7 +212,7 @@ class PcCareInventoryTaskProofTest {
 
         val state = vm.state.value
         assertEquals(PcCareSlotState.EMPTY, state.taskProofPhotoSlot?.state)
-        assertEquals(PcCareSlotState.PEER, state.taskProofVideoSlot?.state)
+        assertEquals(PcCareSlotState.SYNCED, state.taskProofVideoSlot?.state)
         assertEquals("Captured by Chandrakant", state.taskProofVideoSlot?.statusLabel)
         assertFalse(state.submitEnabled)
         assertEquals("Record the fridge stock photo and video first", state.submitBlockedReason)
