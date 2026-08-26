@@ -1724,6 +1724,24 @@ rule; when the rule is "package A must not depend on package B", check the
 import graph, and state every remaining blind spot in the guard's own header
 comment with a self-test fixture for each.
 
+## Whole-Packet Review Scope (Mandatory, Claude AND Codex)
+
+When the maintainer gives a review/fix/landing packet, treat the entire packet as
+the task goal until proven otherwise. That includes PR numbers and merge state,
+screenshots or attached docs, pasted reviewer notes, prompts, fixes claimed by
+other agents, lenses, judges, sub-agent briefs, branch/base SHAs, and any
+maintainer corrections in chat. Do not narrow the task to only the first visible
+diff, only `origin/main`, only one PR, or only a screenshot table unless the
+maintainer explicitly says to ignore the rest.
+
+Before reporting "pending bugs only", "already fixed", "not a bug", or "nothing
+to push", reconcile every finding against the complete packet and the current
+candidate SHA. If a document says a finding was fixed by a later PR/SHA, verify
+that later PR/SHA is actually in the reviewed candidate. If the maintainer asks
+whether PR 115 was reviewed, answer from evidence that includes 115, not from a
+stale main checkout. If the packet names lenses or judges, run or inspect those
+review surfaces as first-class acceptance criteria, not optional commentary.
+
 ## Root-Cause Fixes Only — No Partial / Surface Fixes (Mandatory, Claude AND Codex)
 
 When fixing ANY reported bug (review finding, audit item, regression):
