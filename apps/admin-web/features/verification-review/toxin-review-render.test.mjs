@@ -97,3 +97,21 @@ test("the verdict is idempotent, version-fenced, and reject requires a reason", 
   // The reject button stays disabled until a reason is typed.
   assert.match(listSource, /disabled=\{!reason\.trim\(\)\}/);
 });
+
+// The strip-photo evidence box must be a POSITIONED, SIZED container. `.vr-image-link` is
+// `position:absolute; inset:0; background:#000` and `.vr-image-proof` is width/height 100% --
+// both are built to fill the verification drawer's positioned `.vr-player`. Used without such a
+// parent the link escaped to the nearest positioned ancestor (the modal) and painted the WHOLE
+// drawer black: the reviewer saw no steps, no reading, and no Accept button, only a stray Reject.
+// Caught by opening the drawer in a browser; pinned here so the wrapper cannot be dropped again.
+test("the strip photo is bounded by a positioned, sized media box", () => {
+  const link = listSource.indexOf('className="vr-image-link"');
+  assert.ok(link > 0, "the strip photo still uses vr-image-link");
+  const before = listSource.slice(Math.max(0, link - 700), link);
+  const box = before.lastIndexOf("<div style={{");
+  assert.ok(box >= 0, "vr-image-link must sit inside a style-bounded box");
+  const decl = before.slice(box);
+  for (const need of ['position: "relative"', "height: 320", 'overflow: "hidden"']) {
+    assert.ok(decl.includes(need), `the media box must declare ${need}`);
+  }
+});
