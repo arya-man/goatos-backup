@@ -12,6 +12,7 @@ import (
 
 	vaccinatdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
+	"github.com/vgoats/goatos/backend/internal/verification/samplingsql"
 )
 
 // istZone is the business timezone every "drive day" boundary in this file is cut on. It is spelled
@@ -785,7 +786,11 @@ LIMIT ` + fmt.Sprint(domain.LiveTrackerMaxShedOptions) + `)`
 // liveTrackerVerificationSQL is the post-drive verification block. Pending is the standing queue (it
 // is not day-scoped: an item captured yesterday is still awaiting review today); verified and rework
 // are day-scoped through verified_at.
-const liveTrackerVerificationSQL = `
+//
+// A var rather than a const because the randomization predicates are composed from
+// verification/samplingsql, which owns the ONE definition of "drawn for review" that this card and
+// the leadership KPI strip both count.
+var liveTrackerVerificationSQL = `
 -- projection-review: membership=verification_items for one tenant whose module or source_module is vaccination, optionally narrowed to one park/shed; group_key=none (five scalar aggregates); join_cardinality=no joins, single-table scan; pagination=not applicable, aggregates only, no row list is returned; scope=tenant plus the backend-clamped park filter and the optional shed filter.
 --
 -- The 'pending' counters are the STANDING queue and carry no date predicate on purpose — an item
@@ -801,11 +806,22 @@ WITH day_window AS (
     ($2::date::timestamp AT TIME ZONE '` + istZone + `') AS day_start,
     (($2::date + 1)::timestamp AT TIME ZONE '` + istZone + `') AS day_end
 )
+--
+-- RANDOMIZATION (maintainer decision 2026-08-26). Both halves of this card are now stated in terms
+-- of what a PERSON owes and what a PERSON did, and the definitions are shared with the leadership
+-- KPI strip through verification/samplingsql -- the cross-surface count parity rule is explicit
+-- that "videos awaiting review" must be the same number on every screen that shows it.
+--
+--   awaiting  -> only the items the policy DREW. An undrawn video is not waiting for a verifier;
+--                it is waiting for the closeout stage to settle it.
+--   verified  -> only verdicts a person cast. A policy-settled item carries the closeout's
+--                verified_at, so counting it would make "Verified today" jump by a hundred on a
+--                morning when the verifier watched forty.
 SELECT
-  count(*) FILTER (WHERE vi.status = 'pending')::int,
-  count(DISTINCT vi.shed_id) FILTER (WHERE vi.status = 'pending')::int,
-  count(*) FILTER (WHERE vi.status = 'approved' AND vi.verified_at >= w.day_start AND vi.verified_at < w.day_end)::int,
-  count(DISTINCT vi.shed_id) FILTER (WHERE vi.status = 'approved' AND vi.verified_at >= w.day_start AND vi.verified_at < w.day_end)::int,
+  count(*) FILTER (WHERE vi.status = 'pending' AND ` + samplingsql.InSample("vi") + `)::int,
+  count(DISTINCT vi.shed_id) FILTER (WHERE vi.status = 'pending' AND ` + samplingsql.InSample("vi") + `)::int,
+  count(*) FILTER (WHERE vi.status = 'approved' AND ` + samplingsql.DecidedByPerson("vi") + ` AND vi.verified_at >= w.day_start AND vi.verified_at < w.day_end)::int,
+  count(DISTINCT vi.shed_id) FILTER (WHERE vi.status = 'approved' AND ` + samplingsql.DecidedByPerson("vi") + ` AND vi.verified_at >= w.day_start AND vi.verified_at < w.day_end)::int,
   -- Day-scoped through verified_at, exactly like the two 'approved' counters above. Without the date
   -- predicate this was an all-time, tenant-wide rejected total rendered directly beneath a
   -- today-only "Verified today" figure, on a page headed "Drive Day — <date>".

@@ -661,6 +661,14 @@
   a.vr-omod-link .go{display:block;margin-top:7px;font-size:10.5px;font-weight:700;letter-spacing:.02em;color:var(--brand-d);opacity:.85}
   a.vr-omod-link:hover{border-color:var(--brand);background:var(--panel)}
   a.vr-omod-link:hover .go{opacity:1}
+  /* RANDOMIZATION rows (maintainer decision 2026-08-26): the same card primitive as a backlog
+     module, plus one row of day facts and the share control under it. */
+  .vr-rand .vr-rand-day{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:9px;font-size:11px;color:var(--faint);font-weight:600}
+  .vr-rand .vr-rand-set{display:flex;align-items:flex-end;gap:8px;margin-top:11px}
+  .vr-rand .vr-rand-set .fld{flex:1;min-width:0}
+  .vr-rand .vr-rand-set input{width:100%}
+  .vr-rand .vr-rand-locked{margin-top:11px;line-height:1.45}
+  .vr-rand .vr-rand-meta{margin-top:9px;font-size:10.5px;color:var(--faint);font-weight:600}
   a.vr-omod-link:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
   /* Backlog age shape: ONE stacked bar, youngest left, so the red tail's width is the share of the
      backlog that has waited more than a week. */

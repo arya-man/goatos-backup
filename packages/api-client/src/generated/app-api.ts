@@ -3765,6 +3765,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/verification/sampling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * CEO-only randomization - how much of each module's proof is reviewed.
+         * @description The RANDOMIZATION section on /verify (maintainer decision 2026-08-26). For one Asia/Kolkata business day it returns every registered verification category with the sampling percentage in force that day, and how the day is going against it: how many videos were captured, how many of them were DRAWN for the verifier, how many of those she has decided, and how many the policy settled without her.
+         *     Gated on permissions.verification.sampling, which is CEO-ONLY and narrower than verification.oversee -- the PC Director holds oversight and receives 403 here. Oversight WATCHES the verification workload; this DECIDES how much of it a human must watch, and a director setting that for his own department's work is the separation of duty that keeps verdict authority off leadership. The same capability gates the matching randomization control in the /verify page contract.
+         *     Captured, selected, reviewed and auto_accepted are NOT disjoint and must not be summed: selected is a subset of captured and reviewed is a subset of selected. progress_percent is backend-owned so no surface derives its own completion number -- at 40% sampling, all 40% reviewed is 100%.
+         */
+        get: operations["getVerificationSampling"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/verification/sampling/{category}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set one category's verification sampling percentage.
+         * @description Records the share of this category's proof videos the verifier must watch, effective from TODAY's Asia/Kolkata business day. Earlier days keep the percentage they actually ran at, so a change never rewrites what she already owed.
+         *     The effective date is the SERVER's and is not accepted from the client -- a caller that could name its own date could retroactively change a day the verifier has already worked.
+         *     The setting takes effect IMMEDIATELY on the current day. The draw is deterministic per item, so raising the percentage only ADDS videos to her queue; it can never retract one she is already holding or has already reviewed.
+         *     A category whose approve must CARRY a measurement (feed packing's packed quantities, feed wastage's leftover weight) is refused with 422 sampling_not_available: there the verifier is the data source rather than a spot check, so every video has to be watched. Those rows are returned by the GET with waivable=false and a locked_reason to render.
+         *     sample_percent is 0..100 inclusive. A value outside that range is REFUSED, never clamped -- an author who typed 140 is told, not quietly given 100. Absent is likewise an error, because 0 is a real setting ("review none of this category today") and must not be what a missing field means.
+         */
+        put: operations["setVerificationSamplingPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/verification/video-log": {
         parameters: {
             query?: never;
@@ -12162,6 +12208,55 @@ export interface components {
             facts: components["schemas"]["VerificationItemReviewFactsEntry"][];
             trace_id: string;
         };
+        VerificationSamplingResponse: {
+            /**
+             * Format: date
+             * @description The Asia/Kolkata business day these rows describe.
+             */
+            business_date: string;
+            /** @description Every registered verification category, ordered by module then page. Always an array, never null. */
+            categories: components["schemas"]["VerificationSamplingCategory"][];
+            trace_id?: string;
+        };
+        VerificationSamplingCategory: {
+            /** @description The registry token. It is the row's identity on the write and is the ONE field here a renderer may not print -- it is config vocabulary, and the copy firewall bans it from visible UI. Every visible word comes from module_label / page_label. */
+            category: string;
+            /** @description The verifier-drawer module key ("feed_direction"), for linking to that queue. */
+            module_key: string;
+            /** @description Backend-owned module display copy ("Feed"). */
+            module_label: string;
+            /** @description Backend-owned page display copy ("Feed Packing"). */
+            page_label: string;
+            /** @description The share of this category's videos the verifier must watch on business_date. 100 when the CEO has never set one. */
+            sample_percent: number;
+            /** @description False where the verifier RECORDS the measured quantity rather than checking it, so the percentage is locked at 100 and the write is refused. */
+            waivable: boolean;
+            /** @description Backend-owned sentence saying WHY the row is locked, non-empty exactly when waivable is false. Clients render it verbatim; a disabled control with no reason is the defect this prevents. */
+            locked_reason?: string;
+            /**
+             * Format: date
+             * @description The business day the standing setting was written for -- normally EARLIER than business_date, since a percentage set last week is still the one in force today. Absent when no setting has ever been made.
+             */
+            effective_from?: string;
+            /** @description Backend-owned display name of whoever set the standing percentage. */
+            set_by_name?: string;
+            /** Format: date-time */
+            set_at?: string;
+            /** @description Every non-withdrawn item of this category captured on business_date. NOT disjoint from the three below -- selected is a subset of this, and reviewed a subset of selected. Do not add them. */
+            captured: number;
+            /** @description The subset drawn for review at that day's percentage -- the verifier's share. */
+            selected: number;
+            /** @description Drawn items a verifier has decided. Excludes items the policy settled, which carry no verifier and are never counted as her work. */
+            reviewed: number;
+            /** @description Items the policy settled because they were not drawn. Rises once the day closes and the closeout runs, so on the current day it is normally 0. */
+            auto_accepted: number;
+            /** @description How much of HER SHARE is done: reviewed / selected. At 40% sampling, reviewing all 40% reads 100. A day with nothing drawn reads 100, not 0 -- she owes nothing, and 0 would read as falling behind on work that does not exist. Backend-owned so no surface derives its own completion number. */
+            progress_percent: number;
+        };
+        SetVerificationSamplingPolicyRequest: {
+            /** @description The share of this category's videos the verifier must watch, from today onward. Out of range is refused rather than clamped; absent is an error, because 0 is a real setting. */
+            sample_percent: number;
+        };
         VerificationOversightAnalyticsResponse: {
             kpis: components["schemas"]["VerificationOversightKPIs"];
             pending_age_buckets: components["schemas"]["VerificationPendingAgeBuckets"];
@@ -20119,6 +20214,64 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVerificationSampling: {
+        parameters: {
+            query?: {
+                /** @description Asia/Kolkata calendar day, YYYY-MM-DD. Defaults to today. A future date is rejected (422 future_business_date) rather than answering about a different day than the one printed above the panel. */
+                business_date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every registered category's sampling percentage and that day's progress. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationSamplingResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setVerificationSamplingPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The registered verification category token, as returned by the GET. */
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetVerificationSamplingPolicyRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated category row, including the day's progress against the new share. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationSamplingCategory"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };

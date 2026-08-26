@@ -1427,6 +1427,67 @@ names in ONE batched query per entity kind, and a fact whose name cannot be
 resolved is DROPPED from the line rather than rendered as an id. Clients render
 both verbatim; do not reintroduce client-side composition of that copy.
 
+Confirmed RANDOMIZED VERIFICATION SAMPLING rule (maintainer decision 2026-08-26): the CEO sets, per
+verification category, the PERCENTAGE of that category's proof videos the verifier actually has to
+watch. Her day is complete when she has cleared HER SHARE -- at 40% on feed packing, reviewing those
+40% IS 100% of her work, and the progress number is backend-owned so no surface derives its own.
+
+An UNSAMPLED video is AUTO-ACCEPTED, never left hanging, and that is the load-bearing half. Verifier
+approval is not merely review for feed and weighing -- it is the gate that COMPLETES the work (a feed
+pen-session stays pending_verification until an approve lands; a weighing bucket cannot close while
+verification is pending, ledger D-5, unconditional). Hiding the unsampled ones would stall those
+workflows forever, so the closeout stage approves them with
+`verification_items.auto_resolution = 'not_sampled'` and NO verified_by, emitting the ordinary
+`verification.verdict.approved` event -- every producer's consumer applies exactly as it does for a
+human approve. There is no second apply path, and a waived item can never be counted as her work.
+Sampling decides what gets WATCHED; a video nobody watched is never evidence the work was wrong, so
+a waived item is always an approval and never a rejection.
+
+Four narrowings, each load-bearing. (1) The draw is DETERMINISTIC AND MONOTONIC -- `sampling_bucket`
+is a GENERATED column, in sample when `bucket < percent` -- so raising the share mid-day only ADDS
+videos and can never retract one she is already holding. That is what makes "takes effect the same
+day" safe. (2) The policy is EFFECTIVE-DATED: a change writes a row at TODAY's business date and a
+past day keeps the percentage it actually ran at; the date is the SERVER's, never the client's.
+(3) A category whose approve must CARRY a measurement (feed packing's packed quantities, feed
+wastage's leftover weight) is LOCKED at 100% and the write is refused `sampling_not_available` --
+there the verifier is the DATA SOURCE, not a spot check, and waiving would either record no quantity
+at all or strand the item mid-apply. Derived from `MeasurementCorrection.RequiredForApprove`, never a
+hardcoded list. (4) The CLOSEOUT settles only CLOSED business days, because a video waived the moment
+it arrived could not be recruited back by a raise that afternoon.
+
+THE SHARE IS A FLOOR, NOT A CEILING (maintainer decision 2026-08-27, raised in review). A verdict on
+an item the policy did NOT draw is ACCEPTED and recorded as a HUMAN verdict (`verified_by` set,
+`auto_resolution` NULL). There is deliberately no sampling gate on the verdict route, and adding one
+would make bad work unreportable -- she watches an undrawn video, sees the work was wrong, and the
+rejection is refused so the work proceeds to `completed` -- as well as discarding a review already
+performed, since only a LOWERED share can drop an item she was holding. It mislabels nothing:
+`not_sampled` is the contract for a video NOBODY reviewed, `Reviewed`/`Selected` are share-scoped so
+an extra review cannot pass 100%, and the closeout skips any item a verifier already decided.
+Sampling is NOT an authorization boundary; what takes an item out of her reach is leaving `pending`.
+Reported as a P1 in review and closed as working-as-decided -- do not re-open it without reading
+`context/repo-audits/verification-randomization-do-not-reopen-ledger.md` -> B-1, which carries the
+reasoning, what a REAL defect here would look like, and the two stricter variants already costed.
+
+`permissions.VerificationSampling` is CEO-ONLY and narrower than every other capability on /verify:
+`pc_director` holds VerificationOversee and does NOT hold this. Oversight WATCHES the verification
+workload; randomization DECIDES how much of it a human must watch, and a director setting that for
+his own department's work is the separation of duty that keeps VerificationVerdict off leadership.
+The VERIFIER's queue is narrowed by the policy; LEADERSHIP's is not -- the principal who sets the
+percentage must be able to audit what it waived. Canonical prose:
+`docs/decisions/verification-randomization-sampling.md`; schema: migration
+`000214_verification_sampling.sql`; the cross-surface impact table (what sampling does to the KPI
+strip, the vaccination live tracker, the People proof stats and the verifier push) is in that same
+decision doc, and every row of it is asserted by `TestKernelStory_VerificationRandomization`. Two
+rules fall out of it and bind future changes: a count of what a PERSON STILL OWES uses
+`verification/samplingsql.InSample` (drawn items only), and a count of what a PERSON DID excludes
+`auto_resolution IS NOT NULL` -- a settled item carries the closeout's `verified_at` and would
+otherwise read as a verdict nobody cast, collapsing the reject rate with approvals no one decided.
+Note also `backend/internal/verificationcatalog`: the category
+set is now read by TWO processes (the API's registry and the worker's closeout), and a worker holding
+a hand-copied subset would not fail loudly -- it would silently never settle the categories it was
+missing. Declaring a category inline in `bootstrap/api.go` is blocked by
+`TestBootstrapDeclaresNoCategoryOfItsOwn`.
+
 Confirmed verifier admin-web workspace rule (maintainer decision 2026-08-03): the
 verifier-only workspace, previously mobile-only, also runs on admin-web with the SAME
 five evidence modules as mobile — Vaccination, Weighing, Counts, Feed, Health. `verifier`

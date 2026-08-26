@@ -192,6 +192,13 @@ func run(ctx context.Context, args []string) error {
 			kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
 			kernelstages.NewSopSubmissionFanoutRetryStage(deps, tenantID),
 			kernelstages.NewSopReviewFanoutRetryStage(deps, tenantID),
+			// RANDOMIZATION closeout (maintainer decision 2026-08-26): approve the proof videos
+			// the CEO's sampling percentage did not draw, once their business day has closed and
+			// the percentage can no longer change. Without it the videos the verifier is no longer
+			// shown would hold feed pen-sessions out of 'completed' and weighing buckets open
+			// against an unconditional close gate. Light and bounded (100 items/tick by default),
+			// so the shared operational lane's interval/4 budget is ample.
+			kernelstages.NewVerificationSamplingCloseoutStage(deps, tenantID),
 		)
 
 		// Generation (hourly): idempotently generate/recheck effective vaccination

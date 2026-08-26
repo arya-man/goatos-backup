@@ -684,6 +684,14 @@ var protectedRoutes = []Route{
 	// carry. The read is additionally park-clamped for a caller whose grant is park-scoped, exactly
 	// like the queue read.
 	{OperationID: "getVerificationVideoLog", Method: "GET", Pattern: "/verification/video-log", Permissions: []string{VerificationEvidenceTimeline}},
+	// RANDOMIZATION (maintainer decision 2026-08-26): per category, what percentage of that
+	// category's proof videos the verifier must watch, and how the day is going against that share.
+	// Read and write are gated on the SAME capability, verification.sampling, which is CEO-only --
+	// narrower than verification.oversee, which RolePCDirector also holds. There is nothing on this
+	// panel to read except the setting itself, so a caller who may not set it has no use for it.
+	// See permissions.VerificationSampling.
+	{OperationID: "getVerificationSampling", Method: "GET", Pattern: "/verification/sampling", Permissions: []string{VerificationSampling}},
+	{OperationID: "setVerificationSamplingPolicy", Method: "PUT", Pattern: "/verification/sampling/{category}", Permissions: []string{VerificationSampling}},
 
 	// HR roster: staff positions (concept #2), leave/absence (#3), temporary
 	// task coverage (#4), and the vaccination-ownership resolution read.

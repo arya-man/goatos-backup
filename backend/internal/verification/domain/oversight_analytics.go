@@ -7,6 +7,28 @@
 // docs/decisions/scale-anti-patterns.md -> "N+1 fan-out").
 package domain
 
+// RANDOMIZATION AND THESE NUMBERS (maintainer decision 2026-08-26). Sampling splits verification
+// into two populations, and every figure below now names which one it is about:
+//
+//   - WHAT A HUMAN STILL OWES -- VideosWaiting, PendingAgeBuckets and ModulePendingBacklog count
+//     only the items the policy DREW. An unsampled item is genuinely not waiting for review; it is
+//     waiting for the closeout to settle it, and counting it here would make the backlog and the
+//     throughput measured beside it describe different populations -- EstDaysToClearBacklog is one
+//     divided by the other, so a mismatch there is not a cosmetic error.
+//   - WHAT HUMANS GET THROUGH -- VerdictsPerActiveDayLast7d, PerModuleMedianReviewLatencyHours,
+//     RejectRateLast30d and DailyVerificationVolume.Verdicts exclude policy-settled items
+//     (auto_resolution IS NOT NULL). Those carry a verified_at (the closeout's clock) and would
+//     otherwise read as verdicts nobody cast: a 40% share would collapse the reject rate by
+//     inflating its denominator with approvals no one decided, and would report a review latency
+//     for a review that never happened.
+//
+// VerifierActivity needed no change: it has always keyed on verified_by, which a settled item does
+// not carry.
+//
+// The one thing this deliberately does NOT surface is a stalled closeout -- unsampled items sitting
+// pending because the stage stopped. That is visible on the Randomization panel instead, where a
+// past day showing captured > selected with auto_accepted still 0 is exactly that condition.
+
 // OversightKPIs is the top KPI strip: CEO-plain numbers, not internal jargon.
 type OversightKPIs struct {
 	VideosWaiting int

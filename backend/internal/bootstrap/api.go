@@ -32,7 +32,6 @@ import (
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsproof "github.com/vgoats/goatos/backend/internal/counts/adapters/proof"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
-	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	countsbridge "github.com/vgoats/goatos/backend/internal/countsbridge"
 	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
 	feedhttp "github.com/vgoats/goatos/backend/internal/feed/adapters/http"
@@ -81,7 +80,6 @@ import (
 	pccareproof "github.com/vgoats/goatos/backend/internal/pccare/adapters/proof"
 	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
 	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
-	pccaredomain "github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	permissionspg "github.com/vgoats/goatos/backend/internal/permissions/adapters/postgres"
 	platformaudit "github.com/vgoats/goatos/backend/internal/platform/audit"
@@ -127,7 +125,6 @@ import (
 	taskspg "github.com/vgoats/goatos/backend/internal/tasks/adapters/postgres"
 	tasksverificationbridge "github.com/vgoats/goatos/backend/internal/tasks/adapters/verificationbridge"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
-	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
 	vaccinationhttp "github.com/vgoats/goatos/backend/internal/vaccination/adapters/http"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
@@ -141,6 +138,7 @@ import (
 	verificationproofmedia "github.com/vgoats/goatos/backend/internal/verification/adapters/proofmedia"
 	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
+	"github.com/vgoats/goatos/backend/internal/verificationcatalog"
 	weighinghttp "github.com/vgoats/goatos/backend/internal/weighing/adapters/http"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
@@ -681,12 +679,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithActionPresentationResolver(tasksWorkflowRepo)
 	processIntegrityService.WithMediaResolver(verificationMedia)
 	verificationService := verificationapp.NewService(verificationRepo, verificationMedia)
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: "preventive_care", Module: "vaccination", Category: sopbridge.VaccinationVerificationCategory,
-		ExpectedMedia: []string{"video"}, MediaLabels: []string{"Vaccination proof video"},
-		NavigationModule: "vaccination", NavigationModuleLabel: "Vaccination",
-		PageKey: "vaccination", PageLabel: "Vaccination", PageOrder: 1,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.Vaccination); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -698,48 +691,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// feature filters its own queue by those same constants, so a hand-written vertical
 	// here would silently not match its reads.
 	for _, def := range []verificationdomain.CategoryDefinition{
-		{
-			Vertical: weighingdomain.VerificationVerticalWeighing, Module: weighingdomain.VerificationModuleWeighing,
-			Category:      weighingdomain.VerificationCategoryWeighing,
-			ExpectedMedia: []string{"video"}, MediaLabels: []string{"Weighing video"},
-			// THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17). Weighing is
-			// the one category today whose proof shows a number an operator typed, so it is
-			// the one that declares a correctable measurement. Every visible word lives here
-			// because the backend owns labels: her phone and her admin-web drawer render this
-			// same copy, and neither may word it itself.
-			//
-			// The help sentence says REPLACES on purpose. A verifier who believes she is
-			// filing a note rather than overwriting the operator's record is the single most
-			// expensive misunderstanding this control can cause.
-			MeasurementCorrection: &verificationdomain.MeasurementCorrectionSpec{
-				Title:       "Correct the weight",
-				Help:        "Enter the weight you can see in the video. It replaces the weight recorded here.",
-				ValueLabel:  "Corrected weight (kg)",
-				SubmitLabel: "Save corrected weight",
-				// NO CountLabel / CountRefTypes, deliberately (maintainer decision
-				// 2026-08-24, retiring the 2026-08-17 head-count edit): the lump-sum
-				// head count is snapshotted from the herd register at submit and is
-				// frozen, so NOBODY — verifier included — may change it. Both clients
-				// render the count input only when this spec carries a CountLabel, so
-				// omitting it here removes the field from the phone and the admin-web
-				// drawer alike, and verification's own validateMeasurement refuses any
-				// count a stale client still sends (measurement_count_not_supported).
-			},
-			NavigationModule: "weighing", NavigationModuleLabel: "Weighing",
-			PageKey: "weighing", PageLabel: "Weighing", PageOrder: 1,
-		},
-		{
-			Vertical: "health", Module: "health", Category: "health_adults",
-			ExpectedMedia: []string{"video"}, MediaLabels: []string{"Health case video"},
-			NavigationModule: "aas_health", NavigationModuleLabel: "Health",
-			PageKey: "health_adults", PageLabel: "Adults", PageOrder: 1,
-		},
-		{
-			Vertical: "health", Module: "health", Category: "health_kids",
-			ExpectedMedia: []string{"video"}, MediaLabels: []string{"Health case video"},
-			NavigationModule: "aas_health", NavigationModuleLabel: "Health",
-			PageKey: "health_kids", PageLabel: "Kids", PageOrder: 2,
-		},
+		verificationcatalog.Weighing,
+		verificationcatalog.HealthAdults,
+		verificationcatalog.HealthKids,
 	} {
 		if err := verificationService.RegisterCategory(def); err != nil {
 			pool.Close()
@@ -777,13 +731,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// a verifier approves the operator's mandatory video, so shifting is a verification producer just
 	// like vaccination. Register its category and wire the enqueue seam into the execution service now
 	// that the verification service exists.
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: countsdomain.VerificationVerticalShifting, Module: countsdomain.VerificationModuleShifting,
-		Category: countsdomain.VerificationCategoryShifting, ExpectedMedia: []string{"video"},
-		MediaLabels:      []string{"Shifting video"},
-		NavigationModule: "counts", NavigationModuleLabel: "Counts",
-		PageKey: "shifting", PageLabel: "Shifting", PageOrder: 3,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.Shifting); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -792,31 +740,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Milk preparation is a park-day work item. Every applicable step owns a distinct live-camera
 	// video (five with goat milk, two without), and all videos travel on one verifier item so one
 	// verdict completes or reworks the whole preparation attempt.
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: countsdomain.VerificationVerticalMilkPreparation, Module: countsdomain.VerificationModuleMilkPreparation,
-		Category:      countsdomain.VerificationCategoryMilkPreparation,
-		ExpectedMedia: []string{"video", "video", "video", "video", "video"},
-		// Reviewed under MILK, not Counts (maintainer decision 2026-08-09). The two milk tasks were
-		// split out of Counts into their own operator module on 2026-07-31, but their VERIFICATION
-		// was deliberately left in the Counts lens -- so a verifier saw Milk Prep and Milk Feeding
-		// filed under Herd Operations, while the Milk module in her own drawer pointed at an
-		// invented "milk_proof" category that no producer writes and that answers 400 forever.
-		// Review now follows the module the work belongs to.
-		SLAHours: 24, NavigationModule: "milk", NavigationModuleLabel: "Milk",
-		PageKey: "milk_preparation", PageLabel: "Milk Prep", PageOrder: 1,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.MilkPreparation); err != nil {
 		pool.Close()
 		return nil, err
 	}
 	herdRegisterService.WithMilkPreparationVerificationEnqueuer(
 		countsbridge.NewMilkPreparationVerificationEnqueuer(verificationService))
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: countsdomain.VerificationVerticalMilkFeeding, Module: countsdomain.VerificationModuleMilkFeeding,
-		Category: countsdomain.VerificationCategoryMilkFeeding, ExpectedMedia: []string{"video", "video"},
-		MediaLabels: []string{"Milk preparation video", "Milk feeding video"}, SLAHours: 24,
-		NavigationModule: "milk", NavigationModuleLabel: "Milk",
-		PageKey: "milk_feeding", PageLabel: "Milk Feeding", PageOrder: 2,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.MilkFeeding); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -826,14 +756,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// verification producer just like vaccination and shifting. Register its category and wire the
 	// enqueue seam into the feed-direction service now that verificationService exists. Weight photo,
 	// feed-distribution video, and water-distribution video travel together on one verification item.
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
-		Category:         feeddirectiondomain.VerificationCategoryFeed,
-		ExpectedMedia:    []string{"photo", "video", "video"},
-		MediaLabels:      []string{"Feed weight photo", "Feed distribution video", "Water distribution video"},
-		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
-		PageKey: "feed_distribution", PageLabel: "Feed Distribution", PageOrder: 1,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.FeedDistribution); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -850,27 +773,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// packed weight she can see for each, and the approve carries every reading. A verifier who
 	// cannot see a usable video rejects -> rework, unchanged. The intended-vs-entered variance
 	// surfaces only on the leadership feed analytics execution view.
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
-		Category:      feeddirectiondomain.VerificationCategoryPacking,
-		ExpectedMedia: []string{"video"},
-		MediaLabels:   []string{"Feed packing video"},
-		MeasurementCorrection: &verificationdomain.MeasurementCorrectionSpec{
-			Title:       "Record the packed quantities",
-			Help:        "Watch the video and enter the packed weight you can see for each feed item. Your readings become the recorded packed quantities.",
-			ValueLabel:  "Packed quantity (kg)",
-			SubmitLabel: "Save packed quantities",
-			// The numbers are BORN on her screen -- the operator sends a video and nothing else --
-			// so every box must be filled before the approve lands. An unreadable video is a
-			// rejection, never a guess.
-			RequiredForApprove: true,
-			// One value PER FEED ITEM, with the field list on each item; an item enqueued with no
-			// fields (frozen sheet unreadable at submit) degrades to a judge-the-video approve.
-			PerItemFields: true,
-		},
-		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
-		PageKey: "feed_packing", PageLabel: "Feed Packing", PageOrder: 2,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.FeedPacking); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -886,13 +789,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
-		Category: feeddirectiondomain.VerificationCategoryTransport, ExpectedMedia: []string{"video"},
-		MediaLabels:      []string{"Feed transport video"},
-		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
-		PageKey: "feed_transport", PageLabel: "Feed Transport", PageOrder: 3,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.FeedTransport); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -906,24 +803,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// number is born on the verifier's screen — she reads the leftover weight off the clip, records
 	// it, and approves; an unreadable value is a rejection, never a guess. Every visible word lives
 	// here because the backend owns labels (her phone and admin-web drawer render this same copy).
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
-		Category:      feeddirectiondomain.VerificationCategoryWastage,
-		ExpectedMedia: []string{"video"},
-		MediaLabels:   []string{"Feed wastage video"},
-		MeasurementCorrection: &verificationdomain.MeasurementCorrectionSpec{
-			Title:       "Record the wastage",
-			Help:        "Enter the leftover feed weight you can see in the video. It replaces any wastage weight recorded here.",
-			ValueLabel:  "Measured wastage (kg)",
-			SubmitLabel: "Save wastage weight",
-			// The number is BORN here: the operator sends a video and nothing else, so approving
-			// without a reading would complete a pen-day with no wastage at all. An unreadable
-			// value is a rejection, never a guess.
-			RequiredForApprove: true,
-		},
-		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
-		PageKey: "feed_wastage", PageLabel: "Feed Wastage", PageOrder: 4,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.FeedWastage); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -952,17 +832,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// category — all sharing NavigationModule "pc_care" so the verifier gets ONE Verify tab and
 	// the categories split as queue page filters (never one tab per category). All four share
 	// ref_type pc_care_task; the verdict consumer filters on module+ref_type.
-	for order, workCategory := range pccaredomain.Categories {
-		if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-			Vertical: pccaredomain.VerificationVerticalPreventiveCare, Module: pccaredomain.VerificationModulePCCare,
-			Category: pccaredomain.VerificationCategoryFor(workCategory),
-			// The media set is DYNAMIC (animals x slots), so no positional ExpectedMedia /
-			// MediaLabels contract: every clip is a video and carries its animal's tag, the
-			// operator, and the capture time burned into its overlay.
-			NavigationModule: "pc_care", NavigationModuleLabel: "Preventive Care",
-			PageKey:   pccaredomain.VerificationCategoryFor(workCategory),
-			PageLabel: pccaredomain.CategoryLabel(workCategory), PageOrder: order + 1,
-		}); err != nil {
+	for _, def := range verificationcatalog.PCCare() {
+		if err := verificationService.RegisterCategory(def); err != nil {
 			pool.Close()
 			return nil, err
 		}
@@ -974,23 +845,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// ONE generic verification item (category death_evidence, both proofs on the item), so tasks is a
 	// verification producer just like shifting and feed. Register the category and wire the enqueue
 	// seam into the tasks workflow service.
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: tasksdomain.VerificationVerticalCounts, Module: tasksdomain.VerificationModuleCounts,
-		Category:      tasksdomain.VerificationCategoryDeathEvidence,
-		ExpectedMedia: []string{"video", "video"},
-		SLAHours:      24, NavigationModule: "counts", NavigationModuleLabel: "Counts",
-		PageKey: "death", PageLabel: "Death", PageOrder: 2,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.DeathEvidence); err != nil {
 		pool.Close()
 		return nil, err
 	}
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: tasksdomain.VerificationVerticalCounts, Module: tasksdomain.VerificationModuleCounts,
-		Category:      tasksdomain.VerificationCategoryBirthEvidence,
-		ExpectedMedia: []string{"video"},
-		SLAHours:      24, NavigationModule: "counts", NavigationModuleLabel: "Counts",
-		PageKey: "birth", PageLabel: "Birth", PageOrder: 1,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.BirthEvidence); err != nil {
 		pool.Close()
 		return nil, err
 	}
