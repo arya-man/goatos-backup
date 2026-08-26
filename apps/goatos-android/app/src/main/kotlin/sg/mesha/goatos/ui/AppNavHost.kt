@@ -363,6 +363,7 @@ object Routes {
     const val COUNTS_DEATH_ADD = "/counts/death/add"
     const val COUNTS_SHIFTING_ADD = "/counts/shifting/add"
     const val COUNTS_SHIFTING_SUBMISSION_NOTICE = "counts_shifting_submission_notice"
+    const val COUNTS_SHIFTING_SUBMISSION_OUTBOX_ID = "counts_shifting_submission_outbox_id"
     const val COUNTS_BIRTH_SUBMISSION_NOTICE = "counts.birth.submissionNotice"
     const val COUNTS_DEATH_SUBMISSION_NOTICE = "counts.death.submissionNotice"
 
@@ -2306,6 +2307,15 @@ fun AppNavHost(
                 backStackEntry.savedStateHandle
                     .remove<String>(Routes.COUNTS_SHIFTING_SUBMISSION_NOTICE)
             }
+            val submissionOutboxId = remember(backStackEntry) {
+                backStackEntry.savedStateHandle
+                    .remove<String>(Routes.COUNTS_SHIFTING_SUBMISSION_OUTBOX_ID)
+            }
+            LaunchedEffect(submissionOutboxId) {
+                if (submissionOutboxId != null) {
+                    pendingVm.followSubmittedOutboxItem(submissionOutboxId, submissionNotice)
+                }
+            }
             val pendingRows = pendingVm.rows.collectAsLazyPagingItems()
             LaunchedEffect(submissionNotice) {
                 if (submissionNotice != null) {
@@ -2325,7 +2335,7 @@ fun AppNavHost(
             LaunchedEffect(appendError) { appendError?.let(pendingVm::onRowsLoadFailed) }
 
             ShiftingActionsScreen(
-                state = pendingState.copy(submissionNotice = submissionNotice),
+                state = pendingState,
                 rows = pendingRows,
                 onEvent = { event ->
                     when (event) {
@@ -2356,6 +2366,12 @@ fun AppNavHost(
                         Routes.COUNTS_SHIFTING_SUBMISSION_NOTICE,
                         state.submissionNotice ?: "Shifting raised successfully.",
                     )
+                    state.submittedOutboxItemId?.let { outboxItemId ->
+                        navController.previousBackStackEntry?.savedStateHandle?.set(
+                            Routes.COUNTS_SHIFTING_SUBMISSION_OUTBOX_ID,
+                            outboxItemId,
+                        )
+                    }
                     vm.onEvent(ShiftingEvent.NavigationHandled)
                     navController.popBackStack()
                 }

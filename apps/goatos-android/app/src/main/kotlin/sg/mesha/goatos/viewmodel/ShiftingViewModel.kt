@@ -502,7 +502,7 @@ class ShiftingViewModel @Inject constructor(
             )
             when (result) {
                 is AppResult.Ok -> {
-                    resetForNextEntry(confirmation = QUEUED_MESSAGE)
+                    resetForNextEntry(confirmation = QUEUED_MESSAGE, submittedOutboxItemId = result.value)
                     analytics.track(AnalyticsEvents.COUNTS_SHIFTING_SUBMITTED, current.submitAnalyticsProps())
                 }
                 is AppResult.Err -> {
@@ -607,7 +607,7 @@ class ShiftingViewModel @Inject constructor(
                     // values on a locked form. A still-syncing (queued) or terminally-rejected (failed)
                     // write keeps its banner and values.
                     if (writeResult.status == CountsWriteStatus.SYNCED) {
-                        resetForNextEntry(confirmation = writeResult.message)
+                        resetForNextEntry(confirmation = writeResult.message, submittedOutboxItemId = itemId)
                         return@collect
                     }
                     _state.update { it.copy(result = writeResult) }
@@ -622,7 +622,7 @@ class ShiftingViewModel @Inject constructor(
      * syncs on its own, so we drop only THIS ViewModel's references to it and mint a fresh idempotency
      * key for the next movement, while KEEPING the cached destination catalog so the form stays usable.
      */
-    private fun resetForNextEntry(confirmation: String?) {
+    private fun resetForNextEntry(confirmation: String?, submittedOutboxItemId: String? = null) {
         statusJob?.cancel()
         statusJob = null
         idempotencyKey.invalidate()
@@ -633,6 +633,7 @@ class ShiftingViewModel @Inject constructor(
                 lastRecordedMessage = null,
                 returnToActions = true,
                 submissionNotice = confirmation,
+                submittedOutboxItemId = submittedOutboxItemId,
             )
         }
         recomputeSubmitGate()

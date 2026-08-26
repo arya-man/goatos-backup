@@ -122,7 +122,7 @@ data class ShiftingPendingUiState(
     val isToday: Boolean = true,
     val statuses: List<ShiftingPendingStatusUi> = emptyList(),
     val previousDates: List<ShiftingPreviousDateUi> = emptyList(),
-    val submissionNotice: String? = null,
+    val submissionNotice: CountsWriteResultUi? = null,
     val emptyMessage: String? = null,
     val isErrorEmpty: Boolean = false,
     val isRefreshing: Boolean = false,
@@ -187,12 +187,9 @@ fun ShiftingActionsScreen(
             isOffline = state.isOffline,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
         )
-        state.submissionNotice?.let {
-            Text(
-                text = it,
-                color = MeshaColors.Ok,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.W700,
+        state.submissionNotice?.let { notice ->
+            CountsResultBanner(
+                result = notice,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }

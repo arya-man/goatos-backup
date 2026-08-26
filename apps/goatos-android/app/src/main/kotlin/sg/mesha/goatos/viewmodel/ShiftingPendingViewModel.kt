@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
@@ -21,7 +22,10 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
+import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.CountsShiftingPendingExecutionItemDto
+import sg.mesha.goatos.feature.counts.CountsWriteResultUi
+import sg.mesha.goatos.feature.counts.CountsWriteStatus
 import sg.mesha.goatos.feature.counts.ShiftingPendingEvent
 import sg.mesha.goatos.feature.counts.ShiftingPendingRowUi
 import sg.mesha.goatos.feature.counts.ShiftingPendingStatusUi
@@ -39,6 +43,7 @@ import javax.inject.Inject
 class ShiftingPendingViewModel @Inject constructor(
     private val repo: ShiftingPendingRepository,
     private val drafts: CaptureDraftRepository,
+    private val syncRepository: SyncRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
@@ -46,6 +51,7 @@ class ShiftingPendingViewModel @Inject constructor(
     private val _selection = MutableStateFlow(Selection(today.toString(), STATUS_ALL))
     private val _isOffline = MutableStateFlow(false)
     private val _lastSyncedAt = MutableStateFlow<Long?>(null)
+    private val _submittedOutboxItem = MutableStateFlow<SubmittedOutboxNotice?>(null)
 
     /**
      * The paged Actions rows, decorated with each task's local evidence progress.
@@ -65,9 +71,22 @@ class ShiftingPendingViewModel @Inject constructor(
         page.map { row -> row.withEvidenceProgress(progress[row.shiftingEventId] ?: 0) }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val submittedWriteResult: Flow<CountsWriteResultUi?> = _submittedOutboxItem.flatMapLatest { submitted ->
+        if (submitted == null) {
+            flowOf(null)
+        } else {
+            syncRepository.observeStatus().map { status ->
+                val item = status.items.firstOrNull { it.id == submitted.outboxItemId }
+                item?.toWriteResult(submitted.queuedMessage, SYNCED_MESSAGE)
+                    ?: CountsWriteResultUi(CountsWriteStatus.QUEUED, submitted.queuedMessage)
+            }
+        }
+    }
+
     val state: StateFlow<ShiftingPendingUiState> = combine(
-        _selection, _isOffline, _lastSyncedAt, repo.actionsMeta,
-    ) { selection, isOffline, lastSyncedAt, meta ->
+        _selection, _isOffline, _lastSyncedAt, repo.actionsMeta, submittedWriteResult,
+    ) { selection, isOffline, lastSyncedAt, meta, submissionNotice ->
         val date = LocalDate.parse(selection.dateIso)
         ShiftingPendingUiState(
             dateIso = selection.dateIso,
@@ -87,6 +106,7 @@ class ShiftingPendingViewModel @Inject constructor(
             isErrorEmpty = isOffline,
             lastSyncedAt = lastSyncedAt,
             isOffline = isOffline,
+            submissionNotice = submissionNotice,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShiftingPendingUiState())
 
@@ -100,6 +120,13 @@ class ShiftingPendingViewModel @Inject constructor(
     fun onRowsLoaded() {
         _isOffline.value = false
         _lastSyncedAt.value = System.currentTimeMillis()
+    }
+
+    fun followSubmittedOutboxItem(outboxItemId: String, queuedMessage: String?) {
+        _submittedOutboxItem.value = SubmittedOutboxNotice(
+            outboxItemId = outboxItemId,
+            queuedMessage = queuedMessage ?: QUEUED_MESSAGE,
+        )
     }
 
     fun onEvent(event: ShiftingPendingEvent) {
@@ -187,9 +214,16 @@ class ShiftingPendingViewModel @Inject constructor(
      */
     private data class Selection(val dateIso: String, val status: String, val refreshNonce: Int = 0)
 
+    private data class SubmittedOutboxNotice(
+        val outboxItemId: String,
+        val queuedMessage: String,
+    )
+
     private companion object {
         /** Shifting + feed packing + feed given (docs/decisions/shifting-verification.md). */
         const val HIGH_PRIORITY_VIDEOS = 3
+        const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."
+        const val SYNCED_MESSAGE = "Shifting raised successfully."
         val IST: ZoneId = ZoneId.of("Asia/Kolkata")
         val DATE_LABEL: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
         const val STATUS_ALL = "all"
