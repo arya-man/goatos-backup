@@ -44,6 +44,8 @@ import (
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
+	toxinpg "github.com/vgoats/goatos/backend/internal/toxin/adapters/postgres"
+	toxinapp "github.com/vgoats/goatos/backend/internal/toxin/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
@@ -180,6 +182,11 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	countsapp.NewShiftingVerificationHandler(countsApprovalRepo, nil).Register(bus)
 	countsapp.NewMilkPreparationVerificationHandler(countsMilkPreparationRepo).Register(bus)
 	countsapp.NewMilkFeedingVerificationHandler(countsMilkPreparationRepo).Register(bus)
+	// Toxin (maintainer decision 2026-08-25): procurement.feed_purchase.recorded reaches THIS
+	// durable consumer, never the API's in-process bus, so a missing registration here is a
+	// silent drop that leaves every purchased load without its aflatoxin test task. Mirrors
+	// kernelstages.BuildDomainBus.
+	toxinapp.NewFeedPurchaseRecordedHandler(toxinpg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feedDirectionRepo, logger).Register(bus)

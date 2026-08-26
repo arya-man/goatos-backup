@@ -360,9 +360,55 @@ class GoatDatabaseUpgradeCrashTest {
             // 14. The four v49 PC CARE tables (MIGRATION_48_49). Same MOB-007 proof: a write+read
             //     round-trip on each proves the migrated table matches its @Entity shape.
             assertPcCareTablesRoundTrip(upgraded, base = 160L)
+
+            // 15. The three v50 TOXIN tables (MIGRATION_49_50). Same MOB-007 proof: the migration
+            //     is purely additive, so an omitted or mis-shaped CREATE still passes every
+            //     fresh-install test — only reopening a real old file and round-tripping each
+            //     table catches it before an upgraded phone crashes on open.
+            assertToxinTablesRoundTrip(upgraded, base = 180L)
         } finally {
             upgraded.close()
         }
+    }
+
+    /** Round-trips the three Toxin tables so a missing/mismatched CREATE in MIGRATION_49_50
+     *  fails here — the MOB-007 upgrade-crash class — rather than on a tester's phone. */
+    private suspend fun assertToxinTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        upgraded.toxinTaskItemDao().upsertAll(
+            listOf(
+                sg.mesha.goatos.core.data.cache.ToxinTaskItemEntity(
+                    queryKey = "toxin",
+                    grainKey = "toxin-task-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals(1, upgraded.toxinTaskItemDao().countForQuery("toxin"))
+        assertEquals(1, upgraded.toxinTaskItemDao().rowsForTask("toxin-task-1").size)
+
+        upgraded.toxinTaskRemoteKeyDao().upsert(
+            sg.mesha.goatos.core.data.cache.ToxinTaskRemoteKeyEntity(
+                queryKey = "toxin",
+                nextCursor = "cursor-20",
+                endReached = false,
+                updatedAt = base + 1,
+            ),
+        )
+        assertEquals("cursor-20", upgraded.toxinTaskRemoteKeyDao().get("toxin")?.nextCursor)
+
+        upgraded.toxinTaskDetailCacheDao().upsert(
+            sg.mesha.goatos.core.data.cache.ToxinTaskDetailCacheEntity(
+                cacheKey = "toxin-task-1",
+                dtoJson = "{}",
+                updatedAt = base + 2,
+            ),
+        )
+        assertEquals(
+            base + 2,
+            upgraded.toxinTaskDetailCacheDao().observe("toxin-task-1").first()?.updatedAt,
+        )
     }
 
     /** Round-trips the four PC Care tables so a missing/mismatched CREATE in MIGRATION_48_49
@@ -1134,7 +1180,7 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36,
             MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41,
             MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46,
-            MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49,
+            MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —

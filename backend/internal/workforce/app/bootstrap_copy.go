@@ -343,6 +343,22 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "approvals", labelKey: "nav.approval", href: "/counts/approvals", shared_key: "", priority: 1, requiredPermission: permissions.CountsApproveAccess}, //nav-composition:ignore: registry entry
 		},
 	},
+	// "toxin" is the aflatoxin strip-test module (maintainer decision 2026-08-25): one
+	// 7-step guided test per purchased feed load, proof at every step, CEO/CXO-only review
+	// on admin-web. Same per-person shape as "approvals" above: the module is offered on a
+	// PERMISSION carried by the per-person toxin_tester role (plus ceo_internal), never on
+	// the park_head/director job. No "you" contribution, for the approvals reason: no
+	// principal can hold this module alone (toxin_tester grants no AppBootstrap).
+	"toxin": {
+		key:         "toxin",
+		labelKey:    "module.toxin",
+		landingHref: "/toxin", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		priority:    9,
+		contributions: []moduleNavContribution{
+			{key: "toxin", labelKey: "nav.toxin", href: "/toxin", shared_key: "", priority: 1, requiredPermission: permissions.ToxinRead}, //nav-composition:ignore: registry entry
+		},
+	},
 	// PC Care (module_key pc_care, maintainer decision 2026-08-21): planner-assigned deworming /
 	// ticks removal / hoof trimming / hair trimming, one bottom-bar tab per category — the Feed
 	// four-tab shape. Each category tab is gated on PCCareExecute, the SAME permission its
@@ -611,6 +627,14 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	// The CEO tier reaches this through ceo_internal, which carries the same permission directly.
 	if grantsHavePermission(grants, permissions.CountsApproveAccess) {
 		keys = appendMissing(keys, "approvals")
+	}
+	// Toxin is offered the SAME per-person way (maintainer decision 2026-08-25): the
+	// permission rides the toxin_tester role granted to named individuals (and
+	// ceo_internal), so a bare park_head/pc_director/growth_director job offers nothing.
+	// Unlike counts.write above, no JOB role carries toxin.read, so the permission IS the
+	// per-person fact here.
+	if grantsHavePermission(grants, permissions.ToxinRead) {
+		keys = appendMissing(keys, "toxin")
 	}
 	// Herd Operations (Counts) capture is offered the SAME per-person way as approvals above, and
 	// for the same reason (maintainer decision 2026-08-07, extending "rbac per person, not per
@@ -1198,6 +1222,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.health":         "Health",
 		"module.milk":           "Milk",
 		"module.approvals":      "Approvals",
+		"module.toxin":          "Toxin",
+		"nav.toxin":             "Tests",
 		"queue.assigned":        "Assigned work",
 		"queue.shifting":        "Shifting",
 		"queue.proof_review":    "Proof review",
@@ -1245,6 +1271,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.health":         "स्वास्थ्य",
 		"module.milk":           "दूध",
 		"module.approvals":      "अनुमोदन",
+		"module.toxin":          "टॉक्सिन",
+		"nav.toxin":             "जाँच",
 		"queue.assigned":        "सौंपा गया काम",
 		"queue.shifting":        "शिफ्टिंग",
 		"queue.proof_review":    "प्रूफ समीक्षा",
@@ -1292,6 +1320,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.health":         "ಆರೋಗ್ಯ",
 		"module.milk":           "ಹಾಲು",
 		"module.approvals":      "ಅನುಮೋದನೆ",
+		"module.toxin":          "ಟಾಕ್ಸಿನ್",
+		"nav.toxin":             "ಪರೀಕ್ಷೆಗಳು",
 		"queue.assigned":        "ನಿಯೋಜಿಸಿದ ಕೆಲಸ",
 		"queue.shifting":        "ಸ್ಥಳಾಂತರ",
 		"queue.proof_review":    "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
@@ -1339,6 +1369,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.health":         "ఆరోగ్యం",
 		"module.milk":           "పాలు",
 		"module.approvals":      "ఆమోదం",
+		"module.toxin":          "టాక్సిన్",
+		"nav.toxin":             "పరీక్షలు",
 		"queue.assigned":        "కేటాయించిన పని",
 		"queue.shifting":        "షిఫ్టింగ్",
 		"queue.proof_review":    "ప్రూఫ్ సమీక్ష",

@@ -509,6 +509,19 @@ object AppModule {
         syncRepository = syncRepository,
     )
 
+    /**
+     * Toxin module reads (module toxin, maintainer decision 2026-08-25). Room-backed and
+     * offline-first; the WRITES ride the outbox, so unlike PC Care this repository takes no
+     * SyncRepository and creates no Dagger cycle.
+     */
+    @Provides
+    @Singleton
+    fun provideToxinRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): sg.mesha.goatos.core.data.ToxinRepository =
+        sg.mesha.goatos.core.data.DefaultToxinRepository(api = api, database = database)
+
     // App-scoped optimistic overlay for feed completions (offline-first badge ahead of the next
     // refresh). A process singleton, not persisted — the outbox is the durable command record.
     @Provides
@@ -774,6 +787,11 @@ object AppModule {
         // enqueues its own outbox writes). The handle defers provider.get() to CALL time, after
         // the graph is fully built, so construction never recurses.
         pcCareRepositoryProvider: javax.inject.Provider<sg.mesha.goatos.core.data.PcCareRepository>,
+        // Without this, toxinRepository defaults to null in the constructor and the
+        // TOXIN_STEP_COMPLETE/TOXIN_SUBMIT reconciliation silently no-ops in production: every
+        // step write would land on the server while the phone kept rendering the PREVIOUS step
+        // states until the next manual refresh. Same defect class as feedRepository above.
+        toxinRepository: sg.mesha.goatos.core.data.ToxinRepository,
     ): SyncEngine {
         val pcCareRepository = DeferredPcCareRepository(pcCareRepositoryProvider)
         return SyncEngine(
@@ -794,6 +812,7 @@ object AppModule {
         // PC_CARE_SCAN_ADD/PC_CARE_TASK_SUBMIT reconciliation in production without this wiring.
         pcCareAnimalRowDao = database.pcCareAnimalRowDao(),
         pcCareRepository = pcCareRepository,
+        toxinRepository = toxinRepository,
         telemetry = outboxTelemetry,
         // Whole-page-blob reconcile: these opTypes affect cached lists/envelopes with no server-truth
         // row to write directly into. The reconcile is "refresh the page" or "forget the row",

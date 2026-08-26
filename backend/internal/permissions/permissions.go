@@ -56,8 +56,21 @@ const (
 	// this role ALONE authorizes reaching the approvals routes and nothing else, which is the
 	// intended fail-closed shape.
 	RoleCountsApprover = "counts_approver"
-	RoleOperator       = "operator"
-	RoleCEOInternal    = "ceo_internal"
+	// RoleToxinTester is a PER-PERSON authority grant, the counts_approver shape exactly
+	// (maintainer decision 2026-08-25): the named people who know how to run the SHF 001-A
+	// aflatoxin strip test hold it alongside their job role. Today: the two named park
+	// heads in perPersonGrants (backend/cmd/seed-stg-login-grants/approvers.go). It is
+	// NEVER attached to the park_head/director JOB — a future holder of those jobs
+	// inherits no toxin authority by holding the job.
+	//
+	// It carries ToxinRead + ToxinExecute ONLY. ToxinVerdict is deliberately absent: the
+	// tester runs the test, and the reviewer of the test must not be the tester
+	// (separation of duty, same reasoning as the verifier lock — except here the
+	// reviewer is CEO/CXO by maintainer decision, not the tenant verifier).
+	// Catalog row: migration 000207.
+	RoleToxinTester = "toxin_tester"
+	RoleOperator    = "operator"
+	RoleCEOInternal = "ceo_internal"
 	// RoleProcurementManager runs the vendor register.
 	//
 	// Unlike RoleCountsApprover, this IS a job rather than a per-person authority: running the
@@ -325,8 +338,27 @@ const (
 	// separate from FeedPurchaseRead so a read-only oversight tier -- the Feed Director watching
 	// what the stock cards are built from -- is expressible without a schema change.
 	FeedPurchaseWrite = "feed.purchase.write"
-	RosterRead        = "roster.read"
-	RosterManage      = "roster.manage"
+	// ToxinRead gates the toxin module's task reads (GET /app/toxin/tasks*): the aflatoxin
+	// strip-test tasks born one-per-purchased-feed-load (maintainer decision 2026-08-25).
+	// Held per person via RoleToxinTester, plus RoleCEOInternal (founder visibility).
+	ToxinRead = "toxin.read"
+	// ToxinExecute gates the step work: completing a step video and submitting the strip
+	// reading (POST /app/toxin/tasks/{task_id}/steps/{step_no}/complete, .../submit).
+	// Steps are person-independent among holders — any ToxinExecute holder may complete
+	// the next open step. Also ORed into the /app/proofs upload routes, the same lever
+	// weighing.execute needed (see the createProofUpload comment in routes.go).
+	ToxinExecute = "toxin.execute"
+	// ToxinVerdict gates the toxin accept/reject (POST /toxin/tasks/{task_id}/verdict and
+	// the GET /toxin/review tab). MAINTAINER DECISION 2026-08-25: toxin review belongs to
+	// CEO/CXO ALONE — it is deliberately NOT the tenant verifier's verification.verdict,
+	// and this module is deliberately NOT a generic Verification category, so the
+	// 2026-08-03 verifier verdict-exclusivity lock stands untouched. Granted ONLY to
+	// RoleCEOInternal. Never grant it to RoleVerifier (the verifier must not see toxin
+	// work at all) and never to RoleToxinTester (the tester must not review their own
+	// test). TestToxinVerdictIsCEOOnly pins all three edges.
+	ToxinVerdict = "toxin.verdict"
+	RosterRead   = "roster.read"
+	RosterManage = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
 	// (movement) event, a birth, or a death from the phone (/app/counts/*).
 	//
@@ -1011,6 +1043,14 @@ var rolePermissions = map[string]map[string]struct{}{
 		CountsApproveLifecycle: {},
 		CountsApproveShifting:  {},
 	},
+	// Per-person testing authority ONLY: read the toxin task list and do the step work.
+	// Deliberately NO ToxinVerdict (the tester must not review their own test), no
+	// bootstrap, no other module — a holder renders it through their real job role's
+	// AppBootstrap, the same fail-closed shape as RoleCountsApprover above.
+	RoleToxinTester: {
+		ToxinRead:    {},
+		ToxinExecute: {},
+	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, CalendarRead: {}, ProcurementRead: {}, ProcurementWrite: {},
 		CountsWrite:     {},
@@ -1037,6 +1077,11 @@ var rolePermissions = map[string]map[string]struct{}{
 		PCCareExecute: {},
 	},
 	RoleCEOInternal: {
+		// Toxin (maintainer decision 2026-08-25): CEO/CXO holds the whole module — sees the
+		// tasks (read), MAY run a test themselves (execute), and is the ONLY role that can
+		// accept/reject a submitted test (verdict). The verdict deliberately does NOT ride
+		// verification.verdict — the tenant verifier never sees toxin work.
+		ToxinRead: {}, ToxinExecute: {}, ToxinVerdict: {},
 		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
 		// The ONLY holder of the whole-pen cohort reclassification. See the constant's doc comment:
 		// it applies immediately, with no approval and no proof, and flips kid/adult for the whole

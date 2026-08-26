@@ -42,6 +42,8 @@ import (
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
+	toxinpg "github.com/vgoats/goatos/backend/internal/toxin/adapters/postgres"
+	toxinapp "github.com/vgoats/goatos/backend/internal/toxin/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
@@ -213,6 +215,10 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		eventwiring.RegisterWorkflowConsumers(bus,
 			eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger), logger)
 		healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
+		// Toxin task creation (maintainer decision 2026-08-25): in local eventbus mode this
+		// in-process bus IS the delivery, so without this a recorded feed purchase never gets its
+		// aflatoxin test task locally. The durable twin is cmd/domain-event-consumer.
+		toxinapp.NewFeedPurchaseRecordedHandler(toxinpg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
 		logger.Info("outbox_relay_eventbus_dispatcher_ready")
 		return eventbuspublisher.New(bus), nil, nil
 	case outboxpublisher.KindPubSub:

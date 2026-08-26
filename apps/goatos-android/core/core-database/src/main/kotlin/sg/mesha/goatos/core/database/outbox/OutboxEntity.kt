@@ -234,6 +234,27 @@ enum class OutboxOpType {
      * post-rework re-submit (bumped row_version) is a genuinely new act under a new key.
      */
     PC_CARE_TASK_SUBMIT,
+
+    /**
+     * Toxin step completion (`POST /app/toxin/tasks/{task_id}/steps/{step_no}/complete`, module
+     * toxin, maintainer decision 2026-08-25): records one guided aflatoxin-test step's proof. The
+     * proof rides by REFERENCE to its coupled PROOF_UPLOAD row on the SAME task group, which
+     * drains first (mirroring [PC_CARE_SLOT_REGISTER]); the dispatcher resolves the uploaded
+     * server proof id into `proof_ref`. The idempotency key is STABLE per (task, step, proof
+     * row) — a retry replays for free while a re-shoot is a new act. The server clock is the
+     * gate: `422 wait_not_elapsed` / `409 step_already_done` are terminal, carry backend farm
+     * copy, and the reconcile refreshes the task detail so the screen re-renders server state.
+     * Adding an op type needs NO Room migration: [OutboxEntity.opType] is a plain TEXT column.
+     */
+    TOXIN_STEP_COMPLETE,
+
+    /**
+     * Toxin reading submit (`POST /app/toxin/tasks/{task_id}/submit`): step 7's strip PHOTO +
+     * outcome reading. Same task group as [TOXIN_STEP_COMPLETE] and the PROOF_UPLOAD rows, so
+     * the strip photo's upload drains strictly before the submit that references it. STABLE
+     * per-(task, outcome, photo row) idempotency key — never timestamp-suffixed.
+     */
+    TOXIN_SUBMIT,
 }
 
 /**

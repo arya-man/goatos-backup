@@ -1460,6 +1460,28 @@ func pageSpecificCopy(id string) map[string]string {
 			"verdict.disabled_not_pending": "This action already has a verdict and cannot be reviewed again.",
 			"verdict.disabled_no_access":   "Recording a verdict is limited to the video verification team.",
 			"verdict.disabled_no_evidence": "No video available — accept is blocked. Reject it, or come back once the proof resolves.",
+			// The TOXIN review tab (maintainer decision 2026-08-25): aflatoxin strip tests on
+			// purchased feed loads, reviewed by the CEO's office alone. Deliberately NOT part of
+			// the generic verification queue -- the toxin_tab / toxin_verdict controls follow
+			// toxin.verdict, which the verifier never holds.
+			"toxin_tab.title":                         "Toxin",
+			"toxin_tab.disabled_no_access":            "Feed toxin tests are reviewed by the CEO's office.",
+			"toxin_verdict.title":                     "Record toxin verdict",
+			"toxin_verdict.disabled_no_access":        "Feed toxin tests are reviewed by the CEO's office.",
+			"toxin.table.hint":                        "Open a test to see every step's proof and the strip reading.",
+			"toxin.state.empty":                       "No toxin tests are waiting for review.",
+			"toxin.drawer.title":                      "Toxin test review",
+			"toxin.drawer.steps":                      "Procedure steps",
+			"toxin.drawer.strip_photo":                "Strip photo",
+			"toxin.drawer.reading":                    "Recorded reading",
+			"toxin.drawer.reject_reason":              "Rejection reason",
+			"toxin.drawer.reject_reason_hint":         "Say what failed the standard. Rejecting cancels this round and creates a retest.",
+			"toxin.action.accept":                     "Accept",
+			"toxin.action.reject":                     "Reject",
+			"toxin.feedback.done":                     "Done",
+			"toxin.feedback.version_conflict":         "This test changed since you opened it. Reload and review it again.",
+			"toxin.feedback.reject_reason_required":   "A rejection needs a reason before it can be recorded.",
+			"toxin.feedback.test_not_awaiting_review": "This test is not waiting for review any more. Reload to see its current state.",
 			// THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20). Shown where the
 			// reading is born on the verifier's screen — feed wastage, whose operator submits a
 			// video and no number at all. Reject stays available on purpose: a value that cannot
