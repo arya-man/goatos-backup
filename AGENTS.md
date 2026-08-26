@@ -256,6 +256,38 @@ between two cohorts. A tag that resolves to nothing is still recorded and still 
 unfiltered view; it simply cannot answer a question about sex, so the filtered halves do not add
 up to the unfiltered total, and that gap is honest rather than missing data.
 
+ONE DAILY-GAIN NUMBER, AND WHOLE-SHED PENS ARE IN IT (maintainer decision 2026-08-26, same day,
+SUPERSEDING the individual-only headline). The farm's daily gain is the ANIMAL-WEIGHTED MEAN over
+every kid weighed twice (each kid once, at the median of its own pairs) PLUS every whole-shed pen
+weighed twice in the window, each pen contributing its average-weight movement ONCE PER ANIMAL it
+holds. `weighing.leadership.growth`'s headline and the Weights page's gain-by-breed/sex/stage
+charts now compute the IDENTICAL statistic, so a page filtered to one sex shows the same number in
+the headline and in the chart.
+
+It did not, and the maintainer found it: filtered to Male the page read 133 g/day in the headline
+above 200 g/day in the chart. Three mismatches at once — MEDIAN vs weighted MEAN, PAIRS vs ANIMALS,
+and whole-shed pens counted in one and not the other. Each was individually defensible; together
+they left the screen with no true number on it. Most of this farm's kids are weighed by the whole
+shed (339 of 791 in the landing window), so the old headline also answered "how fast is the herd
+growing" from under half the herd.
+
+The wire field is `average_adg_g_per_day` (was `median_adg_g_per_day`) and `headline_animals` is
+its denominator — `pair_count` remains the SCANNED-pair count and is now only the denominator of
+the pair statistics. Renaming was part of the fix, not tidying: a field named `median_` returning a
+mean is the same trap as the caption that told readers "Daily gain uses only the same animals
+weighed twice" while 65% of the number was whole-shed movement. Android reads the same endpoint and
+moved in the same change; the two surfaces must never report different herd growth.
+
+KNOWN AND ACCEPTED: a whole-shed average moves when animals ENTER OR LEAVE the pen, not only when
+they grow, so this is a coarser measure than a scanned pair. That is the trade taken deliberately
+rather than report the herd from a minority of it. The pair-based statistics (positive %, negative
+pairs, losing animals) stay individual-only — a shed average has no per-animal sign, and inventing
+one would put animals in a losing list nobody weighed.
+
+Pinned by `TestGrowthHeadlineEqualsTheGainChartForTheSameSex`, which filters to one sex so the
+chart holds exactly one bucket and the headline must equal it animal for animal; it was
+mutation-tested by restoring the old median-of-pairs headline and confirming it goes red.
+
 ALLOWED besides `weighing_*`: proof / idempotency / audit / outbox plumbing, and
 exactly four ORG tables — `locations`, `workforce_members`, `user_scope_grants`,
 `shed_partitions` (a task belongs to a park, a person, and a physical partition).

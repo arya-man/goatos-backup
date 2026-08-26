@@ -62,8 +62,13 @@ data class GrowthHeadlineDto(
     /** "ok" | "insufficient_data" — the explicit marker that separates unknown from zero. */
     val status: String = "",
     val previous_status: String = "",
-    val median_adg_g_per_day: Double? = null,
-    val previous_median_adg_g_per_day: Double? = null,
+    /**
+     * The farm's daily gain: the animal-weighted mean over kids weighed twice PLUS whole-shed pens,
+     * each pen counting once per animal it holds. Was the median of scanned pairs alone, which left
+     * out the pens most of this farm's kids are weighed in and disagreed with the web gain charts.
+     */
+    val average_adg_g_per_day: Double? = null,
+    val previous_average_adg_g_per_day: Double? = null,
     /** Absent when there is no comparable previous period -- never a delta derived from zero. */
     val delta_g_per_day: Double? = null,
     val positive_adg_percent: Double? = null,
@@ -71,7 +76,10 @@ data class GrowthHeadlineDto(
     val negative_adg_count: Int = 0,
     /** ANIMALS losing weight on their latest weigh. This is what the tile shows and drills into. */
     val losing_animal_count: Int = 0,
+    /** Scanned pairs: the denominator of the pair statistics above, NOT of the gain. */
     val pair_count: Int = 0,
+    /** How many kids the gain speaks for — scanned pairs plus the animals in whole-shed pens. */
+    val headline_animals: Int = 0,
     val rejected_observation_count: Int = 0,
     val unverified_observation_count: Int = 0,
 )

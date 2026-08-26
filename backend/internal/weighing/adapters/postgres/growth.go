@@ -138,15 +138,15 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		return domain.GrowthADG{}, err
 	}
 	// ZERO must never stand in for UNKNOWN: Status/PreviousStatus (set inside growthHeadlineStats)
-	// are the explicit markers, and MedianADGGPerDay/PositiveADGPercent are already nil there when
-	// there is no qualifying pair. The delta and the previous-median figure are derived HERE, and
-	// they inherit the same rule -- a delta computed against a nil (unknown) previous median would
+	// are the explicit markers, and AverageADGGPerDay/PositiveADGPercent are already nil there when
+	// there is no qualifying pair. The delta and the previous-period figure are derived HERE, and
+	// they inherit the same rule -- a delta computed against a nil (unknown) previous average would
 	// silently read as a real number derived from a fabricated 0, which is exactly the fake-delta
 	// defect this guards against.
-	headline.PreviousMedianADGGPerDay = prevHeadline.MedianADGGPerDay
+	headline.PreviousAverageADGGPerDay = prevHeadline.AverageADGGPerDay
 	headline.PreviousStatus = prevHeadline.Status
-	if headline.MedianADGGPerDay != nil && prevHeadline.MedianADGGPerDay != nil {
-		delta := *headline.MedianADGGPerDay - *prevHeadline.MedianADGGPerDay
+	if headline.AverageADGGPerDay != nil && prevHeadline.AverageADGGPerDay != nil {
+		delta := *headline.AverageADGGPerDay - *prevHeadline.AverageADGGPerDay
 		headline.DeltaGPerDay = &delta
 	}
 
@@ -226,14 +226,106 @@ func (r *Repository) growthHeadlineStats(ctx context.Context, tenantID string, p
 inperiod AS (
   SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz
 ),
+-- ONE GAIN PER ANIMAL, which is the grain the gain charts report and therefore the grain the
+-- headline must report. inperiod is PAIRS: a kid weighed three times in the window contributes two
+-- of them, so a herd average taken over pairs quietly counts the most-handled kids twice. It also
+-- kept the headline disagreeing with the by-sex chart even after whole-shed pens were added -- 197
+-- male pairs against the chart's 141 male animals.
+--
+-- The animal's own gain is the MEDIAN of its in-period pairs, matching weight_demographics.go's
+-- animal_gain exactly; a single-pair animal is simply that pair. Median rather than latest, because
+-- one bad scan among three weighs should not become the animal's whole growth story.
+animal_gain AS (
+  SELECT animal_key,
+         percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_per_day) AS g
+  FROM inperiod GROUP BY animal_key
+),
 endpoint_ids AS (
   SELECT observation_id AS oid, verification_status AS status FROM inperiod
   UNION
   SELECT prev_observation_id, prev_verification_status FROM inperiod
+),
+-- WHOLE-SHED PENS COUNT TOWARD THE FARM'S DAILY GAIN (maintainer decision 2026-08-26).
+--
+-- They did not, and that is the defect this arm closes: the headline was the MEDIAN of
+-- individually-scanned pairs ONLY, while the by-breed/by-sex/by-stage gain charts on the same page
+-- were the weighted MEAN of those pairs PLUS whole-shed pens (the 2026-08-25 decision). Once the
+-- Sex filter made both statements about the identical population, the page showed a reader two
+-- different male daily gains at once -- 133 g in the headline above 200 g in the chart. Most of
+-- this farm's kids are weighed by the whole shed (339 of 791 in the landing window), so the
+-- headline was also answering "how fast is the herd growing" from well under half of the herd.
+--
+-- One row per PEN, anchored on its first and latest weighed business date INSIDE the selected
+-- window -- the same rn=1 shape shed_span and lump_span already use, so every gain number on the
+-- page ranges over the same pen set. A pen weighed once in the window has no movement to report and
+-- is excluded by latest.d > first.d rather than counted as zero growth.
+--
+-- Known and accepted: a whole-shed average moves when animals ENTER OR LEAVE the pen, not only when
+-- they grow, so this is a coarser measure than a scanned pair. That is the trade the maintainer took
+-- rather than report the herd from a minority of it. The pair-based statistics below (positive %,
+-- negative pairs, losing animals) deliberately stay individual-only: a shed average has no
+-- per-animal sign to contribute, and inventing one would put animals in a losing list nobody weighed.
+--
+-- projection-review: producer grain is one live weighing_shed_observations row per bucket; consumer
+-- grain is one row per (location_id, partition_label) -- guaranteed by latest.rn = 1 joined to
+-- first.rn = 1 on that same pair, so sum(animals) ranges over disjoint pens. The weighted mean's
+-- numerator and denominator range over the identical row set (same FROM, same WHERE).
+shed_span AS (
+  SELECT latest.animal_count::float8 AS animals,
+         (latest.average_weight_kg - first.average_weight_kg) * 1000.0
+           / NULLIF(latest.d - first.d, 0) AS g_per_day
+  FROM (
+    SELECT cs2.location_id, COALESCE(cs2.partition_label, '') AS partition_label,
+           o.average_weight_kg, o.animal_count,
+           (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+           row_number() OVER (PARTITION BY cs2.location_id, COALESCE(cs2.partition_label, '') ORDER BY o.accepted_at DESC) AS rn
+    FROM weighing_shed_observations o
+    JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = o.campaign_shed_id AND cs2.tenant_id = o.tenant_id
+    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id AND c2.tenant_id = o.tenant_id
+    WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
+      AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
+      AND o.accepted_at >= $5::timestamptz AND o.accepted_at < $4::timestamptz
+      -- A whole-shed weigh carries no tag, so under a Sex filter it is claimed only when its pen's
+      -- cohort is entirely that sex (sex_scope.go proves it); a mixed pen is claimed by neither
+      -- side, because one shed average cannot be split between two cohorts.
+      AND (NOT $6::bool OR EXISTS (
+        SELECT 1 FROM unnest($8::uuid[], $9::text[]) AS b(loc, part)
+        WHERE b.loc = cs2.location_id AND b.part = COALESCE(cs2.partition_label, '')
+      ))
+  ) latest
+  JOIN (
+    SELECT cs2.location_id, COALESCE(cs2.partition_label, '') AS partition_label,
+           o.average_weight_kg,
+           (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+           row_number() OVER (PARTITION BY cs2.location_id, COALESCE(cs2.partition_label, '') ORDER BY o.accepted_at ASC) AS rn
+    FROM weighing_shed_observations o
+    JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = o.campaign_shed_id AND cs2.tenant_id = o.tenant_id
+    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id AND c2.tenant_id = o.tenant_id
+    WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
+      AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
+      AND o.accepted_at >= $5::timestamptz AND o.accepted_at < $4::timestamptz
+      AND (NOT $6::bool OR EXISTS (
+        SELECT 1 FROM unnest($8::uuid[], $9::text[]) AS b(loc, part)
+        WHERE b.loc = cs2.location_id AND b.part = COALESCE(cs2.partition_label, '')
+      ))
+  ) first ON first.location_id = latest.location_id
+    AND first.partition_label = latest.partition_label
+    AND first.rn = 1
+  WHERE latest.rn = 1 AND latest.d > first.d
 )
 SELECT
-  (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY adg_g_per_day) FROM inperiod),
+  -- The weighted mean the gain charts report, over the same population they report it for: every
+  -- scanned pair counts once, and every whole-shed pen counts once PER ANIMAL it holds, so a pen of
+  -- 76 kids weighs 76 times as much as one scanned kid. NULLIF keeps an empty period NULL rather
+  -- than 0 -- a farm that weighed nothing must not render as a herd that stopped growing.
+  ((SELECT COALESCE(sum(g), 0) FROM animal_gain)
+     + (SELECT COALESCE(sum(animals * g_per_day), 0) FROM shed_span))
+  / NULLIF((SELECT COUNT(*) FROM animal_gain)
+     + (SELECT COALESCE(sum(animals), 0) FROM shed_span), 0),
   (SELECT COUNT(*) FROM inperiod),
+  -- The denominator behind the headline, so the card can say how many kids it speaks for.
+  ((SELECT COUNT(*) FROM animal_gain)
+     + (SELECT COALESCE(sum(animals), 0) FROM shed_span))::bigint,
   (SELECT COUNT(*) FILTER (WHERE adg_g_per_day > 0) * 100.0 / NULLIF(COUNT(*), 0) FROM inperiod),
   (SELECT COUNT(*) FROM inperiod WHERE adg_g_per_day < 0),
   (SELECT COUNT(*) FROM endpoint_ids WHERE status = 'pending')`
@@ -242,14 +334,18 @@ SELECT
 	// median/percent are left as SQL NULL (never COALESCEd to 0) when inperiod is empty, and
 	// scanned straight into pointer fields -- this is the ZERO-vs-UNKNOWN fix: a park where every
 	// animal was weighed exactly once must come back with these fields absent, not "0".
-	err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags).Scan(
-		&h.MedianADGGPerDay, &h.PairCount, &h.PositiveADGPercent, &h.NegativeADGCount,
+	err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, lookbackStart, periodEnd, periodStart, sexFiltered, scope.Tags,
+		scope.LocationIDs, scope.PartitionLabels).Scan(
+		&h.AverageADGGPerDay, &h.PairCount, &h.HeadlineAnimals, &h.PositiveADGPercent, &h.NegativeADGCount,
 		&h.UnverifiedObservationCount,
 	)
 	if err != nil {
 		return h, err
 	}
-	if h.PairCount == 0 {
+	// Keyed on the HEADLINE's own denominator, not on PairCount: a park whose kids are all weighed by
+	// the whole shed has zero scanned pairs and a perfectly real daily gain, and calling that
+	// "insufficient_data" would blank the one number this screen exists to answer.
+	if h.HeadlineAnimals == 0 {
 		h.Status = "insufficient_data"
 	} else {
 		h.Status = "ok"

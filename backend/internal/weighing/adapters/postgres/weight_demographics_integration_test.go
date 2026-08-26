@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 const (
 	weightDemoPartitionShed = "00000000-0000-4000-8000-00000000c001"
 	weightDemoGoat          = "00000000-0000-4000-8000-00000000c101"
+	weightDemoGoatTwo       = "00000000-0000-4000-8000-00000000c103"
 	weightDemoSlowGoat      = "00000000-0000-4000-8000-00000000c102"
 	weightDemoGodelShed     = "00000000-0000-4000-8000-00000000c201"
 	weightDemoCastroShed    = "00000000-0000-4000-8000-00000000c202"
@@ -645,4 +647,338 @@ func findGainThresholdRow(rows []domain.WeightGainThresholdBucket, label string)
 		}
 	}
 	return domain.WeightGainThresholdBucket{}, false
+}
+
+// A PEN WEIGHED TWICE INSIDE THE WINDOW IS ONE PEN, NOT TWO.
+//
+// The defect this pins, found on real STG data (2026-08-26): the lump CTE joined every live
+// weighing_shed_observations row, so a pen weighed on both the 17th and the 24th contributed its
+// whole head count ONCE PER WEIGH. This is not an edge case -- the page's default window IS "the
+// last two whole-shed weigh dates", so it fired on every landing. Castro 1 carried four live
+// observations and its 63 kids were counted 252 times over; STG's 276 whole-shed kids reached the
+// charts as 678, and "Average weight by sex" reported 908 kids on a page whose own headline said
+// 791 had been weighed. The gain charts were already correct (lump_span keeps rn=1 per pen), which
+// is exactly why the two halves of the page disagreed with each other.
+//
+// Part A and Part B are each weighed twice in the window, ten animals apiece: the honest lump
+// population is 20, and the pre-fix query returned 40.
+func TestWeightDemographicsCountsAPenWeighedTwiceOnlyOnce(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartA, "2026-07-10")
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartB, "2026-07-17")
+	for _, proofID := range []string{repoShedProofTwo, repoShedProofThree, repoShedProofFour} {
+		insertProof(t, ctx, pool, proofID, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+VALUES ($1::uuid, $2::uuid, 'shed', 'Partition Demo Shed', $3::uuid, 'active')
+ON CONFLICT (tenant_id, location_id) DO NOTHING`,
+		weightDemoPartitionShed, repoTenant, repoPark)
+	// One resident per pen, both the same breed and sex, so each pen is a homogeneous cohort the
+	// whole-shed attribution rule will actually claim -- without a goat_shed_partitions row naming
+	// the pen, shed_cohort resolves to nothing and neither chart would show the pen at all.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990913', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid),
+       ($3::uuid, $2::uuid, 'G-990914', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid)
+ON CONFLICT (goat_id) DO UPDATE
+SET breed=EXCLUDED.breed, sex=EXCLUDED.sex, management_stage=EXCLUDED.management_stage,
+    current_location_id=EXCLUDED.current_location_id, park_id=EXCLUDED.park_id, shed_id=EXCLUDED.shed_id`,
+		weightDemoGoat, repoTenant, weightDemoGoatTwo, repoParty, weightDemoPartitionShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $4::uuid, 'Part A', 'Partition Demo Shed'),
+       ($1::uuid, $3::uuid, $4::uuid, 'Part B', 'Partition Demo Shed')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE
+SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
+		repoTenant, weightDemoGoat, weightDemoGoatTwo, weightDemoPartitionShed)
+
+	seedLoadBucketPartition(t, ctx, pool, loadPartAOld, loadCampaignPartA, weightDemoPartitionShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartANew, loadCampaignPartB, weightDemoPartitionShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBOld, loadCampaignPartA, weightDemoPartitionShed, "Part B", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBNew, loadCampaignPartB, weightDemoPartitionShed, "Part B", "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 20.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartANew, loadCampaignPartB, repoShedProofTwo, 27.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBOld, loadCampaignPartA, repoShedProofThree, 30.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBNew, loadCampaignPartB, repoShedProofFour, 31.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+
+	out, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark},
+		time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC), "")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics: %v", err)
+	}
+
+	// The coverage counter is the plainest statement of the bug: it is the page's own
+	// "kids in whole-shed weighs" figure, and it read 40 for twenty animals.
+	if out.LumpSumAnimals != 20 {
+		t.Fatalf("two pens of ten weighed twice each are 20 whole-shed kids, got %d", out.LumpSumAnimals)
+	}
+
+	// And the dimension charts, which is where a reader actually sees it. The weight charts must
+	// now range over the SAME pen set the gain charts already did -- that agreement is the point.
+	weightAnimals := lookupDemographicAnimals(t, out.ByBreed, "Partition Breed")
+	gainAnimals := lookupGainAnimals(t, out.GainByBreed, "Partition Breed")
+	if weightAnimals != gainAnimals {
+		t.Fatalf("weight and gain charts must count the same pens: by_breed=%d, gain_by_breed=%d", weightAnimals, gainAnimals)
+	}
+	if weightAnimals != 20 {
+		t.Fatalf("by_breed must count each pen once: want 20, got %d", weightAnimals)
+	}
+}
+
+// THE HEADLINE AND THE GAIN CHART ARE ONE NUMBER (maintainer decision 2026-08-26).
+//
+// The defect this pins: the Weights page reported the farm's daily gain twice, from two different
+// calculations, and under the Sex filter they became statements about the identical population and
+// disagreed out loud -- 133 g/day in the headline above 200 g/day in the by-sex chart. The headline
+// was the MEDIAN of individually-scanned PAIRS; the chart was the animal-weighted MEAN of scanned
+// ANIMALS plus whole-shed pens. Three separate mismatches (statistic, grain, and whether whole-shed
+// pens counted at all), each individually defensible, adding up to a page with no true number on it.
+//
+// Filtering to ONE sex is what makes the assertion exact: every animal in scope is then that sex, so
+// gain_by_sex holds exactly one bucket and it must be the headline, animal for animal. That is also
+// precisely the screen state the reader was looking at when they reported it.
+func TestGrowthHeadlineEqualsTheGainChartForTheSameSex(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartA, "2026-07-10")
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartB, "2026-07-17")
+	for _, proofID := range []string{repoShedProofTwo, repoShedProofThree, repoShedProofFour} {
+		insertProof(t, ctx, pool, proofID, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+VALUES ($1::uuid, $2::uuid, 'shed', 'Partition Demo Shed', $3::uuid, 'active')
+ON CONFLICT (tenant_id, location_id) DO NOTHING`,
+		weightDemoPartitionShed, repoTenant, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990915', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid),
+       ($3::uuid, $2::uuid, 'G-990916', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid)
+ON CONFLICT (goat_id) DO UPDATE SET sex = EXCLUDED.sex, shed_id = EXCLUDED.shed_id`,
+		weightDemoGoat, repoTenant, weightDemoGoatTwo, repoParty, weightDemoPartitionShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $4::uuid, 'Part A', 'Partition Demo Shed'),
+       ($1::uuid, $3::uuid, $4::uuid, 'Part B', 'Partition Demo Shed')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE
+SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
+		repoTenant, weightDemoGoat, weightDemoGoatTwo, weightDemoPartitionShed)
+
+	seedLoadBucketPartition(t, ctx, pool, loadPartAOld, loadCampaignPartA, weightDemoPartitionShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartANew, loadCampaignPartB, weightDemoPartitionShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBOld, loadCampaignPartA, weightDemoPartitionShed, "Part B", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBNew, loadCampaignPartB, weightDemoPartitionShed, "Part B", "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 20.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartANew, loadCampaignPartB, repoShedProofTwo, 27.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBOld, loadCampaignPartA, repoShedProofThree, 30.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBNew, loadCampaignPartB, repoShedProofFour, 31.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+
+	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+
+	demo, err := repo.GetWeightDemographics(ctx, repoTenant, []string{repoPark}, from, to, "female")
+	if err != nil {
+		t.Fatalf("GetWeightDemographics: %v", err)
+	}
+	growth, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG: %v", err)
+	}
+
+	if len(demo.GainBySex) != 1 {
+		t.Fatalf("a sex-filtered page must produce exactly one gain bucket, got %#v", demo.GainBySex)
+	}
+	chart := demo.GainBySex[0]
+	if growth.Headline.AverageADGGPerDay == nil {
+		t.Fatalf("the headline must report a gain when whole-shed pens moved: %#v", growth.Headline)
+	}
+	// Whole-shed pens are the ENTIRE population here, so a headline that still counted scanned pairs
+	// only would be nil and this line alone would catch the regression that started all of this.
+	if got, want := *growth.Headline.AverageADGGPerDay, chart.MedianGainGPerDay; math.Abs(got-want) > 0.5 {
+		t.Fatalf("headline and gain chart must be the same number: headline=%.2f g/day, chart=%.2f g/day", got, want)
+	}
+	if growth.Headline.HeadlineAnimals != chart.Animals {
+		t.Fatalf("headline and gain chart must speak for the same kids: headline=%d, chart=%d",
+			growth.Headline.HeadlineAnimals, chart.Animals)
+	}
+}
+
+func lookupDemographicAnimals(t *testing.T, buckets []domain.WeightDemographicBucket, label string) int {
+	t.Helper()
+	for _, bucket := range buckets {
+		if bucket.Label == label {
+			return bucket.Animals
+		}
+	}
+	t.Fatalf("missing %q bucket in %#v", label, buckets)
+	return 0
+}
+
+func lookupGainAnimals(t *testing.T, buckets []domain.WeightGainBucket, label string) int {
+	t.Helper()
+	for _, bucket := range buckets {
+		if bucket.Label == label {
+			return bucket.Animals
+		}
+	}
+	t.Fatalf("missing %q gain bucket in %#v", label, buckets)
+	return 0
+}
+
+// THE DAILY-GAIN AGGREGATE UNDER ADVERSARIAL SHAPES: fan-out, page boundary, park scope, status.
+//
+// The headline gain and the gain charts are animal-weighted aggregates, and every defect this file
+// has recorded came from one of four places -- a row counted once per weigh instead of once per pen,
+// a summary recomputed from a visible page slice, one park's pens leaking into another's number, and
+// a rejected weigh treated as a measurement. This test drives all four at once on one fixture, so a
+// change that gets three of them right still goes red on the fourth.
+func TestGrowthGainAggregateOneToManyPageBoundaryParkScopeStatusBuckets(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartA, "2026-07-10")
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartB, "2026-07-17")
+	for _, proofID := range []string{repoShedProofTwo, repoShedProofThree, repoShedProofFour} {
+		insertProof(t, ctx, pool, proofID, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+VALUES ($1::uuid, $2::uuid, 'shed', 'Partition Demo Shed', $3::uuid, 'active')
+ON CONFLICT (tenant_id, location_id) DO NOTHING`,
+		weightDemoPartitionShed, repoTenant, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990917', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid),
+       ($3::uuid, $2::uuid, 'G-990918', 'Partition Breed', 'female', 'kid', 'alive', 'kid', $4::uuid, $5::uuid, $6::uuid, $5::uuid)
+ON CONFLICT (goat_id) DO UPDATE SET sex = EXCLUDED.sex, shed_id = EXCLUDED.shed_id`,
+		weightDemoGoat, repoTenant, weightDemoGoatTwo, repoParty, weightDemoPartitionShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $4::uuid, 'Part A', 'Partition Demo Shed'),
+       ($1::uuid, $3::uuid, $4::uuid, 'Part B', 'Partition Demo Shed')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE
+SET shed_id = EXCLUDED.shed_id, partition_label = EXCLUDED.partition_label`,
+		repoTenant, weightDemoGoat, weightDemoGoatTwo, weightDemoPartitionShed)
+
+	seedLoadBucketPartition(t, ctx, pool, loadPartAOld, loadCampaignPartA, weightDemoPartitionShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartANew, loadCampaignPartB, weightDemoPartitionShed, "Part A", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBOld, loadCampaignPartA, weightDemoPartitionShed, "Part B", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartBNew, loadCampaignPartB, weightDemoPartitionShed, "Part B", "per_shed_partition")
+
+	// ONE-TO-MANY: each pen carries TWO live whole-shed observations inside the window. The pen must
+	// contribute its ten kids ONCE, not once per weigh -- the 2026-08-26 defect, where four Castro 1
+	// observations turned 63 kids into 252 and the page reported more kids than it had weighed.
+	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 20.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartANew, loadCampaignPartB, repoShedProofTwo, 27.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBOld, loadCampaignPartA, repoShedProofThree, 30.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartBNew, loadCampaignPartB, repoShedProofFour, 31.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+
+	from := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+
+	base, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG: %v", err)
+	}
+	if base.Headline.HeadlineAnimals != 20 {
+		t.Fatalf("two pens of ten weighed twice each are 20 kids, not %d -- the pen is counted per weigh again",
+			base.Headline.HeadlineAnimals)
+	}
+
+	// STATUS BUCKETS: a WITHDRAWN whole-shed weigh is not a measurement and must leave the aggregate
+	// exactly as it was. `withdrawn_at IS NULL` is the live rule here -- migration 000058 narrowed
+	// verification_status to pending/verified/rework, so the `<> 'rejected'` predicates these queries
+	// still carry can no longer exclude anything, and withdrawal is what actually retires a weigh. It
+	// is also the reason the uniqueness on this table is PARTIAL: a reopened bucket legitimately holds
+	// several rows, only one of them live, and an aggregate that joined them all would fan the pen out
+	// past its own grain. Pending deliberately still counts -- an unverified weight is a real one.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_shed_observations (
+  tenant_id, campaign_id, campaign_shed_id, weight_kg, average_weight_kg, animal_count,
+  proof_artifact_id, recorded_by, idempotency_key, accepted_at, verification_status, withdrawn_at
+) VALUES ($1::uuid, $2::uuid, $3::uuid, 499950, 999.9, 500,
+  $4::uuid, $5::uuid, 'gain-aggregate-withdrawn', $6::timestamptz, 'rework', $6::timestamptz)`,
+		repoTenant, loadCampaignPartB, loadPartANew, repoShedProofTwo, repoOperator,
+		time.Date(2026, 7, 17, 9, 0, 0, 0, time.UTC))
+	withWithdrawn, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG after a withdrawn weigh: %v", err)
+	}
+	if withWithdrawn.Headline.HeadlineAnimals != base.Headline.HeadlineAnimals {
+		t.Fatalf("a withdrawn weigh must not enter the gain population: %d became %d",
+			base.Headline.HeadlineAnimals, withWithdrawn.Headline.HeadlineAnimals)
+	}
+	if got, want := *withWithdrawn.Headline.AverageADGGPerDay, *base.Headline.AverageADGGPerDay; math.Abs(got-want) > 0.01 {
+		t.Fatalf("a withdrawn weigh must not move the gain: %.2f became %.2f", want, got)
+	}
+
+	// PARK SCOPE: these pens hang off repoPark. Asking about a park that owns none of them must
+	// return nothing rather than the tenant's rows -- the scope predicate carrying, not the caller.
+	otherPark := "00000000-0000-4000-8000-0000000030ff"
+	scoped, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{otherPark}, from, to, "female")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG for another park: %v", err)
+	}
+	if scoped.Headline.HeadlineAnimals != 0 || scoped.Headline.AverageADGGPerDay != nil {
+		t.Fatalf("another park's gain must be empty, got %d kids / %v",
+			scoped.Headline.HeadlineAnimals, scoped.Headline.AverageADGGPerDay)
+	}
+
+	// PAGE BOUNDARY: the headline is a WHOLE-FILTER aggregate. The shed table paginates; this number
+	// must not. Asking for a single-row page of the table must leave the gain untouched -- recomputing
+	// a summary from the visible slice is the capped read-time rollup this repo bans outright.
+	table, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "female")
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	var overAllRows int
+	for _, row := range table.Rows {
+		overAllRows += row.AnimalsWeighed
+	}
+	if table.Summary.AnimalsWeighed != overAllRows {
+		t.Fatalf("the summary must be the whole-filter total: summary=%d, rows=%d",
+			table.Summary.AnimalsWeighed, overAllRows)
+	}
+	// The admin-web table slices these rows for display. A summary derived from the visible slice
+	// instead of the whole filter is the capped read-time rollup this repo bans outright, so the
+	// first page must NOT reproduce the total whenever there is more than one row to show.
+	if len(table.Rows) > 1 {
+		if firstPage := table.Rows[0].AnimalsWeighed; firstPage == table.Summary.AnimalsWeighed {
+			t.Fatalf("summary %d equals the first row alone -- it is being derived from a page, not the filter",
+				table.Summary.AnimalsWeighed)
+		}
+	}
+	if base.Headline.HeadlineAnimals > table.Summary.AnimalsWeighed {
+		t.Fatalf("the gain cannot speak for more kids than were weighed: gain=%d, weighed=%d",
+			base.Headline.HeadlineAnimals, table.Summary.AnimalsWeighed)
+	}
 }

@@ -10427,18 +10427,22 @@ export interface components {
         WeighingGrowthHeadline: {
             /** @enum {string} */
             status: "ok" | "insufficient_data";
-            median_adg_g_per_day?: number | null;
-            previous_median_adg_g_per_day?: number | null;
+            /** @description The farm's daily gain: the ANIMAL-WEIGHTED MEAN grams/day over every animal weighed twice in the period (each animal once, at the median of its own pairs) PLUS every whole-shed pen weighed twice, each contributing its average-weight movement once per animal it holds. This is the SAME statistic gain_by_breed/gain_by_sex/gain_by_stage report per dimension, so a page filtered to one sex shows the identical number in the headline and in the chart. Null when status is insufficient_data. */
+            average_adg_g_per_day?: number | null;
+            previous_average_adg_g_per_day?: number | null;
             /** @enum {string} */
             previous_status: "ok" | "insufficient_data";
-            /** @description median_adg_g_per_day - previous_median_adg_g_per_day. Null whenever either side is null. */
+            /** @description average_adg_g_per_day - previous_average_adg_g_per_day. Null whenever either side is null. */
             delta_g_per_day?: number | null;
             positive_adg_percent?: number | null;
             /** @description Count of qualifying PAIRS with ADG < 0 across the whole period. */
             negative_adg_count: number;
             /** @description Count of ANIMALS whose most recent pair is negative. */
             losing_animal_count: number;
+            /** @description Qualifying scanned consecutive-weigh PAIRS in the period. Denominator of the pair-based statistics above, NOT of average_adg_g_per_day -- see headline_animals. */
             pair_count: number;
+            /** @description How many kids average_adg_g_per_day speaks for: animals weighed twice plus every animal in the whole-shed pens that moved. This is the count to print beside the gain. */
+            headline_animals: number;
             rejected_observation_count: number;
             unverified_observation_count: number;
         };

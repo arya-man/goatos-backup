@@ -70,7 +70,7 @@ data class WeighingGrowthUiState(
     val parkOptions: List<WeighingFilterChipUiRow> = emptyList(),
     val selectedParkId: String? = null,
     /** The herd median this period. Shed bars are coloured RELATIVE to it. */
-    val herdMedianAdgGPerDay: Double? = null,
+    val herdAdgGPerDay: Double? = null,
     /**
      * Group-weighed sheds, rendered in their OWN section. Never merged into the ADG numbers: a
      * shed total with a head count cannot yield growth per animal, and a screen that quietly
@@ -89,8 +89,11 @@ data class WeighingGrowthUiState(
 
 @Immutable
 data class WeighingGrowthHeadlineUi(
-    /** Null when no animal has two weighs yet -- rendered as a dash, never as zero. */
-    val medianAdgGPerDay: Double? = null,
+    /**
+     * The herd's daily gain: kids weighed twice AND sheds weighed as one total, animal-weighted.
+     * Null when nothing was weighed twice -- rendered as a dash, never as zero.
+     */
+    val adgGPerDay: Double? = null,
     val deltaGPerDay: Double? = null,
     val positivePercent: Double? = null,
     /** Animals losing on their latest weigh — the number the tile shows AND drills into. */
@@ -216,7 +219,7 @@ fun WeighingGrowthScreen(
                 // Windowed: a park can hold ~100 sheds, so these are lazy items with stable keys,
                 // never a forEach inside a Column.
                 items(state.sheds, key = { it.key }, contentType = { "growth_shed_row" }) { shed ->
-                    ShedRow(shed, state.sheds, state.herdMedianAdgGPerDay)
+                    ShedRow(shed, state.sheds, state.herdAdgGPerDay)
                 }
             }
             if (state.sheds.isEmpty() && state.trend.isEmpty()) {
@@ -303,8 +306,8 @@ private fun HeadlineTiles(
             Tile(
                 label = stringResource(R.string.weighing_growth_tile_herd),
                 // The dash is the whole point: no second weigh means no growth figure exists.
-                value = headline.medianAdgGPerDay?.let { formatGPerDay(it) } ?: unknown,
-                valueColor = growthTone(headline.medianAdgGPerDay, null),
+                value = headline.adgGPerDay?.let { formatGPerDay(it) } ?: unknown,
+                valueColor = growthTone(headline.adgGPerDay, null),
                 meta = headline.deltaGPerDay?.let { formatDelta(it) }
                     ?: stringResource(R.string.weighing_growth_no_previous),
                 modifier = Modifier.weight(1f),

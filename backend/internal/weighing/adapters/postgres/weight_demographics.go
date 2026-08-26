@@ -146,8 +146,14 @@ shed_targets AS (
                 FROM goat_shed_partitions gsp
                 WHERE gsp.tenant_id = l.tenant_id
                   AND gsp.shed_id = phys.location_id
-                  AND gsp.partition_label = COALESCE(NULLIF(s.partition_label, ''),
-                    NULLIF((regexp_match(l.name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], ''))
+                  -- Scrubbed key, exactly as shed_cohort below and sex_scope.go: the bucket name
+                  -- "Godel 2 - Part 1" yields "1" while the register writes "Part 1", and comparing
+                  -- them raw resolved this pen to NOTHING -- so its 76 male kids reached no chart at
+                  -- all. Fixing only the cohort join was not enough; the pen has to RESOLVE first.
+                  AND regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
+                      = regexp_replace(lower(btrim(COALESCE(NULLIF(s.partition_label, ''),
+                          NULLIF((regexp_match(l.name, '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], '')))),
+                          '^(part|pt)[\s.-]*', '')
               )
             LIMIT 1)
          ) AS resolved_id,
@@ -176,7 +182,17 @@ shed_cohort AS (
   JOIN goats g ON g.shed_id = src.resolved_id AND g.tenant_id = $1::uuid
    AND g.lifecycle_status = 'alive'
   LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-  WHERE src.resolved_partition_label = '' OR gsp.partition_label = src.resolved_partition_label
+  -- SCRUBBED KEY, not a raw string compare. A bucket named "Godel 2 - Part 1" yields the bare
+  -- partition "1", while the herd register writes the HUMAN label "Part 1" on the goat; comparing
+  -- those raw matched nothing, so a real pen of 76 male kids was claimed by no breed, no sex and no
+  -- stage at all. It vanished from every chart on this page while still being counted among the
+  -- kids weighed. Both sides are reduced to the same key -- lowercased, trimmed, leading "part"
+  -- dropped -- which is the identical rule sex_scope.go applies, so the two files agree on which
+  -- pen belongs to which cohort. They must: one decides what the page FILTERS to, the other what it
+  -- CHARTS, and when they disagreed the headline and the charts described different herds.
+  WHERE src.resolved_partition_label = ''
+     OR regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
+        = regexp_replace(lower(btrim(src.resolved_partition_label)), '^(part|pt)[\s.-]*', '')
   GROUP BY src.location_id, src.partition_label
 ),
 shed_cohort_detail AS (
@@ -190,7 +206,12 @@ shed_cohort_detail AS (
   JOIN goats g ON g.shed_id = src.resolved_id AND g.tenant_id = $1::uuid
    AND g.lifecycle_status = 'alive'
   LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-  WHERE src.resolved_partition_label = '' OR gsp.partition_label = src.resolved_partition_label
+  -- Same scrubbed key as shed_cohort above, for the same reason: the composition chips must
+  -- describe the pen the cohort rule claimed, or a shed shows chips for animals it was not
+  -- attributed to.
+  WHERE src.resolved_partition_label = ''
+     OR regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
+        = regexp_replace(lower(btrim(src.resolved_partition_label)), '^(part|pt)[\s.-]*', '')
   GROUP BY src.location_id, src.partition_label,
            COALESCE(NULLIF(g.breed, ''), 'Unknown breed'),
            COALESCE(NULLIF(g.sex, ''), 'unknown sex'),
@@ -206,7 +227,22 @@ shed_stage AS (
 lump AS (
   -- The lump-sum coverage counters follow the filter too: under Male, "kids in whole-shed weighs"
   -- must mean the male ones, or the page reports a coverage gap the reader cannot act on.
-  SELECT s.location_id, s.partition_label, sh.animal_count, sh.average_weight_kg
+  --
+  -- ONE ROW PER PEN, NOT ONE PER WEIGH. A pen weighed on two dates inside the window has TWO live
+  -- observations -- and the page's DEFAULT window is precisely "the last two whole-shed weigh
+  -- dates", so this is the normal case, not an edge one. Summing animal_count across them counted
+  -- the same 63 kids of Castro 1 four times: STG's 276 resident kids arrived here as 678, and
+  -- "Average weight by sex" reported 908 kids on a page whose own headline said 791 were weighed.
+  -- The dedup is the same rn=1 latest-per-pen dedup lump_span below already applies, so the weight
+  -- charts and the gain charts now range over the identical pen set.
+  --
+  -- projection-review: producer grain is one live weighing_shed_observations row per bucket;
+  -- consumer grain is one row per (location_id, partition_label) -- exactly the DISTINCT ON key,
+  -- which is also the join key every consumer of this CTE matches shed_cohort/shed_stage on, both
+  -- GROUPed by that same pair. shed_observation_id breaks a same-instant tie so the winner is
+  -- deterministic rather than plan-dependent.
+  SELECT DISTINCT ON (s.location_id, s.partition_label)
+         s.location_id, s.partition_label, sh.animal_count, sh.average_weight_kg
   FROM scoped s
   JOIN weighing_shed_observations sh
     ON sh.campaign_shed_id = s.campaign_shed_id AND sh.tenant_id = s.tenant_id
@@ -219,6 +255,7 @@ lump AS (
       WHERE sc.location_id = s.location_id AND sc.partition_label = COALESCE(s.partition_label, '')
         AND sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text
     ))
+  ORDER BY s.location_id, s.partition_label, sh.accepted_at DESC, sh.shed_observation_id DESC
 ),
 lump_span AS (
   -- Selected-range movement matching the shed rows: first weighed date in the
@@ -348,7 +385,12 @@ SELECT
          SELECT sc.breed, sum(ls.animals)::bigint, sum(ls.animals * ls.g_per_day)::float8
          FROM lump_span ls JOIN shed_cohort sc
            ON sc.location_id = ls.location_id AND sc.partition_label = ls.partition_label
-         WHERE sc.breeds = 1 GROUP BY sc.breed
+         -- The Sex filter reaches this arm too. It did not, and a whole-shed pen therefore joined
+         -- the male AND the female breed chart alike: Anantapur Sheep read 403 male kids and 392
+         -- female ones against 456 in total. Same claim rule as every other whole-shed arm -- the
+         -- pen counts for a reader only when its cohort is entirely that sex.
+         WHERE sc.breeds = 1 AND ($5::text = '' OR (sc.sexes = 1 AND lower(btrim(sc.sex)) = $5::text))
+         GROUP BY sc.breed
        ) parts GROUP BY breed
      ) gb),
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(sex, n, g) ORDER BY n DESC), '[]'::jsonb)
