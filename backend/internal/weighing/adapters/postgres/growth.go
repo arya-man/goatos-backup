@@ -156,7 +156,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	}
 	headline.RejectedObservationCount = rejected
 
-	eligibility, err := r.growthEligibility(ctx, tenantID, parkIDs, periodStart, periodEnd)
+	eligibility, err := r.growthEligibility(ctx, tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
@@ -176,7 +176,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 		return domain.GrowthADG{}, err
 	}
 
-	saleReadiness, err := r.growthSaleReadiness(ctx, tenantID, parkIDs)
+	saleReadiness, err := r.growthSaleReadiness(ctx, tenantID, parkIDs, sexFiltered, scope)
 	if err != nil {
 		return domain.GrowthADG{}, err
 	}
@@ -372,7 +372,7 @@ WHERE wo.tenant_id = $1::uuid
 	return count, err
 }
 
-func (r *Repository) growthEligibility(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.GrowthEligibility, error) {
+func (r *Repository) growthEligibility(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sexFiltered bool, scope SexScope) (domain.GrowthEligibility, error) {
 	var e domain.GrowthEligibility
 	// projection-review: membership=weighing_observations; group_key=animal_key; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
 	err := r.pool.QueryRow(ctx, `
@@ -388,12 +388,16 @@ WITH obs AS (
     AND wo.verification_status <> 'rejected'
     AND wo.accepted_at >= $3::timestamptz
     AND wo.accepted_at < $4::timestamptz
+    -- The Sex filter reaches the coverage counters too. This pair is the phone's "70/382" tile --
+    -- how many kids have a second weigh out of all weighed -- and leaving it unfiltered reported
+    -- the whole herd's coverage under a heading about half of it.
+    AND (NOT $5::bool OR lower(btrim(wo.scanned_identifier)) = ANY($6::text[]))
 ),
 per_animal AS (
   SELECT animal_key, COUNT(*) AS n FROM obs GROUP BY animal_key
 )
 SELECT COUNT(*) FILTER (WHERE n >= 2), COUNT(*) FROM per_animal`,
-		tenantID, parkIDs, periodStart, periodEnd).Scan(&e.AnimalsWithTwoPlusWeighs, &e.TotalAnimalsWeighed)
+		tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope.Tags).Scan(&e.AnimalsWithTwoPlusWeighs, &e.TotalAnimalsWeighed)
 	return e, err
 }
 
@@ -460,6 +464,11 @@ period_weights AS (
     AND wo.verification_status <> 'rejected'
     AND wo.accepted_at >= $5::timestamptz
     AND wo.accepted_at < $4::timestamptz
+    -- HALF-FILTERED IS WORSE THAN UNFILTERED. This row's daily gain already followed the Sex
+    -- filter (its pairs CTE carries the predicate) while its kid count and median weight did not,
+    -- so one row showed a male-only gain sitting beside an all-kids count -- two populations, one
+    -- line, nothing saying so. Same predicate, same population, one row.
+    AND (NOT $6::bool OR lower(btrim(wo.scanned_identifier)) = ANY($7::text[]))
 ),
 shed_weight AS (
   SELECT location_id, partition_label, MAX(shed_name) AS shed_name, MAX(park_name) AS park_name,
@@ -579,7 +588,7 @@ ORDER BY bucket`,
 	return out, nil
 }
 
-func (r *Repository) growthSaleReadiness(ctx context.Context, tenantID string, parkIDs []string) (domain.GrowthSaleReadiness, error) {
+func (r *Repository) growthSaleReadiness(ctx context.Context, tenantID string, parkIDs []string, sexFiltered bool, scope SexScope) (domain.GrowthSaleReadiness, error) {
 	// "Latest weight" here is the animal's LATEST-EVER accepted individual weigh, not bounded to
 	// the requested period: sale readiness is a point-in-time fact about the animal today, and
 	// bounding it to a reporting window would make an animal that was not weighed this month
@@ -598,6 +607,12 @@ WITH obs AS (
   WHERE wo.tenant_id = $1::uuid
     AND wc.park_id = ANY($2::uuid[])
     AND wo.verification_status <> 'rejected'
+    -- The Sex filter narrows WHICH KIDS, never the time bound. This block deliberately reads each
+    -- animal's latest-EVER weigh rather than the selected window (see the note above), and that is
+    -- untouched here -- but a reader on Male must still be told how many MALE kids are heavy enough
+    -- to sell. The parameters were previously not even passed, so this block answered about the
+    -- whole herd beside a headline about half of it.
+    AND (NOT $3::bool OR lower(btrim(wo.scanned_identifier)) = ANY($4::text[]))
 ),
 latest AS (
   SELECT DISTINCT ON (animal_key) animal_key, weight_kg
@@ -605,7 +620,7 @@ latest AS (
   ORDER BY animal_key, accepted_at DESC, observation_id DESC
 )
 SELECT COUNT(*), COUNT(*) FILTER (WHERE weight_kg >= 30), COUNT(*) FILTER (WHERE weight_kg >= 35)
-FROM latest`, tenantID, parkIDs)
+FROM latest`, tenantID, parkIDs, sexFiltered, scope.Tags)
 	var s domain.GrowthSaleReadiness
 	if err != nil {
 		return s, err
@@ -640,8 +655,20 @@ WHERE wso.tenant_id = $1::uuid
   AND wso.withdrawn_at IS NULL
   AND wso.accepted_at >= $3::timestamptz
   AND wso.accepted_at < $4::timestamptz
+  -- The Sex filter reaches this trend too. It did NOT, and the parameters were accepted and
+  -- silently ignored: every other block of this read narrowed to the selected half of the herd
+  -- while the whole-shed trend kept reporting all ten pen-weeks, so a reader on Female saw a
+  -- female headline above a trend of pens that hold no females at all. A whole-shed weigh carries
+  -- no tag, so it is claimed only when its pen's cohort is entirely that sex (sex_scope.go proves
+  -- it); a mixed pen is claimed by neither side, because one shed average cannot be split between
+  -- two cohorts.
+  AND (NOT $5::bool OR EXISTS (
+    SELECT 1 FROM unnest($6::uuid[], $7::text[]) AS b(loc, part)
+    WHERE b.loc = wcs.location_id AND b.part = COALESCE(wcs.partition_label, '')
+  ))
 GROUP BY wcs.location_id, wcs.display_name, COALESCE(wcs.partition_label, ''), week_start
-ORDER BY wcs.display_name, COALESCE(wcs.partition_label, ''), week_start`, tenantID, parkIDs, periodStart, periodEnd)
+ORDER BY wcs.display_name, COALESCE(wcs.partition_label, ''), week_start`,
+		tenantID, parkIDs, periodStart, periodEnd, sexFiltered, scope.LocationIDs, scope.PartitionLabels)
 	if err != nil {
 		return domain.GrowthLumpSum{}, err
 	}
