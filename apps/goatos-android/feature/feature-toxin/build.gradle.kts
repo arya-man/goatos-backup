@@ -40,7 +40,12 @@ dependencies {
     // Paging's Compose bindings: the task list renders LazyPagingItems so it is bounded at both
     // layers (Room window + network page), never a materialized full list.
     implementation(libs.androidx.paging.compose)
+    // The strip photo is SHOWN back to the operator after capture — the step's deliverable is the
+    // image, so seeing it is the confirmation, not a button label.
+    implementation(libs.coil.compose)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    // Pure-JVM tests for the screen's own arming logic (which gate the refresh is scheduled off).
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Compose compiler stability/metrics reports, matching the other feature modules.
