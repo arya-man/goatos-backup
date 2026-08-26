@@ -214,6 +214,15 @@ shed-proof hardening fixes.
 - Same idempotency key with different subject/scope/payload is a bug. Android's
   outbox rejects it via request fingerprint; backend proof creation also rejects
   it via proof request fingerprint.
+- 2026-08-26 PC Care stock phone E2E exposed a fresh-capture race where recovery
+  can enqueue the same proof id before the normal processed/overlay upload path
+  records its outbox id. The visible signature is
+  `proof_upload_enqueue_failed reason="Idempotency key already belongs to a
+  different queued write"` followed by `proof_upload_registered` and
+  `pc_care_stock_proof_registration`, while the Stock detail remains on
+  `Saving photo` / `Proof is still uploading`. A passing fix must prove, on a
+  device, that the row gets a usable proof-upload outbox id, reaches
+  `proof_upload_completed`, refreshes the task proof, and enables submit.
 - Never delete a local proof row/file just because the UI wants to replace it.
   If the upload is queued or failed, cancel/retry through the outbox. If it is
   in flight, refuse deletion until it settles. If it is already synced, delete
