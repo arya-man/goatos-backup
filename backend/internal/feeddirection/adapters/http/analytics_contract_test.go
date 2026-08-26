@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The analytics DTOs are checked field-by-field against the OpenAPI schemas they claim to
@@ -191,4 +192,14 @@ func parseInlineList(raw string) []string {
 		}
 	}
 	return out
+}
+
+func TestCompletionDayForDTOFallsBackWhenSectionSkipped(t *testing.T) {
+	fallback := time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
+	if got := completionDayForDTO("", fallback); got != "2026-08-25" {
+		t.Fatalf("completionDayForDTO(empty, fallback) = %q, want fallback date", got)
+	}
+	if got := completionDayForDTO("2026-08-24", fallback); got != "2026-08-24" {
+		t.Fatalf("completionDayForDTO(result, fallback) = %q, want repository result", got)
+	}
 }
