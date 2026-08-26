@@ -46,6 +46,10 @@ func (v *Validator) ValidateLiveCameraMedia(ctx context.Context, tenantID string
 	return v.validateLiveCameraProofs(ctx, tenantID, proofIDs, "")
 }
 
+func (v *Validator) ValidateLiveCameraProofKind(ctx context.Context, tenantID string, proofIDs []string, requiredKind string) error {
+	return v.validateLiveCameraProofs(ctx, tenantID, proofIDs, strings.TrimSpace(strings.ToLower(requiredKind)))
+}
+
 func (v *Validator) validateLiveCameraProofs(ctx context.Context, tenantID string, proofIDs []string, requiredKind string) error {
 	if len(proofIDs) == 0 {
 		return nil

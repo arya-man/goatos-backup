@@ -1356,27 +1356,60 @@ class DefaultProofCaptureRepository(
             }
             is AppResult.Err -> {
                 val duplicateQueuedWrite = result.message.isDuplicateProofUploadIdempotencyConflict()
+                var relinkedExistingOutbox = false
                 if (duplicateQueuedWrite) {
-                    dao.updateStatus(uploadEntity.id, EntitySyncStatus.PENDING.name, uploadEntity.serverProofId, result.message)
+                    val existingOutboxItem = when (val recovered = syncRepository.findOutboxItemByIdempotencyKey(uploadEntity.idempotencyKey)) {
+                        is AppResult.Ok -> recovered.value?.takeIf { item ->
+                            item.opType == "PROOF_UPLOAD" &&
+                                item.groupKey == (uploadGroupKey?.takeIf { it.isNotBlank() } ?: proofUploadGroupKey(uploadEntity, scopeId))
+                        }
+                        is AppResult.Err -> null
+                    }
+                    if (existingOutboxItem != null) {
+                        dao.updateProcessingState(
+                            id = uploadEntity.id,
+                            processingState = ProofProcessingState.REGISTERING_UPLOAD.name,
+                            attempt = uploadEntity.stateAttempt,
+                            processingAttempted = uploadEntity.processingAttempted,
+                            uploadOriginal = uploadEntity.uploadOriginal,
+                            lastErrorStage = null,
+                            lastErrorClass = null,
+                            lastErrorRetryable = null,
+                            lastErrorMessageHash = null,
+                            updatedAtMs = clock(),
+                        )
+                        dao.setOutboxItemId(uploadEntity.id, existingOutboxItem.id)
+                        recordProofEvent(uploadEntity, "upload_relinked_existing_outbox", uploadEntity.processingState, uploadEntity.stateAttempt)
+                        telemetry.track(
+                            proofUploadRegisteredEvent,
+                            proofAnalyticsProps(uploadEntity) + ("recovered_existing_outbox" to "true"),
+                        )
+                        followOutboxItem(uploadEntity.id, existingOutboxItem.id)
+                        relinkedExistingOutbox = true
+                    } else {
+                        dao.updateStatus(uploadEntity.id, EntitySyncStatus.PENDING.name, uploadEntity.serverProofId, result.message)
+                    }
                 } else {
                     dao.updateStatus(uploadEntity.id, EntitySyncStatus.FAILED.name, null, result.message)
                 }
-                recordProofEvent(
-                    uploadEntity,
-                    "upload_enqueue_failed",
-                    if (duplicateQueuedWrite) EntitySyncStatus.PENDING.name else EntitySyncStatus.FAILED.name,
-                    uploadEntity.stateAttempt,
-                    errorClass = result.cause?.let { it::class.java.simpleName.ifBlank { "Throwable" } },
-                    retryable = true,
-                )
-                telemetry.track(
-                    proofUploadEnqueueFailedEvent,
-                    proofAnalyticsProps(uploadEntity, proofUploadStatus = if (duplicateQueuedWrite) "pending" else "failed") +
-                        mapOf(
-                            "reason" to result.message,
-                            "recoverable_duplicate" to duplicateQueuedWrite.toString(),
-                        ),
-                )
+                if (!relinkedExistingOutbox) {
+                    recordProofEvent(
+                        uploadEntity,
+                        "upload_enqueue_failed",
+                        if (duplicateQueuedWrite) EntitySyncStatus.PENDING.name else EntitySyncStatus.FAILED.name,
+                        uploadEntity.stateAttempt,
+                        errorClass = result.cause?.let { it::class.java.simpleName.ifBlank { "Throwable" } },
+                        retryable = true,
+                    )
+                    telemetry.track(
+                        proofUploadEnqueueFailedEvent,
+                        proofAnalyticsProps(uploadEntity, proofUploadStatus = if (duplicateQueuedWrite) "pending" else "failed") +
+                            mapOf(
+                                "reason" to result.message,
+                                "recoverable_duplicate" to duplicateQueuedWrite.toString(),
+                            ),
+                    )
+                }
             }
         }
     }

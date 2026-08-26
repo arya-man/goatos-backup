@@ -1312,6 +1312,67 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `duplicate proof upload enqueue relinks existing outbox row without failure telemetry`() = runTest {
+        val db = newDb()
+        try {
+            val proofId = "proof-relink-1"
+            val taskId = "task-relink-existing"
+            val idempotencyKey = "proof-upload:$taskId:$proofId"
+            var generatedIds = 0
+            val sync = FakeSyncRepository(
+                proofUploadFailure = "Idempotency key already belongs to a different queued write.",
+            ).apply {
+                seedExistingProofUpload(
+                    itemId = "outbox-existing-proof",
+                    idempotencyKey = idempotencyKey,
+                    groupKey = taskId,
+                )
+            }
+            val telemetryEvents = mutableListOf<Pair<String, Map<String, String>>>()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                idGenerator = {
+                    if (generatedIds++ == 0) proofId else "proof-relink-event-$generatedIds"
+                },
+                mediaProcessor = IdentityProofMediaProcessor(),
+                telemetry = ProofCaptureTelemetry { event, props -> telemetryEvents += event to props },
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = taskId,
+                    fieldKey = "stock_fridge_video",
+                    subject = ProofSubject.OTHER,
+                    subjectId = taskId,
+                    localUri = "file://proof.mp4",
+                    mimeType = "video/mp4",
+                    caption = "Fridge stock video",
+                    scopeType = "task",
+                    scopeId = taskId,
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "director-1",
+                    awaitUploadEnqueue = true,
+                    uploadGroupKey = taskId,
+                ) as AppResult.Ok
+                ).value
+
+            val row = db.proofCaptureDao().findById(captured.id)
+            assertEquals("outbox-existing-proof", row?.outboxItemId)
+            assertEquals(CaptureSyncStatus.PENDING.name, row?.syncStatus)
+            assertTrue(telemetryEvents.any { it.first == "proof_upload_registered" && it.second["recovered_existing_outbox"] == "true" })
+            assertFalse(telemetryEvents.any { it.first == "proof_upload_enqueue_failed" })
+            assertEquals(0, db.proofCaptureDao().countStateEvents(captured.id, "upload_enqueue_failed"))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `retryUpload re-invokes the processor and succeeds once it recovers`() = runTest {
         // P1 fix: the only path back from PROCESSING_FAILED_AWAITING_RETRY is an explicit operator
         // action. retryUpload() resets processingAttempted so prepareFinalArtifact re-runs the
@@ -3613,6 +3674,9 @@ private class FakeSyncRepository(
     override suspend fun findOutboxItem(itemId: String): AppResult<SyncQueueItem?> =
         AppResult.Ok(status.value.items.firstOrNull { it.id == itemId })
 
+    override suspend fun findOutboxItemByIdempotencyKey(idempotencyKey: String): AppResult<SyncQueueItem?> =
+        AppResult.Ok(status.value.items.firstOrNull { it.idempotencyKey == idempotencyKey })
+
     // Turn the existing outbox row (seeded by capture()'s enqueue) into a definitively-rejected
     // conflict/dead-letter with a controllable lastError, so the reconcile dead-letter branch is
     // exercised. Replaces in place (never appends a duplicate id) so findOutboxItem resolves it.
@@ -3631,6 +3695,17 @@ private class FakeSyncRepository(
     fun seed(itemId: String, itemStatus: SyncItemStatus, resultJson: String? = null) {
         status.value = status.value.copy(
             items = status.value.items + syncQueueItem(itemId, itemStatus, resultJson),
+        )
+    }
+
+    fun seedExistingProofUpload(itemId: String, idempotencyKey: String, groupKey: String) {
+        status.value = status.value.copy(
+            items = status.value.items + syncQueueItem(
+                id = itemId,
+                status = SyncItemStatus.QUEUED,
+                groupKey = groupKey,
+                idempotencyKey = idempotencyKey,
+            ),
         )
     }
 
@@ -3688,7 +3763,12 @@ private class FakeSyncRepository(
         val id = "outbox-${nextId++}"
         enqueueCalls += EnqueueCall(idempotencyKey, id, request, localFilePath, groupKey)
         status.value = status.value.copy(
-            items = status.value.items + syncQueueItem(id, SyncItemStatus.QUEUED, groupKey = groupKey),
+            items = status.value.items + syncQueueItem(
+                id = id,
+                status = SyncItemStatus.QUEUED,
+                groupKey = groupKey,
+                idempotencyKey = idempotencyKey,
+            ),
         )
         return AppResult.Ok(id)
     }
@@ -3760,10 +3840,11 @@ private fun syncQueueItem(
     groupKey: String = "task",
     conflict: Boolean = false,
     lastError: String? = null,
+    idempotencyKey: String = "test-idempotency-key",
 ) = SyncQueueItem(
     id = id,
     opType = "PROOF_UPLOAD",
-    idempotencyKey = "test-idempotency-key",
+    idempotencyKey = idempotencyKey,
     groupKey = groupKey,
     status = status,
     attemptCount = 0,
