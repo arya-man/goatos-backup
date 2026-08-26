@@ -759,3 +759,73 @@ ON CONFLICT DO NOTHING`, repoTenant, oldGoat)
 			female.Eligibility.TotalAnimalsWeighed)
 	}
 }
+
+// THE ALL-HISTORY SCAN IS OPT-IN, AND A CALLER THAT SKIPS IT FAILS LOUDLY.
+//
+// The defect this pins (review finding, 2026-08-26): AllTimeTags is resolved by an arm with NO date
+// bound -- an all-history scan of the tenant's weighs -- and it was computed for EVERY caller of the
+// shared resolver. Shed weights and Growth Director never read it, so every sex-filtered page load
+// paid for a scan whose result it discarded, while the resolver's own scale note still claimed it
+// was bounded by the selected window.
+//
+// Two halves, and the second is what stops the first from becoming a silent wrong number: the plain
+// resolver must NOT resolve the list, and a read that needs it must refuse to run without it rather
+// than filter every animal out and report a farm with nothing to sell.
+func TestSexScopeAllTimeTagsAreOptIn(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	from, to := shedWeightsWindow()
+
+	const oldGoat = "00000000-0000-4000-8000-0000000094a1"
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990951', 'Beetal', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+ON CONFLICT (goat_id) DO UPDATE SET sex = EXCLUDED.sex`,
+		oldGoat, repoTenant, repoParty, repoExpectedShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', 'OPTIN-TAG', 'optin-tag', 'global', true, 'active', now(), 'test')
+ON CONFLICT DO NOTHING`, repoTenant, oldGoat)
+	// Outside the 90-day lookback, so she can ONLY appear via the all-time list.
+	seedShedWeightScan(t, ctx, pool, "OPTIN-TAG", 41.0, from.AddDate(0, 0, -200))
+
+	windowOnly, err := repo.resolveSexScope(ctx, repoTenant, []string{repoPark}, "female", from, to)
+	if err != nil {
+		t.Fatalf("resolveSexScope: %v", err)
+	}
+	if len(windowOnly.AllTimeTags) != 0 {
+		t.Fatalf("the plain resolver must not run the all-history arm, got %d tag(s)", len(windowOnly.AllTimeTags))
+	}
+
+	withAllTime, err := repo.resolveSexScopeWithAllTime(ctx, repoTenant, []string{repoPark}, "female", from, to)
+	if err != nil {
+		t.Fatalf("resolveSexScopeWithAllTime: %v", err)
+	}
+	var found bool
+	for _, tag := range withAllTime.AllTimeTags {
+		if tag == "optin-tag" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the opt-in resolver must reach a kid weighed outside the lookback, got %v", withAllTime.AllTimeTags)
+	}
+	// The WINDOWED list is unchanged by opting in -- one extra arm, not a different scope.
+	if len(withAllTime.Tags) != len(windowOnly.Tags) {
+		t.Fatalf("opting in must not change the windowed tag list: %d vs %d",
+			len(withAllTime.Tags), len(windowOnly.Tags))
+	}
+
+	// And the loud failure: sale readiness handed a window-only scope must refuse, not report zero.
+	if _, err := repo.growthSaleReadiness(ctx, repoTenant, []string{repoPark}, true, windowOnly); err == nil {
+		t.Fatal("sale readiness must refuse a window-only scope rather than silently filtering every animal out")
+	}
+	// An UNFILTERED read needs no all-time list at all, and must still work.
+	if _, err := repo.growthSaleReadiness(ctx, repoTenant, []string{repoPark}, false, SexScope{}); err != nil {
+		t.Fatalf("an unfiltered sale-readiness read needs no sex scope: %v", err)
+	}
+}
