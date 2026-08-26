@@ -67,19 +67,16 @@ func (s *Service) ListTasks(ctx context.Context, tenantID string, statuses []str
 	})
 }
 
-// ReportWindowDays is the analytics window behind the KPI strip, the weekly series and
-// the supplier rollup. Thirty days is the farm's own review cadence; the loads TABLE is
-// deliberately unwindowed so an old untested load cannot fall off the page.
-const ReportWindowDays = 30
-
-// LoadReport serves the /feed/toxin leadership read.
-func (s *Service) LoadReport(ctx context.Context, tenantID, filter string, limit int, cursor string) (ports.ReportPage, error) {
+// LoadReport serves the /feed/toxin leadership read. The range governs the whole page; an
+// unknown or blank key opens on the default (last 30 days) rather than erroring, so a stale
+// bookmark still works.
+func (s *Service) LoadReport(ctx context.Context, tenantID, filter, rangeKey string, limit int, cursor string) (ports.ReportPage, error) {
 	return s.repo.LoadReport(ctx, ports.ReportParams{
 		TenantID:   tenantID,
 		Filter:     domain.ReportFilterKeyOrDefault(filter),
 		Limit:      ClampPageSize(limit),
 		Cursor:     strings.TrimSpace(cursor),
-		WindowDays: ReportWindowDays,
+		WindowDays: domain.ReportRangeOrDefault(rangeKey).Days,
 	})
 }
 

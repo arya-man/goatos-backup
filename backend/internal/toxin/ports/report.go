@@ -52,6 +52,10 @@ type ReportSummary struct {
 	OldestWaitingLabel string
 	FeedTypes          int
 	Parks              int
+	// UntestedOutsideWindow counts loads that arrived BEFORE the selected range and still
+	// have no reading. They are the one thing a narrow window must not hide, so they are
+	// counted across all time regardless of the range and surfaced as a note.
+	UntestedOutsideWindow int
 }
 
 // ReportWeek is one bar in the received-vs-tested series.

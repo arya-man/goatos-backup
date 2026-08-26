@@ -131,3 +131,50 @@ func ReportResultTone(status, outcome string) string {
 		return "muted"
 	}
 }
+
+// Report ranges. The page opens on the last 30 days; the range governs the WHOLE page —
+// the KPI strip, the charts, the chip counts AND the loads table.
+//
+// That last part is deliberate and was a reversal. The table was originally unwindowed so
+// an old untested load could not fall off the page, while the analytics were windowed. A
+// visible control that silently does not apply to the rows underneath it is worse than the
+// problem it avoids: the reader believes they are looking at a filtered table and they are
+// not. The honest fix is to window everything and then SAY when something is hidden, which
+// is what ReportSummary.OutsideWindowNote does — an untested load older than the range is
+// named in a note rather than quietly dropped.
+const (
+	ReportRange30  = "30"
+	ReportRange60  = "60"
+	ReportRange90  = "90"
+	ReportRangeAll = "all"
+)
+
+// ReportRange is one segment of the range picker.
+type ReportRange struct {
+	Key   string
+	Label string
+	// Days is the window in days; 0 means every load ever recorded.
+	Days int
+}
+
+// ReportRanges is the picker, in render order. The first entry is the default.
+func ReportRanges() []ReportRange {
+	return []ReportRange{
+		{ReportRange30, "Last 30 days", 30},
+		{ReportRange60, "Last 60 days", 60},
+		{ReportRange90, "Last 90 days", 90},
+		{ReportRangeAll, "All time", 0},
+	}
+}
+
+// ReportRangeOrDefault falls back to the 30-day window for a blank or unknown key, so a
+// stale bookmark opens the page rather than erroring.
+func ReportRangeOrDefault(key string) ReportRange {
+	trimmed := strings.TrimSpace(key)
+	for _, r := range ReportRanges() {
+		if r.Key == trimmed {
+			return r
+		}
+	}
+	return ReportRanges()[0]
+}

@@ -5493,6 +5493,13 @@ export interface components {
             /** @description Backend-owned copy for when THIS slice has no rows, rendered verbatim. Carried per slice because "nothing here" means something different in each. */
             empty_message: string;
         };
+        ToxinReportRange: {
+            /** @enum {string} */
+            key: "30" | "60" | "90" | "all";
+            /** @description Backend-owned segment copy */
+            label: string;
+            selected: boolean;
+        };
         ToxinReportFilter: {
             /** @enum {string} */
             key: "all" | "waiting" | "review" | "cleared" | "flagged";
@@ -5548,8 +5555,8 @@ export interface components {
             waiting: number;
             waiting_note: string;
             window_label: string;
-            /** @description The banner; blank when nothing is flagged. */
-            alert_message: string;
+            /** @description Untested loads that arrived before the selected range, named so a narrow window never hides work nobody has done. Blank when there are none. */
+            outside_window_note: string;
         };
         ToxinReportWeek: {
             /** Format: date */
@@ -5574,6 +5581,7 @@ export interface components {
             tone: "ok" | "warn" | "danger" | "info" | "muted";
         };
         ToxinReport: {
+            ranges: components["schemas"]["ToxinReportRange"][];
             filters: components["schemas"]["ToxinReportFilter"][];
             loads: components["schemas"]["ToxinReportLoad"][];
             next_cursor: string;
@@ -17952,6 +17960,8 @@ export interface operations {
             query?: {
                 /** @description Which slice of loads to list. The chips are disjoint and exhaustive over every task status; absent or unknown means all. */
                 filter?: "all" | "waiting" | "review" | "cleared" | "flagged";
+                /** @description The window the WHOLE page covers -- KPIs, charts, chip counts and the loads table alike. Absent or unknown means the last 30 days. Untested loads older than the window are counted in summary.outside_window_note rather than silently dropped. */
+                range?: "30" | "60" | "90" | "all";
                 limit?: number;
                 cursor?: string;
             };
@@ -17961,7 +17971,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description One keyset page of loads plus the whole-window analytics. */
+            /** @description One keyset page of loads plus the window's analytics. */
             200: {
                 headers: {
                     [name: string]: unknown;

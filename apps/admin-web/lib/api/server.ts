@@ -3128,7 +3128,12 @@ export type ToxinReportFilter =
 // line) arrives composed on this payload and is rendered verbatim; the page derives no business
 // copy of its own.
 export async function loadToxinReport(
-  params: { filter?: string; limit?: number; cursor?: string } = {},
+  params: {
+    filter?: string;
+    range?: string;
+    limit?: number;
+    cursor?: string;
+  } = {},
 ): Promise<ApiResult<ToxinReport>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -3138,6 +3143,7 @@ export async function loadToxinReport(
       cache: "no-store",
       query: compactQuery({
         filter: params.filter,
+        range: params.range,
         cursor: params.cursor,
         limit: params.limit ?? 20,
       }),

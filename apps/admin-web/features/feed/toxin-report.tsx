@@ -12,6 +12,7 @@ import {
 import { fmtDate } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { Tag, type Tone } from "@/components/ui-primitives";
+import { SegmentedLinks } from "@/components/segmented-links";
 import NoPrefetchLink from "@/components/no-prefetch-link";
 import { FeedFaroView } from "./feed-faro-view";
 
@@ -41,11 +42,15 @@ function tone(value: string): Tone {
 
 function toxinHref(
   searchParams: RouteSearchParams,
-  next: { filter?: string; cursor?: string },
+  next: { filter?: string; range?: string; cursor?: string },
 ): string {
   const params = new URLSearchParams();
   const filter = next.filter ?? one(searchParams, "filter") ?? "";
+  // The range survives a chip click and a page step; only an explicit range choice changes it.
+  // Both keys are omitted at their default so a shared link stays the short, readable one.
+  const range = next.range ?? one(searchParams, "range") ?? "";
   if (filter && filter !== "all") params.set("filter", filter);
+  if (range && range !== "30") params.set("range", range);
   if (next.cursor) params.set("cursor", next.cursor);
   const query = params.toString();
   return query ? `/feed/toxin?${query}` : "/feed/toxin";
@@ -72,8 +77,9 @@ export async function ToxinReportPage({
   }
 
   const filter = one(searchParams, "filter") ?? "all";
+  const range = one(searchParams, "range") ?? "30";
   const cursor = one(searchParams, "cursor") ?? "";
-  const result = await loadToxinReport({ filter, cursor, limit: 20 });
+  const result = await loadToxinReport({ filter, range, cursor, limit: 20 });
 
   if (!result.ok) {
     return (
@@ -91,18 +97,30 @@ export async function ToxinReportPage({
         routeId="toxin-reports"
         flaggedLoads={report.summary.needs_attention}
       />
-      <p className="muted small" style={{ margin: "0 0 14px" }}>
-        {copy(pageContract, "banner.basis")}
-      </p>
-
-      {report.summary.alert_message ? (
-        <div className="alert" role="status">
-          <div style={{ flex: 1 }}>
-            <b>{report.summary.alert_message}</b>
-          </div>
-        </div>
-      ) : null}
-
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 10,
+          alignItems: "center",
+          marginBottom: 14,
+        }}
+      >
+        <SegmentedLinks
+          current={report.ranges.find((r) => r.selected)?.key ?? "30"}
+          ariaLabel={copy(pageContract, "range.aria")}
+          options={report.ranges.map((r) => ({
+            value: r.key,
+            label: r.label,
+            href: toxinHref(searchParams, { range: r.key, cursor: "" }),
+          }))}
+        />
+        {report.summary.outside_window_note ? (
+          <span className="tag t-warn">
+            {report.summary.outside_window_note}
+          </span>
+        ) : null}
+      </div>
       <ToxinKpis report={report} pageContract={pageContract} />
       <ToxinCharts report={report} pageContract={pageContract} />
       <ToxinLoadsTable

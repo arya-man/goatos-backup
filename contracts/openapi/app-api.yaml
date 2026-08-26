@@ -6562,6 +6562,17 @@ paths:
           description: >-
             Which slice of loads to list. The chips are disjoint and exhaustive over every task
             status; absent or unknown means all.
+        - name: range
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["30", "60", "90", all]
+            default: "30"
+          description: >-
+            The window the WHOLE page covers -- KPIs, charts, chip counts and the loads table
+            alike. Absent or unknown means the last 30 days. Untested loads older than the window
+            are counted in summary.outside_window_note rather than silently dropped.
         - name: limit
           in: query
           required: false
@@ -6572,7 +6583,7 @@ paths:
           schema: { type: string }
       responses:
         "200":
-          description: One keyset page of loads plus the whole-window analytics.
+          description: One keyset page of loads plus the window's analytics.
           content:
             application/json:
               schema:
@@ -13277,6 +13288,13 @@ components:
           description: >-
             Backend-owned copy for when THIS slice has no rows, rendered verbatim. Carried per
             slice because "nothing here" means something different in each.
+    ToxinReportRange:
+      type: object
+      required: [key, label, selected]
+      properties:
+        key: { type: string, enum: ["30", "60", "90", all] }
+        label: { type: string, description: Backend-owned segment copy, rendered VERBATIM. }
+        selected: { type: boolean }
     ToxinReportFilter:
       type: object
       required: [key, label, count, selected, empty_message]
@@ -13337,7 +13355,7 @@ components:
       type: object
       required:
         [loads_received, loads_received_note, loads_tested, loads_tested_note, needs_attention,
-         needs_attention_note, waiting, waiting_note, window_label, alert_message]
+         needs_attention_note, waiting, waiting_note, window_label, outside_window_note]
       properties:
         loads_received: { type: integer }
         loads_received_note: { type: string }
@@ -13348,9 +13366,11 @@ components:
         waiting: { type: integer }
         waiting_note: { type: string }
         window_label: { type: string }
-        alert_message:
+        outside_window_note:
           type: string
-          description: The banner; blank when nothing is flagged.
+          description: >-
+            Untested loads that arrived before the selected range, named so a narrow window never
+            hides work nobody has done. Blank when there are none.
     ToxinReportWeek:
       type: object
       required: [week_start, label, received, tested]
@@ -13378,8 +13398,11 @@ components:
         tone: { type: string, enum: [ok, warn, danger, info, muted] }
     ToxinReport:
       type: object
-      required: [filters, loads, next_cursor, summary, weeks, outcome_mix, vendors, empty_message]
+      required: [ranges, filters, loads, next_cursor, summary, weeks, outcome_mix, vendors, empty_message]
       properties:
+        ranges:
+          type: array
+          items: { $ref: "#/components/schemas/ToxinReportRange" }
         filters:
           type: array
           items: { $ref: "#/components/schemas/ToxinReportFilter" }

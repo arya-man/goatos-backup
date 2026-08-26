@@ -76,14 +76,16 @@ func (r *Repository) LoadReport(ctx context.Context, p ports.ReportParams) (port
 	if limit <= 0 {
 		limit = 20
 	}
+	// 0 is "all time" — a real choice on the range picker, not a missing value. The SQL
+	// takes a very old floor rather than branching, so one query shape serves both.
 	window := p.WindowDays
 	if window <= 0 {
-		window = 30
+		window = 100 * 365
 	}
 
 	page := ports.ReportPage{FilterCounts: map[string]int{}}
 	var err error
-	if page.Loads, page.NextCursor, err = r.reportLoads(ctx, p.TenantID, filter, limit, p.Cursor); err != nil {
+	if page.Loads, page.NextCursor, err = r.reportLoads(ctx, p.TenantID, filter, limit, p.Cursor, window); err != nil {
 		return ports.ReportPage{}, err
 	}
 	if page.Summary, page.Mix, page.FilterCounts, err = r.reportSummary(ctx, p.TenantID, window); err != nil {
@@ -98,12 +100,15 @@ func (r *Repository) LoadReport(ctx context.Context, p ports.ReportParams) (port
 	return page, nil
 }
 
-func (r *Repository) reportLoads(ctx context.Context, tenantID, filter string, limit int, cursor string) ([]ports.ReportLoad, string, error) {
-	args := []any{tenantID}
-	where := "TRUE"
+func (r *Repository) reportLoads(ctx context.Context, tenantID, filter string, limit int, cursor string, window int) ([]ports.ReportLoad, string, error) {
+	args := []any{tenantID, window}
+	where := "l.purchase_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ($2::int - 1)"
 	if filter != domain.ReportFilterAll {
+		// APPEND, never replace: the window predicate above is already in `where`, and
+		// overwriting it both drops the range and leaves $2 bound but unreferenced, which pgx
+		// rejects outright (the whole read 500s the moment a chip is clicked).
 		args = append(args, filter)
-		where = fmt.Sprintf("%s = $%d", reportBucketSQL("l"), len(args))
+		where += fmt.Sprintf(" AND %s = $%d", reportBucketSQL("l"), len(args))
 	}
 	if cursor != "" {
 		purchaseDate, purchaseID, err := decodeReportCursor(cursor)
@@ -179,9 +184,13 @@ SELECT
     (SELECT count(*) FROM windowed WHERE submitted_at IS NOT NULL),
     (SELECT count(*) FROM windowed WHERE %[11]s = '%[3]s'),
     (SELECT count(*) FROM windowed WHERE status = '%[4]s'),
+    -- Oldest-waiting reads WINDOWED, matching the Waiting count beside it. Taken across all
+    -- history it named a load that was not among the ones counted ("2 waiting - oldest 50
+    -- days" when neither of the two was 50 days old). Loads waiting from before the window
+    -- are not lost: UntestedOutsideWindow below counts them and the page names them.
     (SELECT COALESCE(max((now() AT TIME ZONE 'Asia/Kolkata')::date - purchase_date), 0)
-       FROM latest WHERE submitted_at IS NULL),
-    (SELECT COALESCE(feed_item_label || ' · ' || farm_label, '') FROM latest
+       FROM windowed WHERE submitted_at IS NULL),
+    (SELECT COALESCE(feed_item_label || ' · ' || farm_label, '') FROM windowed
       WHERE submitted_at IS NULL ORDER BY purchase_date ASC, feed_purchase_id ASC LIMIT 1),
     (SELECT count(DISTINCT feed_item_key) FROM windowed),
     (SELECT count(DISTINCT farm_label) FROM windowed),
@@ -189,11 +198,14 @@ SELECT
     (SELECT count(*) FROM windowed WHERE outcome = '%[6]s'),
     (SELECT count(*) FROM windowed WHERE outcome = '%[7]s'),
     (SELECT count(*) FROM windowed WHERE outcome = ''),
-    (SELECT count(*) FROM latest),
-    (SELECT count(*) FROM latest WHERE %[2]s = '%[8]s'),
-    (SELECT count(*) FROM latest WHERE %[2]s = '%[9]s'),
-    (SELECT count(*) FROM latest WHERE %[2]s = '%[10]s'),
-    (SELECT count(*) FROM latest WHERE %[2]s = '%[3]s')`,
+    (SELECT count(*) FROM windowed),
+    (SELECT count(*) FROM windowed WHERE %[11]s = '%[8]s'),
+    (SELECT count(*) FROM windowed WHERE %[11]s = '%[9]s'),
+    (SELECT count(*) FROM windowed WHERE %[11]s = '%[10]s'),
+    (SELECT count(*) FROM windowed WHERE %[11]s = '%[3]s'),
+    (SELECT count(*) FROM latest
+      WHERE submitted_at IS NULL
+        AND purchase_date < (now() AT TIME ZONE 'Asia/Kolkata')::date - ($2::int - 1))`,
 		latestRoundCTE, reportBucketSQL("latest"),
 		domain.ReportFilterFlagged, domain.StatusInProgress,
 		domain.OutcomeNegative, domain.OutcomePositive, domain.OutcomeInvalid,
@@ -212,7 +224,7 @@ SELECT
 		&s.LoadsReceived, &s.LoadsTested, &s.NeedsAttention, &s.Waiting,
 		&s.OldestWaitingDays, &s.OldestWaitingLabel, &s.FeedTypes, &s.Parks,
 		&mix.Negative, &mix.Positive, &mix.Invalid, &mix.Untested,
-		&all, &waiting, &review, &cleared, &flagged,
+		&all, &waiting, &review, &cleared, &flagged, &s.UntestedOutsideWindow,
 	); err != nil {
 		return ports.ReportSummary{}, ports.ReportOutcomeMix{}, nil, fmt.Errorf("toxin: report summary: %w", err)
 	}
