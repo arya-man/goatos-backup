@@ -649,7 +649,7 @@ private class FakeShiftingCountsRepository(
     override suspend fun lookupAnimals(query: String, parkId: String?, shedId: String?): Result<List<GoatSearchItemDto>> = Result.success(matches)
 }
 
-private class NoopShiftingSyncRepository : SyncRepository {
+internal class NoopShiftingSyncRepository : SyncRepository {
     var lastShiftingRequest: CountsShiftingEventRequestDto? = null
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     fun succeed(itemId: String) {

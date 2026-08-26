@@ -280,6 +280,7 @@ data class ShiftingUiState(
     /** One-shot navigation result consumed by AppNavHost after server-confirmed sync. */
     val returnToActions: Boolean = false,
     val submissionNotice: String? = null,
+    val submittedOutboxItemId: String? = null,
 ) {
     /**
      * The destination options for the currently chosen park — one entry per WHOLE shed or per
