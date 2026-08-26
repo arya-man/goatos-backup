@@ -91,7 +91,7 @@ Mobile module access (module key `toxin`, offered on the `toxin.read` permission
 to CEO/CXO and to the NAMED people who know how to run the test — today the two park
 heads in `perPersonGrants` (`backend/cmd/seed-stg-login-grants/approvers.go`), via the
 new per-person role `toxin_tester` (`toxin.read` + `toxin.execute` only; catalog row in
-migration `000207`). A bare `park_head` / `pc_director` / `growth_director` job inherits
+migration `000211`). A bare `park_head` / `pc_director` / `growth_director` job inherits
 nothing. Pinned by `TestToxinModuleIsOfferedPerPersonNotPerJob` (mutation-tested:
 deleting the offer branch turns it red).
 
@@ -165,7 +165,7 @@ registered in `public.validate_outbox_event_tenant()` or the outbox INSERT is re
 SQLSTATE 23503. That trigger validates each *known* aggregate type against its owning
 table and returns early; anything unrecognized falls through to a `goat_identity_events`
 lookup and fails. The first version of this emitter used `aggregate_type='feed_purchase'`
-with no branch, so every feed purchase 500'd on commit. Migration `000207` redefines the
+with no branch, so every feed purchase 500'd on commit. Migration `000211` redefines the
 function with a `feed_purchase` branch (the whole-function redefinition shape every prior
 module used; `000183` is the precedent and the body the Down restores). The defect was
 caught by `TestCreateFeedPurchaseEmitsRecordedEventInTheSameTransaction`, which is exactly
