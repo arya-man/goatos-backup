@@ -214,7 +214,7 @@ class PcCareInventoryTaskProofTest {
     @Test
     fun `server task proof from another device satisfies only the matching inventory screen row`() = runTest(dispatcher) {
         val repo = FakePcCareRepository()
-        repo.proofDownloadUrls["server-proof-video"] = "https://proof.local/server-proof-video.mp4"
+        repo.proofDownloadUrls["server-proof-video"] = "/app/proofs/server-proof-video/download/signed?sig=abc"
         repo.detailFlow.value = pcCareTaskDtoFixture(
             category = "inventory_vaccine",
             expectedSlots = listOf(stockPhotoSlot, stockVideoSlot),
@@ -235,11 +235,27 @@ class PcCareInventoryTaskProofTest {
         assertEquals(PcCareSlotState.EMPTY, state.taskProofPhotoSlot?.state)
         assertEquals(PcCareSlotState.SYNCED, state.taskProofVideoSlot?.state)
         assertEquals("Captured by Chandrakant", state.taskProofVideoSlot?.statusLabel)
-        assertEquals("https://proof.local/server-proof-video.mp4", state.taskProofVideoSlot?.previewPath)
+        val previewPath = state.taskProofVideoSlot?.previewPath.orEmpty()
+        assertTrue("relative proof URL should be made playable for the shared video preview", previewPath.startsWith("http://") || previewPath.startsWith("https://"))
+        assertTrue(previewPath.endsWith("/app/proofs/server-proof-video/download/signed?sig=abc"))
         assertEquals(PcCareProofPreviewKind.VIDEO, state.taskProofVideoSlot?.previewKind)
         assertFalse(state.submitEnabled)
         assertEquals("Record the fridge stock photo and video first", state.submitBlockedReason)
         collectJob.cancel()
+    }
+
+    @Test
+    fun `server task proof preview uses server url before stale local row`() {
+        val captured = pcCareBuildTaskProofSlot(
+            stockVideoSlot,
+            listOf(proof(syncStatus = CaptureSyncStatus.SYNCED, serverProofId = "server-proof-video")),
+            listOf(PcCareTaskProofDto(slotKey = stockVideoSlot.fieldKey, proofRef = "server-proof-video", capturedByName = "Chandrakant")),
+            null,
+            mapOf(stockVideoSlot.fieldKey to TaskProofPreviewUrl("server-proof-video", "https://proof.local/server-proof-video.mp4", 1L)),
+        )
+
+        assertEquals("https://proof.local/server-proof-video.mp4", captured.previewPath)
+        assertEquals(PcCareProofPreviewKind.VIDEO, captured.previewKind)
     }
 
     @Test
@@ -394,7 +410,7 @@ class PcCareInventoryTaskProofTest {
     }
 
     @Test
-    fun `refresh repairs stale stock photo rows that were stored under video slot`() = runTest(dispatcher) {
+    fun `refresh does not register stock proof row when media does not match slot`() = runTest(dispatcher) {
         val repo = FakePcCareRepository()
         val proofRepo = FakeProofCaptureRepository()
         repo.detailFlow.value = pcCareTaskDtoFixture(
@@ -416,6 +432,6 @@ class PcCareInventoryTaskProofTest {
         vm.onEvent(PcCareTaskEvent.Refresh)
         runCurrent()
 
-        assertEquals(listOf(listOf("task-1", stockPhotoSlot.fieldKey, "proof-outbox-stale-photo")), repo.taskProofRegistrations)
+        assertEquals(emptyList<List<String>>(), repo.taskProofRegistrations)
     }
 }

@@ -533,7 +533,18 @@ func (s *Service) RegisterTaskProof(ctx context.Context, actor domain.Actor, in 
 		return ports.ErrIdempotencyRequired
 	}
 	if s.proofs != nil {
-		if err := s.proofs.ValidateLiveCameraMedia(ctx, actor.TenantID, []string{in.ProofRef}); err != nil {
+		requiredKind := ""
+		switch strings.TrimSpace(in.SlotKey) {
+		case domain.SlotStockFridgePhoto:
+			requiredKind = "photo"
+		case domain.SlotStockFridgeVideo:
+			requiredKind = "video"
+		}
+		if requiredKind != "" {
+			if err := s.proofs.ValidateLiveCameraProofKind(ctx, actor.TenantID, []string{in.ProofRef}, requiredKind); err != nil {
+				return err
+			}
+		} else if err := s.proofs.ValidateLiveCameraMedia(ctx, actor.TenantID, []string{in.ProofRef}); err != nil {
 			return err
 		}
 	}

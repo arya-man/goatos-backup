@@ -380,4 +380,5 @@ type TaskStore interface {
 type ProofValidator interface {
 	ValidateLiveCameraVideos(ctx context.Context, tenantID string, proofIDs []string) error
 	ValidateLiveCameraMedia(ctx context.Context, tenantID string, proofIDs []string) error
+	ValidateLiveCameraProofKind(ctx context.Context, tenantID string, proofIDs []string, requiredKind string) error
 }

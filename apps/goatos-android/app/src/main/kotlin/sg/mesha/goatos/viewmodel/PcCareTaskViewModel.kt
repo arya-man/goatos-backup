@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.capture.PhotoCaptureContext
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
@@ -559,6 +560,20 @@ class PcCareTaskViewModel @Inject constructor(
                         outcome = "success",
                     ),
                 )
+                if (!pcCareStockSlotMatchesMime(slotFieldKey, captured.mimeType)) {
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_STOCK_PROOF_ROOM_WRITTEN,
+                        pcCareStockProofAnalyticsProps(
+                            fieldKey = slotFieldKey,
+                            mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                            status = detail.status,
+                            outcome = "failure",
+                            reason = "slot_media_mismatch",
+                        ),
+                    )
+                    local.update { it.copy(message = "Wrong proof type returned. Record the ${slotDto.label.lowercase()} again.") }
+                    return@launch
+                }
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                     val slot = EvidenceSlot(
                         identity = ProofIdentity(
@@ -847,7 +862,21 @@ class PcCareTaskViewModel @Inject constructor(
             if (hasAnimalSlotKey && tag.isNotBlank() && slot.isNotBlank()) {
                 repository.registerSlotProof(taskId, tag, slot, outboxId)
             } else if (row.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_PHOTO || row.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_VIDEO) {
-                val slotFieldKey = pcCareStockSlotKeyForMime(row.mimeType)
+                if (!pcCareStockSlotMatchesMime(row.fieldKey, row.mimeType)) {
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION,
+                        pcCareStockProofAnalyticsProps(
+                            fieldKey = row.fieldKey,
+                            mediaKind = pcCareMediaKindFromMime(row.mimeType),
+                            status = latestDetail?.status.orEmpty(),
+                            outcome = "failure",
+                            reason = "slot_media_mismatch",
+                            source = "reconcile",
+                        ),
+                    )
+                    return@forEach
+                }
+                val slotFieldKey = row.fieldKey
                 val result = repository.registerTaskProof(taskId, slotFieldKey, outboxId)
                 analytics.track(
                     AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION,
@@ -885,8 +914,12 @@ class PcCareTaskViewModel @Inject constructor(
     private fun pcCareMediaKindFromMime(mimeType: String): String =
         if (mimeType.startsWith("image/", ignoreCase = true)) "photo" else "video"
 
-    private fun pcCareStockSlotKeyForMime(mimeType: String): String =
-        if (mimeType.startsWith("image/", ignoreCase = true)) PC_CARE_SLOT_STOCK_FRIDGE_PHOTO else PC_CARE_SLOT_STOCK_FRIDGE_VIDEO
+    private fun pcCareStockSlotMatchesMime(fieldKey: String, mimeType: String): Boolean =
+        when (fieldKey) {
+            PC_CARE_SLOT_STOCK_FRIDGE_PHOTO -> mimeType.startsWith("image/", ignoreCase = true)
+            PC_CARE_SLOT_STOCK_FRIDGE_VIDEO -> mimeType.startsWith("video/", ignoreCase = true)
+            else -> false
+        }
 
     // ---- State assembly ----------------------------------------------------------------------
 
@@ -942,7 +975,7 @@ class PcCareTaskViewModel @Inject constructor(
                                     taskProofPreviewUrls = bits.taskProofPreviewUrls + (
                                         proof.slotKey to TaskProofPreviewUrl(
                                             proofRef = proof.proofRef,
-                                            url = resolved.value,
+                                            url = pcCareAbsoluteProofUrl(resolved.value),
                                             resolvedAtMs = resolvedAtMs,
                                         )
                                     ),
@@ -1297,6 +1330,7 @@ internal fun pcCareBuildTaskProofSlot(
     val localRow = proofs
         .filter { it.fieldKey == slot.fieldKey }
         .maxByOrNull { it.capturedAtMs }
+    val serverPreviewUrl = remotePreviewUrls[slot.fieldKey]?.url.orEmpty()
     if (serverProof != null && localRow?.processingStatus != ProofProcessingStatus.UPLOADED) {
         val byline = serverProof.capturedByName
             .takeIf { it.isNotBlank() }
@@ -1317,7 +1351,7 @@ internal fun pcCareBuildTaskProofSlot(
             statusLabel = byline,
             hintLabel = hint,
             canRecord = true,
-            previewPath = previewRow?.previewUri().orEmpty().ifBlank { remotePreviewUrls[slot.fieldKey]?.url.orEmpty() },
+            previewPath = serverPreviewUrl.ifBlank { previewRow?.previewUri().orEmpty() },
             previewKind = previewRow?.mimeType?.let(::pcCarePreviewKind) ?: expectedKind,
         )
     }
@@ -1331,7 +1365,7 @@ internal fun pcCareBuildTaskProofSlot(
                 statusLabel = "Proof sent",
                 hintLabel = hint,
                 canRecord = true,
-                previewPath = localRow.previewUri().orEmpty(),
+                previewPath = serverPreviewUrl.ifBlank { localRow.previewUri().orEmpty() },
                 previewKind = pcCarePreviewKind(localRow.mimeType),
             )
             ProofProcessingStatus.RECORD_AGAIN -> PcCareSlotChipUi(
@@ -1395,6 +1429,15 @@ private fun pcCareTaskProofExpectedPreviewKind(fieldKey: String): PcCareProofPre
     } else {
         PcCareProofPreviewKind.VIDEO
     }
+
+private fun pcCareAbsoluteProofUrl(raw: String): String {
+    val trimmed = raw.trim()
+    return when {
+        trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+        trimmed.startsWith("/") -> BuildConfig.API_BASE_URL.trimEnd('/') + trimmed
+        else -> trimmed
+    }
+}
 
 internal data class TaskProofPreviewUrl(
     val proofRef: String,

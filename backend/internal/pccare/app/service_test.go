@@ -93,8 +93,10 @@ func (f *fakeEnqueuer) EnqueuePCCareVerification(_ context.Context, in Verificat
 type fakeProofValidator struct {
 	mediaCalls int
 	videoCalls int
+	kindCalls  int
 	lastTenant string
 	lastProofs []string
+	lastKind   string
 	err        error
 }
 
@@ -109,6 +111,14 @@ func (f *fakeProofValidator) ValidateLiveCameraMedia(_ context.Context, tenantID
 	f.mediaCalls++
 	f.lastTenant = tenantID
 	f.lastProofs = append([]string(nil), proofIDs...)
+	return f.err
+}
+
+func (f *fakeProofValidator) ValidateLiveCameraProofKind(_ context.Context, tenantID string, proofIDs []string, requiredKind string) error {
+	f.kindCalls++
+	f.lastTenant = tenantID
+	f.lastProofs = append([]string(nil), proofIDs...)
+	f.lastKind = requiredKind
 	return f.err
 }
 
@@ -251,8 +261,8 @@ func TestRegisterTaskProofRequiresAssigneeAndValidatesLiveCameraMedia(t *testing
 	if !errors.Is(err, domain.ErrTaskNotAssigned) {
 		t.Fatalf("outsider task proof err = %v, want ErrTaskNotAssigned", err)
 	}
-	if store.taskProofCalls != 0 || proofs.mediaCalls != 0 || proofs.videoCalls != 0 {
-		t.Fatalf("outsider reached proof/store writes: store=%d media=%d video=%d", store.taskProofCalls, proofs.mediaCalls, proofs.videoCalls)
+	if store.taskProofCalls != 0 || proofs.mediaCalls != 0 || proofs.videoCalls != 0 || proofs.kindCalls != 0 {
+		t.Fatalf("outsider reached proof/store writes: store=%d media=%d video=%d kind=%d", store.taskProofCalls, proofs.mediaCalls, proofs.videoCalls, proofs.kindCalls)
 	}
 
 	err = svc.RegisterTaskProof(context.Background(), operatorActor(testAssignee), RegisterTaskProofInput{
@@ -267,8 +277,8 @@ func TestRegisterTaskProofRequiresAssigneeAndValidatesLiveCameraMedia(t *testing
 	if err != nil {
 		t.Fatalf("assignee task proof err = %v", err)
 	}
-	if proofs.mediaCalls != 1 || proofs.videoCalls != 0 {
-		t.Fatalf("proof validator calls = media %d video %d, want media-only", proofs.mediaCalls, proofs.videoCalls)
+	if proofs.mediaCalls != 0 || proofs.videoCalls != 0 || proofs.kindCalls != 1 || proofs.lastKind != "video" {
+		t.Fatalf("proof validator calls = media %d video %d kind %d/%q, want video kind", proofs.mediaCalls, proofs.videoCalls, proofs.kindCalls, proofs.lastKind)
 	}
 	if proofs.lastTenant != testTenant || len(proofs.lastProofs) != 1 || proofs.lastProofs[0] != "proof-fridge-stock" {
 		t.Fatalf("proof validation = tenant %q proofs %+v, want task proof media", proofs.lastTenant, proofs.lastProofs)
@@ -282,6 +292,31 @@ func TestRegisterTaskProofRequiresAssigneeAndValidatesLiveCameraMedia(t *testing
 	}
 	if got.CapturedBy != testAssignee || got.IdempotencyKey != "task-proof-2" || got.TraceID != "trace-task-proof-assignee" {
 		t.Fatalf("task proof actor/idempotency = %+v", got)
+	}
+}
+
+func TestRegisterTaskProofRejectsWrongLiveCameraProofKind(t *testing.T) {
+	store := &fakeStore{assignees: map[string]bool{testAssignee: true}}
+	proofs := &fakeProofValidator{err: ports.ErrInvalidProof}
+	svc := NewService(store).WithProofValidator(proofs)
+
+	err := svc.RegisterTaskProof(context.Background(), operatorActor(testAssignee), RegisterTaskProofInput{
+		TaskID:         testTask,
+		SlotKey:        domain.SlotStockFridgeVideo,
+		ProofRef:       "proof-photo-in-video-slot",
+		IdempotencyKey: "task-proof-wrong-kind",
+		ActorID:        testAssignee,
+		ActorType:      "operator",
+		TraceID:        "trace-task-proof-wrong-kind",
+	})
+	if !errors.Is(err, ports.ErrInvalidProof) {
+		t.Fatalf("wrong-kind task proof err = %v, want ErrInvalidProof", err)
+	}
+	if proofs.mediaCalls != 0 || proofs.videoCalls != 0 || proofs.kindCalls != 1 || proofs.lastKind != "video" {
+		t.Fatalf("proof validator calls = media %d video %d kind %d/%q, want video kind only", proofs.mediaCalls, proofs.videoCalls, proofs.kindCalls, proofs.lastKind)
+	}
+	if store.taskProofCalls != 0 {
+		t.Fatalf("wrong-kind proof reached store: calls=%d", store.taskProofCalls)
 	}
 }
 
