@@ -30,7 +30,7 @@ type Service interface {
 	SubmitReading(ctx context.Context, p ports.SubmitParams) (ports.TaskRow, error)
 	RecordVerdict(ctx context.Context, p ports.VerdictParams) (ports.TaskRow, error)
 	// LoadReport serves the admin-web /feed/toxin read: one row per FEED LOAD.
-	LoadReport(ctx context.Context, tenantID, filter string, limit int, cursor string) (ports.ReportPage, error)
+	LoadReport(ctx context.Context, tenantID, filter, rangeKey string, limit int, cursor string) (ports.ReportPage, error)
 	// Now is the service clock the step states were gated against; payload composition
 	// uses the same clock so the phone's countdowns agree with the server's refusals.
 	Now() time.Time

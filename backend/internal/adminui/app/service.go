@@ -3744,10 +3744,7 @@ func pageSpecificCopy(id string) map[string]string {
 	// -------------------------------------------------------------------------------
 	case "toxin-reports":
 		return map[string]string{
-			"crumb": "Feed",
-			// The one sentence this page lives on: the grain is the LOAD, not the test. A
-			// delivery retested after a void strip is ONE delivery that took two strips.
-			"banner.basis":                    "One row per feed load, showing that load's most recent test. A load that was retested still counts once.",
+			"crumb":                           "Feed",
 			"kpi.received.label":              "Loads received",
 			"kpi.tested.label":                "Tested",
 			"kpi.attention.label":             "Needs attention",
@@ -3769,6 +3766,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.vendors.empty":             "Not enough loads from any one supplier yet.",
 			"toxin_report.title":              "Toxin results",
 			"toxin_report.disabled_no_access": "Feed toxin results are visible to the CEO's office.",
+			"range.aria":                      "How far back to look",
 			"pager.next":                      "Next 20 loads",
 			"error.unavailable":               "Toxin results could not be loaded just now. Try again in a moment.",
 		}

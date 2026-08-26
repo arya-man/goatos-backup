@@ -332,9 +332,21 @@ need the second to do the first. Both halves per
 `docs/decisions/role-scoped-ui-is-capability-gated.md` — the `toxin_report` page-contract control
 is the UI half, the route permission is the endpoint half.
 
-**Windows.** The KPI strip, weekly series and supplier rollup cover 30 days. The loads TABLE is
-deliberately unwindowed: a load waiting since before the window is exactly the row a reader needs,
-and windowing it away would make the screening look finished.
+**The range picker governs the WHOLE page** (maintainer decision 2026-08-26): Last 30 days
+(default) / 60 / 90 / All time, and it applies to the KPI strip, the charts, the chip counts AND
+the loads table alike.
+
+That is a reversal of the first cut, which windowed the analytics and left the table unwindowed so
+an old untested load could not fall off the page. Once a range control is visible, that split
+becomes the worse bug: the reader believes they are looking at a filtered table and they are not.
+The honest fix is to window everything and then SAY what is hidden — `summary.outside_window_note`
+counts untested loads that arrived before the range ("1 load arrived before this range and still
+has no result") across all history regardless of the selected window, so a narrow range can never
+quietly bury work nobody has done.
+
+The oldest-waiting KPI note reads WINDOWED for the same reason, matching the Waiting count beside
+it. Taken across all history it named a load that was not among the ones counted — "2 waiting,
+oldest 50 days" when neither of those two was 50 days old.
 
 **Suppliers to watch** ranks by the share of a supplier's loads that came back positive or void,
 and excludes suppliers with a single load — one bad load out of one is 100% on no evidence.

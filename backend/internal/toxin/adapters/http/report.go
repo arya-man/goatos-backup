@@ -25,6 +25,12 @@ type reportFilterPayload struct {
 	EmptyMessage string `json:"empty_message"`
 }
 
+type reportRangePayload struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Selected bool   `json:"selected"`
+}
+
 type reportLoadPayload struct {
 	FeedPurchaseID string `json:"feed_purchase_id"`
 	TaskID         string `json:"task_id"`
@@ -56,9 +62,9 @@ type reportSummaryPayload struct {
 	Waiting            int    `json:"waiting"`
 	WaitingNote        string `json:"waiting_note"`
 	WindowLabel        string `json:"window_label"`
-	// AlertMessage is the red banner, blank when nothing is flagged. Backend-owned because
-	// it names a specific load and a specific consequence.
-	AlertMessage string `json:"alert_message"`
+	// OutsideWindowNote names untested loads that arrived before the selected range, so a
+	// narrow window never quietly hides work nobody has done. Blank when there are none.
+	OutsideWindowNote string `json:"outside_window_note"`
 }
 
 type reportWeekPayload struct {
@@ -84,6 +90,9 @@ type reportVendorPayload struct {
 }
 
 type reportPayload struct {
+	// Ranges is the window picker above everything. Backend-owned labels; the page renders
+	// them verbatim and sends back only the KEY.
+	Ranges     []reportRangePayload    `json:"ranges"`
 	Filters    []reportFilterPayload   `json:"filters"`
 	Loads      []reportLoadPayload     `json:"loads"`
 	NextCursor string                  `json:"next_cursor"`
@@ -100,6 +109,7 @@ type reportPayload struct {
 func (h *Handler) LoadReport(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	filter := domain.ReportFilterKeyOrDefault(strings.TrimSpace(q.Get("filter")))
+	window := domain.ReportRangeOrDefault(strings.TrimSpace(q.Get("range")))
 	limit := 0
 	if raw := strings.TrimSpace(q.Get("limit")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
@@ -110,21 +120,27 @@ func (h *Handler) LoadReport(w http.ResponseWriter, r *http.Request) {
 		limit = parsed
 	}
 
-	page, err := h.service.LoadReport(r.Context(), tenantID(r), filter, limit, strings.TrimSpace(q.Get("cursor")))
+	page, err := h.service.LoadReport(r.Context(), tenantID(r), filter, window.Key, limit, strings.TrimSpace(q.Get("cursor")))
 	if err != nil {
 		h.writeErr(w, r, toAppError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, toReportPayload(page, filter))
+	httpresponse.WriteJSON(w, http.StatusOK, toReportPayload(page, filter, window))
 }
 
-func toReportPayload(page ports.ReportPage, selected string) reportPayload {
+func toReportPayload(page ports.ReportPage, selected string, window domain.ReportRange) reportPayload {
 	out := reportPayload{
+		Ranges:     make([]reportRangePayload, 0, 4),
 		Filters:    make([]reportFilterPayload, 0, 5),
 		Loads:      make([]reportLoadPayload, 0, len(page.Loads)),
 		NextCursor: page.NextCursor,
 		Weeks:      make([]reportWeekPayload, 0, len(page.Weeks)),
 		Vendors:    make([]reportVendorPayload, 0, len(page.Vendors)),
+	}
+	for _, rng := range domain.ReportRanges() {
+		out.Ranges = append(out.Ranges, reportRangePayload{
+			Key: rng.Key, Label: rng.Label, Selected: rng.Key == window.Key,
+		})
 	}
 	for _, f := range domain.ReportFilters() {
 		if f.Key == selected {
@@ -150,7 +166,7 @@ func toReportPayload(page ports.ReportPage, selected string) reportPayload {
 			Tone:       vendorTone(v),
 		})
 	}
-	out.Summary = toReportSummaryPayload(page)
+	out.Summary = toReportSummaryPayload(page, window)
 	out.Mix = toReportMixPayload(page.Mix)
 	return out
 }
@@ -226,14 +242,24 @@ func trimFloat(v float64) string {
 	return s
 }
 
-func toReportSummaryPayload(page ports.ReportPage) reportSummaryPayload {
+func toReportSummaryPayload(page ports.ReportPage, window domain.ReportRange) reportSummaryPayload {
 	s := page.Summary
 	out := reportSummaryPayload{
 		LoadsReceived:  s.LoadsReceived,
 		LoadsTested:    s.LoadsTested,
 		NeedsAttention: s.NeedsAttention,
 		Waiting:        s.Waiting,
-		WindowLabel:    "Last 30 days",
+		WindowLabel:    window.Label,
+	}
+	if s.UntestedOutsideWindow > 0 {
+		// The verb agrees with the count: "1 load ... still has", "3 loads ... still have".
+		verb := "have"
+		if s.UntestedOutsideWindow == 1 {
+			verb = "has"
+		}
+		out.OutsideWindowNote = fmt.Sprintf(
+			"%s arrived before this range and still %s no result.",
+			pluralise(s.UntestedOutsideWindow, "load", "loads"), verb)
 	}
 	out.LoadsReceivedNote = fmt.Sprintf("%s · %s", pluralise(s.FeedTypes, "feed type", "feed types"), pluralise(s.Parks, "park", "parks"))
 	if s.LoadsReceived > 0 {
@@ -259,11 +285,6 @@ func toReportSummaryPayload(page ports.ReportPage) reportSummaryPayload {
 		if s.OldestWaitingLabel != "" {
 			out.WaitingNote += " · " + s.OldestWaitingLabel
 		}
-	}
-	if s.NeedsAttention > 0 {
-		out.AlertMessage = fmt.Sprintf(
-			"%s came back positive or unusable. Send a sample for lab confirmation before the feed is issued.",
-			pluralise(s.NeedsAttention, "load", "loads"))
 	}
 	return out
 }
