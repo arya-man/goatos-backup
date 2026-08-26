@@ -432,43 +432,6 @@ SET goat_id=EXCLUDED.goat_id, identifier_value=EXCLUDED.identifier_value, status
 		t.Fatalf("at or below 180=%d, want 1 (the 150 g/day kid)", row.AtOrBelow180)
 	}
 
-	// THE SAME BANDS, PER SEX (maintainer, 2026-08-25). The fixture splits cleanly: the one female
-	// kid is the 300 g/day one, and both males are the 200 and the 150. So a per-sex row that
-	// quietly returned the whole breed — the failure a same-label lookup would hide — cannot pass
-	// here, because the female row would then carry three kids and two bands that are not hers.
-	female, found := findGainThresholdSexRow(out.GainThresholdsByBreed, "Anantapur Sheep", "female")
-	if !found {
-		t.Fatalf("no female Anantapur Sheep gain-band row in %#v", out.GainThresholdsByBreed)
-	}
-	if female.Animals != 1 || female.Above250 != 1 || female.Band200To250 != 0 || female.Band180To200 != 0 || female.AtOrBelow180 != 0 {
-		t.Fatalf("the female kid is the 300 g/day one and belongs to the top band alone, got %#v", female)
-	}
-	male, found := findGainThresholdSexRow(out.GainThresholdsByBreed, "Anantapur Sheep", "male")
-	if !found {
-		t.Fatalf("no male Anantapur Sheep gain-band row in %#v", out.GainThresholdsByBreed)
-	}
-	if male.Animals != 2 || male.Above250 != 0 || male.Band200To250 != 0 || male.Band180To200 != 1 || male.AtOrBelow180 != 1 {
-		t.Fatalf("the two male kids are the 200 and the 150 g/day ones, got %#v", male)
-	}
-	// The two grains agree about who was counted: a breed's per-sex rows add up to its combined
-	// row, band for band. They OVERLAP by construction, which is exactly why a client renders one
-	// grain at a time — this is the arithmetic that makes summing them a double count.
-	if male.Animals+female.Animals != row.Animals {
-		t.Fatalf("per-sex animals %d+%d do not add up to the combined %d", male.Animals, female.Animals, row.Animals)
-	}
-	if male.Above250+female.Above250 != row.Above250 ||
-		male.Band200To250+female.Band200To250 != row.Band200To250 ||
-		male.Band180To200+female.Band180To200 != row.Band180To200 ||
-		male.AtOrBelow180+female.AtOrBelow180 != row.AtOrBelow180 {
-		t.Fatalf("per-sex bands do not add up to the combined row: male=%#v female=%#v combined=%#v", male, female, row)
-	}
-	// Each per-sex row is its own denominator: the four bands partition ITS animals, so a client
-	// may take a share row-locally without reaching for the combined total.
-	for _, sexRow := range []domain.WeightGainThresholdBucket{male, female} {
-		if sum := sexRow.AtOrBelow180 + sexRow.Band180To200 + sexRow.Band200To250 + sexRow.Above250; sum != sexRow.Animals {
-			t.Fatalf("bands sum to %d but animals=%d on the %s row: %#v", sum, sexRow.Animals, sexRow.Sex, sexRow)
-		}
-	}
 	// The partition, stated as the invariant a client relies on to render the bands as a
 	// distribution: every kid with a gain lands in exactly one band.
 	if sum := row.AtOrBelow180 + row.Band180To200 + row.Band200To250 + row.Above250; sum != row.Animals {
@@ -675,17 +638,9 @@ WHERE tenant_id=$1::uuid AND lower(btrim(scanned_identifier))='thresh-slow'`, re
 	}
 }
 
-// findGainThresholdRow returns the COMBINED row for a breed — every kid of it, which is the grain
-// the card opens on. Each breed is also emitted once per sex (maintainer, 2026-08-25), and those
-// rows carry a subset of the same kids, so matching on the label alone would let a caller assert a
-// whole breed's distribution against one sex's.
 func findGainThresholdRow(rows []domain.WeightGainThresholdBucket, label string) (domain.WeightGainThresholdBucket, bool) {
-	return findGainThresholdSexRow(rows, label, "")
-}
-
-func findGainThresholdSexRow(rows []domain.WeightGainThresholdBucket, label, sex string) (domain.WeightGainThresholdBucket, bool) {
 	for _, row := range rows {
-		if row.Label == label && row.Sex == sex {
+		if row.Label == label {
 			return row, true
 		}
 	}

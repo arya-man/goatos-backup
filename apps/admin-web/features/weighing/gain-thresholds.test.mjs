@@ -193,9 +193,9 @@ test("the Sex filter is a PAGE filter: every read carries it, and the page never
       `${read} must carry the sex filter`,
     );
   }
-  // The rows arrive ALREADY filtered, so the card renders the grain it was sent instead of
-  // choosing one. Selecting again in the page would be a second implementation of one rule.
-  assert.match(source, /\.filter\(\(row\) => \(row\.sex \?\? ""\) === \(sexFilter === "" \? "" : sexFilter\)\)/);
+  // The rows arrive ALREADY filtered, so the card renders what it was sent and never re-selects
+  // by sex — a second implementation of one rule is a second thing to keep in step.
+  assert.doesNotMatch(source, /gain_thresholds_by_breed[\s\S]{0,400}row\.sex/);
   assert.doesNotMatch(stripComments(source), /gain_thresholds_by_breed[\s\S]{0,600}\breduce\(/);
   // The share stays row-local: a male share is taken against that row's own denominator.
   assert.match(source, /sharesOfWhole\(counts, row\.animals\)/);
@@ -247,18 +247,40 @@ test("the backend narrows BOTH kinds of weigh, from one resolver", () => {
   assert.match(guard, /adapters\/postgres\/sex_scope\.go/);
 });
 
-test("the backend reports both grains and the wire can tell them apart", () => {  const repo = readFileSync(
+test("the card counts whole-shed kids too, not just the ones scanned one by one", () => {
+  // THE REGRESSION THIS PINS. A rewrite dropped the lump-sum arm of this aggregate and the card
+  // silently lost every kid weighed as part of a whole shed: Anantapur Sheep fell from 380 to 117
+  // while the page still called it "kids weighed twice". Only the individually scanned kids
+  // survived, and nothing on screen said so.
+  const repo = readFileSync(
     new URL("../../../../backend/internal/weighing/adapters/postgres/weight_demographics.go", import.meta.url),
     "utf8",
   );
-  // Two grouping sets, so a per-sex row and its breed's combined row come from one pass over one
-  // population and cannot disagree about who was counted.
-  assert.match(repo, /GROUP BY GROUPING SETS \(\(breed\), \(breed, sex\)\)/);
-  // GROUPING(sex) keeps the combined row distinguishable from a kid whose register carries no sex:
-  // the combined row is empty, that kid's row says so in words.
-  assert.match(repo, /CASE WHEN GROUPING\(sex\) = 1 THEN ''/);
-  assert.match(repo, /ELSE COALESCE\(NULLIF\(sex, ''\), 'unknown sex'\) END AS sex/);
-  // The contract declares sex required, so a client cannot read a combined row as a male one by
-  // finding the field absent.
-  assert.match(openapi, /required: \[label, sex, animals,/);
+  const gt = repo.slice(repo.indexOf("How many animals of each breed fell into each daily-gain band"), repo.indexOf(") gt),"));
+  // Both arms: one row per animal with a computable gain, UNIONed with one row per
+  // homogeneous-breed whole-shed weigh whose animals all land in the band its own change falls in.
+  assert.match(gt, /FROM resolved_gain/);
+  assert.match(gt, /UNION ALL/);
+  assert.match(gt, /FROM lump_span ls JOIN shed_cohort sc/);
+  assert.match(gt, /sum\(ls\.animals\) FILTER \(WHERE ls\.g_per_day > 250\)/);
+  // The lump arm honours the Sex filter on the shed's own cohort, because a whole-shed weigh
+  // carries no tag and can only be claimed when its residents are all one sex.
+  assert.match(gt, /sc\.sexes = 1 AND lower\(btrim\(sc\.sex\)\) = \$5::text/);
+  // A mixed-breed shed still joins no breed row: one shed average cannot be split across breeds.
+  assert.match(gt, /WHERE sc\.breeds = 1/);
+});
+
+test("the sex filter reaches the demographics read on both arms", () => {
+  const repo = readFileSync(
+    new URL("../../../../backend/internal/weighing/adapters/postgres/weight_demographics.go", import.meta.url),
+    "utf8",
+  );
+  // The per-animal arm is narrowed upstream, where the tag is already resolved to its animal...
+  assert.match(repo, /WHERE \$5::text = '' OR lower\(btrim\(gt\.sex\)\) = \$5::text/);
+  // ...and an unknown value is refused rather than silently widening the filter.
+  assert.match(repo, /sexFilter, sexErr := normalizeSexFilter\(sex\)/);
+  // An empty filter keeps every row INCLUDING tags that resolve to no animal, which is what the
+  // unfiltered page has always counted.
+  assert.match(repo, /\$5::text = '' OR/);
+  assert.match(openapi, /required: \[label, animals,/);
 });

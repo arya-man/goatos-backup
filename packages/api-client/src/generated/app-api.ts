@@ -10532,12 +10532,10 @@ export interface components {
              */
             median_gain_g_per_day: number;
         };
-        /** @description How many animals of one breed fell into each daily-gain band. The four counts are DISJOINT: an animal at 260 g/day is counted in above_250_g_per_day only, every animal lands in exactly one band, and the four add up to animals -- so they may be read as a distribution. Each breed is reported at TWO grains: once combined (sex "") and once per sex. The grains OVERLAP -- a per-sex row's animals are also counted in its breed's combined row -- so a client renders one grain at a time and must never add them together. */
+        /** @description How many animals of one breed fell into each daily-gain band. The four counts are DISJOINT: an animal at 260 g/day is counted in above_250_g_per_day only, every animal lands in exactly one band, and the four add up to animals -- so they may be read as a distribution. A homogeneous-breed whole-shed weigh contributes ALL of its animals to the ONE band its own average-weight change falls into. There is ONE grain: the Weights page's `sex` filter narrows the whole read, so these rows already describe the kids the caller asked for. */
         WeighingWeightGainThresholdBucket: {
             label: string;
-            /** @description Empty for the combined row covering every kid of the breed; otherwise the herd register's own value (male, female, or unknown sex when the register carries none), so a combined row and an unknown-sex row are never confusable. */
-            sex: string;
-            /** @description Animals of this breed AND this row's sex grain with a computable gain. The denominator the four bands partition, so a share may be taken row-locally. */
+            /** @description Animals of this breed with a computable gain, individually weighed twice plus the animals of any homogeneous-breed whole-shed weigh. The denominator the four bands partition, so a share may be taken row-locally. */
             animals: number;
             /** @description 180 g/day or less. The leftover band, so no animal with a gain falls outside the four. */
             at_or_below_180_g_per_day: number;
