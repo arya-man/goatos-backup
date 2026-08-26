@@ -141,6 +141,7 @@ internal fun buildPcCareTaskViewModel(
     repo: FakePcCareRepository,
     proofRepo: FakeProofCaptureRepository = FakeProofCaptureRepository(),
     proofSource: sg.mesha.goatos.capture.FakeProofCaptureSource = sg.mesha.goatos.capture.FakeProofCaptureSource(),
+    photoSource: sg.mesha.goatos.capture.FakePhotoCaptureSource = sg.mesha.goatos.capture.FakePhotoCaptureSource(),
     reader: PcCareFakeReaderPort = PcCareFakeReaderPort(),
     analytics: FakeAnalyticsPort = FakeAnalyticsPort(),
 ): PcCareTaskViewModel = PcCareTaskViewModel(
@@ -148,6 +149,7 @@ internal fun buildPcCareTaskViewModel(
     proofCaptureRepository = proofRepo,
     captureDrafts = InMemoryCaptureDraftRepository(),
     proofCaptureSource = proofSource,
+    photoCaptureSource = photoSource,
     reader = reader,
     syncRepository = MinimalPcCareSyncRepository(),
     analytics = analytics,

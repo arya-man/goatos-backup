@@ -43,10 +43,12 @@ class MeshaIconsNavKeyTest {
         "calendar",
         "alerts",
         "you",
-        // Preventive Care: the module row plus its four bottom-bar category tabs share ONE bar,
-        // so every one of the five needs its own glyph (pc_care shield-plus, pill, tick, hoof
-        // print, scissors) — the exact same-bar collision class as bugs 2 and 3 above.
+        // Preventive Care: the module row plus its bottom-bar category tabs share ONE bar,
+        // so every item needs its own glyph (pc_care shield-plus, stock package, pill, tick,
+        // hoof print, scissors) — the exact same-bar collision class as bugs 2 and 3 above.
         "pc_care",
+        "vaccination_stock",
+        "pc_inventory_vaccine",
         "pc_deworming",
         "pc_ticks",
         "pc_hoof_trimming",

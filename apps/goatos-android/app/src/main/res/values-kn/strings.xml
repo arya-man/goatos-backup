@@ -41,6 +41,10 @@
     <string name="proof_camera_state_ready">ರೆಕಾರ್ಡ್ ಮಾಡಲು ಸಿದ್ಧ</string>
     <string name="proof_camera_state_recording">ರೆಕಾರ್ಡ್ ಆಗುತ್ತಿದೆ</string>
     <string name="proof_camera_upload_background">ಪುರಾವೆ ಅಪ್‌ಲೋಡ್‌ಗಳು ಹಿನ್ನೆಲೆಯಲ್ಲಿ ಮುಂದುವರಿಯುತ್ತವೆ</string>
+    <string name="proof_camera_flash_auto">ಫ್ಲ್ಯಾಶ್ ಆಟೋ</string>
+    <string name="proof_camera_flash_auto_on">ಫ್ಲ್ಯಾಶ್ ಆಟೋ · ಆನ್</string>
+    <string name="proof_camera_flash_on">ಫ್ಲ್ಯಾಶ್ ಆನ್</string>
+    <string name="proof_camera_flash_off">ಫ್ಲ್ಯಾಶ್ ಆಫ್</string>
     <string name="proof_photo_title">ಪುರಾವೆ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>
     <string name="proof_photo_instruction">ಪುರಾವೆಯ ವಿಷಯ ಸ್ಪಷ್ಟವಾಗಿ ಕಾಣುವಂತೆ ಇರಿಸಿ</string>
     <string name="proof_photo_feed_weight_title">ಮೇವಿನ ತೂಕದ ಫೋಟೋ ತೆಗೆಯಿರಿ</string>

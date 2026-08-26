@@ -33,7 +33,7 @@ func New(v verificationCreator) *Enqueuer {
 	return &Enqueuer{verification: v}
 }
 
-// RegisterCategories installs the four verifier queue categories used by PC Care. Keep this helper
+// RegisterCategories installs the verifier queue categories used by PC Care. Keep this helper
 // in the bridge so API, outbox-relay, and Pub/Sub consumer cannot hand-maintain divergent labels.
 func RegisterCategories(reg categoryRegistry) error {
 	for order, workCategory := range pccaredomain.Categories {

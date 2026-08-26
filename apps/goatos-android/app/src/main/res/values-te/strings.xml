@@ -41,6 +41,10 @@
     <string name="proof_camera_state_ready">రికార్డ్ చేయడానికి సిద్ధం</string>
     <string name="proof_camera_state_recording">రికార్డ్ అవుతోంది</string>
     <string name="proof_camera_upload_background">రుజువు అప్‌లోడ్‌లు నేపథ్యంలో కొనసాగుతాయి</string>
+    <string name="proof_camera_flash_auto">ఫ్లాష్ ఆటో</string>
+    <string name="proof_camera_flash_auto_on">ఫ్లాష్ ఆటో · ఆన్</string>
+    <string name="proof_camera_flash_on">ఫ్లాష్ ఆన్</string>
+    <string name="proof_camera_flash_off">ఫ్లాష్ ఆఫ్</string>
     <string name="proof_photo_title">రుజువు ఫోటో తీయండి</string>
     <string name="proof_photo_instruction">రుజువు విషయం స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_photo_feed_weight_title">దాణా బరువు ఫోటో తీయండి</string>

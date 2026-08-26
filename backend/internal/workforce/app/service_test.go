@@ -142,24 +142,25 @@ func TestBootstrapPermissionDerivedExecutionFlags(t *testing.T) {
 		wantVaccinationExecute bool
 		wantWeighingExecute    bool
 		wantWeighingOversee    bool
+		wantPCCareExecute      bool
 		wantVideoControls      bool
 	}{
-		{name: "operator executes vaccination and weighing when both modules are granted", role: permissions.RoleOperator, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: true, wantWeighingOversee: false, wantVideoControls: false},
-		{name: "operator executes only vaccination when only vaccination module is granted", role: permissions.RoleOperator, modules: []string{"vaccination"}, wantVaccinationExecute: true, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: false},
-		{name: "operator executes only weighing when only weighing module is granted", role: permissions.RoleOperator, modules: []string{"weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantWeighingOversee: false, wantVideoControls: false},
-		{name: "pc director executes vaccination only", role: permissions.RolePCDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: true},
+		{name: "operator executes vaccination and weighing when both modules are granted", role: permissions.RoleOperator, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: true, wantWeighingOversee: false, wantPCCareExecute: false, wantVideoControls: false},
+		{name: "operator executes only vaccination when only vaccination module is granted", role: permissions.RoleOperator, modules: []string{"vaccination"}, wantVaccinationExecute: true, wantWeighingExecute: false, wantWeighingOversee: false, wantPCCareExecute: false, wantVideoControls: false},
+		{name: "operator executes only weighing when only weighing module is granted", role: permissions.RoleOperator, modules: []string{"weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantWeighingOversee: false, wantPCCareExecute: false, wantVideoControls: false},
+		{name: "pc director executes vaccination and assigned pc care when module is available", role: permissions.RolePCDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: false, wantWeighingOversee: false, wantPCCareExecute: true, wantVideoControls: true},
 		// The Operators surface is the growth director's alone. The CEO plans (weighing.plan) and
 		// lands on the flat all-tasks list, so a second someone-else's-work tab is redundant there.
-		{name: "growth director executes and oversees weighing", role: permissions.RoleGrowthDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantWeighingOversee: true, wantVideoControls: true},
+		{name: "growth director executes and oversees weighing", role: permissions.RoleGrowthDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantWeighingOversee: true, wantPCCareExecute: false, wantVideoControls: true},
 		// Leadership modules come from the leadership TIER (leadershipModuleKeys), not from
 		// department_module_grants, so a growth director keeps weighing even when the granted
 		// module list says otherwise. The flag still tracks the permission.
-		{name: "growth director keeps weighing from leadership tier regardless of granted modules", role: permissions.RoleGrowthDirector, modules: []string{"vaccination"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantWeighingOversee: true, wantVideoControls: true},
+		{name: "growth director keeps weighing from leadership tier regardless of granted modules", role: permissions.RoleGrowthDirector, modules: []string{"vaccination"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantWeighingOversee: true, wantPCCareExecute: false, wantVideoControls: true},
 		// The CEO plans and oversees weighing but holds neither TaskExecute nor WeighingExecute:
 		// a planner must never reach a scan surface.
-		{name: "ceo plans weighing but neither executes nor oversees operators", role: permissions.RoleCEOInternal, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: false, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: true},
-		{name: "verifier is display and review only", role: permissions.RoleVerifier, wantVaccinationExecute: false, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: false},
-		{name: "park head sees operational nav without field execution", role: permissions.RoleParkHead, wantVaccinationExecute: false, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: true},
+		{name: "ceo plans weighing but neither executes nor oversees operators", role: permissions.RoleCEOInternal, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: false, wantWeighingExecute: false, wantWeighingOversee: false, wantPCCareExecute: false, wantVideoControls: true},
+		{name: "verifier is display and review only", role: permissions.RoleVerifier, wantVaccinationExecute: false, wantWeighingExecute: false, wantWeighingOversee: false, wantPCCareExecute: false, wantVideoControls: false},
+		{name: "park head sees operational nav without field execution", role: permissions.RoleParkHead, wantVaccinationExecute: false, wantWeighingExecute: false, wantWeighingOversee: false, wantPCCareExecute: false, wantVideoControls: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -180,6 +181,9 @@ func TestBootstrapPermissionDerivedExecutionFlags(t *testing.T) {
 			}
 			if got.FeatureFlags["weighing_oversee_operators"] != tc.wantWeighingOversee {
 				t.Fatalf("weighing_oversee_operators=%v want %v", got.FeatureFlags["weighing_oversee_operators"], tc.wantWeighingOversee)
+			}
+			if got.FeatureFlags["pc_care_execute"] != tc.wantPCCareExecute {
+				t.Fatalf("pc_care_execute=%v want %v", got.FeatureFlags["pc_care_execute"], tc.wantPCCareExecute)
 			}
 			if got.FeatureFlags["verification_video_controls"] != tc.wantVideoControls {
 				t.Fatalf("verification_video_controls=%v want %v", got.FeatureFlags["verification_video_controls"], tc.wantVideoControls)
@@ -323,6 +327,27 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	}
 	if got.NavChrome != domain.NavChromeExpanded {
 		t.Fatalf("NavChrome=%q want %q (park_head holds the three preventive-care verticals)", got.NavChrome, domain.NavChromeExpanded)
+	}
+}
+
+func TestBootstrapPCDirectorGetsVaccinationStockFirst(t *testing.T) {
+	svc := NewService(&fakeRepo{
+		profile: profile("active"),
+		grants:  []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)},
+	})
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
+	if err != nil {
+		t.Fatalf("Bootstrap() error=%v", err)
+	}
+	if len(got.VisibleNavigation) == 0 {
+		t.Fatal("VisibleNavigation is empty")
+	}
+	first := got.VisibleNavigation[0]
+	if first.Key != "vaccination_stock" || first.Label != "Stock" || first.Href != "/vaccination/stock" {
+		t.Fatalf("first visible navigation = %+v, want Vaccination Stock first for pc_director", first)
+	}
+	if !got.FeatureFlags["pc_care_execute"] {
+		t.Fatal("pc_director must receive pc_care_execute so Android renders assigned inventory tasks")
 	}
 }
 
@@ -613,22 +638,16 @@ func TestVisibleNavigationFor(t *testing.T) {
 			},
 		},
 		{
-			name: "pc director with verifier permission keeps director vaccination bar",
+			name: "pc director with verifier permission keeps vaccination stock bar",
 			grants: []domain.GrantSummary{
 				grantWithRole(permissions.RolePCDirector),
 				grantWithRole(permissions.RoleVerifier),
 			},
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
+				{Key: "vaccination_stock", Label: "Stock", Href: "/vaccination/stock"},
 				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 				{Key: "videos", Label: "Videos", Href: "/vaccination/videos"},
-				// MAINTAINER DECISION 2026-08-06: leadership and verifier are SEPARATE SURFACES.
-				// Leadership videos nav points to /vaccination/videos (leadership-owned),
-				// NEVER to /verify (verifier-owned). The verifier bar is [Verify, Alerts, You].
-				// "You" carries shared_key "you" so it dedupes across modules like the
-				// leadership entries -- the objection was the per-feature REPETITION, not its
-				// presence. The alerts tab label never names the feature; the href's category
-				// still scopes it. This registry bar always carried its own "you" entry.
 				{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},

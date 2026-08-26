@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -25,7 +26,7 @@ import (
 // when a verifier approves; a rejection bounces to 'rework' and the re-submit mints a fresh
 // row_version.
 //
-// Gated by pgtest.SkipIfNoDocker + GOATOS_RUN_POSTGRES_TESTS.
+// Gated by the repository's postgres integration test harness.
 
 const (
 	pcTenant    = "9c000000-0000-4000-8000-000000000001"
@@ -280,6 +281,101 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND submitted_at IS NOT NULL`,
 	}
 	if submittedAnimals != 1 {
 		t.Fatalf("submitted animal rows = %d, want 1", submittedAnimals)
+	}
+}
+
+func TestInventoryVaccineTaskProofGatesSubmitAndFansOutToVerification(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupPCCareDB(t, ctx)
+	task := createPCTask(t, ctx, repo, domain.CategoryInventoryVaccine, "pc-inventory-submit-create")
+
+	if _, err := repo.SubmitTask(ctx, ports.SubmitTaskParams{
+		TenantID: pcTenant, TaskID: task.TaskID, SubmittedBy: pcOperator1,
+		IdempotencyKey: "pc-inventory-submit-early", ActorType: "operator",
+	}); !errors.Is(err, domain.ErrProofIncomplete) {
+		t.Fatalf("inventory submit before fridge proof err = %v, want ErrProofIncomplete", err)
+	}
+
+	if err := repo.RegisterTaskProof(ctx, ports.RegisterTaskProofParams{
+		TenantID:       pcTenant,
+		TaskID:         task.TaskID,
+		SlotKey:        domain.SlotStockFridgeVideo,
+		ProofRef:       "proof-fridge-stock",
+		CapturedBy:     pcOperator1,
+		IdempotencyKey: "pc-inventory-task-proof",
+		ActorID:        pcOperator1,
+		ActorType:      "operator",
+		TraceID:        "trace-inventory-task-proof",
+	}); err != nil {
+		t.Fatalf("RegisterTaskProof: %v", err)
+	}
+
+	proofs, err := repo.ListTaskProofs(ctx, pcTenant, task.TaskID)
+	if err != nil {
+		t.Fatalf("ListTaskProofs: %v", err)
+	}
+	if len(proofs) != 1 || proofs[0].SlotKey != domain.SlotStockFridgeVideo || proofs[0].ProofRef != "proof-fridge-stock" {
+		t.Fatalf("task proofs = %+v, want the fridge-stock proof", proofs)
+	}
+	if _, err := repo.SubmitTask(ctx, ports.SubmitTaskParams{
+		TenantID: pcTenant, TaskID: task.TaskID, SubmittedBy: pcOperator1,
+		IdempotencyKey: "pc-inventory-submit-no-requirements", ActorType: "operator",
+	}); !errors.Is(err, domain.ErrProofIncomplete) {
+		t.Fatalf("inventory submit with proof but no requirement rows err = %v, want ErrProofIncomplete", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO pc_care_task_inventory_requirements (
+  tenant_id, task_id, vaccine_label, required_doses, source_batch_ids
+) VALUES (
+  $1::uuid, $2::uuid, 'PPR', 25, ARRAY['9c000000-0000-4000-8000-00000000f001'::uuid]
+)`, pcTenant, task.TaskID); err != nil {
+		t.Fatalf("seed inventory requirement: %v", err)
+	}
+
+	result, err := repo.SubmitTask(ctx, ports.SubmitTaskParams{
+		TenantID: pcTenant, TaskID: task.TaskID, SubmittedBy: pcOperator1,
+		IdempotencyKey: "pc-inventory-submit-ready", ActorType: "operator",
+		TraceID: "trace-inventory-submit-ready",
+	})
+	if err != nil {
+		t.Fatalf("SubmitTask inventory: %v", err)
+	}
+	if !result.NewlyPending || result.Status != domain.StatusPendingVerification {
+		t.Fatalf("inventory submit result = %+v, want newly pending", result)
+	}
+	if result.AnimalCount != 0 {
+		t.Fatalf("inventory task animal count = %d, want 0 because proof is task-level", result.AnimalCount)
+	}
+	if len(result.MediaRefs) != 1 || result.MediaRefs[0].ProofRef != "proof-fridge-stock" || result.MediaRefs[0].Label != "Fridge stock proof" {
+		t.Fatalf("inventory media refs = %+v, want labeled fridge proof", result.MediaRefs)
+	}
+
+	var payload []byte
+	if err := pool.QueryRow(ctx, `
+SELECT payload FROM outbox_messages
+WHERE tenant_id = $1::uuid
+  AND event_type = 'pc_care.task.pending_verification'
+  AND aggregate_id = $2::uuid`, pcTenant, task.TaskID).Scan(&payload); err != nil {
+		t.Fatalf("read pending verification payload: %v", err)
+	}
+	var envelope struct {
+		Payload struct {
+			Category  string `json:"category"`
+			MediaRefs []struct {
+				ProofRef string `json:"proof_ref"`
+				Label    string `json:"label"`
+			} `json:"media_refs"`
+			AnimalCount int32 `json:"animal_count"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		t.Fatalf("decode pending verification payload: %v", err)
+	}
+	if envelope.Payload.Category != domain.CategoryInventoryVaccine || envelope.Payload.AnimalCount != 0 {
+		t.Fatalf("pending payload category/count = %q/%d, want inventory_vaccine/0", envelope.Payload.Category, envelope.Payload.AnimalCount)
+	}
+	if len(envelope.Payload.MediaRefs) != 1 || envelope.Payload.MediaRefs[0].ProofRef != "proof-fridge-stock" || envelope.Payload.MediaRefs[0].Label != "Fridge stock proof" {
+		t.Fatalf("pending payload media refs = %+v, want fridge proof for verifier", envelope.Payload.MediaRefs)
 	}
 }
 

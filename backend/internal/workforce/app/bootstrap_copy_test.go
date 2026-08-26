@@ -263,6 +263,42 @@ func TestBootstrapCopyCatalogCoversSupportedLocales(t *testing.T) {
 	}
 }
 
+func TestPCDirectorVaccinationModuleHasStockTab(t *testing.T) {
+	const en = localization.DefaultTag
+	grants := []domain.GrantSummary{grantWithRole(permissions.RolePCDirector)}
+
+	modules := modulesFor(grants, []string{"vaccination", "pc_care"}, en)
+	if len(modules) == 0 || modules[0].Key != "vaccination" {
+		t.Fatalf("pc_director first module = %v, want vaccination first", moduleKeySet(modules))
+	}
+	var vaccination *domain.BootstrapModule
+	for i := range modules {
+		if modules[i].Key == "vaccination" {
+			vaccination = &modules[i]
+			break
+		}
+	}
+	if vaccination == nil {
+		t.Fatalf("pc_director missing vaccination module; got %v", moduleKeySet(modules))
+	}
+	if vaccination.Href != "/vaccination/stock" {
+		t.Fatalf("vaccination landing href = %q, want /vaccination/stock", vaccination.Href)
+	}
+	var stock *domain.BootstrapNavigationItem
+	for i := range vaccination.NavItems {
+		if vaccination.NavItems[i].Key == "vaccination_stock" {
+			stock = &vaccination.NavItems[i]
+			break
+		}
+	}
+	if stock == nil {
+		t.Fatalf("vaccination nav items missing stock tab: %+v", vaccination.NavItems)
+	}
+	if stock.Label != "Stock" || stock.Href != "/vaccination/stock" {
+		t.Fatalf("stock nav item = %+v, want Stock /vaccination/stock", stock)
+	}
+}
+
 // TestAlertsNavLabelIsGenericInEveryLocale locks the alerts tab label.
 //
 // MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts]; "You"

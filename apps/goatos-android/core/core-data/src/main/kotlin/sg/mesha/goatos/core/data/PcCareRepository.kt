@@ -160,6 +160,13 @@ interface PcCareRepository {
         proofOutboxItemId: String,
     ): AppResult<String>
 
+    /** Attaches one task-level proof, used by inventory_vaccine fridge stock checks. */
+    suspend fun registerTaskProof(
+        taskId: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ): AppResult<String>
+
     /** Enqueues the whole-task submit under the stable per-(task, rowVersion) key. */
     suspend fun submitTask(taskId: String, rowVersion: Int): AppResult<String>
 
@@ -369,6 +376,17 @@ class DefaultPcCareRepository(
             proofOutboxItemId = proofOutboxItemId,
         )
     }
+
+    override suspend fun registerTaskProof(
+        taskId: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ): AppResult<String> =
+        syncRepository.enqueuePcCareTaskProofRegister(
+            taskId = taskId,
+            slotFieldKey = slotFieldKey,
+            proofOutboxItemId = proofOutboxItemId,
+        )
 
     override suspend fun submitTask(taskId: String, rowVersion: Int): AppResult<String> =
         syncRepository.enqueuePcCareTaskSubmit(taskId, rowVersion)

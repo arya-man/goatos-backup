@@ -660,6 +660,29 @@ func TestVerificationSeparationOfDuty(t *testing.T) {
 	}
 }
 
+func TestPCCareTaskProofRouteAllowsAssignedExecutors(t *testing.T) {
+	route, ok := Match("PUT", "/app/pc-care/tasks/9c000000-0000-4000-8000-00000000aaaa/proofs/stock_fridge_video")
+	if !ok {
+		t.Fatal("PUT /app/pc-care/tasks/{task_id}/proofs/{slot} must be a protected route")
+	}
+	if route.OperationID != "appRegisterPCCareTaskProof" {
+		t.Fatalf("operation_id=%q, want appRegisterPCCareTaskProof", route.OperationID)
+	}
+	if len(route.Permissions) != 1 || route.Permissions[0] != PCCareExecute {
+		t.Fatalf("permissions=%v, want [%s]", route.Permissions, PCCareExecute)
+	}
+	for _, role := range []string{RoleOperator, RolePCDirector} {
+		if !AuthorizeRoute(route, []string{role}) {
+			t.Fatalf("%s must authorize task-level PC Care proof route", role)
+		}
+	}
+	for _, role := range []string{RoleVerifier, RoleGrowthDirector, RoleFeedDirector, RoleProcurementDirector} {
+		if AuthorizeRoute(route, []string{role}) {
+			t.Fatalf("%s must not authorize task-level PC Care proof route", role)
+		}
+	}
+}
+
 // TestAppCountsWriteRoutesAllowOperatorsWithoutAdminGoatGrants pins the maintainer decision that
 // field operators may record shifting, birth, AND death from the mobile app, and pins the reason it
 // is a dedicated permission: the operator role must gain exactly that surface, not the admin

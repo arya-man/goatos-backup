@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import sg.mesha.goatos.capture.PhotoCaptureContext
+import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
@@ -43,7 +45,9 @@ import sg.mesha.goatos.core.data.sync.pcCareTaskGroupKey
 import sg.mesha.goatos.core.network.dto.PcCareAnimalSlotDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskProofDto
 import sg.mesha.goatos.feature.pccare.PcCareAnimalUi
+import sg.mesha.goatos.feature.pccare.PcCareInventoryRequirementUi
 import sg.mesha.goatos.feature.pccare.PcCareRosterRowUi
 import sg.mesha.goatos.feature.pccare.PcCareSlotChipUi
 import sg.mesha.goatos.feature.pccare.PcCareSlotState
@@ -71,6 +75,7 @@ class PcCareTaskViewModel @Inject constructor(
     private val proofCaptureRepository: ProofCaptureRepository,
     private val captureDrafts: CaptureDraftRepository,
     private val proofCaptureSource: ProofCaptureSource,
+    private val photoCaptureSource: PhotoCaptureSource,
     private val reader: RfidReaderPort,
     private val syncRepository: SyncRepository,
     private val analytics: AnalyticsPort,
@@ -208,6 +213,7 @@ class PcCareTaskViewModel @Inject constructor(
             is PcCareTaskEvent.ScanInputChanged -> local.update { it.copy(scanInput = event.value) }
             PcCareTaskEvent.SubmitTypedScan -> handleScan(local.value.scanInput, fromTypedEntry = true)
             is PcCareTaskEvent.RecordSlot -> onRecordSlot(event.tagKey, event.slotFieldKey)
+            is PcCareTaskEvent.RecordTaskProof -> onRecordTaskProof(event.slotFieldKey, event.mediaKind)
             PcCareTaskEvent.Submit -> armSubmit()
             PcCareTaskEvent.ConfirmSubmit -> confirmSubmit()
             PcCareTaskEvent.DismissSubmitConfirmation ->
@@ -439,12 +445,133 @@ class PcCareTaskViewModel @Inject constructor(
 
     // ---- Submit ------------------------------------------------------------------------------
 
+    private fun onRecordTaskProof(slotFieldKey: String, mediaKind: String) {
+        val bits = local.value
+        if (bits.capturingSlotKey != null) {
+            local.update { it.copy(message = "Finish the current proof first.") }
+            return
+        }
+        val detail = latestDetail
+        if (detail == null || detail.captureMode != PC_CARE_CAPTURE_MODE_TASK_PROOF || isLifecycleLocked(detail)) return
+        val slotDto = detail.expectedSlots.firstOrNull { it.fieldKey == slotFieldKey } ?: return
+        local.update { it.copy(capturingSlotKey = slotFieldKey, message = null) }
+        viewModelScope.launch {
+            try {
+                val captured = try {
+                    if (mediaKind == "photo") {
+                        photoCaptureSource.capturePhoto(
+                            PhotoCaptureContext(
+                                title = slotDto.label,
+                                instruction = slotDto.description.ifBlank { "Show vaccine stock in the fridge" },
+                            ),
+                        )?.let {
+                            PcCareCapturedTaskProof(
+                                localUri = it.localUri,
+                                mimeType = it.mimeType,
+                                startedAtMs = it.capturedAtMs,
+                                endedAtMs = it.capturedAtMs,
+                                captureSource = it.captureSource,
+                            )
+                        }
+                    } else {
+                        proofCaptureSource.captureVideo(
+                            ProofCaptureContext(
+                                title = slotDto.label,
+                                primaryTag = detail.operationalLocationDisplay.ifBlank { detail.shedLabel },
+                                workLabel = slotDto.description.ifBlank { "Show vaccine stock in the fridge" },
+                                headerTitle = categoryTitle.ifBlank { null },
+                            ),
+                        )?.let {
+                            PcCareCapturedTaskProof(
+                                localUri = it.localUri,
+                                mimeType = it.mimeType,
+                                startedAtMs = it.startedAtMs,
+                                endedAtMs = it.endedAtMs,
+                                captureSource = it.captureSource,
+                            )
+                        }
+                    }
+                } catch (error: Exception) {
+                    crashReporter.recordException(error, "pc care task proof capture failed")
+                    null
+                }
+                if (captured == null) return@launch
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    val slot = EvidenceSlot(
+                        identity = ProofIdentity(
+                            flow = ProofFlow.PC_CARE,
+                            taskId = taskId,
+                            subjectKey = slotFieldKey,
+                        ),
+                        fieldKey = slotFieldKey,
+                    )
+                    val proofNoun = if (captured.mimeType.startsWith("image/", ignoreCase = true)) "Photo" else "Video"
+                    when (
+                        val result = proofCaptureRepository.captureReplacingLatest(
+                            slot = slot,
+                            subject = ProofSubject.OTHER,
+                            subjectId = taskId,
+                            localUri = captured.localUri,
+                            mimeType = captured.mimeType,
+                            caption = "${slotDto.label} · ${detail.operationalLocationDisplay.ifBlank { detail.shedLabel }}",
+                            scopeType = "task",
+                            scopeId = taskId,
+                            capturedStartMs = captured.startedAtMs,
+                            capturedEndMs = captured.endedAtMs,
+                            capturedByPrincipalId = null,
+                            proofPolicy = pcCareProofPolicy(captured.captureSource),
+                            awaitUploadEnqueue = true,
+                            uploadGroupKey = pcCareTaskGroupKey(taskId),
+                        )
+                    ) {
+                        is AppResult.Ok -> {
+                            var proofOutboxId = result.value.outboxItemId
+                            var waited = 0L
+                            while (proofOutboxId.isNullOrBlank() && waited < PROOF_ROW_SETTLE_MAX_MS) {
+                                delay(PROOF_ROW_SETTLE_STEP_MS)
+                                waited += PROOF_ROW_SETTLE_STEP_MS
+                                proofOutboxId = proofCaptureRepository.observeProofs(taskId).first()
+                                    .firstOrNull { it.id == result.value.id }
+                                    ?.outboxItemId
+                            }
+                            if (proofOutboxId.isNullOrBlank()) {
+                                local.update { it.copy(message = "$proofNoun didn't save. Record again.") }
+                                return@withContext
+                            }
+                            captureDrafts.putProof(CaptureFlow.PC_CARE, taskId, slotFieldKey, proofOutboxId)
+                            when (val registered = repository.registerTaskProof(taskId, slotFieldKey, proofOutboxId)) {
+                                is AppResult.Ok -> analytics.track(
+                                    AnalyticsEvents.PC_CARE_SLOT_CAPTURED,
+                                    mapOf(AnalyticsEvents.Params.KIND to slotFieldKey),
+                                )
+                                is AppResult.Err -> {
+                                    registered.cause?.let { crashReporter.recordException(it, "pc care task proof registration enqueue failed") }
+                                    local.update { it.copy(message = "$proofNoun saved, but couldn't be attached. Tap refresh to retry.") }
+                                }
+                            }
+                        }
+                        is AppResult.Err -> {
+                            result.cause?.let { crashReporter.recordException(it, "pc care task proof capture enqueue failed") }
+                            local.update { it.copy(message = result.message) }
+                        }
+                    }
+                }
+            } finally {
+                local.update { it.copy(capturingSlotKey = null) }
+            }
+        }
+    }
+
     private fun armSubmit() {
         val bits = local.value
         if (bits.submitInFlight || bits.submitQueued) return
         val detail = latestDetail ?: return
         if (isLifecycleLocked(detail)) return
-        val evaluation = pcCareEvaluateSubmit(detail.expectedSlots, latestAnimals, latestProofs, json)
+        val evaluation = if (detail.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF) {
+            pcCareEvaluateTaskProofSubmit(detail.expectedSlots, latestProofs, detail.taskProofs, local.value.capturingSlotKey)
+        } else {
+            pcCareEvaluateSubmit(detail.expectedSlots, latestAnimals, latestProofs, json)
+        }
         if (!evaluation.ready) {
             analytics.track(
                 AnalyticsEvents.PC_CARE_SUBMIT_BLOCKED,
@@ -466,7 +593,11 @@ class PcCareTaskViewModel @Inject constructor(
             local.update { it.copy(showSubmitConfirmation = false) }
             return
         }
-        val evaluation = pcCareEvaluateSubmit(detail.expectedSlots, latestAnimals, latestProofs, json)
+        val evaluation = if (detail.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF) {
+            pcCareEvaluateTaskProofSubmit(detail.expectedSlots, latestProofs, detail.taskProofs, local.value.capturingSlotKey)
+        } else {
+            pcCareEvaluateSubmit(detail.expectedSlots, latestAnimals, latestProofs, json)
+        }
         if (!evaluation.ready) {
             // The task stopped being submittable between arm and confirm — close and say so,
             // rather than submitting stale work or silently doing nothing.
@@ -520,10 +651,13 @@ class PcCareTaskViewModel @Inject constructor(
         proofs.forEach { row ->
             val outboxId = row.outboxItemId
             if (outboxId.isNullOrBlank() || row.syncStatus == CaptureSyncStatus.FAILED) return@forEach
+            val hasAnimalSlotKey = row.fieldKey.contains(':')
             val tag = row.fieldKey.substringBefore(':')
             val slot = row.fieldKey.substringAfter(':')
-            if (tag.isNotBlank() && slot.isNotBlank() && slot != row.fieldKey) {
+            if (hasAnimalSlotKey && tag.isNotBlank() && slot.isNotBlank()) {
                 repository.registerSlotProof(taskId, tag, slot, outboxId)
+            } else if (row.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_VIDEO) {
+                repository.registerTaskProof(taskId, row.fieldKey, outboxId)
             }
         }
     }
@@ -540,12 +674,17 @@ class PcCareTaskViewModel @Inject constructor(
         val locked = isLifecycleLocked(detail) || bits.submitQueued || monitorView
         val expectedSlots = detail?.expectedSlots.orEmpty()
         val rosterMode = detail?.captureMode == PC_CARE_CAPTURE_MODE_ROSTER
+        val taskProofMode = detail?.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF
         val rosterRows = if (rosterMode) {
             pcCareBuildRosterRows(expectedSlots, roster, animals, proofs, bits.capturingSlotKey, json)
         } else {
             emptyList()
         }
-        val evaluation = pcCareEvaluateSubmit(expectedSlots, animals, proofs, json)
+        val evaluation = if (taskProofMode) {
+            pcCareEvaluateTaskProofSubmit(expectedSlots, proofs, detail?.taskProofs.orEmpty(), bits.capturingSlotKey)
+        } else {
+            pcCareEvaluateSubmit(expectedSlots, animals, proofs, json)
+        }
         // Per-animal drill focus: the scanned row's live chips, or a fresh all-empty card set
         // while the entry scan is still landing in Room.
         val focusAnimal = if (focusTagKey.isNotBlank()) {
@@ -592,7 +731,21 @@ class PcCareTaskViewModel @Inject constructor(
             scanInput = bits.scanInput,
             scanNotice = bits.scanNotice,
             animals = pcCareBuildAnimalUis(expectedSlots, animals, proofs, bits.capturingSlotKey, json),
+            inventoryRequirements = detail?.inventoryRequirements.orEmpty().map {
+                PcCareInventoryRequirementUi(
+                    vaccineLabel = it.vaccineLabel,
+                    requiredDosesLabel = "${it.requiredDoses} doses",
+                )
+            },
+            taskProofSlot = if (taskProofMode) {
+                expectedSlots.firstOrNull()?.let { slot ->
+                    pcCareBuildTaskProofSlot(slot, proofs, detail?.taskProofs.orEmpty(), bits.capturingSlotKey)
+                }
+            } else {
+                null
+            },
             animalCountLabel = when {
+                taskProofMode -> ""
                 rosterMode && rosterRows.isNotEmpty() ->
                     "${rosterRows.count { it.done }} of ${rosterRows.size} recorded"
                 rosterMode -> ""
@@ -611,6 +764,7 @@ class PcCareTaskViewModel @Inject constructor(
             submitBlockedReason = when {
                 evaluation.ready || locked -> ""
                 // Roster mode has no scan verb — the same gate reads as a record ask.
+                taskProofMode -> evaluation.blockedReason
                 rosterMode && animals.isEmpty() -> "Record at least one animal first" // mobile-contract:ignore: device-local pre-sync gate copy
                 else -> evaluation.blockedReason
             },
@@ -637,6 +791,8 @@ class PcCareTaskViewModel @Inject constructor(
     companion object {
         /** Backend capture_mode token for the roster-tap flow (trimming work). */
         internal const val PC_CARE_CAPTURE_MODE_ROSTER = "roster_pick"
+        internal const val PC_CARE_CAPTURE_MODE_TASK_PROOF = "task_proof"
+        internal const val PC_CARE_SLOT_STOCK_FRIDGE_VIDEO = "stock_fridge_video"
 
         const val ARG_TASK_ID = "task_id"
         const val ARG_CATEGORY = "category"
@@ -657,6 +813,14 @@ class PcCareTaskViewModel @Inject constructor(
         private const val MAX_STATUS_POLLS = 2_880
     }
 }
+
+private data class PcCareCapturedTaskProof(
+    val localUri: String,
+    val mimeType: String,
+    val startedAtMs: Long,
+    val endedAtMs: Long,
+    val captureSource: String,
+)
 
 // ---------------------------------------------------------------------------
 // Pure derivation helpers (unit-tested directly — no ViewModel needed).
@@ -767,6 +931,85 @@ internal fun pcCareSlotChip(
             },
             hintLabel = hint,
             canRecord = false,
+        )
+    }
+    return PcCareSlotChipUi(
+        fieldKey = slot.fieldKey,
+        label = slot.label,
+        description = slot.description,
+        state = PcCareSlotState.EMPTY,
+        statusLabel = "",
+        hintLabel = hint,
+        canRecord = true,
+    )
+}
+
+internal fun pcCareBuildTaskProofSlot(
+    slot: PcCareSlotDto,
+    proofs: List<ProofCaptureRow>,
+    taskProofs: List<PcCareTaskProofDto>,
+    capturingSlotKey: String?,
+): PcCareSlotChipUi {
+    val hint = pcCareSlotHintLabel(slot.minDurationHintSeconds)
+    if (capturingSlotKey == slot.fieldKey) {
+        return PcCareSlotChipUi(
+            fieldKey = slot.fieldKey,
+            label = slot.label,
+            description = slot.description,
+            state = PcCareSlotState.WORKING,
+            statusLabel = "Recording…",
+            hintLabel = hint,
+            canRecord = false,
+        )
+    }
+    val localRow = proofs
+        .filter { it.fieldKey == slot.fieldKey }
+        .maxByOrNull { it.capturedAtMs }
+    if (localRow != null) {
+        return when (localRow.processingStatus) {
+            ProofProcessingStatus.UPLOADED -> PcCareSlotChipUi(
+                fieldKey = slot.fieldKey,
+                label = slot.label,
+                description = slot.description,
+                state = PcCareSlotState.SYNCED,
+                statusLabel = "Proof sent",
+                hintLabel = hint,
+                canRecord = true,
+            )
+            ProofProcessingStatus.RECORD_AGAIN -> PcCareSlotChipUi(
+                fieldKey = slot.fieldKey,
+                label = slot.label,
+                description = slot.description,
+                state = PcCareSlotState.FAILED,
+                statusLabel = "Record again",
+                hintLabel = hint,
+                canRecord = true,
+            )
+            else -> PcCareSlotChipUi(
+                fieldKey = slot.fieldKey,
+                label = slot.label,
+                description = slot.description,
+                state = if (localRow.syncStatus == CaptureSyncStatus.FAILED) PcCareSlotState.FAILED else PcCareSlotState.WORKING,
+                statusLabel = localRow.processingStatus.operatorLabel,
+                hintLabel = hint,
+                canRecord = localRow.syncStatus == CaptureSyncStatus.FAILED,
+            )
+        }
+    }
+    val serverProof = taskProofs.firstOrNull { it.slotKey == slot.fieldKey && it.proofRef.isNotBlank() }
+    if (serverProof != null) {
+        val byline = serverProof.capturedByName
+            .takeIf { it.isNotBlank() }
+            ?.let { "Captured by $it" }
+            ?: "Proof sent"
+        return PcCareSlotChipUi(
+            fieldKey = slot.fieldKey,
+            label = slot.label,
+            description = slot.description,
+            state = PcCareSlotState.PEER,
+            statusLabel = byline,
+            hintLabel = hint,
+            canRecord = true,
         )
     }
     return PcCareSlotChipUi(
@@ -929,5 +1172,29 @@ internal fun pcCareEvaluateSubmit(
         PcCareSubmitEvaluation(ready = true, submittableTags = animals.map { it.normalizedTag })
     } else {
         PcCareSubmitEvaluation(ready = false, blockedReason = reason)
+    }
+}
+
+internal fun pcCareEvaluateTaskProofSubmit(
+    expectedSlots: List<PcCareSlotDto>,
+    proofs: List<ProofCaptureRow>,
+    taskProofs: List<PcCareTaskProofDto>,
+    capturingSlotKey: String?,
+): PcCareSubmitEvaluation {
+    val slot = expectedSlots.firstOrNull()
+        ?: return PcCareSubmitEvaluation(ready = false, blockedReason = "Record the fridge stock proof first")
+    if (taskProofs.any { it.slotKey == slot.fieldKey && it.proofRef.isNotBlank() }) {
+        return PcCareSubmitEvaluation(ready = true)
+    }
+    val localRow = proofs
+        .filter { it.fieldKey == slot.fieldKey && it.syncStatus != CaptureSyncStatus.FAILED }
+        .maxByOrNull { it.capturedAtMs }
+    return when {
+        localRow?.syncStatus == CaptureSyncStatus.SYNCED && !localRow.serverProofId.isNullOrBlank() ->
+            PcCareSubmitEvaluation(ready = true)
+        localRow != null || capturingSlotKey == slot.fieldKey ->
+            PcCareSubmitEvaluation(ready = false, blockedReason = "Proof is still uploading")
+        else ->
+            PcCareSubmitEvaluation(ready = false, blockedReason = "Record the fridge stock proof first")
     }
 }

@@ -200,6 +200,9 @@ func (s *Service) PlannerParkSheds(ctx context.Context, actor domain.Actor, park
 	if !domain.IsValidCategory(category) {
 		return ports.PlannerParkSheds{}, domain.ErrInvalidCategory
 	}
+	if domain.IsKernelOwnedCategory(category) {
+		return ports.PlannerParkSheds{}, domain.ErrKernelOwnedCategory
+	}
 	plannedBusinessDate = strings.TrimSpace(plannedBusinessDate)
 	if !isBusinessDate(plannedBusinessDate) {
 		return ports.PlannerParkSheds{}, ports.ErrInvalidArgument
@@ -243,6 +246,9 @@ func (s *Service) CreateTask(ctx context.Context, actor domain.Actor, in CreateT
 	in.Category = strings.TrimSpace(in.Category)
 	if !domain.IsValidCategory(in.Category) {
 		return ports.TaskRow{}, domain.ErrInvalidCategory
+	}
+	if domain.IsKernelOwnedCategory(in.Category) {
+		return ports.TaskRow{}, domain.ErrKernelOwnedCategory
 	}
 	in.PlannedBusinessDate = strings.TrimSpace(in.PlannedBusinessDate)
 	if !isBusinessDate(in.PlannedBusinessDate) {
@@ -312,7 +318,7 @@ func (s *Service) CancelTask(ctx context.Context, actor domain.Actor, taskID, tr
 var monitorReadCapabilities = []string{permissions.PCCarePlan, permissions.PCCareMonitor, permissions.PCCareOverseeOperators}
 
 // ListTasks is the plan/monitor/oversee flat list for one due date, park-clamped.
-func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int) (ports.TaskPage, error) {
+func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int, currentOrCarry bool) (ports.TaskPage, error) {
 	if !permissions.RolesAuthorizeAny(actor.Roles, monitorReadCapabilities) {
 		return ports.TaskPage{}, ports.ErrForbidden
 	}
@@ -338,6 +344,7 @@ func (s *Service) ListTasks(ctx context.Context, actor domain.Actor, parkID, cat
 		ParkID:            parkID,
 		Category:          category,
 		DueBusinessDate:   strings.TrimSpace(dueBusinessDate),
+		CurrentOrCarry:    currentOrCarry,
 		Limit:             clampLimit(limit),
 		Cursor:            strings.TrimSpace(cursor),
 	})
@@ -362,6 +369,7 @@ func (s *Service) Worklist(ctx context.Context, actor domain.Actor, category, du
 		TenantWide:        tenantWide,
 		Category:          category,
 		DueBusinessDate:   strings.TrimSpace(dueBusinessDate),
+		CurrentOrCarry:    true,
 		AssigneeUserID:    actor.UserID,
 		Limit:             clampLimit(limit),
 		Cursor:            strings.TrimSpace(cursor),
@@ -499,6 +507,49 @@ type RegisterSlotProofInput struct {
 	TraceID        string
 }
 
+// RegisterTaskProofInput attaches one task-level proof to a task.
+type RegisterTaskProofInput struct {
+	TaskID         string
+	SlotKey        string
+	ProofRef       string
+	IdempotencyKey string
+	ActorID        string
+	ActorType      string
+	TraceID        string
+}
+
+// RegisterTaskProof stores a task-level proof. It is currently used by
+// inventory_vaccine, where the director proves fridge stock for the whole task.
+func (s *Service) RegisterTaskProof(ctx context.Context, actor domain.Actor, in RegisterTaskProofInput) error {
+	in.TaskID = strings.TrimSpace(in.TaskID)
+	if err := s.requireAssignee(ctx, actor, in.TaskID); err != nil {
+		return err
+	}
+	in.ProofRef = strings.TrimSpace(in.ProofRef)
+	if in.ProofRef == "" {
+		return ports.ErrProofRequired
+	}
+	if strings.TrimSpace(in.IdempotencyKey) == "" {
+		return ports.ErrIdempotencyRequired
+	}
+	if s.proofs != nil {
+		if err := s.proofs.ValidateLiveCameraMedia(ctx, actor.TenantID, []string{in.ProofRef}); err != nil {
+			return err
+		}
+	}
+	return s.store.RegisterTaskProof(ctx, ports.RegisterTaskProofParams{
+		TenantID:       actor.TenantID,
+		TaskID:         in.TaskID,
+		SlotKey:        strings.TrimSpace(in.SlotKey),
+		ProofRef:       in.ProofRef,
+		CapturedBy:     actor.UserID,
+		IdempotencyKey: strings.TrimSpace(in.IdempotencyKey),
+		ActorID:        in.ActorID,
+		ActorType:      in.ActorType,
+		TraceID:        in.TraceID,
+	})
+}
+
 // RegisterSlotProof stores one slot's video. The slot must belong to the task's category, and
 // the proof must be a real, completed, tenant-owned, live-camera video.
 func (s *Service) RegisterSlotProof(ctx context.Context, actor domain.Actor, in RegisterSlotProofInput) error {
@@ -548,10 +599,10 @@ type SubmitTaskInput struct {
 }
 
 // SubmitTask flips the task to pending_verification (readiness enforced in the store write) and
-// enqueues ONE verification item carrying every animal's labeled videos. Enqueue fires only when
-// the task actually entered pending on THIS call (feed packing NewlyPending contract), keyed
-// "pc-care-verification:<task_id>:<row_version>" so a rework re-submit mints a fresh item while
-// a retry collapses onto one.
+// enqueues ONE verification item carrying every animal's labeled videos or, for inventory_vaccine,
+// the task-level fridge proof. Enqueue fires only when the task actually entered pending on THIS
+// call (feed packing NewlyPending contract), keyed "pc-care-verification:<task_id>:<row_version>"
+// so a rework re-submit mints a fresh item while a retry collapses onto one.
 func (s *Service) SubmitTask(ctx context.Context, actor domain.Actor, in SubmitTaskInput) (ports.SubmitTaskResult, error) {
 	if s.store == nil {
 		return ports.SubmitTaskResult{}, ports.ErrStoreUnavailable

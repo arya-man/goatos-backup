@@ -26,6 +26,8 @@ func NavigationModuleForDutyCode(dutyModuleCode string) string {
 	switch normalized {
 	case "feed.direction":
 		return "feed_direction"
+	case "pc.care", "pc_care":
+		return "pc_care"
 	}
 	// Generic: strip a "pc." product-area prefix and fold dots, matching
 	// workforce/app.normalizeModuleFeatureKey so the two do not drift. "pc.vaccination" ->

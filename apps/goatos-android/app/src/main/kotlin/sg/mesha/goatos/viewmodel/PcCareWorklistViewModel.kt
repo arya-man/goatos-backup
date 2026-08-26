@@ -52,6 +52,8 @@ class PcCareWorklistViewModel @Inject constructor(
     private data class Selection(
         val category: String = "",
         val title: String = "",
+        val moduleLabel: String = "Preventive Care",
+        val showDateBar: Boolean = true,
         val date: String = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString(),
         /** Bumped by refresh so an unchanged selection is still a NEW value (StateFlow conflates). */
         val refreshNonce: Int = 0,
@@ -61,10 +63,15 @@ class PcCareWorklistViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(false)
 
     /** Binds this instance to its tab. Idempotent — recomposition may call it again. */
-    fun bind(category: String, title: String) {
+    fun bind(category: String, title: String, moduleLabel: String = "Preventive Care", showDateBar: Boolean = true) {
         val current = selection.value
-        if (current.category == category && current.title == title) return
-        selection.value = current.copy(category = category, title = title)
+        if (
+            current.category == category &&
+            current.title == title &&
+            current.moduleLabel == moduleLabel &&
+            current.showDateBar == showDateBar
+        ) return
+        selection.value = current.copy(category = category, title = title, moduleLabel = moduleLabel, showDateBar = showDateBar)
         analytics.track(
             AnalyticsEvents.PC_CARE_WORKLIST_VIEWED,
             mapOf(AnalyticsEvents.Params.KIND to category),
@@ -74,10 +81,12 @@ class PcCareWorklistViewModel @Inject constructor(
     val state: StateFlow<PcCareWorklistUiState> = combine(selection, _isRefreshing) { sel, refreshing ->
         PcCareWorklistUiState(
             title = sel.title,
+            moduleLabel = sel.moduleLabel,
             dateLabel = sel.date,
             today = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString(),
             isRefreshing = refreshing,
             emptyMessage = EMPTY_MESSAGE,
+            showDateBar = sel.showDateBar,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PcCareWorklistUiState())
 
@@ -127,7 +136,7 @@ class PcCareWorklistViewModel @Inject constructor(
         }
     }
 
-    /** Window: recent history through a short planning horizon (planner may schedule ahead). */
+    /** Operator/director worklist stays on current and future work; old finished cards live in monitor. */
     private fun selectDate(date: LocalDate) {
         val today = LocalDate.now(ZoneId.of(INDIA_ZONE))
         if (date > today.plusDays(FUTURE_WINDOW_DAYS) || date < today.minusDays(PAST_WINDOW_DAYS)) return
@@ -139,7 +148,7 @@ class PcCareWorklistViewModel @Inject constructor(
 
     private companion object {
         const val INDIA_ZONE = "Asia/Kolkata"
-        const val PAST_WINDOW_DAYS = 30L
+        const val PAST_WINDOW_DAYS = 0L
         const val FUTURE_WINDOW_DAYS = 7L
         const val EMPTY_MESSAGE = "No care tasks for this day"
     }

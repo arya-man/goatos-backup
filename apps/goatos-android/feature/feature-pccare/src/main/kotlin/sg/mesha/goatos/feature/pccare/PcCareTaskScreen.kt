@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,6 +47,7 @@ fun PcCareTaskScreen(
     onEvent: (PcCareTaskEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val taskProofMode = state.taskProofSlot != null
     // No RefreshOnResume: this is a scan-capture flow — a resume-triggered refresh is deliberately
     // skipped so it never disrupts mid-entry scanning (docs/decisions/android-offline-first.md);
     // the ViewModel's own status poll keeps peer work and the submit lock fresh instead.
@@ -73,7 +75,7 @@ fun PcCareTaskScreen(
             // reader is live (scans flow straight in), otherwise the farm-worded status with a
             // tap-to-reconnect action. Roster mode records by tapping a listed RFID, so the
             // reader banner and scan row stay off that face.
-            if (state.readerStatusLabel.isNotBlank() && !state.isLocked && !state.rosterMode) {
+            if (state.readerStatusLabel.isNotBlank() && !state.isLocked && !state.rosterMode && !taskProofMode) {
                 item(key = "reader_banner") {
                     PcCareReaderBanner(
                         name = state.readerName,
@@ -106,7 +108,7 @@ fun PcCareTaskScreen(
 
             // Scan entry drives the scan-and-record flow; in roster mode it appears only as the
             // fallback when the pen lists no animals (so the operator is never stuck).
-            if (!state.isLocked && (!state.rosterMode || state.rosterRows.isEmpty())) {
+            if (!state.isLocked && !taskProofMode && (!state.rosterMode || state.rosterRows.isEmpty())) {
                 if (state.rosterEmptyNotice.isNotBlank()) {
                     item(key = "roster_empty") { PcCareBanner(text = state.rosterEmptyNotice, danger = false) }
                 }
@@ -123,7 +125,29 @@ fun PcCareTaskScreen(
                 item(key = "scan_notice") { PcCareBanner(text = state.scanNotice, danger = false) }
             }
 
-            if (state.animalCountLabel.isNotBlank()) {
+            if (state.inventoryRequirements.isNotEmpty()) {
+                item(key = "inventory_requirements") {
+                    PcCareInventoryRequirementsCard(state.inventoryRequirements)
+                }
+            }
+
+            state.taskProofSlot?.let { proofSlot ->
+                item(key = "task_proof") {
+                    Column(
+                        modifier = pcCareCardModifier(enabled = false, onClick = null),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        PcCareSlotChipRow(
+                            slot = proofSlot,
+                            locked = state.isLocked,
+                            onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "video")) },
+                            onRecordPhoto = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "photo")) },
+                        )
+                    }
+                }
+            }
+
+            if (!taskProofMode && state.animalCountLabel.isNotBlank()) {
                 item(key = "animal_count") {
                     Text(
                         text = state.animalCountLabel,
@@ -134,7 +158,9 @@ fun PcCareTaskScreen(
                 }
             }
 
-            if (state.rosterMode) {
+            if (taskProofMode) {
+                // Task-level proof mode has no animal rows.
+            } else if (state.rosterMode) {
                 // Roster mode: one tappable row per RFID in the pen — tap to record that animal.
                 items(
                     count = state.rosterRows.size,
@@ -185,6 +211,30 @@ fun PcCareTaskScreen(
             onConfirm = { onEvent(PcCareTaskEvent.ConfirmSubmit) },
             onDismiss = { onEvent(PcCareTaskEvent.DismissSubmitConfirmation) },
         )
+    }
+}
+
+@Composable
+private fun PcCareInventoryRequirementsCard(requirements: List<PcCareInventoryRequirementUi>) {
+    Column(
+        modifier = pcCareCardModifier(enabled = false, onClick = null),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        requirements.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = row.vaccineLabel,
+                    color = MeshaColors.Ink,
+                    style = MeshaType.cardSubtitle,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(text = row.requiredDosesLabel, color = MeshaColors.BrandD, style = MeshaType.pillStrong)
+            }
+        }
     }
 }
 
@@ -286,6 +336,7 @@ private fun PcCareSlotChipRow(
     slot: PcCareSlotChipUi,
     locked: Boolean,
     onRecord: () -> Unit,
+    onRecordPhoto: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -314,14 +365,21 @@ private fun PcCareSlotChipRow(
             }
         }
         if (!locked && slot.canRecord) {
-            PcCarePrimaryButton(
-                label = when (slot.state) {
-                    PcCareSlotState.EMPTY -> "Record"
-                    else -> "Record again"
-                },
-                enabled = true,
-                onClick = onRecord,
-            )
+            if (onRecordPhoto == null) {
+                PcCarePrimaryButton(
+                    label = when (slot.state) {
+                        PcCareSlotState.EMPTY -> "Record"
+                        else -> "Record again"
+                    },
+                    enabled = true,
+                    onClick = onRecord,
+                )
+            } else {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PcCarePrimaryButton(label = "Photo", enabled = true, onClick = onRecordPhoto)
+                    PcCarePrimaryButton(label = "Video", enabled = true, onClick = onRecord)
+                }
+            }
         }
     }
 }

@@ -74,6 +74,36 @@ class AppStartDestinationTest {
     }
 
     @Test
+    fun `pc director starts on stock tab under vaccination`() {
+        val vaccinationBar = listOf(
+            NavItem("vaccination_stock", "Stock", Routes.VACCINATION_STOCK),
+            NavItem("vaccination", "Drives", Routes.VACCINATION),
+            NavItem("you", "You", Routes.YOU),
+        )
+        val state = NavState(
+            chrome = NavChrome.EXPANDED,
+            items = vaccinationBar,
+            modules = listOf(
+                NavModule(
+                    key = "vaccination",
+                    label = "Vaccination",
+                    href = Routes.VACCINATION,
+                    status = NavModuleStatus.AVAILABLE,
+                    navItems = vaccinationBar,
+                ),
+                NavModule(
+                    key = "pc_care",
+                    label = "Preventive Care",
+                    href = Routes.PC_DEWORMING,
+                    status = NavModuleStatus.AVAILABLE,
+                    navItems = listOf(NavItem("pc_deworming", "Deworming", Routes.PC_DEWORMING)),
+                ),
+            ),
+        )
+        assertEquals(Routes.VACCINATION_STOCK, startDestinationFor(state))
+    }
+
+    @Test
     fun `counts-only operator cold starts on its counts landing, not calendar`() {
         val countsBar = listOf(
             NavItem("birth", "Birth", Routes.COUNTS_BIRTH),

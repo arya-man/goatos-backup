@@ -543,6 +543,7 @@ var protectedRoutes = []Route{
 	{OperationID: "appPCCareTaskRoster", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/roster", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
 	{OperationID: "appScanPCCareAnimal", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/animals", Permissions: []string{PCCareExecute}},
 	{OperationID: "appRegisterPCCareSlotProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},
+	{OperationID: "appRegisterPCCareTaskProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},
 	{OperationID: "appSubmitPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/submit", Permissions: []string{PCCareExecute}},
 
 	// Authored feed configuration (/feed-config/*), the surface behind the Feed Config screen.

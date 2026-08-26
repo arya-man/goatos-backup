@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Seed a throwaway phone-QA database for role-gated Vaccination + Weighing scans.
+# Seed a phone-QA database through the OCI tunnel for role-gated Vaccination + Weighing scans.
 #
-# This script is intentionally NOT for the canonical local app DB. Use a disposable
-# Postgres port (for example 15544) and point the laptop API + phone at that DB.
+# Source the OCI DB environment first, open the OCI tunnel in another terminal,
+# then run with GOATOS_PHONE_QA_SEED_CONFIRM=oci-phone-qa.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -15,21 +15,17 @@ animals_per_shed="${GOATOS_ANIMALS_PER_SHED:-5}"
 
 die() { echo "phone-qa-throwaway-seed: $*" >&2; exit 1; }
 
-[ -n "${DATABASE_URL:-}" ] || die "DATABASE_URL is required"
+[ -n "${DATABASE_URL:-}" ] || die "DATABASE_URL is required from the OCI DB environment"
+[ "${GOATOS_PHONE_QA_SEED_CONFIRM:-}" = "oci-phone-qa" ] || die "set GOATOS_PHONE_QA_SEED_CONFIRM=oci-phone-qa after opening the OCI tunnel"
 
 case "$animals_per_shed" in
   ''|*[!0-9]*) die "GOATOS_ANIMALS_PER_SHED must be a positive integer, got '${animals_per_shed}'" ;;
 esac
 [ "$animals_per_shed" -ge 5 ] || die "GOATOS_ANIMALS_PER_SHED must be >= 5 (the fixture always seeds the 5 physical-RFID identities first), got ${animals_per_shed}"
 
-case "$DATABASE_URL" in
-  *127.0.0.1:15544/*|*localhost:15544/*) ;;
-  *) die "refusing DATABASE_URL outside throwaway port 15544: ${DATABASE_URL%%\?*}" ;;
-esac
-
 case "${GOATOS_ENV:-}" in
-  local|dev|test) ;;
-  *) die "GOATOS_ENV must be local/dev/test for this seed" ;;
+  stg|oci) ;;
+  *) die "GOATOS_ENV must be stg or oci for this seed" ;;
 esac
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt -c "SELECT 1" >/dev/null
@@ -256,6 +252,7 @@ SELECT
 FROM (
   VALUES
     ('pc.vaccination'),
+    ('pc_care'),
     ('weighing'),
     ('aas_health'),
     ('counts'),
@@ -302,7 +299,7 @@ VALUES (
   '91000000-0000-4000-8000-000000000402',
   'vaccination',
   'Per-animal vaccination proof QA (CPT)',
-  'CPT park drive for the phone-QA throwaway fixture.',
+  'CPT park drive for the phone-QA OCI fixture.',
   'assigned',
   '90000000-0000-4000-8000-000000000201',
   'park',
@@ -817,8 +814,8 @@ COMMIT;
 SQL
 
 cat <<EOF
-Seeded throwaway phone QA DB on ${DATABASE_URL%%\?*}
-Vaccination RFID setup: CBE raw RFID, CPT uses CPT-<RFID> for local dev scan transform.
+Seeded OCI phone QA DB on ${DATABASE_URL%%\?*}
+Vaccination RFID setup: CBE raw RFID, CPT uses CPT-<RFID> for scan transform.
 
 Use these GOATOS_LOCAL_USER_ID values with tools/dev/android-dev-run.sh:
   CEO QA            90000000-0000-4000-8000-000000000101  ceo_internal       all modules + PA card

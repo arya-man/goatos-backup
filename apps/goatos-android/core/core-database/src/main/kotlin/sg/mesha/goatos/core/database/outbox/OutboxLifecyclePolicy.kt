@@ -120,6 +120,7 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         // The proof_capture row is the durable local model ("recorded"); success re-polls the
         // task's captures so the server's per-slot truth (incl. attribution) lands back in Room.
         OutboxOpType.PC_CARE_SLOT_REGISTER -> optimisticRefreshLifecycle()
+        OutboxOpType.PC_CARE_TASK_PROOF_REGISTER -> optimisticRefreshLifecycle()
         // Submit mirrors packing/wastage: outbox overlay shows "In review" at once, and the sync
         // pass reconciles the Room task rows directly from the server's returned status/row_version.
         OutboxOpType.PC_CARE_TASK_SUBMIT -> overlayDirectReconcileLifecycle()

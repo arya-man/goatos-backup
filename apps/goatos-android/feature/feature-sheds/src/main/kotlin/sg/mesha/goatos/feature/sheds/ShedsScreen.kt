@@ -400,12 +400,8 @@ fun ShedsScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (state.dayTabs.isNotEmpty()) {
-                // Leadership reaches this screen from a specific drive/date on the Calendar, so
-                // the day strip is redundant for them — show it only for the operator work queue
-                // (canOpenShed). VaccineCarryCard stays (it renders nothing without carry data).
-                if (!state.leadershipMode) {
-                    item { DayTabs(state.dayTabs, onSelect = { onEvent(ShedsEvent.SelectDay(it)) }) }
-                }
+                // The work queue is intentionally list-first; calendar navigation lives in the
+                // Calendar module, not as a weekday strip above today's vaccination drives.
                 item { VaccineCarryCard(carry = state.carry) }
             } else {
                 item { DriveMeta(state) }
