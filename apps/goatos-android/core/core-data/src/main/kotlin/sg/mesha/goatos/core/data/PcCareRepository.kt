@@ -167,6 +167,9 @@ interface PcCareRepository {
         proofOutboxItemId: String,
     ): AppResult<String>
 
+    /** Resolves a completed proof id to a short-lived playback URL for previews. */
+    suspend fun proofDownloadUrl(proofId: String): AppResult<String>
+
     /** Enqueues the whole-task submit under the stable per-(task, rowVersion) key. */
     suspend fun submitTask(taskId: String, rowVersion: Int): AppResult<String>
 
@@ -326,6 +329,13 @@ class DefaultPcCareRepository(
             if (it is CancellationException) throw it
             android.util.Log.w(LOG_TAG, "pc_care_poll_failed task=$taskId", it)
         }
+    }
+
+    override suspend fun proofDownloadUrl(proofId: String): AppResult<String> = try {
+        AppResult.Ok(api.getProofDownloadUrl(proofId))
+    } catch (t: Throwable) {
+        if (t is CancellationException) throw t
+        AppResult.Err("Preview is not available yet", t)
     }
 
     override suspend fun recordScan(taskId: String, tagVerbatim: String): PcCareScanOutcome {

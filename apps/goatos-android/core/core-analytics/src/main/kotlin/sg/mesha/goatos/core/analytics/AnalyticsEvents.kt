@@ -197,14 +197,8 @@ object AnalyticsEvents {
     /** User tapped cancel/back from the shared proof camera. */
     const val PROOF_CAMERA_CANCEL_TAPPED = "proof_camera_cancel_tapped"
 
-    /** User tapped retry after a shared camera preview/validation error. */
+    /** User tapped retry after a shared camera preview/binding error. */
     const val PROOF_CAMERA_RETRY_TAPPED = "proof_camera_retry_tapped"
-
-    /** User discarded a captured proof from the shared camera review screen. */
-    const val PROOF_CAMERA_RETAKE_TAPPED = "proof_camera_retake_tapped"
-
-    /** User accepted a captured proof from the shared camera review screen. */
-    const val PROOF_CAMERA_USE_TAPPED = "proof_camera_use_tapped"
 
     /** Shared proof camera ended in success, cancel, or failure. */
     const val PROOF_CAMERA_CAPTURE_RESULT = "proof_camera_capture_result"
@@ -594,6 +588,9 @@ object AnalyticsEvents {
 
     /** Stock proof manual refresh/sync action started or completed. */
     const val PC_CARE_STOCK_PROOF_SYNC = "pc_care_stock_proof_sync"
+
+    /** Stock detail proof preview URL hydration/playback. */
+    const val PC_CARE_STOCK_PROOF_PREVIEW = "pc_care_stock_proof_preview"
 
     /** Stock proof submit button was tapped or blocked before confirmation. */
     const val PC_CARE_STOCK_PROOF_SUBMIT = "pc_care_stock_proof_submit"

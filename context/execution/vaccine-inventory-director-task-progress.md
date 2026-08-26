@@ -2380,11 +2380,11 @@ Verification after this fix:
     `pc_care_stock_proof_screen_visible` with `feature_surface=pc_care_stock`.
 - Important UX note from this fresh install:
   - because reinstalling with a new baked token wipes local proof files, existing
-    server-attributed proof rows display `Captured by Chandrakant` and replace
-    actions but no local thumbnail preview,
-  - same-device capture still has local preview evidence in earlier phone
-    artifacts. Server-media preview for a fresh install remains a possible UX
-    enhancement, not proven in this pass.
+    server-attributed proof rows originally displayed `Captured by Chandrakant`
+    and replace actions but no local thumbnail preview,
+  - this was fixed later by hydrating task-proof preview URLs from server proof
+    refs, so another phone signed into the same account can render the stock
+    photo/video preview after the proof has synced.
 - Operator phone evidence (`current-head-role-e2e/operator-home-clean.*`):
   - Amit lands on `Vaccination sheds`,
   - visible bottom bar contains only `Drives` and `Alerts`,
@@ -2426,3 +2426,71 @@ Verification after this fix:
   - `./gradlew :app:assembleStgDebug`.
 - Installed the STG debug APK on both connected Poco devices and launched
   `sg.mesha.goatos.stg`; recent logcat scan showed no fatal startup exceptions.
+
+## 2026-08-26 Resume Checkpoint: Shared Proof Upload Lane Fix
+
+- Root cause of the lingering "saved on this phone" / spinner class:
+  - the outbox FIFO lane correctly blocks aggregate submits behind failed
+    animal scan rows, but the terminal-row exception was too PC-Care-specific;
+  - a stale failed `PROOF_UPLOAD` row could remain older than a replacement
+    proof row in the same `groupKey` lane and silently block newer proof work;
+  - this was an architecture issue, not a stock-screen-only UI issue.
+- Shared fix:
+  - `OutboxDao.eligibleForDrain` now treats terminal `PROOF_UPLOAD` rows as
+    non-blocking proof-object history across all camera features;
+  - newer writes still reference exact proof outbox IDs, so a write that truly
+    depends on the stale proof fails visibly at dispatch instead of sitting
+    forever behind an invisible lane blocker;
+  - existing PC Care repair carve-outs for stale submit/register rows remain,
+    so replacement task/slot proofs still recover without unblocking unrelated
+    duplicate submits.
+- Camera-feature blast radius audited from `captureReplacingLatest` call sites:
+  - feed direction/packing/distribution/wastage/transport,
+  - milk preparation and milk feeding,
+  - shifting execution,
+  - workflow proof actions,
+  - PC Care animal-slot proofs and vaccination stock task proofs,
+  - weighing proof capture paths that use the same proof/outbox primitive.
+- Regression coverage added:
+  - generic feed-style stale `PROOF_UPLOAD` no longer blocks replacement upload
+    plus downstream proof-referenced completion;
+  - stale `PROOF_UPLOAD` no longer blocks a later PC Care task submit; if it
+    references the bad proof, dispatch exposes the failure instead of stranding
+    the lane;
+  - existing tests still prove stale scans block submits and stale PC Care
+    submit/register only unblock replacement proof repair rows.
+- Verification passed:
+  - `./gradlew --no-daemon -Pkotlin.incremental=false :core:core-database:testDebugUnitTest --tests 'sg.mesha.goatos.core.database.outbox.OutboxSameMillisecondOrderTest' --quiet`;
+  - `./gradlew --no-daemon -Pkotlin.incremental=false :app:testDevDebugUnitTest --tests 'sg.mesha.goatos.viewmodel.PcCareInventoryTaskProofTest' --tests 'sg.mesha.goatos.ui.PcCareCopyAndProofLayoutContractTest' :core:core-analytics:testDebugUnitTest --tests 'sg.mesha.goatos.core.analytics.AnalyticsContractTest' --quiet`.
+
+## 2026-08-26 Final Resume Checkpoint: Judge Fixes And Device Evidence
+
+- Independent judge pass found and fixed:
+  - untracked pulled app DB files under the loader-debug evidence folder were
+    removed and are not part of the PR evidence set;
+  - stock proof preview cache is now keyed by both slot and server proof ref,
+    with a short-lived URL TTL, so another-phone replacement proofs refresh
+    instead of showing stale media;
+  - preview URL hydration failures now emit
+    `pc_care_stock_proof_preview`, not a capture-result failure;
+  - unused shared-camera review/accept event constants were removed from the
+    backend analytics allowlist/contract so the contract no longer documents a
+    forbidden camera review screen.
+- Added regression coverage for same-slot server proof replacement refreshing
+  the preview URL.
+- Final focused verification passed after judge fixes:
+  - `./gradlew --no-daemon -Pkotlin.incremental=false :app:testDevDebugUnitTest --tests 'sg.mesha.goatos.viewmodel.PcCareInventoryTaskProofTest' --tests 'sg.mesha.goatos.ui.PcCareCopyAndProofLayoutContractTest' --tests 'sg.mesha.goatos.analytics.BackendAnalyticsAdapterTest' :core:core-analytics:testDebugUnitTest --tests 'sg.mesha.goatos.core.analytics.AnalyticsContractTest' :core:core-database:testDebugUnitTest --tests 'sg.mesha.goatos.core.database.outbox.OutboxSameMillisecondOrderTest' --quiet`;
+  - `./gradlew --no-daemon -Pkotlin.incremental=false -PgoatosDevApiBaseUrl=http://localhost:8080/ -PgoatosDevBearerToken=<redacted> :app:assembleDevDebug --quiet`.
+- Final Poco director evidence from the rebuilt APK:
+  - home/list: `context/execution/vaccine-inventory-director-e2e-2026-08-26/post-shared-outbox-device-e2e/final-director-home.png`
+    and `.xml`;
+  - stock detail: `context/execution/vaccine-inventory-director-e2e-2026-08-26/post-shared-outbox-device-e2e/final-director-stock-detail.png`
+    and `.xml`;
+  - events: `context/execution/vaccine-inventory-director-e2e-2026-08-26/post-shared-outbox-device-e2e/final-director-events.log`.
+- Final XML confirms:
+  - `Vaccination` / `Stock` director surface with no week/month strip,
+  - vaccine chips on cards (`ET+TT`, `PPR`) and current/carry statuses,
+  - stock detail has `Photo evidence`, `Video evidence`, `Replace photo`,
+    `Replace video`, small `Play video preview`, and `Submit task`,
+  - no `Saving` or `Saved on this phone` stuck label appears on the final detail
+    screen.

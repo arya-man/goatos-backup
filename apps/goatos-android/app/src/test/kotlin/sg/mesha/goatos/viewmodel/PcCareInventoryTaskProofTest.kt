@@ -24,6 +24,7 @@ import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.pcCareTaskProofRegisterRefreshHook
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskProofDto
+import sg.mesha.goatos.feature.pccare.PcCareProofPreviewKind
 import sg.mesha.goatos.feature.pccare.PcCareSlotState
 import sg.mesha.goatos.feature.pccare.PcCareTaskEvent
 
@@ -147,10 +148,29 @@ class PcCareInventoryTaskProofTest {
             emptyList(),
             listOf(PcCareTaskProofDto(slotKey = stockVideoSlot.fieldKey, proofRef = "server-proof-2", capturedByName = "Chandrakant")),
             null,
+            mapOf(stockVideoSlot.fieldKey to TaskProofPreviewUrl("server-proof-2", "https://proof.local/video.mp4", 1L)),
         )
         assertEquals(PcCareSlotState.SYNCED, serverCaptured.state)
         assertEquals("Captured by Chandrakant", serverCaptured.statusLabel)
+        assertEquals("https://proof.local/video.mp4", serverCaptured.previewPath)
+        assertEquals(PcCareProofPreviewKind.VIDEO, serverCaptured.previewKind)
         assertTrue(serverCaptured.canRecord)
+    }
+
+    @Test
+    fun `server task proof from another phone renders remote photo preview with photo kind`() {
+        val serverCaptured = pcCareBuildTaskProofSlot(
+            stockPhotoSlot,
+            emptyList(),
+            listOf(PcCareTaskProofDto(slotKey = stockPhotoSlot.fieldKey, proofRef = "server-proof-photo", capturedByName = "Chandrakant")),
+            null,
+            mapOf(stockPhotoSlot.fieldKey to TaskProofPreviewUrl("server-proof-photo", "https://proof.local/photo.jpg", 1L)),
+        )
+
+        assertEquals(PcCareSlotState.SYNCED, serverCaptured.state)
+        assertEquals("Captured by Chandrakant", serverCaptured.statusLabel)
+        assertEquals("https://proof.local/photo.jpg", serverCaptured.previewPath)
+        assertEquals(PcCareProofPreviewKind.PHOTO, serverCaptured.previewKind)
     }
 
     @Test
@@ -194,6 +214,7 @@ class PcCareInventoryTaskProofTest {
     @Test
     fun `server task proof from another device satisfies only the matching inventory screen row`() = runTest(dispatcher) {
         val repo = FakePcCareRepository()
+        repo.proofDownloadUrls["server-proof-video"] = "https://proof.local/server-proof-video.mp4"
         repo.detailFlow.value = pcCareTaskDtoFixture(
             category = "inventory_vaccine",
             expectedSlots = listOf(stockPhotoSlot, stockVideoSlot),
@@ -214,8 +235,49 @@ class PcCareInventoryTaskProofTest {
         assertEquals(PcCareSlotState.EMPTY, state.taskProofPhotoSlot?.state)
         assertEquals(PcCareSlotState.SYNCED, state.taskProofVideoSlot?.state)
         assertEquals("Captured by Chandrakant", state.taskProofVideoSlot?.statusLabel)
+        assertEquals("https://proof.local/server-proof-video.mp4", state.taskProofVideoSlot?.previewPath)
+        assertEquals(PcCareProofPreviewKind.VIDEO, state.taskProofVideoSlot?.previewKind)
         assertFalse(state.submitEnabled)
         assertEquals("Record the fridge stock photo and video first", state.submitBlockedReason)
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `server task proof replacement refreshes same slot preview url`() = runTest(dispatcher) {
+        val repo = FakePcCareRepository()
+        repo.proofDownloadUrls["server-proof-old"] = "https://proof.local/old-photo.jpg"
+        repo.proofDownloadUrls["server-proof-new"] = "https://proof.local/new-photo.jpg"
+        repo.detailFlow.value = pcCareTaskDtoFixture(
+            category = "inventory_vaccine",
+            expectedSlots = listOf(stockPhotoSlot, stockVideoSlot),
+            taskProofs = listOf(
+                PcCareTaskProofDto(
+                    slotKey = stockPhotoSlot.fieldKey,
+                    proofRef = "server-proof-old",
+                    capturedByName = "Chandrakant",
+                ),
+            ),
+        ).copy(captureMode = "task_proof")
+
+        val vm = buildPcCareTaskViewModel(repo)
+        val collectJob = launch { vm.state.collect {} }
+        runCurrent()
+        assertEquals("https://proof.local/old-photo.jpg", vm.state.value.taskProofPhotoSlot?.previewPath)
+
+        repo.detailFlow.value = pcCareTaskDtoFixture(
+            category = "inventory_vaccine",
+            expectedSlots = listOf(stockPhotoSlot, stockVideoSlot),
+            taskProofs = listOf(
+                PcCareTaskProofDto(
+                    slotKey = stockPhotoSlot.fieldKey,
+                    proofRef = "server-proof-new",
+                    capturedByName = "Chandrakant",
+                ),
+            ),
+        ).copy(captureMode = "task_proof")
+        runCurrent()
+
+        assertEquals("https://proof.local/new-photo.jpg", vm.state.value.taskProofPhotoSlot?.previewPath)
         collectJob.cancel()
     }
 

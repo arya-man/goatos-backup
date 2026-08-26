@@ -273,4 +273,61 @@ class OutboxSameMillisecondOrderTest {
         assertEquals(emptyList<String>(), eligible)
         database.close()
     }
+
+    @Test
+    fun `a terminal proof upload does not block replacement proof repair rows`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "stale-upload",
+                "PROOF_UPLOAD",
+                "feed:packing:task-77",
+                createdAt = 5L,
+                status = "FAILED",
+                conflict = true,
+                nextAttemptAt = Long.MAX_VALUE,
+                attempts = 1,
+            ),
+        )
+        dao.insert(row("replacement-upload", "PROOF_UPLOAD", "feed:packing:task-77", createdAt = 6L))
+        dao.insert(row("replacement-submit", "FEED_PACKING_COMPLETE", "feed:packing:task-77", createdAt = 7L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "a stale failed proof upload must not strand replacement proof rows behind a loader",
+            listOf("replacement-upload", "replacement-submit"),
+            eligible,
+        )
+        database.close()
+    }
+
+    @Test
+    fun `a terminal proof upload does not block a later proof referenced write`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "stale-upload",
+                "PROOF_UPLOAD",
+                "pc-care:task:task-77",
+                createdAt = 5L,
+                status = "FAILED",
+                conflict = true,
+                nextAttemptAt = Long.MAX_VALUE,
+                attempts = 1,
+            ),
+        )
+        dao.insert(row("submit", "PC_CARE_TASK_SUBMIT", "pc-care:task:task-77", createdAt = 6L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "the submit must drain and fail explicitly if it references the stale proof, instead of being stranded forever",
+            listOf("submit"),
+            eligible,
+        )
+        database.close()
+    }
 }

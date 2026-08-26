@@ -94,6 +94,7 @@ internal class FakePcCareRepository : PcCareRepository {
     var submitCalls = mutableListOf<Pair<String, Int>>()
     var slotRegistrations = mutableListOf<List<String>>()
     var taskProofRegistrations = mutableListOf<List<String>>()
+    val proofDownloadUrls = mutableMapOf<String, String>()
     var pollCount = 0
         private set
     var failNextSubmit = false
@@ -164,6 +165,9 @@ internal class FakePcCareRepository : PcCareRepository {
         taskProofRegistrations += listOf(taskId, slotFieldKey, proofOutboxItemId)
         return AppResult.Ok("task-proof-outbox-${taskProofRegistrations.size}")
     }
+
+    override suspend fun proofDownloadUrl(proofId: String): AppResult<String> =
+        AppResult.Ok(proofDownloadUrls[proofId] ?: "https://proof.local/$proofId")
 
     override suspend fun submitTask(taskId: String, rowVersion: Int): AppResult<String> {
         if (failNextSubmit) {
