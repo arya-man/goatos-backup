@@ -41,27 +41,52 @@ obs AS (
     AND o.verification_status <> 'rework'
 )`
 
-// roundLatestCTE collapses repeat scans to ONE weigh per (identity, campaign
+// animalObsCTE resolves every scan to the ANIMAL before anything is paired, and
+// this ordering is the whole point.
+//
+// A goat carries SEVERAL tags — `animal_identifier_1` and `animal_identifier_2`
+// are both populated for nearly the whole herd — so an animal weighed under one
+// tag in week 1 and the other in week 2 is ONE animal with two weighs, not two
+// animals with one each. Pairing by tag first got this wrong in both directions:
+// it double-counted the 14 animals scanned under both tags (310 rows for 296
+// animals, and pens reporting "18 measured of 17 held"), and it silently DROPPED
+// any animal whose two weighs happened to be recorded under different tags,
+// because neither tag alone had a pair.
+//
+// Weighing itself stays free-flow and tag-grained — this module is the one
+// resolving tags to animals, and it drops what it cannot resolve (the pulse's
+// weighed-identity count keeps reporting the raw scanned-tag denominator).
+const animalObsCTE = `
+animal_obs AS (
+  SELECT gi.goat_id, o.tag_key, o.weight_kg, o.accepted_at,
+         o.campaign_id, o.period_start_date, o.observation_id
+  FROM obs o
+  JOIN goat_identifiers gi
+    ON gi.tenant_id = $1::uuid AND gi.normalized_value = upper(o.tag_key)
+)`
+
+// roundLatestCTE collapses repeat scans to ONE weigh per (ANIMAL, campaign
 // week): newest capture wins — the 000073 grain and 000080 reporting convention.
 const roundLatestCTE = `
 round_latest AS (
-  SELECT DISTINCT ON (tag_key, campaign_id)
-         tag_key, campaign_id, period_start_date, weight_kg, accepted_at, observation_id
-  FROM obs
-  ORDER BY tag_key, campaign_id, accepted_at DESC, observation_id DESC
+  SELECT DISTINCT ON (goat_id, campaign_id)
+         goat_id, tag_key, campaign_id, period_start_date, weight_kg, accepted_at, observation_id
+  FROM animal_obs
+  ORDER BY goat_id, campaign_id, accepted_at DESC, observation_id DESC
 )`
 
 // pairsCTE reduces each identity with >=2 campaign rounds to its first and
 // last round-latest weigh.
 const pairsCTE = `
 pairs AS (
-  SELECT tag_key,
+  SELECT goat_id,
+         (array_agg(tag_key ORDER BY period_start_date DESC, accepted_at DESC, observation_id DESC))[1] AS tag_key,
          (array_agg(weight_kg   ORDER BY period_start_date, accepted_at, observation_id))[1]                 AS w_first,
          (array_agg(accepted_at ORDER BY period_start_date, accepted_at, observation_id))[1]                 AS t_first,
          (array_agg(weight_kg   ORDER BY period_start_date DESC, accepted_at DESC, observation_id DESC))[1]  AS w_last,
          (array_agg(accepted_at ORDER BY period_start_date DESC, accepted_at DESC, observation_id DESC))[1]  AS t_last
   FROM round_latest
-  GROUP BY tag_key
+  GROUP BY goat_id
   HAVING count(*) >= 2
 )`
 
@@ -91,16 +116,14 @@ adg AS (
     AND (w_last - w_first) * 1000.0 / (t_last::date - t_first::date) > -300
 )`
 
-// matchedCTE resolves each paired identity to its LIVE animal through the herd
-// register: goat_identifiers.normalized_value is UPPER(trim) while the weighing
-// tag key is lower(btrim), so the join is normalized_value = upper(tag_key) —
-// lifetime-unique per tenant, 0..1, so it can never fan out. One-hop merge
-// redirect; exited animals drop out of the economics table (the sold panel
-// carries the sold ones). The pen comes from goat_shed_partitions, whose
-// 'whole' sentinel normalizes to the ” the feed sheet rows carry.
+// matchedCTE attaches each paired ANIMAL's herd facts. The identity join
+// already happened in animal_obs, so this is a plain PK lookup with a one-hop
+// merge redirect; exited animals drop out (this page reports what the farm is
+// feeding now). The pen comes from goat_shed_partitions, whose 'whole' sentinel
+// normalizes to the ” the feed sheet rows carry.
 const matchedCTE = `
 matched AS (
-  SELECT a.tag_key, a.w_last, a.adg_g_day, a.span_days,
+  SELECT a.goat_id, a.tag_key, a.w_last, a.adg_g_day, a.span_days,
          COALESCE(g.display_id, '') AS display_id,
          btrim(COALESCE(COALESCE(canon.breed, g.breed), ''))                       AS breed,
          btrim(COALESCE(COALESCE(canon.sex, g.sex), ''))                           AS sex,
@@ -114,9 +137,8 @@ matched AS (
          COALESCE(canon.park_id, g.park_id) AS park_id,
          COALESCE(NULLIF(gsp.partition_label, 'whole'), '') AS pen
   FROM adg a
-  JOIN goat_identifiers gi ON gi.tenant_id = $1::uuid AND gi.normalized_value = upper(a.tag_key)
-  JOIN goats g             ON g.tenant_id = $1::uuid AND g.goat_id = gi.goat_id
-  LEFT JOIN goats canon    ON canon.tenant_id = $1::uuid AND canon.goat_id = g.merged_into_goat_id
+  JOIN goats g          ON g.tenant_id = $1::uuid AND g.goat_id = a.goat_id
+  LEFT JOIN goats canon ON canon.tenant_id = $1::uuid AND canon.goat_id = g.merged_into_goat_id
   LEFT JOIN goat_shed_partitions gsp
     ON gsp.tenant_id = $1::uuid AND gsp.goat_id = COALESCE(canon.goat_id, g.goat_id)
   WHERE COALESCE(canon.exited_at, g.exited_at) IS NULL
@@ -199,7 +221,7 @@ feed_cell_members AS (
   CROSS JOIN LATERAL unnest(string_to_array(fc.breed_key, '_+_'))    AS breed_member
 ),
 econ AS (
-  SELECT m.tag_key, m.w_last, m.adg_g_day, m.span_days,
+  SELECT m.goat_id, m.tag_key, m.w_last, m.adg_g_day, m.span_days,
          m.display_id, m.breed, m.sex, m.stage, m.shed_id, m.park_id, m.pen,
          avg(fcm.cost_per_head_day) AS cost_per_head_day
   FROM matched m
@@ -208,12 +230,13 @@ econ AS (
    AND fcm.pen = m.pen
    AND fcm.tag_member = m.stage_key
    AND fcm.breed_member = m.breed_key
-  GROUP BY m.tag_key, m.w_last, m.adg_g_day, m.span_days,
+  GROUP BY m.goat_id, m.tag_key, m.w_last, m.adg_g_day, m.span_days,
            m.display_id, m.breed, m.sex, m.stage, m.shed_id, m.park_id, m.pen
 )`
 
 // econChain is the full shared chain, WITH included.
 const econChain = `WITH ` + weighingObsCTE + `,
+` + animalObsCTE + `,
 ` + roundLatestCTE + `,
 ` + pairsCTE + `,
 ` + adgCTE + `,
@@ -359,6 +382,21 @@ LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = e.p
 // assembleGrowth derives the shed table, the breed comparison, the bands and
 // the pulse growth figures from the ONE econ row set, so every surface on the
 // page agrees by construction.
+//
+// projection-review: membership=econ rows — ONE row per paired, matched, live
+// ANIMAL (identity resolved in animal_obs before pairing, so a goat's several
+// tags cannot produce several rows); group_key=(shed_id, pen) for the shed
+// table and the trimmed breed string for the breed table, both taken from the
+// animal's own herd-register facts, never from a display label — shed NAMES
+// repeat across parks, so name-keying would merge two parks' pens;
+// join_cardinality=no joins here, this is in-process grouping of rows already
+// proven 1-per-animal by econRows' own review marker, and each animal lands in
+// exactly one shed group and at most one breed group; the ratio figures
+// (per-head means, cost per kg) take numerator and denominator over the SAME
+// priced subset of each group, counted once as `n`; pagination=MaxGroupRows is
+// a backstop applied AFTER every aggregate is computed, and the herd counts it
+// is rendered against come from herdCounts over the same park scope;
+// scope=tenant + park ANY + campaign-week overlap window, inherited from econ.
 func assembleGrowth(out *domain.BusinessEconomics, rows []econRow, realizedPerKg *float64, herdByBreed, herdByPen map[string]int) {
 	costPerKg := make([]float64, 0, len(rows))
 	// The two comparable tiles range over the PRICED set: every animal whose
