@@ -187,3 +187,32 @@ the declared media kind, step order, the three waits (server clock), immutable a
 history, reject-with-reason, CEO/CXO-only verdict, replay-safe writes, full audit trail.
 NOT validated (rests on the evidence + the reviewer): that the powder in the well truly
 came from that load, and that weighing/dilution quantities were correct.
+
+## Three field defects on the guided flow (2026-08-26)
+
+All three were reported from the phone and fixed at the root; each is worth keeping written
+down because the shape recurs.
+
+**The screen froze on a wait.** Step state is SERVER-composed and time-dependent, but the
+phone's cache is only written on a network event. The countdown ran to zero and the screen
+stayed on `waiting` forever — the reading step never opened, so "Send reading" stayed dead and
+the round could not be submitted at all until the tester left the screen and came back, or found
+the sync button. The detail screen now re-reads the server when a wait elapses (armed off the
+earliest waiting gate, a little past its instant for clock skew, bounded retries). The phone
+still decides nothing; it only asks again. `RefreshOnResume` alone is not enough for a screen
+whose state changes with the CLOCK rather than with the user.
+
+**The captured strip photo was invisible and forgettable.** The only sign a capture had landed
+was a button label flipping to "Take the photo again", which reads as "that did not take" — so
+the strip got photographed over and over. Worse, the capture lived only in the ViewModel's
+in-memory state, so any ViewModel death forgot it even though the upload was durably queued. The
+screen now SHOWS the photograph, and the ViewModel observes the DURABLE proof slot
+(`observeLatest`) instead of remembering an id; submit re-reads that slot so a photo taken before
+a process death still sends. For a step whose deliverable is an image, the image is the
+confirmation.
+
+**A raw user id reached the operator's screen.** Step attribution rendered
+`f94de67d-c8b0-527a-a285-857946dc4c95 · 26 Aug, 1:43 PM` — the same copy-firewall defect the
+counts approval queue shipped once. The person is now resolved to a NAME in the same bounded
+query (one LEFT JOIN, never a per-row lookup), and an unresolvable person is DROPPED rather than
+printed as an id.

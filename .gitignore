@@ -189,3 +189,6 @@ tools/e2e/e2e.env
 
 # Visual-parity screenshots and diffs are build output, not source.
 .e2e-artifacts/
+
+# Local media captured by the dev stack (proof uploads); never committed.
+.goatos-local-media/
