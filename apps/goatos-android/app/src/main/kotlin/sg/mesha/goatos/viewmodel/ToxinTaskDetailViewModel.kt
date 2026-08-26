@@ -30,6 +30,7 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.ToxinRepository
 import sg.mesha.goatos.core.data.capture.EvidenceSlot
+import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofFlow
 import sg.mesha.goatos.core.data.capture.ProofIdentity
@@ -98,8 +99,26 @@ class ToxinTaskDetailViewModel @Inject constructor(
 
     private val local = MutableStateFlow(Local())
 
+    /**
+     * The DURABLE slot the strip photo occupies.
+     *
+     * The capture used to be remembered only in [Local], in memory. Two things followed, and a
+     * tester hit both: the screen's ONLY sign that a photo had landed was a button label, and any
+     * ViewModel death (leaving the drill, a low-memory kill) forgot the capture even though the
+     * upload was durably queued — so the photo read as never taken and got shot again, and again.
+     * Observing the slot makes the capture survive, and gives the screen the image to SHOW.
+     */
+    private val stripSlot = EvidenceSlot(
+        identity = ProofIdentity(flow = ProofFlow.TOXIN, taskId = taskId, subjectKey = STRIP_PHOTO_SUBJECT_KEY),
+        fieldKey = STRIP_PHOTO_SUBJECT_KEY,
+    )
+
     val state: StateFlow<ToxinTaskDetailUiState> =
-        combine(repository.observeTaskDetail(taskId), local) { detail, own -> toUiState(detail, own) }
+        combine(
+            repository.observeTaskDetail(taskId),
+            local,
+            proofCaptureRepository.observeLatest(stripSlot),
+        ) { detail, own, stripPhoto -> toUiState(detail, own, stripPhoto) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ToxinTaskDetailUiState())
 
     init {
@@ -272,15 +291,24 @@ class ToxinTaskDetailViewModel @Inject constructor(
     private fun submitReading() {
         val own = local.value
         if (taskId.isBlank() || own.submitInFlight || own.submitQueued) return
-        if (own.stripPhotoOutboxItemId.isBlank() || own.selectedOutcome.isBlank()) return
+        if (own.selectedOutcome.isBlank()) return
         viewModelScope.launch {
+            // Read the capture from its DURABLE slot at submit time, so a photo taken before a
+            // ViewModel death still sends instead of the round looking un-photographed.
+            val stripPhotoOutboxItemId = proofCaptureRepository.observeLatest(stripSlot).first()
+                ?.outboxItemId
+                .orEmpty()
+            if (stripPhotoOutboxItemId.isBlank()) {
+                local.update { it.copy(message = MESSAGE_STRIP_PHOTO_MISSING) }
+                return@launch
+            }
             local.update { it.copy(submitInFlight = true, message = null) }
             try {
                 when (
                     val queued = syncRepository.enqueueToxinSubmit(
                         taskId = taskId,
                         outcome = own.selectedOutcome,
-                        stripPhotoOutboxItemId = own.stripPhotoOutboxItemId,
+                        stripPhotoOutboxItemId = stripPhotoOutboxItemId,
                     )
                 ) {
                     is AppResult.Ok -> {
@@ -400,7 +428,11 @@ class ToxinTaskDetailViewModel @Inject constructor(
         )
     }
 
-    private fun toUiState(detail: ToxinTaskDetailDto?, own: Local): ToxinTaskDetailUiState {
+    private fun toUiState(
+        detail: ToxinTaskDetailDto?,
+        own: Local,
+        stripPhoto: ProofCaptureRow?,
+    ): ToxinTaskDetailUiState {
         if (detail == null) {
             return ToxinTaskDetailUiState(
                 isRefreshing = own.isRefreshing,
@@ -426,11 +458,14 @@ class ToxinTaskDetailViewModel @Inject constructor(
             readingGuide = detail.readingGuide,
             outcomeOptions = detail.outcomeOptions.map { ToxinOutcomeOptionUi(value = it.value, label = it.label) },
             selectedOutcome = own.selectedOutcome,
-            stripPhotoCaptured = own.stripPhotoOutboxItemId.isNotBlank(),
+            // The DURABLE capture, not a remembered id: survives leaving the screen and a
+            // process death, so a queued photo is never re-shot because the UI forgot it.
+            stripPhotoCaptured = stripPhoto != null,
+            stripPhotoUri = stripPhoto?.localUri.orEmpty(),
             stripPhotoWorking = own.stripPhotoWorking,
             // BOTH halves, and only while the SERVER still says the reading step is open.
             submitEnabled = readingStepOpen &&
-                own.stripPhotoOutboxItemId.isNotBlank() &&
+                stripPhoto?.outboxItemId?.isNotBlank() == true &&
                 own.selectedOutcome.isNotBlank(),
             submitInFlight = own.submitInFlight,
             submitQueued = own.submitQueued,
@@ -471,6 +506,7 @@ class ToxinTaskDetailViewModel @Inject constructor(
         const val MESSAGE_CAPTURE_NOT_SAVED = "That didn't save. Record it again."
         const val MESSAGE_STEP_NOT_ATTACHED = "Saved, but couldn't be attached. Tap refresh to try again."
         const val MESSAGE_READING_NOT_SENT = "The reading couldn't be sent. Try again."
+        const val MESSAGE_STRIP_PHOTO_MISSING = "Take the strip photo before sending the reading."
         const val INDIA_ZONE = "Asia/Kolkata"
     }
 }

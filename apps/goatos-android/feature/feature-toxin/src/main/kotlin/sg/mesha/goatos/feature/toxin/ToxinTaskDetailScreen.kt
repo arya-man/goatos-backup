@@ -6,6 +6,7 @@ package sg.mesha.goatos.feature.toxin
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import coil.compose.AsyncImage
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -69,6 +72,32 @@ fun ToxinTaskDetailScreen(
         while (hasWaitingStep) {
             nowMs = System.currentTimeMillis()
             delay(1_000L)
+        }
+    }
+
+    // When a wait ELAPSES, re-read the server's step states.
+    //
+    // Step state is server-composed and time-dependent, but the cache is only written on a
+    // network event — so without this the countdown runs to zero and the screen stays frozen on
+    // WAITING forever. That is not cosmetic: the reading step never opens, so "Send reading"
+    // stays dead and the round cannot be submitted at all until someone happens to leave the
+    // screen and come back, or finds the sync button. It is exactly what a tester reported.
+    //
+    // The phone still decides NOTHING: this only asks the server again. The refresh is armed off
+    // the earliest waiting gate and re-arms when that gate value changes, so a screen with no
+    // wait schedules no work. A little past the instant, because the SERVER's clock is the gate
+    // and a device running fast would otherwise ask while it is still closed; if it does answer
+    // "still waiting", the bounded retry asks again rather than freezing the way this fixes.
+    val nextGateAtMs = nextGateInstantMs(state.steps)
+    LaunchedEffect(nextGateAtMs) {
+        if (nextGateAtMs <= 0L) return@LaunchedEffect
+        val untilGate = nextGateAtMs - System.currentTimeMillis()
+        if (untilGate > 0L) delay(untilGate)
+        repeat(GATE_REFRESH_ATTEMPTS) {
+            delay(GATE_REFRESH_SKEW_MS)
+            onEvent(ToxinTaskDetailEvent.Refresh)
+            // A refresh that opens the step changes this effect's key and cancels the loop; the
+            // cap stops a server that keeps answering "waiting" from polling forever.
         }
     }
 
@@ -240,6 +269,29 @@ private fun ToxinStripReadingSection(
             Text(text = line, color = MeshaColors.Muted, style = MeshaType.caption)
         }
 
+        if (state.stripPhotoCaptured && state.stripPhotoUri.isNotBlank()) {
+            // The photograph itself, shown back. Without this the ONLY sign a capture landed was
+            // the button label below flipping to "again" — which reads as "that did not take", so
+            // the strip gets photographed over and over. The step's deliverable is the image, so
+            // the image is the confirmation.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MeshaColors.Surf),
+                contentAlignment = Alignment.Center,
+            ) {
+                AsyncImage(
+                    model = state.stripPhotoUri,
+                    // Farm language describing the EVIDENCE, not the file.
+                    contentDescription = "The strip photo you took for this test",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
         if (state.stripPhotoCaptured) {
             ToxinGhostButton(
                 label = "Take the photo again",
@@ -311,3 +363,19 @@ private fun ToxinOutcomeRow(
         )
     }
 }
+
+/**
+ * The earliest server gate the screen is waiting on, as epoch millis; 0 when nothing waits.
+ *
+ * EARLIEST, not any: a round can carry more than one waiting step, and arming on a later one
+ * would leave the nearer gate to expire unnoticed — the freeze this exists to prevent.
+ */
+internal fun nextGateInstantMs(steps: List<ToxinStepUi>): Long = steps
+    .filter { it.state == ToxinStepState.WAITING && it.availableAtEpochMs > 0L }
+    .minOfOrNull { it.availableAtEpochMs } ?: 0L
+
+/** How far past a gate's instant to wait before asking the server, absorbing clock skew. */
+private const val GATE_REFRESH_SKEW_MS = 2_000L
+
+/** Bounded retries for a gate the server still reports as closed, so a stuck wait never polls forever. */
+private const val GATE_REFRESH_ATTEMPTS = 10
