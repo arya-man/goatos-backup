@@ -222,6 +222,19 @@ func rfc3339OrNil(t *time.Time) *string {
 	return &formatted
 }
 
+// completionDayForDTO keeps the response contract stable when the caller narrows `sections`.
+// The repository only fills resultDay when the distribution-completions arm runs; the handler still
+// owns the parsed/defaulted day and must echo it so required `completion_day` never becomes "".
+func completionDayForDTO(resultDay string, fallback time.Time) string {
+	if strings.TrimSpace(resultDay) != "" {
+		return resultDay
+	}
+	if fallback.IsZero() {
+		return ""
+	}
+	return fallback.Format("2006-01-02")
+}
+
 // GetExecutionAnalytics serves GET /feed-analytics/execution.
 func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) {
 	in, ok := h.analyticsInput(w, r)
@@ -301,7 +314,7 @@ func (h *Handler) GetExecutionAnalytics(w http.ResponseWriter, r *http.Request) 
 			ComparedRows: day.ComparedRows,
 		})
 	}
-	dto.CompletionDay = result.CompletionDay
+	dto.CompletionDay = completionDayForDTO(result.CompletionDay, in.CompletionDay)
 	dto.DistributionCompletionsHasMore = result.DistributionCompletionsHasMore
 	dto.CompletionTotals = completionTotalsDTO{
 		NotStarted:           result.CompletionTotals.NotStarted,
