@@ -160,6 +160,16 @@ interface PcCareRepository {
         proofOutboxItemId: String,
     ): AppResult<String>
 
+    /** Attaches one task-level proof, used by inventory_vaccine fridge stock checks. */
+    suspend fun registerTaskProof(
+        taskId: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ): AppResult<String>
+
+    /** Resolves a completed proof id to a short-lived playback URL for previews. */
+    suspend fun proofDownloadUrl(proofId: String): AppResult<String>
+
     /** Enqueues the whole-task submit under the stable per-(task, rowVersion) key. */
     suspend fun submitTask(taskId: String, rowVersion: Int): AppResult<String>
 
@@ -321,6 +331,13 @@ class DefaultPcCareRepository(
         }
     }
 
+    override suspend fun proofDownloadUrl(proofId: String): AppResult<String> = try {
+        AppResult.Ok(api.getProofDownloadUrl(proofId))
+    } catch (t: Throwable) {
+        if (t is CancellationException) throw t
+        AppResult.Err("Preview is not available yet", t)
+    }
+
     override suspend fun recordScan(taskId: String, tagVerbatim: String): PcCareScanOutcome {
         val verbatim = tagVerbatim.trim()
         val normalized = normalizePcCareTag(verbatim)
@@ -369,6 +386,17 @@ class DefaultPcCareRepository(
             proofOutboxItemId = proofOutboxItemId,
         )
     }
+
+    override suspend fun registerTaskProof(
+        taskId: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ): AppResult<String> =
+        syncRepository.enqueuePcCareTaskProofRegister(
+            taskId = taskId,
+            slotFieldKey = slotFieldKey,
+            proofOutboxItemId = proofOutboxItemId,
+        )
 
     override suspend fun submitTask(taskId: String, rowVersion: Int): AppResult<String> =
         syncRepository.enqueuePcCareTaskSubmit(taskId, rowVersion)

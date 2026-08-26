@@ -244,6 +244,8 @@ data class ShedsUiState(
     val caption: String? = null,
     val roleNote: String? = null,
     val dayTabs: List<ShedDayTab> = emptyList(),
+    /** Render this vaccination route as a card worklist, with no day/week strip. */
+    val taskListOnly: Boolean = false,
     val parkFilters: List<ShedParkFilter> = emptyList(),
     val adherence: ProtocolAdherenceSummary? = null,
     val rows: List<ShedRow> = emptyList(),
@@ -399,7 +401,7 @@ fun ShedsScreen(
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (state.dayTabs.isNotEmpty()) {
+            if (!state.taskListOnly && state.dayTabs.isNotEmpty()) {
                 // Leadership reaches this screen from a specific drive/date on the Calendar, so
                 // the day strip is redundant for them — show it only for the operator work queue
                 // (canOpenShed). VaccineCarryCard stays (it renders nothing without carry data).
@@ -408,6 +410,7 @@ fun ShedsScreen(
                 }
                 item { VaccineCarryCard(carry = state.carry) }
             } else {
+                if (state.taskListOnly) item { VaccineCarryCard(carry = state.carry) }
                 item { DriveMeta(state) }
                 item { DayProgress(state) }
             }
@@ -896,7 +899,7 @@ private fun DriveMeta(state: ShedsUiState) {
     val dueText = if (state.dueCount > 0) stringResource(R.string.sheds_due_fmt, state.dueCount) else null
     val parts = listOfNotNull(
         state.date.takeIf { it.isNotBlank() }?.let { it to true },
-        state.window.takeIf { it.isNotBlank() }?.let { it to false },
+        state.window.takeUnless { state.taskListOnly }?.takeIf { it.isNotBlank() }?.let { it to false },
         shedCountText?.let { it to true },
         dueText?.let { it to true },
     )
@@ -937,6 +940,8 @@ private fun Dot() {
 
 @Composable
 private fun DayProgress(state: ShedsUiState) {
+    if (state.taskListOnly && state.shedCount == 0 && state.dueCount == 0 && state.doneCount == 0) return
+
     Column(
         modifier = Modifier
             .fillMaxWidth()

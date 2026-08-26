@@ -776,6 +776,14 @@ interface AppApiService {
         @Body request: PcCareSlotProofRequestDto,
     ): Unit
 
+    @PUT("app/pc-care/tasks/{task_id}/proofs/{slot}")
+    suspend fun registerPcCareTaskProof(
+        @Path("task_id") taskId: String,
+        @Path("slot") slot: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: PcCareSlotProofRequestDto,
+    ): Unit
+
     @POST("app/pc-care/tasks/{task_id}/submit")
     suspend fun submitPcCareTask(
         @Path("task_id") taskId: String,
@@ -1602,6 +1610,13 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: PcCareSlotProofRequestDto,
     ) = service.registerPcCareSlotProof(taskId, animalRowId, slot, idempotencyKey, request)
+
+    override suspend fun registerPcCareTaskProof(
+        taskId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareSlotProofRequestDto,
+    ) = service.registerPcCareTaskProof(taskId, slot, idempotencyKey, request)
 
     override suspend fun submitPcCareTask(
         taskId: String,

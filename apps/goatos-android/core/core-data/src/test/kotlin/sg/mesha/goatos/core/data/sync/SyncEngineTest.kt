@@ -947,6 +947,62 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `PC Care task proof registration resolves uploaded proof and uses stable idempotency key`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(
+            queuedProofUpload(id = "proof-outbox-7").copy(
+                status = OutboxStatus.SUCCEEDED.name,
+                resultJson = syncJson.encodeToString(
+                    ProofUploadResponseDto(
+                        proof = ProofReferenceDto(
+                            proofId = "server-proof-9",
+                            proofType = "video",
+                            subjectType = "pc_care_task",
+                            uploadState = "completed",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        store.insert(
+            OutboxEntity(
+                id = "task-proof-row-1",
+                opType = OutboxOpType.PC_CARE_TASK_PROOF_REGISTER.name,
+                groupKey = pcCareTaskGroupKey("task-1"),
+                idempotencyKey = pcCareTaskProofIdempotencyKey("task-1", "stock_fridge_video", "proof-outbox-7"),
+                payloadJson = syncJson.encodeToString(
+                    PcCareTaskProofRegisterPayload(
+                        taskId = "task-1",
+                        slotFieldKey = "stock_fridge_video",
+                        proofOutboxItemId = "proof-outbox-7",
+                    ),
+                ),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 1L,
+                updatedAt = 1L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        val api = ScriptedAppApi()
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 10L })
+
+        engine.drainOnce()
+
+        val row = store.findById("task-proof-row-1")!!
+        assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+        assertEquals(
+            listOf(listOf("task-1", "stock_fridge_video", "pc-care:task-proof:task-1:stock_fridge_video:proof-outbox-7", "server-proof-9")),
+            api.pcCareTaskProofCalls,
+        )
+        assertEquals("{}", row.resultJson)
+    }
+
+    @Test
     fun `a byte-upload failure is resumable — retried with the SAME idempotency key until it succeeds`() = runBlocking {
         val store = FakeOutboxStore()
         store.insert(queuedProofUpload())

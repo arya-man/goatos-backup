@@ -78,11 +78,14 @@ class FeedWastageCompleteViewModel @Inject constructor(
     private val parkLabel: String = savedStateHandle.get<String>(ARG_PARK_LABEL).orEmpty()
     private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
     private val experimentArm: String = savedStateHandle.get<String>(ARG_EXPERIMENT_ARM).orEmpty()
+    private val captureAllowed: Boolean =
+        savedStateHandle.get<String>(ARG_CAPTURE_ALLOWED)?.toBooleanStrictOrNull() ?: false
 
     // First-paint hint only; the Room-backed live status below supersedes it the moment Room has
     // one (see FeedPackingCompleteViewModel's identical shape for the STG 2026-08-09 rationale).
     private val lifecycleStatusHint: String = savedStateHandle.get<String>(ARG_LIFECYCLE_STATUS).orEmpty()
-    private val alreadySubmitted: Boolean = !feedSessionCanCapture(lifecycleStatusHint, isToday = true)
+    private val alreadySubmitted: Boolean =
+        !captureAllowed || !feedSessionCanCapture(lifecycleStatusHint, isToday = true)
 
     // The day-shed-PEN identity for BOTH the proof AND the completion, so the proof drains
     // strictly before the gated completion that references it. Session 0 is a real value here —
@@ -110,7 +113,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
     private var submitInFlight = false
 
     init {
-        analytics.track(AnalyticsEvents.FEED_WASTAGE_COMPLETE_OPENED)
+        analytics.track(AnalyticsEvents.FEED_WASTAGE_COMPLETE_OPENED, wastageEventProps(ACTION_DETAIL_OPENED))
         viewModelScope.launch {
             draft = drafts.find(CaptureFlow.FEED_WASTAGE, groupKey)
             _state.update { it.copy(videoCaptured = draft.hasProof(STEP_VIDEO)) }
@@ -137,7 +140,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
      *  and never flip locked -> editable at all. */
     private fun applyLiveStatus(liveStatus: String?, fromRoom: Boolean) {
         if (liveStatus == null) return
-        _state.update { it.copy(alreadySubmitted = !feedSessionCanCapture(liveStatus, isToday = true)) }
+        _state.update { it.copy(alreadySubmitted = !captureAllowed || !feedSessionCanCapture(liveStatus, isToday = true)) }
         if (!fromRoom) {
             viewModelScope.launch {
                 feedRepository.persistWastageRowStatus(shedId, partitionLabel, WASTAGE_WORKFLOW, liveStatus)
@@ -182,6 +185,10 @@ class FeedWastageCompleteViewModel @Inject constructor(
     private fun captureWastageVideo(replacing: Boolean = false) {
         if (_state.value.isCapturingVideo || _state.value.alreadySubmitted || shedId.isBlank()) return
         if (!replacing && _state.value.videoCaptured) return
+        analytics.track(
+            AnalyticsEvents.FEED_WASTAGE_COMPLETE_OPENED,
+            wastageEventProps(if (replacing) ACTION_RE_RECORD_VIDEO else ACTION_RECORD_VIDEO),
+        )
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
@@ -233,7 +240,12 @@ class FeedWastageCompleteViewModel @Inject constructor(
                     drafts.putProof(CaptureFlow.FEED_WASTAGE, groupKey, STEP_VIDEO, proofOutboxId)
                     draft = drafts.find(CaptureFlow.FEED_WASTAGE, groupKey)
                     observeProofItem(proofOutboxId)
-                    analytics.track(AnalyticsEvents.FEED_WASTAGE_VIDEO_CAPTURED)
+                    analytics.track(
+                        AnalyticsEvents.FEED_WASTAGE_VIDEO_CAPTURED,
+                        wastageEventProps(ACTION_CAPTURED) +
+                            (AnalyticsEvents.Params.PROOF_ID to result.value.id) +
+                            (PARAM_OUTBOX_ITEM_ID to proofOutboxId),
+                    )
                     _state.update { it.copy(isCapturingVideo = false, videoCaptured = true, videoMessage = VIDEO_QUEUED) }
                     recomputeCanComplete()
                 }
@@ -241,7 +253,8 @@ class FeedWastageCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed wastage video enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_WASTAGE_COMPLETE_FAILURE,
-                        mapOf(AnalyticsEvents.Params.REASON to result.message),
+                        wastageEventProps(ACTION_CAPTURE_FAILED) +
+                            (AnalyticsEvents.Params.REASON to result.message),
                     )
                     _state.update { it.copy(isCapturingVideo = false, videoCaptured = false, videoMessage = PROOF_FAILED) }
                 }
@@ -355,7 +368,12 @@ class FeedWastageCompleteViewModel @Inject constructor(
                     drafts.putSubmit(CaptureFlow.FEED_WASTAGE, groupKey, completeIdempotencyKey, result.value)
                     draft = drafts.find(CaptureFlow.FEED_WASTAGE, groupKey)
                     observeOutboxItem(result.value)
-                    analytics.track(AnalyticsEvents.FEED_WASTAGE_SUBMITTED)
+                    analytics.track(
+                        AnalyticsEvents.FEED_WASTAGE_SUBMITTED,
+                        wastageEventProps(ACTION_SUBMIT) +
+                            (PARAM_PROOF_OUTBOX_ITEM_ID to videoItem) +
+                            (PARAM_OUTBOX_ITEM_ID to result.value),
+                    )
                     _state.update { it.copy(canComplete = false) }
                 }
                 is AppResult.Err -> {
@@ -363,7 +381,8 @@ class FeedWastageCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed wastage complete enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_WASTAGE_COMPLETE_FAILURE,
-                        mapOf(AnalyticsEvents.Params.REASON to result.message),
+                        wastageEventProps(ACTION_SUBMIT_FAILED) +
+                            (AnalyticsEvents.Params.REASON to result.message),
                     )
                     _state.update {
                         it.copy(result = FeedWastageCompleteResultUi(FeedWastageCompleteStatus.FAILED, result.message), canComplete = true)
@@ -440,6 +459,17 @@ class FeedWastageCompleteViewModel @Inject constructor(
             extraLabel = listOf(experimentArm, partitionLabel).filter { it.isNotBlank() }.joinToString(" . "),
         )
 
+    private fun wastageEventProps(action: String): Map<String, String> =
+        mapOf(
+            AnalyticsEvents.Params.SOURCE to SCREEN_FEED_WASTAGE_DETAIL,
+            AnalyticsEvents.Params.KIND to KIND_WASTAGE,
+            AnalyticsEvents.Params.ACTION to action,
+            AnalyticsEvents.Params.SHED_ID to shedId,
+            AnalyticsEvents.Params.PARTITION_LABEL to partitionLabel,
+            AnalyticsEvents.Params.FIELD to FIELD_FEED_WASTAGE_VIDEO,
+            PARAM_GROUP_KEY to groupKey,
+        )
+
     companion object {
         const val ARG_PARK_ID = "park_id"
         const val ARG_SHED_ID = "shed_id"
@@ -447,6 +477,7 @@ class FeedWastageCompleteViewModel @Inject constructor(
         const val ARG_SHED_LABEL = "shed_label"
         const val ARG_PARK_LABEL = "park_label"
         const val ARG_EXPERIMENT_ARM = "experiment_arm"
+        const val ARG_CAPTURE_ALLOWED = "capture_allowed"
 
         /** The PEN worked. Part of the completion's identity: a partitioned shed has one wastage
          *  task PER PEN, so dropping it would let one pen's video close out its siblings. */
@@ -459,6 +490,18 @@ class FeedWastageCompleteViewModel @Inject constructor(
 
         private const val SERVER_STATUS_POLL_INTERVAL_MS = 30_000L
         private const val MAX_SERVER_STATUS_POLLS = 2_880
+        private const val KIND_WASTAGE = "wastage"
+        private const val SCREEN_FEED_WASTAGE_DETAIL = "feed_wastage_complete"
+        private const val ACTION_DETAIL_OPENED = "detail_opened"
+        private const val ACTION_RECORD_VIDEO = "record_video"
+        private const val ACTION_RE_RECORD_VIDEO = "re_record_video"
+        private const val ACTION_CAPTURED = "captured"
+        private const val ACTION_CAPTURE_FAILED = "capture_failed"
+        private const val ACTION_SUBMIT = "submit"
+        private const val ACTION_SUBMIT_FAILED = "submit_failed"
+        private const val PARAM_GROUP_KEY = "group_key"
+        private const val PARAM_OUTBOX_ITEM_ID = "outbox_item_id"
+        private const val PARAM_PROOF_OUTBOX_ITEM_ID = "proof_outbox_item_id"
 
         /** Draft step name in the shared capture-draft store. */
         private const val STEP_VIDEO = "video"

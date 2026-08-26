@@ -121,7 +121,6 @@ fun FeedPackingCompleteScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
         ) {
-            // ALREADY SUBMITTED: the session went to the verifier, so there is nothing to record.
             if (state.alreadySubmitted) {
                 item {
                     FeedDistStatusCardBody(
@@ -129,7 +128,6 @@ fun FeedPackingCompleteScreen(
                         tone = MeshaColors.Muted,
                     )
                 }
-                return@LazyColumn
             }
 
             item {
@@ -162,6 +160,7 @@ fun FeedPackingCompleteScreen(
                             onEvent(FeedPackingCompleteEvent.RecordPackingVideo)
                         }
                     },
+                    showAction = !state.alreadySubmitted,
                 )
             }
         }

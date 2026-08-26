@@ -88,8 +88,12 @@ fun CalendarScreen(
     onEvent: (CalendarEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val selected = state.segments.firstOrNull { it.id == state.selectedSegmentId }
-        ?: state.segments.firstOrNull()
+    val selected = if (state.taskListOnly) {
+        CalendarSegment("tasks", "Tasks", CalendarSegmentKind.Week)
+    } else {
+        state.segments.firstOrNull { it.id == state.selectedSegmentId }
+            ?: state.segments.firstOrNull()
+    }
     var showMonthFilters by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     // Refresh-on-open (offline-first stale-while-revalidate): auto-sync every time the screen
@@ -156,7 +160,7 @@ fun CalendarScreen(
                 Spacer(Modifier.size(10.dp))
             }
         }
-        if (state.segments.isNotEmpty()) {
+        if (!state.taskListOnly && state.segments.isNotEmpty()) {
             item {
                 SegmentedControl(
                     segments = state.segments,
@@ -343,27 +347,29 @@ private fun androidx.compose.foundation.lazy.LazyListScope.weekContent(
     state: CalendarUiState,
     onEvent: (CalendarEvent) -> Unit,
 ) {
-    item {
-        val dayCellHeight = if (state.weekDays.any { it.dueCountLabel.isNotEmpty() || it.bucketCount > 0 }) 82.dp else 68.dp
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            state.weekDays.forEach { day ->
-                WeekDayCell(
-                    day = day,
-                    modifier = Modifier.weight(1f).height(dayCellHeight),
-                    onClick = { onEvent(CalendarEvent.TapDay(day.dateKey)) },
-                )
+    if (!state.taskListOnly) {
+        item {
+            val dayCellHeight = if (state.weekDays.any { it.dueCountLabel.isNotEmpty() || it.bucketCount > 0 }) 82.dp else 68.dp
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                state.weekDays.forEach { day ->
+                    WeekDayCell(
+                        day = day,
+                        modifier = Modifier.weight(1f).height(dayCellHeight),
+                        onClick = { onEvent(CalendarEvent.TapDay(day.dateKey)) },
+                    )
+                }
             }
         }
+        item { SectionLabel(state.selectedDateLabel) }
     }
-    item { SectionLabel(state.selectedDateLabel) }
     if (state.weekItems.isEmpty()) {
         item {
             EmptyState(
                 title = stringResource(R.string.calendar_week_empty),
-                icon = MeshaIcons.Calendar,
+                icon = if (state.taskListOnly) MeshaIcons.ClipboardCheck else MeshaIcons.Calendar,
             )
         }
     } else {

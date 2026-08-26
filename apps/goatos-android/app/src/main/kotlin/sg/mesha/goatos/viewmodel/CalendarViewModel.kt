@@ -443,8 +443,9 @@ class CalendarViewModel @Inject constructor(
             errorMessage = refreshError?.takeIf {
                 week.data == null && month.data == null && selectedDay.data == null
             }?.let { "Calendar could not load. Check your connection and try again." },
-            segments = segments,
-            selectedSegmentId = resolvedSegmentId,
+            segments = emptyList(),
+            selectedSegmentId = WEEK_SEGMENT,
+            taskListOnly = true,
             weekDays = buildWeekDays(week.data?.dateMarkers.orEmpty(), currentSelectedDay, today),
             weekItems = dayItems.map { it.toCalendarItem() },
             weekEmptyLabel = presentation?.emptyState?.okMessage?.ifBlank { base.weekEmptyLabel } ?: base.weekEmptyLabel,

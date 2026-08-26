@@ -32,10 +32,10 @@ var (
 	// catalog partition, or an undivided shed with a fabricated one.
 	ErrInvalidPartition = errors.New("pccare: partition_label is required and must match the shed partition catalog")
 	// ErrInvalidProof is returned when a supplied proof reference does not resolve to a real,
-	// completed, tenant-owned, live-camera VIDEO upload.
+	// completed, tenant-owned, live-camera proof upload of the expected media kind.
 	ErrInvalidProof = errors.New("pccare: proof reference is invalid")
 	// ErrProofRequired is returned when a slot registration omits its proof ref.
-	ErrProofRequired = errors.New("pccare: a video proof reference is required")
+	ErrProofRequired = errors.New("pccare: a proof reference is required")
 )
 
 // CreateTaskParams is the planner's create write (CEO-only route).
@@ -78,6 +78,17 @@ type TaskRow struct {
 	AssigneeNames       []string
 	// AnimalCount is this task's scanned-animal count (a per-task COUNT bounded by one task).
 	AnimalCount int32
+	// InventoryRequirements snapshots vaccine stock requirements for inventory_vaccine tasks.
+	InventoryRequirements []InventoryRequirement
+	// TaskProofs snapshots task-level proof rows for inventory_vaccine tasks.
+	TaskProofs []TaskProofRow
+}
+
+// InventoryRequirement is one vaccine/count line displayed on the inventory_vaccine card.
+type InventoryRequirement struct {
+	VaccineLabel   string
+	RequiredDoses  int32
+	SourceBatchIDs []string
 }
 
 // ScanAnimalParams records one RFID into a task, at scan time, so peers see it and dedup
@@ -117,6 +128,28 @@ type RegisterSlotProofParams struct {
 	ActorID        string
 	ActorType      string
 	TraceID        string
+}
+
+// RegisterTaskProofParams attaches task-level proof, used by inventory_vaccine fridge-stock checks.
+type RegisterTaskProofParams struct {
+	TenantID       string
+	TaskID         string
+	SlotKey        string
+	ProofRef       string
+	CapturedBy     string
+	IdempotencyKey string
+	ActorID        string
+	ActorType      string
+	TraceID        string
+}
+
+// TaskProofRow is one task-level proof row.
+type TaskProofRow struct {
+	SlotKey        string
+	ProofRef       string
+	CapturedBy     string
+	CapturedByName string
+	CapturedAt     time.Time
 }
 
 // AnimalRow is one scanned animal with its slot map, for the task detail / captures poll.
@@ -213,6 +246,10 @@ type ListTasksQuery struct {
 	Category string
 	// DueBusinessDate is the day being worked ("2026-08-21").
 	DueBusinessDate string
+	// CurrentOrCarry returns open carry-over tasks due on or before DueBusinessDate, plus that
+	// day's just-finished cards. Used by operator/director worklists so old finished cards do not
+	// keep resurfacing.
+	CurrentOrCarry bool
 	// AssigneeUserID, when set, narrows to tasks assigned to this operator (the worklist).
 	AssigneeUserID string
 	Limit          int
@@ -299,6 +336,12 @@ type TaskStore interface {
 	// RegisterSlotProof stores one slot's video ref + attribution on one animal row.
 	RegisterSlotProof(ctx context.Context, p RegisterSlotProofParams) error
 
+	// RegisterTaskProof stores one task-level proof ref + attribution.
+	RegisterTaskProof(ctx context.Context, p RegisterTaskProofParams) error
+
+	// ListTaskProofs reads task-level proof rows.
+	ListTaskProofs(ctx context.Context, tenantID, taskID string) ([]TaskProofRow, error)
+
 	// ListTaskAnimals pages one task's scanned animals with their slot maps (the peer
 	// visibility poll). Keyset on animal_row_id.
 	ListTaskAnimals(ctx context.Context, tenantID, taskID, cursor string, limit int) ([]AnimalRow, string, error)
@@ -332,8 +375,10 @@ type TaskStore interface {
 	PlannerParkSheds(ctx context.Context, tenantID, parkID, category, plannedBusinessDate, cursor string, limit int) (PlannerParkSheds, error)
 }
 
-// ProofValidator asserts every referenced proof is a real, completed, tenant-owned,
-// live-camera VIDEO upload (mime-aware on both the declared proof_type and the stored mime).
+// ProofValidator asserts every referenced proof is real, completed, tenant-owned, and live-camera
+// captured (mime-aware on both the declared proof_type and stored mime).
 type ProofValidator interface {
 	ValidateLiveCameraVideos(ctx context.Context, tenantID string, proofIDs []string) error
+	ValidateLiveCameraMedia(ctx context.Context, tenantID string, proofIDs []string) error
+	ValidateLiveCameraProofKind(ctx context.Context, tenantID string, proofIDs []string, requiredKind string) error
 }

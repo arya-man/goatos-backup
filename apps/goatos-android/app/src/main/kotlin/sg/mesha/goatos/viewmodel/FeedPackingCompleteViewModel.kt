@@ -123,7 +123,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private var submitInFlight = false
 
     init {
-        analytics.track(AnalyticsEvents.FEED_PACKING_COMPLETE_OPENED)
+        analytics.track(AnalyticsEvents.FEED_PACKING_COMPLETE_OPENED, packingEventProps(ACTION_DETAIL_OPENED))
         viewModelScope.launch {
             draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
             _state.update { it.copy(videoCaptured = draft.hasProof(STEP_VIDEO)) }
@@ -217,6 +217,10 @@ class FeedPackingCompleteViewModel @Inject constructor(
         if (_state.value.isCapturingVideo || _state.value.alreadySubmitted || shedId.isBlank()) return
         // A re-record starts from a FILLED slot, so videoCaptured only blocks a fresh record.
         if (!replacing && _state.value.videoCaptured) return
+        analytics.track(
+            AnalyticsEvents.FEED_PACKING_COMPLETE_OPENED,
+            packingEventProps(if (replacing) ACTION_RE_RECORD_VIDEO else ACTION_RECORD_VIDEO),
+        )
         _state.update { it.copy(isCapturingVideo = true, videoMessage = null) }
         viewModelScope.launch {
             val captured = try {
@@ -270,7 +274,12 @@ class FeedPackingCompleteViewModel @Inject constructor(
                     drafts.putProof(CaptureFlow.FEED_PACKING, groupKey, STEP_VIDEO, proofOutboxId)
                     draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
                     observeProofItem(proofOutboxId)
-                    analytics.track(AnalyticsEvents.FEED_PACKING_VIDEO_CAPTURED)
+                    analytics.track(
+                        AnalyticsEvents.FEED_PACKING_VIDEO_CAPTURED,
+                        packingEventProps(ACTION_CAPTURED) +
+                            (AnalyticsEvents.Params.PROOF_ID to result.value.id) +
+                            (PARAM_OUTBOX_ITEM_ID to proofOutboxId),
+                    )
                     _state.update { it.copy(isCapturingVideo = false, videoCaptured = true, videoMessage = VIDEO_QUEUED) }
                     recomputeCanComplete()
                 }
@@ -280,7 +289,8 @@ class FeedPackingCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed packing video enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_PACKING_COMPLETE_FAILURE,
-                        mapOf(AnalyticsEvents.Params.REASON to result.message),
+                        packingEventProps(ACTION_CAPTURE_FAILED) +
+                            (AnalyticsEvents.Params.REASON to result.message),
                     )
                     _state.update { it.copy(isCapturingVideo = false, videoCaptured = false, videoMessage = PROOF_FAILED) }
                 }
@@ -405,7 +415,12 @@ class FeedPackingCompleteViewModel @Inject constructor(
                     draft = drafts.find(CaptureFlow.FEED_PACKING, groupKey)
                     // Mark this pen-session as submitted for review immediately so the ViewModel overlay
                     observeOutboxItem(result.value)
-                    analytics.track(AnalyticsEvents.FEED_PACKING_SUBMITTED)
+                    analytics.track(
+                        AnalyticsEvents.FEED_PACKING_SUBMITTED,
+                        packingEventProps(ACTION_SUBMIT) +
+                            (PARAM_PROOF_OUTBOX_ITEM_ID to videoItem) +
+                            (PARAM_OUTBOX_ITEM_ID to result.value),
+                    )
                     _state.update { it.copy(canComplete = false) }
                 }
                 is AppResult.Err -> {
@@ -413,7 +428,8 @@ class FeedPackingCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed packing complete enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_PACKING_COMPLETE_FAILURE,
-                        mapOf(AnalyticsEvents.Params.REASON to result.message),
+                        packingEventProps(ACTION_SUBMIT_FAILED) +
+                            (AnalyticsEvents.Params.REASON to result.message),
                     )
                     _state.update {
                         it.copy(result = FeedPackingCompleteResultUi(FeedPackingCompleteStatus.FAILED, result.message), canComplete = true)
@@ -497,6 +513,18 @@ class FeedPackingCompleteViewModel @Inject constructor(
             ).filter { it.isNotBlank() }.joinToString(" . "),
         )
 
+    private fun packingEventProps(action: String): Map<String, String> =
+        mapOf(
+            AnalyticsEvents.Params.SOURCE to SCREEN_FEED_PACKING_DETAIL,
+            AnalyticsEvents.Params.KIND to KIND_PACKING,
+            AnalyticsEvents.Params.ACTION to action,
+            AnalyticsEvents.Params.SHED_ID to shedId,
+            AnalyticsEvents.Params.PARTITION_LABEL to partitionLabel,
+            AnalyticsEvents.Params.SESSION_NO to sessionNo.toString(),
+            AnalyticsEvents.Params.FIELD to FIELD_FEED_PACKING_VIDEO,
+            PARAM_GROUP_KEY to groupKey,
+        )
+
     companion object {
         const val ARG_PARK_ID = "park_id"
         const val ARG_SHED_ID = "shed_id"
@@ -518,6 +546,18 @@ class FeedPackingCompleteViewModel @Inject constructor(
 
         /** Bound for [startServerStatusPolling] — see its kdoc for why this cannot be unbounded. */
         private const val MAX_SERVER_STATUS_POLLS = 2_880
+        private const val KIND_PACKING = "packing"
+        private const val SCREEN_FEED_PACKING_DETAIL = "feed_packing_complete"
+        private const val ACTION_DETAIL_OPENED = "detail_opened"
+        private const val ACTION_RECORD_VIDEO = "record_video"
+        private const val ACTION_RE_RECORD_VIDEO = "re_record_video"
+        private const val ACTION_CAPTURED = "captured"
+        private const val ACTION_CAPTURE_FAILED = "capture_failed"
+        private const val ACTION_SUBMIT = "submit"
+        private const val ACTION_SUBMIT_FAILED = "submit_failed"
+        private const val PARAM_GROUP_KEY = "group_key"
+        private const val PARAM_OUTBOX_ITEM_ID = "outbox_item_id"
+        private const val PARAM_PROOF_OUTBOX_ITEM_ID = "proof_outbox_item_id"
 
         /** Draft step name in the shared capture-draft store. */
         private const val STEP_VIDEO = "video"

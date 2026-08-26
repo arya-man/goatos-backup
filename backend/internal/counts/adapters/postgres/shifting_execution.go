@@ -901,6 +901,41 @@ func shiftingOutstandingActionSQL() string {
 	              OR se.verification_state = 'rejected'))`
 }
 
+// shiftingExecutableSourceCurrentSQL keeps stale approved moves out of the operator's executable
+// queue. Completion already fails closed when a named animal is no longer at the approved source;
+// the list must use the same source truth so refresh/back does not keep advertising an impossible
+// card as active.
+func shiftingExecutableSourceCurrentSQL(tenantParam string) string {
+	return `(NOT ` + shiftingOutstandingActionSQL() + `
+	         OR EXISTS (
+	             SELECT 1
+	             FROM counts_approval_requests ar
+	             WHERE ar.tenant_id = ` + tenantParam + `::uuid
+	               AND ar.shifting_event_id = se.shifting_event_id
+	               AND ar.status = 'approved'
+	               AND NOT EXISTS (
+	                   SELECT 1
+	                   FROM jsonb_array_elements_text(coalesce(ar.payload -> 'goat_ids', '[]'::jsonb)) AS gid(goat_id)
+	                   LEFT JOIN goats g
+	                     ON g.tenant_id = ar.tenant_id
+	                    AND g.goat_id = gid.goat_id::uuid
+	                   LEFT JOIN goat_shed_partitions gsp
+	                     ON gsp.tenant_id = g.tenant_id
+	                    AND gsp.goat_id = g.goat_id
+	                   WHERE g.goat_id IS NULL
+	                      OR g.merged_into_goat_id IS NOT NULL
+	                      OR g.exited_at IS NOT NULL
+	                      OR g.shed_id IS DISTINCT FROM se.source_shed_id
+	                      OR g.park_id IS DISTINCT FROM se.source_park_id
+	                      OR (
+	                           nullif(se.source_partition_label, '') IS NOT NULL
+	                           AND regexp_replace(lower(btrim(coalesce(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+	                               IS DISTINCT FROM regexp_replace(lower(btrim(se.source_partition_label)), '^part[[:space:]]+', '')
+	                         )
+	               )
+	         ))`
+}
+
 // ListShiftingEventsPendingExecution returns one keyset page of date-scoped Actions history.
 //
 // projection-review: membership=date-and-status-scoped shifting_events plus one preferred request per event; group_key=shifting_event_id; join_cardinality=request and preview lateral joins reduce to at most one row per event; pagination=keyset over raised_at and shifting_event_id with limit plus one; scope=tenant_id plus business-date status park and shed filters
@@ -994,6 +1029,7 @@ WITH page AS (
 	      AND ($9::uuid IS NULL OR se.source_park_id = $9::uuid)
 	      AND ($10::uuid IS NULL OR se.source_shed_id = $10::uuid)
 	      AND `+shiftingActionsVisibleSQL("$11")+`
+	      AND `+shiftingExecutableSourceCurrentSQL("$1")+`
 	      AND ($5::timestamptz IS NULL
 	           OR (se.raised_at, se.shifting_event_id) < ($5::timestamptz, $6::uuid))
 	    ORDER BY se.raised_at DESC, se.shifting_event_id DESC
@@ -1139,6 +1175,7 @@ ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
 FROM shifting_events se WHERE tenant_id=$1::uuid AND raised_at >= $2 AND raised_at < $3
   AND ($5::uuid IS NULL OR se.source_park_id = $5::uuid)
   AND ($6::uuid IS NULL OR se.source_shed_id = $6::uuid)
+  AND `+shiftingExecutableSourceCurrentSQL("$1")+`
   AND `+shiftingActionsVisibleSQL("$4"),
 			q.TenantID, q.RaisedFrom.UTC(), q.RaisedBefore.UTC(), now.UTC(), sourceParkID, sourceShedID).Scan(
 			&page.StatusCounts.All, &page.StatusCounts.Pending, &page.StatusCounts.Authorized,
@@ -1158,6 +1195,7 @@ WHERE tenant_id=$1::uuid AND `+shiftingOutstandingActionSQL()+`
   AND raised_at < $2 AND raised_at >= $2 - interval '90 days'
   AND ($4::uuid IS NULL OR se.source_park_id = $4::uuid)
   AND ($5::uuid IS NULL OR se.source_shed_id = $5::uuid)
+  AND `+shiftingExecutableSourceCurrentSQL("$1")+`
   AND `+shiftingActionsVisibleSQL("$3")+`
 GROUP BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date
 ORDER BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date DESC LIMIT 5`, q.TenantID, q.RaisedFrom.UTC(), now.UTC(), sourceParkID, sourceShedID)

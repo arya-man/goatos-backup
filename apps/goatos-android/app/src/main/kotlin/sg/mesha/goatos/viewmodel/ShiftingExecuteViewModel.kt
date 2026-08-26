@@ -103,6 +103,7 @@ class ShiftingExecuteViewModel @Inject constructor(
     val state: StateFlow<ShiftingExecuteUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
+    private var proofStatusJob: Job? = null
 
     init {
         analytics.track(AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_OPENED)
@@ -131,6 +132,7 @@ class ShiftingExecuteViewModel @Inject constructor(
             // fingerprint check, canComplete) reads the evidence this movement already has.
             draft = drafts.find(CaptureFlow.SHIFTING, shiftingEventId)
             draft.submitOutboxItemId?.let(::observeOutboxItem)
+            observeProofOutboxes()
             val cached = repo.findCached(shiftingEventId)
             if (cached == null) {
                 _state.update { it.copy(loading = false, notFound = true, canComplete = false) }
@@ -227,7 +229,13 @@ class ShiftingExecuteViewModel @Inject constructor(
                         fingerprint = _state.value.feedConfigFingerprint.takeIf { step != STEP_SHIFTING },
                     )
                     draft = drafts.find(CaptureFlow.SHIFTING, shiftingEventId)
-                    analytics.track(AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_VIDEO_CAPTURED)
+                    observeProofOutboxes()
+                    analytics.track(
+                        AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_VIDEO_CAPTURED,
+                        shiftingProofEventProps(step) +
+                            (AnalyticsEvents.Params.PROOF_ID to result.value.id) +
+                            (PARAM_OUTBOX_ITEM_ID to proofOutboxId),
+                    )
                     _state.update {
                         it.copy(
                             isCapturingVideo = false,
@@ -351,6 +359,17 @@ class ShiftingExecuteViewModel @Inject constructor(
 
     private fun shiftingProofFieldKey(step: String): String = "shifting_${step}_video"
 
+    private fun shiftingProofEventProps(step: String): Map<String, String> =
+        mapOf(
+            AnalyticsEvents.Params.SOURCE to SCREEN_SHIFTING_EXECUTE,
+            AnalyticsEvents.Params.KIND to KIND_SHIFTING_COMPLETE,
+            AnalyticsEvents.Params.ACTION to ACTION_CAPTURED,
+            AnalyticsEvents.Params.FIELD to shiftingProofFieldKey(step),
+            AnalyticsEvents.Params.SHED_ID to destinationShedId,
+            PARAM_GROUP_KEY to shiftingEventId,
+            PARAM_SLOT_KEY to step,
+        )
+
     private fun resetFeedEvidenceForChangedConfig() {
         packingProofKey.invalidate()
         feedingProofKey.invalidate()
@@ -361,6 +380,7 @@ class ShiftingExecuteViewModel @Inject constructor(
             drafts.clearProof(CaptureFlow.SHIFTING, shiftingEventId, STEP_FEEDING)
             drafts.putSubmit(CaptureFlow.SHIFTING, shiftingEventId, null, null)
             draft = drafts.find(CaptureFlow.SHIFTING, shiftingEventId)
+            observeProofOutboxes()
         }
         _state.update {
             it.copy(
@@ -377,6 +397,34 @@ class ShiftingExecuteViewModel @Inject constructor(
         viewModelScope.launch { drafts.clearProof(CaptureFlow.SHIFTING, shiftingEventId, STEP_SHIFTING) }
         resetFeedEvidenceForChangedConfig()
         _state.update { it.copy(videoCaptured = false, videoMessage = REWORK_REQUIRED) }
+    }
+
+    private fun observeProofOutboxes() {
+        val proofItemIds = draft.proofs.values
+            .filter { it.isNotBlank() }
+            .toSet()
+        proofStatusJob?.cancel()
+        if (proofItemIds.isEmpty()) return
+        proofStatusJob = viewModelScope.launch {
+            syncRepository.observeStatus()
+                .map { status ->
+                    proofItemIds.mapNotNull { proofItemId ->
+                        status.items.firstOrNull { it.id == proofItemId }
+                    }
+                }
+                .distinctUntilChanged()
+                .collect { items ->
+                    if (items.size < proofItemIds.size) return@collect
+                    val proofMessage = when {
+                        items.any { it.status == SyncItemStatus.FAILED } -> VIDEO_UPLOAD_FAILED
+                        items.all { it.status == SyncItemStatus.SUCCEEDED } -> VIDEOS_SYNCED
+                        else -> VIDEO_QUEUED
+                    }
+                    _state.update { current ->
+                        if (current.result.isCommitted) current else current.copy(videoMessage = proofMessage)
+                    }
+                }
+        }
     }
 
     private fun observeOutboxItem(itemId: String) {
@@ -455,6 +503,12 @@ class ShiftingExecuteViewModel @Inject constructor(
         const val STEP_SHIFTING = "shifting"
         const val STEP_PACKING = "packing"
         const val STEP_FEEDING = "feeding"
+        const val SCREEN_SHIFTING_EXECUTE = "shifting_execute"
+        const val KIND_SHIFTING_COMPLETE = "shifting_complete"
+        const val ACTION_CAPTURED = "captured"
+        const val PARAM_GROUP_KEY = "group_key"
+        const val PARAM_OUTBOX_ITEM_ID = "outbox_item_id"
+        const val PARAM_SLOT_KEY = "slot_key"
         const val KEY_PROOF_IDEMPOTENCY = "shiftingExecute.proofKey"
         const val KEY_PACKING_PROOF_IDEMPOTENCY = "shiftingExecute.packingProofKey"
         const val KEY_FEEDING_PROOF_IDEMPOTENCY = "shiftingExecute.feedingProofKey"
@@ -462,6 +516,8 @@ class ShiftingExecuteViewModel @Inject constructor(
         const val QUEUED_MESSAGE = "Saved on this phone. The move will sync automatically."
         const val SYNCED_MESSAGE = "Completion recorded. The move applies when Park Head approval is also present."
         const val VIDEO_QUEUED = "Video saved on this phone. It will upload automatically."
+        const val VIDEOS_SYNCED = "Videos synced."
+        const val VIDEO_UPLOAD_FAILED = "Video upload failed. Re-record the failed proof."
         const val VIDEO_FAILED = "Couldn't save the video. A video is required — please record or upload it again."
         const val VIDEO_REQUIRED = "Record the video first — it is required evidence for this task."
         const val HIGH_PRIORITY_VIDEO_REQUIRED = "Record all three live videos before marking this high-priority shifting done."

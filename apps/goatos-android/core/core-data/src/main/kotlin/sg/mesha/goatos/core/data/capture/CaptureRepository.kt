@@ -1905,7 +1905,11 @@ class DefaultProofCaptureRepository(
             .forEach { row ->
                 val outboxItemId = row.outboxItemId?.takeIf(String::isNotBlank)
                 if (outboxItemId == null) {
-                    if (row.isRecoverableUploadState()) retired += recoverMissingProofUploadDriver(row)
+                    // Live observation can race the capture pipeline between Room insert,
+                    // media processing, gallery save, outbox enqueue, and row.outboxItemId
+                    // persistence. Startup recovery owns genuine no-outbox orphan repair; doing
+                    // it here emits false proof_upload_driver_missing events and can duplicate a
+                    // perfectly healthy fresh capture.
                     return@forEach
                 }
                 when (val recovered = syncRepository.findOutboxItem(outboxItemId)) {

@@ -49,10 +49,16 @@ class FailureReportingOutboxTelemetryReporterTest {
         failureClass: String? = null,
         terminalReason: String? = null,
         retryInMs: Long? = null,
+        groupKey: String = "",
+        idempotencyKey: String = "",
+        referencedProofOutboxItemId: String = "",
     ) = OutboxTelemetryEvent(
         phase = phase,
         opType = "WEIGHING_ANIMAL_OBSERVATION",
         itemId = "row-1",
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        referencedProofOutboxItemId = referencedProofOutboxItemId,
         attempt = attempt,
         maxAttempts = 5,
         failureClass = failureClass,
@@ -103,6 +109,28 @@ class FailureReportingOutboxTelemetryReporterTest {
         assertEquals("5", props[AnalyticsEvents.Params.MAX_ATTEMPTS])
         assertEquals("IOException", props[AnalyticsEvents.Params.REASON])
         assertTrue("a retryable attempt is not a non-fatal", crash.exceptions.isEmpty())
+    }
+
+    @Test
+    fun `dependency wait emits diagnostic outbox and proof reference context`() {
+        reporter().onOutboxWrite(
+            event(
+                OutboxWritePhase.DEPENDENCY_WAIT,
+                failureClass = "ProofDependencyPendingException",
+                retryInMs = 1_000,
+                groupKey = "pc-care:task:task-1",
+                idempotencyKey = "pc-care:task-proof:task-1:stock_fridge_video:proof-1",
+                referencedProofOutboxItemId = "proof-1",
+            ),
+        )
+
+        val (name, props) = analytics.events.single()
+        assertEquals(AnalyticsEvents.SYNC_WRITE_DEPENDENCY_WAIT, name)
+        assertEquals("row-1", props[AnalyticsEvents.Params.OUTBOX_ITEM_ID])
+        assertEquals("pc-care:task:task-1", props[AnalyticsEvents.Params.GROUP_KEY])
+        assertEquals("pc-care:task-proof:task-1:stock_fridge_video:proof-1", props[AnalyticsEvents.Params.IDEMPOTENCY_KEY])
+        assertEquals("proof-1", props[AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID])
+        assertTrue(logs.single().contains("proof_outbox=proof-1"))
     }
 
     @Test

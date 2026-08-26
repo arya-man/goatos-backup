@@ -148,6 +148,7 @@
         "shifting_event",
         "count_projection_exception",
         "counts_approval_request",
+        "pc_care_task",
         "verification_item",
         "weighing",
         "vaccination_batch",

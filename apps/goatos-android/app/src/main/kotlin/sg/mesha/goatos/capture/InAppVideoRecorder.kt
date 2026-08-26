@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -37,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
@@ -88,6 +90,7 @@ import java.io.File
 fun InAppVideoRecorderOverlay(
     captureContext: ProofCaptureContext? = null,
     onResult: (CapturedVideo?) -> Unit,
+    onCameraEvent: (String) -> Unit = {},
     // MEDIUM: Accept validator as dependency instead of constructing inline
     artifactValidator: ProofArtifactValidator = remember { FileSystemProofArtifactValidator() },
 ) {
@@ -100,6 +103,8 @@ fun InAppVideoRecorderOverlay(
     val retryLabel = stringResource(R.string.proof_camera_retry)
 
     var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
+    var boundCamera by remember { mutableStateOf<Camera?>(null) }
+    var torchEnabled by remember { mutableStateOf(false) }
     var activeRecording by remember { mutableStateOf<Recording?>(null) }
     var isRecording by remember { mutableStateOf(false) }
     var startedAtMs by remember { mutableStateOf(0L) }
@@ -110,6 +115,7 @@ fun InAppVideoRecorderOverlay(
     var previewStreaming by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
     var previewTimeoutTriggered by remember { mutableStateOf(false) }
+    var previewStreamingReported by remember { mutableStateOf(false) }
     var retryGeneration by remember { mutableStateOf(0) }
     var pendingValidation by remember { mutableStateOf<File?>(null) }  // HIGH-2: validation off-main
 
@@ -122,12 +128,14 @@ fun InAppVideoRecorderOverlay(
     fun startRecording() {
         val capture = videoCapture ?: return
         if (isRecording) return
+        if (pendingValidation != null) return
         val file = newCaptureFile(context)
         val output = FileOutputOptions.Builder(file).build()
         cancelled = false
         startedAtMs = System.currentTimeMillis()
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             file.delete()
+            onCameraEvent("audio_permission_missing")
             deliver(null)
             return
         }
@@ -147,20 +155,25 @@ fun InAppVideoRecorderOverlay(
                     activeRecording = null
                     if (cancelled) {
                         file.delete()
+                        onCameraEvent("cancelled")
                         deliver(null)
                     } else if (!event.hasError()) {
+                        onCameraEvent("finalized")
                         // HIGH-2: Defer validation to LaunchedEffect (off-main) to avoid jank at Stop-tap
                         pendingValidation = file
                     } else {
                         file.delete()
+                        onCameraEvent("finalize_failed")
                         deliver(null)
                     }
                 }
             }
         isRecording = true
+        onCameraEvent("recording_started")
     }
 
     fun finishRecording() {
+        onCameraEvent("stop_tapped")
         activeRecording?.stop()
     }
 
@@ -168,6 +181,7 @@ fun InAppVideoRecorderOverlay(
         cancelled = true
         val recording = activeRecording
         if (recording == null) {
+            onCameraEvent("cancelled")
             deliver(null)
         } else {
             recording.stop()
@@ -177,8 +191,12 @@ fun InAppVideoRecorderOverlay(
     BackHandler(onBack = ::cancelRecording)
 
     // Gate 1: Preview readiness gate — record only when preview stream is STREAMING
-    LaunchedEffect(previewStreaming, isRecording, resultDelivered) {
-        if (previewStreaming && !isRecording && !resultDelivered) {
+    LaunchedEffect(previewStreaming, isRecording, pendingValidation, resultDelivered) {
+        if (previewStreaming && !isRecording && pendingValidation == null && !resultDelivered) {
+            if (!previewStreamingReported) {
+                previewStreamingReported = true
+                onCameraEvent("streaming")
+            }
             startRecording()
         }
     }
@@ -190,6 +208,7 @@ fun InAppVideoRecorderOverlay(
             if (!previewStreaming) {
                 previewTimeoutTriggered = true
                 cameraError = previewTimeoutMessage
+                onCameraEvent("validation_failed")
             }
         }
     }
@@ -205,7 +224,7 @@ fun InAppVideoRecorderOverlay(
     // HIGH-2: Validate off-main to avoid jank at Stop-tap
     LaunchedEffect(pendingValidation) {
         val fileToValidate = pendingValidation
-        if (fileToValidate != null) {
+                if (fileToValidate != null) {
             withContext(Dispatchers.IO) {
                 val validation = artifactValidator.validateVideoFile(fileToValidate.toURI().toString())
                 if (validation.isValid) {
@@ -219,6 +238,7 @@ fun InAppVideoRecorderOverlay(
                 } else {
                     // CRITICAL-2: Invalid video — DO NOT deliver(null); show error UI with retry/cancel options
                     fileToValidate.delete()
+                    onCameraEvent("validation_failed")
                     cameraError = invalidVideoMessage
                 }
             }
@@ -263,13 +283,16 @@ fun InAppVideoRecorderOverlay(
                         lifecycleOwner = lifecycleOwner,
                         onBound = { capture ->
                             videoCapture = capture
+                            boundCamera = cameraSession.camera
                             cameraReady = true
                             cameraError = null
+                            onCameraEvent("bound")
                         },
                         onError = {
                             cameraReady = false
                             previewStreaming = false
                             cameraError = cameraUnavailableMessage
+                            onCameraEvent("bind_failed")
                         },
                     )
                 }
@@ -278,6 +301,8 @@ fun InAppVideoRecorderOverlay(
                 cameraReady = false
                 previewStreaming = false
                 videoCapture = null
+                boundCamera = null
+                torchEnabled = false
                 cameraSession.release()
             },
             modifier = Modifier.fillMaxSize(),
@@ -317,6 +342,18 @@ fun InAppVideoRecorderOverlay(
             ProofCardHeader(
                 cameraError = cameraError,
                 captureContext = captureContext,
+                torchEnabled = torchEnabled,
+                torchAvailable = boundCamera?.cameraInfo?.hasFlashUnit() == true,
+                onToggleTorch = {
+                    val camera = boundCamera ?: return@ProofCardHeader
+                    val next = !torchEnabled
+                    runCatching { camera.cameraControl.enableTorch(next) }
+                        .onSuccess {
+                            torchEnabled = next
+                            onCameraEvent(if (next) "torch_on" else "torch_off")
+                        }
+                        .onFailure { onCameraEvent("torch_failed") }
+                },
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
@@ -352,14 +389,17 @@ fun InAppVideoRecorderOverlay(
                 cameraError = cameraError,
                 retryLabel = retryLabel,
                 onRetry = {
+                    onCameraEvent("retry_tapped")
                     cameraError = null
                     previewTimeoutTriggered = false
                     cameraSession.release()
                     cameraReady = false
                     videoCapture = null
                     previewStreaming = false
+                    previewStreamingReported = false
                     retryGeneration++ // CRITICAL-1: increment to force AndroidView factory re-run + rebind
                 },
+                onCancel = ::cancelRecording,
                 onClick = { if (isRecording) finishRecording() else startRecording() },
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -371,6 +411,9 @@ fun InAppVideoRecorderOverlay(
 private fun ProofCardHeader(
     cameraError: String?,
     captureContext: ProofCaptureContext?,
+    torchEnabled: Boolean,
+    torchAvailable: Boolean,
+    onToggleTorch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val promptCopy = captureContext?.prompt?.let(::recorderCopyResources)
@@ -393,7 +436,7 @@ private fun ProofCardHeader(
             Icon(MeshaIcons.Video, contentDescription = null, tint = MeshaColors.BrandD)
         }
         Spacer(Modifier.width(12.dp))
-        Column {
+        Column(Modifier.weight(1f)) {
             Text(
                 text = if (cameraError == null) {
                     recorderHeaderTitle(captureContext?.headerTitle, fallbackTitle)
@@ -407,6 +450,21 @@ private fun ProofCardHeader(
                 text = cameraError ?: stringResource(R.string.proof_camera_auto_opened),
                 color = if (cameraError == null) MeshaColors.BrandD else MeshaColors.Danger,
                 style = MeshaType.caption,
+            )
+        }
+        IconButton(
+            onClick = onToggleTorch,
+            enabled = torchAvailable && cameraError == null,
+            modifier = Modifier.semantics {
+                contentDescription = if (torchEnabled) "Turn flash off" else "Turn flash on"
+                stateDescription = if (torchEnabled) "Flash on" else "Flash off"
+                role = Role.Button
+            },
+        ) {
+            Icon(
+                imageVector = MeshaIcons.Flash,
+                contentDescription = null,
+                tint = if (torchEnabled) MeshaColors.BrandD else MeshaColors.Muted,
             )
         }
     }
@@ -535,6 +593,10 @@ internal fun recorderCopyResources(prompt: ProofCapturePrompt): RecorderCopyReso
         R.string.proof_camera_title,
         R.string.proof_camera_instruction,
     )
+    ProofCapturePrompt.INVENTORY_VACCINE_STOCK -> RecorderCopyResources(
+        R.string.proof_camera_title,
+        R.string.proof_camera_instruction,
+    )
     ProofCapturePrompt.BIRTH -> RecorderCopyResources(
         R.string.proof_camera_birth_title,
         R.string.proof_camera_birth_instruction,
@@ -599,6 +661,7 @@ private fun StopRecordingButton(
     cameraError: String? = null,
     retryLabel: String = "Retry",
     onRetry: () -> Unit = {},
+    onCancel: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     val actionDescription = stringResource(
@@ -634,7 +697,7 @@ private fun StopRecordingButton(
                 Text(text = retryLabel, style = MeshaType.button)
             }
             Button(
-                onClick = { /* Cancel handled by BackHandler */ },
+                onClick = onCancel,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MeshaColors.Surf3,
                     contentColor = MeshaColors.Muted,
@@ -686,6 +749,8 @@ private class ProofCameraSession {
     private var provider: ProcessCameraProvider? = null
     private var preview: Preview? = null
     private var capture: VideoCapture<Recorder>? = null
+    var camera: Camera? = null
+        private set
 
     fun bind(
         context: Context,
@@ -707,7 +772,7 @@ private class ProofCameraSession {
                     val recorder = Recorder.Builder().setQualitySelector(QualitySelector.from(Quality.HD)).build()
                     val videoCapture = VideoCapture.withOutput(recorder)
                     cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
+                    val boundCamera = cameraProvider.bindToLifecycle(
                         lifecycleOwner,
                         CameraSelector.DEFAULT_BACK_CAMERA,
                         cameraPreview,
@@ -716,6 +781,7 @@ private class ProofCameraSession {
                     provider = cameraProvider
                     preview = cameraPreview
                     capture = videoCapture
+                    camera = boundCamera
                     onBound(videoCapture)
                 }.onFailure(onError)
             },
@@ -730,6 +796,7 @@ private class ProofCameraSession {
         capture?.let { useCase -> runCatching { currentProvider?.unbind(useCase) } }
         preview = null
         capture = null
+        camera = null
         provider = null
     }
 }

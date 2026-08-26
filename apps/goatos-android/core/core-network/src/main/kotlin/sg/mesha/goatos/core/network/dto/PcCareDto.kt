@@ -56,6 +56,24 @@ data class PcCareTaskDto(
      */
     @SerialName("capture_mode") val captureMode: String = "",
     @SerialName("expected_slots") val expectedSlots: List<PcCareSlotDto> = emptyList(),
+    @SerialName("inventory_requirements") val inventoryRequirements: List<PcCareInventoryRequirementDto> = emptyList(),
+    @SerialName("task_proofs") val taskProofs: List<PcCareTaskProofDto> = emptyList(),
+)
+
+@Serializable
+data class PcCareInventoryRequirementDto(
+    @SerialName("vaccine_label") val vaccineLabel: String,
+    @SerialName("required_doses") val requiredDoses: Int,
+    @SerialName("source_batch_ids") val sourceBatchIds: List<String> = emptyList(),
+)
+
+@Serializable
+data class PcCareTaskProofDto(
+    @SerialName("slot_key") val slotKey: String,
+    @SerialName("proof_ref") val proofRef: String = "",
+    @SerialName("captured_by") val capturedBy: String = "",
+    @SerialName("captured_by_name") val capturedByName: String = "",
+    @SerialName("captured_at") val capturedAt: String? = null,
 )
 
 /** One keyset page of the pen's resident RFIDs — the roster_pick tap list (read-only). */

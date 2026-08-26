@@ -850,7 +850,7 @@ class CaptureRepositoryTest {
     }
 
     @Test
-    fun `observing proofs repairs pending proof with no outbox item`() = runTest {
+    fun `startup recovery repairs pending proof with no outbox item`() = runTest {
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
@@ -872,7 +872,7 @@ class CaptureRepositoryTest {
                 mediaProcessor = IdentityProofMediaProcessor(),
             )
 
-            repo.observeProofs("task-live-orphan").first()
+            repo.reconcileRecoverableUploadsNow()
             advanceUntilIdle()
 
             val row = db.proofCaptureDao().findById("proof-live-orphan")
@@ -880,6 +880,53 @@ class CaptureRepositoryTest {
             assertEquals("proof-upload:task-live-orphan:proof-live-orphan", sync.enqueueCalls.single().idempotencyKey)
             assertEquals("outbox-0", row?.outboxItemId)
             assertEquals(CaptureSyncStatus.PENDING.name, row?.syncStatus)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `observing fresh pending proof without outbox waits for capture pipeline`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val telemetryEvents = mutableListOf<Pair<String, Map<String, String>>>()
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-fresh-no-driver-yet",
+                    taskId = "task-fresh-no-driver-yet",
+                    fieldKey = "feed_wastage_video",
+                    idempotencyKey = "proof-upload:task-fresh-no-driver-yet:proof-fresh-no-driver-yet",
+                ),
+            )
+
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+                telemetry = ProofCaptureTelemetry { event, props -> telemetryEvents += event to props },
+            )
+
+            repo.observeProofs("task-fresh-no-driver-yet").first()
+            advanceUntilIdle()
+
+            val row = db.proofCaptureDao().findById("proof-fresh-no-driver-yet")
+            assertTrue(sync.enqueueCalls.isEmpty())
+            assertEquals(null, row?.outboxItemId)
+            assertEquals(CaptureSyncStatus.PENDING.name, row?.syncStatus)
+            assertEquals(
+                0,
+                db.proofCaptureDao().countStateEvents("proof-fresh-no-driver-yet", "missing_outbox_driver_during_recovery"),
+            )
+            assertFalse(
+                telemetryEvents.any { (event, props) ->
+                    event == "proof_upload_driver_missing" &&
+                        props["proof_id"] == "proof-fresh-no-driver-yet"
+                },
+            )
         } finally {
             db.close()
         }
@@ -939,6 +986,112 @@ class CaptureRepositoryTest {
                         props["reason"] == "missing_outbox_driver_during_recovery" &&
                         props["proof_id"] == "proof-stale-outbox" &&
                         props["field_key"] == "feed_distribution_water_video"
+                },
+            )
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `observing live processing proof without outbox does not report missing upload driver`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val telemetryEvents = mutableListOf<Pair<String, Map<String, String>>>()
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-live-processing",
+                    taskId = "task-live-processing",
+                    fieldKey = "feed_packing_video",
+                    idempotencyKey = "proof-upload:task-live-processing:proof-live-processing",
+                    outboxItemId = null,
+                    uploadGroupKey = "feed-pack:task-live-processing",
+                ).copy(
+                    localUri = "file://original-packing-video.mp4",
+                    originalUri = "file://original-packing-video.mp4",
+                    processedUri = null,
+                    processingState = ProofProcessingState.PROCESSING_MEDIA.name,
+                    processingAttempted = true,
+                    stateAttempt = 1,
+                    uploadOriginal = false,
+                ),
+            )
+
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                telemetry = ProofCaptureTelemetry { event, props -> telemetryEvents += event to props },
+            )
+
+            repo.observeProofs("task-live-processing").first()
+            advanceUntilIdle()
+
+            assertTrue(sync.enqueueCalls.isEmpty())
+            assertEquals(
+                0,
+                db.proofCaptureDao().countStateEvents("proof-live-processing", "missing_outbox_driver_during_recovery"),
+            )
+            assertFalse(
+                telemetryEvents.any { (event, props) ->
+                    event == "proof_upload_driver_missing" &&
+                        props["proof_id"] == "proof-live-processing"
+                },
+            )
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `observing live processed proof before outbox id persistence does not report missing upload driver`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val telemetryEvents = mutableListOf<Pair<String, Map<String, String>>>()
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-live-processed-no-outbox-yet",
+                    taskId = "task-live-processed-no-outbox-yet",
+                    fieldKey = "feed_wastage_video",
+                    idempotencyKey = "proof-upload:task-live-processed-no-outbox-yet:proof-live-processed-no-outbox-yet",
+                    outboxItemId = null,
+                    uploadGroupKey = "feed-wastage:task-live-processed-no-outbox-yet",
+                ).copy(
+                    localUri = "file://processed-wastage-video.mp4",
+                    originalUri = "file://original-wastage-video.mp4",
+                    processedUri = "file://processed-wastage-video.mp4",
+                    processingState = ProofProcessingState.PROCESSED.name,
+                    processingAttempted = true,
+                    stateAttempt = 1,
+                    uploadOriginal = false,
+                ),
+            )
+
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                telemetry = ProofCaptureTelemetry { event, props -> telemetryEvents += event to props },
+            )
+
+            repo.observeProofs("task-live-processed-no-outbox-yet").first()
+            advanceUntilIdle()
+
+            assertTrue(sync.enqueueCalls.isEmpty())
+            assertEquals(
+                0,
+                db.proofCaptureDao().countStateEvents("proof-live-processed-no-outbox-yet", "missing_outbox_driver_during_recovery"),
+            )
+            assertFalse(
+                telemetryEvents.any { (event, props) ->
+                    event == "proof_upload_driver_missing" &&
+                        props["proof_id"] == "proof-live-processed-no-outbox-yet"
                 },
             )
         } finally {

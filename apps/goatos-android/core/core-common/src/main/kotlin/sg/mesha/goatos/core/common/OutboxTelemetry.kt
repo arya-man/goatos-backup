@@ -54,6 +54,12 @@ enum class OutboxWritePhase {
     RETRY_SCHEDULED,
 
     /**
+     * This row is ready, but one of its referenced proof-upload rows has not succeeded yet.
+     * The row is rescheduled without consuming its retry budget.
+     */
+    DEPENDENCY_WAIT,
+
+    /**
      * The write is DEAD: it will never be sent again without an operator/manual retry.
      * The single most important phase here — before this existed, permanently-undelivered
      * data was indistinguishable on-device from data still in flight.
@@ -74,6 +80,9 @@ object OutboxTerminalReason {
  * One transition of one queued write.
  *
  * @param itemId the outbox row id (a locally generated UUID — not livestock or user data).
+ * @param groupKey the durable sync lane key for diagnosing local ordering/dependency waits.
+ * @param idempotencyKey the deterministic write key used for server-side replay safety.
+ * @param referencedProofOutboxItemId the proof upload row this write is waiting on, when known.
  * @param failureClass the exception's SIMPLE CLASS NAME (`IOException`, `HttpException`, …) —
  *   deliberately not its message, which can carry arbitrary server copy.
  * @param terminalReason one of [OutboxTerminalReason], set only for [OutboxWritePhase.TERMINAL].
@@ -83,6 +92,9 @@ data class OutboxTelemetryEvent(
     val phase: OutboxWritePhase,
     val opType: String,
     val itemId: String,
+    val groupKey: String = "",
+    val idempotencyKey: String = "",
+    val referencedProofOutboxItemId: String = "",
     val attempt: Int = 0,
     val maxAttempts: Int = 0,
     val failureClass: String? = null,

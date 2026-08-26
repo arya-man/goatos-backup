@@ -40,13 +40,14 @@ class OutboxSameMillisecondOrderTest {
         nextAttemptAt: Long = 0L,
         attempts: Int = 0,
         conflict: Boolean = false,
+        payloadJson: String = "{}",
     ) =
         OutboxEntity(
             id = id,
             opType = opType,
             groupKey = group,
             idempotencyKey = "key-$id",
-            payloadJson = "{}",
+            payloadJson = payloadJson,
             status = status,
             attemptCount = attempts,
             maxAttempts = 8,
@@ -193,6 +194,213 @@ class OutboxSameMillisecondOrderTest {
         assertEquals(
             "one rejected shifting raise must not poison every future move into that destination shed",
             listOf("new-shift"),
+            eligible,
+        )
+        database.close()
+    }
+
+    @Test
+    fun `a terminal failed proof upload does not block a replacement proof upload`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "old-proof",
+                "PROOF_UPLOAD",
+                "proof-task-1",
+                createdAt = 5L,
+                status = "FAILED",
+                nextAttemptAt = Long.MAX_VALUE,
+                attempts = 8,
+            ),
+        )
+        dao.insert(row("replacement-proof", "PROOF_UPLOAD", "proof-task-1", createdAt = 6L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "recording proof again must enqueue the fresh upload even when an older take is terminal",
+            listOf("replacement-proof"),
+            eligible,
+        )
+        database.close()
+    }
+
+    @Test
+    fun `a terminal failed pc care task proof registration does not block replacement registration or submit`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "old-register",
+                "PC_CARE_TASK_PROOF_REGISTER",
+                "pc-care-task:task-1",
+                createdAt = 5L,
+                status = "FAILED",
+                nextAttemptAt = Long.MAX_VALUE,
+                attempts = 8,
+            ),
+        )
+        dao.insert(row("replacement-register", "PC_CARE_TASK_PROOF_REGISTER", "pc-care-task:task-1", createdAt = 6L))
+        dao.insert(row("submit", "PC_CARE_TASK_SUBMIT", "pc-care-task:task-1", createdAt = 7L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "recording stock proof again must not leave the task lane stuck behind an older terminal registration",
+            listOf("replacement-register", "submit"),
+            eligible,
+        )
+        database.close()
+    }
+
+    @Test
+    fun `pc care submit waits when current task proof registration is terminal and unreplaced`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(row("proof", "PROOF_UPLOAD", "pc-care-task:task-1", createdAt = 4L, status = "SUCCEEDED"))
+        dao.insert(
+            row(
+                "current-register",
+                "PC_CARE_TASK_PROOF_REGISTER",
+                "pc-care-task:task-1",
+                createdAt = 5L,
+                status = "FAILED",
+                nextAttemptAt = Long.MAX_VALUE,
+                attempts = 8,
+            ),
+        )
+        dao.insert(row("submit", "PC_CARE_TASK_SUBMIT", "pc-care-task:task-1", createdAt = 6L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "submit must not skip straight past a terminal failed registration for the current proof",
+            emptyList<String>(),
+            eligible,
+        )
+        database.close()
+    }
+
+    @Test
+    fun `pc care task proof registration waits behind its queued proof upload`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(row("fresh-proof", "PROOF_UPLOAD", "pc-care:task:task-1", createdAt = 6L))
+        dao.insert(
+            row(
+                "register",
+                "PC_CARE_TASK_PROOF_REGISTER",
+                "pc-care:task:task-1",
+                createdAt = 7L,
+                payloadJson = """{"proof_outbox_item_id":"fresh-proof"}""",
+            ),
+        )
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "the register must not consume attempts while its fresh proof upload is still queued",
+            listOf("fresh-proof"),
+            eligible,
+        )
+        database.close()
+    }
+
+    @Test
+    fun `pc care task proof registration ignores unrelated older active proof upload`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(row("stale-proof", "PROOF_UPLOAD", "pc-care:task:task-1", createdAt = 5L, status = "IN_FLIGHT"))
+        dao.insert(row("fresh-proof", "PROOF_UPLOAD", "pc-care:task:task-1", createdAt = 6L, status = "SUCCEEDED"))
+        dao.insert(
+            row(
+                "register",
+                "PC_CARE_TASK_PROOF_REGISTER",
+                "pc-care:task:task-1",
+                createdAt = 7L,
+                payloadJson = """{"proof_outbox_item_id":"fresh-proof"}""",
+            ),
+        )
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "an unrelated stale upload in the same task group must not starve a fresh replacement register",
+            listOf("register"),
+            eligible,
+        )
+        database.close()
+    }
+
+    @Test
+    fun `pc care submit waits behind active proof upload even when older terminal register exists`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "old-register",
+                "PC_CARE_TASK_PROOF_REGISTER",
+                "pc-care:task:task-1",
+                createdAt = 5L,
+                status = "FAILED",
+                nextAttemptAt = Long.MAX_VALUE,
+                attempts = 8,
+            ),
+        )
+        dao.insert(row("fresh-proof", "PROOF_UPLOAD", "pc-care:task:task-1", createdAt = 6L))
+        dao.insert(
+            row(
+                "fresh-register",
+                "PC_CARE_TASK_PROOF_REGISTER",
+                "pc-care:task:task-1",
+                createdAt = 7L,
+                payloadJson = """{"proof_outbox_item_id":"fresh-proof"}""",
+            ),
+        )
+        dao.insert(row("submit", "PC_CARE_TASK_SUBMIT", "pc-care:task:task-1", createdAt = 8L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "old terminal registers should not poison the lane, but submit still waits for the fresh upload",
+            listOf("fresh-proof"),
+            eligible,
+        )
+        database.close()
+    }
+
+    @Test
+    fun `a terminal failed pc care animal slot registration does not block replacement registration or submit`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "old-slot-register",
+                "PC_CARE_SLOT_REGISTER",
+                "pc-care-task:task-1",
+                createdAt = 5L,
+                status = "FAILED",
+                nextAttemptAt = Long.MAX_VALUE,
+                attempts = 8,
+            ),
+        )
+        dao.insert(
+            row(
+                "replacement-slot-register",
+                "PC_CARE_SLOT_REGISTER",
+                "pc-care-task:task-1",
+                createdAt = 6L,
+                payloadJson = """{"proof_outbox_item_id":"replacement-proof"}""",
+            ),
+        )
+        dao.insert(row("submit", "PC_CARE_TASK_SUBMIT", "pc-care-task:task-1", createdAt = 7L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "recording animal proof again must not leave the task lane stuck behind an older terminal registration",
+            listOf("replacement-slot-register", "submit"),
             eligible,
         )
         database.close()

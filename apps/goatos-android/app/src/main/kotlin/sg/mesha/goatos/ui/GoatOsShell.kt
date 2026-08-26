@@ -673,7 +673,7 @@ private fun MeshaNavBar(
         // Backend-composed, MODULE-SCOPED destinations. Labels render verbatim: bootstrap_copy.go
         // already localizes them (en/hi/kn/te), so re-translating client-side would both violate
         // the golden frontend rule and actively mislabel items (the backend calls the vaccination
-        // module's own tab "Drives", not "Vaccination").
+        // module's own tab "Stock", not "Vaccination").
         items.forEach { item ->
             // Compare BASE to BASE. `currentBaseRoute` is already stripped at '?', but a
             // backend-composed href can carry a query -- the verifier's tabs are

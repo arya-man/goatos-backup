@@ -8,15 +8,20 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -25,12 +30,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.ProofMediaPreview
+import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 import sg.mesha.goatos.core.ui.SyncIconButton
 
 /**
@@ -46,6 +56,7 @@ fun PcCareTaskScreen(
     onEvent: (PcCareTaskEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val taskProofMode = state.taskProofSlot != null
     // No RefreshOnResume: this is a scan-capture flow — a resume-triggered refresh is deliberately
     // skipped so it never disrupts mid-entry scanning (docs/decisions/android-offline-first.md);
     // the ViewModel's own status poll keeps peer work and the submit lock fresh instead.
@@ -66,14 +77,18 @@ fun PcCareTaskScreen(
         )
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(bottom = 16.dp),
+            contentPadding = if (taskProofMode) {
+                PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+            } else {
+                PaddingValues(bottom = 16.dp)
+            },
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             // Bluetooth RFID reader banner — the weighing capture screen's shape: green when the
             // reader is live (scans flow straight in), otherwise the farm-worded status with a
             // tap-to-reconnect action. Roster mode records by tapping a listed RFID, so the
             // reader banner and scan row stay off that face.
-            if (state.readerStatusLabel.isNotBlank() && !state.isLocked && !state.rosterMode) {
+            if (state.readerStatusLabel.isNotBlank() && !state.isLocked && !state.rosterMode && !taskProofMode) {
                 item(key = "reader_banner") {
                     PcCareReaderBanner(
                         name = state.readerName,
@@ -99,14 +114,14 @@ fun PcCareTaskScreen(
                 item(key = "rework_banner") { PcCareBanner(text = state.reworkReason, danger = true) }
             }
 
-            // Sent for checking / approved: the task is read-only.
+            // In review / approved: the task is read-only.
             if (state.isLocked && state.lockNotice.isNotBlank()) {
                 item(key = "lock_banner") { PcCareBanner(text = state.lockNotice, danger = false) }
             }
 
             // Scan entry drives the scan-and-record flow; in roster mode it appears only as the
             // fallback when the pen lists no animals (so the operator is never stuck).
-            if (!state.isLocked && (!state.rosterMode || state.rosterRows.isEmpty())) {
+            if (!state.isLocked && !taskProofMode && (!state.rosterMode || state.rosterRows.isEmpty())) {
                 if (state.rosterEmptyNotice.isNotBlank()) {
                     item(key = "roster_empty") { PcCareBanner(text = state.rosterEmptyNotice, danger = false) }
                 }
@@ -123,7 +138,48 @@ fun PcCareTaskScreen(
                 item(key = "scan_notice") { PcCareBanner(text = state.scanNotice, danger = false) }
             }
 
-            if (state.animalCountLabel.isNotBlank()) {
+            if (state.inventoryRequirements.isNotEmpty()) {
+                item(key = "inventory_requirements") {
+                    PcCareInventoryRequirementsCard(state.inventoryRequirements)
+                }
+            }
+
+            if (taskProofMode && (state.taskProofPhotoSlot != null || state.taskProofVideoSlot != null)) {
+                state.taskProofPhotoSlot?.let { proofSlot ->
+                    item(key = "task_proof_photo") {
+                        PcCareTaskProofAction(
+                            title = "Take photo",
+                            subtitle = "Photo evidence",
+                            icon = MeshaIcons.Plus,
+                            slot = proofSlot,
+                            locked = state.isLocked,
+                            loadingLabel = "Saving photo",
+                            retryLabel = "Retry photo",
+                            replaceLabel = "Replace photo",
+                            capturedLabel = proofSlot.statusLabel.ifBlank { "Photo captured" },
+                            onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "photo")) },
+                        )
+                    }
+                }
+                state.taskProofVideoSlot?.let { proofSlot ->
+                    item(key = "task_proof_video") {
+                        PcCareTaskProofAction(
+                            title = "Record video",
+                            subtitle = "Video evidence",
+                            icon = MeshaIcons.Video,
+                            slot = proofSlot,
+                            locked = state.isLocked,
+                            loadingLabel = "Saving video",
+                            retryLabel = "Retry video",
+                            replaceLabel = "Replace video",
+                            capturedLabel = proofSlot.statusLabel.ifBlank { "Video captured" },
+                            onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "video")) },
+                        )
+                    }
+                }
+            }
+
+            if (!taskProofMode && state.animalCountLabel.isNotBlank()) {
                 item(key = "animal_count") {
                     Text(
                         text = state.animalCountLabel,
@@ -134,7 +190,9 @@ fun PcCareTaskScreen(
                 }
             }
 
-            if (state.rosterMode) {
+            if (taskProofMode) {
+                // Task-level proof mode has no animal rows.
+            } else if (state.rosterMode) {
                 // Roster mode: one tappable row per RFID in the pen — tap to record that animal.
                 items(
                     count = state.rosterRows.size,
@@ -185,6 +243,30 @@ fun PcCareTaskScreen(
             onConfirm = { onEvent(PcCareTaskEvent.ConfirmSubmit) },
             onDismiss = { onEvent(PcCareTaskEvent.DismissSubmitConfirmation) },
         )
+    }
+}
+
+@Composable
+private fun PcCareInventoryRequirementsCard(requirements: List<PcCareInventoryRequirementUi>) {
+    Column(
+        modifier = pcCareCardModifier(enabled = false, onClick = null),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        requirements.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = row.vaccineLabel,
+                    color = MeshaColors.Ink,
+                    style = MeshaType.cardSubtitle,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(text = row.requiredDosesLabel, color = MeshaColors.BrandD, style = MeshaType.pillStrong)
+            }
+        }
     }
 }
 
@@ -286,6 +368,7 @@ private fun PcCareSlotChipRow(
     slot: PcCareSlotChipUi,
     locked: Boolean,
     onRecord: () -> Unit,
+    onRecordPhoto: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
@@ -312,18 +395,143 @@ private fun PcCareSlotChipRow(
             if (slot.hintLabel.isNotBlank()) {
                 Text(text = slot.hintLabel, color = MeshaColors.Faint, style = MeshaType.caption)
             }
+            if (slot.previewPath.isNotBlank()) {
+                ProofMediaPreview(
+                    path = slot.previewPath,
+                    kind = when (slot.previewKind) {
+                        PcCareProofPreviewKind.PHOTO -> ProofMediaPreviewKind.Photo
+                        PcCareProofPreviewKind.VIDEO -> ProofMediaPreviewKind.Video
+                    },
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
         }
         if (!locked && slot.canRecord) {
-            PcCarePrimaryButton(
-                label = when (slot.state) {
-                    PcCareSlotState.EMPTY -> "Record"
-                    else -> "Record again"
-                },
-                enabled = true,
-                onClick = onRecord,
-            )
+            if (onRecordPhoto == null) {
+                PcCarePrimaryButton(
+                    label = when (slot.state) {
+                        PcCareSlotState.EMPTY -> "Record"
+                        else -> "Record again"
+                    },
+                    enabled = true,
+                    onClick = onRecord,
+                )
+            } else {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PcCarePrimaryButton(label = "Photo", enabled = true, onClick = onRecordPhoto)
+                    PcCarePrimaryButton(label = "Video", enabled = true, onClick = onRecord)
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun PcCareTaskProofAction(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    slot: PcCareSlotChipUi,
+    locked: Boolean,
+    loadingLabel: String,
+    retryLabel: String,
+    replaceLabel: String,
+    capturedLabel: String,
+    onRecord: () -> Unit,
+) {
+    val failed = slot.state == PcCareSlotState.FAILED
+    val synced = slot.state == PcCareSlotState.SYNCED
+    val working = slot.state == PcCareSlotState.WORKING
+    val captured = slot.state != PcCareSlotState.EMPTY
+    val enabled = !locked && slot.canRecord && !working
+    val border = when {
+        failed -> MeshaColors.Danger
+        synced -> MeshaColors.Ok
+        captured -> MeshaColors.Brand.copy(alpha = 0.5f)
+        else -> MeshaColors.Hair
+    }
+    val iconBg = when {
+        failed -> MeshaColors.Danger.copy(alpha = 0.14f)
+        synced -> MeshaColors.Ok.copy(alpha = 0.14f)
+        captured -> MeshaColors.Brand.copy(alpha = 0.14f)
+        else -> MeshaColors.Surf2
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 82.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, border, RoundedCornerShape(18.dp))
+            .clickable(enabled = enabled && !captured, onClick = onRecord)
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(iconBg),
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                working -> CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MeshaColors.Brand)
+                failed -> Icon(MeshaIcons.Warn, contentDescription = null, tint = MeshaColors.Danger, modifier = Modifier.size(22.dp))
+                synced -> Icon(MeshaIcons.Check, contentDescription = null, tint = MeshaColors.Ok, modifier = Modifier.size(22.dp))
+                captured -> Icon(icon, contentDescription = null, tint = MeshaColors.BrandD, modifier = Modifier.size(22.dp))
+                else -> Icon(icon, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(22.dp))
+            }
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = when {
+                    working -> loadingLabel
+                    failed -> retryLabel
+                    captured -> capturedLabel
+                    else -> title
+                },
+                color = proofActionTitleColor(failed = failed, enabled = enabled, captured = captured, working = working),
+                style = MeshaType.cardTitle,
+            )
+            Text(text = subtitle, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
+            if (slot.previewPath.isNotBlank()) {
+                ProofMediaPreview(
+                    path = slot.previewPath,
+                    kind = when (slot.previewKind) {
+                        PcCareProofPreviewKind.PHOTO -> ProofMediaPreviewKind.Photo
+                        PcCareProofPreviewKind.VIDEO -> ProofMediaPreviewKind.Video
+                    },
+                )
+                if (enabled) {
+                    PcCareProofRetryButton(label = if (failed) retryLabel else replaceLabel, onClick = onRecord)
+                }
+            } else if (!working && enabled) {
+                PcCareProofRetryButton(label = if (captured || failed) replaceLabel else title, onClick = onRecord)
+            }
+            if (slot.hintLabel.isNotBlank()) {
+                Text(text = slot.hintLabel, color = MeshaColors.Faint, style = MeshaType.caption)
+            }
+        }
+    }
+}
+
+@Composable
+private fun proofActionTitleColor(failed: Boolean, enabled: Boolean, captured: Boolean, working: Boolean): Color =
+    when {
+        failed -> MeshaColors.Danger
+        enabled || captured || working -> MeshaColors.Ink
+        else -> MeshaColors.Faint
+    }
+
+@Composable
+private fun PcCareProofRetryButton(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = MeshaColors.BrandD,
+        style = MeshaType.cta,
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+    )
 }
 
 @Composable
@@ -344,7 +552,7 @@ private fun PcCareSubmitBar(
         // The weighing surfaces' primary-button chrome (Brand fill, dark label).
         PcCarePrimaryButton(
             label = when {
-                state.submitQueued -> "Sent for checking"
+                state.submitQueued -> "Submitted"
                 state.submitInFlight -> "Sending…"
                 else -> "Submit task"
             },
@@ -363,12 +571,12 @@ private fun PcCareSubmitConfirmationDialog(
 ) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(text = "Send this task for checking?", color = MeshaColors.Ink, style = MeshaType.cardTitle) },
+        title = { Text(text = "Submit this task?", color = MeshaColors.Ink, style = MeshaType.cardTitle) },
         text = {
             Text(
                 text = buildString {
                     if (animalCountLabel.isNotBlank()) append("$animalCountLabel recorded. ")
-                    append("After sending, this task is locked until it is checked.")
+                    append("After submitting, this task is locked until review is complete.")
                 },
                 color = MeshaColors.Muted,
                 style = MeshaType.cardSubtitle,
@@ -381,7 +589,7 @@ private fun PcCareSubmitConfirmationDialog(
         },
         confirmButton = {
             androidx.compose.material3.TextButton(onClick = onConfirm) {
-                Text(text = "Send", color = MeshaColors.Danger, style = MeshaType.cardSubtitle)
+                Text(text = "Submit", color = MeshaColors.Danger, style = MeshaType.cardSubtitle)
             }
         },
         containerColor = MeshaColors.Surf,

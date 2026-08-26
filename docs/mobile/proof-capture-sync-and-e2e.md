@@ -129,6 +129,34 @@ Operator UI may show business status such as `Compressing proof...` and
 `Uploading proof...`, but must not expose codec, Room, outbox, GCS, idempotency,
 or other implementation terms.
 
+### 2c. Camera, preview, and playback guardrails
+
+The live camera surface is only for recording or stopping/cancelling the current
+capture. Do not add post-capture preview, playback, retry cards, or proof-detail
+UI inside `InAppVideoRecorderOverlay`; those belong to the feature proof/detail
+screen after the captured artifact has been handed back to the ViewModel.
+
+Every production proof preview must use the shared preview/player path:
+
+- `ProofMediaPreview` for operator-side photo/video proof previews.
+- `LocalProofPlayerFactory` for proof-video playback so remote signed-url
+  fetches go through the app's instrumented proof-media HTTP client.
+- Small icon controls that do not cover the proof subject, plus visible
+  elapsed/total time and progress for video.
+
+Do not replace this with feature-local ExoPlayer construction, a large
+Play/Pause text pill, or a screen-specific player that bypasses proof media
+telemetry. Verifier and leadership review screens may have richer playback
+surfaces, but they must keep the same signed-url refresh and telemetry rules.
+
+Shared camera lifecycle telemetry belongs in `BindVideoCaptureSource` and
+`InAppVideoRecorderOverlay`, not in feature-local camera wrappers. Every in-app
+camera route emits durable `proof_camera_*` events for request, visible, bound,
+streaming, recording start, stop tap, cancel, retry, finalization, and failure.
+Gallery-picker proof imports emit `proof_gallery_picker_*`. Feature ViewModels
+still own their feature-intent events around button taps and submit decisions,
+but must not bypass the shared camera/proof lifecycle.
+
 ## 3. Room-first, single source of truth, background sync
 
 The on-device database is the single source of truth for both scans and proof
@@ -150,6 +178,11 @@ videos. Nothing is "submitted" straight to the network.
 - Every scan and clip creates its own draft outbox record immediately. Shed and
   drive submit buttons only validate/finalize already-synced records; they are
   not bulk-upload triggers.
+- A submit/completion row that references proof-upload rows must wait for those
+  proof rows to reach `SUCCEEDED` without consuming its own retry budget. A
+  still-uploading proof is not a failed submit attempt. Missing proof rows,
+  blank server proof ids, or backend validation rejections remain terminal and
+  must surface to the operator.
 - Sync runs both directions: the write outbox posts draft scans, registers and
   uploads proof blobs, then finalizes the submission; server responses (accept /
   rework / verification outcome) are written back into Room and re-emitted.
@@ -223,7 +256,31 @@ and notifications. These are **mandatory**:
   closes the drive and emits one accepted medical transition per goat. The
   medical date remains the operator's `administered_at`.
 
-## 6. E2E testing (emulator, no BT/camera hardware)
+## 6. E2E runtime rule for phone proof work
+
+Phone E2E for proof, vaccination, feed, weighing, milk, shifting, and workflow
+camera paths must run against the OCI-backed staging-compatible API/runtime used
+by the project environment. Do not install or start a local Docker database/API
+for this phone proof flow. Android can still use `adb reverse` to reach the
+host API port, but that host API must point at the approved OCI/staging-backed
+data plane for the run.
+
+Before claiming a proof/camera change is complete, verify the real phone path
+back and forth:
+
+- capture photo/video, stop recording, return to the feature screen, and confirm
+  preview frame/time/progress are visible on the feature screen
+- submit, navigate away/back, refresh from the top-right sync control, and
+  confirm completed/current/carry-over cards behave as server state dictates
+- re-open the same account on another phone and confirm server-backed previews
+  load after upload completes
+- force at least one delayed proof-upload dependency and confirm the dependent
+  submit row waits without aging into terminal failure
+- inspect backend/Firebase/logcat events for camera open/cancel/success/failure,
+  proof processing, Gallery save, upload registration, upload completion/failure,
+  and screen/action events for the feature being tested
+
+## 7. E2E testing (emulator, no BT/camera hardware)
 
 The BT-HID and camera transports are the only hardware-bound parts, and both are
 behind ports (`ScanSource`, `ProofCaptureSource`), so the full flow is E2E-testable

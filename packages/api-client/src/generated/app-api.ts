@@ -2125,7 +2125,7 @@ export interface paths {
         };
         /**
          * PC Care planner vocabulary (parks, assignable operators, categories).
-         * @description PC Care (maintainer decision 2026-08-21) is the planner-assigned deworming / ticks removal / hoof trimming / hair trimming module. The catalog is the park-grain create-wizard vocabulary: every park the planner may pick, the assignable operator roster, and the module's backend-owned category vocabulary. Planning is CEO-only (pc_care.plan, the weighing.plan precedent).
+         * @description PC Care (maintainer decision 2026-08-21) is the planner-assigned deworming / ticks removal / hoof trimming / hair trimming module, plus the kernel-created inventory_vaccine director stock check. The catalog is the park-grain create-wizard vocabulary: every park the planner may pick, the assignable operator roster, and only human-plannable categories. Kernel-owned inventory_vaccine tasks are visible on monitor/worklist reads, but are not offered by this create wizard. Planning is CEO-only (pc_care.plan, the weighing.plan precedent).
          */
         get: operations["appPCCarePlannerCatalog"];
         put?: never;
@@ -2311,6 +2311,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/pc-care/tasks/{task_id}/proofs/{slot}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Attach one task-level proof to an inventory vaccine stock-check task.
+         * @description Used by inventory_vaccine tasks, where the director proves fridge stock for the whole task rather than scanning individual animals. The slot is the backend-owned stock_fridge_photo or stock_fridge_video proof slot, and the proof must be a completed, tenant-owned, in-app-camera photo or video.
+         */
+        put: operations["appRegisterPCCareTaskProof"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/pc-care/tasks/{task_id}/submit": {
         parameters: {
             query?: never;
@@ -2322,7 +2342,7 @@ export interface paths {
         put?: never;
         /**
          * Submit the whole task for verifier review (any assignee).
-         * @description Refused until every scanned animal carries its full slot set (422 proof_incomplete) and while no animal is scanned (422 no_animals). On success the task flips to pending_verification, locks for every assignee, and ONE verification item carries every animal's clips. Verifier approve completes the task; reject returns it for rework.
+         * @description Refused until every scanned animal carries its full slot set (422 proof_incomplete) and while no animal is scanned (422 no_animals). For inventory_vaccine, refused until the task-level stock_fridge_photo and stock_fridge_video proofs are present; the task has no animal rows. On success the task flips to pending_verification, locks for every assignee, and ONE verification item carries the animal clips or fridge stock proof. Verifier approve completes the task; reject returns it for rework.
          */
         post: operations["appSubmitPCCareTask"];
         delete?: never;
@@ -6621,11 +6641,11 @@ export interface components {
          * @description A PC Care work category (maintainer decision 2026-08-21).
          * @enum {string}
          */
-        PCCareCategory: "deworming" | "ticks_removal" | "hoof_trimming" | "hair_trimming";
+        PCCareCategory: "deworming" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "inventory_vaccine";
         /** @description One expected proof slot for a task's category — the BACKEND-OWNED slot contract. The min_duration_hint_seconds on the trimming "during" clip is recorder guidance, never a client-enforced cap. */
         PCCareSlot: {
             /** @enum {string} */
-            field_key: "video" | "before_video" | "during_video" | "after_video";
+            field_key: "video" | "before_video" | "during_video" | "after_video" | "stock_fridge_photo" | "stock_fridge_video";
             label: string;
             /** @description Backend-owned farm copy saying what this video must show, rendered verbatim. */
             description?: string;
@@ -6661,11 +6681,30 @@ export interface components {
             assignee_names: string[];
             animal_count: number;
             /**
-             * @description Backend-owned capture flow for this task's category. scan_record — scanning a tag opens the video recorder immediately. roster_pick — the screen lists the pen's resident RFIDs (GET .../roster) and tapping one records that animal.
+             * @description Backend-owned capture flow for this task's category. scan_record — scanning a tag opens the video recorder immediately. roster_pick — the screen lists the pen's resident RFIDs (GET .../roster) and tapping one records that animal. task_proof — the task is satisfied by one task-level proof instead of animal rows.
              * @enum {string}
              */
-            capture_mode: "scan_record" | "roster_pick";
+            capture_mode: "scan_record" | "roster_pick" | "task_proof";
             expected_slots: components["schemas"]["PCCareSlot"][];
+            /** @description Vaccine/count lines for inventory_vaccine fridge stock tasks. */
+            inventory_requirements?: components["schemas"]["PCCareInventoryRequirement"][];
+            /** @description Task-level proof rows for inventory_vaccine fridge stock tasks. */
+            task_proofs?: components["schemas"]["PCCareTaskProof"][];
+        };
+        PCCareInventoryRequirement: {
+            vaccine_label: string;
+            required_doses: number;
+            source_batch_ids?: string[];
+        };
+        PCCareTaskProof: {
+            /** @enum {string} */
+            slot_key: "stock_fridge_photo" | "stock_fridge_video";
+            proof_ref: string;
+            /** Format: uuid */
+            captured_by?: string;
+            captured_by_name?: string;
+            /** Format: date-time */
+            captured_at?: string;
         };
         /** @description One keyset page of the RFIDs of animals currently resident in a task's pen — the roster-pick capture mode's tap list. Identifiers are verbatim; the list never gates a scan. */
         PCCareTaskRoster: {
@@ -17065,6 +17104,8 @@ export interface operations {
                 limit?: number;
                 /** @description Opaque keyset cursor returned as next_cursor by the previous page. */
                 cursor?: string;
+                /** @description Include open carry-over tasks due before the requested date, plus that day's rows. */
+                current_or_carry?: boolean;
             };
             header?: never;
             path?: never;
@@ -17339,6 +17380,60 @@ export interface operations {
         };
         responses: {
             /** @description The slot's video reference is recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description The task is locked (task_locked). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The slot does not belong to this category (invalid_slot) or the proof could not be verified (invalid_proof / proof_required). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appRegisterPCCareTaskProof: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+                slot: "stock_fridge_photo" | "stock_fridge_video";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PCCareSlotProofRequest"];
+            };
+        };
+        responses: {
+            /** @description The task-level proof reference is recorded. */
             200: {
                 headers: {
                     [name: string]: unknown;

@@ -229,7 +229,7 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
 	wantNav := []domain.BootstrapNavigationItem{
-		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+			{Key: "vaccination", Label: "Stock", Href: "/vaccination"},
 		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). This is a leadership/registry bar, so
@@ -264,7 +264,7 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
 	wantNav := []domain.BootstrapNavigationItem{
-		{Key: "vaccination", Label: "ड्राइव", Href: "/vaccination"},
+		{Key: "vaccination", Label: "स्टॉक", Href: "/vaccination"},
 		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). The Hindi label went generic with it.
@@ -469,7 +469,7 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
 	wantNav := []domain.BootstrapNavigationItem{
-		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+			{Key: "vaccination", Label: "Stock", Href: "/vaccination"},
 		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). This is a leadership/registry bar, so
@@ -565,7 +565,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
-				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+					{Key: "vaccination", Label: "Stock", Href: "/vaccination"},
 				// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
 				// "You" carries shared_key "you" so it dedupes across modules like the
 				// leadership entries -- the objection was the per-feature REPETITION, not its
@@ -620,7 +620,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			},
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
-				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+					{Key: "vaccination", Label: "Stock", Href: "/pc/vaccine-stock"},
 				{Key: "videos", Label: "Videos", Href: "/vaccination/videos"},
 				// MAINTAINER DECISION 2026-08-06: leadership and verifier are SEPARATE SURFACES.
 				// Leadership videos nav points to /vaccination/videos (leadership-owned),
@@ -640,7 +640,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"counts", "vaccination"},
 			want: []domain.BootstrapNavigationItem{
-				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+				{Key: "vaccination", Label: "Stock", Href: "/vaccination"},
 				// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
 				// "You" carries shared_key "you" so it dedupes across modules like the
 				// leadership entries -- the objection was the per-feature REPETITION, not its

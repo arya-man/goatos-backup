@@ -54,7 +54,7 @@ class FakeOutboxStore : OutboxStore {
                                 older.createdAt < row.createdAt ||
                                     (older.createdAt == row.createdAt && snapshot.indexOf(older) < snapshot.indexOf(row))
                                 ) &&
-                            older.isBackedOff(now)
+                            older.blocksLaterCandidate(now, row)
                     }
             }
             .sortedWith(compareBy({ it.createdAt }, { snapshot.indexOf(it) }))
@@ -233,9 +233,63 @@ class FakeOutboxStore : OutboxStore {
                     nextAttemptAt <= now
                 )
 
-    private fun OutboxEntity.isBackedOff(now: Long): Boolean =
-        status == OutboxStatus.FAILED.name &&
-            !conflict &&
-            attemptCount < maxAttempts &&
-            nextAttemptAt > now
+    private fun OutboxEntity.blocksLaterCandidate(now: Long, candidate: OutboxEntity): Boolean {
+        if (
+            candidate.opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER") &&
+            opType == "PROOF_UPLOAD" &&
+            candidate.referencesProofUpload(id) &&
+            isActiveProofUpload(now)
+        ) {
+            return true
+        }
+        if (
+            candidate.opType == "PC_CARE_TASK_SUBMIT" &&
+            opType == "PROOF_UPLOAD" &&
+            isActiveProofUpload(now) &&
+            rows.value.any { register ->
+                register.groupKey == candidate.groupKey &&
+                    register.opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER") &&
+                    register.referencesProofUpload(id) &&
+                    register.isActiveRegister(now) &&
+                    register.createdAt <= candidate.createdAt
+            }
+        ) {
+            return true
+        }
+        if (status != OutboxStatus.FAILED.name || !(conflict || attemptCount >= maxAttempts || nextAttemptAt > now)) {
+            return false
+        }
+        if (candidate.opType == "COUNTS_SHIFTING" && opType == "COUNTS_SHIFTING") return false
+        if (candidate.opType == "PROOF_UPLOAD" && opType == "PROOF_UPLOAD") return false
+        if (candidate.opType == opType && candidate.opType in setOf("WEIGHING_ANIMAL_OBSERVATION", "WEIGHING_SHED_OBSERVATION")) return false
+        if (opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER") &&
+            candidate.opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER")
+        ) {
+            return false
+        }
+        if (opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER") &&
+            candidate.opType == "PC_CARE_TASK_SUBMIT" &&
+            rows.value.any { register ->
+                register.groupKey == candidate.groupKey &&
+                    register.opType in setOf("PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER") &&
+                    register.createdAt > createdAt &&
+                    register.createdAt <= candidate.createdAt &&
+                    register.status in setOf(OutboxStatus.QUEUED.name, OutboxStatus.IN_FLIGHT.name, OutboxStatus.SUCCEEDED.name)
+            }
+        ) {
+            return false
+        }
+        return true
+    }
+
+    private fun OutboxEntity.isActiveProofUpload(now: Long): Boolean =
+        status in setOf(OutboxStatus.QUEUED.name, OutboxStatus.IN_FLIGHT.name) ||
+            (status == OutboxStatus.FAILED.name && !conflict && attemptCount < maxAttempts && nextAttemptAt <= now)
+
+    private fun OutboxEntity.isActiveRegister(now: Long): Boolean =
+        status in setOf(OutboxStatus.QUEUED.name, OutboxStatus.IN_FLIGHT.name) ||
+            (status == OutboxStatus.FAILED.name && !conflict && attemptCount < maxAttempts && nextAttemptAt <= now)
+
+    private fun OutboxEntity.referencesProofUpload(proofOutboxItemId: String): Boolean =
+        payloadJson.contains(""""proof_outbox_item_id":"$proofOutboxItemId"""")
 }

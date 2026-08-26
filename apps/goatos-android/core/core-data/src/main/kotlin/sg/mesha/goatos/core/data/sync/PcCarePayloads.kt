@@ -29,16 +29,23 @@ fun pcCareScanIdempotencyKey(taskId: String, normalizedTag: String): String =
 /** STABLE per (task, tag, slot, proof row): re-attaching the SAME clip replays for free, while a
  *  re-shoot (a new PROOF_UPLOAD outbox row) is a different act under a different key. */
 fun pcCareSlotIdempotencyKey(
-    taskId: String,
-    normalizedTag: String,
-    slotFieldKey: String,
-    proofOutboxItemId: String,
+	taskId: String,
+	normalizedTag: String,
+	slotFieldKey: String,
+	proofOutboxItemId: String,
 ): String = "pc-care:slot:$taskId:$normalizedTag:$slotFieldKey:$proofOutboxItemId"
+
+/** STABLE per (task, slot, proof row): task-level inventory proof registration. */
+fun pcCareTaskProofIdempotencyKey(
+	taskId: String,
+	slotFieldKey: String,
+	proofOutboxItemId: String,
+): String = "pc-care:task-proof:$taskId:$slotFieldKey:$proofOutboxItemId"
 
 /** STABLE per (task, row version): a retry replays for free, while a submit after a verifier
  *  rework (which bumps row_version) is a genuinely new act under a new key. */
 fun pcCareSubmitIdempotencyKey(taskId: String, rowVersion: Int): String =
-    "pc-care:submit:$taskId:rv:$rowVersion"
+	"pc-care:submit:$taskId:rv:$rowVersion"
 
 /**
  * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.PC_CARE_SCAN_ADD] —
@@ -62,11 +69,21 @@ data class PcCareScanAddPayload(
  */
 @Serializable
 data class PcCareSlotRegisterPayload(
-    @SerialName("task_id") val taskId: String,
-    @SerialName("animal_row_id") val animalRowId: String = "",
-    @SerialName("normalized_tag") val normalizedTag: String,
-    @SerialName("slot_field_key") val slotFieldKey: String,
-    @SerialName("proof_outbox_item_id") val proofOutboxItemId: String,
+	@SerialName("task_id") val taskId: String,
+	@SerialName("animal_row_id") val animalRowId: String = "",
+	@SerialName("normalized_tag") val normalizedTag: String,
+	@SerialName("slot_field_key") val slotFieldKey: String,
+	@SerialName("proof_outbox_item_id") val proofOutboxItemId: String,
+)
+
+/**
+ * Outbox payload for task-level PC Care proof registration, used by inventory_vaccine.
+ */
+@Serializable
+data class PcCareTaskProofRegisterPayload(
+	@SerialName("task_id") val taskId: String,
+	@SerialName("slot_field_key") val slotFieldKey: String,
+	@SerialName("proof_outbox_item_id") val proofOutboxItemId: String,
 )
 
 /**
