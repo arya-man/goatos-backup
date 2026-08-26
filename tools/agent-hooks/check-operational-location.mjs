@@ -746,6 +746,14 @@ const CHECKS = [
 // Response schemas that legitimately carry a shed WITHOUT a partition. Each entry
 // states WHY, because "it was failing" is not a reason.
 const RESPONSE_PARTITION_EXEMPT = new Set([
+  // FeedAnalyticsCompletionFilterOption (2026-08-26) is a FILTER VOCABULARY entry, not a location
+  // where work happened: it is one selectable (farm, shed) pair for the completion table's Shed
+  // select, and the filter narrows by SHED on purpose -- a reader asking for Godel 1 wants all of
+  // Godel 1's pens, so a per-pen option list would be the wrong control. The pens themselves are
+  // rendered by FeedAnalyticsDistributionCompletionRow, which carries partition_label AND the
+  // composed operational_location_display. Adding a partition here would either invent a value the
+  // option does not have or split one shed into seven unselectable rows.
+  "FeedAnalyticsCompletionFilterOption",
   // ShedCardSummary (2026-08-16) is a keyed AGGREGATE sidecar, not a rendered location row: it
   // rides in a map keyed by card id alongside the execution rows, and DOES carry partition_label —
   // but as card IDENTITY for keying/grain, not for display. The card header's location text is

@@ -168,3 +168,81 @@ func metadataString(metadata map[string]any, key string) string {
 	}
 	return strings.TrimSpace(value)
 }
+
+// DescribeProofUploads resolves the proof ids a COMPLETION row names back to their provenance —
+// who uploaded each and when — through the proof module's own batched read.
+//
+// It is the leadership execution table's detail source (maintainer decision 2026-08-26). A
+// pen-session's three references are looked up in ONE GetProofsByIDs call and the uploader display
+// names in ONE workforce lookup, however many pen-sessions the day holds: the caller passes every
+// row's references at once precisely so this never becomes a per-row round trip.
+//
+// Missing is missing: an id that does not resolve is absent from the map rather than mapped to a
+// zero value, so the caller reports the slot as unproved instead of as a proof with no uploader.
+func (v *Validator) DescribeProofUploads(
+	ctx context.Context, tenantID string, proofIDs []string,
+) (map[string]fdports.ProofUpload, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	unique := make([]string, 0, len(proofIDs))
+	seen := make(map[string]struct{}, len(proofIDs))
+	for _, raw := range proofIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		if _, done := seen[id]; done {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if tenantID == "" || len(unique) == 0 {
+		return map[string]fdports.ProofUpload{}, nil
+	}
+
+	artifacts, err := v.repo.GetProofsByIDs(ctx, tenantID, unique)
+	if err != nil {
+		return nil, err
+	}
+
+	uploaderIDs := make([]string, 0, len(artifacts))
+	uploaderSeen := make(map[string]struct{}, len(artifacts))
+	for _, artifact := range artifacts {
+		if artifact.UploadedBy == nil || *artifact.UploadedBy == "" {
+			continue
+		}
+		if _, done := uploaderSeen[*artifact.UploadedBy]; done {
+			continue
+		}
+		uploaderSeen[*artifact.UploadedBy] = struct{}{}
+		uploaderIDs = append(uploaderIDs, *artifact.UploadedBy)
+	}
+	displayNames := map[string]string{}
+	if v.pool != nil && len(uploaderIDs) > 0 {
+		displayNames = v.lookupWorkforceDisplayNames(ctx, tenantID, uploaderIDs)
+	}
+
+	out := make(map[string]fdports.ProofUpload, len(artifacts))
+	for proofID, artifact := range artifacts {
+		if artifact.TenantID != tenantID {
+			continue
+		}
+		uploadedAt := artifact.CreatedAt
+		if artifact.UploadedAt != nil {
+			uploadedAt = *artifact.UploadedAt
+		}
+		name := ""
+		if artifact.UploadedBy != nil && *artifact.UploadedBy != "" {
+			name = displayNames[*artifact.UploadedBy]
+		}
+		out[proofID] = fdports.ProofUpload{
+			ProofID:        proofID,
+			UploadedAt:     uploadedAt,
+			UploadedByName: name,
+			MimeType:       artifact.MimeType,
+		}
+	}
+	return out, nil
+}
+
+var _ fdports.ProofUploadDescriber = (*Validator)(nil)

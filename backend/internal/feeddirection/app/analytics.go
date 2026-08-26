@@ -38,6 +38,15 @@ type DirectedAnalyticsInput struct {
 	// wastage table describes; zero lets the adapter default it. Ignored by
 	// the directed/execution/stock reads.
 	WastageDay time.Time
+	// CompletionDay is the single business day the execution read's per-pen-session completion table
+	// describes; zero lets the adapter default it (yesterday, IST). CompletionLimit/Offset page that
+	// table and CompletionParkID/ShedID/Status narrow it. All ignored by the other reads.
+	CompletionDay    time.Time
+	CompletionLimit  int
+	CompletionOffset int
+	CompletionParkID string
+	CompletionShedID string
+	CompletionStatus string
 }
 
 // WithAnalyticsReader wires the directed-analytics rollup read. Optional: a pure
@@ -95,11 +104,19 @@ func (s *Service) ExecutionAnalytics(ctx context.Context, in DirectedAnalyticsIn
 	if err != nil {
 		return domain.ExecutionAnalytics{}, err
 	}
-	return s.analytics.ExecutionAnalytics(ctx, in.TenantID, domain.DirectedAnalyticsQuery{
+	result, err := s.analytics.ExecutionAnalytics(ctx, in.TenantID, domain.DirectedAnalyticsQuery{
 		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo, Sections: in.Sections,
 		PackingVarianceLimit: in.PackingVarianceLimit, PackingVarianceOffset: in.PackingVarianceOffset,
 		PackingVarianceParkLabel: in.PackingVarianceParkLabel, PackingVarianceFeedItemKey: in.PackingVarianceFeedItemKey,
+		CompletionDay: in.CompletionDay, CompletionLimit: in.CompletionLimit, CompletionOffset: in.CompletionOffset,
+		CompletionParkID: in.CompletionParkID, CompletionShedID: in.CompletionShedID,
+		CompletionStatus: in.CompletionStatus,
 	})
+	if err != nil {
+		return domain.ExecutionAnalytics{}, err
+	}
+	s.describeDistributionProofs(ctx, in.TenantID, result.DistributionCompletions)
+	return result, nil
 }
 
 // ExperimentAnalytics serves the trial arms' authored absolute-kg series.
@@ -128,4 +145,52 @@ func (s *Service) StockAnalytics(ctx context.Context, in DirectedAnalyticsInput)
 	return s.analytics.StockAnalytics(ctx, in.TenantID, domain.DirectedAnalyticsQuery{
 		ParkIDs: parkIDs, DateFrom: in.DateFrom, DateTo: in.DateTo,
 	})
+}
+
+// describeDistributionProofs fills in WHO uploaded each of a pen-session's three proofs and WHEN,
+// for every row of the completion table at once.
+//
+// ONE batched call for the whole PAGE, never one per row: the reference set is collected across
+// every row first and resolved in a single DescribeProofUploads, so a page of ten pen-sessions costs
+// one round trip rather than ten (the n-plus-one-fanout rule -- the real query sits one adapter
+// layer down, which is exactly the shape that hides from the raw-driver check).
+//
+// Best-effort by design: a proof module that is not wired, or a lookup that fails, leaves the slots
+// carrying their reference with no provenance. The table's own answer -- which pen was fed, which
+// was not -- comes from the completion rows and stays correct either way, so a provenance failure
+// must not take the screen down.
+func (s *Service) describeDistributionProofs(ctx context.Context, tenantID string, rows []domain.DistributionCompletionRow) {
+	if s.proofUploads == nil || len(rows) == 0 {
+		return
+	}
+	refs := make([]string, 0, len(rows)*len(domain.DistributionSlotOrder))
+	for _, row := range rows {
+		for _, slot := range row.Proofs {
+			if slot.ProofRef != "" {
+				refs = append(refs, slot.ProofRef)
+			}
+		}
+	}
+	if len(refs) == 0 {
+		return
+	}
+	uploads, err := s.proofUploads.DescribeProofUploads(ctx, tenantID, refs)
+	if err != nil {
+		return
+	}
+	for i := range rows {
+		for j := range rows[i].Proofs {
+			slot := &rows[i].Proofs[j]
+			upload, ok := uploads[slot.ProofRef]
+			if !ok {
+				continue
+			}
+			uploadedAt := upload.UploadedAt
+			slot.UploadedAt = &uploadedAt
+			slot.UploadedByName = upload.UploadedByName
+			if slot.MimeType == "" {
+				slot.MimeType = upload.MimeType
+			}
+		}
+	}
 }

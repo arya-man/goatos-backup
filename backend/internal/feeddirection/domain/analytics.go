@@ -65,6 +65,19 @@ type DirectedAnalyticsQuery struct {
 	// tenant and authorized park scope are still enforced by ParkIDs.
 	PackingVarianceParkLabel   string
 	PackingVarianceFeedItemKey string
+	// CompletionDay is the single business day the distribution-completion table describes,
+	// independent of the window above. Zero means the handler default (yesterday, IST).
+	CompletionDay time.Time
+	// CompletionLimit / CompletionOffset page that table. Zero limit means
+	// DefaultCompletionPageSize.
+	CompletionLimit  int
+	CompletionOffset int
+	// CompletionParkID / CompletionShedID / CompletionStatus narrow it before paging. Display-table
+	// filters, exactly like the mismatch list's: tenant and authorized park scope stay with ParkIDs,
+	// so narrowing here can only ever REMOVE rows the caller was already entitled to see.
+	CompletionParkID string
+	CompletionShedID string
+	CompletionStatus string
 }
 
 // Mismatch-list paging. The window is already capped at 92 days and the list carries only bags
@@ -76,6 +89,39 @@ const (
 	MaxPackingVariancePageSize     = 100
 	MaxPackingVarianceOffset       = 5000
 )
+
+// Completion-table paging. Same shape and same reasoning as the mismatch list above: the result
+// set is one park-day of pen-sessions, so it is bounded by the park's pens x sessions, and an
+// out-of-range page is REJECTED rather than clamped -- a caller asking for page 400 is told it does
+// not exist instead of being handed page 1's rows under page 400's heading.
+const (
+	DefaultCompletionPageSize = 10
+	MaxCompletionPageSize     = 100
+	MaxCompletionOffset       = 5000
+)
+
+// ErrInvalidCompletionStatus is returned for a status filter outside the four buckets. Rejected
+// rather than ignored: silently dropping it would answer a filtered request with every row, under
+// the heading of the filter the caller asked for.
+var ErrInvalidCompletionStatus = errors.New("feeddirection: completion status filter is not a known bucket")
+
+// ErrCompletionPageOutOfRange is returned for a completion limit or offset outside those bounds.
+var ErrCompletionPageOutOfRange = errors.New("feeddirection: completion page is out of range")
+
+// NormaliseCompletionPage validates the requested page and fills the default size. A PRESENT but
+// out-of-range value FAILS; only an ABSENT limit takes the default.
+func NormaliseCompletionPage(limit, offset int) (int, int, error) {
+	if limit < 0 || limit > MaxCompletionPageSize {
+		return 0, 0, ErrCompletionPageOutOfRange
+	}
+	if offset < 0 || offset > MaxCompletionOffset {
+		return 0, 0, ErrCompletionPageOutOfRange
+	}
+	if limit == 0 {
+		limit = DefaultCompletionPageSize
+	}
+	return limit, offset, nil
+}
 
 // ErrPackingVariancePageOutOfRange is returned for a limit or offset outside the bounds above.
 var ErrPackingVariancePageOutOfRange = errors.New("feeddirection: packing variance page is out of range")
@@ -105,6 +151,9 @@ const (
 	ExecutionSectionPackingVariance ExecutionSection = "packing_variance"
 	// ExecutionSectionConsumption is the target-vs-actual shed table and its trend.
 	ExecutionSectionConsumption ExecutionSection = "consumption"
+	// ExecutionSectionDistributionCompletions is the per-pen-session feed-direction completion
+	// table: who fed, who did not, and what they filmed.
+	ExecutionSectionDistributionCompletions ExecutionSection = "distribution_completions"
 )
 
 // ExecutionSections lists every arm, in payload order.
@@ -112,6 +161,7 @@ var ExecutionSections = []ExecutionSection{
 	ExecutionSectionDays,
 	ExecutionSectionPackingVariance,
 	ExecutionSectionConsumption,
+	ExecutionSectionDistributionCompletions,
 }
 
 // Wants reports whether the query asked for an arm. An empty selection wants everything.
@@ -313,6 +363,187 @@ type ExecutionAnalytics struct {
 	// list is a PAGE; every other figure on the screen stays a whole-window aggregate.
 	PackingVarianceHasMore bool
 	ConsumptionTrend       []FeedConsumptionTrendDay
+	// CompletionDay is the single business day the completion arm describes, echoed so the screen's
+	// date control renders the day the server answered for rather than the day the client guessed.
+	CompletionDay string
+	// DistributionCompletions is ONE PAGE of the pen-sessions the frozen sheet directed on
+	// CompletionDay -- including the ones nobody touched. See the row type.
+	DistributionCompletions []DistributionCompletionRow
+	// DistributionCompletionsHasMore reports whether a further page exists beyond those rows.
+	DistributionCompletionsHasMore bool
+	// CompletionTotals counts EVERY pen-session matching the day and the place filters, never just
+	// the page and never narrowed by the status filter. It is what the screen's four tiles read, and
+	// the two exclusions are the point: a tile that counted only the page would say "3 not fed" when
+	// the day had eleven, and one that followed the status filter would zero the other three tiles
+	// and throw away the comparison the reader came for.
+	CompletionTotals CompletionStatusTotals
+	// CompletionFilterOptions is the (park, shed) vocabulary present on that day, so the screen's
+	// selects offer exactly the places that exist rather than deriving options from one page.
+	CompletionFilterOptions []CompletionFilterOption
+}
+
+// CompletionStatusTotals is the four-bucket census of one feed day at the selected place scope.
+type CompletionStatusTotals struct {
+	NotStarted           int64
+	AwaitingVerification int64
+	Rework               int64
+	Completed            int64
+}
+
+// ---------------------------------------------------------------------------
+// Distribution completion table: WHO fed, WHO did not, and what they filmed
+// (maintainer decision 2026-08-26).
+// ---------------------------------------------------------------------------
+
+// Distribution completion statuses for the LEADERSHIP execution table. FOUR buckets, and the fourth
+// is the reason this vocabulary exists separately from SessionStatus* / NormalizeSessionStatus.
+//
+// That operator vocabulary deliberately folds raw 'rework' into "pending", because from the phone
+// both mean "my turn again". Read on a leadership screen the same fold is a lie of omission: a pen
+// whose video the verifier BOUNCED and a pen NOBODY WENT TO look identical, and telling those two
+// apart is the entire purpose of the table. So 'rework' keeps its own bucket here, and the absence
+// of a completion row gets an explicit name instead of borrowing 'pending'.
+//
+// Do NOT "simplify" this by routing the table through NormalizeSessionStatus -- that merge is
+// correct for the operator's list and wrong for this one.
+const (
+	// DistributionCompletionNotStarted: the frozen sheet directed this pen-session and NO completion
+	// row exists. Nobody submitted anything.
+	DistributionCompletionNotStarted = "not_started"
+	// DistributionCompletionAwaitingVerification: proofs submitted, no verdict yet (raw
+	// 'pending_verification'). The next action is the verifier's.
+	DistributionCompletionAwaitingVerification = "pending_verification"
+	// DistributionCompletionRework: the verifier rejected the proofs (raw 'rework'). The operator
+	// must re-shoot. Distinct from NotStarted: work WAS done and filmed.
+	DistributionCompletionRework = "rework"
+	// DistributionCompletionCompleted: a verifier approved (raw 'completed'). Terminal.
+	DistributionCompletionCompleted = "completed"
+)
+
+// NormalizeDistributionCompletionStatus maps a raw feed_distribution_completions.status onto the
+// four leadership buckets. The empty string -- no completion row -- is the only input that becomes
+// NotStarted; an unexpected value also lands there rather than being reported as progress, because
+// over-reporting completion is the failure this table exists to catch.
+func NormalizeDistributionCompletionStatus(raw string) string {
+	switch raw {
+	case DistributionCompletionCompleted:
+		return DistributionCompletionCompleted
+	case DistributionCompletionAwaitingVerification:
+		return DistributionCompletionAwaitingVerification
+	case DistributionCompletionRework:
+		return DistributionCompletionRework
+	default:
+		return DistributionCompletionNotStarted
+	}
+}
+
+// IsValidDistributionCompletionStatus reports whether raw is one of the four buckets. The empty
+// string ("every status") is valid as a FILTER value and is accepted here too.
+func IsValidDistributionCompletionStatus(raw string) bool {
+	switch raw {
+	case "", DistributionCompletionNotStarted, DistributionCompletionAwaitingVerification,
+		DistributionCompletionRework, DistributionCompletionCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Distribution proof slots -- the three proofs a pen-session's feeding is evidenced by (migration
+// 000151): the weighed feed BEFORE it goes out, the feed going out, and the water. The keys mirror
+// the field_key the phone stamps on each upload.
+const (
+	DistributionSlotFeedWeightPhoto = "feed_distribution_feed_weight_photo"
+	DistributionSlotFeedVideo       = "feed_distribution_video"
+	DistributionSlotWaterVideo      = "feed_distribution_water_video"
+)
+
+// DistributionSlotOrder is the order the three slots are reported in -- the order they are shot in
+// on the ground, so a reader scanning a row sees the sequence break where it happened.
+var DistributionSlotOrder = []string{
+	DistributionSlotFeedWeightPhoto,
+	DistributionSlotFeedVideo,
+	DistributionSlotWaterVideo,
+}
+
+// DistributionProofSlot is ONE of a pen-session's three proofs as the completion recorded it.
+//
+// The reference comes from the COMPLETION ROW (feed_weight_proof_ref / distribution_proof_ref /
+// water_proof_ref), never from the phone's capture key: the completion is what a verifier acts on,
+// so its three references are the only ones that answer "what was this pen judged on". A slot the
+// completion does not name is reported with an empty ProofRef -- that IS the missing video.
+//
+// The three may be shot by THREE DIFFERENT PEOPLE on three phones (maintainer decision 2026-08-14),
+// which is why provenance is per SLOT and never taken from whoever submitted the completion.
+type DistributionProofSlot struct {
+	// FieldKey is one of the DistributionSlot* constants.
+	FieldKey string
+	// ProofRef is the server proof id, empty when the completion names no proof for this slot.
+	ProofRef string
+	// UploadedAt is when that upload finished, nil when the slot is empty or the artifact is gone.
+	UploadedAt *time.Time
+	// UploadedByName is the display name of whoever uploaded THIS proof. Empty when unresolvable --
+	// an id is never rendered in its place (backend-owned copy: a fact with no name is dropped).
+	UploadedByName string
+	// MimeType is the stored media type, so a photo slot filled with a clip is visible.
+	MimeType string
+}
+
+// DistributionCompletionRow is ONE pen-session of ONE feed day: what the frozen sheet directed, and
+// what evidence came back for it.
+//
+// GRAIN IS THE PEN-SESSION -- (feed day, park, shed, partition, session, workflow) -- which is
+// exactly the completion's natural key (feed_distribution_completions_natural_uq, migration 000137)
+// and exactly the unit the three proofs prove. A shed-level row would let one pen's video read as
+// the whole shed's work, which is the defect 000137 was written to fix.
+//
+// A row with Status NotStarted exists BECAUSE the sheet directed it: the table is the sheet's
+// expected set LEFT JOINed to the completions, so a pen nobody went to still occupies a line. That
+// is the whole ask -- an absent row was previously indistinguishable from a pen that does not exist.
+type DistributionCompletionRow struct {
+	FeedDay   string
+	ParkID    string
+	ParkLabel string
+	ShedID    string
+	ShedLabel string
+	// PartitionLabel is the pen ("2", "Part 3"), empty for an undivided shed.
+	PartitionLabel string
+	// OperationalLocationDisplay is the oploc-composed shed+pen label, the same string every other
+	// surface renders. Clients print it verbatim and compose no location text of their own.
+	OperationalLocationDisplay string
+	SessionNo                  int32
+	// SessionLabel is the sheet's own session name ("Morning").
+	SessionLabel string
+	Workflow     string
+	// Status is one of the four DistributionCompletion* buckets.
+	Status string
+	// SubmittedByName is the operator who submitted the completion; empty when nothing was submitted
+	// or the principal does not resolve to a workforce member.
+	SubmittedByName string
+	// SubmittedAt is when the completion row was first written (the submit), nil when NotStarted.
+	SubmittedAt *time.Time
+	// VerifiedByName / VerifiedAt are the verifier's approval, nil/empty until one lands.
+	VerifiedByName string
+	VerifiedAt     *time.Time
+	// ReworkReason is the verifier's rejection sentence, set only on a Rework row.
+	ReworkReason string
+	// Proofs always carries THREE entries in DistributionSlotOrder -- a missing proof is an entry
+	// with an empty ProofRef, never an absent entry, so the client renders a fixed three columns and
+	// cannot mistake "not shot" for "not reported".
+	Proofs []DistributionProofSlot
+}
+
+// CompletionFilterOption is one selectable place on the completion table's filter bar.
+//
+// It carries the park alongside the shed because shed NAMES repeat across parks -- Castro, Gandhi,
+// Godel 1 and Yashoda each exist in both -- so a screen offering bare names would print the same
+// word twice with no way to choose between them, and keying a filter on the name would merge two
+// real sheds into one option.
+type CompletionFilterOption struct {
+	ParkID    string
+	ParkLabel string
+	ShedID    string
+	ShedLabel string
 }
 
 // ---------------------------------------------------------------------------

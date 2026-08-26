@@ -1003,6 +1003,15 @@ export type FeedAnalyticsParams = {
   /** Execution read only: mismatch-list filters applied before paging. */
   variance_park_label?: string;
   variance_feed_item_key?: string;
+  /** Execution read only: the day the per-pen-session completion table describes; backend defaults to yesterday (IST). */
+  completion_day?: string;
+  /** Execution read only: the completion table's page (rows per page, rows to skip). */
+  completion_limit?: string;
+  completion_offset?: string;
+  /** Execution read only: completion-table filters applied before paging. Totals ignore the status one. */
+  completion_park_id?: string;
+  completion_shed_id?: string;
+  completion_status?: string;
 };
 
 export async function getFeedAnalyticsDirected(
