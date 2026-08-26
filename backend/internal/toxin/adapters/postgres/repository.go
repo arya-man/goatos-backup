@@ -258,11 +258,21 @@ func (r *Repository) completionsByTaskIDs(ctx context.Context, q querier, tenant
 	if len(taskIDs) == 0 {
 		return out, nil
 	}
+	// The person is resolved to a NAME here, in the SAME bounded query (one LEFT JOIN, never a
+	// per-row lookup). A completion whose person does not resolve returns '' so the screen omits
+	// the attribution — an operator is never shown a raw user id.
 	rows, err := q.Query(ctx, `
-SELECT task_id::text, step_no, proof_ref, COALESCE(completed_by::text, ''), completed_at
-FROM public.toxin_test_step_completions
-WHERE tenant_id = $1 AND task_id = ANY($2::uuid[])
-ORDER BY task_id, step_no`, tenantID, taskIDs)
+SELECT c.task_id::text,
+       c.step_no,
+       c.proof_ref,
+       COALESCE(NULLIF(BTRIM(COALESCE(m.display_name, BTRIM(COALESCE(m.first_name, '') || ' ' || COALESCE(m.last_name, '')))), ''), '') AS completed_by_name,
+       c.completed_at
+FROM public.toxin_test_step_completions c
+LEFT JOIN public.workforce_members m
+       ON m.tenant_id = c.tenant_id
+      AND m.user_id = c.completed_by
+WHERE c.tenant_id = $1 AND c.task_id = ANY($2::uuid[])
+ORDER BY c.task_id, c.step_no`, tenantID, taskIDs)
 	if err != nil {
 		return nil, fmt.Errorf("toxin: list step completions: %w", err)
 	}

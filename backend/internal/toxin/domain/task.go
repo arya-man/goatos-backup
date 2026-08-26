@@ -187,8 +187,13 @@ type Task struct {
 
 // StepCompletion is one immutable completed working step.
 type StepCompletion struct {
-	StepNo      int
-	ProofRef    string
+	StepNo   int
+	ProofRef string
+	// CompletedBy is the WORKFORCE NAME of whoever recorded this step, resolved server-side.
+	// It is deliberately never the user id: an id on an operator's screen is not an answer to
+	// "who did this", and rendering one is the copy-firewall defect the counts approval queue
+	// already shipped once. An unresolvable person leaves this BLANK so the screen simply omits
+	// the attribution rather than printing a uuid.
 	CompletedBy string
 	CompletedAt time.Time
 }

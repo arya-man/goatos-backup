@@ -174,6 +174,12 @@ data class ToxinTaskDetailUiState(
     val selectedOutcome: String = "",
     /** True once step 7's strip photo is durably captured on this phone. */
     val stripPhotoCaptured: Boolean = false,
+    /**
+     * The captured strip photo, for the screen to SHOW. A button label flipping to "again" is not
+     * evidence to an operator that their photograph landed — the step's whole deliverable is the
+     * image, so the image is what confirms it. Blank until captured.
+     */
+    val stripPhotoUri: String = "",
     val stripPhotoWorking: Boolean = false,
     /** Both halves of step 7 are present, so the reading can be sent. */
     val submitEnabled: Boolean = false,
