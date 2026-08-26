@@ -448,6 +448,8 @@ class ToxinTaskDetailViewModel @Inject constructor(
         return ToxinTaskDetailUiState(
             contextLine = detail.contextLine,
             statusChip = detail.statusChip,
+            statusTone = detail.statusTone,
+            isOverdue = detail.isOverdue,
             originLine = detail.originLine,
             reviewReason = detail.reviewReason,
             cancelReason = detail.cancelReason,

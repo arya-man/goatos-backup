@@ -354,9 +354,20 @@ func OriginLine(origin string) string {
 }
 
 // StatusChip is the backend-owned chip for a task row.
+//
+// OVERDUE OUTRANKS PROGRESS. A round past its 12-hour start deadline reads "Overdue" even when a
+// step is mid-wait, because the operator needs to see that this load has been sitting longer than
+// the farm allows before they see which step is next. The countdown chip it replaces is still
+// reachable — the step list on the detail screen carries it — so nothing is lost.
 func StatusChip(t Task, completions []StepCompletion, now time.Time) string {
 	switch t.Status {
 	case StatusInProgress:
+		if createdAt, err := time.Parse(time.RFC3339Nano, t.CreatedAt); err == nil && IsOverdue(t, createdAt, now) {
+			if hours := int(OverdueBy(createdAt, now) / time.Hour); hours >= 1 {
+				return fmt.Sprintf("Overdue by %s", hourPhrase(hours))
+			}
+			return "Overdue"
+		}
 		next := NextStepNo(completions)
 		if next == 0 {
 			return "Test due"
@@ -375,7 +386,10 @@ func StatusChip(t Task, completions []StepCompletion, now time.Time) string {
 	case StatusPendingReview:
 		return "Waiting for review"
 	case StatusAccepted:
-		return "Reviewed"
+		// "Completed", not "Reviewed" (maintainer decision 2026-08-26). The operator's work and
+		// the reviewer's are both finished at this point, and "Reviewed" left the tester unsure
+		// whether anything else was owed of them.
+		return "Completed"
 	case StatusCancelled:
 		return "Cancelled — retest created"
 	default:
@@ -492,4 +506,19 @@ func CountForFilter(key string, statusCounts map[string]int) int {
 		total += statusCounts[s]
 	}
 	return total
+}
+
+// hourPhrase keeps the overdue chip in farm words rather than a bare number.
+func hourPhrase(hours int) string {
+	if hours == 1 {
+		return "1 hour"
+	}
+	if hours >= 48 {
+		days := hours / 24
+		if days == 1 {
+			return "1 day"
+		}
+		return fmt.Sprintf("%d days", days)
+	}
+	return fmt.Sprintf("%d hours", hours)
 }

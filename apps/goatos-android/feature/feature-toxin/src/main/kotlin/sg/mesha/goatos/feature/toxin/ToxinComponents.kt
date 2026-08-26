@@ -24,15 +24,30 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 /** Backend-composed status chip, rendered VERBATIM. Blank copy renders nothing at all. */
 @Composable
-internal fun ToxinStatusChip(label: String, modifier: Modifier = Modifier) {
+internal fun ToxinStatusChip(label: String, modifier: Modifier = Modifier, tone: String = "") {
     if (label.isBlank()) return
+    // The TONE is the backend's, not the phone's: "Overdue" and "Step 2 of 5" arrive in the same
+    // field, and a card that paints them alike hides the one the operator has to act on. An
+    // unknown tone falls back to the ordinary muted chip rather than guessing.
+    val background = when (tone) {
+        "danger" -> MeshaColors.DangerX
+        "ok" -> MeshaColors.OkX
+        "info" -> MeshaColors.TealX
+        else -> MeshaColors.Surf2
+    }
+    val foreground = when (tone) {
+        "danger" -> MeshaColors.Danger
+        "ok" -> MeshaColors.Ok
+        "info" -> MeshaColors.Teal
+        else -> MeshaColors.Muted
+    }
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(MeshaColors.Surf2)
+            .background(background)
             .padding(horizontal = 8.dp, vertical = 3.dp),
     ) {
-        Text(text = label, color = MeshaColors.Muted, style = MeshaType.pillStrong)
+        Text(text = label, color = foreground, style = MeshaType.pillStrong)
     }
 }
 

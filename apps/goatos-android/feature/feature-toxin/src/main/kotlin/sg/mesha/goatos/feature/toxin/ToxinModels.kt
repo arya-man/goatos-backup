@@ -104,6 +104,8 @@ data class ToxinTaskCardUi(
     val contextLine: String,
     /** Backend-composed chip copy, VERBATIM. */
     val statusChip: String,
+    val statusTone: String = "",
+    val isOverdue: Boolean = false,
     /** Backend-composed retest sentence; blank on a first round. */
     val originLine: String = "",
     val stepsDone: Int = 0,
@@ -155,6 +157,8 @@ data class ToxinTaskDetailUiState(
     val contextLine: String = "",
     /** Backend-composed chip copy, VERBATIM. */
     val statusChip: String = "",
+    val statusTone: String = "",
+    val isOverdue: Boolean = false,
     /** Backend-composed retest sentence; blank on a first round. */
     val originLine: String = "",
     /** The CEO/CXO rejection sentence, backend-owned, VERBATIM; blank unless the round was sent back. */

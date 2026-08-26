@@ -249,3 +249,56 @@ URL. The phone renders its own capture from the durable proof slot and only ever
 to show a previous attempt's photo — the natural case is a retest after a reject — widen the
 route with `ToxinRead` the way the proof-upload routes already OR in `ToxinExecute`. Do not
 hand the tester `task.read`, which would carry vaccination SOP reads with it.
+
+## The 12-hour start clock (maintainer decision 2026-08-26)
+
+A feed load sits in the store until its strip test clears it, so a test nobody picks up is a bag of
+feed nobody can use. **Twelve hours after the load is recorded, the round is overdue.**
+
+**It is an elapsed-time SLA, not a business-day deadline.** A load recorded at 22:00 is overdue at
+10:00 the next morning — the feed has been waiting twelve hours either way. Vaccination's
+day-grain rule is about work PLANNED for a day and must not be copied onto this, which is work that
+arrives whenever a lorry arrives.
+
+**The card and the reminder key on different things, deliberately.**
+
+| | condition | why |
+|---|---|---|
+| **Overdue chip** (red) | still `in_progress` at 12h | a round somebody opened, filmed twice and walked away from is as overdue as one nobody touched — the load is uncleared either way |
+| **Push reminder** | past 12h **and no step recorded** | telling someone visibly working through the steps to "start" the test is how people learn to ignore notifications |
+
+**The operator's clock stops at submit.** Once the reading is in, the remaining wait is the
+reviewer's; holding a tester's card red for a queue they do not control would blame the wrong desk.
+
+**Overdue outranks the step countdown** on the chip: the operator must see that a load has been
+sitting longer than the farm allows before they see which step is next. The countdown is still on
+the detail screen, so nothing is lost.
+
+**`accepted` reads "Completed", not "Reviewed"** — the tester's work and the reviewer's are both
+finished, and "Reviewed" left testers unsure whether anything was still owed of them.
+
+**The server decides, the phone renders.** `is_overdue`, `status_chip` and `status_tone` are all
+computed backend-side. A device with a wrong clock would otherwise hide a late load or redden a
+fresh one.
+
+### No private scheduler, no private overdue calculation
+
+The operational task-kernel lock forbids a module owning a scheduler, an overdue calculation or a
+reminder ladder of its own. This satisfies it the way the daily low-stock alert does:
+
+- the deadline is ONE definition, `toxin/domain.StartDeadline`, read by the chip, the SQL and the
+  reminder alike, so the message and the screen can never disagree about what "late" means;
+- the reminder rides the SHARED operational cadence (`kernelstages.ToxinOverdueStage`) and owns no
+  schedule;
+- "once per day per task" comes from the **business date in the idempotency key**, not from state —
+  the first tick of the day writes, every later tick writes nothing. That survives a worker restart,
+  a mid-day redeploy, and both instances of an HA pair running it at once.
+
+The audience is resolved from the **grant**, not a job title: toxin testing is granted to named
+individuals (`perPersonGrants`), so a future holder of either director seat does not inherit the
+reminder by sitting in the chair. The CEO's office is included because it owns the module. An empty
+audience is logged loudly and sends nothing — a message nobody receives must not look sent.
+
+Copy names the load, per the meaningful-notification rule: *"Maize from Kamadhenu Feeds (P) Limited
+at CBE (4200 kg, batch 12) arrived 25/08/2026 and the strip test has not been started. It has been
+waiting 15 hours."* Pinned by `TestOverdueReminderNamesTheLoad`.

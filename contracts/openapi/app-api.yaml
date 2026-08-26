@@ -13107,6 +13107,21 @@ components:
         status_chip:
           type: string
           description: Backend-owned chip copy, including live wait countdown wording.
+        status_tone:
+          type: string
+          enum: [ok, warn, danger, info, muted]
+          description: >-
+            How the chip should READ. Sent because "Overdue" and "Step 2 of 5" arrive in the same
+            field and must not look alike on the card.
+        is_overdue:
+          type: boolean
+          description: >-
+            Past the 12-hour start deadline and still unfinished, decided on the SERVER clock. The
+            client must never derive it -- a device with a wrong clock would hide a late load or
+            redden a fresh one.
+        due_at:
+          type: string
+          description: When this round became (or becomes) overdue, RFC3339. Blank when unknown.
         outcome:
           type: string
           enum: [negative, positive, invalid]
