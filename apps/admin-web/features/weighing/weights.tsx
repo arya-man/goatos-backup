@@ -642,12 +642,11 @@ export async function WeighingWeightsPage({
   // spellings of one band. `under` is the slowest band and the only red one: it is not a step
   // on the green growth ramp, it is the kids that are not growing.
   const gainThresholdSteps = ["hi", "mid", "lo", "under"] as const;
-  // The page is ALREADY filtered by the time these rows arrive: the backend returns the combined
-  // row (sex "") for an unfiltered page and the per-sex row for a filtered one, so the card
-  // renders the grain it was sent rather than choosing between grains. Selecting the sex here
-  // too would be a second implementation of one rule, and the two would drift.
+  // The page is ALREADY filtered by the time these rows arrive, so the card renders exactly what
+  // it was sent. Re-selecting by sex here would be a second implementation of one rule and the two
+  // would drift — and the rows carry BOTH kinds of weigh: the individually scanned kids plus every
+  // kid of a single-breed whole-shed weigh, banded by that shed's own average change.
   const gainThresholdRows: GainThresholdRow[] = (demo?.gain_thresholds_by_breed ?? [])
-    .filter((row) => (row.sex ?? "") === (sexFilter === "" ? "" : sexFilter))
     .filter((row) => row.animals > 0)
     .map((row) => {
       const counts = [
@@ -657,10 +656,7 @@ export async function WeighingWeightsPage({
         row.at_or_below_180_g_per_day,
       ];
       return {
-        // One grain is rendered at a time, so the breed is unique inside the list — but the sex
-        // rides in the key anyway, so a future change that renders two grains at once cannot
-        // silently collide two rows onto one React key.
-        key: `${row.label}|${row.sex ?? ""}`,
+        key: row.label,
         breed: row.label,
         animals: row.animals,
         marks: sharesOfWhole(counts, row.animals).map((pct, index) => ({
