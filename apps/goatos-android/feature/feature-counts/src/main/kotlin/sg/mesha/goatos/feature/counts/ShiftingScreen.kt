@@ -410,7 +410,12 @@ fun ShiftingScreen(
             onDismiss = { onEvent(ShiftingEvent.DismissSubmitConfirmation) },
         )
     }
-    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
+    // One IME inset for the whole screen. Applying it to BOTH the scrolling body and the pinned
+    // submit bar consumes the keyboard's height twice in the same vertical Column: the body
+    // reserves it as bottom padding while the bar rises by the same amount, and on a phone-sized
+    // screen that collapses the form to nothing -- the operator types a tag into a field they
+    // cannot see.
+    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg).imePadding()) {
         CountsFormHeader(
             title = stringResource(R.string.counts_shifting_title),
             subtitle = stringResource(R.string.counts_shifting_subtitle),
@@ -426,8 +431,7 @@ fun ShiftingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .weight(1f)
-                .padding(horizontal = 18.dp)
-                .imePadding(),
+                .padding(horizontal = 18.dp),
             contentPadding = PaddingValues(top = 2.dp, bottom = 18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -650,7 +654,6 @@ fun ShiftingScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MeshaColors.PageBg)
-                .imePadding()
                 .navigationBarsPadding()
                 .padding(horizontal = 18.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
