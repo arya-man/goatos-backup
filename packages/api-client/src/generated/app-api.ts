@@ -5416,6 +5416,8 @@ export interface components {
             created_at: string;
             /** @description Backend-composed card subtitle -- feed, vendor, load and date in one line. */
             context_line: string;
+            /** @description Whether THIS caller may run the test. A property of the CALLER, not the round: a CEO/CXO reads the same row with can_execute false and renders a non-tappable watch-only card, while a named tester gets true and the card opens the step flow. The step-completion routes enforce toxin.execute independently; this field only keeps a client from offering an action the server would refuse. */
+            can_execute: boolean;
         };
         /** @description One procedure step with its live state, composed against the SERVER clock. Clients render states verbatim and never derive their own wait-gate logic. */
         ToxinStep: {

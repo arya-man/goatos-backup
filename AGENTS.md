@@ -1260,7 +1260,16 @@ an approval gate in the `counts_approver` shape, deliberately NOT a Verification
 so the verifier never sees toxin work and `verification.verdict` stays verifier-only.
 Access is PER PERSON via `toxin_tester` (`perPersonGrants`; today the two named park
 heads) — never on the park_head/director job. `toxin.execute` is ORed into the
-`/app/proofs/*` routes. v1: accepted Positive FLAGS the load, does not block feeding; no
+`/app/proofs/*` routes. **CEO/CXO WATCHES AND JUDGES BUT NEVER RUNS A TEST (maintainer
+decision 2026-08-26, correcting the 2026-08-25 grant): `ceo_internal` holds
+`toxin.read` + `toxin.verdict` and NOT `toxin.execute`.** Do not add it back — a CEO who
+could film the steps would be approving their own evidence. Enforced on BOTH halves per
+the capability-gated lock: the step/submit routes refuse leadership at the route table,
+AND `can_execute` on `ToxinTask` (the CALLER's permission, resolved per request) makes the
+composed payload render every unfinished step `locked` and the phone card non-tappable, so
+no camera is ever offered for a write the server would refuse. Pinned by
+`TestToxinExecuteIsTesterOnlyAndNeverCEO`, `TestWatcherSeesNoActionableStep`, and the
+`ToxinTaskListViewModelTest` watcher case. v1: accepted Positive FLAGS the load, does not block feeding; no
 FCM. Canonical prose: `docs/decisions/toxin-testing-module.md`; pinned by
 `TestToxinVerdictIsCEOOnly`, `TestToxinTesterCarriesOnlyTestingAuthority`,
 `TestToxinModuleIsOfferedPerPersonNotPerJob` (each mutation-tested when written).

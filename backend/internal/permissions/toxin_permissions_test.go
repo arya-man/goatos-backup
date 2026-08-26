@@ -108,3 +108,46 @@ func anyAuthorizes(role string, anyPerms []string) bool {
 	}
 	return false
 }
+
+// TestToxinExecuteIsTesterOnlyAndNeverCEO pins the maintainer decision (2026-08-26) that
+// splits WATCHING from DOING: CEO/CXO sees every toxin task and casts the verdict, but
+// never runs a step. The defect this replaces shipped and was caught on the phone — a CEO
+// principal opened a task card and could film step 1, which would have let the same person
+// produce the evidence and then accept it.
+//
+// Read is kept deliberately (the module must stay visible to leadership, and the phone
+// card renders read-only from it); execute is the half that is withheld.
+func TestToxinExecuteIsTesterOnlyAndNeverCEO(t *testing.T) {
+	if RoleHasPermission(RoleCEOInternal, ToxinExecute) {
+		t.Fatal("ceo_internal must NOT hold toxin.execute — leadership watches and judges, the named testers run the test")
+	}
+	if !RoleHasPermission(RoleCEOInternal, ToxinRead) || !RoleHasPermission(RoleCEOInternal, ToxinVerdict) {
+		t.Fatal("ceo_internal must keep toxin.read (the module stays visible) and toxin.verdict (the accept/reject)")
+	}
+	// The step-work routes refuse a CEO for real, not just in the permission map.
+	for _, target := range []struct{ method, path string }{
+		{"POST", "/app/toxin/tasks/98000000-0000-4000-8000-000000000001/steps/1/complete"},
+		{"POST", "/app/toxin/tasks/98000000-0000-4000-8000-000000000001/submit"},
+	} {
+		route, ok := Match(target.method, target.path)
+		if !ok {
+			t.Fatalf("%s %s is not registered", target.method, target.path)
+		}
+		if RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("ceo_internal must NOT authorize %s %s", target.method, target.path)
+		}
+	}
+	// ...while the read routes still resolve, so the module does not vanish for leadership.
+	for _, target := range []struct{ method, path string }{
+		{"GET", "/app/toxin/tasks"},
+		{"GET", "/app/toxin/tasks/98000000-0000-4000-8000-000000000001"},
+	} {
+		route, ok := Match(target.method, target.path)
+		if !ok {
+			t.Fatalf("%s %s is not registered", target.method, target.path)
+		}
+		if !RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("ceo_internal must still authorize %s %s", target.method, target.path)
+		}
+	}
+}

@@ -13126,6 +13126,7 @@ components:
         - purchase_date
         - round_no
         - origin
+        - can_execute
       properties:
         task_id: { type: string, format: uuid }
         feed_purchase_id: { type: string, format: uuid }
@@ -13183,6 +13184,14 @@ components:
         context_line:
           type: string
           description: Backend-composed card subtitle -- feed, vendor, load and date in one line.
+        can_execute:
+          type: boolean
+          description: >-
+            Whether THIS caller may run the test. A property of the CALLER, not the round: a
+            CEO/CXO reads the same row with can_execute false and renders a non-tappable
+            watch-only card, while a named tester gets true and the card opens the step flow.
+            The step-completion routes enforce toxin.execute independently; this field only
+            keeps a client from offering an action the server would refuse.
     ToxinStep:
       type: object
       description: >-

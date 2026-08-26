@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/toxin/app"
@@ -102,9 +103,10 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request, defaultStatuses [
 		return
 	}
 	now := h.service.Now()
+	canExecute := callerCanExecute(r)
 	items := make([]taskPayload, 0, len(page.Rows))
 	for _, row := range page.Rows {
-		items = append(items, toTaskPayload(row, now))
+		items = append(items, toTaskPayload(row, now, canExecute))
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, taskPagePayload{
 		Tasks:      items,
@@ -121,7 +123,7 @@ func (h *Handler) GetTask(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, toAppError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, toTaskDetailPayload(row, h.service.Now()))
+	httpresponse.WriteJSON(w, http.StatusOK, toTaskDetailPayload(row, h.service.Now(), callerCanExecute(r)))
 }
 
 // CompleteStep serves POST /app/toxin/tasks/{task_id}/steps/{step_no}/complete.
@@ -152,7 +154,7 @@ func (h *Handler) CompleteStep(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, toAppError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, toTaskDetailPayload(row, h.service.Now()))
+	httpresponse.WriteJSON(w, http.StatusOK, toTaskDetailPayload(row, h.service.Now(), callerCanExecute(r)))
 }
 
 // SubmitReading serves POST /app/toxin/tasks/{task_id}/submit — step 7.
@@ -178,7 +180,7 @@ func (h *Handler) SubmitReading(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, toAppError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, toTaskDetailPayload(row, h.service.Now()))
+	httpresponse.WriteJSON(w, http.StatusOK, toTaskDetailPayload(row, h.service.Now(), callerCanExecute(r)))
 }
 
 // RecordVerdict serves POST /toxin/tasks/{task_id}/verdict — CEO/CXO only.
@@ -205,7 +207,7 @@ func (h *Handler) RecordVerdict(w http.ResponseWriter, r *http.Request) {
 		h.writeErr(w, r, toAppError(err))
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, toTaskDetailPayload(row, h.service.Now()))
+	httpresponse.WriteJSON(w, http.StatusOK, toTaskDetailPayload(row, h.service.Now(), callerCanExecute(r)))
 }
 
 // decode reads a JSON write body, failing loud on unknown fields.
@@ -244,4 +246,20 @@ func (h *Handler) writeErr(w http.ResponseWriter, r *http.Request, appErr *app.E
 
 func tenantID(r *http.Request) string {
 	return strings.TrimSpace(httpmiddleware.TenantIDFromContext(r.Context()))
+}
+
+// callerCanExecute reports whether the principal on this request holds toxin.execute.
+//
+// The read routes (list, detail) are gated on toxin.read, which CEO/CXO holds and which
+// says nothing about running a test — so the payload must answer the second question
+// separately or the phone would offer a step the write route then refuses. It is derived
+// from the SAME grants the route table authorizes against, never from a role string the
+// client sends.
+func callerCanExecute(r *http.Request) bool {
+	for _, grant := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
+		if permissions.RoleHasPermission(grant.Role, permissions.ToxinExecute) {
+			return true
+		}
+	}
+	return false
 }
