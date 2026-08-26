@@ -117,6 +117,34 @@ cost-per-kg, no value-added and the Watch verdict — a gain that was not
 measured cannot be priced. Pinned and mutation-tested by
 `TestEconomicsSubNoiseGainScoresFlatAndIsNeverPriced`.
 
+### One animal is one animal: tags resolve BEFORE pairing
+
+Maintainer correction 2026-08-26, found because a pen rendered "18 measured of
+17 held" — an impossibility on screen. Nearly every goat carries BOTH
+`animal_identifier_1` and `animal_identifier_2`, and the chain paired weighs by
+TAG, which broke in both directions: an animal weighed under both tags became
+TWO animals (310 rows for 296 animals, its cost and value counted twice), and an
+animal whose two weighs happened to land on different tags VANISHED, because
+neither tag alone had a pair.
+
+Every scan is now resolved to its goat in `animal_obs` before any pairing, so
+the pairing grain is the ANIMAL. The correction moved real answers: Osmanabadi
+flipped from −₹0.6 to +₹0.9 per head per day, Malai from −₹8.1 to −₹2.0. The
+"measured of held" pair is now also a permanent check on this class of defect —
+measured can never exceed the herd, and a test asserts it. Weighing itself stays
+free-flow and tag-grained; THIS module is the one resolving tags to animals, and
+the pulse keeps reporting the raw scanned-tag denominator beside it. Pinned and
+mutation-tested by `TestEconomicsResolvesTagsToOneAnimalBeforePairing`.
+
+### Measured is not the herd
+
+Both counts are published on every shed and breed row and rendered "121 of 846".
+Every figure on a row is computed from animals weighed twice AND priced, but a
+bare count beside a breed name reads as "how many of this breed do we have" —
+the herd holds 846 Anantapur Sheep and only 121 qualified, and a reader taking
+the first number for the second concludes the farm shrank by 85%. Pinned by
+`TestEconomicsPublishesHerdCountBesideMeasuredCount`.
+
 ### The grain is the PEN and the BREED, not the animal
 
 Maintainer decision 2026-08-26. A per-animal list is hundreds of rows nobody

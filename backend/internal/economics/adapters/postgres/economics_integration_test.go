@@ -627,3 +627,75 @@ func TestEconomicsPublishesHerdCountBesideMeasuredCount(t *testing.T) {
 		t.Fatalf("pen measured/herd = %d/%d, want 2/5", pen.Animals, pen.HerdAnimals)
 	}
 }
+
+// ONE ANIMAL, TWO TAGS. Nearly every goat carries both `animal_identifier_1` and
+// `animal_identifier_2`, so an animal can be weighed under either. Pairing by
+// TAG got this wrong in both directions on the live herd: it double-counted the
+// animals scanned under both tags (310 rows for 296 animals, and pens reporting
+// "18 measured of 17 held" — an impossibility on screen), and it DROPPED animals
+// whose two weighs landed on different tags, because neither tag alone paired.
+//
+// Both halves are asserted here. Mutation test: revert the chain to pair on
+// tag_key and EC-TWOTAG-A doubles while EC-TWOTAG-B disappears.
+func TestEconomicsResolvesTagsToOneAnimalBeforePairing(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedEconomicsFixture(t, ctx, pool)
+
+	secondTag := func(goatID, tag string) {
+		execEC(t, ctx, pool, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_2', $3, upper(btrim($3)), 'tenant', false, 'active', now(), 'test')`,
+			ecTenant, goatID, tag)
+	}
+
+	// A: weighed TWICE under tag 1 and TWICE under tag 2 — one animal, not two.
+	goatA := "22222222-0000-4000-8000-000000000e01"
+	seedEcGoat(t, ctx, pool, goatA, "5001", "EC-TWOTAG-A1", "Sojat", "male", "F2-Male", ecPark, ecShed, "Part 1")
+	secondTag(goatA, "EC-TWOTAG-A2")
+	seedEcScan(t, ctx, pool, ecCampaignW1, ecBucketW1, "EC-TWOTAG-A1", 20.0, ecDay(8, 6), "pending")
+	seedEcScan(t, ctx, pool, ecCampaignW2, ecBucketW2, "EC-TWOTAG-A2", 21.4, ecDay(15, 6), "pending")
+
+	// B: weighed ONCE under each tag — under tag-grain pairing neither tag has a
+	// pair and the animal vanishes, though it plainly has two weighs.
+	goatB := "22222222-0000-4000-8000-000000000e02"
+	seedEcGoat(t, ctx, pool, goatB, "5002", "EC-TWOTAG-B1", "Sojat", "male", "F2-Male", ecPark, ecShed, "Part 1")
+	secondTag(goatB, "EC-TWOTAG-B2")
+	seedEcScan(t, ctx, pool, ecCampaignW1, ecBucketW1, "EC-TWOTAG-B1", 20.0, ecDay(8, 6), "pending")
+	seedEcScan(t, ctx, pool, ecCampaignW2, ecBucketW2, "EC-TWOTAG-B2", 21.4, ecDay(15, 6), "pending")
+
+	seedEcPurchase(t, ctx, pool, "Maize Crush", 1, "2026-07-01", 100, 1000)
+	seedEcFeedIssue(t, ctx, pool, ecFeedIssue, "2026-07-15", "normal")
+	seedEcFeedRow(t, ctx, pool, ecFeedIssue, ecShed, "Part 1", "F2-Male", "Sojat", "Maize Crush", 2.0, nil, 4, false, "normal", 1)
+
+	from, to := ecWindow()
+	repo := NewRepository(pool, 5*time.Second)
+	out, err := repo.GetBusinessEconomics(ctx, ecTenant, []string{ecPark}, from, to)
+	if err != nil {
+		t.Fatalf("GetBusinessEconomics: %v", err)
+	}
+
+	// TWO animals, each once — not four rows, and not one.
+	if out.Pulse.PairedAnimals != 2 {
+		t.Fatalf("paired animals = %d, want 2 (A must not double, B must not vanish)", out.Pulse.PairedAnimals)
+	}
+	if len(out.Sheds) != 1 || out.Sheds[0].Animals != 2 {
+		t.Fatalf("pen = %+v, want one pen holding 2 measured animals", out.Sheds)
+	}
+	// The impossibility this defect put on screen: measured must never exceed held.
+	for _, shed := range out.Sheds {
+		if shed.Animals > shed.HerdAnimals {
+			t.Fatalf("%s reports %d measured of %d held — measured can never exceed the herd",
+				shed.ShedDisplay, shed.Animals, shed.HerdAnimals)
+		}
+	}
+	if len(out.Breeds) != 1 || out.Breeds[0].Animals != 2 {
+		t.Fatalf("breeds = %+v, want one Sojat row of 2 animals", out.Breeds)
+	}
+	// Both animals gained 1.4 kg over 7 days, so the pen's mean is a clean 200.
+	if out.Sheds[0].ADGGPerDay == nil || !almostEqual(*out.Sheds[0].ADGGPerDay, 200) {
+		t.Fatalf("pen mean gain = %v, want 200 g/day", out.Sheds[0].ADGGPerDay)
+	}
+}
