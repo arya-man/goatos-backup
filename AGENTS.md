@@ -489,6 +489,14 @@ Do not create main→stg PRs as a deploy mechanism.
 Do not force-push a `stg` branch and wait for CI.
 Do not infer CI deployment from branch names.
 
+If STG shows Google Frontend `429 Rate exceeded` after a paid/restored Google
+bill, do not guess or redeploy app code first. Read and follow
+`docs/runbooks/stg-cloud-run-billing-recovery.md`: verify `ravi@mesha.sg`,
+`goatos-stg`, `billingEnabled: true`, Cloud Run service readiness in
+`asia-south1`, and finish with both terminal curls and live Chrome verification.
+The 2026-08-26 maintainer baseline for `goatos-api-stg` is min-instances `2`
+and max-instances `2`.
+
 Authoritative STG deploy path:
 1. Read `docs/runbooks/stg-deploy.md` (short contract) →
    `docs/runbooks/cloud-deploy-staging.md` (full Cloud Deploy mechanics).

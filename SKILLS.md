@@ -21,6 +21,17 @@ Claude discovers the same skill through a symlink:
 
 Do not hand-maintain two copies. `.agents/skills/goatos-build/` is the source.
 
+STG billing recovery / Cloud Run 429:
+
+```text
+docs/runbooks/stg-cloud-run-billing-recovery.md
+```
+
+Load this before touching code when STG shows Google Frontend `429 Rate
+exceeded` after a paid/restored bill. The required closeout is Cloud Billing
+verification, Cloud Run readiness in `asia-south1`, `goatos-api-stg`
+min/max `2/2`, terminal curls, and live Chrome verification.
+
 ## Code Review Skill
 
 Use the Goat OS code-review skill to **review or audit** a change (diff, branch,
