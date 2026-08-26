@@ -100,14 +100,43 @@ type BusinessEconomics struct {
 // zero: it means the input that would make the figure honest is missing, with
 // the reason readable from the disclosure counts beside it.
 type Pulse struct {
-	// FeedCostPerDayRupees is the whole-scope average daily feed spend over the
-	// window: every priced directed cell (normal AND experiment — trial feed is
-	// real money) summed per feed day, averaged over the days that have a sheet.
+	// FeedCostPerDayRupees and ValueAddedPerDayRupees COVER THE SAME ANIMALS —
+	// the PricedAnimals set — so that subtracting one from the other is a true
+	// statement and NetPerDayRupees is that subtraction (maintainer decision
+	// 2026-08-26).
+	//
+	// This is the correction of a real defect: the feed figure used to be the
+	// WHOLE FARM (1,649 animals) while the value figure covered only the
+	// animals weighed twice (309). Side by side they invited a subtraction that
+	// read as "the farm loses ₹39k a day" when the truth was "most of the herd
+	// has not been weighed". Two figures a reader will subtract must range over
+	// one set; the whole-farm number is still published, as FarmFeedCostPerDayRupees,
+	// where it is labelled as covering a different (larger) population.
+	//
+	// FeedCostPerDayRupees sums each priced animal's own daily ration cost.
 	FeedCostPerDayRupees *float64 `json:"feed_cost_per_day_rupees"`
-	// ValueAddedPerDayRupees prices the measured daily gain of every paired,
-	// matched, live animal at the realized price per kg. Its denominator is
-	// PairedAnimals, not the herd: unweighed animals add unknown value.
+	// ValueAddedPerDayRupees prices those same animals' measured daily gain at
+	// the realized price per kg. An animal that did not measurably grow
+	// contributes ZERO here while still contributing its full cost above —
+	// which is exactly the business fact the page exists to show, and why this
+	// is not filtered to growers only.
 	ValueAddedPerDayRupees *float64 `json:"value_added_per_day_rupees"`
+	// NetPerDayRupees is ValueAdded − FeedCost over that one shared set.
+	NetPerDayRupees *float64 `json:"net_per_day_rupees"`
+	// FarmFeedCostPerDayRupees is the WHOLE-SCOPE daily feed spend: every priced
+	// directed cell (normal AND experiment — trial feed is real money) summed
+	// per feed day, averaged over the days that have a sheet. It covers
+	// FarmAnimals, NOT the tile set above, and must always be rendered with that
+	// population named.
+	FarmFeedCostPerDayRupees *float64 `json:"farm_feed_cost_per_day_rupees"`
+	// FarmFeedDays is how many days in the window actually carry a feed sheet —
+	// the denominator FarmFeedCostPerDayRupees is averaged over. A window can be
+	// 90 days long and hold 18 sheets; without this the reader assumes the
+	// average spans the whole window.
+	FarmFeedDays int `json:"farm_feed_days"`
+	// FarmAnimals is the live animal count in scope — the population the farm
+	// feed figure covers.
+	FarmAnimals int `json:"farm_animals"`
 	// RealizedPricePerKg is closed live-animal revenue over live weight sold,
 	// on the basis PriceBasis discloses. Deal figures are BOTH FARMS always:
 	// the sales ledger records a farm label, not a park id, so a park filter
@@ -121,7 +150,12 @@ type Pulse struct {
 	// Honest denominators.
 	WeighedIdentities int `json:"weighed_identities"`
 	PairedAnimals     int `json:"paired_animals"`
-	CostAnimals       int `json:"cost_animals"`
+	// PricedAnimals is the shared denominator of the two comparable tiles:
+	// paired animals whose pen+stage+breed ration cell resolved AND priced.
+	PricedAnimals int `json:"priced_animals"`
+	// CostAnimals is the narrower set behind MedianCostPerKgGain: priced AND
+	// measurably growing, since a flat animal has no cost-per-kg.
+	CostAnimals int `json:"cost_animals"`
 	// UnpricedFeedItems counts feed items directed in the window that have NO
 	// purchase on record to price them — their kg is missing from every rupee
 	// figure on this page.

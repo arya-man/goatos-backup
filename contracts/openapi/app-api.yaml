@@ -24271,11 +24271,16 @@ components:
       required:
         - feed_cost_per_day_rupees
         - value_added_per_day_rupees
+        - net_per_day_rupees
+        - farm_feed_cost_per_day_rupees
+        - farm_feed_days
+        - farm_animals
         - realized_price_per_kg
         - price_basis
         - median_cost_per_kg_gain
         - weighed_identities
         - paired_animals
+        - priced_animals
         - cost_animals
         - unpriced_feed_items
         - closed_deals
@@ -24285,11 +24290,39 @@ components:
         feed_cost_per_day_rupees:
           type: number
           nullable: true
-          description: Average daily priced feed direction over the window, whole scope.
+          description: >-
+            Daily feed cost of the `priced_animals` set — the animals weighed
+            twice whose ration cell resolved and priced. Ranges over the SAME
+            animals as `value_added_per_day_rupees` so the two may be subtracted;
+            `net_per_day_rupees` is that subtraction.
         value_added_per_day_rupees:
           type: number
           nullable: true
-          description: Measured daily gain of paired animals, priced at the realized price per kg.
+          description: >-
+            Those same animals' measured daily gain priced at the realized price
+            per kg. An animal that did not measurably grow contributes ZERO here
+            while still contributing its full cost above.
+        net_per_day_rupees:
+          type: number
+          nullable: true
+          description: value_added_per_day_rupees − feed_cost_per_day_rupees, over the one shared set.
+        farm_feed_cost_per_day_rupees:
+          type: number
+          nullable: true
+          description: >-
+            WHOLE-SCOPE daily feed spend, covering `farm_animals` — a different
+            and much larger population than the two figures above. Must always be
+            rendered with that population named, never subtracted from the value
+            figure.
+        farm_feed_days:
+          type: integer
+          description: >-
+            Days in the window that actually carry a feed sheet — the denominator
+            `farm_feed_cost_per_day_rupees` is averaged over. A 90-day window may
+            hold far fewer sheet days.
+        farm_animals:
+          type: integer
+          description: Live animals in scope — the population the farm feed figure covers.
         realized_price_per_kg:
           type: number
           nullable: true
@@ -24306,8 +24339,12 @@ components:
           type: integer
         paired_animals:
           type: integer
+        priced_animals:
+          type: integer
+          description: Shared denominator of the two comparable tiles — paired AND priced.
         cost_animals:
           type: integer
+          description: Narrower set behind the median cost per kg — priced AND measurably growing.
         unpriced_feed_items:
           type: integer
           description: >-

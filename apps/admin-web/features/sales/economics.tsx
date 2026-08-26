@@ -161,7 +161,9 @@ export async function EconomicsPage({
 
       {data && pulse ? (
         <>
-          {/* 1 — pulse tiles, verbatim backend aggregates. */}
+          {/* 1 — pulse tiles, verbatim backend aggregates. The first three cover ONE
+              shared set of animals, so the third really is the first two subtracted;
+              the whole-herd feed figure is a separate labelled line below. */}
           <section className="grid g4 kpi-row" aria-label={copy(pageContract, "section.pulse.aria")}>
             <div className="kpi">
               <div className="lab">{copy(pageContract, "kpi.feed_burn")}</div>
@@ -174,16 +176,40 @@ export async function EconomicsPage({
               <div className="dl">{copy(pageContract, "kpi.value_added.hint")}</div>
             </div>
             <div className="kpi">
+              <div className="lab">{copy(pageContract, "kpi.net")}</div>
+              <div className="val">{money(pulse.net_per_day_rupees, none, perDay)}</div>
+              <div className="dl">
+                {pulse.net_per_day_rupees === null || pulse.net_per_day_rupees === undefined
+                  ? copy(pageContract, "kpi.cost_per_kg_gain.hint")
+                  : copy(pageContract, pulse.net_per_day_rupees >= 0 ? "kpi.net.earning" : "kpi.net.burning")}
+              </div>
+            </div>
+            <div className="kpi">
               <div className="lab">{copy(pageContract, "kpi.realized_price")}</div>
               <div className="val">{money(pulse.realized_price_per_kg, none, perKg)}</div>
               <div className="dl">{priceBasisHint}</div>
             </div>
-            <div className="kpi">
-              <div className="lab">{copy(pageContract, "kpi.cost_per_kg_gain")}</div>
-              <div className="val">{money(pulse.median_cost_per_kg_gain, none, perKg)}</div>
-              <div className="dl">{copy(pageContract, "kpi.cost_per_kg_gain.hint")}</div>
-            </div>
           </section>
+
+          {/* The shared denominator, said once, directly under the tiles it governs. */}
+          <p className="muted small" style={{ margin: "8px 0 2px" }}>
+            {num(pulse.priced_animals)} {copy(pageContract, "kpi.comparable")}
+            {" · "}
+            {copy(pageContract, "kpi.cost_per_kg_gain")}: {money(pulse.median_cost_per_kg_gain, none, perKg)}
+          </p>
+
+          {/* Whole-herd feed spend, kept because it answers "what is feed costing us"
+              — with its own population and day count named, so it is never read as
+              the tiles' companion. */}
+          <p className="muted small" style={{ margin: "2px 0 2px" }}>
+            {copy(pageContract, "farm.line")}: {money(pulse.farm_feed_cost_per_day_rupees, none, perDay)}
+            {" · "}
+            {num(pulse.farm_animals)} {copy(pageContract, "farm.animals")}
+            {" · "}
+            {num(pulse.farm_feed_days)} {copy(pageContract, "farm.days")}
+            {". "}
+            {copy(pageContract, "farm.caution")}
+          </p>
 
           <p className="muted small" style={{ margin: "6px 0 4px" }}>
             {copy(pageContract, "period.covering")}: {humanDate(data.period.start)} – {humanDate(data.period.end)}

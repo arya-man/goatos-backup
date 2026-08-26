@@ -477,3 +477,85 @@ func TestEconomicsSubNoiseGainScoresFlatAndIsNeverPriced(t *testing.T) {
 		t.Fatalf("paired animals = %d, want 2 (both were weighed twice)", out.Pulse.PairedAnimals)
 	}
 }
+
+// COMPARABLE TILES. The feed and value figures must range over ONE set — the
+// priced animals — so that the net figure is a true subtraction. This is the
+// regression test for a shipped defect: the feed figure used to be the WHOLE
+// FARM while the value figure covered only weighed animals, so the page invited
+// a subtraction that read as a catastrophic daily loss when the real story was
+// "most of the herd has not been weighed".
+//
+// The FLAT animal is the sharp edge: it is priced, so it belongs in the feed
+// figure at full cost, and it did not measurably grow, so it adds ZERO value.
+// Filtering the feed side to growers only would flatter the farm by hiding what
+// non-growing animals eat — that is the mutation this test catches.
+func TestEconomicsFeedAndValueTilesCoverTheSameAnimals(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedEconomicsFixture(t, ctx, pool)
+
+	// Two priced animals in one pen: one grows 200 g/day, one is flat (+2%).
+	for _, a := range []struct {
+		id, seq, tag string
+		last         float64
+	}{
+		{"22222222-0000-4000-8000-000000000b01", "2001", "EC-GROW", 21.4},
+		{"22222222-0000-4000-8000-000000000b02", "2002", "EC-STALL", 20.4},
+	} {
+		seedEcGoat(t, ctx, pool, a.id, a.seq, a.tag, "Sojat", "male", "F2-Male", ecPark, ecShed, "Part 1")
+		seedEcScan(t, ctx, pool, ecCampaignW1, ecBucketW1, a.tag, 20.0, ecDay(8, 6), "pending")
+		seedEcScan(t, ctx, pool, ecCampaignW2, ecBucketW2, a.tag, a.last, ecDay(15, 6), "pending")
+	}
+	// A THIRD animal in a pen with no ration cell at all: priced-set excluded, so
+	// it must touch neither tile.
+	seedEcGoat(t, ctx, pool, "22222222-0000-4000-8000-000000000b03", "2003", "EC-NOFEED", "Sojat", "male", "F2-Male", ecPark, ecShed, "Part 9")
+	seedEcScan(t, ctx, pool, ecCampaignW1, ecBucketW1, "EC-NOFEED", 20.0, ecDay(8, 6), "pending")
+	seedEcScan(t, ctx, pool, ecCampaignW2, ecBucketW2, "EC-NOFEED", 21.4, ecDay(15, 6), "pending")
+
+	// ₹10/kg × 2 kg over 4 heads = ₹5/head/day for the Part 1 pen.
+	seedEcPurchase(t, ctx, pool, "Maize Crush", 1, "2026-07-01", 100, 1000)
+	seedEcFeedIssue(t, ctx, pool, ecFeedIssue, "2026-07-15", "normal")
+	seedEcFeedRow(t, ctx, pool, ecFeedIssue, ecShed, "Part 1", "F2-Male", "Sojat", "Maize Crush", 2.0, nil, 4, false, "normal", 1)
+
+	from, to := ecWindow()
+	repo := NewRepository(pool, 5*time.Second)
+	out, err := repo.GetBusinessEconomics(ctx, ecTenant, []string{ecPark}, from, to)
+	if err != nil {
+		t.Fatalf("GetBusinessEconomics: %v", err)
+	}
+	p := out.Pulse
+
+	if p.PairedAnimals != 3 {
+		t.Fatalf("paired animals = %d, want 3", p.PairedAnimals)
+	}
+	if p.PricedAnimals != 2 {
+		t.Fatalf("priced animals = %d, want 2 (EC-NOFEED has no ration cell)", p.PricedAnimals)
+	}
+	// Feed = BOTH priced animals at ₹5 = ₹10. The flat one is in here at full cost.
+	if p.FeedCostPerDayRupees == nil || !almostEqual(*p.FeedCostPerDayRupees, 10) {
+		t.Fatalf("feed tile = %v, want ₹10 (both priced animals, flat one included)", p.FeedCostPerDayRupees)
+	}
+	// Value = ONLY the grower: 0.2 kg × ₹400 = ₹80. The flat one adds nothing.
+	if p.ValueAddedPerDayRupees == nil || !almostEqual(*p.ValueAddedPerDayRupees, 80) {
+		t.Fatalf("value tile = %v, want ₹80 (grower only; EC-NOFEED is outside the set)", p.ValueAddedPerDayRupees)
+	}
+	// Net is exactly the subtraction the reader would do.
+	if p.NetPerDayRupees == nil || !almostEqual(*p.NetPerDayRupees, 70) {
+		t.Fatalf("net = %v, want ₹70", p.NetPerDayRupees)
+	}
+	if !almostEqual(*p.NetPerDayRupees, *p.ValueAddedPerDayRupees-*p.FeedCostPerDayRupees) {
+		t.Fatal("net must be value minus feed over the same set")
+	}
+	// The whole-farm figure is a DIFFERENT population and must not equal the tile.
+	if p.FarmFeedCostPerDayRupees == nil || almostEqual(*p.FarmFeedCostPerDayRupees, *p.FeedCostPerDayRupees) {
+		t.Fatalf("farm feed %v must be its own whole-scope figure, not the tile", p.FarmFeedCostPerDayRupees)
+	}
+	if p.FarmAnimals <= p.PricedAnimals {
+		t.Fatalf("farm animals = %d must exceed the priced set %d", p.FarmAnimals, p.PricedAnimals)
+	}
+	if p.FarmFeedDays != 1 {
+		t.Fatalf("farm feed days = %d, want 1 (one sheet seeded)", p.FarmFeedDays)
+	}
+}

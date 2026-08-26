@@ -9830,10 +9830,18 @@ export interface components {
         };
         /** @description Headline figures. Money fields are nullable and null NEVER means zero — it means the input that would make the figure honest is missing, with the reason readable from the disclosure counts beside it. Deal figures (realized price, sold revenue) are tenant-wide: the sales ledger records a farm label, not a park id. */
         EconomicsPulse: {
-            /** @description Average daily priced feed direction over the window, whole scope. */
+            /** @description Daily feed cost of the `priced_animals` set — the animals weighed twice whose ration cell resolved and priced. Ranges over the SAME animals as `value_added_per_day_rupees` so the two may be subtracted; `net_per_day_rupees` is that subtraction. */
             feed_cost_per_day_rupees: number | null;
-            /** @description Measured daily gain of paired animals, priced at the realized price per kg. */
+            /** @description Those same animals' measured daily gain priced at the realized price per kg. An animal that did not measurably grow contributes ZERO here while still contributing its full cost above. */
             value_added_per_day_rupees: number | null;
+            /** @description value_added_per_day_rupees − feed_cost_per_day_rupees, over the one shared set. */
+            net_per_day_rupees: number | null;
+            /** @description WHOLE-SCOPE daily feed spend, covering `farm_animals` — a different and much larger population than the two figures above. Must always be rendered with that population named, never subtracted from the value figure. */
+            farm_feed_cost_per_day_rupees: number | null;
+            /** @description Days in the window that actually carry a feed sheet — the denominator `farm_feed_cost_per_day_rupees` is averaged over. A 90-day window may hold far fewer sheet days. */
+            farm_feed_days: number;
+            /** @description Live animals in scope — the population the farm feed figure covers. */
+            farm_animals: number;
             realized_price_per_kg: number | null;
             /**
              * @description Where the realized price came from — the window's own closed deals, the trailing 365 days when the window had none, or nothing at all.
@@ -9843,6 +9851,9 @@ export interface components {
             median_cost_per_kg_gain: number | null;
             weighed_identities: number;
             paired_animals: number;
+            /** @description Shared denominator of the two comparable tiles — paired AND priced. */
+            priced_animals: number;
+            /** @description Narrower set behind the median cost per kg — priced AND measurably growing. */
             cost_animals: number;
             /** @description Feed items directed in the window with NO purchase on record to price them — their kg is missing from every rupee figure. */
             unpriced_feed_items: number;
