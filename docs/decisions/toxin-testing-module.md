@@ -216,3 +216,36 @@ confirmation.
 counts approval queue shipped once. The person is now resolved to a NAME in the same bounded
 query (one LEFT JOIN, never a per-row lookup), and an unresolvable person is DROPPED rather than
 printed as an id.
+
+## Not a bug: the proof-download route is gated on `task.read` alone
+
+Raised in review of PR #115 as a P1 — "CEO/CXO toxin reviewers cannot load proof media",
+because `GET /app/proofs/{proof_id}/download` requires `TaskRead` while the toxin grant to
+`ceo_internal` is `ToxinRead` + `ToxinVerdict`. Recorded here because the reading is a
+reasonable one and will be made again.
+
+It does not reproduce. The toxin entry in `RoleCEOInternal` is an **addition** to that role's
+permission set, not the whole of it: `ceo_internal` is the founder-visibility role and already
+carries `TaskRead` among ~80 permissions. Resolved through the real route table:
+
+```text
+role=ceo_internal   downloadProof=true   taskRead=true    toxinRead=true
+role=toxin_tester   downloadProof=false  taskRead=false   toxinRead=true
+role=verifier       downloadProof=true   taskRead=true    toxinRead=false
+```
+
+`ceo_internal` is the only holder of `toxin.verdict`, so every principal who can open the
+toxin drawer can also fetch the media it shows. The drawer's photos resolve.
+
+The property is pinned by `TestToxinReviewerReachesProofMedia`, which asserts that **every**
+holder of `toxin.verdict` authorizes the download route — so a future verdict holder added
+without `task.read` fails, which is exactly the defect the finding imagined. Mutation-tested
+when written: removing `TaskRead` from `ceo_internal` turns it red.
+
+**The one real edge, deliberately left open.** `toxin_tester` holds no `task.read` and cannot
+call the download route. That is latent, not broken: no toxin surface resolves a server proof
+URL. The phone renders its own capture from the durable proof slot and only ever *writes*
+`proof_ref`; the admin-web drawer that reads proofs is CEO-only. If a tester surface ever needs
+to show a previous attempt's photo — the natural case is a retest after a reject — widen the
+route with `ToxinRead` the way the proof-upload routes already OR in `ToxinExecute`. Do not
+hand the tester `task.read`, which would carry vaccination SOP reads with it.
