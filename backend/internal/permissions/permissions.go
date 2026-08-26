@@ -1077,11 +1077,17 @@ var rolePermissions = map[string]map[string]struct{}{
 		PCCareExecute: {},
 	},
 	RoleCEOInternal: {
-		// Toxin (maintainer decision 2026-08-25): CEO/CXO holds the whole module — sees the
-		// tasks (read), MAY run a test themselves (execute), and is the ONLY role that can
-		// accept/reject a submitted test (verdict). The verdict deliberately does NOT ride
-		// verification.verdict — the tenant verifier never sees toxin work.
-		ToxinRead: {}, ToxinExecute: {}, ToxinVerdict: {},
+		// Toxin (maintainer decisions 2026-08-25 and 2026-08-26): CEO/CXO WATCHES and JUDGES;
+		// they never run the test. Read shows the tasks (the phone card is not tappable and
+		// no step opens a camera), and verdict is the accept/reject that only this role can
+		// cast — the verdict deliberately does NOT ride verification.verdict, so the tenant
+		// verifier never sees toxin work.
+		//
+		// ToxinExecute is DELIBERATELY ABSENT and must not be added back. The people who run
+		// the strip test are the named park heads holding RoleToxinTester; a CEO who could
+		// also execute would be accepting their own test, which is the separation this
+		// module exists to keep. Pinned by TestToxinExecuteIsTesterOnlyAndNeverCEO.
+		ToxinRead: {}, ToxinVerdict: {},
 		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
 		// The ONLY holder of the whole-pen cohort reclassification. See the constant's doc comment:
 		// it applies immediately, with no approval and no proof, and flips kid/adult for the whole

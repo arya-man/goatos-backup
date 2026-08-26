@@ -125,10 +125,17 @@ internal fun ToxinTaskDto.toCardUi(): ToxinTaskCardUi = ToxinTaskCardUi(
     originLine = originLine,
     stepsDone = stepsDone,
     stepsTotal = stepsTotal,
-    // A round that is already sent for review, accepted, or cancelled is closed to the tester:
-    // the row keeps its chip and stops opening the capture drill. A cancelled round's replacement
-    // arrives as its OWN task (retest = a new round, never an edit), so nothing is lost by this.
-    openable = status == TOXIN_STATUS_IN_PROGRESS,
+    // Two independent reasons a card does not open, and both are the backend's answer:
+    //
+    //   the ROUND is closed   — already sent for review, accepted, or cancelled. The row keeps
+    //                           its chip and stops opening the capture drill; a cancelled round's
+    //                           replacement arrives as its OWN task (retest = a new round, never
+    //                           an edit), so nothing is lost.
+    //   the PERSON only watches — a CEO/CXO sees every load's test and casts the verdict, but
+    //                           never films a step (maintainer decision 2026-08-26). Their card
+    //                           is a summary, not a way in. `canExecute` is the caller's own
+    //                           toxin.execute, resolved server-side per request.
+    openable = status == TOXIN_STATUS_IN_PROGRESS && canExecute,
 )
 
 internal const val TOXIN_STATUS_IN_PROGRESS = "in_progress"

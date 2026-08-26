@@ -68,6 +68,13 @@ data class ToxinTaskDto(
     @SerialName("created_at") val createdAt: String = "",
     /** Backend-composed card subtitle (feed, vendor, load, date in one farm line), VERBATIM. */
     @SerialName("context_line") val contextLine: String = "",
+    /**
+     * Whether THIS signed-in person may run the test. False for a CEO/CXO, who watches the
+     * round and casts the verdict but never films a step (maintainer decision 2026-08-26).
+     * Defaults false so an older payload without the field is treated as watch-only rather
+     * than offering a capture the server would refuse.
+     */
+    @SerialName("can_execute") val canExecute: Boolean = false,
 )
 
 @Serializable
@@ -118,6 +125,13 @@ data class ToxinTaskDetailDto(
     @SerialName("row_version") val rowVersion: Long = 0,
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("context_line") val contextLine: String = "",
+    /**
+     * Whether THIS signed-in person may run the test. False for a CEO/CXO, who watches the
+     * round and casts the verdict but never films a step (maintainer decision 2026-08-26).
+     * Defaults false so an older payload without the field is treated as watch-only rather
+     * than offering a capture the server would refuse.
+     */
+    @SerialName("can_execute") val canExecute: Boolean = false,
     @SerialName("steps") val steps: List<ToxinStepDto> = emptyList(),
     /** Backend-owned strip reading guide lines, rendered verbatim. */
     @SerialName("reading_guide") val readingGuide: List<String> = emptyList(),
@@ -152,6 +166,7 @@ data class ToxinTaskDetailDto(
         rowVersion = rowVersion,
         createdAt = createdAt,
         contextLine = contextLine,
+        canExecute = canExecute,
     )
 }
 
