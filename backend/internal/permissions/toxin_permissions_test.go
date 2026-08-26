@@ -151,3 +151,42 @@ func TestToxinExecuteIsTesterOnlyAndNeverCEO(t *testing.T) {
 		}
 	}
 }
+
+// TestToxinReviewerReachesProofMedia answers a review finding raised against PR #115 and
+// pins the answer so it is not re-raised from the same reading.
+//
+// The finding: "downloadProof is gated on TaskRead only, and the toxin CEO gets
+// ToxinRead/ToxinVerdict, not TaskRead — so the reviewer sees the drawer but every strip
+// photo 403s." It does not reproduce. The toxin block in RoleCEOInternal is an ADDITION to
+// that role's set, not the whole of it: ceo_internal is the founder-visibility role and
+// already carries TaskRead among ~80 permissions, so downloadProof authorizes.
+//
+// Rather than restate that in prose, this asserts the property the finding was really
+// about — EVERY principal who can cast a toxin verdict can also fetch the media that
+// verdict is about. Adding a ToxinVerdict holder that lacks TaskRead turns this red, which
+// is the case the finding imagined and the one worth catching.
+//
+// The tester is deliberately NOT asserted here: toxin_tester holds no TaskRead and cannot
+// call downloadProof. That is latent, not broken — no toxin screen resolves a server proof
+// URL (the phone renders its own local capture off the durable proof slot and only ever
+// writes proof_ref). If a tester surface ever needs to show a previous attempt's photo,
+// widen the route with ToxinRead the way the upload routes already OR in ToxinExecute.
+func TestToxinReviewerReachesProofMedia(t *testing.T) {
+	route, ok := Match("GET", "/app/proofs/98000000-0000-4000-8000-000000000001/download")
+	if !ok {
+		t.Fatal("the proof download route is not registered")
+	}
+	reviewers := 0
+	for role := range rolePermissions {
+		if !RoleHasPermission(role, ToxinVerdict) {
+			continue
+		}
+		reviewers++
+		if !AuthorizeRoute(route, []string{role}) {
+			t.Fatalf("%s casts the toxin verdict but cannot download the proof it is judging", role)
+		}
+	}
+	if reviewers == 0 {
+		t.Fatal("no role holds toxin.verdict; this test would pass vacuously")
+	}
+}
