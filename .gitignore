@@ -184,6 +184,11 @@ backend/herd-signals-udp-bridge
 backend/seed-herd-signals-oci
 backend/herd-signals-partition-maintenance
 
+# Worker binaries built in place while running the local stack by hand (44MB Mach-O each).
+# `go build -o` them into a temp path; the repo never carries the executable.
+backend/domain-event-consumer
+backend/outbox-relay
+
 # local E2E configuration — host addresses, key paths, credentials
 tools/e2e/e2e.env
 
