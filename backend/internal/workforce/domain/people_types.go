@@ -30,15 +30,27 @@ type PersonSummary struct {
 	// grain: one item = one submitted proof set (a lump-sum submission's several
 	// clips are still ONE item). Withdrawn/superseded items are excluded from
 	// every number — the work was redone, so neither side of a rate should count
-	// it. Uploads = approved + rejected + pending by construction.
-	ProofUploads  int `json:"proof_uploads"`
+	// it. Uploads = approved + rejected + pending + not-reviewed by construction.
+	ProofUploads int `json:"proof_uploads"`
+	// ProofApproved counts proofs a VERIFIER approved. It deliberately excludes
+	// the ones the randomization policy settled without review (maintainer
+	// decision 2026-08-26): those were never watched, so counting them here would
+	// report an operator's work as checked-and-accepted when nobody looked at it,
+	// and — worse — would dilute the rejection rate below by padding its
+	// denominator with proofs no one judged.
 	ProofApproved int `json:"proof_approved"`
 	ProofRejected int `json:"proof_rejected"`
 	ProofPending  int `json:"proof_pending"`
+	// ProofNotReviewed counts proofs settled by the randomization policy rather
+	// than by a person. It is reported rather than hidden because it is the honest
+	// difference between "this operator's work was checked" and "this operator's
+	// work was accepted": at a 40% share, most of a good operator's proofs land
+	// here, and that is a fact about the POLICY, not about him.
+	ProofNotReviewed int `json:"proof_not_reviewed"`
 	// ProofRejectionPct = rejected / (approved + rejected), rounded to a whole
 	// percent — the share of REVIEWED proofs that were rejected. Nil until at
 	// least one verdict exists, so a new operator shows "no reviews yet" rather
-	// than a fabricated 0%.
+	// than a fabricated 0%. Policy-settled proofs are on neither side of it.
 	ProofRejectionPct *int `json:"proof_rejection_pct"`
 }
 

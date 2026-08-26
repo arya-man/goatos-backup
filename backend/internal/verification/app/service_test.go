@@ -34,6 +34,16 @@ type fakeRepo struct {
 	videoLogErr       error
 	videoLogParams    ports.VideoLogParams
 	videoLogRowParams ports.VideoLogParams
+
+	samplingPolicies   []ports.SamplingPolicyRow
+	samplingPolicyDate string
+	samplingStats      map[string]domain.SamplingDayStats
+	samplingErr        error
+	samplingUpsertErr  error
+	samplingUpserts    []domain.SetSamplingPolicy
+	settleParams       ports.SettleUnsampledParams
+	settled            int
+	settleErr          error
 }
 
 func newFakeRepo() *fakeRepo {
@@ -374,6 +384,46 @@ func (r *fakeRepo) VideoLogShedSummary(_ context.Context, params ports.VideoLogP
 func (r *fakeRepo) VideoLogShedRows(_ context.Context, params ports.VideoLogParams) ([]domain.VideoLogRow, bool, error) {
 	r.videoLogRowParams = params
 	return r.videoLogRows, r.videoLogTruncated, r.videoLogErr
+}
+
+// -- Randomized verification sampling (maintainer decision 2026-08-26) --
+//
+// samplingPolicies/samplingStats let a test drive the Randomization panel without a database, and
+// settleParams captures what the service actually asked the repository to settle -- which is where
+// the business-day cutoff and the waivable allowlist are proved.
+func (r *fakeRepo) ListSamplingPolicies(_ context.Context, _ string, businessDate string) ([]ports.SamplingPolicyRow, error) {
+	r.samplingPolicyDate = businessDate
+	return r.samplingPolicies, r.samplingErr
+}
+
+func (r *fakeRepo) UpsertSamplingPolicy(_ context.Context, in domain.SetSamplingPolicy) error {
+	if r.samplingUpsertErr != nil {
+		return r.samplingUpsertErr
+	}
+	r.samplingUpserts = append(r.samplingUpserts, in)
+	// Reflect the write back so a follow-up read in the same test sees it, exactly as the real
+	// upsert would.
+	next := make([]ports.SamplingPolicyRow, 0, len(r.samplingPolicies)+1)
+	for _, row := range r.samplingPolicies {
+		if row.Category != in.Category {
+			next = append(next, row)
+		}
+	}
+	r.samplingPolicies = append(next, ports.SamplingPolicyRow{
+		Category:              in.Category,
+		Percent:               in.Percent,
+		EffectiveBusinessDate: in.EffectiveBusinessDate,
+	})
+	return nil
+}
+
+func (r *fakeRepo) ListSamplingDayStats(_ context.Context, _ string, _ string) (map[string]domain.SamplingDayStats, error) {
+	return r.samplingStats, r.samplingErr
+}
+
+func (r *fakeRepo) SettleUnsampledItems(_ context.Context, in ports.SettleUnsampledParams) (int, error) {
+	r.settleParams = in
+	return r.settled, r.settleErr
 }
 
 var _ ports.Repository = (*fakeRepo)(nil)

@@ -67,7 +67,7 @@ const (
 	// tester runs the test, and the reviewer of the test must not be the tester
 	// (separation of duty, same reasoning as the verifier lock — except here the
 	// reviewer is CEO/CXO by maintainer decision, not the tenant verifier).
-	// Catalog row: migration 000211.
+	// Catalog row: migration 000214.
 	RoleToxinTester = "toxin_tester"
 	RoleOperator    = "operator"
 	RoleCEOInternal = "ceo_internal"
@@ -686,6 +686,29 @@ const (
 	// which case they see arrival times and can open nothing -- so it is always granted with review,
 	// never instead of it.
 	VerificationEvidenceTimeline = "verification.evidence_timeline"
+
+	// VerificationSampling gates the RANDOMIZATION section on /verify: per verification category,
+	// the PERCENTAGE of that category's proof videos the verifier actually has to watch, and the
+	// day's progress against that share (maintainer decision 2026-08-26).
+	//
+	// CEO-ONLY, and narrower than every other verification capability on purpose. It is not
+	// oversight (RolePCDirector holds VerificationOversee and does NOT hold this): oversight WATCHES
+	// the verification workload, this DECIDES how much of it a human is required to watch at all.
+	// A director who could lower his own module's percentage would be setting the depth of the check
+	// on work his own department produces, which is the same separation of duty that keeps
+	// VerificationVerdict off every leadership role.
+	//
+	// It is one capability for the READ and the WRITE, unlike the review/verdict split, because
+	// there is nothing here to read except the setting itself and how it is going -- a caller who
+	// may not set the percentage has no use for a panel whose whole content is that percentage.
+	// This is the DATA gate; the randomization control in the /verify page contract is the matching
+	// UI gate, and both key on this constant rather than on a role string.
+	//
+	// It carries NO verdict authority: the CEO still cannot approve or reject an item, and lowering
+	// a percentage never decides one. It changes which items reach a verifier, and the ones it
+	// waives are settled by the closeout stage as APPROVALS with no verifier attached
+	// (verification_items.auto_resolution = 'not_sampled'), so they can never be counted as her work.
+	VerificationSampling = "verification.sampling"
 )
 
 var rolePermissions = map[string]map[string]struct{}{
@@ -1149,7 +1172,13 @@ var rolePermissions = map[string]map[string]struct{}{
 		// visibility invariant. See VerificationEvidenceTimeline: a separate capability from the
 		// oversight chrome above, and the verifier holds it too.
 		VerificationEvidenceTimeline: {},
-		HealthRead:                   {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
+		// The RANDOMIZATION section on /verify (maintainer decision 2026-08-26): how much of each
+		// module's proof video the verifier is required to watch. Held by ceo_internal and by NO
+		// other role -- not even RolePCDirector, who holds VerificationOversee. See
+		// VerificationSampling for why watching the workload and setting the depth of the check are
+		// different authorities.
+		VerificationSampling: {},
+		HealthRead:           {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
 		// The authored treatment rulebook (/health/config). Part of the founder/builder visibility
 		// invariant above: the platform-owner cohort holds the grants for every built visible
 		// module, so a founder is never locked out of a screen they are expected to operate.

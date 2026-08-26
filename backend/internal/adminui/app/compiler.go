@@ -1134,13 +1134,40 @@ func compileVerificationReviewControls(controls []domain.Control, input Bootstra
 		DisabledReason: toxinReason,
 		Action:         "GET /toxin/review",
 	})
-	return upsertControl(out, domain.Control{
+	out = upsertControl(out, domain.Control{
 		ID:             "toxin_verdict",
 		Label:          controlCopy(copy, "toxin_verdict.title", "Record toxin verdict"),
 		Kind:           "primary_action",
 		Enabled:        mayToxin,
 		DisabledReason: toxinVerdictReason(copy, mayToxin),
 		Action:         "POST /toxin/tasks/{task_id}/verdict",
+	})
+	// randomization gates the CEO-only sampling section on /verify: per module, what percentage of
+	// that module's proof videos the verifier actually has to watch, and today's progress against
+	// that share (maintainer decision 2026-08-26).
+	//
+	// It follows permissions.VerificationSampling, which is narrower than every other control on
+	// this page -- RolePCDirector holds oversight and does NOT hold this. Oversight WATCHES the
+	// verification workload; this DECIDES how much of it a human is required to watch, and a
+	// director setting that for his own department's work is the separation of duty that keeps
+	// verdict authority off leadership in the first place. It is its own control for the same
+	// reason oversight_analytics is not folded into oversight_filters: one visibility rule must
+	// never move because another changed.
+	//
+	// This is the UI gate; the SAME capability gates the data on GET/PUT /verification/sampling. A
+	// pixel-only gate would be the 2026-08-12 incident's inverse.
+	mayRandomize := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationSampling})
+	randomizationReason := ""
+	if !mayRandomize {
+		randomizationReason = controlCopy(copy, "randomization.disabled_no_access", "Setting how much proof is reviewed is limited to the CEO.")
+	}
+	return upsertControl(out, domain.Control{
+		ID:             "randomization",
+		Label:          controlCopy(copy, "randomization.title", "Randomization"),
+		Kind:           "visibility",
+		Enabled:        mayRandomize,
+		DisabledReason: randomizationReason,
+		Action:         "GET /verification/sampling",
 	})
 }
 

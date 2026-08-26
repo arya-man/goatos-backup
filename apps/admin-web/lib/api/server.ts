@@ -2778,6 +2778,64 @@ export async function getVerificationVideoLog(params: {
   );
 }
 
+export type VerificationSamplingResponse = AppApiComponents["schemas"]["VerificationSamplingResponse"];
+export type VerificationSamplingCategory = AppApiComponents["schemas"]["VerificationSamplingCategory"];
+
+/**
+ * RANDOMIZATION (GET /verification/sampling): per verification category, the share of that
+ * category's proof videos the verifier must watch on one business day, and how the day is going
+ * against it.
+ *
+ * Gated on permissions.VerificationSampling -- CEO-only, and NARROWER than verification.oversee,
+ * which the PC Director also holds. The page must only call this when
+ * controlEnabled(pageContract, "randomization", false) is true, so a caller without the capability
+ * never renders a bare error card.
+ */
+export async function getVerificationSampling(params: {
+  businessDate?: string;
+}): Promise<ApiResult<VerificationSamplingResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VerificationSamplingResponse>("/verification/sampling", {
+      cache: "no-store",
+      query: compactQuery({ business_date: params.businessDate }),
+    }),
+  );
+}
+
+/**
+ * Set one category's sampling percentage (PUT /verification/sampling/{category}), effective from
+ * today's business day. Earlier days keep the percentage they actually ran at.
+ *
+ * 0 is a REAL value ("review none of this category today"), so the caller must send an explicit
+ * number -- never a blank coerced to zero, and never a client-side clamp of an out-of-range entry:
+ * the backend owns that refusal and must be allowed to make it.
+ */
+export async function setVerificationSamplingPolicy(
+  category: string,
+  samplePercent: number,
+  idempotencyKey: string,
+): Promise<ApiResult<VerificationSamplingCategory>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/verification/sampling/${encodeURIComponent(category)}` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<VerificationSamplingCategory>(path, {
+      method: "PUT",
+      cache: "no-store",
+      // Derived, never random: the same (category, day, share) is the same logical act, so a
+      // double-click or a retried Server Action is ONE write. A DIFFERENT share sent under this
+      // same key is refused by the backend rather than silently overwriting -- two shares racing on
+      // one day are two decisions, and the loser must be told.
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: { sample_percent: samplePercent },
+    }),
+  );
+}
+
 /**
  * Record the Verifier's approve/reject decision on one verification item
  * (POST /verification/items/{item_id}/verdict, gated on verification.verdict -- the verifier role

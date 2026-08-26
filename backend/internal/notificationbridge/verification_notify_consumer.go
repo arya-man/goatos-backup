@@ -345,24 +345,29 @@ type verificationSource struct {
 // by that producer contract: tenant/item identity + classification + who-to-route-to
 // (operator/shed/partition/park) + the decision/reason + the source back-reference used for legacy dedup.
 type VerificationEventPayload struct {
-	TenantID       string             `json:"tenant_id"`
-	ItemID         string             `json:"item_id"`
-	Vertical       string             `json:"vertical"`
-	Module         string             `json:"module"`
-	Category       string             `json:"category"`
-	SubjectLabel   string             `json:"subject_label"`
-	OperatorID     string             `json:"operator_id"`
-	ShedID         string             `json:"shed_id"`
-	PartitionLabel string             `json:"partition_label"`
-	ParkID         string             `json:"park_id"`
-	Decision       string             `json:"decision"` // "approved" | "rejected" (verdict events)
-	Status         string             `json:"status"`   // status alias kept alongside decision
-	Reason         string             `json:"reason"`   // optional rework reason
-	VerifiedBy     string             `json:"verified_by"`
-	ClosedBy       string             `json:"closed_by"`
-	BatchID        string             `json:"batch_id"`
-	CapturedAt     string             `json:"captured_at"`
-	Source         verificationSource `json:"source"`
+	TenantID       string `json:"tenant_id"`
+	ItemID         string `json:"item_id"`
+	Vertical       string `json:"vertical"`
+	Module         string `json:"module"`
+	Category       string `json:"category"`
+	SubjectLabel   string `json:"subject_label"`
+	OperatorID     string `json:"operator_id"`
+	ShedID         string `json:"shed_id"`
+	PartitionLabel string `json:"partition_label"`
+	ParkID         string `json:"park_id"`
+	Decision       string `json:"decision"` // "approved" | "rejected" (verdict events)
+	Status         string `json:"status"`   // status alias kept alongside decision
+	Reason         string `json:"reason"`   // optional rework reason
+	VerifiedBy     string `json:"verified_by"`
+	ClosedBy       string `json:"closed_by"`
+	BatchID        string `json:"batch_id"`
+	CapturedAt     string `json:"captured_at"`
+	// InSample reports whether the RANDOMIZATION policy drew this video for the verifier
+	// (maintainer decision 2026-08-26). A POINTER, and nil means "in sample", so an event produced
+	// before the field existed -- one already sitting in the outbox during a deploy -- keeps
+	// notifying exactly as it does today rather than silently going quiet.
+	InSample *bool              `json:"in_sample"`
+	Source   verificationSource `json:"source"`
 }
 
 // legacyHandledVaccination reports whether this item is ALSO covered by the legacy
@@ -1014,6 +1019,16 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 	if len(verifierRecipients)+len(leadershipRecipients) == 0 && c.logger != nil {
 		c.logger.WarnContext(ctx, "verification_pending_notification_no_recipients",
 			"tenant_id", tenantID, "item_id", itemID, "park_id", parkID)
+	}
+	// A video the randomization policy did not draw is not in her queue, so a push telling her to
+	// review it sends her to a screen that does not list it. Suppress HER half only: the park head
+	// and leadership are told proof arrived from their park either way, and the item is still
+	// settled by the closeout stage -- nothing is lost, and nobody is asked to look at nothing.
+	//
+	// AFTER the no-recipients warning above on purpose: that warning is a WIRING alarm ("this
+	// item's push can reach nobody"), and a policy decision must not be able to raise it.
+	if p.InSample != nil && !*p.InSample {
+		verifierRecipients = nil
 	}
 
 	eventKeySubject := itemID

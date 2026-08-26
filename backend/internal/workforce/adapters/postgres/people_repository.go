@@ -31,9 +31,11 @@ import (
 //   wm.user_id, served by the partial index
 //   verification_items_operator_status_idx, migration 000189). Grain of the
 //   counts = verification ITEM (one item = one submitted proof set), withdrawn
-//   excluded everywhere, so uploads = approved + rejected + pending and the
-//   rejection ratio's numerator and denominator range over the same key set
-//   (this member's non-withdrawn items). operator_id carries the USER id (the
+//   excluded everywhere, so uploads = approved + rejected + pending +
+//   not_reviewed and the rejection ratio's numerator and denominator range over
+//   the same key set (this member's non-withdrawn, HUMAN-decided items --
+//   randomization-settled proofs are on neither side, maintainer decision
+//   2026-08-26). operator_id carries the USER id (the
 //   auth actor recorded at enqueue), which is why the join key is wm.user_id
 //   and never wm.workforce_member_id.
 
@@ -76,7 +78,8 @@ SELECT
   COALESCE(proof.uploads, 0),
   COALESCE(proof.approved, 0),
   COALESCE(proof.rejected, 0),
-  COALESCE(proof.pending, 0)
+  COALESCE(proof.pending, 0),
+  COALESCE(proof.not_reviewed, 0)
 FROM workforce_members wm
 LEFT JOIN locations l
   ON l.tenant_id = wm.tenant_id AND l.location_id = wm.primary_location_id
@@ -85,9 +88,13 @@ LEFT JOIN departments d
 LEFT JOIN LATERAL (
   SELECT
     count(*) FILTER (WHERE vi.status <> 'withdrawn') AS uploads,
-    count(*) FILTER (WHERE vi.status = 'approved')   AS approved,
+    -- approved BY A PERSON. A proof the randomization policy settled was never watched, so
+    -- counting it as approved would both overstate this operator's checked work and dilute the
+    -- rejection rate by padding its denominator with proofs nobody judged.
+    count(*) FILTER (WHERE vi.status = 'approved' AND vi.auto_resolution IS NULL) AS approved,
     count(*) FILTER (WHERE vi.status = 'rejected')   AS rejected,
-    count(*) FILTER (WHERE vi.status = 'pending')    AS pending
+    count(*) FILTER (WHERE vi.status = 'pending')    AS pending,
+    count(*) FILTER (WHERE vi.auto_resolution IS NOT NULL) AS not_reviewed
   FROM verification_items vi
   WHERE vi.tenant_id = wm.tenant_id
     AND vi.operator_id = wm.user_id
@@ -123,6 +130,7 @@ func scanPeople(rows pgx.Rows) ([]domain.PersonSummary, error) {
 			&p.ProofApproved,
 			&p.ProofRejected,
 			&p.ProofPending,
+			&p.ProofNotReviewed,
 		); err != nil {
 			return nil, err
 		}

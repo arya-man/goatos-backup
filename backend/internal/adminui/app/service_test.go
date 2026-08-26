@@ -325,6 +325,61 @@ func TestVerifyPageVideoLogControlIsCapabilityGated(t *testing.T) {
 	}
 }
 
+// TestVerifyPageRandomizationControlIsCapabilityGated pins the NARROWEST capability on /verify:
+// permissions.VerificationSampling, which is CEO-ONLY (maintainer decision 2026-08-26).
+//
+// The pc_director row is the load-bearing one, and it is deliberately the opposite of every other
+// control on this page: he holds VerificationOversee, so he gets the module chips, the capture-date
+// range and the analytics -- and must NOT get this. Oversight WATCHES the verification workload;
+// randomization DECIDES how much of it a human is required to watch, and a director setting that
+// for his own department's work is the separation of duty that keeps verdict authority off
+// leadership in the first place. Asserting oversight_analytics ENABLED and randomization DISABLED
+// from the same compile is what stops a later change from collapsing the two capabilities together.
+func TestVerifyPageRandomizationControlIsCapabilityGated(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		role             string
+		randomization    bool
+		oversightEnabled bool
+	}{
+		{"ceo_internal", permissions.RoleCEOInternal, true, true},
+		// Holds oversight, must not hold this.
+		{"pc_director", permissions.RolePCDirector, false, true},
+		{"verifier", permissions.RoleVerifier, false, false},
+		{"park_head", permissions.RoleParkHead, false, false},
+		{"operator", permissions.RoleOperator, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+				TenantID: "00000000-0000-4000-8000-000000000001",
+				ActorID:  "00000000-0000-4000-8000-000000000099",
+				Grants: []permissions.ActiveGrant{
+					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+				},
+			})
+			controls := pageByRouteID(t, resp.Pages, "verification-review").Controls
+
+			randomization := controlByID(t, controls, "randomization")
+			if randomization.Enabled != tc.randomization {
+				t.Fatalf("%s randomization.enabled = %v want %v (%#v)", tc.name, randomization.Enabled, tc.randomization, randomization)
+			}
+			if !tc.randomization && randomization.DisabledReason == "" {
+				t.Fatalf("%s: disabled randomization control must carry a backend disabled reason", tc.name)
+			}
+			// The endpoint the panel reads must be declared on the control, so the contract states
+			// which read this visibility gate stands in front of.
+			if randomization.Action != "GET /verification/sampling" {
+				t.Fatalf("%s randomization.action = %q want the sampling read", tc.name, randomization.Action)
+			}
+			oversight := controlByID(t, controls, "oversight_analytics")
+			if oversight.Enabled != tc.oversightEnabled {
+				t.Fatalf("%s oversight_analytics.enabled = %v want %v -- randomization must not move the oversight gate",
+					tc.name, oversight.Enabled, tc.oversightEnabled)
+			}
+		})
+	}
+}
+
 func TestVerifyPageOversightAnalyticsControlIsCapabilityGated(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

@@ -1536,6 +1536,33 @@ func pageSpecificCopy(id string) map[string]string {
 			"oversight_analytics.watched_full":            "watched in full",
 			"oversight_analytics.no_play":                 "decided without playing",
 
+			// RANDOMIZATION copy (permissions.VerificationSampling, maintainer decision
+			// 2026-08-26). CEO-plain and farm-worded throughout: this panel says how much of each
+			// module's proof a person actually watches, so it talks about videos and share of work,
+			// never about sampling buckets, policies or percentages of a population.
+			"randomization.title":          "Randomization",
+			"randomization.open":           "Randomization",
+			"randomization.close":          "Close randomization",
+			"randomization.hint":           "How much of each module's proof the verifier reviews",
+			"randomization.unavailable":    "Randomization is unavailable right now.",
+			"randomization.col.module":     "Module",
+			"randomization.col.share":      "Share to review",
+			"randomization.col.today":      "Today",
+			"randomization.col.progress":   "Progress",
+			"randomization.apply":          "Apply",
+			"randomization.saving":         "Saving...",
+			"randomization.share_help":     "Videos are picked at random. Raising the share adds more of today's videos; it never takes back one already reviewed.",
+			"randomization.videos_arrived": "videos arrived",
+			"randomization.to_review":      "to review",
+			"randomization.reviewed":       "reviewed",
+			"randomization.settled":        "settled without review",
+			"randomization.complete":       "Done for the day",
+			"randomization.locked":         "Every video",
+			"randomization.effective":      "In force since",
+			"randomization.set_by":         "Set by",
+			"randomization.empty":          "No proof arrived on this day.",
+			"randomization.save_failed":    "That share could not be saved. Try again.",
+
 			// VIDEO LOG copy (permissions.VerificationEvidenceTimeline, maintainer decision
 			// 2026-08-14). Farm-plain throughout: this is read by a verifier and by leadership, and
 			// the copy firewall bans implementation words on both surfaces. "Arrived" rather than
@@ -5219,25 +5246,29 @@ func pageSpecificCopy(id string) map[string]string {
 			"stats.approved":                 "Approved",
 			"stats.rejected":                 "Rejected",
 			"stats.pending":                  "Awaiting review",
-			"stats.rejection_rate":           "Rejection rate",
-			"stats.none":                     "No proof videos submitted yet.",
-			"stats.no_reviews":               "No reviews yet",
-			"action.deactivate":              "Deactivate",
-			"action.activate":                "Activate",
-			"action.confirm":                 "Yes, continue",
-			"confirm.deactivate.title":       "Deactivate this person?",
-			"confirm.deactivate.body":        "They stay in the directory as inactive and can no longer be assigned work. Their sign-in access is removed separately.",
-			"confirm.activate.title":         "Activate this person?",
-			"confirm.activate.body":          "They return to the active directory and can be assigned work again.",
-			"action.person_deactivated":      "Person deactivated.",
-			"action.person_activated":        "Person activated.",
-			"action.person_status_failed":    "Could not change this person's status. Reload and try again.",
-			"empty.people":                   "No people match these filters.",
-			"empty.people.unset":             "No people yet. Add the first person to start the directory.",
-			"summary.count":                  "people",
-			"error.load":                     "Could not load the staff directory. Refresh to try again.",
-			"disabled.write":                 "Your current role can view people but not add them.",
-			"tab.disabled_reason":            "This staffing view is coming soon.",
+			// RANDOMIZATION (maintainer decision 2026-08-26): proofs the sampling policy settled
+			// without a person. Worded as a fact about the POLICY, never about the operator -- at a
+			// 40% share most of a good operator's proofs land here.
+			"stats.not_reviewed":          "Not selected for review",
+			"stats.rejection_rate":        "Rejection rate",
+			"stats.none":                  "No proof videos submitted yet.",
+			"stats.no_reviews":            "No reviews yet",
+			"action.deactivate":           "Deactivate",
+			"action.activate":             "Activate",
+			"action.confirm":              "Yes, continue",
+			"confirm.deactivate.title":    "Deactivate this person?",
+			"confirm.deactivate.body":     "They stay in the directory as inactive and can no longer be assigned work. Their sign-in access is removed separately.",
+			"confirm.activate.title":      "Activate this person?",
+			"confirm.activate.body":       "They return to the active directory and can be assigned work again.",
+			"action.person_deactivated":   "Person deactivated.",
+			"action.person_activated":     "Person activated.",
+			"action.person_status_failed": "Could not change this person's status. Reload and try again.",
+			"empty.people":                "No people match these filters.",
+			"empty.people.unset":          "No people yet. Add the first person to start the directory.",
+			"summary.count":               "people",
+			"error.load":                  "Could not load the staff directory. Refresh to try again.",
+			"disabled.write":              "Your current role can view people but not add them.",
+			"tab.disabled_reason":         "This staffing view is coming soon.",
 		}
 	// Vaccination is deliberately absent: its SOP page is gone, and its content lives on
 	// the vaccination plan console. milk and weighing arrived on main meanwhile and stay.

@@ -19,6 +19,10 @@ import { AnalyticsPanel } from "./analytics-panel";
 // "use client" boundary made closeHref unable to strip its own key, so the drawer would not close.
 import { ANALYTICS_PANEL_ID, ANALYTICS_PANEL_SELECTION_KEY } from "./analytics-panel-params";
 import { OversightAnalytics } from "./oversight-analytics";
+import { Randomization } from "./randomization";
+import { RandomizationPanel } from "./randomization-panel";
+// Server-safe module on purpose: see randomization-panel-params.ts.
+import { RANDOMIZATION_PANEL_ID, RANDOMIZATION_PANEL_SELECTION_KEY } from "./randomization-panel-params";
 import { VideoLogPanel } from "./video-log-panel";
 // Server-safe module on purpose: a constant imported across the "use client" boundary arrives as a
 // client-reference proxy, not the string, so vl_date/vl_shed silently never matched.
@@ -191,6 +195,11 @@ export async function VerificationReviewPage({
   // not. Keeping it a distinct control is what lets her have this panel without the oversight
   // chrome. See compileVerificationReviewControls's video_log doc comment.
   const videoLogEnabled = controlEnabled(pageContract, "video_log", false);
+  // Gates the CEO-only RANDOMIZATION section: per module, the share of proof the verifier must
+  // review (maintainer decision 2026-08-26). Its own control, on permissions.VerificationSampling
+  // -- NARROWER than the oversight capability above, which the PC Director also holds. See
+  // compileVerificationReviewControls's randomization doc comment.
+  const randomizationEnabled = controlEnabled(pageContract, "randomization", false);
 
   // The mock's dot-legend pills (mock/verifier-web-mock.html .legend/.lg) need a live count per
   // status for the CURRENT feature+scope. This is the backend's own whole-filter aggregate
@@ -347,6 +356,30 @@ export async function VerificationReviewPage({
               }
             />
           </VideoLogPanel>
+        ) : null}
+        {/* RANDOMIZATION: how much of each module's proof the verifier is required to watch
+            (maintainer decision 2026-08-26). A THIRD panel, not a tab inside Analytics, because it
+            is gated on a THIRD capability: permissions.VerificationSampling is CEO-only, while
+            Analytics follows VerificationOversee, which the PC Director also holds. Folding them
+            together would hand a director the control over how deeply his own department's work is
+            checked. */}
+        {randomizationEnabled ? (
+          <RandomizationPanel
+            pageContract={pageContract}
+            // MUST drop the panel's own key: closeHref is what the overlay writes when it cannot
+            // pop history, and a href that still says open closes the drawer and immediately
+            // reopens it from the URL.
+            closeHref={hrefWith(sp, { [RANDOMIZATION_PANEL_SELECTION_KEY]: null })}
+            initialOpen={one(sp, RANDOMIZATION_PANEL_SELECTION_KEY) === RANDOMIZATION_PANEL_ID}
+          >
+            <Randomization
+              pageContract={pageContract}
+              // Saving a share redirects back here, so the return URL re-asserts the panel key in
+              // the QUERY -- otherwise the CEO would be dropped back on the queue with the drawer
+              // shut after every change.
+              returnTo={hrefWith(sp, { [RANDOMIZATION_PANEL_SELECTION_KEY]: RANDOMIZATION_PANEL_ID })}
+            />
+          </RandomizationPanel>
         ) : null}
       </div>
 

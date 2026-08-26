@@ -132,6 +132,19 @@ type ListQueueParams struct {
 	// a caller without it is IGNORED rather than 403'd so a stale bookmark degrades to her normal
 	// queue instead of taking the board down.
 	CaptureDateFilterEnabled bool
+	// SamplingApplied narrows the page to the items the RANDOMIZATION policy DREW for review
+	// (maintainer decision 2026-08-26): at 40% on feed packing, four of every ten of that day's
+	// packing videos reach the verifier and the rest are settled by the policy without her.
+	//
+	// It is set for a WORKING VERIFIER and left false for leadership oversight, which must keep
+	// seeing every video -- the CEO who sets the percentage cannot be shown a queue narrowed by his
+	// own setting, or he could not audit what the policy waived. The handler derives it from the
+	// caller's grants (absence of permissions.VerificationOversee), never from a role string.
+	//
+	// Default false is the safe direction on purpose: every other caller of ListQueue -- leadership
+	// review, closure candidates, the awaiting-application view -- keeps its current, unnarrowed
+	// result without opting out.
+	SamplingApplied bool
 }
 
 // Repository is the Verification module's persistence boundary. Adapters own the outbox insert for
@@ -209,6 +222,51 @@ type Repository interface {
 	// arrival time. The bool reports TRUNCATION -- more work existed than Limit allowed -- so a
 	// caller never presents a partial day as a complete one.
 	VideoLogShedRows(ctx context.Context, params VideoLogParams) ([]domain.VideoLogRow, bool, error)
+
+	// -- Randomized verification sampling (maintainer decision 2026-08-26) --
+
+	// ListSamplingPolicies returns the standing per-category percentage in force ON a business
+	// date: the newest row on or before it, so a past day keeps the percentage it actually ran at.
+	// A category with no row is absent and resolves to domain.DefaultSamplePercent.
+	ListSamplingPolicies(ctx context.Context, tenantID, businessDate string) ([]SamplingPolicyRow, error)
+	// UpsertSamplingPolicy writes one category's percentage for one business date. Naturally
+	// idempotent -- the primary key is exactly that triple.
+	UpsertSamplingPolicy(ctx context.Context, in domain.SetSamplingPolicy) error
+	// ListSamplingDayStats is the Randomization panel's whole-day aggregate per category. Never a
+	// page-local recount; see the adapter's projection-review marker.
+	ListSamplingDayStats(ctx context.Context, tenantID, businessDate string) (map[string]domain.SamplingDayStats, error)
+	// SettleUnsampledItems approves the pending items of CLOSED business days the policy did not
+	// draw, emitting the ordinary approved event so every producer applies as it does for a human
+	// verdict. Returns how many it settled this call.
+	SettleUnsampledItems(ctx context.Context, in SettleUnsampledParams) (int, error)
+}
+
+// SamplingPolicyRow is one stored sampling policy resolved for a business date.
+type SamplingPolicyRow struct {
+	Category string
+	Percent  int
+	// EffectiveBusinessDate is the day the standing row was written for (YYYY-MM-DD), which is
+	// normally EARLIER than the day being asked about -- a percentage set last week is still the
+	// one in force today.
+	EffectiveBusinessDate string
+	SetBy                 *string
+	// SetByName is the backend-owned display label for SetBy, empty when it resolves to nobody.
+	SetByName string
+	SetAt     time.Time
+}
+
+// SettleUnsampledParams bounds one closeout pass.
+type SettleUnsampledParams struct {
+	TenantID string
+	// Before is the caller's business-day start: only CLOSED days are settled, because the
+	// percentage stays editable for the whole of the current day.
+	Before time.Time
+	// WaivableCategories is the registry-derived allowlist. A category whose approve must carry a
+	// measurement is never in it, so an empty list settles NOTHING rather than everything.
+	WaivableCategories []string
+	// Limit bounds one pass; the stage runs on a cadence, so a large backlog drains over several
+	// ticks instead of one unbounded transaction.
+	Limit int
 }
 
 // VideoLogParams scopes a video-log read. Both levels take the same params so the summary and the

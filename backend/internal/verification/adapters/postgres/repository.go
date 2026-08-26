@@ -151,8 +151,29 @@ RETURNING item_id::text`,
 	}
 
 	if created {
+		// RANDOMIZATION (maintainer decision 2026-08-26): whether this video is one the verifier
+		// will actually be shown. Read HERE, in the same transaction as the insert, because the
+		// pending push says "an assigned verifier must review it" -- and telling her about a video
+		// the policy waived is telling her to open something her queue does not contain.
+		//
+		// It is a snapshot of the share IN FORCE NOW, and deliberately so. The CEO can raise the
+		// share later in the day and recruit this item into her queue; she simply gets no push for
+		// it, which is the safe direction. The alternative -- pushing for everything and letting
+		// her find the gap -- is the one that wastes a person's attention.
+		//
+		// The LEADERSHIP half of that push is unaffected: a park head is told proof arrived from
+		// his park whether or not a verifier is going to watch it.
+		var inSample bool
+		if err := tx.QueryRow(ctx, `
+SELECT `+samplingInSampleSQL()+`
+FROM verification_items vi
+WHERE vi.tenant_id = $1::uuid AND vi.item_id = $2::uuid`, in.TenantID, itemID).Scan(&inSample); err != nil {
+			return domain.CreateItemResult{}, mapWriteErr(err)
+		}
+		payload := verificationItemPendingPayload(itemID, in)
+		payload["in_sample"] = inSample
 		if err := insertOutboxEvent(ctx, tx, in.TenantID, EventItemPending, itemID,
-			"verification.item.pending:"+itemID, verificationItemPendingPayload(itemID, in)); err != nil {
+			"verification.item.pending:"+itemID, payload); err != nil {
 			return domain.CreateItemResult{}, err
 		}
 	}
@@ -365,7 +386,7 @@ WHERE vi.tenant_id = $1::uuid
       AND vi.closed_at IS NULL
       AND vi.status NOT IN ('pending', 'withdrawn')
     )
-  )
+  )`+samplingPredicateSQL(20)+`
 ORDER BY vi.captured_at ASC, vi.item_id ASC
 LIMIT $11`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
@@ -375,6 +396,7 @@ LIMIT $11`,
 		params.CapturedFrom, params.CapturedBefore,
 		params.AwaitingApplicationOnly,
 		filterPartition,
+		params.SamplingApplied,
 	)
 	if err != nil {
 		return nil, err
@@ -422,12 +444,16 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $8::boolean OR vi.source_submission_id IS NOT NULL)
   AND (NOT $9::boolean OR vi.closed_at IS NULL)
   AND ($10::timestamptz IS NULL OR vi.captured_at >= $10::timestamptz)
-  AND ($11::timestamptz IS NULL OR vi.captured_at < $11::timestamptz)
+  AND ($11::timestamptz IS NULL OR vi.captured_at < $11::timestamptz)`+samplingPredicateSQL(12)+`
 GROUP BY vi.park_id, park_loc.name
 ORDER BY label, vi.park_id::text`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.SubmissionScopedOnly, params.OpenOnly,
 		params.CapturedFrom, params.CapturedBefore,
+		// The DROPDOWNS are sampled too, or the verifier is offered a park whose every video the
+		// policy waived: she picks it, the queue is empty, and the filter she was given is the only
+		// thing that said there was work there.
+		params.SamplingApplied,
 	)
 	if err != nil {
 		return options, err
@@ -477,7 +503,7 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $9::boolean OR vi.source_submission_id IS NOT NULL)
   AND (NOT $10::boolean OR vi.closed_at IS NULL)
   AND ($11::timestamptz IS NULL OR vi.captured_at >= $11::timestamptz)
-  AND ($12::timestamptz IS NULL OR vi.captured_at < $12::timestamptz)
+  AND ($12::timestamptz IS NULL OR vi.captured_at < $12::timestamptz)`+samplingPredicateSQL(13)+`
 GROUP BY vi.shed_id, shed_loc.name, `+shedPartitionPredicate+`
 -- Park first so a park's sheds arrive contiguously and a client can group without sorting.
 -- shed_id still breaks the final tie, so two identically-named sheds in ONE park stay stable.
@@ -485,6 +511,8 @@ ORDER BY park_label, shed_label, partition_key, vi.shed_id::text`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.ParkID, params.SubmissionScopedOnly, params.OpenOnly,
 		params.CapturedFrom, params.CapturedBefore,
+		// Same reason as the park list above.
+		params.SamplingApplied,
 	)
 	if err != nil {
 		return options, err
@@ -545,11 +573,12 @@ WHERE vi.tenant_id = $1::uuid
   AND ($8 = '' OR vi.shed_id = $8::uuid)
   AND ($9::timestamptz IS NULL OR vi.captured_at >= $9::timestamptz)
   AND ($10::timestamptz IS NULL OR vi.captured_at < $10::timestamptz)
-  AND ($11 = '' OR `+shedPartitionPredicate+` = $11)
+  AND ($11 = '' OR `+shedPartitionPredicate+` = $11)`+samplingPredicateSQL(12)+`
 GROUP BY vi.status`,
 		params.TenantID, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.ParkID, filterShedID,
 		params.CapturedFrom, params.CapturedBefore, filterPartition,
+		params.SamplingApplied,
 	)
 	if err != nil {
 		return options, err
@@ -587,12 +616,13 @@ SELECT EXISTS (
     AND ($7 = '' OR vi.park_id = $7::uuid)
     AND ($8 = '' OR vi.shed_id = $8::uuid)
     AND vi.captured_at < $9::timestamptz
-    AND ($10 = '' OR `+shedPartitionPredicate+` = $10)
+    AND ($10 = '' OR `+shedPartitionPredicate+` = $10)`+samplingPredicateSQL(11)+`
   LIMIT 1
 )`,
 			params.TenantID, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 			params.ScopeRestricted, params.ParkIDs, params.ParkID, filterShedID, params.MissedBefore,
 			filterPartition,
+			params.SamplingApplied,
 		).Scan(&options.HasMissed)
 		if err != nil {
 			return options, err
@@ -2044,6 +2074,8 @@ func verificationItemPendingPayload(itemID string, in domain.CreateItem) map[str
 		"partition_label": derefStr(in.PartitionLabel),
 		"park_id":         derefStr(in.ParkID),
 		"captured_at":     in.CapturedAt.UTC().Format(time.RFC3339Nano),
+		// in_sample is added by the caller, which is the only place that can read the item's own
+		// generated bucket against the share in force. See CreateItem.
 	}
 }
 

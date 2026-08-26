@@ -71,6 +71,8 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /verification/items/{item_id}/review-facts", h.GetItemReviewFacts)
 	mux.HandleFunc("GET /verification/oversight-analytics", h.GetOversightAnalytics)
 	mux.HandleFunc("GET /verification/video-log", h.GetVideoLog)
+	mux.HandleFunc("GET /verification/sampling", h.GetVerificationSampling)
+	mux.HandleFunc("PUT /verification/sampling/{category}", h.SetVerificationSamplingPolicy)
 }
 
 type queueItemResponse struct {
@@ -448,6 +450,16 @@ func (h *Handler) listQueue(
 		// days she is working, which crosses no module boundary. Same capability rule -- the
 		// permission, never a role string. See permissions.VerificationFilterByCaptureDate.
 		CaptureDateFilterEnabled: holdsVerificationPermission(r, permissions.VerificationFilterByCaptureDate),
+		// RANDOMIZATION (maintainer decision 2026-08-26): a WORKING VERIFIER's queue carries only
+		// the share of each category's videos the CEO set; leadership oversight keeps seeing every
+		// video, because the principal who SETS the percentage must be able to audit what it
+		// waived -- a queue narrowed by his own setting could not show him that.
+		//
+		// Keyed on the ABSENCE of verification.oversee, the same capability that already separates
+		// the two personas on this endpoint, never on a role string. A caller with oversight is
+		// unaffected in every respect, which is also why every other ListQueue caller (closure
+		// candidates, alerts, the awaiting-application view) is left at the default false.
+		SamplingApplied: !holdsVerificationPermission(r, permissions.VerificationOversee),
 	}
 	result, err := h.service.ListQueue(r.Context(), params)
 	if err != nil {
@@ -578,6 +590,37 @@ func (h *Handler) RecordVerdict(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if !h.authorizeSingleCategory(w, r, item.Category) {
 		return
 	}
+	// THERE IS DELIBERATELY NO RANDOMIZATION GATE HERE (maintainer decision 2026-08-27, raised in
+	// review of the sampling PR). A verifier can reach this route for an item the policy did NOT
+	// draw -- a drawer still open after the CEO lowered the share, an older push, a direct call --
+	// and her verdict is ACCEPTED and recorded as what it is: a human verdict, with verified_by set
+	// and auto_resolution left NULL.
+	//
+	// The share is a FLOOR on the review she is REQUIRED to do, never a ceiling on the review she is
+	// PERMITTED to do. Refusing here would (a) make bad work unreportable -- she watches an undrawn
+	// video, sees the work was done wrong, and the rejection is refused, so the work proceeds to
+	// completed; and (b) discard a review she has already performed, which is the realistic case
+	// because the draw is monotonic and only a LOWERED share can drop an item she was holding.
+	//
+	// Nothing is mislabelled by allowing it: `auto_resolution = 'not_sampled'` is the contract for a
+	// video NOBODY reviewed, and this one was reviewed. The panel's Reviewed/Selected counts are
+	// share-scoped, so an extra review cannot push her day past 100%, and SettleUnsampledItems skips
+	// any item a verifier already decided -- see its "her verdict wins" branch, which encodes this
+	// same precedence on the write side.
+	//
+	// Sampling is also not an authorization boundary: authorizeSingleCategory above is, and she
+	// already holds verdict authority for this category. Acting outside the share grants her nothing
+	// she is not entitled to do.
+	//
+	// The thing that genuinely takes an item out of her reach is it leaving `pending` -- either the
+	// closeout settling it or a producer withdrawing it -- which RecordVerdict enforces, exactly as
+	// WithdrawItemsBySource does for superseded work. Pinned by
+	// TestAVerdictOnAnUndrawnItemIsHersToCast.
+	//
+	// This was REPORTED as a P1 in review and closed as working-as-decided; the reasoning, what a
+	// REAL defect here would look like, and the two stricter variants that were costed and not taken
+	// are in context/repo-audits/verification-randomization-do-not-reopen-ledger.md -> B-1. Read that
+	// before proposing a sampling gate on this route.
 	item, err = h.service.RecordVerdict(r.Context(), domain.Verdict{
 		TenantID:       tenantID(r),
 		ItemID:         r.PathValue("item_id"),

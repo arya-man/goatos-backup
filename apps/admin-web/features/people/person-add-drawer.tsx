@@ -290,6 +290,12 @@ export function PersonAddDrawer({
                   {cell(copy(pageContract, "stats.approved"), String(person.proof_approved))}
                   {cell(copy(pageContract, "stats.rejected"), String(person.proof_rejected))}
                   {cell(copy(pageContract, "stats.pending"), String(person.proof_pending))}
+                  {/* Settled by the randomization policy, never watched. Shown whenever it is
+                      non-zero so "approved" cannot be read as "checked" -- the two stopped meaning
+                      the same thing when sampling arrived (maintainer decision 2026-08-26). */}
+                  {person.proof_not_reviewed > 0
+                    ? cell(copy(pageContract, "stats.not_reviewed"), String(person.proof_not_reviewed))
+                    : null}
                   <div>
                     <div className="k">{copy(pageContract, "stats.rejection_rate")}</div>
                     <div className="v">
