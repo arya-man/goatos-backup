@@ -1239,19 +1239,28 @@ internal fun pcCareBuildTaskProofSlot(
     val localRow = proofs
         .filter { it.fieldKey == slot.fieldKey }
         .maxByOrNull { it.capturedAtMs }
-    if (serverProof != null && localRow?.syncStatus == CaptureSyncStatus.FAILED) {
+    if (serverProof != null && localRow?.processingStatus != ProofProcessingStatus.UPLOADED) {
         val byline = serverProof.capturedByName
             .takeIf { it.isNotBlank() }
             ?.let { "Captured by $it" }
             ?: "Proof sent"
+        val previewRow = proofs
+            .filter {
+                it.fieldKey == slot.fieldKey &&
+                    it.syncStatus == CaptureSyncStatus.SYNCED &&
+                    !it.serverProofId.isNullOrBlank()
+            }
+            .maxByOrNull { it.capturedAtMs }
         return PcCareSlotChipUi(
             fieldKey = slot.fieldKey,
             label = slot.label,
             description = slot.description,
-            state = PcCareSlotState.PEER,
+            state = PcCareSlotState.SYNCED,
             statusLabel = byline,
             hintLabel = hint,
             canRecord = true,
+            previewPath = previewRow?.previewUri().orEmpty(),
+            previewKind = previewRow?.mimeType?.let(::pcCarePreviewKind) ?: PcCareProofPreviewKind.VIDEO,
         )
     }
     if (localRow != null) {

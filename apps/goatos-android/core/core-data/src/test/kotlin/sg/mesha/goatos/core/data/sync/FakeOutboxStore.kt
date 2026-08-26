@@ -54,7 +54,7 @@ class FakeOutboxStore : OutboxStore {
                                 older.createdAt < row.createdAt ||
                                     (older.createdAt == row.createdAt && snapshot.indexOf(older) < snapshot.indexOf(row))
                                 ) &&
-                            older.isBackedOff(now)
+                            older.blocksLaterCandidate(now, row)
                     }
             }
             .sortedWith(compareBy({ it.createdAt }, { snapshot.indexOf(it) }))
@@ -233,9 +233,12 @@ class FakeOutboxStore : OutboxStore {
                     nextAttemptAt <= now
                 )
 
-    private fun OutboxEntity.isBackedOff(now: Long): Boolean =
+    private fun OutboxEntity.blocksLaterCandidate(now: Long, candidate: OutboxEntity): Boolean =
         status == OutboxStatus.FAILED.name &&
-            !conflict &&
-            attemptCount < maxAttempts &&
-            nextAttemptAt > now
+            (conflict || attemptCount >= maxAttempts || nextAttemptAt > now) &&
+            !isPcCareProofRepairBypass(candidate)
+
+    private fun OutboxEntity.isPcCareProofRepairBypass(candidate: OutboxEntity): Boolean =
+        opType in setOf("PC_CARE_TASK_SUBMIT", "PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER") &&
+            candidate.opType in setOf("PROOF_UPLOAD", "PC_CARE_SLOT_REGISTER", "PC_CARE_TASK_PROOF_REGISTER")
 }
