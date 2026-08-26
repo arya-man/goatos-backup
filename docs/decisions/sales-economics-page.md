@@ -83,6 +83,28 @@ Every rupee figure is a disclosed estimate:
   falling back to the trailing 365 days, falling back to null — never a made-up
   price.
 
+### Two figures a reader will subtract must cover one set
+
+Maintainer decision 2026-08-26, correcting a shipped defect. The feed tile used
+to be the WHOLE FARM (1,649 animals) while the value tile covered only animals
+weighed twice (309). Side by side they invited a subtraction that read as "the
+farm loses ₹39,000 a day", when the truth was "most of the herd has not been
+weighed". Both tiles now range over the PRICED set — paired animals whose
+ration cell resolved and priced — and `net_per_day_rupees` IS that subtraction
+(on the live herd: ₹10,614 feed, ₹14,804 value, +₹4,190 net over 309 animals).
+
+The sharp edge, and the thing a future change must not "tidy": a priced animal
+that did NOT measurably grow stays in the feed figure at full cost and adds
+ZERO value. Filtering the feed side to growers only would flatter the farm by
+hiding what non-growing animals eat. That is the mutation
+`TestEconomicsFeedAndValueTilesCoverTheSameAnimals` catches.
+
+The whole-farm number is still published as `farm_feed_cost_per_day_rupees`,
+because "what is feed costing us" is a real question — but it is rendered on its
+own line with its population (`farm_animals`) and its true denominator
+(`farm_feed_days` — a 90-day window held only 18 sheets) named, and with copy
+telling the reader not to subtract it.
+
 ### The scale-noise floor is load-bearing here
 
 A weight change within 3% of starting body weight is scored FLAT (0 g/day) —

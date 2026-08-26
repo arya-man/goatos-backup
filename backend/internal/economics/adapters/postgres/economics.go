@@ -352,8 +352,11 @@ LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = e.p
 // figures from the one econ row set, so all three agree by construction.
 func assembleGrowth(out *domain.BusinessEconomics, rows []econRow, realizedPerKg *float64) {
 	costPerKg := make([]float64, 0, len(rows))
-	var totalGainKgPerDay float64
-	var hasGain bool
+	// The two comparable tiles range over the PRICED set: every animal whose
+	// ration cell resolved and priced. A priced animal that did not measurably
+	// grow contributes its full cost and ZERO value — that is the point.
+	var pricedFeedPerDay, pricedGainKgPerDay float64
+	var pricedAnimals int
 
 	animals := make([]domain.AnimalEconomics, 0, len(rows))
 	bandRows := make([][]econRow, len(domain.BandLabels))
@@ -376,23 +379,31 @@ func assembleGrowth(out *domain.BusinessEconomics, rows []econRow, realizedPerKg
 		idx := weightBandIndex(row.latestWeightKg)
 		bandRows[idx] = append(bandRows[idx], row)
 
-		if row.adgGPerDay > 0 {
-			totalGainKgPerDay += row.adgGPerDay / 1000.0
-			hasGain = true
-			if row.costPerHeadDay != nil {
+		if row.costPerHeadDay != nil {
+			pricedAnimals++
+			pricedFeedPerDay += *row.costPerHeadDay
+			if row.adgGPerDay > 0 {
+				pricedGainKgPerDay += row.adgGPerDay / 1000.0
 				costPerKg = append(costPerKg, *row.costPerHeadDay/(row.adgGPerDay/1000.0))
 			}
 		}
 	}
 
 	out.Pulse.PairedAnimals = len(rows)
+	out.Pulse.PricedAnimals = pricedAnimals
 	out.Pulse.CostAnimals = len(costPerKg)
 	if median, ok := medianOf(costPerKg); ok {
 		out.Pulse.MedianCostPerKgGain = &median
 	}
-	if hasGain && realizedPerKg != nil {
-		v := totalGainKgPerDay * *realizedPerKg
-		out.Pulse.ValueAddedPerDayRupees = &v
+	if pricedAnimals > 0 {
+		feed := pricedFeedPerDay
+		out.Pulse.FeedCostPerDayRupees = &feed
+		if realizedPerKg != nil {
+			value := pricedGainKgPerDay * *realizedPerKg
+			out.Pulse.ValueAddedPerDayRupees = &value
+			net := value - feed
+			out.Pulse.NetPerDayRupees = &net
+		}
 	}
 
 	// Worst daily net first — the burners the CEO should look at — then the
@@ -562,12 +573,15 @@ func (r *Repository) realizedPriceOnce(ctx context.Context, q, tenantID, startDa
 	return &perKg, nil
 }
 
-// pulseBurn is the whole-farm daily feed spend: every directed cell — normal
-// AND experiment, plus non-sheet external consumption — priced at the latest
-// load and summed per day, averaged over the days that have a sheet. Same
-// day_item ∪ external shape and pricing LATERAL as the Feed Analytics
-// expenditure read, so the two screens report the same rupees. It also counts
+// pulseBurn fills the FARM-scope disclosure line: the whole-scope daily feed
+// spend (every directed cell — normal AND experiment, plus non-sheet external
+// consumption — priced at the latest load, summed per day and averaged over the
+// days that carry a sheet), how many sheet days that average ranges over, and
 // the feed items whose directed kg found NO purchase to price them.
+//
+// This is NOT the feed tile. The tile covers the weighed animals so it can be
+// subtracted from the value figure; this covers the whole herd and is rendered
+// with its population and day count named beside it.
 //
 // projection-review: membership=priced (feed_day, park, feed_item) directed
 // cells of the window plus external consumption; group_key=feed_day for the
@@ -629,10 +643,13 @@ day_total AS (
     GROUP BY feed_day
 )
 SELECT (SELECT avg(rupees)::float8 FROM day_total) AS burn_per_day,
+       (SELECT count(*) FROM day_total)                AS feed_days,
        -- An authored zero directs no kg, so it needs no price either.
-       (SELECT count(DISTINCT feed_item_key) FROM priced WHERE rupees IS NULL AND kg > 0) AS unpriced_items`
+       (SELECT count(DISTINCT feed_item_key) FROM priced WHERE rupees IS NULL AND kg > 0) AS unpriced_items,
+       (SELECT count(*) FROM goats g
+         WHERE g.tenant_id = $1::uuid AND g.exited_at IS NULL AND g.park_id = ANY($2::uuid[])) AS farm_animals`
 	return r.pool.QueryRow(ctx, q, tenantID, parkIDs, startDate, endExclusiveDate).Scan(
-		&out.FeedCostPerDayRupees, &out.UnpricedFeedItems,
+		&out.FarmFeedCostPerDayRupees, &out.FarmFeedDays, &out.UnpricedFeedItems, &out.FarmAnimals,
 	)
 }
 

@@ -2667,11 +2667,20 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.pulse.title": "Business pulse",
 			"section.pulse.aria":  "Business economics headline figures",
 
-			"kpi.feed_burn":      "Feed spend per day",
-			"kpi.feed_burn.hint": "Every priced feed sheet cell plus milk, averaged over the window's feed days.",
+			"kpi.feed_burn":      "Feed cost of weighed animals",
+			"kpi.feed_burn.hint": "What the animals below eat per day, at their own pen's ration.",
 
-			"kpi.value_added":      "Growth value per day",
-			"kpi.value_added.hint": "Measured daily gain of weighed animals, priced at the realized price per kg.",
+			"kpi.value_added":      "Growth value of the same animals",
+			"kpi.value_added.hint": "What their measured daily gain is worth at the realized price per kg.",
+
+			"kpi.net":          "Net per day, weighed animals",
+			"kpi.net.earning":  "These animals earn more than they eat.",
+			"kpi.net.burning":  "These animals eat more than they earn.",
+			"kpi.comparable":   "animals — both figures above cover exactly this set, so the difference is real",
+			"farm.line":        "Whole herd, for comparison",
+			"farm.animals":     "live animals",
+			"farm.days":        "days with a feed sheet in this window",
+			"farm.caution":     "This covers a bigger group than the two figures above, so do not subtract it from them.",
 
 			"kpi.realized_price":               "Realized price per kg",
 			"kpi.realized_price.window":        "From this window's closed deals.",
