@@ -22,7 +22,8 @@
 --
 -- Seed coupling note (docs/runbooks/initial-seed-migration-coupling.md): these tables are
 -- OPERATIONAL, born at runtime from recorded feed purchases; no seed command hand-fills
--- them. The org_role_catalog row below IS seed-coupled — the per-person grant lives in
+-- them. seed-fixture-guard:ignore: runtime feed-purchase-created task tables, not seed input.
+-- The org_role_catalog row below IS seed-coupled — the per-person grant lives in
 -- backend/cmd/seed-stg-login-grants/approvers.go in this same patch.
 
 CREATE TABLE public.toxin_test_tasks (
