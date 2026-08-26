@@ -401,6 +401,13 @@ one product; this skill is the navigation layer.
   remote `stg`. Deploy only from a clean, approved `origin/main` SHA through
   `docs/runbooks/stg-deploy.md` and the repo-owned Cloud Deploy helpers. Never
   use `--no-verify` to bypass the installed pre-push guard.
+- **Recover STG billing/Cloud Run 429 through the dedicated runbook.** If
+  `stg.dashboard.mesha.sg` or `stg-api.dashboard.mesha.sg` returns Google
+  Frontend `429 Rate exceeded` after a paid/restored bill, read
+  `docs/runbooks/stg-cloud-run-billing-recovery.md` before changing code. Verify
+  `billingEnabled: true`, Cloud Run readiness in `asia-south1`, and the
+  maintainer baseline `goatos-api-stg min-instances=2 max-instances=2`; finish
+  with terminal curls and live Chrome verification.
 - **Land ordinary work and this documentation foundation through
   `make land-main` (Codex and Claude).** Do not issue a
   direct `git push` / `git mesha-push` to `main`, and do not run CI before
