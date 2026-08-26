@@ -117,7 +117,10 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	// Resolved ONCE for the whole read: every widget below must talk about the same kids, and
 	// resolving per helper would let a slow herd write land between two of them and show a
 	// leaderboard whose animals are not the ones the headline counted.
-	scope, scopeErr := r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
+	// WithAllTime: this read carries sale readiness, which reports latest-EVER weights and therefore
+	// needs the unwindowed tag list. Every other read on the page uses the plain resolver, so the
+	// all-history scan is paid once, here, by the one caller that reads it.
+	scope, scopeErr := r.resolveSexScopeWithAllTime(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
 	if scopeErr != nil {
 		return domain.GrowthADG{}, scopeErr
 	}
@@ -589,6 +592,14 @@ ORDER BY bucket`,
 }
 
 func (r *Repository) growthSaleReadiness(ctx context.Context, tenantID string, parkIDs []string, sexFiltered bool, scope SexScope) (domain.GrowthSaleReadiness, error) {
+	// FAIL LOUD, never quietly empty. An unresolved AllTimeTags is an empty list, and an empty tag
+	// list filters every animal out -- so a caller that resolved the window-only scope would report
+	// zero sale-ready kids and look like a farm with nothing to sell. That is the kind of wrong
+	// number nobody questions, so it is an error instead.
+	if sexFiltered && !scope.allTimeResolved {
+		return domain.GrowthSaleReadiness{}, fmt.Errorf(
+			"weighing: sale readiness spans all time and needs the all-time sex scope; resolve it with ResolveSexScopeWithAllTime")
+	}
 	// "Latest weight" here is the animal's LATEST-EVER accepted individual weigh, not bounded to
 	// the requested period: sale readiness is a point-in-time fact about the animal today, and
 	// bounding it to a reporting window would make an animal that was not weighed this month
