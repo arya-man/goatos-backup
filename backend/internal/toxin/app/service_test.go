@@ -42,6 +42,13 @@ func (f *fakeRepo) RecordVerdict(_ context.Context, p ports.VerdictParams) (port
 	return ports.TaskRow{}, nil
 }
 
+// LoadReport satisfies the port; the report read has its own DB-backed proof
+// (TestReportCountsLoadsNotRounds), because its whole content is a SQL grain collapse
+// that an in-memory fake cannot exercise honestly.
+func (f *fakeRepo) LoadReport(_ context.Context, _ ports.ReportParams) (ports.ReportPage, error) {
+	return ports.ReportPage{}, nil
+}
+
 type fakeProofs struct {
 	videoErr, photoErr   error
 	videoRefs, photoRefs []string

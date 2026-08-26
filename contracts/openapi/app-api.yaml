@@ -6539,6 +6539,52 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /feed/toxin/reports:
+    get:
+      tags:
+        - Toxin
+      operationId: loadToxinReport
+      summary: The Feed -> Toxin leadership report.
+      description: >-
+        One row per FEED LOAD -- that load's latest test round -- plus the 30-day summary, the
+        weekly received-vs-tested series, the outcome mix and the supplier rollup. The grain is
+        the load, never the task: a delivery that was retested after a void strip carries several
+        rounds and must still read as ONE delivery. Gated on toxin.read, not toxin.verdict: this
+        is a record of what arrived, not the authority to accept a positive.
+      parameters:
+        - name: filter
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, waiting, review, cleared, flagged]
+            default: all
+          description: >-
+            Which slice of loads to list. The chips are disjoint and exhaustive over every task
+            status; absent or unknown means all.
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: One keyset page of loads plus the whole-window analytics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToxinReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /toxin/review:
     get:
       tags:
@@ -13231,6 +13277,129 @@ components:
           description: >-
             Backend-owned copy for when THIS slice has no rows, rendered verbatim. Carried per
             slice because "nothing here" means something different in each.
+    ToxinReportFilter:
+      type: object
+      required: [key, label, count, selected, empty_message]
+      properties:
+        key:
+          type: string
+          enum: [all, waiting, review, cleared, flagged]
+        label: { type: string, description: Backend-owned chip copy, rendered VERBATIM. }
+        count:
+          type: integer
+          description: WHOLE-TENANT count of LOADS in this slice, never a page-local sum.
+        selected: { type: boolean }
+        empty_message:
+          type: string
+          description: >-
+            Backend-owned copy for when THIS slice is empty. Per slice, because empty under
+            Flagged is good news and empty under All is not.
+    ToxinReportLoad:
+      type: object
+      required:
+        [feed_purchase_id, task_id, round_no, feed_item_label, batch_label, vendor, farm_label,
+         purchase_date, quantity_kg, quantity_label, tested_by_name, tested_by_label,
+         submitted_at, result_label, result_tone, turnaround_label, bucket]
+      properties:
+        feed_purchase_id: { type: string, format: uuid }
+        task_id:
+          type: string
+          format: uuid
+          description: The LATEST round for this load; earlier rounds stay readable on the task.
+        round_no: { type: integer, description: Which test round this is; >1 means it was retested. }
+        feed_item_label: { type: string }
+        batch_label:
+          type: string
+          description: Backend-composed sub-line, e.g. "Batch 4 - CPT - test 2".
+        vendor: { type: string }
+        farm_label: { type: string }
+        purchase_date: { type: string, format: date }
+        quantity_kg: { type: number }
+        quantity_label: { type: string }
+        tested_by_name:
+          type: string
+          description: >-
+            Resolved workforce NAME, blank when nobody has tested it or the person cannot be
+            resolved. Never a user id.
+        tested_by_label: { type: string, description: What the column renders, including the blank case. }
+        submitted_at: { type: string, description: IST reading time; blank when not submitted. }
+        result_label: { type: string, description: What the strip said, in farm words. }
+        result_tone:
+          type: string
+          enum: [ok, warn, danger, info, muted]
+        turnaround_label:
+          type: string
+          description: Recorded-to-reading for a tested load; how long it has been waiting otherwise.
+        bucket:
+          type: string
+          enum: [all, waiting, review, cleared, flagged]
+    ToxinReportSummary:
+      type: object
+      required:
+        [loads_received, loads_received_note, loads_tested, loads_tested_note, needs_attention,
+         needs_attention_note, waiting, waiting_note, window_label, alert_message]
+      properties:
+        loads_received: { type: integer }
+        loads_received_note: { type: string }
+        loads_tested: { type: integer }
+        loads_tested_note: { type: string }
+        needs_attention: { type: integer }
+        needs_attention_note: { type: string }
+        waiting: { type: integer }
+        waiting_note: { type: string }
+        window_label: { type: string }
+        alert_message:
+          type: string
+          description: The banner; blank when nothing is flagged.
+    ToxinReportWeek:
+      type: object
+      required: [week_start, label, received, tested]
+      properties:
+        week_start: { type: string, format: date }
+        label: { type: string }
+        received: { type: integer }
+        tested: { type: integer }
+    ToxinReportMixSlice:
+      type: object
+      required: [key, label, count, tone]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        count: { type: integer }
+        tone: { type: string, enum: [ok, warn, danger, info, muted] }
+    ToxinReportVendor:
+      type: object
+      required: [vendor, loads, flagged, share_label, tone]
+      properties:
+        vendor: { type: string }
+        loads: { type: integer }
+        flagged: { type: integer }
+        share_label: { type: string }
+        tone: { type: string, enum: [ok, warn, danger, info, muted] }
+    ToxinReport:
+      type: object
+      required: [filters, loads, next_cursor, summary, weeks, outcome_mix, vendors, empty_message]
+      properties:
+        filters:
+          type: array
+          items: { $ref: "#/components/schemas/ToxinReportFilter" }
+        loads:
+          type: array
+          items: { $ref: "#/components/schemas/ToxinReportLoad" }
+        next_cursor: { type: string }
+        summary: { $ref: "#/components/schemas/ToxinReportSummary" }
+        weeks:
+          type: array
+          items: { $ref: "#/components/schemas/ToxinReportWeek" }
+        outcome_mix:
+          type: array
+          items: { $ref: "#/components/schemas/ToxinReportMixSlice" }
+        vendors:
+          type: array
+          items: { $ref: "#/components/schemas/ToxinReportVendor" }
+        empty_message:
+          type: string
+          description: The SELECTED chip's empty line, so the table never shows another slice's copy.
     ToxinTaskDetail:
       allOf:
         - $ref: "#/components/schemas/ToxinTask"

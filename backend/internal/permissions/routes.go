@@ -256,6 +256,11 @@ var protectedRoutes = []Route{
 	{OperationID: "completeToxinStep", Method: "POST", Pattern: "/app/toxin/tasks/{task_id}/steps/{step_no}/complete", Permissions: []string{ToxinExecute}},
 	{OperationID: "submitToxinReading", Method: "POST", Pattern: "/app/toxin/tasks/{task_id}/submit", Permissions: []string{ToxinExecute}},
 	{OperationID: "listToxinReview", Method: "GET", Pattern: "/toxin/review", Permissions: []string{ToxinVerdict}},
+	// The /feed/toxin leadership report reads on toxin.read, NOT toxin.verdict: it is a
+	// read of what arrived and how the screening is keeping up, and a future reader who
+	// should see the record without signing verdicts (the feed desk) must not need the
+	// authority to accept a positive in order to look at one.
+	{OperationID: "loadToxinReport", Method: "GET", Pattern: "/feed/toxin/reports", Permissions: []string{ToxinRead}},
 	{OperationID: "recordToxinVerdict", Method: "POST", Pattern: "/toxin/tasks/{task_id}/verdict", Permissions: []string{ToxinVerdict}},
 
 	// SALES (/procurement/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather

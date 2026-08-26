@@ -230,6 +230,11 @@ func navigation() domain.NavigationContract {
 					// Feed SOP: distribution / packing / transport documents (SOP split,
 					// maintainer decision 2026-08-18 — see the PC group note).
 					navLeaf("feed-sops", "Feed SOP", "/feed/sops", nil),
+					// Toxin is the aflatoxin strip-test record for every purchased load: what
+					// arrived, who tested it, what the strip said, and whether the screening is
+					// keeping up. It reads on toxin.read; the testers themselves work the phone
+					// module, and this is the leadership read of the same rounds.
+					navLeaf("toxin-reports", "Toxin", "/feed/toxin", nil),
 					// Feed Direction is an app-only (operator + verifier) workflow — the operator
 					// captures the mandatory feed-distribution video + water proof per shed-session
 					// and a verifier approves it in the mobile verifier queue. It is deliberately not
@@ -612,6 +617,8 @@ func pages() []domain.PageContract {
 				tableP("directed-items", "Directed feed by item", "/feed-analytics/directed", []string{"feed_day", "feed_item", "directed_kg", "head_days", "per_head_grams"}, "directed_item_row", []int{31, 62, 92}),
 				tableP("packing-mismatches", "Packed vs directed", "/feed-analytics/execution", []string{"packing_day", "park", "shed", "session", "feed_item", "breed", "planned_kg", "verified_kg", "variance_kg"}, "variance_row", []int{25, 50, 100}),
 			}),
+		page("toxin-reports", "/feed/toxin", "/feed/toxin", "Toxin", "Every purchased feed load is screened for aflatoxins with the strip kit before it is fed. One row per LOAD -- a load that was retested after a void strip is still one delivery, never two.", "module-surface",
+			[]domain.TableContract{tableP("toxin-loads", "Loads and results", "/feed/toxin/reports", []string{"feed_item_label", "vendor", "purchase_date", "quantity_label", "tested_by_label", "result_label", "turnaround_label"}, "feed_purchase_id", []int{20, 50, 100})}),
 		page("feed-config", "/feed/config", "/feed/config", "Feed Config — Ration Rules", "Feed-owned authority screen for the authored ration grid, per-shed factors, session template and feeding schedule.", "module-surface",
 			[]domain.TableContract{
 				// Every table below EXCEPT feed-items is read through a /feed-config/* endpoint that
@@ -3735,6 +3742,36 @@ func pageSpecificCopy(id string) map[string]string {
 	//   EXPERIMENT vs NORMAL. Experiment sheds carry hand-entered ABSOLUTE kg for the
 	//   whole shed; head count there is informational and is never multiplied in.
 	// -------------------------------------------------------------------------------
+	case "toxin-reports":
+		return map[string]string{
+			"crumb": "Feed",
+			// The one sentence this page lives on: the grain is the LOAD, not the test. A
+			// delivery retested after a void strip is ONE delivery that took two strips.
+			"banner.basis":                    "One row per feed load, showing that load's most recent test. A load that was retested still counts once.",
+			"kpi.received.label":              "Loads received",
+			"kpi.tested.label":                "Tested",
+			"kpi.attention.label":             "Needs attention",
+			"kpi.waiting.label":               "Waiting for a test",
+			"table.title":                     "Loads and results",
+			"col.load":                        "Load",
+			"col.supplier":                    "Supplier",
+			"col.arrived":                     "Arrived",
+			"col.quantity":                    "Quantity",
+			"col.tested_by":                   "Tested by",
+			"col.result":                      "Result",
+			"col.turnaround":                  "Turnaround",
+			"chart.weeks.title":               "Loads received and tested",
+			"chart.weeks.caption":             "By week, last 30 days",
+			"chart.mix.title":                 "What the strips said",
+			"chart.mix.caption":               "Last 30 days",
+			"chart.vendors.title":             "Suppliers to watch",
+			"chart.vendors.caption":           "Share of loads that came back positive or unusable",
+			"chart.vendors.empty":             "Not enough loads from any one supplier yet.",
+			"toxin_report.title":              "Toxin results",
+			"toxin_report.disabled_no_access": "Feed toxin results are visible to the CEO's office.",
+			"pager.next":                      "Next 20 loads",
+			"error.unavailable":               "Toxin results could not be loaded just now. Try again in a moment.",
+		}
 	case "feed-analytics":
 		return map[string]string{
 			"crumb": "Feed",
@@ -5937,6 +5974,10 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(weighingWeightsOptionGroups())
 	case "feed-direction", "feed-packing", "feed-config", "feed-analytics":
 		return withGenericOptionGroups(feedOptionGroups())
+	case "toxin-reports":
+		// No park/feed-item pickers: the report's only slice is the backend-composed chip
+		// row, which arrives on the report payload itself rather than as a page option group.
+		return withGenericOptionGroups(nil)
 	case "calendar":
 		return withGenericOptionGroups(calendarOptionGroups())
 	case "audit-log":

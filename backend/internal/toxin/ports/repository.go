@@ -111,6 +111,9 @@ type Repository interface {
 	// RecordVerdict applies the CEO/CXO decision. A reject cancels the round and mints
 	// its retest in the SAME transaction.
 	RecordVerdict(ctx context.Context, p VerdictParams) (TaskRow, error)
+	// LoadReport serves the /feed/toxin leadership read: one row per FEED LOAD (that
+	// load's latest round) plus the window's summary, weekly series and supplier rollup.
+	LoadReport(ctx context.Context, p ReportParams) (ReportPage, error)
 }
 
 // ProofValidator asserts a submitted capture is real evidence: a completed upload in the

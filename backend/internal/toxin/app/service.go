@@ -67,6 +67,22 @@ func (s *Service) ListTasks(ctx context.Context, tenantID string, statuses []str
 	})
 }
 
+// ReportWindowDays is the analytics window behind the KPI strip, the weekly series and
+// the supplier rollup. Thirty days is the farm's own review cadence; the loads TABLE is
+// deliberately unwindowed so an old untested load cannot fall off the page.
+const ReportWindowDays = 30
+
+// LoadReport serves the /feed/toxin leadership read.
+func (s *Service) LoadReport(ctx context.Context, tenantID, filter string, limit int, cursor string) (ports.ReportPage, error) {
+	return s.repo.LoadReport(ctx, ports.ReportParams{
+		TenantID:   tenantID,
+		Filter:     domain.ReportFilterKeyOrDefault(filter),
+		Limit:      ClampPageSize(limit),
+		Cursor:     strings.TrimSpace(cursor),
+		WindowDays: ReportWindowDays,
+	})
+}
+
 // GetTask reads one task with its step completions.
 func (s *Service) GetTask(ctx context.Context, tenantID, taskID string) (ports.TaskRow, error) {
 	return s.repo.GetTask(ctx, tenantID, strings.TrimSpace(taskID))

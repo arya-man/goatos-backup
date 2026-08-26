@@ -80,6 +80,15 @@ CREATE UNIQUE INDEX toxin_test_tasks_open_round_uq
 CREATE INDEX toxin_test_tasks_status_idx
     ON public.toxin_test_tasks (tenant_id, status, created_at DESC, task_id DESC);
 
+-- The /feed/toxin leadership report reads ONE ROW PER LOAD -- that load's latest round --
+-- via DISTINCT ON (feed_purchase_id) ORDER BY round_no DESC. This index is what makes
+-- that collapse an index skip-scan rather than a sort of the tenant's whole task history,
+-- and it also serves the report's keyset (purchase_date DESC, feed_purchase_id DESC).
+-- It is deliberately separate from the status index above: that one is status-first for
+-- the tester's list, so it cannot serve a cross-status read ordered by arrival date.
+CREATE INDEX toxin_test_tasks_report_idx
+    ON public.toxin_test_tasks (tenant_id, feed_purchase_id, round_no DESC);
+
 -- One row per completed WORKING step (1,2,3,5,6 videos; 7's photo lives on the task with
 -- the reading). Immutable: a retest is a NEW task, never an edit of these rows. The
 -- server-side wait gates read completed_at here — the phone's clock is never trusted.
