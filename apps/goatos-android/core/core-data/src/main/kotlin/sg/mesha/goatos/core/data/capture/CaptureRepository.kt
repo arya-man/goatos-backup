@@ -1223,6 +1223,7 @@ class DefaultProofCaptureRepository(
             page.forEach { entity ->
                 val outboxItemId = entity.outboxItemId
                 if (outboxItemId.isNullOrBlank()) {
+                    if (entity.isFreshUnprocessedCapture(clock())) return@forEach
                     val (scopeType, scopeId) = recoveryScope(entity)
                     // Use persisted uploadGroupKey (and clientTaskKey) to preserve proof ordering across
                     // process death. Legacy null falls back to current derivation.
@@ -1975,6 +1976,13 @@ class DefaultProofCaptureRepository(
 
 private fun ProofCaptureEntity.isRecoverableUploadState(): Boolean =
     syncStatus == EntitySyncStatus.PENDING.name || syncStatus == EntitySyncStatus.IN_FLIGHT.name
+
+private fun ProofCaptureEntity.isFreshUnprocessedCapture(nowMs: Long): Boolean =
+    processingState == ProofProcessingState.CAPTURED_ORIGINAL.name &&
+        !processingAttempted &&
+        nowMs - updatedAtMs < FRESH_CAPTURE_RECOVERY_GRACE_MS
+
+private const val FRESH_CAPTURE_RECOVERY_GRACE_MS = 60_000L
 
 /** R50-028: best-effort local-file cleanup for a removed/cleared proof. Synced rows retain
  *  app-private files until the proof row is explicitly removed or the task is cleared, so open
