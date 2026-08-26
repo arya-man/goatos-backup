@@ -689,3 +689,73 @@ INSERT INTO weighing_shed_observations (
 		t.Fatalf("a withdrawn weigh must not enter the lump-sum trend: %d head became %d", beforeHeads, afterHeads)
 	}
 }
+
+// SALE READINESS IS LATEST-EVER, AND THE SEX FILTER MUST NOT QUIETLY MAKE IT LATEST-RECENT.
+//
+// The defect this pins (review finding on the sex-filter fix itself, 2026-08-26): sale readiness
+// deliberately reads each animal's latest-EVER weigh rather than the selected window, because a kid
+// heavy enough to sell but not weighed this fortnight is still heavy enough to sell. Filtering it
+// with the ORDINARY sex scope -- which is bounded by the window plus the 90-day gain lookback --
+// silently redefined its denominator from "every animal of this sex ever weighed" to "every animal
+// of this sex weighed recently", and an animal last weighed a year ago dropped out of the count
+// that exists precisely to find her.
+//
+// THE FIXTURE REACHES OUTSIDE THE LOOKBACK ON PURPOSE. The farm's own data cannot show this defect:
+// every weigh in it falls inside the 90 days, so the two tag lists happen to be identical and a
+// test built on the shared fixture would pass either way. This kid is weighed 200 days before the
+// window, once, at a weight that is unambiguously sale-ready.
+func TestSaleReadinessKeepsLatestEverAnimalsUnderTheSexFilter(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	from, to := shedWeightsWindow()
+
+	const oldGoat = "00000000-0000-4000-8000-0000000093a1"
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990941', 'Beetal', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+ON CONFLICT (goat_id) DO UPDATE SET sex = EXCLUDED.sex`,
+		oldGoat, repoTenant, repoParty, repoExpectedShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', 'LONG-AGO-TAG', 'long-ago-tag', 'global', true, 'active', now(), 'test')
+ON CONFLICT DO NOTHING`, repoTenant, oldGoat)
+
+	// 200 days before the window: outside the 90-day lookback the ordinary scope uses, and heavy
+	// enough that any honest sale-readiness count must include her.
+	seedShedWeightScan(t, ctx, pool, "LONG-AGO-TAG", 41.0, from.AddDate(0, 0, -200))
+
+	female, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG(female): %v", err)
+	}
+	unfiltered, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG(unfiltered): %v", err)
+	}
+
+	if female.SaleReadiness.AnimalsConsidered == 0 {
+		t.Fatal("a female weighed only long ago must still be considered for sale readiness")
+	}
+	if female.SaleReadiness.AtOrAbove35Kg == 0 {
+		t.Fatalf("her 41 kg latest-ever weight must count: %#v", female.SaleReadiness)
+	}
+	// The unfiltered read has always seen her; the filtered one must not see fewer 35 kg females
+	// than there are 35 kg animals in total minus the males -- concretely, dropping her would make
+	// the filtered count smaller than the unfiltered one by exactly her.
+	if female.SaleReadiness.AtOrAbove35Kg > unfiltered.SaleReadiness.AtOrAbove35Kg {
+		t.Fatalf("the female count cannot exceed the whole herd's: %d > %d",
+			female.SaleReadiness.AtOrAbove35Kg, unfiltered.SaleReadiness.AtOrAbove35Kg)
+	}
+
+	// And the windowed reads stay windowed: she has no weigh inside the period, so she must NOT
+	// appear in the coverage counters. This is the other half of the rule -- one scope per read,
+	// chosen by whether that read spans all time.
+	if female.Eligibility.TotalAnimalsWeighed != 0 {
+		t.Fatalf("a kid with no weigh in the window must not enter windowed coverage, got %d",
+			female.Eligibility.TotalAnimalsWeighed)
+	}
+}

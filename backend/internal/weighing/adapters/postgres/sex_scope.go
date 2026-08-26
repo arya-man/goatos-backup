@@ -55,6 +55,13 @@ type SexScope struct {
 	// requested sex. Bounded by the tags actually weighed in the window plus the 90-day gain
 	// lookback, not by the herd — a park with 50,000 animals and 300 weighs yields 300 tags.
 	Tags []string
+	// AllTimeTags is the same set with NO time bound, for the one read that is deliberately not
+	// windowed: sale readiness reports each animal's LATEST-EVER weight, so a kid heavy enough to
+	// sell but not weighed this fortnight must still be counted. Filtering that read with Tags
+	// above silently redefined its denominator from "every animal of this sex ever weighed" to
+	// "every animal of this sex weighed recently". Use Tags for a windowed read; use this ONLY
+	// where the read itself spans all time, or the two will disagree about who exists.
+	AllTimeTags []string
 	// LocationIDs and PartitionLabels are PARALLEL arrays naming whole-shed buckets whose
 	// resident cohort is entirely the requested sex. Parallel arrays rather than a struct
 	// slice because they are passed straight into SQL as two binds and zipped there; they are
@@ -111,7 +118,7 @@ func (r *Repository) resolveSexScope(ctx context.Context, tenantID string, parkI
 // ResolveSexScope is the ONE implementation of the rule, callable with any pool so the Growth
 // Director read in its own package resolves the same kids the rest of the page does.
 func ResolveSexScope(ctx context.Context, pool *pgxpool.Pool, tenantID string, parkIDs []string, sex string, periodStart, periodEnd time.Time) (SexScope, error) {
-	out := SexScope{Tags: []string{}, LocationIDs: []string{}, PartitionLabels: []string{}}
+	out := SexScope{Tags: []string{}, AllTimeTags: []string{}, LocationIDs: []string{}, PartitionLabels: []string{}}
 	normalized, err := normalizeSexFilter(sex)
 	if err != nil {
 		return SexScope{}, err
@@ -149,6 +156,33 @@ ident AS (
 sexed_tags AS (
   SELECT w.tag
   FROM weighed w
+  JOIN ident i ON i.tag = w.tag
+  JOIN goats g ON g.goat_id = i.goat_id AND g.tenant_id = $1::uuid
+  WHERE lower(btrim(g.sex)) = $5::text
+),
+-- THE SAME TAGS, WITH NO TIME BOUND, for the one read that is deliberately not windowed.
+--
+-- Sale readiness reports each animal's LATEST-EVER weight on purpose: a kid heavy enough to sell
+-- but not weighed this fortnight is still heavy enough to sell, and bounding it to the window
+-- would hide exactly the animal the question is about. Narrowing THAT read with the windowed tag
+-- list above silently redefined its denominator from "every animal of this sex ever weighed" to
+-- "every animal of this sex weighed recently" -- a real regression, and one this farm's data
+-- cannot show today because every weigh in it falls inside the 90-day lookback.
+--
+-- So the window-bounded list stays the default for every windowed read, and this second list
+-- serves the unwindowed one. Resolved in the SAME query rather than a second round trip, and it
+-- scans no more rows than sale readiness already scans for itself.
+weighed_ever AS (
+  SELECT DISTINCT lower(btrim(o.scanned_identifier)) AS tag
+  FROM weighing_observations o
+  JOIN scoped s ON s.campaign_shed_id = o.campaign_shed_id
+  WHERE o.tenant_id = $1::uuid
+    AND o.verification_status <> 'rejected'
+    AND btrim(o.scanned_identifier) <> ''
+),
+sexed_tags_ever AS (
+  SELECT w.tag
+  FROM weighed_ever w
   JOIN ident i ON i.tag = w.tag
   JOIN goats g ON g.goat_id = i.goat_id AND g.tenant_id = $1::uuid
   WHERE lower(btrim(g.sex)) = $5::text
@@ -204,6 +238,7 @@ sexed_buckets AS (
 )
 SELECT
   (SELECT COALESCE(array_agg(tag), '{}') FROM sexed_tags),
+  (SELECT COALESCE(array_agg(tag), '{}') FROM sexed_tags_ever),
   (SELECT COALESCE(array_agg(location_id::text ORDER BY location_id::text, partition_label), '{}') FROM sexed_buckets),
   (SELECT COALESCE(array_agg(partition_label ORDER BY location_id::text, partition_label), '{}') FROM sexed_buckets)`
 
@@ -212,7 +247,7 @@ SELECT
 	// differently ordered aggregates — every index would silently shift and pair a location with
 	// another bucket's partition.
 	if err := pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, normalized).Scan(
-		&out.Tags, &out.LocationIDs, &out.PartitionLabels,
+		&out.Tags, &out.AllTimeTags, &out.LocationIDs, &out.PartitionLabels,
 	); err != nil {
 		return SexScope{}, err
 	}
