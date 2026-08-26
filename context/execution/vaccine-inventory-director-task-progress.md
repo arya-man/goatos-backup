@@ -2354,6 +2354,51 @@ Verification after this fix:
 - Operator XML confirms `Vaccination sheds`, `Drives`, and `Alerts` only, with
   no `Stock`, no `Preventive Care`, no `Vaccine Stock`, and no weekday labels.
 
+## 2026-08-26 Current-Head Role E2E After Camera Analytics Push
+
+- Current branch head under test: `aa532e6fa`.
+- Local branch API was running against the OCI tunnel DB on laptop port `8090`;
+  both Poco devices used `adb reverse tcp:8080 tcp:8090`.
+- Minted fresh short-lived dev tokens against the running API for:
+  - Chandrakant / `pc_director`,
+  - Amit Kumar / `operator`,
+  - `dev-ceo_internal` / CEO-CXO.
+- Rebuilt role-specific dev APKs with the branch API URL and installed them on
+  the two Poco devices.
+- Director phone evidence (`current-head-role-e2e/director-home.*`):
+  - lands on `Vaccination / Stock`,
+  - bottom bar shows `Stock`, `Drives`, `Videos`, `Alerts`,
+  - no calendar/week/month strip is visible,
+  - current/carry cards are at the top,
+  - card vaccine chips are visible (`ET+TT`, `PPR`, doses),
+  - both `Open` and `Delayed` current/carry states render.
+- Director detail evidence (`current-head-role-e2e/director-stock-detail-tap2.*`):
+  - tapping the Mandela card opens the stock task detail,
+  - detail shows `ET+TT 10 doses`, `PPR 25 doses`,
+  - proof rows show photo/video evidence and replace actions,
+  - logcat emitted `pc_care_task_opened`, route enter, and
+    `pc_care_stock_proof_screen_visible` with `feature_surface=pc_care_stock`.
+- Important UX note from this fresh install:
+  - because reinstalling with a new baked token wipes local proof files, existing
+    server-attributed proof rows display `Captured by Chandrakant` and replace
+    actions but no local thumbnail preview,
+  - same-device capture still has local preview evidence in earlier phone
+    artifacts. Server-media preview for a fresh install remains a possible UX
+    enhancement, not proven in this pass.
+- Operator phone evidence (`current-head-role-e2e/operator-home-clean.*`):
+  - Amit lands on `Vaccination sheds`,
+  - visible bottom bar contains only `Drives` and `Alerts`,
+  - no `Stock` tab or PC Care stock card is visible,
+  - API check for Amit returned an empty `inventory_vaccine` worklist and
+    permission denied for the monitor task list.
+- CEO/CXO evidence:
+  - API check with the CEO token returns the `inventory_vaccine` monitor task
+    list including Chandrakant, ET+TT/PPR requirements, and task proof refs.
+  - Phone evidence (`current-head-role-e2e/ceo-home.*`) shows the regular
+    vaccination leadership overview with older overdue drive cards, not a
+    visible stock-progress card. CEO stock progress is therefore API-proven in
+    this pass but not phone-UI-proven.
+
 ## 2026-08-26 Resume Checkpoint: Proof Media Flow And Camera Flash
 
 - Rechecked the vaccination inventory stock proof capture path:
