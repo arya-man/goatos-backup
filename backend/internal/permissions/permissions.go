@@ -67,7 +67,7 @@ const (
 	// tester runs the test, and the reviewer of the test must not be the tester
 	// (separation of duty, same reasoning as the verifier lock — except here the
 	// reviewer is CEO/CXO by maintainer decision, not the tenant verifier).
-	// Catalog row: migration 000207.
+	// Catalog row: migration 000211.
 	RoleToxinTester = "toxin_tester"
 	RoleOperator    = "operator"
 	RoleCEOInternal = "ceo_internal"
