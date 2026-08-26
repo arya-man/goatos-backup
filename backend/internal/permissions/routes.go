@@ -188,6 +188,19 @@ var protectedRoutes = []Route{
 	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
 	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
 	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
+	// downloadProof stays on task.read ALONE, and that is correct for every module whose
+	// evidence it serves -- including toxin, where it reads like a gap and is not. A reviewer
+	// checking the toxin block in RoleCEOInternal sees ToxinRead/ToxinVerdict and concludes the
+	// CEO cannot fetch the strip photo it is judging; that block is an ADDITION to the role,
+	// which already carries task.read among ~80 permissions as the founder-visibility role.
+	// Asserted, not asserted-in-prose, by TestToxinReviewerReachesProofMedia: every holder of
+	// toxin.verdict must authorize here, so a future verdict holder without task.read is caught.
+	//
+	// The one real edge, deliberately left: toxin_tester holds no task.read and cannot call
+	// this. Nothing needs it today -- no toxin screen resolves a server proof URL, the phone
+	// renders its own local capture and only ever WRITES proof_ref. A tester surface that must
+	// show a previous attempt gets ToxinRead added here, the way the upload routes above
+	// already OR in ToxinExecute.
 	{OperationID: "downloadProof", Method: "GET", Pattern: "/app/proofs/{proof_id}/download", Permissions: []string{TaskRead}},
 	{OperationID: "recordAppAnalyticsEvent", Method: "POST", Pattern: "/app/analytics/events", Permissions: []string{AppBootstrap}},
 	{OperationID: "recordAppScanCapture", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-captures", Permissions: []string{TaskExecute}},
