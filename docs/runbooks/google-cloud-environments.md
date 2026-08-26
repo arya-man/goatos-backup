@@ -77,6 +77,12 @@ on 2026-06-10.
 Use these only when a new Goat OS project needs billing linked to the same
 account.
 
+After a paid/restored `goatos-stg` bill, verify Cloud Billing first and then
+follow [`stg-cloud-run-billing-recovery.md`](./stg-cloud-run-billing-recovery.md)
+if the dashboard still returns Google Frontend `429 Rate exceeded`. A true
+post-payment recovery must prove both `billingEnabled: true` and Cloud Run
+readiness in `asia-south1`.
+
 ```bash
 USER_EMAIL=ravi@mesha.sg
 BILLING_ACCOUNT_ID=01FEDE-96BCB3-76D992

@@ -16,6 +16,16 @@ lives in [`google-cloud-environments.md`](./google-cloud-environments.md).
 - deploying from Heva / Slice / system-gsuite / apps-script / goatos-sheets
   projects
 
+## Billing Recovery / Cloud Run 429
+
+If STG returns Google Frontend `HTTP 429` with body `Rate exceeded.`, or Cloud
+Run request logs say `The request was aborted because there was no available
+instance`, first follow
+[`stg-cloud-run-billing-recovery.md`](./stg-cloud-run-billing-recovery.md).
+That is an availability recovery path after billing restoration, not a normal
+code deploy. Do not call it fixed until both terminal curls and the live Chrome
+browser surface pass.
+
 ## Valid Deploy Path
 
 STG deploy is **manual Google Cloud Deploy**. Cloud Deploy is the deployment
