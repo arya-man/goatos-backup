@@ -502,14 +502,7 @@ class ShiftingViewModel @Inject constructor(
             )
             when (result) {
                 is AppResult.Ok -> {
-                    outboxItemId.value = result.value
-                    _state.update {
-                        it.copy(
-                            result = CountsWriteResultUi(CountsWriteStatus.QUEUED, QUEUED_MESSAGE),
-                            canSubmit = false,
-                        )
-                    }
-                    observeOutboxItem(result.value)
+                    resetForNextEntry(confirmation = QUEUED_MESSAGE)
                     analytics.track(AnalyticsEvents.COUNTS_SHIFTING_SUBMITTED, current.submitAnalyticsProps())
                 }
                 is AppResult.Err -> {
