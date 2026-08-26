@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -278,6 +280,7 @@ data class ShiftingUiState(
     /** One-shot navigation result consumed by AppNavHost after server-confirmed sync. */
     val returnToActions: Boolean = false,
     val submissionNotice: String? = null,
+    val submittedOutboxItemId: String? = null,
 ) {
     /**
      * The destination options for the currently chosen park — one entry per WHOLE shed or per
@@ -408,7 +411,12 @@ fun ShiftingScreen(
             onDismiss = { onEvent(ShiftingEvent.DismissSubmitConfirmation) },
         )
     }
-    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
+    // One IME inset for the whole screen. Applying it to BOTH the scrolling body and the pinned
+    // submit bar consumes the keyboard's height twice in the same vertical Column: the body
+    // reserves it as bottom padding while the bar rises by the same amount, and on a phone-sized
+    // screen that collapses the form to nothing -- the operator types a tag into a field they
+    // cannot see.
+    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg).imePadding()) {
         CountsFormHeader(
             title = stringResource(R.string.counts_shifting_title),
             subtitle = stringResource(R.string.counts_shifting_subtitle),
@@ -421,9 +429,12 @@ fun ShiftingScreen(
         val selectedShedLabel = selectedDestination?.name
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize().weight(1f).padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .weight(1f)
+                .padding(horizontal = 18.dp),
+            contentPadding = PaddingValues(top = 2.dp, bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item(key = "result") { CountsResultBanner(state.result) }
             // A synced movement clears the form and leaves this confirmation above the fresh entry.
@@ -438,7 +449,7 @@ fun ShiftingScreen(
                 CountsFieldGroupTitle(text = stringResource(R.string.counts_group_animal))
             }
             item(key = "animal-lookup") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     // Scan OR type: the Bluetooth chip in the field starts the reader, and the same
                     // field accepts a hand-typed tag when the reader is not to hand (a flat
                     // battery, an unpaired device, a tag that will not read). Both paths run the
@@ -578,7 +589,7 @@ fun ShiftingScreen(
 
             // --- 4. Priority -----------------------------------------------------------------
             item(key = "priority") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     CountsFieldGroupTitle(text = stringResource(R.string.counts_group_priority))
                     CountsSegmented(
                         options = listOf(
@@ -593,7 +604,7 @@ fun ShiftingScreen(
 
             // --- 5. Category -----------------------------------------------------------------
             item(key = "category") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     CountsFieldGroupTitle(text = stringResource(R.string.counts_group_category))
                     CountsSegmented(
                         options = listOf(
@@ -619,7 +630,7 @@ fun ShiftingScreen(
             // Optional by design: it never gates Submit. It is read by the park head approving the
             // movement and by the verifier reviewing the evidence afterwards.
             item(key = "comment") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     CountsFieldGroupTitle(text = stringResource(R.string.counts_group_comment))
                     CountsTextField(
                         value = state.comment,
@@ -644,8 +655,9 @@ fun ShiftingScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MeshaColors.PageBg)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+                .navigationBarsPadding()
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             CountsSubmitButton(
                 label = stringResource(R.string.counts_submit_shifting),
@@ -656,8 +668,8 @@ fun ShiftingScreen(
             )
             Text(
                 text = stringResource(R.string.counts_shifting_pending_note),
-                color = MeshaColors.Faint,
-                fontSize = 10.sp,
+                color = MeshaColors.Muted,
+                fontSize = 11.sp,
             )
         }
     }

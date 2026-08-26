@@ -97,6 +97,12 @@ object AnalyticsEvents {
     /** An operator queued a shifting/movement event. */
     const val COUNTS_SHIFTING_SUBMITTED = "counts_shifting_submitted"
 
+    /** The operator opened the shifting confirmation sheet from a valid form. */
+    const val COUNTS_SHIFTING_CONFIRM_OPENED = "counts_shifting_confirm_opened"
+
+    /** The operator accepted the shifting confirmation and the app started durable enqueue. */
+    const val COUNTS_SHIFTING_SUBMIT_ATTEMPTED = "counts_shifting_submit_attempted"
+
     /** The operator opened the Shifting "Pending" tab (the web-approved execution queue). */
     const val COUNTS_SHIFTING_PENDING_VIEWED = "counts_shifting_pending_viewed"
 
