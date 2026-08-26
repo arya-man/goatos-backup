@@ -91,8 +91,15 @@ interface OutboxDao {
             "  OR older.attemptCount >= older.maxAttempts " +
             "  OR older.nextAttemptAt > :now) " +
             "AND NOT (" +
-            "  older.opType IN ('PC_CARE_TASK_SUBMIT', 'PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER') " +
-            "  AND candidate.opType IN ('PROOF_UPLOAD', 'PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER')" +
+            // PROOF_UPLOAD rows are proof objects, not aggregate state transitions. Newer writes
+            // reference the exact proof outbox id they need; if they still point at a stale failed
+            // proof they will fail visibly at dispatch. Keeping a dead proof upload as a lane
+            // blocker silently strands replacement captures across every camera feature.
+            "  older.opType = 'PROOF_UPLOAD' " +
+            "  OR (" +
+            "    older.opType IN ('PC_CARE_TASK_SUBMIT', 'PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER') " +
+            "    AND candidate.opType IN ('PROOF_UPLOAD', 'PC_CARE_SLOT_REGISTER', 'PC_CARE_TASK_PROOF_REGISTER')" +
+            "  )" +
             ") " +
             ") " +
             "ORDER BY candidate.createdAt ASC, candidate.rowid ASC LIMIT :limit",

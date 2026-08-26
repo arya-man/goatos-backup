@@ -166,7 +166,7 @@ private fun ProofVideoPreview(path: String, modifier: Modifier = Modifier) {
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(10.dp)
-                .size(40.dp)
+                .size(32.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .background(MeshaColors.Brand)
                 .clickable {
@@ -184,7 +184,7 @@ private fun ProofVideoPreview(path: String, modifier: Modifier = Modifier) {
                 imageVector = if (isPlaying) MeshaIcons.Pause else MeshaIcons.Play,
                 contentDescription = if (isPlaying) "Pause video preview" else "Play video preview",
                 tint = MeshaColors.OnBrand,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(14.dp),
             )
         }
     }
