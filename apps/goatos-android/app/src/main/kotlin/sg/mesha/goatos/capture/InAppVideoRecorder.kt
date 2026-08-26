@@ -68,6 +68,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import sg.mesha.goatos.R
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.data.capture.ProofArtifactValidator
 import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
@@ -95,6 +96,8 @@ fun InAppVideoRecorderOverlay(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraSession = remember { ProofCameraSession() }
+    val analytics = rememberProofCameraAnalytics()
+    val analyticsSource = proofCameraSource(captureContext?.prompt)
     val cameraUnavailableMessage = stringResource(R.string.proof_camera_unavailable)
     val previewTimeoutMessage = stringResource(R.string.proof_camera_preview_timeout)
     val invalidVideoMessage = stringResource(R.string.proof_capture_invalid_video)
@@ -119,7 +122,6 @@ fun InAppVideoRecorderOverlay(
     var torchMode by remember { mutableStateOf(ProofTorchMode.AUTO) }
     var lowLight by remember { mutableStateOf(false) }
     var torchEnabled by remember { mutableStateOf(false) }
-
     fun deliver(result: CapturedVideo?) {
         if (resultDelivered) return
         resultDelivered = true
@@ -135,9 +137,30 @@ fun InAppVideoRecorderOverlay(
         startedAtMs = System.currentTimeMillis()
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             file.delete()
+            analytics.trackProofCamera(
+                AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
+                PROOF_CAMERA_KIND_VIDEO,
+                source = analyticsSource,
+                props = mapOf(
+                    AnalyticsEvents.Params.RESULT to "failure",
+                    AnalyticsEvents.Params.REASON to "record_audio_permission_missing",
+                ),
+            )
             deliver(null)
             return
         }
+        analytics.trackProofCamera(
+            AnalyticsEvents.PROOF_CAMERA_RECORD_STARTED,
+            PROOF_CAMERA_KIND_VIDEO,
+            source = analyticsSource,
+            props = mapOf(
+                AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+                AnalyticsEvents.Params.OUTCOME to if (previewStreaming) "preview_streaming" else "preview_waiting",
+                "torch_mode" to torchMode.analyticsValue(),
+                "low_light" to lowLight.toString(),
+                "has_flash_unit" to hasFlashUnit.toString(),
+            ),
+        )
         activeRecording = capture.output
             .prepareRecording(context, output)
             // Audio is MANDATORY on every in-app proof clip: a verifier reviewing the video needs
@@ -154,12 +177,27 @@ fun InAppVideoRecorderOverlay(
                     activeRecording = null
                     if (cancelled) {
                         file.delete()
+                        analytics.trackProofCamera(
+                            AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
+                            PROOF_CAMERA_KIND_VIDEO,
+                            source = analyticsSource,
+                            props = mapOf(AnalyticsEvents.Params.RESULT to "cancelled"),
+                        )
                         deliver(null)
                     } else if (!event.hasError()) {
                         // HIGH-2: Defer validation to LaunchedEffect (off-main) to avoid jank at Stop-tap
                         pendingValidation = file
                     } else {
                         file.delete()
+                        analytics.trackProofCamera(
+                            AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
+                            PROOF_CAMERA_KIND_VIDEO,
+                            source = analyticsSource,
+                            props = mapOf(
+                                AnalyticsEvents.Params.RESULT to "failure",
+                                AnalyticsEvents.Params.REASON to "camera_finalize_error",
+                            ),
+                        )
                         deliver(null)
                     }
                 }
@@ -168,13 +206,37 @@ fun InAppVideoRecorderOverlay(
     }
 
     fun finishRecording() {
+        analytics.trackProofCamera(
+            AnalyticsEvents.PROOF_CAMERA_RECORD_STOP_TAPPED,
+            PROOF_CAMERA_KIND_VIDEO,
+            source = analyticsSource,
+            props = mapOf(
+                AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+                AnalyticsEvents.Params.DURATION_MS to (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L).toString(),
+            ),
+        )
         activeRecording?.stop()
     }
 
     fun cancelRecording() {
+        analytics.trackProofCamera(
+            AnalyticsEvents.PROOF_CAMERA_CANCEL_TAPPED,
+            PROOF_CAMERA_KIND_VIDEO,
+            source = analyticsSource,
+            props = mapOf(
+                AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+                "torch_mode" to torchMode.analyticsValue(),
+            ),
+        )
         cancelled = true
         val recording = activeRecording
         if (recording == null) {
+            analytics.trackProofCamera(
+                AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
+                PROOF_CAMERA_KIND_VIDEO,
+                source = analyticsSource,
+                props = mapOf(AnalyticsEvents.Params.RESULT to "cancelled"),
+            )
             deliver(null)
         } else {
             recording.stop()
@@ -182,6 +244,14 @@ fun InAppVideoRecorderOverlay(
     }
 
     BackHandler(onBack = ::cancelRecording)
+
+    LaunchedEffect(analyticsSource) {
+        analytics.trackProofCamera(
+            AnalyticsEvents.PROOF_CAMERA_SCREEN_VIEWED,
+            PROOF_CAMERA_KIND_VIDEO,
+            source = analyticsSource,
+        )
+    }
 
     // Gate 1: Preview readiness gate — record only when preview stream is STREAMING
     LaunchedEffect(previewStreaming, isRecording, resultDelivered) {
@@ -227,21 +297,40 @@ fun InAppVideoRecorderOverlay(
     LaunchedEffect(pendingValidation) {
         val fileToValidate = pendingValidation
         if (fileToValidate != null) {
-            withContext(Dispatchers.IO) {
-                val validation = artifactValidator.validateVideoFile(fileToValidate.toURI().toString())
-                if (validation.isValid) {
-                    deliver(
-                        CapturedVideo(
-                            localUri = fileToValidate.toURI().toString(),
-                            startedAtMs = startedAtMs,
-                            endedAtMs = System.currentTimeMillis(),
-                        ),
-                    )
-                } else {
-                    // CRITICAL-2: Invalid video — DO NOT deliver(null); show error UI with retry/cancel options
-                    fileToValidate.delete()
-                    cameraError = invalidVideoMessage
-                }
+            val isValid = withContext(Dispatchers.IO) {
+                artifactValidator.validateVideoFile(fileToValidate.toURI().toString()).isValid
+            }
+            if (isValid) {
+                val captured = CapturedVideo(
+                    localUri = fileToValidate.toURI().toString(),
+                    startedAtMs = startedAtMs,
+                    endedAtMs = System.currentTimeMillis(),
+                )
+                analytics.trackProofCamera(
+                    AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
+                    PROOF_CAMERA_KIND_VIDEO,
+                    source = analyticsSource,
+                    props = mapOf(
+                        AnalyticsEvents.Params.RESULT to "success",
+                        AnalyticsEvents.Params.DURATION_MS to
+                            (captured.endedAtMs - captured.startedAtMs).coerceAtLeast(0L).toString(),
+                        AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+                    ),
+                )
+                deliver(captured)
+            } else {
+                // CRITICAL-2: Invalid video — DO NOT deliver(null); show error UI with retry/cancel options
+                fileToValidate.delete()
+                cameraError = invalidVideoMessage
+                analytics.trackProofCamera(
+                    AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
+                    PROOF_CAMERA_KIND_VIDEO,
+                    source = analyticsSource,
+                    props = mapOf(
+                        AnalyticsEvents.Params.RESULT to "failure",
+                        AnalyticsEvents.Params.REASON to "invalid_video",
+                    ),
+                )
             }
             pendingValidation = null
         }
@@ -378,7 +467,23 @@ fun InAppVideoRecorderOverlay(
                 TorchModeButton(
                     mode = torchMode,
                     torchEnabled = torchEnabled,
-                    onClick = { torchMode = torchMode.next() },
+                    onClick = {
+                        val previous = torchMode
+                        val next = torchMode.next()
+                        analytics.trackProofCamera(
+                            AnalyticsEvents.PROOF_CAMERA_FLASH_TAPPED,
+                            PROOF_CAMERA_KIND_VIDEO,
+                            source = analyticsSource,
+                            props = mapOf(
+                                AnalyticsEvents.Params.PREVIOUS to previous.analyticsValue(),
+                                AnalyticsEvents.Params.NEXT to next.analyticsValue(),
+                                AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+                                "low_light" to lowLight.toString(),
+                                "has_flash_unit" to hasFlashUnit.toString(),
+                            ),
+                        )
+                        torchMode = next
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
@@ -389,6 +494,12 @@ fun InAppVideoRecorderOverlay(
                 cameraError = cameraError,
                 retryLabel = retryLabel,
                 onRetry = {
+                    analytics.trackProofCamera(
+                        AnalyticsEvents.PROOF_CAMERA_RETRY_TAPPED,
+                        PROOF_CAMERA_KIND_VIDEO,
+                        source = analyticsSource,
+                        props = mapOf(AnalyticsEvents.Params.REASON to if (cameraError == invalidVideoMessage) "invalid_video" else "preview_error"),
+                    )
                     cameraError = null
                     previewTimeoutTriggered = false
                     cameraSession.release()
@@ -402,6 +513,7 @@ fun InAppVideoRecorderOverlay(
                     retryGeneration++ // CRITICAL-1: increment to force AndroidView factory re-run + rebind
                 },
                 onClick = { if (isRecording) finishRecording() else startRecording() },
+                onCancel = ::cancelRecording,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -640,6 +752,7 @@ private fun StopRecordingButton(
     cameraError: String? = null,
     retryLabel: String = "Retry",
     onRetry: () -> Unit = {},
+    onCancel: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     val actionDescription = stringResource(
@@ -675,7 +788,7 @@ private fun StopRecordingButton(
                 Text(text = retryLabel, style = MeshaType.button)
             }
             Button(
-                onClick = { /* Cancel handled by BackHandler */ },
+                onClick = onCancel,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MeshaColors.Surf3,
                     contentColor = MeshaColors.Muted,

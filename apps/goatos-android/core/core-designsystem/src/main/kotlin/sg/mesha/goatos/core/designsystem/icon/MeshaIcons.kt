@@ -299,7 +299,7 @@ object MeshaIcons {
         // is stripped and the row keeps its own module glyph.
         "calendar" -> Calendar
         // Vaccination MODULE + its own destinations. The syringe is scoped to this module.
-        "vaccination", "sheds", "pc.vaccination", "execution" -> Syringe
+        "vaccination", "drives", "vaccination_drives", "sheds", "pc.vaccination", "execution" -> Syringe
         "home", "dhome", "overview" -> Home
         // "weighing_alerts" is WEIGHING's own alerts destination, distinct from the
         // vaccination "alerts" feed but the same kind of surface, so it takes the same bell.

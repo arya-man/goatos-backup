@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -56,6 +57,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import sg.mesha.goatos.R
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
@@ -120,6 +122,7 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraSession = remember { PhotoCameraSession() }
+    val analytics = rememberProofCameraAnalytics()
     val cameraUnavailableMessage = stringResource(R.string.proof_camera_unavailable)
 
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
@@ -133,7 +136,6 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
     var torchMode by remember { mutableStateOf(ProofTorchMode.AUTO) }
     var lowLight by remember { mutableStateOf(false) }
     var torchEnabled by remember { mutableStateOf(false) }
-
     fun deliver(result: CapturedPhoto?) {
         if (resultDelivered) return
         resultDelivered = true
@@ -144,6 +146,18 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
         val capture = imageCapture ?: return
         if (isCapturing) return
         isCapturing = true
+        analytics.trackProofCamera(
+            AnalyticsEvents.PROOF_CAMERA_SHUTTER_TAPPED,
+            PROOF_CAMERA_KIND_PHOTO,
+            source = proofCameraSource(photoContext.prompt),
+            props = mapOf(
+                AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+                AnalyticsEvents.Params.OUTCOME to if (cameraReady) "camera_ready" else "camera_not_ready",
+                "torch_mode" to torchMode.analyticsValue(),
+                "low_light" to lowLight.toString(),
+                "has_flash_unit" to hasFlashUnit.toString(),
+            ),
+        )
         val file = newPhotoCaptureFile(context)
         val output = ImageCapture.OutputFileOptions.Builder(file).build()
         capture.takePicture(
@@ -152,6 +166,15 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(results: ImageCapture.OutputFileResults) {
                     isCapturing = false
+                    analytics.trackProofCamera(
+                        AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
+                        PROOF_CAMERA_KIND_PHOTO,
+                        source = proofCameraSource(photoContext.prompt),
+                        props = mapOf(
+                            AnalyticsEvents.Params.RESULT to "success",
+                            AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+                        ),
+                    )
                     deliver(
                         CapturedPhoto(
                             localUri = file.toURI().toString(),
@@ -164,14 +187,48 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
                     isCapturing = false
                     file.delete()
                     cameraError = cameraUnavailableMessage
+                    analytics.trackProofCamera(
+                        AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
+                        PROOF_CAMERA_KIND_PHOTO,
+                        source = proofCameraSource(photoContext.prompt),
+                        props = mapOf(
+                            AnalyticsEvents.Params.RESULT to "failure",
+                            AnalyticsEvents.Params.REASON to (exception::class.simpleName ?: "image_capture_error"),
+                        ),
+                    )
                 }
             },
         )
     }
 
-    fun cancel() = deliver(null)
+    fun cancel() {
+        analytics.trackProofCamera(
+            AnalyticsEvents.PROOF_CAMERA_CANCEL_TAPPED,
+            PROOF_CAMERA_KIND_PHOTO,
+            source = proofCameraSource(photoContext.prompt),
+            props = mapOf(
+                AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+                "torch_mode" to torchMode.analyticsValue(),
+            ),
+        )
+        analytics.trackProofCamera(
+            AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
+            PROOF_CAMERA_KIND_PHOTO,
+            source = proofCameraSource(photoContext.prompt),
+            props = mapOf(AnalyticsEvents.Params.RESULT to "cancelled"),
+        )
+        deliver(null)
+    }
 
     BackHandler(onBack = ::cancel)
+
+    LaunchedEffect(Unit) {
+        analytics.trackProofCamera(
+            AnalyticsEvents.PROOF_CAMERA_SCREEN_VIEWED,
+            PROOF_CAMERA_KIND_PHOTO,
+            source = proofCameraSource(photoContext.prompt),
+        )
+    }
 
     LaunchedEffect(cameraReady, hasFlashUnit, torchMode, previewView) {
         while (cameraReady && hasFlashUnit && torchMode == ProofTorchMode.AUTO) {
@@ -280,7 +337,23 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
                 TorchIconButton(
                     mode = torchMode,
                     torchEnabled = torchEnabled,
-                    onClick = { torchMode = torchMode.next() },
+                    onClick = {
+                        val previous = torchMode
+                        val next = torchMode.next()
+                        analytics.trackProofCamera(
+                            AnalyticsEvents.PROOF_CAMERA_FLASH_TAPPED,
+                            PROOF_CAMERA_KIND_PHOTO,
+                            source = proofCameraSource(photoContext.prompt),
+                            props = mapOf(
+                                AnalyticsEvents.Params.PREVIOUS to previous.analyticsValue(),
+                                AnalyticsEvents.Params.NEXT to next.analyticsValue(),
+                                AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+                                "low_light" to lowLight.toString(),
+                                "has_flash_unit" to hasFlashUnit.toString(),
+                            ),
+                        )
+                        torchMode = next
+                    },
                 )
             } else {
                 Spacer(Modifier.size(48.dp)) // balances the cancel control.

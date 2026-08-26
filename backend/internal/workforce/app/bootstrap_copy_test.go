@@ -285,10 +285,13 @@ func TestPCDirectorVaccinationModuleHasStockTab(t *testing.T) {
 		t.Fatalf("vaccination landing href = %q, want /vaccination/stock", vaccination.Href)
 	}
 	var stock *domain.BootstrapNavigationItem
+	var drives *domain.BootstrapNavigationItem
 	for i := range vaccination.NavItems {
 		if vaccination.NavItems[i].Key == "vaccination_stock" {
 			stock = &vaccination.NavItems[i]
-			break
+		}
+		if vaccination.NavItems[i].Href == "/calendar" {
+			drives = &vaccination.NavItems[i]
 		}
 	}
 	if stock == nil {
@@ -296,6 +299,12 @@ func TestPCDirectorVaccinationModuleHasStockTab(t *testing.T) {
 	}
 	if stock.Label != "Stock" || stock.Href != "/vaccination/stock" {
 		t.Fatalf("stock nav item = %+v, want Stock /vaccination/stock", stock)
+	}
+	if drives == nil {
+		t.Fatalf("vaccination nav items missing drives tab: %+v", vaccination.NavItems)
+	}
+	if drives.Key != "drives" || drives.Label != "Drives" || drives.Href != "/calendar" {
+		t.Fatalf("director drives nav item = %+v, want drives Drives /calendar", drives)
 	}
 }
 

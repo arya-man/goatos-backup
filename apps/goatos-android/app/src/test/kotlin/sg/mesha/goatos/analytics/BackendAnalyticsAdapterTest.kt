@@ -158,6 +158,16 @@ class BackendAnalyticsAdapterTest {
     fun `the critical event allowlist covers the documented forensic events`() {
         val allowlist = BackendAnalyticsAdapter.CRITICAL_EVENT_ALLOWLIST
         assertTrue(allowlist.contains("proof_processing_failed"))
+        assertTrue(allowlist.contains(AnalyticsEvents.PROOF_CAMERA_SCREEN_VIEWED))
+        assertTrue(allowlist.contains(AnalyticsEvents.PROOF_CAMERA_FLASH_TAPPED))
+        assertTrue(allowlist.contains(AnalyticsEvents.PROOF_CAMERA_SHUTTER_TAPPED))
+        assertTrue(allowlist.contains(AnalyticsEvents.PROOF_CAMERA_RECORD_STARTED))
+        assertTrue(allowlist.contains(AnalyticsEvents.PROOF_CAMERA_RECORD_STOP_TAPPED))
+        assertTrue(allowlist.contains(AnalyticsEvents.PROOF_CAMERA_CANCEL_TAPPED))
+        assertTrue(allowlist.contains(AnalyticsEvents.PROOF_CAMERA_RETRY_TAPPED))
+        assertTrue(allowlist.contains(AnalyticsEvents.PROOF_CAMERA_RETAKE_TAPPED))
+        assertTrue(allowlist.contains(AnalyticsEvents.PROOF_CAMERA_USE_TAPPED))
+        assertTrue(allowlist.contains(AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT))
         assertTrue(allowlist.contains(AnalyticsEvents.SYNC_WRITE_DEAD))
         assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_OPENED))
         assertTrue(allowlist.contains(AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED))

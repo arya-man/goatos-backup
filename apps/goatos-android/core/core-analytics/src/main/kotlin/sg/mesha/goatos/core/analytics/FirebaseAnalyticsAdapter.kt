@@ -151,7 +151,7 @@ private val FIREBASE_PARAM_ALLOWLIST = listOf(
     AnalyticsEvents.Params.PREVIOUS,
     AnalyticsEvents.Params.NEXT,
     AnalyticsEvents.Params.STATUS,
-    "failure_kind",
+    AnalyticsEvents.Params.KIND,
 )
 
 fun AnalyticsContext.standardEventParams(): Map<String, String> =

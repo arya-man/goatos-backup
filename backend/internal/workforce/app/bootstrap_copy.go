@@ -1139,7 +1139,27 @@ func composeNavigationFromModules(modules []string, grants []domain.GrantSummary
 		})
 	}
 
+	applyVaccinationDirectorNavContract(out, localeTag)
 	return out
+}
+
+func applyVaccinationDirectorNavContract(items []domain.BootstrapNavigationItem, localeTag string) {
+	hasStock := false
+	for _, item := range items {
+		if item.Key == "vaccination_stock" && item.Href == "/vaccination/stock" {
+			hasStock = true
+			break
+		}
+	}
+	if !hasStock {
+		return
+	}
+	for i := range items {
+		if items[i].Key == "calendar" && items[i].Href == "/calendar" {
+			items[i].Key = "drives"
+			items[i].Label = localizedBootstrapLabel(localeTag, "nav.drives")
+		}
+	}
 }
 
 func queuesFor(caps []domain.CapabilityAssignment, localeTag string) []domain.BootstrapTaskQueue {

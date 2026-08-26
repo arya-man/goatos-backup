@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
+import java.time.LocalDate
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
@@ -87,6 +88,7 @@ fun CalendarScreen(
     monthItems: LazyPagingItems<CalendarItem>? = null,
     onEvent: (CalendarEvent) -> Unit = {},
     modifier: Modifier = Modifier,
+    presentation: CalendarPresentation = CalendarPresentation.Calendar,
 ) {
     val selected = state.segments.firstOrNull { it.id == state.selectedSegmentId }
         ?: state.segments.firstOrNull()
@@ -135,6 +137,7 @@ fun CalendarScreen(
                 state = state,
                 onEvent = onEvent,
                 onOpenFilters = { showMonthFilters = true },
+                presentation = presentation,
             )
         }
         state.errorMessage?.let { message ->
@@ -156,7 +159,7 @@ fun CalendarScreen(
                 Spacer(Modifier.size(10.dp))
             }
         }
-        if (state.segments.isNotEmpty()) {
+        if (presentation == CalendarPresentation.Calendar && state.segments.isNotEmpty()) {
             item {
                 SegmentedControl(
                     segments = state.segments,
@@ -167,14 +170,22 @@ fun CalendarScreen(
             }
         }
 
-        when (selected?.kind) {
-            CalendarSegmentKind.Week -> weekContent(state, onEvent)
-            CalendarSegmentKind.Month -> monthContent(
+        if (presentation == CalendarPresentation.DriveList) {
+            driveListContent(
                 state = state,
                 monthItems = monthItems,
                 onEvent = onEvent,
             )
-            null -> Unit
+        } else {
+            when (selected?.kind) {
+                CalendarSegmentKind.Week -> weekContent(state, onEvent)
+                CalendarSegmentKind.Month -> monthContent(
+                    state = state,
+                    monthItems = monthItems,
+                    onEvent = onEvent,
+                )
+                null -> Unit
+            }
         }
         item { Spacer(Modifier.size(24.dp)) }
     }
@@ -191,9 +202,12 @@ fun CalendarScreen(
                 onEvent(CalendarEvent.ClearMonthFilters)
                 showMonthFilters = false
             },
+            presentation = presentation,
         )
     }
 }
+
+enum class CalendarPresentation { Calendar, DriveList }
 
 /* --------------------------------------------------------------------------- */
 /* Header                                                                      */
@@ -212,13 +226,18 @@ private fun CalendarHeader(
     state: CalendarUiState,
     onEvent: (CalendarEvent) -> Unit,
     onOpenFilters: () -> Unit,
+    presentation: CalendarPresentation,
 ) {
     val window = state.windowLabel
     val activeFilterCount = state.monthFilters.secondaryFilterCount
     MeshaScreenHeader(
         // Static screen chrome — localized client-side (the VM values are the English module
         // name/title; the visible chrome must follow the app locale).
-        title = stringResource(R.string.calendar_title),
+        title = if (presentation == CalendarPresentation.DriveList) {
+            "Drives"
+        } else {
+            stringResource(R.string.calendar_title)
+        },
         eyebrow = stringResource(R.string.calendar_eyebrow).uppercase().takeIf { state.eyebrow.isNotEmpty() },
         subtitle = if (window.isNullOrEmpty()) {
             state.selectedDateLabel
@@ -243,16 +262,18 @@ private fun CalendarHeader(
             )
         },
         actions = {
-            HeaderIconButton(
-                onClick = onOpenFilters,
-                icon = MeshaIcons.Filter,
-                contentDescription = if (activeFilterCount > 0) {
-                    "${stringResource(R.string.calendar_filters)} ($activeFilterCount)"
-                } else {
-                    stringResource(R.string.calendar_filters)
-                },
-            )
-            Spacer(Modifier.size(8.dp))
+            if (presentation != CalendarPresentation.DriveList) {
+                HeaderIconButton(
+                    onClick = onOpenFilters,
+                    icon = MeshaIcons.Filter,
+                    contentDescription = if (activeFilterCount > 0) {
+                        "${stringResource(R.string.calendar_filters)} ($activeFilterCount)"
+                    } else {
+                        stringResource(R.string.calendar_filters)
+                    },
+                )
+                Spacer(Modifier.size(8.dp))
+            }
             SyncIconButton(
                 isSyncing = state.isRefreshing,
                 onSync = { onEvent(CalendarEvent.Refresh) },
@@ -1062,6 +1083,113 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
     }
 }
 
+private fun androidx.compose.foundation.lazy.LazyListScope.driveListContent(
+    state: CalendarUiState,
+    monthItems: LazyPagingItems<CalendarItem>?,
+    onEvent: (CalendarEvent) -> Unit,
+) {
+    val today = LocalDate.now()
+    val fallbackItems = state.monthFallbackItems.filter { it.visibleInDriveList(today) }
+
+    if (monthItems == null) {
+        item {
+            EmptyState(
+                title = state.monthEmptyLabel.ifEmpty { stringResource(R.string.calendar_month_empty) },
+                icon = MeshaIcons.Syringe,
+            )
+        }
+        return
+    }
+
+    when {
+        monthItems.itemCount == 0 && monthItems.loadState.refresh is LoadState.Loading -> item {
+            MonthPagingMessage(
+                label = stringResource(R.string.calendar_month_loading),
+                loading = true,
+            )
+        }
+
+        monthItems.itemCount == 0 && monthItems.loadState.refresh is LoadState.Error -> item {
+            MonthPagingMessage(
+                label = stringResource(R.string.calendar_month_load_error),
+                actionLabel = stringResource(R.string.calendar_retry),
+                onAction = monthItems::retry,
+            )
+        }
+
+        monthItems.itemCount == 0 && fallbackItems.isNotEmpty() -> items(
+            fallbackItems,
+            key = { item -> item.id },
+        ) { item ->
+            EventCard(
+                item = item,
+                showScheduleContext = true,
+                onClick = {
+                    onEvent(
+                        CalendarEvent.TapItem(
+                            itemId = item.id,
+                            target = item.target,
+                            dateKey = item.dateKey,
+                            parkId = item.parkId,
+                        ),
+                    )
+                },
+            )
+        }
+
+        monthItems.itemCount == 0 -> item {
+            EmptyState(
+                title = state.monthEmptyLabel.ifEmpty { stringResource(R.string.calendar_month_empty) },
+                icon = MeshaIcons.Syringe,
+            )
+        }
+
+        else -> items(
+            count = monthItems.itemCount,
+            key = monthItems.itemKey { item -> item.id },
+            contentType = { "vaccination-drive-card" },
+        ) { index ->
+            monthItems[index]?.takeIf { it.visibleInDriveList(today) }?.let { item ->
+                EventCard(
+                    item = item,
+                    showScheduleContext = true,
+                    onClick = {
+                        onEvent(
+                            CalendarEvent.TapItem(
+                                itemId = item.id,
+                                target = item.target,
+                                dateKey = item.dateKey,
+                                parkId = item.parkId,
+                            ),
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    when (monthItems.loadState.append) {
+        is LoadState.Loading -> item {
+            MonthPagingMessage(label = "", loading = true)
+        }
+        is LoadState.Error -> item {
+            MonthPagingMessage(
+                label = stringResource(R.string.calendar_month_load_error),
+                actionLabel = stringResource(R.string.calendar_retry),
+                onAction = monthItems::retry,
+            )
+        }
+        else -> Unit
+    }
+}
+
+private fun CalendarItem.visibleInDriveList(today: LocalDate): Boolean {
+    val date = runCatching { LocalDate.parse(dateKey) }.getOrNull() ?: return true
+    if (!date.isBefore(today)) return true
+    val status = statusLabel.lowercase()
+    return status !in setOf("scheduled", "completed", "done", "accepted", "verified")
+}
+
 @Composable
 private fun MonthPagingMessage(
     label: String,
@@ -1102,6 +1230,7 @@ private fun MonthFilterSheet(
     onDismiss: () -> Unit,
     onApply: (CalendarMonthFilters) -> Unit,
     onClear: () -> Unit,
+    presentation: CalendarPresentation = CalendarPresentation.Calendar,
 ) {
     var draft by remember(state.monthFilters) { mutableStateOf(state.monthFilters) }
     val options = state.monthFilterOptions
@@ -1161,23 +1290,25 @@ private fun MonthFilterSheet(
                     modifier = Modifier.padding(bottom = 12.dp),
                 )
             }
-            item {
-                FilterChoiceSection(
-                    label = stringResource(R.string.calendar_filter_year),
-                    options = yearOptions,
-                    selectedValue = draft.year.toString(),
-                    includeAll = false,
-                    onSelect = { value -> value?.toIntOrNull()?.let { draft = draft.copy(year = it) } },
-                )
-            }
-            item {
-                FilterChoiceSection(
-                    label = stringResource(R.string.calendar_filter_month),
-                    options = monthOptions,
-                    selectedValue = draft.month.toString().padStart(2, '0'),
-                    includeAll = false,
-                    onSelect = { value -> value?.toIntOrNull()?.let { draft = draft.copy(month = it) } },
-                )
+            if (presentation == CalendarPresentation.Calendar) {
+                item {
+                    FilterChoiceSection(
+                        label = stringResource(R.string.calendar_filter_year),
+                        options = yearOptions,
+                        selectedValue = draft.year.toString(),
+                        includeAll = false,
+                        onSelect = { value -> value?.toIntOrNull()?.let { draft = draft.copy(year = it) } },
+                    )
+                }
+                item {
+                    FilterChoiceSection(
+                        label = stringResource(R.string.calendar_filter_month),
+                        options = monthOptions,
+                        selectedValue = draft.month.toString().padStart(2, '0'),
+                        includeAll = false,
+                        onSelect = { value -> value?.toIntOrNull()?.let { draft = draft.copy(month = it) } },
+                    )
+                }
             }
             item {
                 FilterChoiceSection(

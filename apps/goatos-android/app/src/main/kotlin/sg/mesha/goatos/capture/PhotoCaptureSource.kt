@@ -29,6 +29,7 @@ data class CapturedPhoto(
 data class PhotoCaptureContext(
     val title: String = "",
     val instruction: String = "",
+    val prompt: ProofCapturePrompt? = null,
 )
 
 interface PhotoCaptureSource {

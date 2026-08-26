@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.ProofMediaPreview
+import sg.mesha.goatos.core.ui.ProofMediaPreviewKind
 import sg.mesha.goatos.core.ui.SyncIconButton
 
 /**
@@ -101,7 +103,7 @@ fun PcCareTaskScreen(
                 item(key = "rework_banner") { PcCareBanner(text = state.reworkReason, danger = true) }
             }
 
-            // Sent for checking / approved: the task is read-only.
+            // In review / approved: the task is read-only.
             if (state.isLocked && state.lockNotice.isNotBlank()) {
                 item(key = "lock_banner") { PcCareBanner(text = state.lockNotice, danger = false) }
             }
@@ -131,18 +133,30 @@ fun PcCareTaskScreen(
                 }
             }
 
-            state.taskProofSlot?.let { proofSlot ->
+            if (taskProofMode && (state.taskProofPhotoSlot != null || state.taskProofVideoSlot != null)) {
                 item(key = "task_proof") {
                     Column(
                         modifier = pcCareCardModifier(enabled = false, onClick = null),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        PcCareSlotChipRow(
-                            slot = proofSlot,
-                            locked = state.isLocked,
-                            onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "video")) },
-                            onRecordPhoto = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "photo")) },
-                        )
+                        state.taskProofPhotoSlot?.let { proofSlot ->
+                            PcCareTaskProofRow(
+                                title = "Photo evidence",
+                                slot = proofSlot,
+                                locked = state.isLocked,
+                                actionLabel = if (proofSlot.state == PcCareSlotState.EMPTY) "Take photo" else "Replace photo",
+                                onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "photo")) },
+                            )
+                        }
+                        state.taskProofVideoSlot?.let { proofSlot ->
+                            PcCareTaskProofRow(
+                                title = "Video evidence",
+                                slot = proofSlot,
+                                locked = state.isLocked,
+                                actionLabel = if (proofSlot.state == PcCareSlotState.EMPTY) "Record video" else "Replace video",
+                                onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "video")) },
+                            )
+                        }
                     }
                 }
             }
@@ -363,6 +377,16 @@ private fun PcCareSlotChipRow(
             if (slot.hintLabel.isNotBlank()) {
                 Text(text = slot.hintLabel, color = MeshaColors.Faint, style = MeshaType.caption)
             }
+            if (slot.previewPath.isNotBlank()) {
+                ProofMediaPreview(
+                    path = slot.previewPath,
+                    kind = when (slot.previewKind) {
+                        PcCareProofPreviewKind.PHOTO -> ProofMediaPreviewKind.Photo
+                        PcCareProofPreviewKind.VIDEO -> ProofMediaPreviewKind.Video
+                    },
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
         }
         if (!locked && slot.canRecord) {
             if (onRecordPhoto == null) {
@@ -385,6 +409,62 @@ private fun PcCareSlotChipRow(
 }
 
 @Composable
+private fun PcCareTaskProofRow(
+    title: String,
+    slot: PcCareSlotChipUi,
+    locked: Boolean,
+    actionLabel: String,
+    onRecord: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(MeshaColors.Surf2)
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(text = title, color = MeshaColors.Ink, style = MeshaType.pillStrong)
+                if (slot.statusLabel.isNotBlank()) {
+                    Text(
+                        text = slot.statusLabel,
+                        color = when (slot.state) {
+                            PcCareSlotState.SYNCED -> MeshaColors.Ok
+                            PcCareSlotState.PEER -> MeshaColors.BrandD
+                            PcCareSlotState.FAILED -> MeshaColors.Danger
+                            PcCareSlotState.WORKING -> MeshaColors.Warn
+                            PcCareSlotState.EMPTY -> MeshaColors.Muted
+                        },
+                        style = MeshaType.caption,
+                    )
+                }
+                if (slot.hintLabel.isNotBlank()) {
+                    Text(text = slot.hintLabel, color = MeshaColors.Faint, style = MeshaType.caption)
+                }
+            }
+            if (!locked && slot.canRecord) {
+                PcCarePrimaryButton(label = actionLabel, enabled = true, onClick = onRecord)
+            }
+        }
+        if (slot.previewPath.isNotBlank()) {
+            ProofMediaPreview(
+                path = slot.previewPath,
+                kind = when (slot.previewKind) {
+                    PcCareProofPreviewKind.PHOTO -> ProofMediaPreviewKind.Photo
+                    PcCareProofPreviewKind.VIDEO -> ProofMediaPreviewKind.Video
+                },
+            )
+        }
+    }
+}
+
+@Composable
 private fun PcCareSubmitBar(
     state: PcCareTaskUiState,
     onEvent: (PcCareTaskEvent) -> Unit,
@@ -402,7 +482,7 @@ private fun PcCareSubmitBar(
         // The weighing surfaces' primary-button chrome (Brand fill, dark label).
         PcCarePrimaryButton(
             label = when {
-                state.submitQueued -> "Sent for checking"
+                state.submitQueued -> "Submitted"
                 state.submitInFlight -> "Sending…"
                 else -> "Submit task"
             },
@@ -421,12 +501,12 @@ private fun PcCareSubmitConfirmationDialog(
 ) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(text = "Send this task for checking?", color = MeshaColors.Ink, style = MeshaType.cardTitle) },
+        title = { Text(text = "Submit this task?", color = MeshaColors.Ink, style = MeshaType.cardTitle) },
         text = {
             Text(
                 text = buildString {
                     if (animalCountLabel.isNotBlank()) append("$animalCountLabel recorded. ")
-                    append("After sending, this task is locked until it is checked.")
+                    append("After submitting, this task is locked until review is complete.")
                 },
                 color = MeshaColors.Muted,
                 style = MeshaType.cardSubtitle,
@@ -439,7 +519,7 @@ private fun PcCareSubmitConfirmationDialog(
         },
         confirmButton = {
             androidx.compose.material3.TextButton(onClick = onConfirm) {
-                Text(text = "Send", color = MeshaColors.Danger, style = MeshaType.cardSubtitle)
+                Text(text = "Submit", color = MeshaColors.Danger, style = MeshaType.cardSubtitle)
             }
         },
         containerColor = MeshaColors.Surf,

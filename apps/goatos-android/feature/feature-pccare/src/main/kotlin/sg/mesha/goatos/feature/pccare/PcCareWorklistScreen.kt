@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -48,7 +49,7 @@ fun PcCareWorklistScreen(
 ) {
     // Refresh-on-open (docs/decisions/android-offline-first.md): cached Room rows show instantly
     // and a background refresh fires on every resume — including popping back here after a submit,
-    // so the card flips to "Sent for checking" without a manual refresh.
+    // so the card flips to "In review" without a manual refresh.
     RefreshOnResume { onEvent(PcCareWorklistEvent.Refresh) }
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
@@ -150,6 +151,13 @@ internal fun PcCareTaskCard(
         if (card.assigneeLine.isNotBlank()) {
             Text(text = card.assigneeLine, color = MeshaColors.Muted, style = MeshaType.caption)
         }
+        if (card.inventoryRequirements.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                card.inventoryRequirements.forEach { requirement ->
+                    PcCareDoseChip(requirement)
+                }
+            }
+        }
         // Why this task is back. Backend-owned sentence, rendered verbatim — the chip alone
         // cannot say why.
         if (card.reworkReason.isNotBlank()) {
@@ -168,5 +176,19 @@ internal fun PcCareTaskCard(
                 modifier = pcCareInlineActionModifier(onCancel),
             )
         }
+    }
+}
+
+@Composable
+private fun PcCareDoseChip(requirement: PcCareInventoryRequirementUi) {
+    Row(
+        modifier = Modifier
+            .background(MeshaColors.BrandTint, shape = androidx.compose.foundation.shape.RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text = requirement.vaccineLabel, color = MeshaColors.BrandD, style = MeshaType.pillStrong)
+        Text(text = requirement.requiredDosesLabel, color = MeshaColors.Muted, style = MeshaType.pill)
     }
 }

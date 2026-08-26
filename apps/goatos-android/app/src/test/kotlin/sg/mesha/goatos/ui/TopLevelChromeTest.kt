@@ -189,6 +189,17 @@ class TopLevelChromeTest {
     }
 
     @Test
+    fun `director drives tab does not render with calendar icon`() {
+        val directorDrives = NavItem(key = "drives", label = "Drives", href = Routes.CALENDAR)
+        val staleDirectorDrives = NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR)
+        val ceoCalendar = NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR)
+
+        assertSame(MeshaIcons.Syringe, navBarIconFor(stockEnabledVaccinationBar = true, directorDrives))
+        assertSame(MeshaIcons.Syringe, navBarIconFor(stockEnabledVaccinationBar = true, staleDirectorDrives))
+        assertSame(MeshaIcons.Calendar, navBarIconFor(stockEnabledVaccinationBar = false, ceoCalendar))
+    }
+
+    @Test
     fun `a drill inside the open module never inherits chrome`() {
         val countsRoots = rootsFor(twoModules, "counts", "/counts/birth")
         // "/counts/birth" IS a root; a deeper drill under it (/add, /workflows/{id}) is not.
@@ -597,5 +608,18 @@ class TopLevelChromeTest {
             "Vaccination module landing must be in populated drawer routes",
             isTopLevelRoute(Routes.VACCINATION, populatedDrawerTopLevelRoutes)
         )
+    }
+
+    @Test
+    fun `calendar drive list presentation is owned by backend drives nav item`() {
+        val stock = NavItem(key = "vaccination_stock", label = "Stock", href = Routes.VACCINATION_STOCK)
+        val drives = NavItem(key = "drives", label = "Drives", href = Routes.CALENDAR)
+        val calendar = NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR)
+        val pcCareOnly = NavItem(key = "pc_care", label = "PC Care", href = "/pc-care")
+
+        assertTrue(shouldPresentCalendarAsDriveList(listOf(stock, drives)))
+        assertTrue(shouldPresentCalendarAsDriveList(listOf(stock, calendar)))
+        assertFalse(shouldPresentCalendarAsDriveList(listOf(pcCareOnly, calendar)))
+        assertFalse(shouldPresentCalendarAsDriveList(listOf(calendar)))
     }
 }
