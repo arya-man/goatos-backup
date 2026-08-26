@@ -127,6 +127,31 @@ The contract half is not decoration: without it the phone would show leadership 
 camera button whose write the server then rejects with a 403 the operator cannot act on.
 Neither half alone is the fix.
 
+## The list is sliced by three backend-owned chips (maintainer decision 2026-08-26)
+
+The task list carries `All` / `Pending` / `Completed` across the top, **All selected by
+default**. The client sends a `filter` KEY and never a status list, so what "Pending" includes
+is one backend definition rather than a vocabulary each surface re-derives
+(`domain.TaskFilters`).
+
+`Pending` = `in_progress` + `pending_review`; `Completed` = `accepted` + `cancelled`. The two
+are DISJOINT and together EXHAUSTIVE over every status, which is the property worth keeping:
+a status added later without a home in one of them would be reachable only under All, so a
+round would vanish from both working chips. `TestTaskFiltersPartitionEveryStatus` refuses
+that. Cancelled sits under Completed because nobody touches such a round again — its
+replacement already exists as its own round.
+
+An absent OR UNKNOWN key resolves to All, never to an empty screen: a stale APK sending a
+retired key must still see its work.
+
+Counts on the chips are WHOLE-TENANT aggregates over the filter's statuses, never page-local
+sums, so a badge cannot disagree with what the slice holds once the list pages.
+
+The "nothing here" copy travels PER SLICE (`empty_message` on each chip), because one message
+is wrong in two of the three: an empty Completed list showing "No feed loads waiting for a
+test" tells the operator something false about finished work. That defect was caught on the
+phone and is pinned in `ToxinTaskListViewModelTest`.
+
 ## Event spine
 
 `procurement.feed_purchase.recorded` is emitted inside `CreateFeedPurchase`'s

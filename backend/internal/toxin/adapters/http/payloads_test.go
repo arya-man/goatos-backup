@@ -66,3 +66,41 @@ func stepByNo(steps []stepPayload, no int) (stepPayload, bool) {
 	}
 	return stepPayload{}, false
 }
+
+// TestFilterChipsAreBackendComposedAndCountWholeTenant pins the list's filter contract on the
+// wire (maintainer decision 2026-08-26): three chips in display order, exactly one selected,
+// labels owned here rather than in the client, and counts summed over WHOLE-TENANT status
+// counts rather than the rows on the current page.
+func TestFilterChipsAreBackendComposedAndCountWholeTenant(t *testing.T) {
+	// Whole-tenant counts: 12 rounds across four statuses, while a page holds at most 20 rows.
+	counts := map[string]int{
+		domain.StatusInProgress:    2,
+		domain.StatusPendingReview: 1,
+		domain.StatusAccepted:      6,
+		domain.StatusCancelled:     3,
+	}
+
+	chips := toFilterPayloads(domain.FilterPending, counts)
+
+	if got := []string{chips[0].Key, chips[1].Key, chips[2].Key}; got[0] != domain.FilterAll ||
+		got[1] != domain.FilterPending || got[2] != domain.FilterCompleted {
+		t.Fatalf("chip order = %v, want all, pending, completed", got)
+	}
+	if chips[0].Label != "All" || chips[1].Label != "Pending" || chips[2].Label != "Completed" {
+		t.Fatalf("chip labels = %q/%q/%q; the backend owns this copy", chips[0].Label, chips[1].Label, chips[2].Label)
+	}
+
+	selected := 0
+	for _, c := range chips {
+		if c.Selected {
+			selected++
+		}
+	}
+	if selected != 1 || !chips[1].Selected {
+		t.Fatalf("want exactly Pending selected, got %d selected: %+v", selected, chips)
+	}
+
+	if chips[0].Count != 12 || chips[1].Count != 3 || chips[2].Count != 9 {
+		t.Fatalf("counts = %d/%d/%d, want 12/3/9 over the whole tenant", chips[0].Count, chips[1].Count, chips[2].Count)
+	}
+}

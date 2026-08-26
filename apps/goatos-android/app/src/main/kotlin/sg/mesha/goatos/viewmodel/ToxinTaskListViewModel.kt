@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -21,6 +22,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.data.ToxinRepository
 import sg.mesha.goatos.core.network.dto.ToxinTaskDto
+import sg.mesha.goatos.feature.toxin.ToxinFilterUi
 import sg.mesha.goatos.feature.toxin.ToxinTaskCardUi
 import sg.mesha.goatos.feature.toxin.ToxinTaskListEvent
 import sg.mesha.goatos.feature.toxin.ToxinTaskListUiState
@@ -43,8 +45,9 @@ class ToxinTaskListViewModel @Inject constructor(
 ) : ViewModel() {
 
     private data class Scope(
-        /** "" = every status. The module has no status tabs today; the repository takes one anyway. */
-        val status: String = "",
+        /** The selected backend filter KEY. "" means the backend default (All) on first load,
+         *  before any chip has been tapped. */
+        val filter: String = "",
         val title: String = "",
         /** Bumped by refresh so an unchanged scope is still a NEW value (StateFlow conflates). */
         val refreshNonce: Int = 0,
@@ -60,28 +63,61 @@ class ToxinTaskListViewModel @Inject constructor(
         analytics.track(AnalyticsEventsToxin.TOXIN_LIST_VIEWED)
     }
 
-    val state: StateFlow<ToxinTaskListUiState> = _isRefreshing
-        .map { refreshing ->
-            ToxinTaskListUiState(
-                title = scope.value.title,
-                isRefreshing = refreshing,
-                emptyMessage = EMPTY_MESSAGE,
-            )
+    val state: StateFlow<ToxinTaskListUiState> = combine(
+        _isRefreshing,
+        scope,
+        repository.filters,
+    ) { refreshing, current, chips ->
+        // The empty line follows the SELECTED slice: an empty Completed list is not the same
+        // news as an empty Pending one. Falls back to the module-level line before the first
+        // refresh has delivered any chips.
+        val selectedChip = chips.firstOrNull { chip ->
+            if (current.filter.isBlank()) chip.selected else chip.key == current.filter
         }
+        ToxinTaskListUiState(
+            title = current.title,
+            isRefreshing = refreshing,
+            emptyMessage = selectedChip?.emptyMessage?.takeIf { it.isNotBlank() } ?: EMPTY_MESSAGE,
+            // Chips are BACKEND-COMPOSED, labels and counts alike. Selection follows the
+            // response until the user taps, then follows the tap so the chip highlights
+            // immediately instead of waiting for the refetch to land.
+            filters = chips.map { chip ->
+                ToxinFilterUi(
+                    key = chip.key,
+                    label = chip.label,
+                    count = chip.count,
+                    selected = if (current.filter.isBlank()) chip.selected else chip.key == current.filter,
+                    emptyMessage = chip.emptyMessage,
+                )
+            },
+        )
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ToxinTaskListUiState())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val rows: Flow<PagingData<ToxinTaskCardUi>> = scope
         .flatMapLatest { current ->
-            repository.tasks(current.status).map { page -> page.map { it.toCardUi() } }
+            repository.tasks(current.filter).map { page -> page.map { it.toCardUi() } }
         }
         .cachedIn(viewModelScope)
 
     fun onEvent(event: ToxinTaskListEvent) {
         when (event) {
             ToxinTaskListEvent.Refresh -> refresh()
+            is ToxinTaskListEvent.SelectFilter -> selectFilter(event.key)
             is ToxinTaskListEvent.OpenTask -> analytics.track(AnalyticsEventsToxin.TOXIN_TASK_OPENED)
         }
+    }
+
+    /** Re-scopes the list to a backend filter key. Each key is its own cached Room window, so
+     *  switching back to one already loaded renders from cache while it refreshes. */
+    private fun selectFilter(key: String) {
+        if (scope.value.filter == key) return
+        scope.value = scope.value.copy(filter = key)
+        analytics.track(
+            AnalyticsEventsToxin.TOXIN_LIST_FILTERED,
+            mapOf(AnalyticsEvents.Params.REASON to key),
+        )
     }
 
     /** Paging surfaced a load failure. The cached rows keep serving; this only reports it. */
@@ -101,7 +137,7 @@ class ToxinTaskListViewModel @Inject constructor(
                 // Drop the freshness marker FIRST so the re-created pager refetches instead of
                 // TTL-skipping — an explicit refresh means "show me the server's list now".
                 // exception:exempt local cache-marker delete; a failure just leaves the TTL skip
-                runCatching { repository.invalidateTasks(scope.value.status) }
+                runCatching { repository.invalidateTasks(scope.value.filter) }
                 // A NEW value, not an equal one: MutableStateFlow conflates on equality.
                 scope.value = scope.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
             } finally {

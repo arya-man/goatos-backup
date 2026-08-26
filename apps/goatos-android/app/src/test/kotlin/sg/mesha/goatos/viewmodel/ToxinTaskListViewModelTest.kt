@@ -1,6 +1,7 @@
 package sg.mesha.goatos.viewmodel
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -18,6 +19,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsEventsToxin
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.network.dto.ToxinTaskDto
+import sg.mesha.goatos.core.network.dto.ToxinTaskFilterDto
 import sg.mesha.goatos.feature.toxin.ToxinTaskListEvent
 
 /**
@@ -87,6 +89,53 @@ class ToxinTaskListViewModelTest {
         assertFalse("a watcher's card must not open", watched.openable)
         assertEquals("In progress", watched.statusChip)
         assertEquals("Maize · Kumar Traders · Load 4 · 25 Aug", watched.contextLine)
+    }
+
+    @Test
+    fun `filter chips render backend copy and a tap re-scopes the pager`() = runTest(dispatcher) {
+        // Maintainer decision 2026-08-26: three chips, All selected by default. Labels AND counts
+        // are backend-composed; the screen sends back only the key.
+        val repository = FakeToxinRepository()
+        val viewModel = ToxinTaskListViewModel(repository, RecordingAnalytics(), NoopCrashReporter())
+
+        val collected = backgroundScope.launch { viewModel.state.collect {} }
+        val rowsJob = backgroundScope.launch { viewModel.rows.collect {} }
+        advanceUntilIdle()
+
+        repository.emitFilters(
+            listOf(
+                ToxinTaskFilterDto(key = "all", label = "All", count = 5, selected = true, emptyMessage = "No feed loads waiting for a test"),
+                ToxinTaskFilterDto(key = "pending", label = "Pending", count = 2, selected = false, emptyMessage = "No tests waiting on anyone"),
+                ToxinTaskFilterDto(key = "completed", label = "Completed", count = 3, selected = false, emptyMessage = "No tests finished yet"),
+            ),
+        )
+        advanceUntilIdle()
+
+        val chips = viewModel.state.value.filters
+        assertEquals(listOf("All", "Pending", "Completed"), chips.map { it.label })
+        assertEquals(listOf(5, 2, 3), chips.map { it.count })
+        assertEquals("all", chips.single { it.selected }.key)
+
+        // The first pager scope is the backend default — the client names no filter of its own.
+        assertEquals("", repository.requestedFilters.first())
+
+        // The empty line follows the SELECTED slice, so a slice with nothing in it does not
+        // borrow another slice's news.
+        assertEquals("No feed loads waiting for a test", viewModel.state.value.emptyMessage)
+
+        viewModel.onEvent(ToxinTaskListEvent.SelectFilter("pending"))
+        advanceUntilIdle()
+
+        // Selection follows the tap immediately, and the pager is re-scoped to that KEY.
+        assertEquals("pending", viewModel.state.value.filters.single { it.selected }.key)
+        assertEquals("No tests waiting on anyone", viewModel.state.value.emptyMessage)
+        assertTrue(
+            "pager must refetch for the tapped key, got ${repository.requestedFilters}",
+            repository.requestedFilters.contains("pending"),
+        )
+
+        collected.cancel()
+        rowsJob.cancel()
     }
 
     @Test

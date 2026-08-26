@@ -396,3 +396,95 @@ func ReadingGuide() []string {
 		"Invalid strip: no control line — the strip is void; this test cancels and a retest is created.",
 	}
 }
+
+// Filter keys the task list is sliced by. The client sends a KEY, never a status list, so the
+// meaning of "Pending" stays one backend definition rather than a vocabulary each surface
+// re-derives.
+const (
+	// FilterAll is the DEFAULT: every round, in whatever state.
+	FilterAll = "all"
+	// FilterPending is work still moving — being run, or waiting on a CEO/CXO reading.
+	FilterPending = "pending"
+	// FilterCompleted is work nobody has to touch again — accepted, or cancelled because an
+	// invalid strip or a rejected review already minted the replacement round.
+	FilterCompleted = "completed"
+)
+
+// TaskFilter is one selectable list slice with its BACKEND-OWNED label.
+type TaskFilter struct {
+	Key   string
+	Label string
+	// Statuses this filter resolves to; empty means every status.
+	Statuses []string
+	// EmptyMessage is what the screen says when THIS slice has no rows. It travels with the
+	// filter because "nothing here" means something different in each: an empty Completed list
+	// is not the same news as an empty Pending one, and a single message for all three tells
+	// the operator the wrong thing in two of them.
+	EmptyMessage string
+}
+
+// TaskFilters returns the list's filter chips in display order.
+//
+// Pending and Completed are DISJOINT and together EXHAUSTIVE over the four statuses, so no
+// round can hide from both: a status added later without a home here would show only under
+// All, which TestTaskFiltersPartitionEveryStatus refuses.
+func TaskFilters() []TaskFilter {
+	return []TaskFilter{
+		{
+			Key:          FilterAll,
+			Label:        "All",
+			EmptyMessage: "No feed loads waiting for a test",
+		},
+		{
+			Key:          FilterPending,
+			Label:        "Pending",
+			Statuses:     []string{StatusInProgress, StatusPendingReview},
+			EmptyMessage: "No tests waiting on anyone",
+		},
+		{
+			Key:          FilterCompleted,
+			Label:        "Completed",
+			Statuses:     []string{StatusAccepted, StatusCancelled},
+			EmptyMessage: "No tests finished yet",
+		},
+	}
+}
+
+// StatusesForFilter resolves a filter key to its statuses. An unknown or empty key resolves to
+// All (nil), because a stale client sending a retired key must still see its work rather than an
+// empty screen.
+func StatusesForFilter(key string) []string {
+	for _, f := range TaskFilters() {
+		if f.Key == key {
+			return f.Statuses
+		}
+	}
+	return nil
+}
+
+// FilterKeyOrDefault normalizes a requested key, falling back to the default selection.
+func FilterKeyOrDefault(key string) string {
+	for _, f := range TaskFilters() {
+		if f.Key == key {
+			return f.Key
+		}
+	}
+	return FilterAll
+}
+
+// CountForFilter sums whole-tenant status counts into one filter's badge. All is the total.
+func CountForFilter(key string, statusCounts map[string]int) int {
+	statuses := StatusesForFilter(key)
+	if len(statuses) == 0 {
+		total := 0
+		for _, n := range statusCounts {
+			total += n
+		}
+		return total
+	}
+	total := 0
+	for _, s := range statuses {
+		total += statusCounts[s]
+	}
+	return total
+}

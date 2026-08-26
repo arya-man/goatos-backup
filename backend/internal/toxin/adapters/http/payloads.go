@@ -73,6 +73,38 @@ type taskPagePayload struct {
 	Tasks        []taskPayload  `json:"tasks"`
 	NextCursor   string         `json:"next_cursor,omitempty"`
 	StatusCounts map[string]int `json:"status_counts"`
+	// Filters are the list's selectable slices in display order, with BACKEND-OWNED labels.
+	// Clients render them verbatim and send back only the KEY — never a status list of their
+	// own, so "Pending" means one thing across every surface.
+	Filters []taskFilterPayload `json:"filters,omitempty"`
+}
+
+// taskFilterPayload is one filter chip. Count is a WHOLE-TENANT aggregate over the filter's
+// statuses, never a page-local sum.
+type taskFilterPayload struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Count    int    `json:"count"`
+	Selected bool   `json:"selected"`
+	// EmptyMessage is this slice's own "nothing here" copy, rendered verbatim when it has no
+	// rows. Per-slice because one message would be wrong in two of the three.
+	EmptyMessage string `json:"empty_message"`
+}
+
+// toFilterPayloads composes the chips for the selected key.
+func toFilterPayloads(selectedKey string, statusCounts map[string]int) []taskFilterPayload {
+	specs := domain.TaskFilters()
+	out := make([]taskFilterPayload, 0, len(specs))
+	for _, spec := range specs {
+		out = append(out, taskFilterPayload{
+			Key:          spec.Key,
+			Label:        spec.Label,
+			Count:        domain.CountForFilter(spec.Key, statusCounts),
+			Selected:     spec.Key == selectedKey,
+			EmptyMessage: spec.EmptyMessage,
+		})
+	}
+	return out
 }
 
 type taskDetailPayload struct {

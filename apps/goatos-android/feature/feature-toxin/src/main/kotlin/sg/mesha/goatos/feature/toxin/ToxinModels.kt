@@ -112,6 +112,23 @@ data class ToxinTaskCardUi(
     val openable: Boolean = true,
 )
 
+/**
+ * One filter chip on the task list. Both the [label] and the [count] are BACKEND-COMPOSED and
+ * rendered verbatim; the screen sends back only [key], so what "Pending" includes stays one
+ * backend definition rather than a status list each surface re-derives.
+ */
+@Immutable
+data class ToxinFilterUi(
+    val key: String,
+    /** Backend-owned chip copy, rendered VERBATIM. */
+    val label: String,
+    /** Whole-tenant count for this slice, never a page-local sum. */
+    val count: Int,
+    val selected: Boolean,
+    /** Backend-owned "nothing here" copy for THIS slice, rendered VERBATIM. */
+    val emptyMessage: String = "",
+)
+
 @Immutable
 data class ToxinTaskListUiState(
     /** The tab's title — the backend nav label passed through, so the screen never invents one. */
@@ -120,10 +137,15 @@ data class ToxinTaskListUiState(
     val lastSyncedAt: Long? = null,
     val emptyMessage: String? = null,
     val isErrorEmpty: Boolean = false,
+    /** Backend-composed filter chips in display order; empty until the first list refresh lands. */
+    val filters: List<ToxinFilterUi> = emptyList(),
 )
 
 sealed interface ToxinTaskListEvent {
     data object Refresh : ToxinTaskListEvent
+
+    /** Re-scope the list to a backend filter key (`all` | `pending` | `completed`). */
+    data class SelectFilter(val key: String) : ToxinTaskListEvent
     data class OpenTask(val taskId: String) : ToxinTaskListEvent
 }
 
