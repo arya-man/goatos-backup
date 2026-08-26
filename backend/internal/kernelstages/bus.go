@@ -34,6 +34,8 @@ import (
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
+	toxinpg "github.com/vgoats/goatos/backend/internal/toxin/adapters/postgres"
+	toxinapp "github.com/vgoats/goatos/backend/internal/toxin/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
@@ -102,6 +104,9 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	countsapp.NewShiftingVerificationHandler(countsApprovalRepo, nil).Register(bus)
 	countsapp.NewMilkPreparationVerificationHandler(countsMilkPreparationRepo).Register(bus)
 	countsapp.NewMilkFeedingVerificationHandler(countsMilkPreparationRepo).Register(bus)
+	// Toxin (maintainer decision 2026-08-25): a recorded feed purchase owes the load an
+	// aflatoxin strip test; the toxin consumer materializes the round-1 task idempotently.
+	toxinapp.NewFeedPurchaseRecordedHandler(toxinpg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feedDirectionRepo, logger).Register(bus)

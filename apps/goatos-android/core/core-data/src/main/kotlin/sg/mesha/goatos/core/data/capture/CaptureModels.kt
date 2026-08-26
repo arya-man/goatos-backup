@@ -145,6 +145,16 @@ enum class ProofFlow(val wireValue: String) {
      * animal is one capture identity.
      */
     PC_CARE("pc_care"),
+
+    /**
+     * Toxin guided-step proofs (module toxin, maintainer decision 2026-08-25): steps 1/2/3/5/6 are
+     * one video each and step 7 is the strip photo. Like [PC_CARE] it deliberately rides the
+     * GENERIC storage/idempotency branches above -- `proof:$taskId:toxin:$subjectKey` /
+     * `proof:capture:$taskId:toxin:$subjectKey` -- with the caller passing
+     * `subjectKey = "step-<stepNo>"` (or `"strip-photo"`), so one step of one test round is one
+     * capture identity and a re-shoot replaces that identity rather than accumulating.
+     */
+    TOXIN("toxin"),
     ;
 
     companion object {

@@ -107,6 +107,12 @@ import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.ToxinTaskDetailCacheDao
+import sg.mesha.goatos.core.data.cache.ToxinTaskDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.ToxinTaskItemDao
+import sg.mesha.goatos.core.data.cache.ToxinTaskItemEntity
+import sg.mesha.goatos.core.data.cache.ToxinTaskRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.ToxinTaskRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
 import sg.mesha.goatos.core.data.cache.WorkflowCardDao
@@ -281,8 +287,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         PcCareTaskRemoteKeyEntity::class,
         PcCareTaskDetailCacheEntity::class,
         PcCareAnimalRowEntity::class,
+        ToxinTaskItemEntity::class,
+        ToxinTaskRemoteKeyEntity::class,
+        ToxinTaskDetailCacheEntity::class,
     ],
-    version = 49,
+    version = 50,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -378,6 +387,10 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // keys (the Wastage trio shape minus the summary envelope), the task-detail JSON blob cache,
     // and the durable per-(task, tag) scanned-animal rows behind the scan screen's duplicate
     // check, sync status, and peer slot visibility.
+    // v50 (see [MIGRATION_49_50]) adds the three Toxin read-model tables (module toxin, maintainer
+    // decision 2026-08-25): the paged aflatoxin test-task list rows + their per-scope remote keys
+    // (the PC Care pair shape) and the task-detail JSON blob cache carrying the server-composed
+    // 7-step state contract.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -454,4 +467,7 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun pcCareTaskRemoteKeyDao(): PcCareTaskRemoteKeyDao
     abstract fun pcCareTaskDetailCacheDao(): PcCareTaskDetailCacheDao
     abstract fun pcCareAnimalRowDao(): PcCareAnimalRowDao
+    abstract fun toxinTaskItemDao(): ToxinTaskItemDao
+    abstract fun toxinTaskRemoteKeyDao(): ToxinTaskRemoteKeyDao
+    abstract fun toxinTaskDetailCacheDao(): ToxinTaskDetailCacheDao
 }

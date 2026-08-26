@@ -61,6 +61,10 @@ import sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskPageDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskRosterDto
+import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
+import sg.mesha.goatos.core.network.dto.ToxinTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitResponseDto
@@ -800,6 +804,37 @@ interface AppApiService {
     suspend fun cancelPcCareTask(
         @Path("task_id") taskId: String,
     ): Unit
+
+    // ------------------------------------------------------------------
+    // Toxin (aflatoxin strip test, maintainer decision 2026-08-25)
+    // ------------------------------------------------------------------
+
+    @GET("app/toxin/tasks")
+    suspend fun getToxinTasks(
+        @Query("status") status: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): ToxinTaskPageDto
+
+    @GET("app/toxin/tasks/{task_id}")
+    suspend fun getToxinTask(
+        @Path("task_id") taskId: String,
+    ): ToxinTaskDetailDto
+
+    @POST("app/toxin/tasks/{task_id}/steps/{step_no}/complete")
+    suspend fun completeToxinStep(
+        @Path("task_id") taskId: String,
+        @Path("step_no") stepNo: Int,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ToxinStepCompleteRequestDto,
+    ): ToxinTaskDetailDto
+
+    @POST("app/toxin/tasks/{task_id}/submit")
+    suspend fun submitToxinReading(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ToxinSubmitRequestDto,
+    ): ToxinTaskDetailDto
 
     @GET("feed-direction/distribution/captures")
     suspend fun getFeedDistributionCaptures(
@@ -1590,6 +1625,27 @@ class RetrofitAppApi(
     ): PcCareTaskDto = service.createPcCareTask(idempotencyKey, request)
 
     override suspend fun cancelPcCareTask(taskId: String) = service.cancelPcCareTask(taskId)
+
+    override suspend fun getToxinTasks(
+        status: String?,
+        limit: Int?,
+        cursor: String?,
+    ): ToxinTaskPageDto = service.getToxinTasks(status, limit, cursor)
+
+    override suspend fun getToxinTask(taskId: String): ToxinTaskDetailDto = service.getToxinTask(taskId)
+
+    override suspend fun completeToxinStep(
+        taskId: String,
+        stepNo: Int,
+        idempotencyKey: String,
+        request: ToxinStepCompleteRequestDto,
+    ): ToxinTaskDetailDto = service.completeToxinStep(taskId, stepNo, idempotencyKey, request)
+
+    override suspend fun submitToxinReading(
+        taskId: String,
+        idempotencyKey: String,
+        request: ToxinSubmitRequestDto,
+    ): ToxinTaskDetailDto = service.submitToxinReading(taskId, idempotencyKey, request)
 
     override suspend fun getFeedDistributionCaptures(
         parkId: String?,

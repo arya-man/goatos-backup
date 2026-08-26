@@ -55,7 +55,8 @@
     "weighing.campaign.verified_closed",
     "weighing.work_item.day_start",
     "weighing.work_item.rolled_forward",
-    "weighing.work_item.delayed"
+    "weighing.work_item.delayed",
+    "procurement.feed_purchase.recorded"
   ],
   "events": [
     {
@@ -308,7 +309,7 @@
     },
     {
       "eventType": "weighing.shed.verified_closed",
-      "producer": "weighing NORMAL completion — emitted by the verification verdict applier's own transaction when the last SUBMITTED item in a bucket is verified. No human performs it: closure_kind='verified', no reason, no closing actor. DISTINCT from weighing.shed.closed, which is a leader ending work early and always carries a reason.",
+      "producer": "weighing NORMAL completion \u2014 emitted by the verification verdict applier's own transaction when the last SUBMITTED item in a bucket is verified. No human performs it: closure_kind='verified', no reason, no closing actor. DISTINCT from weighing.shed.closed, which is a leader ending work early and always carries a reason.",
       "producerFiles": [
         "backend/internal/weighing/adapters/postgres/verified_closure.go",
         "backend/internal/weighing/adapters/postgres/verification_verdict.go"
@@ -333,7 +334,7 @@
     },
     {
       "eventType": "weighing.campaign.verified_closed",
-      "producer": "weighing NORMAL completion CASCADE — same verdict transaction, emitted when the bucket that just settled was the task's last non-terminal one. closure_kind='verified', no reason, no closing actor.",
+      "producer": "weighing NORMAL completion CASCADE \u2014 same verdict transaction, emitted when the bucket that just settled was the task's last non-terminal one. closure_kind='verified', no reason, no closing actor.",
       "producerFiles": [
         "backend/internal/weighing/adapters/postgres/verified_closure.go",
         "backend/internal/weighing/adapters/postgres/verification_verdict.go"
@@ -1412,6 +1413,30 @@
       "e2eProof": [
         "backend/internal/weighing/adapters/postgres/kernel_integration_test.go",
         "backend/internal/notificationbridge/weighing_work_item_cadence_notify_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "procurement.feed_purchase.recorded",
+      "producer": "procurement feed-purchase write transaction (CreateFeedPurchase): the outbox emit rides the same transaction as the ledger insert, so a committed purchase always announces the load and a rolled-back one never does.",
+      "producerFiles": [
+        "backend/internal/procurement/adapters/postgres/feed_purchase_outbox.go",
+        "backend/internal/procurement/adapters/postgres/feed_purchase_repository.go"
+      ],
+      "consumers": [
+        {
+          "module": "toxin",
+          "file": "backend/internal/toxin/app/feed_purchase_recorded_handler.go",
+          "notes": "Creates the load's aflatoxin strip-test task (round 1) idempotently on (tenant_id, feed_purchase_id, round_no); an event replay is a no-op, never a second task. Maintainer decision 2026-08-25: one toxin test per purchased feed load; review is CEO/CXO-only outside the generic Verification module."
+        }
+      ],
+      "owningDoc": "docs/decisions/toxin-testing-module.md",
+      "e2eProof": [
+        "backend/internal/toxin/app/feed_purchase_recorded_handler_test.go"
       ],
       "surfaces": [
         "backend",

@@ -272,7 +272,7 @@ WHERE tenant_id = $1 AND farm_label = $2 AND feed_item_key = feed_config_norm($3
 		}
 	}
 
-	var purchaseID string
+	var purchaseID, feedItemKey string
 	err = tx.QueryRow(ctx, `
 INSERT INTO public.feed_purchases (
   tenant_id, park_id, farm_label, feed_item_label, batch_no, purchase_date, quantity_kg,
@@ -290,12 +290,12 @@ INSERT INTO public.feed_purchases (
   $13, $14, $15,
   'app', nullif($16, '')::uuid, 'app:procurement-feed-purchases'
 )
-RETURNING feed_purchase_id::text`,
+RETURNING feed_purchase_id::text, feed_item_key`,
 		tenantID, write.FarmLabel, catalogLabel, batchNo, write.PurchaseDate, write.QuantityKg,
 		write.FeedCost, write.TransportCost, write.LoadingCost, write.UnloadingCost,
 		write.TotalOrSplitSum(), write.PerKgCost(),
 		write.Vendor, write.PaymentReleased, write.PaymentStatus, actorID,
-	).Scan(&purchaseID)
+	).Scan(&purchaseID, &feedItemKey)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.ConstraintName == feedPurchaseNaturalKeyConstraint {
@@ -326,6 +326,13 @@ RETURNING feed_purchase_id::text`,
 		},
 	}); err != nil {
 		return domain.FeedPurchase{}, fmt.Errorf("procurement: audit feed purchase record: %w", err)
+	}
+
+	// The toxin module owes this load an aflatoxin test; the event rides THIS
+	// transaction's outbox so a committed purchase always reaches the toxin consumer
+	// (maintainer decision 2026-08-25).
+	if err := emitFeedPurchaseRecorded(ctx, tx, tenantID, purchaseID, actorID, idempotencyKey, write, feedItemKey, catalogLabel, batchNo); err != nil {
+		return domain.FeedPurchase{}, err
 	}
 
 	if err := completeIdempotency(ctx, tx, tenantID, idemScopeFeedPurchaseCreate, idempotencyKey, "feed_purchase", purchaseID); err != nil {

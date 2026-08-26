@@ -141,6 +141,11 @@ class SyncEngine(
     // and the repository whose task caches a successful submit reconciles.
     private val pcCareAnimalRowDao: sg.mesha.goatos.core.data.cache.PcCareAnimalRowDao? = null,
     private val pcCareRepository: sg.mesha.goatos.core.data.PcCareRepository? = null,
+    // Toxin (module toxin): every step-complete/submit dispatch RETURNS the task's fresh detail
+    // (server-composed step states); this repository writes it through Room so the guided screen
+    // re-renders server truth the moment the write drains — and refreshes it after a terminal
+    // wait_not_elapsed / step_already_done refusal so the screen shows why.
+    private val toxinRepository: sg.mesha.goatos.core.data.ToxinRepository? = null,
     private val idGenerator: () -> String = { java.util.UUID.randomUUID().toString() },
     /**
      * Lifecycle visibility for the queue itself. Defaults to
@@ -461,6 +466,8 @@ class SyncEngine(
         OutboxOpType.PC_CARE_SCAN_ADD -> dispatchPcCareScanAdd(item)
         OutboxOpType.PC_CARE_SLOT_REGISTER -> dispatchPcCareSlotRegister(item)
         OutboxOpType.PC_CARE_TASK_SUBMIT -> dispatchPcCareTaskSubmit(item)
+        OutboxOpType.TOXIN_STEP_COMPLETE -> dispatchToxinStepComplete(item)
+        OutboxOpType.TOXIN_SUBMIT -> dispatchToxinSubmit(item)
     }
 
     private suspend fun reconcileFeatureBeforeSuccess(item: OutboxEntity): Boolean {
@@ -620,6 +627,18 @@ class SyncEngine(
                     }
                 }
             }
+            OutboxOpType.TOXIN_STEP_COMPLETE, OutboxOpType.TOXIN_SUBMIT -> {
+                item.resultJson?.let { resultJson ->
+                    // POST-dispatch result: the server returns the task's FRESH detail (its
+                    // server-composed step states) from the very transaction this write landed
+                    // in. Same rationale as FEED_PACKING_COMPLETE above: a local cache-write
+                    // failure is reported, never allowed to look like a dispatch failure.
+                    runCatching {
+                        val detail = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto>(resultJson)
+                        toxinRepository?.persistServerDetail(detail)
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
+            }
             else -> Unit
         }
         // Whole-page-blob opTypes (no server-truth row to write directly into a Room table) — run
@@ -644,6 +663,20 @@ class SyncEngine(
             runCatching {
                 val payload = syncJson.decodeFromString<PcCareScanAddPayload>(item.payloadJson)
                 pcCareAnimalRowDao?.markScanFailedIfPending(payload.taskId, payload.normalizedTag, clock())
+            }.onFailure { reportCacheReconcileFailure(item, it) }
+        }
+        if (opType == OutboxOpType.TOXIN_STEP_COMPLETE || opType == OutboxOpType.TOXIN_SUBMIT) {
+            // A terminal refusal here is the SERVER's clock/state disagreeing with the phone
+            // (wait_not_elapsed, step_already_done, a cancelled task). The refusal's farm copy
+            // rides the outbox row's lastError; re-reading the detail puts the server's own step
+            // states back on screen — the network clearly works, the server just answered.
+            runCatching {
+                val taskId = when (opType) {
+                    OutboxOpType.TOXIN_STEP_COMPLETE ->
+                        syncJson.decodeFromString<ToxinStepCompletePayload>(item.payloadJson).taskId
+                    else -> syncJson.decodeFromString<ToxinSubmitPayload>(item.payloadJson).taskId
+                }
+                toxinRepository?.refreshTaskDetail(taskId)
             }.onFailure { reportCacheReconcileFailure(item, it) }
         }
         postTerminalFailureHooks[opType]?.let { hook ->
@@ -1135,6 +1168,47 @@ class SyncEngine(
     private suspend fun dispatchPcCareTaskSubmit(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<PcCareTaskSubmitPayload>(item.payloadJson)
         val response = api.submitPcCareTask(payload.taskId, item.idempotencyKey)
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * One Toxin step completion (module toxin). The proof resolves through its coupled
+     * PROOF_UPLOAD row on the same task group exactly like [dispatchPcCareSlotRegister]'s video.
+     * The row's STORED key is passed verbatim — never a new key on retry. A `422
+     * wait_not_elapsed` (the SERVER clock gate — the phone never computes its own) or `409
+     * step_already_done` (another authorized person got there first) is terminal by
+     * [recordFailure]'s check, carries the server's own farm sentence into lastError, and the
+     * terminal reconcile refreshes the task detail so the screen re-renders server state.
+     */
+    private suspend fun dispatchToxinStepComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ToxinStepCompletePayload>(item.payloadJson)
+        val response = api.completeToxinStep(
+            payload.taskId,
+            payload.stepNo,
+            item.idempotencyKey,
+            sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto(
+                proofRef = resolveUploadedProofRef(payload.proofOutboxItemId),
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * The Toxin reading submit — step 7's strip photo + outcome. Drains after every coupled
+     * PROOF_UPLOAD and [dispatchToxinStepComplete] row on the same task group, so the server
+     * holds every step before the reading lands. A `422` (steps incomplete / proof missing) is
+     * terminal and surfaces the server's own sentence.
+     */
+    private suspend fun dispatchToxinSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ToxinSubmitPayload>(item.payloadJson)
+        val response = api.submitToxinReading(
+            payload.taskId,
+            item.idempotencyKey,
+            sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto(
+                outcome = payload.outcome,
+                stripPhotoRef = resolveUploadedProofRef(payload.stripPhotoOutboxItemId),
+            ),
+        )
         return syncJson.encodeToString(response)
     }
 

@@ -1105,7 +1105,7 @@ func compileVerificationReviewControls(controls []domain.Control, input Bootstra
 	if !mayReadTimeline {
 		timelineReason = controlCopy(copy, "video_log.disabled_no_access", "The video log is limited to the verification team and leadership.")
 	}
-	return upsertControl(out, domain.Control{
+	out = upsertControl(out, domain.Control{
 		ID:             "video_log",
 		Label:          controlCopy(copy, "video_log.open", "Video Log"),
 		Kind:           "visibility",
@@ -1113,6 +1113,43 @@ func compileVerificationReviewControls(controls []domain.Control, input Bootstra
 		DisabledReason: timelineReason,
 		Action:         "GET /verification/video-log",
 	})
+	// The TOXIN review tab (maintainer decision 2026-08-25). Both controls follow
+	// permissions.ToxinVerdict, which only ceo_internal holds -- toxin review is deliberately NOT
+	// the generic Verification module and NOT verification.verdict, so the tenant verifier must
+	// never see this tab (the verifier lens additionally never enables it: applyVerifierLens keys
+	// on verification.verdict, and a verifier holds no toxin permission). Capability-gated per
+	// docs/decisions/role-scoped-ui-is-capability-gated.md: this contract control is the UI half;
+	// the endpoint half is the ToxinVerdict gate on listToxinReview / recordToxinVerdict in
+	// permissions/routes.go.
+	mayToxin := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.ToxinVerdict})
+	toxinReason := ""
+	if !mayToxin {
+		toxinReason = controlCopy(copy, "toxin_tab.disabled_no_access", "Feed toxin tests are reviewed by the CEO's office.")
+	}
+	out = upsertControl(out, domain.Control{
+		ID:             "toxin_tab",
+		Label:          controlCopy(copy, "toxin_tab.title", "Toxin"),
+		Kind:           "visibility",
+		Enabled:        mayToxin,
+		DisabledReason: toxinReason,
+		Action:         "GET /toxin/review",
+	})
+	return upsertControl(out, domain.Control{
+		ID:             "toxin_verdict",
+		Label:          controlCopy(copy, "toxin_verdict.title", "Record toxin verdict"),
+		Kind:           "primary_action",
+		Enabled:        mayToxin,
+		DisabledReason: toxinVerdictReason(copy, mayToxin),
+		Action:         "POST /toxin/tasks/{task_id}/verdict",
+	})
+}
+
+// toxinVerdictReason keeps the enabled control reason-free, matching every other control here.
+func toxinVerdictReason(copy map[string]string, mayToxin bool) string {
+	if mayToxin {
+		return ""
+	}
+	return controlCopy(copy, "toxin_verdict.disabled_no_access", "Feed toxin tests are reviewed by the CEO's office.")
 }
 
 func controlCopy(copy map[string]string, key, fallback string) string {
