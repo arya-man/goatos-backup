@@ -1224,6 +1224,7 @@ internal fun pcCareBuildTaskProofSlot(
     capturingSlotKey: String?,
 ): PcCareSlotChipUi {
     val hint = pcCareSlotHintLabel(slot.minDurationHintSeconds)
+    val serverProof = taskProofs.firstOrNull { it.slotKey == slot.fieldKey && it.proofRef.isNotBlank() }
     if (capturingSlotKey == slot.fieldKey) {
         return PcCareSlotChipUi(
             fieldKey = slot.fieldKey,
@@ -1238,6 +1239,21 @@ internal fun pcCareBuildTaskProofSlot(
     val localRow = proofs
         .filter { it.fieldKey == slot.fieldKey }
         .maxByOrNull { it.capturedAtMs }
+    if (serverProof != null && localRow?.syncStatus == CaptureSyncStatus.FAILED) {
+        val byline = serverProof.capturedByName
+            .takeIf { it.isNotBlank() }
+            ?.let { "Captured by $it" }
+            ?: "Proof sent"
+        return PcCareSlotChipUi(
+            fieldKey = slot.fieldKey,
+            label = slot.label,
+            description = slot.description,
+            state = PcCareSlotState.PEER,
+            statusLabel = byline,
+            hintLabel = hint,
+            canRecord = true,
+        )
+    }
     if (localRow != null) {
         return when (localRow.processingStatus) {
             ProofProcessingStatus.UPLOADED -> PcCareSlotChipUi(
@@ -1275,7 +1291,6 @@ internal fun pcCareBuildTaskProofSlot(
             )
         }
     }
-    val serverProof = taskProofs.firstOrNull { it.slotKey == slot.fieldKey && it.proofRef.isNotBlank() }
     if (serverProof != null) {
         val byline = serverProof.capturedByName
             .takeIf { it.isNotBlank() }

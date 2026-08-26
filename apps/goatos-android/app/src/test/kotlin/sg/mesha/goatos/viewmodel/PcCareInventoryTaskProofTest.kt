@@ -154,6 +154,25 @@ class PcCareInventoryTaskProofTest {
     }
 
     @Test
+    fun `server task proof wins over stale failed local task proof row`() {
+        val staleFailedPhoto = proof(
+            fieldKey = stockPhotoSlot.fieldKey,
+            syncStatus = CaptureSyncStatus.FAILED,
+            mimeType = "image/jpeg",
+        )
+        val captured = pcCareBuildTaskProofSlot(
+            stockPhotoSlot,
+            listOf(staleFailedPhoto),
+            listOf(PcCareTaskProofDto(slotKey = stockPhotoSlot.fieldKey, proofRef = "server-proof-photo", capturedByName = "")),
+            null,
+        )
+
+        assertEquals(PcCareSlotState.PEER, captured.state)
+        assertEquals("Proof sent", captured.statusLabel)
+        assertTrue(captured.canRecord)
+    }
+
+    @Test
     fun `server task proof from another device satisfies only the matching inventory screen row`() = runTest(dispatcher) {
         val repo = FakePcCareRepository()
         repo.detailFlow.value = pcCareTaskDtoFixture(

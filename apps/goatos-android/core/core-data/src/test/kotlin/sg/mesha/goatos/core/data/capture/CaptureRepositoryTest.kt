@@ -850,7 +850,7 @@ class CaptureRepositoryTest {
     }
 
     @Test
-    fun `startup recovery skips fresh unprocessed proof rows still owned by capture coroutine`() = runTest {
+    fun `startup recovery skips fresh proof rows still owned by capture coroutine`() = runTest {
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
@@ -879,6 +879,42 @@ class CaptureRepositoryTest {
             assertEquals(emptyList<FakeSyncRepository.EnqueueCall>(), sync.enqueueCalls)
             assertEquals(null, row?.outboxItemId)
             assertEquals(ProofProcessingState.CAPTURED_ORIGINAL.name, row?.processingState)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `startup recovery skips fresh processed proof row before capture coroutine records outbox`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-fresh-processed",
+                    taskId = "task-fresh-processed",
+                    fieldKey = "stock_fridge_photo",
+                    idempotencyKey = "proof-upload:task-fresh-processed:proof-fresh-processed",
+                    processingState = ProofProcessingState.PROCESSED.name,
+                    updatedAtMs = 1_000L,
+                ),
+            )
+
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+                clock = { 1_500L },
+            )
+            repo.reconcileRecoverableUploadsNow()
+
+            val row = db.proofCaptureDao().findById("proof-fresh-processed")
+            assertEquals(emptyList<FakeSyncRepository.EnqueueCall>(), sync.enqueueCalls)
+            assertEquals(null, row?.outboxItemId)
+            assertEquals(ProofProcessingState.PROCESSED.name, row?.processingState)
         } finally {
             db.close()
         }
@@ -3452,6 +3488,7 @@ private fun proofEntity(
     uploadGroupKey: String? = null,
     clientTaskKey: String? = null,
     updatedAtMs: Long = 1_000L,
+    processingState: String = ProofProcessingState.CAPTURED_ORIGINAL.name,
 ) = ProofCaptureEntity(
     id = id,
     taskId = taskId,
@@ -3472,6 +3509,7 @@ private fun proofEntity(
     uploadGroupKey = uploadGroupKey,
     clientTaskKey = clientTaskKey,
     updatedAtMs = updatedAtMs,
+    processingState = processingState,
 )
 
 private class RecordingProofMediaProcessor(

@@ -1223,7 +1223,7 @@ class DefaultProofCaptureRepository(
             page.forEach { entity ->
                 val outboxItemId = entity.outboxItemId
                 if (outboxItemId.isNullOrBlank()) {
-                    if (entity.isFreshUnprocessedCapture(clock())) return@forEach
+                    if (entity.isFreshCaptureOwnedByCaptureCoroutine(clock())) return@forEach
                     val (scopeType, scopeId) = recoveryScope(entity)
                     // Use persisted uploadGroupKey (and clientTaskKey) to preserve proof ordering across
                     // process death. Legacy null falls back to current derivation.
@@ -1355,19 +1355,27 @@ class DefaultProofCaptureRepository(
                 followOutboxItem(uploadEntity.id, result.value)
             }
             is AppResult.Err -> {
-                dao.updateStatus(uploadEntity.id, EntitySyncStatus.FAILED.name, null, result.message)
+                val duplicateQueuedWrite = result.message.isDuplicateProofUploadIdempotencyConflict()
+                if (duplicateQueuedWrite) {
+                    dao.updateStatus(uploadEntity.id, EntitySyncStatus.PENDING.name, uploadEntity.serverProofId, result.message)
+                } else {
+                    dao.updateStatus(uploadEntity.id, EntitySyncStatus.FAILED.name, null, result.message)
+                }
                 recordProofEvent(
                     uploadEntity,
                     "upload_enqueue_failed",
-                    EntitySyncStatus.FAILED.name,
+                    if (duplicateQueuedWrite) EntitySyncStatus.PENDING.name else EntitySyncStatus.FAILED.name,
                     uploadEntity.stateAttempt,
                     errorClass = result.cause?.let { it::class.java.simpleName.ifBlank { "Throwable" } },
                     retryable = true,
                 )
                 telemetry.track(
                     proofUploadEnqueueFailedEvent,
-                    proofAnalyticsProps(uploadEntity, proofUploadStatus = "failed") +
-                        mapOf("reason" to result.message),
+                    proofAnalyticsProps(uploadEntity, proofUploadStatus = if (duplicateQueuedWrite) "pending" else "failed") +
+                        mapOf(
+                            "reason" to result.message,
+                            "recoverable_duplicate" to duplicateQueuedWrite.toString(),
+                        ),
                 )
             }
         }
@@ -1977,10 +1985,20 @@ class DefaultProofCaptureRepository(
 private fun ProofCaptureEntity.isRecoverableUploadState(): Boolean =
     syncStatus == EntitySyncStatus.PENDING.name || syncStatus == EntitySyncStatus.IN_FLIGHT.name
 
-private fun ProofCaptureEntity.isFreshUnprocessedCapture(nowMs: Long): Boolean =
-    processingState == ProofProcessingState.CAPTURED_ORIGINAL.name &&
-        !processingAttempted &&
+private fun ProofCaptureEntity.isFreshCaptureOwnedByCaptureCoroutine(nowMs: Long): Boolean =
+    processingState in freshCaptureCoroutineOwnedStates &&
         nowMs - updatedAtMs < FRESH_CAPTURE_RECOVERY_GRACE_MS
+
+private val freshCaptureCoroutineOwnedStates = setOf(
+    ProofProcessingState.CAPTURED_ORIGINAL.name,
+    ProofProcessingState.PROCESSING_MEDIA.name,
+    ProofProcessingState.PROCESSED.name,
+    ProofProcessingState.REGISTERING_UPLOAD.name,
+)
+
+private fun String.isDuplicateProofUploadIdempotencyConflict(): Boolean =
+    contains("Idempotency key already belongs", ignoreCase = true) ||
+        contains("different queued write", ignoreCase = true)
 
 private const val FRESH_CAPTURE_RECOVERY_GRACE_MS = 60_000L
 
