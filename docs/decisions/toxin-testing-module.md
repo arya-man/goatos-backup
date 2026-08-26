@@ -99,6 +99,34 @@ deleting the offer branch turns it red).
 phone-QA-2026-08-03 lever), or every step video would be permanently unsubmittable for a
 tester who is not a general operator. Pinned by `TestToxinExecuteReachesProofUploads`.
 
+## CEO/CXO WATCHES; the named testers DO (maintainer decision 2026-08-26)
+
+Leadership holds `toxin.read` + `toxin.verdict` and **NOT `toxin.execute`**. They see
+every load's test and cast the accept/reject; they never film a step. This corrects the
+2026-08-25 shape, which also granted CEO execute "so leadership can run one too" — caught
+on the phone, where a CEO principal opened a task card and could film step 1. That would
+have let one person produce the evidence and then approve it, dissolving the separation
+this module exists to keep.
+
+Two halves, both required, per the capability-gated role-scoped UI lock:
+
+1. **The endpoint.** `ceo_internal` no longer carries `ToxinExecute`, so
+   `POST .../steps/{n}/complete` and `.../submit` refuse them at the route table. Pinned
+   by `TestToxinExecuteIsTesterOnlyAndNeverCEO`, which also asserts the READ routes still
+   resolve — withholding execute must not make the module vanish for leadership.
+2. **The contract.** `can_execute` on `ToxinTask` is the CALLER's permission, resolved
+   per request from the same grants the route table authorizes against
+   (`callerCanExecute`, toxin's HTTP adapter). For a watcher the composed payload also
+   renders every unfinished step `locked` rather than `available`, and the phone's list
+   card stops opening (`openable = in_progress && canExecute`). Pinned by
+   `TestWatcherSeesNoActionableStep` (toxin/adapters/http) and
+   `a watcher sees the same open round as a card that does not open`
+   (`ToxinTaskListViewModelTest`) — both mutation-tested when written.
+
+The contract half is not decoration: without it the phone would show leadership a live
+camera button whose write the server then rejects with a 403 the operator cannot act on.
+Neither half alone is the fix.
+
 ## Event spine
 
 `procurement.feed_purchase.recorded` is emitted inside `CreateFeedPurchase`'s

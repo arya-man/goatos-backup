@@ -60,6 +60,13 @@ type taskPayload struct {
 	// ContextLine is the backend-composed card subtitle: feed, vendor, load and date in
 	// one farm-worded line.
 	ContextLine string `json:"context_line"`
+	// CanExecute tells the client whether THIS caller may run the test. It is the caller's
+	// toxin.execute permission, not a property of the task: a CEO/CXO reading the same row
+	// gets false and renders a non-tappable watch-only card, while a named tester gets true
+	// and the card opens the step flow. The step routes enforce the same permission
+	// independently — this field exists so the phone never offers an action the server will
+	// refuse (maintainer decision 2026-08-26).
+	CanExecute bool `json:"can_execute"`
 }
 
 type taskPagePayload struct {
@@ -95,7 +102,7 @@ type verdictPayload struct {
 	RowVersion int64  `json:"row_version"`
 }
 
-func toTaskPayload(row ports.TaskRow, now time.Time) taskPayload {
+func toTaskPayload(row ports.TaskRow, now time.Time, canExecute bool) taskPayload {
 	t := row.Task
 	context := t.FeedItemLabel
 	if t.Vendor != "" {
@@ -129,13 +136,14 @@ func toTaskPayload(row ports.TaskRow, now time.Time) taskPayload {
 		RowVersion:     t.RowVersion,
 		CreatedAt:      t.CreatedAt,
 		ContextLine:    context,
+		CanExecute:     canExecute,
 	}
 }
 
 // toStepPayloads composes each step's live state against the server clock. The phone
 // renders the states verbatim and never derives its own gate logic — its clock is not
 // the gate's clock.
-func toStepPayloads(row ports.TaskRow, now time.Time) []stepPayload {
+func toStepPayloads(row ports.TaskRow, now time.Time, canExecute bool) []stepPayload {
 	next := domain.NextStepNo(row.Completions)
 	out := make([]stepPayload, 0, len(domain.Steps()))
 	for _, spec := range domain.Steps() {
@@ -171,7 +179,9 @@ func toStepPayloads(row ports.TaskRow, now time.Time) []stepPayload {
 			out = append(out, p)
 			continue
 		}
-		if row.Task.Status != domain.StatusInProgress || next == 0 || spec.No != next {
+		// A watcher (no toxin.execute) sees the history but never an actionable step: the
+		// next step renders locked rather than available, so no camera is offered.
+		if !canExecute || row.Task.Status != domain.StatusInProgress || next == 0 || spec.No != next {
 			p.State = stepStateLocked
 			out = append(out, p)
 			continue
@@ -196,10 +206,10 @@ func completionFor(completions []domain.StepCompletion, stepNo int) (domain.Step
 	return domain.StepCompletion{}, false
 }
 
-func toTaskDetailPayload(row ports.TaskRow, now time.Time) taskDetailPayload {
+func toTaskDetailPayload(row ports.TaskRow, now time.Time, canExecute bool) taskDetailPayload {
 	return taskDetailPayload{
-		taskPayload:  toTaskPayload(row, now),
-		Steps:        toStepPayloads(row, now),
+		taskPayload:  toTaskPayload(row, now, canExecute),
+		Steps:        toStepPayloads(row, now, canExecute),
 		ReadingGuide: domain.ReadingGuide(),
 		OutcomeOptions: []outcomeOption{
 			{Value: domain.OutcomeNegative, Label: domain.OutcomeLabel(domain.OutcomeNegative)},
