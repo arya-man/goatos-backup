@@ -850,6 +850,41 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `startup recovery skips fresh unprocessed proof rows still owned by capture coroutine`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-fresh",
+                    taskId = "task-fresh",
+                    fieldKey = "stock_fridge_photo",
+                    idempotencyKey = "proof-upload:task-fresh:proof-fresh",
+                    updatedAtMs = 1_000L,
+                ),
+            )
+
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+                clock = { 1_500L },
+            )
+            repo.reconcileRecoverableUploadsNow()
+
+            val row = db.proofCaptureDao().findById("proof-fresh")
+            assertEquals(emptyList<FakeSyncRepository.EnqueueCall>(), sync.enqueueCalls)
+            assertEquals(null, row?.outboxItemId)
+            assertEquals(ProofProcessingState.CAPTURED_ORIGINAL.name, row?.processingState)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `observing proofs repairs pending proof with no outbox item`() = runTest {
         val db = newDb()
         try {
@@ -3416,6 +3451,7 @@ private fun proofEntity(
     captureSource: String = "in_app_camera",
     uploadGroupKey: String? = null,
     clientTaskKey: String? = null,
+    updatedAtMs: Long = 1_000L,
 ) = ProofCaptureEntity(
     id = id,
     taskId = taskId,
@@ -3435,6 +3471,7 @@ private fun proofEntity(
     captureSource = captureSource,
     uploadGroupKey = uploadGroupKey,
     clientTaskKey = clientTaskKey,
+    updatedAtMs = updatedAtMs,
 )
 
 private class RecordingProofMediaProcessor(
