@@ -25,7 +25,19 @@ test("the page lands on the latest two lump-sum weighing dates when no period is
   assert.match(source, /async function landingWindow/);
   assert.match(source, /getShedWeights\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*\.\.\.lookback,/);
   assert.match(source, /const dates = \[\.\.\.new Set\(result\.data\.lump_weighing_dates \?\? \[\]\)\]\.sort\(\);/);
-  assert.match(source, /from: dates\[dates\.length - 2\],\s*\n\s*to: dates\[dates\.length - 1\],/);
+  assert.match(source, /from: dates\[dates\.length - 2\],/);
+  // THE END IS NOT A LUMP DATE. On 25 Aug 2026 the farm scanned 199 kids across 17 sheds and weighed
+  // no shed whole, so that day never entered lump_weighing_dates and a window closing on the later
+  // lump date shut a day early -- dropping all 199 from the KPIs, the gain charts and Fair fight
+  // while the period label read as though nothing was missing. The START still comes from the lump
+  // dates, because two whole-shed weighs are what make a shed-average movement measurable.
+  assert.match(source, /const latest = result\.data\.latest_weighing_date \?\? "";/);
+  assert.match(source, /latest > dates\[dates\.length - 1\] \? latest : dates\[dates\.length - 1\]/);
+  // Clamped, like every other window this file resolves: a future end is never rendered.
+  assert.match(source, /to: end > today \? today : end,/);
+  // The date is BACKEND-owned. A max taken across the returned rows would be the page deriving
+  // business truth from its own rows, which is the rollup-from-a-slice shape this repo bans.
+  assert.doesNotMatch(source, /Math\.max\([^)]*last_weighed_date/);
   assert.match(source, /return \{ from: istDayPlus\(today, -\(DEFAULT_WINDOW_DAYS - 1\)\), to: today \};/);
   // istDayPlus is pure calendar arithmetic on an already-resolved IST day. Re-entering a timezone
   // here (or hardcoding +05:30) is what the shared helper exists to prevent.

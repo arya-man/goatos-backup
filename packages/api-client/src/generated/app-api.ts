@@ -10658,6 +10658,11 @@ export interface components {
             load_unattributed_sheds: number;
             /** @description Distinct business dates in the selected window where at least one live lump-sum weighing was accepted. */
             lump_weighing_dates: string[];
+            /**
+             * Format: date
+             * @description Business date (Asia/Kolkata) of the most recent weigh of ANY kind -- individual or whole-shed -- inside the queried range; absent when nothing was weighed. The Weights page opens on the last two lump_weighing_dates, and closing that window on the later of them dropped every kid weighed on a later day that happened to carry no whole-shed weigh. The window START comes from lump_weighing_dates; the END comes from this.
+             */
+            latest_weighing_date?: string;
             /** Format: date */
             period_start: string;
             /** Format: date */

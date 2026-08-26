@@ -26292,6 +26292,15 @@ components:
           items:
             type: string
             format: date
+        latest_weighing_date:
+          type: string
+          format: date
+          description: >-
+            Business date (Asia/Kolkata) of the most recent weigh of ANY kind -- individual or
+            whole-shed -- inside the queried range; absent when nothing was weighed. The Weights page
+            opens on the last two lump_weighing_dates, and closing that window on the later of them
+            dropped every kid weighed on a later day that happened to carry no whole-shed weigh. The
+            window START comes from lump_weighing_dates; the END comes from this.
         period_start:
           type: string
           format: date
