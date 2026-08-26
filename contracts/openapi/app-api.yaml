@@ -25778,16 +25778,24 @@ components:
         - negative_adg_count
         - losing_animal_count
         - pair_count
+        - headline_animals
         - rejected_observation_count
         - unverified_observation_count
       properties:
         status:
           type: string
           enum: [ok, insufficient_data]
-        median_adg_g_per_day:
+        average_adg_g_per_day:
           type: number
           nullable: true
-        previous_median_adg_g_per_day:
+          description: >-
+            The farm's daily gain: the ANIMAL-WEIGHTED MEAN grams/day over every animal weighed twice
+            in the period (each animal once, at the median of its own pairs) PLUS every whole-shed pen
+            weighed twice, each contributing its average-weight movement once per animal it holds.
+            This is the SAME statistic gain_by_breed/gain_by_sex/gain_by_stage report per dimension,
+            so a page filtered to one sex shows the identical number in the headline and in the chart.
+            Null when status is insufficient_data.
+        previous_average_adg_g_per_day:
           type: number
           nullable: true
         previous_status:
@@ -25796,7 +25804,7 @@ components:
         delta_g_per_day:
           type: number
           nullable: true
-          description: median_adg_g_per_day - previous_median_adg_g_per_day. Null whenever either side is null.
+          description: average_adg_g_per_day - previous_average_adg_g_per_day. Null whenever either side is null.
         positive_adg_percent:
           type: number
           nullable: true
@@ -25808,6 +25816,14 @@ components:
           description: Count of ANIMALS whose most recent pair is negative.
         pair_count:
           type: integer
+          description: >-
+            Qualifying scanned consecutive-weigh PAIRS in the period. Denominator of the pair-based
+            statistics above, NOT of average_adg_g_per_day -- see headline_animals.
+        headline_animals:
+          type: integer
+          description: >-
+            How many kids average_adg_g_per_day speaks for: animals weighed twice plus every animal
+            in the whole-shed pens that moved. This is the count to print beside the gain.
         rejected_observation_count:
           type: integer
         unverified_observation_count:

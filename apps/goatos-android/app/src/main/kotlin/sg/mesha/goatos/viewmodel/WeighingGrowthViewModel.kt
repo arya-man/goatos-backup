@@ -179,7 +179,10 @@ class WeighingGrowthViewModel @Inject constructor(
         val h = dto.headline
         return WeighingGrowthUiState(
             headline = WeighingGrowthHeadlineUi(
-                medianAdgGPerDay = h.median_adg_g_per_day,
+                // The backend's one daily-gain number: kids weighed twice AND whole-shed pens,
+                // animal-weighted (maintainer decision 2026-08-26). The phone renders what the web
+                // headline renders, so the two surfaces cannot report different herd growth.
+                adgGPerDay = h.average_adg_g_per_day,
                 deltaGPerDay = h.delta_g_per_day,
                 positivePercent = h.positive_adg_percent,
                 // The ANIMAL count, matching the list this tile opens. The pair count
@@ -220,7 +223,7 @@ class WeighingGrowthViewModel @Inject constructor(
                     )
                 },
             selectedParkId = parkId,
-            herdMedianAdgGPerDay = h.median_adg_g_per_day,
+            herdAdgGPerDay = h.average_adg_g_per_day,
             // Group-weighed sheds travel in their own list. A lump-sum weighing yields a shed
             // average and a head count -- never an animal's growth -- so it must never be folded
             // into the ADG figures above.

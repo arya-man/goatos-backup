@@ -18,8 +18,11 @@ test("weights page fetches growth director inside the existing Promise.all", () 
   assert.ok(promiseAll, "weights.tsx must keep a single Promise.all request plan");
   assert.match(
     promiseAll[0],
-    /getGrowthDirector\(\{ park_id: parkFilter \|\| undefined, \.\.\.window \}\)/,
-    "getGrowthDirector must ride the same park/period window as the other reads, inside Promise.all",
+    /getGrowthDirector\(\{ park_id: parkFilter \|\| undefined, \.\.\.window, sex: sexFilter \|\| undefined \}\)/,
+    // The Sex filter rides along too. It governs the WHOLE page, so a Growth Director block still
+    // reporting every kid under a Male page would put two populations side by side with nothing
+    // saying so -- the same defect the headline and the gain charts had.
+    "getGrowthDirector must ride the same park/period/sex filter as the other reads, inside Promise.all",
   );
 });
 

@@ -3238,12 +3238,12 @@ func pageSpecificCopy(id string) map[string]string {
 			// denominator, same sub-line — and cost a sixth of the headline row to say it twice. The
 			// gain row is now unconditional, so the figure is still on the page in every scope.
 			"kpi.gain.none":          "needs a second weigh",
-			"kpi.gain.blended":       "same animals weighed twice",
+			"kpi.gain.blended":       "kids weighed",
 			"kpi.park_gain.suffix":   "— daily gain",
 			"kpi.park_gain.all":      "All parks",
 			"section.park_gain.aria": "Daily gain by park",
 			"chart.gain.title":       "Daily gain and shed average change",
-			"chart.gain.caption":     "Kids weighed one by one. A shed weighed as one total cannot produce a per-kid gain.",
+			"chart.gain.caption":     "Kids weighed one by one, and sheds weighed as one total shown by how fast their average is moving.",
 			"chart.gain.aria":        "Daily gain and shed average change",
 			"empty.gain.body":        "A kid has to be weighed twice before a gain can be worked out.",
 			// Distinct from the above: these sheds DO have a second weigh, they are just all
@@ -3252,7 +3252,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.gain.caption_shed":      "Same-animal rows show daily gain. Lump-sum rows show average weight change for that exact shed or partition; shifts, sales, deaths, or new animals can also move it.",
 			"section.demographics.title":   "Breed, sex and stage",
 			"section.demographics.aria":    "Weight by breed, sex and stage",
-			"section.demographics.caption": "Daily gain uses only the same animals weighed twice. Weight uses the latest weighed animals.",
+			"section.demographics.caption": "Daily gain counts kids weighed twice and sheds weighed as one total. Weight uses the latest weighed animals.",
 			"chart.breed.title":            "Average weight by breed",
 			"chart.breed.title_gain":       "Daily gain by breed",
 			"chart.breed.aria":             "Average weight for each breed",
@@ -3280,7 +3280,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.gain_thresholds.kids":      "kids",
 			"value.gain_thresholds.of":        "of",
 			"section.gain_thresholds.aria":    "Breed-wise daily gain",
-			"section.gain_thresholds.caption": "Counted from kids weighed one by one and weighed twice, at each kid's own daily gain. Each kid is counted in one band only, so the bands add up to the kids weighed twice.",
+			"section.gain_thresholds.caption": "Counted from kids weighed twice, at each kid's own daily gain, plus sheds weighed as one total, whose kids all sit in the band that shed's average movement falls in. Each kid is counted in one band only.",
 			"empty.gain_thresholds.body":      "No kid matched to a breed has a second weigh in this period yet.",
 			// The page carries a SEX filter in its own filter bar, beside Weighing (maintainer,
 			// 2026-08-26). It auto-selects every kid, and picking a side re-reads the WHOLE page at
@@ -3294,8 +3294,8 @@ func pageSpecificCopy(id string) map[string]string {
 			// actually counted. Reusing the combined caption under the male view would tell a
 			// reader the bands add up to the kids weighed twice when they add up to the MALE kids
 			// weighed twice.
-			"section.gain_thresholds.caption_male":   "Counted from male kids weighed one by one and weighed twice, at each kid's own daily gain. Each kid is counted in one band only, so the bands add up to the male kids weighed twice.",
-			"section.gain_thresholds.caption_female": "Counted from female kids weighed one by one and weighed twice, at each kid's own daily gain. Each kid is counted in one band only, so the bands add up to the female kids weighed twice.",
+			"section.gain_thresholds.caption_male":   "Counted from male kids weighed twice, at each kid's own daily gain, plus all-male sheds weighed as one total, whose kids all sit in the band that shed's average movement falls in. Each kid is counted in one band only.",
+			"section.gain_thresholds.caption_female": "Counted from female kids weighed twice, at each kid's own daily gain, plus all-female sheds weighed as one total, whose kids all sit in the band that shed's average movement falls in. Each kid is counted in one band only.",
 			"value.gain_thresholds.kids_male":        "male kids",
 			"value.gain_thresholds.kids_female":      "female kids",
 			"empty.gain_thresholds.male":             "No male kid matched to a breed has a second weigh in this period yet.",

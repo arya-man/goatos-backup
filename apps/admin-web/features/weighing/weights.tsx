@@ -318,8 +318,8 @@ export async function WeighingWeightsPage({
             const headline = result.ok ? result.data.headline : null;
             return {
               name: park.name,
-              median: headline?.median_adg_g_per_day ?? null,
-              animals: headline?.pair_count ?? 0,
+              median: headline?.average_adg_g_per_day ?? null,
+              animals: headline?.headline_animals ?? 0,
             };
           }),
         )
@@ -453,8 +453,14 @@ export async function WeighingWeightsPage({
   // The headline is the backend's park-level same-animal median. Do not average
   // shed medians here: the median of medians is not the herd median and produced
   // a visible 38 g card while the API/SQL truth was 120.8 g.
-  const headlineGain = growth.ok ? (growth.data.headline.median_adg_g_per_day ?? null) : null;
-  const headlineWeight = growth.ok ? growth.data.headline.pair_count : 0;
+  // The backend's ONE daily-gain number: the animal-weighted mean over kids weighed twice PLUS the
+  // whole-shed pens, which is the identical statistic the breed/sex/stage gain charts below report
+  // (maintainer decision 2026-08-26). It was the median of scanned pairs only, so this card and
+  // those charts described different herds -- filtered to Male the page showed 133 g here and 200 g
+  // there. `headline_animals`, not `pair_count`: the gain speaks for every kid behind it, and most
+  // of this farm's kids are weighed by the whole shed rather than one at a time.
+  const headlineGain = growth.ok ? (growth.data.headline.average_adg_g_per_day ?? null) : null;
+  const headlineWeight = growth.ok ? growth.data.headline.headline_animals : 0;
 
   // Daily gain per shed comes from the growth read's own shed leaderboard, which is already
   // restricted to per-animal sheds — a whole-shed total can never produce a per-kid gain.

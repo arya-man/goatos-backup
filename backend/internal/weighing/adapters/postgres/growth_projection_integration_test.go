@@ -58,8 +58,8 @@ func TestGrowthADGDateShiftIgnoresSameBusinessDayPairs(t *testing.T) {
 	if adg.Headline.PairCount != 0 {
 		t.Fatalf("two weighs on ONE business day produced %d ADG pair(s); a same-day re-weigh is not growth", adg.Headline.PairCount)
 	}
-	if adg.Headline.MedianADGGPerDay != nil {
-		t.Fatalf("median ADG = %v g/day from a same-day pair; want nil (this is the -3,108,762 g/day defect)", *adg.Headline.MedianADGGPerDay)
+	if adg.Headline.AverageADGGPerDay != nil {
+		t.Fatalf("headline ADG = %v g/day from a same-day pair; want nil (this is the -3,108,762 g/day defect)", *adg.Headline.AverageADGGPerDay)
 	}
 	if adg.Headline.Status != "insufficient_data" {
 		t.Fatalf("status = %q with no qualifying pair, want insufficient_data", adg.Headline.Status)
@@ -90,11 +90,11 @@ func TestGrowthADGDateShiftAcrossMidnightCountsWholeDays(t *testing.T) {
 	if adg.Headline.PairCount != 1 {
 		t.Fatalf("pair count = %d across a Kolkata midnight, want exactly 1", adg.Headline.PairCount)
 	}
-	if adg.Headline.MedianADGGPerDay == nil {
+	if adg.Headline.AverageADGGPerDay == nil {
 		t.Fatalf("median ADG is nil for a genuine cross-day pair")
 	}
 	// +1.0 kg over 1 whole day = 1000 g/day. An hour-based divisor would report ~24,000.
-	if got := *adg.Headline.MedianADGGPerDay; got < 999 || got > 1001 {
+	if got := *adg.Headline.AverageADGGPerDay; got < 999 || got > 1001 {
 		t.Fatalf("median ADG = %v g/day, want ~1000 (1.0 kg over ONE whole day)", got)
 	}
 }
@@ -125,10 +125,10 @@ func TestGrowthADGOneToManyDoesNotMultiplyAnimals(t *testing.T) {
 	}
 	// Each step is +1.0 kg over one day, so the median is 1000 g/day regardless of how many
 	// dimension rows the query joins through.
-	if adg.Headline.MedianADGGPerDay == nil {
+	if adg.Headline.AverageADGGPerDay == nil {
 		t.Fatalf("median ADG is nil with three qualifying pairs")
 	}
-	if got := *adg.Headline.MedianADGGPerDay; got < 999 || got > 1001 {
+	if got := *adg.Headline.AverageADGGPerDay; got < 999 || got > 1001 {
 		t.Fatalf("median ADG = %v g/day, want ~1000; a dimension fan-out would skew this", got)
 	}
 }
