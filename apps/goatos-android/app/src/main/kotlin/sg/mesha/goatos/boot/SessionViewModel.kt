@@ -80,6 +80,8 @@ internal fun devBearerPrincipalKey(token: String): String? = runCatching {
     val subject = obj["sub"]?.jsonPrimitive?.content?.trim().orEmpty()
     val tenant = obj["tenant_id"]?.jsonPrimitive?.content?.trim().orEmpty()
     if (subject.isBlank() || tenant.isBlank()) null else "$tenant:$subject"
+}.onFailure {
+    android.util.Log.w("SessionViewModel", "dev_bearer_principal_parse_failed")
 }.getOrNull()
 
 internal fun sessionIsAuthedForMode(mode: AuthMode, persisted: String?): Boolean =

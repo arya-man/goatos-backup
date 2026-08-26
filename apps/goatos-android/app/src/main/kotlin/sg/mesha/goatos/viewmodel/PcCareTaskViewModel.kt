@@ -1692,7 +1692,7 @@ internal fun pcCareEvaluateTaskProofSubmit(
     capturingSlotKey: String?,
 ): PcCareSubmitEvaluation {
     if (expectedSlots.isEmpty()) {
-        return PcCareSubmitEvaluation(ready = false, blockedReason = "Record the fridge stock photo and video first")
+        return PcCareSubmitEvaluation(ready = false, blockedReason = "Record the fridge stock photo and video first") // mobile-contract:ignore: device-local pre-sync gate copy
     }
     expectedSlots.forEach { slot ->
         if (taskProofs.any { it.slotKey == slot.fieldKey && it.proofRef.isNotBlank() }) return@forEach
@@ -1705,8 +1705,8 @@ internal fun pcCareEvaluateTaskProofSubmit(
             .maxByOrNull { it.capturedAtMs }
         if (localRow?.syncStatus == CaptureSyncStatus.SYNCED && !localRow.serverProofId.isNullOrBlank()) return@forEach
         if (localRow?.outboxItemId?.isNotBlank() == true) return@forEach
-        if (capturingSlotKey == slot.fieldKey) return PcCareSubmitEvaluation(ready = false, blockedReason = "Proof is still recording")
-        return PcCareSubmitEvaluation(ready = false, blockedReason = "Record the fridge stock photo and video first")
+        if (capturingSlotKey == slot.fieldKey) return PcCareSubmitEvaluation(ready = false, blockedReason = "Proof is still recording") // mobile-contract:ignore: device-local pre-sync gate copy
+        return PcCareSubmitEvaluation(ready = false, blockedReason = "Record the fridge stock photo and video first") // mobile-contract:ignore: device-local pre-sync gate copy
     }
     return PcCareSubmitEvaluation(ready = true)
 }

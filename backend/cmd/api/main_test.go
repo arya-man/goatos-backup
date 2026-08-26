@@ -74,6 +74,7 @@ func TestAssertLocalOriginMainStackPreverifiedSharedCheckout(t *testing.T) {
 	t.Setenv("GOATOS_ENV", "local")
 	t.Setenv("GOATOS_HTTP_ADDR", "127.0.0.1:8080")
 	t.Setenv("GOATOS_ORIGIN_MAIN_PREVERIFIED", "1")
+	t.Setenv("GOATOS_ALLOW_STALE_LOCAL_STACK", "0")
 
 	if err := assertLocalOriginMainStack(); err != nil {
 		t.Fatalf("clean exact-main checkout should pass: %v", err)

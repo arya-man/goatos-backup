@@ -1172,7 +1172,7 @@ class SyncEngine(
                     // farm-language reason instead of waiting on a sync that will never come.
                     throw NonRetryableSyncException("This animal was already scanned on another phone. Its video is recorded there.")
                 row.animalRowId.isBlank() ->
-                    throw IllegalStateException("Waiting for this animal's scan to finish syncing.")
+                    throw ProofDependencyPendingException("Waiting for this animal's scan to finish syncing.")
                 else -> row.animalRowId
             }
         }

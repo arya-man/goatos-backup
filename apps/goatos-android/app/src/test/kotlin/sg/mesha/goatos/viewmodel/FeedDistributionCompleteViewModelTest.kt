@@ -869,6 +869,55 @@ class FeedDistributionCompleteViewModelTest {
     }
 
     @Test
+    fun `feed video playback failure re-signs the same teammate proof ref`() = runTest(dispatcher) {
+        val teammates = FakeSplitFeedRepository(
+            listOf(
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_video",
+                    proofRef = "server-proof-feed-video",
+                    capturedAt = "2026-08-14T03:45:26Z",
+                ),
+            ),
+        )
+        teammates.downloadUrls += "https://stg.example.com/proofs/server-proof-feed-video/download?token=old"
+        teammates.downloadUrls += "https://stg.example.com/proofs/server-proof-feed-video/download?token=fresh"
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 3",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals(
+            "https://stg.example.com/proofs/server-proof-feed-video/download?token=old",
+            viewModel.state.value.videoRemoteUrl,
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.FeedVideoPlaybackFailed)
+        advanceUntilIdle()
+
+        assertEquals(listOf("server-proof-feed-video", "server-proof-feed-video"), teammates.downloadProofIds)
+        assertEquals(
+            "https://stg.example.com/proofs/server-proof-feed-video/download?token=fresh",
+            viewModel.state.value.videoRemoteUrl,
+        )
+    }
+
+    @Test
     fun `a teammate submitting while the screen is open flips it read-only via server_poll`() = runTest(dispatcher) {
         val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
         val feedRepository = object : FeedRepository by FakeSplitFeedRepository(emptyList()) {

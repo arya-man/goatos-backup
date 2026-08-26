@@ -2658,9 +2658,14 @@ fun AppNavHost(
         ) {
             val vm: FeedWastageCompleteViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            var returnAfterSubmit by rememberSaveable { mutableStateOf(false) }
             val onEvent: (FeedWastageCompleteEvent) -> Unit = { event ->
                 when (event) {
                     FeedWastageCompleteEvent.Back -> navController.popBackStack()
+                    FeedWastageCompleteEvent.MarkDone -> {
+                        returnAfterSubmit = true
+                        vm.onEvent(event)
+                    }
                     else -> vm.onEvent(event)
                 }
             }
@@ -2669,8 +2674,8 @@ fun AppNavHost(
             // is RefreshOnResume, so it refreshes once on landing and shows the pen in review).
             val submitted = state.result?.status == FeedWastageCompleteStatus.SYNCED ||
                 state.result?.status == FeedWastageCompleteStatus.QUEUED
-            LaunchedEffect(submitted) {
-                if (submitted) {
+            LaunchedEffect(submitted, returnAfterSubmit) {
+                if (submitted && returnAfterSubmit) {
                     delay(SUBMIT_SUCCESS_RETURN_DELAY_MS)
                     navController.popBackStack(Routes.FEED_WASTAGE_COMPLETE, inclusive = true)
                 }
@@ -2702,10 +2707,11 @@ fun AppNavHost(
         ) {
             val vm: FeedTransportCaptureViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            var returnAfterSubmit by rememberSaveable { mutableStateOf(false) }
             val submitted = state.result?.status == FeedTransportSubmitStatus.SYNCED ||
                 state.result?.status == FeedTransportSubmitStatus.QUEUED
-            LaunchedEffect(submitted) {
-                if (submitted) {
+            LaunchedEffect(submitted, returnAfterSubmit) {
+                if (submitted && returnAfterSubmit) {
                     delay(SUBMIT_SUCCESS_RETURN_DELAY_MS)
                     navController.popBackStack(Routes.FEED_TRANSPORT_CAPTURE, inclusive = true)
                 }
@@ -2716,6 +2722,9 @@ fun AppNavHost(
                     if (event == FeedTransportCaptureEvent.Back) {
                         navController.popBackStack()
                     } else {
+                        if (event == FeedTransportCaptureEvent.Submit) {
+                            returnAfterSubmit = true
+                        }
                         vm.onEvent(event)
                     }
                 }
@@ -2795,9 +2804,14 @@ fun AppNavHost(
         ) {
             val vm: FeedDistributionCompleteViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            var returnAfterSubmit by rememberSaveable { mutableStateOf(false) }
             val onEvent: (FeedDistributionEvent) -> Unit = { event ->
                 when (event) {
                     FeedDistributionEvent.Back -> navController.popBackStack()
+                    FeedDistributionEvent.MarkDone -> {
+                        returnAfterSubmit = true
+                        vm.onEvent(event)
+                    }
                     else -> vm.onEvent(event)
                 }
             }
@@ -2807,8 +2821,8 @@ fun AppNavHost(
             // it refreshes once on landing and shows the session as pending verification).
             val submitted = state.result?.status == FeedDistributionStatus.SYNCED ||
                 state.result?.status == FeedDistributionStatus.QUEUED
-            LaunchedEffect(submitted) {
-                if (submitted) {
+            LaunchedEffect(submitted, returnAfterSubmit) {
+                if (submitted && returnAfterSubmit) {
                     delay(SUBMIT_SUCCESS_RETURN_DELAY_MS)
                     // Pop this exact destination if it is still on top; a no-op if the operator
                     // already navigated away, so we never pop an extra screen.
@@ -2858,9 +2872,14 @@ fun AppNavHost(
         ) {
             val vm: FeedPackingCompleteViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            var returnAfterSubmit by rememberSaveable { mutableStateOf(false) }
             val onEvent: (FeedPackingCompleteEvent) -> Unit = { event ->
                 when (event) {
                     FeedPackingCompleteEvent.Back -> navController.popBackStack()
+                    FeedPackingCompleteEvent.MarkDone -> {
+                        returnAfterSubmit = true
+                        vm.onEvent(event)
+                    }
                     else -> vm.onEvent(event)
                 }
             }
@@ -2870,8 +2889,8 @@ fun AppNavHost(
             // refreshes once on landing and shows the session as pending verification).
             val submitted = state.result?.status == FeedPackingCompleteStatus.SYNCED ||
                 state.result?.status == FeedPackingCompleteStatus.QUEUED
-            LaunchedEffect(submitted) {
-                if (submitted) {
+            LaunchedEffect(submitted, returnAfterSubmit) {
+                if (submitted && returnAfterSubmit) {
                     delay(SUBMIT_SUCCESS_RETURN_DELAY_MS)
                     // Pop this exact destination if it is still on top; a no-op if the operator
                     // already navigated away, so we never pop an extra screen.

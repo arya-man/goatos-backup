@@ -1,34 +1,19 @@
 import { ClipboardCheck, Clock, ShieldCheck, Snowflake, Video } from "lucide-react";
 import type { ReactNode } from "react";
 import { Tag, type Tone } from "@/components/ui-primitives";
+import { copy, optionLabel, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate } from "@/lib/format";
 import { listPCCareTasks, type ApiResult, type PCCareTask, type PCCareTaskPage } from "@/lib/api/server";
 import { parseScope } from "@/lib/scope";
 import type { RouteSearchParams } from "@/lib/search-params";
 
-type InventoryStatusKey = "open" | "pending_verification" | "completed" | "rework";
 type InventoryWorkState = PCCareTask["work_state"];
-
-const STATUS_LABELS: Record<InventoryStatusKey, string> = {
-  open: "Open",
-  pending_verification: "Verifier review",
-  completed: "Done",
-  rework: "Rework",
-};
-
-const WORK_LABELS: Record<InventoryWorkState, string> = {
-  scheduled: "Scheduled",
-  delayed: "Overdue",
-  completed: "Done",
-  closed: "Closed",
-  canceled: "Canceled",
-};
 
 const ACTIVE_STATES = new Set<InventoryWorkState>(["scheduled", "delayed"]);
 
-function todayBusinessDate() {
+function todayBusinessDate(pageContract: AdminUiPageContract) {
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Kolkata",
+    timeZone: copy(pageContract, "inventory_progress.time_zone"),
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -55,14 +40,14 @@ function metric(label: string, value: number, icon: ReactNode) {
   );
 }
 
-function requirementLine(task: PCCareTask) {
+function requirementLine(pageContract: AdminUiPageContract, task: PCCareTask) {
   const reqs = task.inventory_requirements ?? [];
-  if (!reqs.length) return "No vaccine stock requirement lines";
+  if (!reqs.length) return copy(pageContract, "inventory_progress.empty_requirements");
   return reqs.map((r) => `${r.required_doses} ${r.vaccine_label}`).join(" · ");
 }
 
-function assigneeLine(task: PCCareTask) {
-  return task.assignee_names.length ? task.assignee_names.join(", ") : "Unassigned";
+function assigneeLine(pageContract: AdminUiPageContract, task: PCCareTask) {
+  return task.assignee_names.length ? task.assignee_names.join(", ") : copy(pageContract, "label.unassigned");
 }
 
 function visibleInventoryRows(tasks: PCCareTask[], asOf: string) {
@@ -83,7 +68,8 @@ async function listAllInventoryTasks(params: {
 }): Promise<ApiResult<PCCareTaskPage>> {
   const items: PCCareTask[] = [];
   let cursor = "";
-  for (let page = 0; page < 20; page += 1) {
+  for (let page = 0; page < 20; page += 1) { // scale-guard:ignore: inventory-vaccine dashboard drains only PC-care stock tasks for one date/carry window, capped at 20x100
+    // serial-await: allow cursor pagination; each page depends on the previous next_cursor.
     const result = await listPCCareTasks({
       date: params.date,
       parkId: params.parkId,
@@ -105,18 +91,20 @@ async function listAllInventoryTasks(params: {
 function InventoryProgressContent({
   result,
   asOf,
+  pageContract,
 }: {
   result: ApiResult<PCCareTaskPage>;
   asOf: string;
+  pageContract: AdminUiPageContract;
 }) {
   if (!result.ok) {
     return (
       <section className="card" id="pc-care-inventory-progress" style={{ scrollMarginTop: 80 }}>
         <div className="hd">
-          <h2>Vaccine fridge stock checks</h2>
+          <h2>{copy(pageContract, "section.inventory_progress.title")}</h2>
         </div>
         <div className="bd">
-          <div className="muted">Inventory task progress is unavailable right now.</div>
+          <div className="muted">{copy(pageContract, "inventory_progress.unavailable")}</div>
         </div>
       </section>
     );
@@ -132,10 +120,10 @@ function InventoryProgressContent({
       <div className="hd">
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <Snowflake className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
-          <h2 style={{ margin: 0 }}>Vaccine fridge stock checks</h2>
+          <h2 style={{ margin: 0 }}>{copy(pageContract, "section.inventory_progress.title")}</h2>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <span className="small muted">PC Care director tasks · {fmtDate(asOf)}</span>
+        <span className="small muted">{copy(pageContract, "inventory_progress.subtitle")} · {fmtDate(asOf)}</span>
       </div>
       <div className="bd" style={{ display: "grid", gap: 12 }}>
         <div
@@ -145,27 +133,24 @@ function InventoryProgressContent({
             gap: 10,
           }}
         >
-          {metric("Current or carry-over", rows.length, <ClipboardCheck className="ic" aria-hidden="true" />)}
-          {metric("Overdue", delayed, <Clock className="ic" aria-hidden="true" />)}
-          {metric("Verifier review", waitingVerifier, <ShieldCheck className="ic" aria-hidden="true" />)}
-          {metric("Done today", completed, <Video className="ic" aria-hidden="true" />)}
+          {metric(copy(pageContract, "inventory_progress.metric.current"), rows.length, <ClipboardCheck className="ic" aria-hidden="true" />)}
+          {metric(copy(pageContract, "inventory_progress.metric.overdue"), delayed, <Clock className="ic" aria-hidden="true" />)}
+          {metric(copy(pageContract, "inventory_progress.metric.verifier"), waitingVerifier, <ShieldCheck className="ic" aria-hidden="true" />)}
+          {metric(copy(pageContract, "inventory_progress.metric.done_today"), completed, <Video className="ic" aria-hidden="true" />)}
         </div>
 
         {rows.length === 0 ? (
           <div className="muted" style={{ padding: "10px 2px" }}>
-            No current or carry-over vaccine inventory tasks.
+            {copy(pageContract, "inventory_progress.empty")}
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Farm</th>
-                  <th>Shed</th>
-                  <th>Director</th>
-                  <th>Vaccines</th>
-                  <th>Due</th>
-                  <th>State</th>
+                  {tableLabels(pageContract, "inventory-vaccine-progress").map((label) => (
+                    <th key={label}>{label}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -178,13 +163,13 @@ function InventoryProgressContent({
                         {task.partition_label ? <span className="small muted">{task.partition_label}</span> : null}
                       </div>
                     </td>
-                    <td>{assigneeLine(task)}</td>
-                    <td>{requirementLine(task)}</td>
+                    <td>{assigneeLine(pageContract, task)}</td>
+                    <td>{requirementLine(pageContract, task)}</td>
                     <td>{fmtDate(task.due_business_date)}</td>
                     <td>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        <Tag tone={statusTone(task)}>{WORK_LABELS[task.work_state]}</Tag>
-                        <Tag tone={statusTone(task)}>{STATUS_LABELS[task.status]}</Tag>
+                        <Tag tone={statusTone(task)}>{optionLabel(pageContract, "inventory_task_work_states", task.work_state)}</Tag>
+                        <Tag tone={statusTone(task)}>{optionLabel(pageContract, "inventory_task_statuses", task.status)}</Tag>
                       </div>
                     </td>
                   </tr>
@@ -198,13 +183,13 @@ function InventoryProgressContent({
   );
 }
 
-export async function InventoryVaccineProgressSection({ searchParams }: { searchParams?: RouteSearchParams }) {
+export async function InventoryVaccineProgressSection({ searchParams, pageContract }: { searchParams?: RouteSearchParams; pageContract: AdminUiPageContract }) {
   const scope = parseScope(searchParams ?? {});
-  const asOf = todayBusinessDate();
+  const asOf = todayBusinessDate(pageContract);
   const result = await listAllInventoryTasks({
     date: asOf,
     parkId: scope.parkId,
     category: "inventory_vaccine",
   });
-  return <InventoryProgressContent result={result} asOf={asOf} />;
+  return <InventoryProgressContent result={result} asOf={asOf} pageContract={pageContract} />;
 }

@@ -32,6 +32,8 @@ class FakeSplitFeedRepository(
 
     /** Number of leading penSessionCaptures calls that fail (return null) before [slots] is served. */
     var failuresBeforeSuccess: Int = 0
+    val downloadProofIds: MutableList<String> = mutableListOf()
+    val downloadUrls: MutableList<String> = mutableListOf()
 
     override suspend fun persistDirectionSessionStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, lifecycleStatus: String) = Unit
     override suspend fun persistPackingRowStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int, lifecycleStatus: String) = Unit
@@ -47,8 +49,15 @@ class FakeSplitFeedRepository(
     }
 
     override suspend fun probeDirectionSummary(query: FeedDirectionQuery): Boolean = true
-    override suspend fun fetchProofDownloadUrl(proofId: String): String? =
-        if (proofId.isNotBlank()) "https://stg.example.com/proofs/$proofId/download?token=xyz" else null
+    override suspend fun fetchProofDownloadUrl(proofId: String): String? {
+        if (proofId.isBlank()) return null
+        downloadProofIds += proofId
+        return if (downloadUrls.isNotEmpty()) {
+            downloadUrls.removeAt(0)
+        } else {
+            "https://stg.example.com/proofs/$proofId/download?token=xyz"
+        }
+    }
 
     override fun observeDirectionTotals(query: FeedDirectionQuery): Flow<Resource<FeedDirectionPreviewPageDto>> =
         flowOf(Resource(FeedDirectionPreviewPageDto(targetDate = "2026-08-14")))

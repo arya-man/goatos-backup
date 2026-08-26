@@ -61,6 +61,9 @@ run_job() {
 # F-E: an absolute override must not become "$repo//abs/path" — the harness would
 # die from a missing file, i.e. red for an INCIDENTAL reason, not the defect.
 case "$DISPATCH" in /*) . "$DISPATCH" ;; *) . "$repo/$DISPATCH" ;; esac
+# The guard specifically proves multi-child cleanup. Keep the harness at width 3
+# even when the outer ci-local invocation is intentionally serialized.
+ci_parallel_width() { echo 3; }
 echo "\$\$" >"$sandbox/parent.pid"
 dispatch_jobs alpha beta gamma
 HARNESS

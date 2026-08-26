@@ -3198,14 +3198,20 @@ class WeighingViewModel @Inject constructor(
         val activeIds = sessionProofIds.value.toMutableSet()
         scope?.individualDrafts.orEmpty()
             .mapNotNullTo(activeIds) { it.proofCaptureId?.takeIf(String::isNotBlank) }
-        // A shed video is revived only while this scope still holds an OPEN round. Reviving
-        // every synced shed proof brought back ones a reopen had superseded, which filled the
-        // 5-video cap with dead clips and blocked the operator from filming the new one.
         val hasOpenShedRound = scope?.shedDrafts.orEmpty().isNotEmpty()
+        val latestLocalShedProofId = if (hasOpenShedRound) {
+            null
+        } else {
+            proofs
+                .filter { it.syncStatus == CaptureSyncStatus.SYNCED && it.belongsToThisShedScope() }
+                .maxByOrNull { it.capturedAtMs }
+                ?.id
+        }
         return proofs.filter { proof ->
             proof.syncStatus != CaptureSyncStatus.SYNCED ||
                 proof.id in activeIds ||
-                (hasOpenShedRound && proof.belongsToThisShedScope())
+                (hasOpenShedRound && proof.belongsToThisShedScope()) ||
+                proof.id == latestLocalShedProofId
         }
     }
 

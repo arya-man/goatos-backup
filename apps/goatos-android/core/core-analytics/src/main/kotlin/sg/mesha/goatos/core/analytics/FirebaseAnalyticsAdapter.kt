@@ -95,14 +95,14 @@ class FirebaseAnalyticsAdapter(
 // re-curated rather than just grown: several pre-existing proof-capture diagnostic params that are
 // redundant with, or lower-value than, what stayed (capture_source, mime_type, processing_attempt,
 // location_status, geocoder_status, original_size_bucket, upload_original, proof_subject, and the
-// duplicate-of-rfid_tag Params.RFID key) were DROPPED from the Firebase envelope, and 2 of the 12
-// new proof-flow params (feed_video_source, water_video_source) were dropped too, keeping only
-// feed_weight_source as the representative "which slot source" diagnostic. Firebase/GA4 stays a
+// duplicate-of-rfid_tag Params.RFID key) were DROPPED from the Firebase envelope, and three
+// proof-flow source params (feed_weight_source, feed_video_source, water_video_source) were
+// dropped too. Firebase/GA4 stays a
 // compact diagnostic surface only -- the FULL payload (every param, no allowlist, no cap) still
 // reaches the backend via BackendAnalyticsAdapter on the same call sites, so nothing is lost for
 // forensic debugging; it just is not duplicated into Firebase where GA4 would drop it past 25
 // anyway. The surviving 25 entries deliberately preserve: split-operator slot info (slot_mask,
-// local_slot_state, feed_weight_source), submit source (source), retry/failure reason (retry_count,
+// local_slot_state), submit source (source), retry/failure reason (retry_count,
 // reason, outcome), and live-status transition (previous, next, status), plus the pre-existing
 // proof-capture core diagnostics (proof_id, task_id, field_key, feature_surface, rfid_tag,
 // processing_state, duration_bucket, proof_upload_status, submit_status) and result/failure_kind.
@@ -147,10 +147,9 @@ private val FIREBASE_PARAM_ALLOWLIST = listOf(
     AnalyticsEvents.Params.RETRY_COUNT,
     AnalyticsEvents.Params.SOURCE,
     AnalyticsEvents.Params.LOCAL_SLOT_STATE,
-    AnalyticsEvents.Params.FEED_WEIGHT_SOURCE,
     AnalyticsEvents.Params.KIND,
-    "request_token",
-    "prompt",
+    AnalyticsEvents.Params.PREVIOUS,
+    AnalyticsEvents.Params.NEXT,
     AnalyticsEvents.Params.STATUS,
     "failure_kind",
 )

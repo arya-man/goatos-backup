@@ -131,6 +131,8 @@ sealed interface FeedDistributionEvent {
     data object MarkDone : FeedDistributionEvent
     data object SyncNow : FeedDistributionEvent
     data object Back : FeedDistributionEvent
+    data object FeedVideoPlaybackFailed : FeedDistributionEvent
+    data object WaterVideoPlaybackFailed : FeedDistributionEvent
 }
 
 @Composable
@@ -226,6 +228,7 @@ fun FeedDistributionCompleteScreen(
                     message = state.videoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordFeedVideo) },
                     remotePreviewUrl = state.videoRemoteUrl,
+                    onPlaybackFailure = { onEvent(FeedDistributionEvent.FeedVideoPlaybackFailed) },
                     showAction = !state.alreadySubmitted,
                 )
             }
@@ -247,6 +250,7 @@ fun FeedDistributionCompleteScreen(
                     message = state.waterVideoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordWaterVideo) },
                     remotePreviewUrl = state.waterVideoRemoteUrl,
+                    onPlaybackFailure = { onEvent(FeedDistributionEvent.WaterVideoPlaybackFailed) },
                     showAction = !state.alreadySubmitted,
                 )
             }
@@ -322,6 +326,7 @@ internal fun FeedDistProofAction(
     message: String?,
     onClick: () -> Unit,
     remotePreviewUrl: String? = null,
+    onPlaybackFailure: () -> Unit = {},
     showAction: Boolean = true,
 ) {
     val failed = status == FeedDistributionProofStatus.FAILED
@@ -375,9 +380,23 @@ internal fun FeedDistProofAction(
                 style = MeshaType.cardTitle,
             )
             Text(text = subtitle, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
-            val previewToShow = previewPath ?: remotePreviewUrl
+            var localPreviewFailed by remember(previewPath) { mutableStateOf(false) }
+            val previewToShow = if (!previewPath.isNullOrBlank() && !localPreviewFailed) {
+                previewPath
+            } else {
+                remotePreviewUrl ?: previewPath
+            }
             if (!previewToShow.isNullOrBlank()) {
-                FeedDistPreview(path = previewToShow, kind = previewKind)
+                FeedDistPreview(
+                    path = previewToShow,
+                    kind = previewKind,
+                    onPlaybackFailure = {
+                        if (previewToShow == previewPath) {
+                            localPreviewFailed = true
+                        }
+                        onPlaybackFailure()
+                    },
+                )
                 if (showAction) {
                     FeedDistRetryButton(label = if (failed) retryLabel else replaceLabel, enabled = enabled, onClick = onClick)
                 }
@@ -392,8 +411,8 @@ internal fun FeedDistProofAction(
 }
 
 @Composable
-private fun FeedDistPreview(path: String, kind: FeedDistPreviewKind) {
-    ProofMediaPreview(path = path, kind = kind)
+private fun FeedDistPreview(path: String, kind: FeedDistPreviewKind, onPlaybackFailure: () -> Unit = {}) {
+    ProofMediaPreview(path = path, kind = kind, onPlaybackFailure = onPlaybackFailure)
 }
 
 @Composable

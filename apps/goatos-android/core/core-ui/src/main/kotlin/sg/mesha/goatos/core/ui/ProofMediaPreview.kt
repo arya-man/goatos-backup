@@ -39,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
@@ -65,10 +66,15 @@ private sealed interface ProofPreviewLoad {
 }
 
 @Composable
-fun ProofMediaPreview(path: String, kind: ProofMediaPreviewKind, modifier: Modifier = Modifier) {
+fun ProofMediaPreview(
+    path: String,
+    kind: ProofMediaPreviewKind,
+    modifier: Modifier = Modifier,
+    onPlaybackFailure: () -> Unit = {},
+) {
     when (kind) {
         ProofMediaPreviewKind.Photo -> ProofPhotoPreview(path, modifier)
-        ProofMediaPreviewKind.Video -> ProofVideoPreview(path, modifier)
+        ProofMediaPreviewKind.Video -> ProofVideoPreview(path, modifier, onPlaybackFailure)
     }
 }
 
@@ -132,7 +138,7 @@ private fun ProofPhotoPreview(path: String, modifier: Modifier = Modifier) {
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun ProofVideoPreview(path: String, modifier: Modifier = Modifier) {
+private fun ProofVideoPreview(path: String, modifier: Modifier = Modifier, onPlaybackFailure: () -> Unit = {}) {
     val context = LocalContext.current
     val playerFactory = LocalProofPlayerFactory.current
     var playRequested by remember(path) { mutableStateOf(false) }
@@ -183,6 +189,14 @@ private fun ProofVideoPreview(path: String, modifier: Modifier = Modifier) {
                     playStartedAtMs = SystemClock.elapsedRealtime()
                     playStartedPositionMs = positionMs
                 }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                playRequested = false
+                isPlaying = false
+                armed = false
+                firstFrameRendered = false
+                onPlaybackFailure()
             }
         }
         player?.addListener(listener)

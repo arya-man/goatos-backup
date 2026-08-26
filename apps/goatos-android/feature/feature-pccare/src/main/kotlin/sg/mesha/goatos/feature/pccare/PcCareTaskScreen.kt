@@ -26,6 +26,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -456,15 +457,17 @@ private fun PcCareTaskProofAction(
         captured -> MeshaColors.Brand.copy(alpha = 0.14f)
         else -> MeshaColors.Surf2
     }
-    Row(
-        modifier = Modifier
+    var rowModifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 82.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(MeshaColors.Surf)
             .border(1.dp, border, RoundedCornerShape(18.dp))
-            .clickable(enabled = enabled && !captured, onClick = onRecord)
-            .padding(14.dp),
+    if (enabled && !captured) {
+        rowModifier = rowModifier.clickable(onClick = onRecord)
+    }
+    Row(
+        modifier = rowModifier.padding(14.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -529,6 +532,7 @@ private fun PcCareProofRetryButton(label: String, onClick: () -> Unit) {
         style = MeshaType.cta,
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
+            .minimumInteractiveComponentSize()
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
     )

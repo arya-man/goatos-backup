@@ -70,7 +70,17 @@ interface ProofArtifactValidator {
  * ITEM 6: For PROCESSED artifacts (encoder-controlled), metadata-probe failure is DEFINITIVE
  * rejection (no plausible-accept), while ORIGINAL camera files use the threshold.
  */
-class FileSystemProofArtifactValidator : ProofArtifactValidator {
+class FileSystemProofArtifactValidator internal constructor(
+    private val metadataProbe: (File) -> ProbeSuccess,
+    private val videoTrackDurationReader: (File) -> Long,
+    private val processedFrameDecoder: (File, Long) -> Boolean,
+) : ProofArtifactValidator {
+    constructor() : this(
+        metadataProbe = ::readMetadataProbe,
+        videoTrackDurationReader = ::readVideoTrackDurationMs,
+        processedFrameDecoder = ::canDecodeProcessedVideoFrames,
+    )
+
     // Threshold: if file is at least this many bytes AND probe threw (not succeeded-with-bad-data),
     // accept it (typical MP4 video header + keyframe is >100KB; a corrupt 0-byte file is unrecoverable)
     private val minAcceptableSizeBytes = 1024L  // 1 KB minimum
@@ -138,17 +148,7 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
             val fileSize = file.length()
 
             // Metadata must be readable (off-main thread; safe here)
-            val retriever = MediaMetadataRetriever()
-            val probeResult = try {
-                retriever.setDataSource(file.absolutePath)
-                val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                    ?.toLongOrNull() ?: 0L
-                val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
-                val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-                ProbeSuccess(duration, w, h)
-            } finally {
-                runCatching { retriever.release() }
-            }
+            val probeResult = metadataProbe(file)
 
             // B5: Probe succeeded; check validity of extracted metadata.
             if (probeResult.durationMs <= 0L) {
@@ -166,7 +166,7 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
                 )
             }
             if (!allowPlausibleAccept) {
-                val videoTrackDurationMs = readVideoTrackDurationMs(file)
+                val videoTrackDurationMs = videoTrackDurationReader(file)
                 if (videoTrackDurationMs <= 0L) {
                     return ProofArtifactValidator.ValidationResult(
                         isValid = false,
@@ -181,6 +181,15 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
                         isValid = false,
                         reason = "Recording video track ended before audio.",
                         failureKind = "processed_video_track_truncated",
+                        containerDurationMs = probeResult.durationMs,
+                        videoTrackDurationMs = videoTrackDurationMs,
+                    )
+                }
+                if (!processedFrameDecoder(file, probeResult.durationMs)) {
+                    return ProofArtifactValidator.ValidationResult(
+                        isValid = false,
+                        reason = "Recording could not be decoded after processing.",
+                        failureKind = "processed_video_decode_failed",
                         containerDurationMs = probeResult.durationMs,
                         videoTrackDurationMs = videoTrackDurationMs,
                     )
@@ -214,27 +223,69 @@ class FileSystemProofArtifactValidator : ProofArtifactValidator {
         }
     }
 
-    private fun readVideoTrackDurationMs(file: File): Long {
-        val extractor = MediaExtractor()
-        return try {
-            extractor.setDataSource(file.absolutePath)
-            for (index in 0 until extractor.trackCount) {
-                val format = extractor.getTrackFormat(index)
-                val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
-                if (!mime.startsWith("video/", ignoreCase = true)) continue
-                if (!format.containsKey(MediaFormat.KEY_DURATION)) return 0L
-                return (format.getLong(MediaFormat.KEY_DURATION) / 1_000L).coerceAtLeast(0L)
-            }
-            0L
-        } finally {
-            extractor.release()
-        }
-    }
-
-    private data class ProbeSuccess(val durationMs: Long, val width: String?, val height: String?)
+    internal data class ProbeSuccess(val durationMs: Long, val width: String?, val height: String?)
 
     private companion object {
         private const val MIN_VIDEO_TRACK_DURATION_RATIO = 0.80f
+
+        private fun readMetadataProbe(file: File): ProbeSuccess {
+            val retriever = MediaMetadataRetriever()
+            return try {
+                retriever.setDataSource(file.absolutePath)
+                val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull() ?: 0L
+                val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                ProbeSuccess(duration, w, h)
+            } finally {
+                runCatching { retriever.release() }
+            }
+        }
+
+        private fun canDecodeProcessedVideoFrames(file: File, durationMs: Long): Boolean {
+            val retriever = MediaMetadataRetriever()
+            return try {
+                retriever.setDataSource(file.absolutePath)
+                frameProbeTimesUs(durationMs).all { atUs ->
+                    val frame = retriever.getFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    try {
+                        frame != null && frame.width > 0 && frame.height > 0
+                    } finally {
+                        frame?.recycle()
+                    }
+                }
+            } catch (_: Throwable) {
+                false
+            } finally {
+                runCatching { retriever.release() }
+            }
+        }
+
+        private fun frameProbeTimesUs(durationMs: Long): List<Long> {
+            val safeDurationMs = durationMs.coerceAtLeast(1L)
+            val midpointMs = (safeDurationMs / 2L).coerceAtLeast(1L)
+            val nearEndMs = (safeDurationMs - 500L).coerceAtLeast(midpointMs)
+            return listOf(500L.coerceAtMost(safeDurationMs), midpointMs, nearEndMs)
+                .distinct()
+                .map { it * 1_000L }
+        }
+
+        private fun readVideoTrackDurationMs(file: File): Long {
+            val extractor = MediaExtractor()
+            return try {
+                extractor.setDataSource(file.absolutePath)
+                for (index in 0 until extractor.trackCount) {
+                    val format = extractor.getTrackFormat(index)
+                    val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
+                    if (!mime.startsWith("video/", ignoreCase = true)) continue
+                    if (!format.containsKey(MediaFormat.KEY_DURATION)) return 0L
+                    return (format.getLong(MediaFormat.KEY_DURATION) / 1_000L).coerceAtLeast(0L)
+                }
+                0L
+            } finally {
+                extractor.release()
+            }
+        }
     }
 }
 
