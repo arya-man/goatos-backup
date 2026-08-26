@@ -75,6 +75,7 @@ object MeshaIcons {
     val Close: ImageVector = strokeIcon("x", "M6 6l12 12M18 6L6 18")
     val Warn: ImageVector = strokeIcon("warn", "M12 4l9 16H3zM12 10v4.5M12 18h.01")
     val Check: ImageVector = strokeIcon("check", "M4 12.5l5 5L20 6.5")
+    val Flash: ImageVector = strokeIcon("flash", "M13 2.5 5.5 13h6L10.5 21.5 18.5 10h-6z")
 
     /** Approval queue: a decision to be made — a tick inside a boundary, not a bare tick
      *  (the bare [Check] already means "this is the active/selected thing"). */
@@ -349,9 +350,11 @@ object MeshaIcons {
         // Breeding is a mating-pair concept, not the herd-at-large -- see [Breeding] doc comment.
         "breeding" -> Breeding
         "aas_health", "health_adults", "health_kids" -> Health
+        "vaccination_stock" -> Package
         // Preventive Care module + its four category tabs. The module wears the shield-plus;
         // each tab names its own work so four tabs on one bar never share a mark.
         "pc_care" -> PcCare
+        "pc_inventory_vaccine" -> Package
         "pc_deworming" -> Deworming
         "pc_ticks" -> Tick
         "pc_hoof_trimming" -> HoofTrimming

@@ -14,3 +14,10 @@ fun pcCareSlotRegisterRefreshHook(repository: PcCareRepository): PostSuccessRefr
         val payload = syncJson.decodeFromString<PcCareSlotRegisterPayload>(payloadJson)
         repository.pollTaskOnce(payload.taskId)
     }
+
+/** Same refresh as slot registration, but task-proof rows carry a smaller payload shape. */
+fun pcCareTaskProofRegisterRefreshHook(repository: PcCareRepository): PostSuccessRefreshHook =
+    PostSuccessRefreshHook { payloadJson ->
+        val payload = syncJson.decodeFromString<PcCareTaskProofRegisterPayload>(payloadJson)
+        repository.pollTaskOnce(payload.taskId)
+    }

@@ -6,6 +6,7 @@ import { VaccinationShedBoard, VaccinationShedBoardSkeleton } from "@/features/v
 import { VaccinationFullScheduleButton } from "./vaccination-action-dialogs";
 import { VaccinationFullSchedule, VaccinationFullScheduleSkeleton, vaccinationScheduleYear } from "./full-vaccine-schedule";
 import { VaccinationCommandBoard, VaccinationCommandBoardSkeleton } from "./command-board";
+import { InventoryVaccineProgressSection } from "./inventory-vaccine-progress";
 
 // Preventive Care (PC) · Vaccination — the SHED-WISE operations floor:
 //   header (SOP · Full Schedule) → drive-mechanic band (Target → Group → Route → Execute)
@@ -56,6 +57,21 @@ export function VaccinationOperationsPage({
       {/* CEO command board — KPIs, cohort matrix, shed dose matrix, weekly given, verification queue. */}
       <Suspense fallback={<VaccinationCommandBoardSkeleton pageContract={pageContract} />}>
         <VaccinationCommandBoard pageContract={pageContract} searchParams={sp} driveBatchId={one(sp, "cb_drive")} driveParkId={one(sp, "cb_drive_park")} />
+      </Suspense>
+
+      <Suspense
+        fallback={
+          <section className="card" id="pc-care-inventory-progress">
+            <div className="hd">
+              <h2>Vaccine fridge stock checks</h2>
+            </div>
+            <div className="bd">
+              <div className="muted">Loading inventory task progress...</div>
+            </div>
+          </section>
+        }
+      >
+        <InventoryVaccineProgressSection searchParams={sp} />
       </Suspense>
 
       {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,

@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto
 import sg.mesha.goatos.core.network.dto.HealthOpenCaseResponseDto
+import sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto
 
 /**
  * Test double for [AppApi]: delegates to [FakeAppApi] by default (via Kotlin interface
@@ -41,6 +42,7 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
     var closeVaccinationBatchFn: (suspend (String, String) -> VerificationCloseSubmissionResponseDto)? = null
     var completeHealthWorkItemFn: (suspend (String, String, HealthCompleteRequestDto) -> HealthCompleteResponseDto)? = null
     var openHealthCaseFn: (suspend (String, HealthOpenCaseRequestDto) -> HealthOpenCaseResponseDto)? = null
+    var registerPcCareTaskProofFn: (suspend (String, String, String, PcCareSlotProofRequestDto) -> Unit)? = null
     val healthOpenCalls: MutableList<Pair<String, HealthOpenCaseRequestDto>> =
         java.util.concurrent.CopyOnWriteArrayList<Pair<String, HealthOpenCaseRequestDto>>()
     val healthCompleteCalls: MutableList<Pair<String, String>> =
@@ -56,6 +58,8 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
         java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
     val reviewEventCalls: MutableList<VerificationReviewEventBatchRequestDto> =
         java.util.concurrent.CopyOnWriteArrayList<VerificationReviewEventBatchRequestDto>()
+    val pcCareTaskProofCalls: MutableList<List<String>> =
+        java.util.concurrent.CopyOnWriteArrayList<List<String>>()
 
     /** Scripts the binary-PUT + complete step ([AppApi.uploadProofBlob]) — the hook a test
      *  installs to act as a fake object store: assert the (proofId, uploadUrl, filePath) it was
@@ -164,6 +168,17 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
         healthOpenCalls += idempotencyKey to request
         return openHealthCaseFn?.invoke(idempotencyKey, request)
             ?: delegate.openHealthCase(idempotencyKey, request)
+    }
+
+    override suspend fun registerPcCareTaskProof(
+        taskId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareSlotProofRequestDto,
+    ) {
+        pcCareTaskProofCalls += listOf(taskId, slot, idempotencyKey, request.proofRef)
+        registerPcCareTaskProofFn?.invoke(taskId, slot, idempotencyKey, request)
+            ?: delegate.registerPcCareTaskProof(taskId, slot, idempotencyKey, request)
     }
 
     override suspend fun uploadProofBlob(

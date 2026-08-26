@@ -53,9 +53,13 @@ fun PcCareWorklistScreen(
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
             title = state.title,
-            eyebrow = "Preventive Care",
+            eyebrow = state.moduleLabel,
             eyebrowColor = MeshaColors.BrandD,
-            subtitle = (pcCareFriendlyDate(state.dateLabel) ?: state.dateLabel).takeIf { it.isNotBlank() },
+            subtitle = if (state.showDateBar) {
+                (pcCareFriendlyDate(state.dateLabel) ?: state.dateLabel).takeIf { it.isNotBlank() }
+            } else {
+                null
+            },
             below = {
                 SyncStatusIndicator(
                     isRefreshing = state.isRefreshing,
@@ -75,11 +79,13 @@ fun PcCareWorklistScreen(
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            item(key = "date_bar") {
-                PcCareDateBar(
-                    selectedDateIso = state.dateLabel,
-                    onSelectDate = { onEvent(PcCareWorklistEvent.SelectDate(it)) },
-                )
+            if (state.showDateBar) {
+                item(key = "date_bar") {
+                    PcCareDateBar(
+                        selectedDateIso = state.dateLabel,
+                        onSelectDate = { onEvent(PcCareWorklistEvent.SelectDate(it)) },
+                    )
+                }
             }
 
             if (rows.itemCount == 0 && state.emptyMessage != null) {

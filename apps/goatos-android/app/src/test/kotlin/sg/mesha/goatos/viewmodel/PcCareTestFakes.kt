@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskProofDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.rfid.RfidRead
@@ -40,6 +41,7 @@ internal fun pcCareTaskDtoFixture(
         PcCareSlotDto(fieldKey = "during_video", label = "While trimming", minDurationHintSeconds = 10),
         PcCareSlotDto(fieldKey = "after_video", label = "After trimming"),
     ),
+    taskProofs: List<PcCareTaskProofDto> = emptyList(),
 ): PcCareTaskDto = PcCareTaskDto(
     taskId = taskId,
     category = category,
@@ -57,6 +59,7 @@ internal fun pcCareTaskDtoFixture(
     rowVersion = rowVersion,
     assigneeNames = listOf("Amit Kumar"),
     expectedSlots = expectedSlots,
+    taskProofs = taskProofs,
 )
 
 internal fun pcCareAnimalEntity(
@@ -83,16 +86,22 @@ internal fun pcCareAnimalEntity(
 internal class FakePcCareRepository : PcCareRepository {
     val detailFlow = MutableStateFlow<PcCareTaskDto?>(null)
     val animalsFlow = MutableStateFlow<List<PcCareAnimalRowEntity>>(emptyList())
+    val worklistQueries = mutableListOf<PcCareWorklistQuery>()
+    var worklistTasks: List<PcCareTaskDto> = emptyList()
 
     var scanEnqueues = 0
         private set
     var submitCalls = mutableListOf<Pair<String, Int>>()
     var slotRegistrations = mutableListOf<List<String>>()
+    var taskProofRegistrations = mutableListOf<List<String>>()
     var pollCount = 0
         private set
     var failNextSubmit = false
 
-    override fun worklistRows(query: PcCareWorklistQuery) = flowOf<androidx.paging.PagingData<PcCareTaskDto>>()
+    override fun worklistRows(query: PcCareWorklistQuery): Flow<androidx.paging.PagingData<PcCareTaskDto>> {
+        worklistQueries += query
+        return flowOf(androidx.paging.PagingData.from(worklistTasks))
+    }
     val invalidatedWorklistQueries = mutableListOf<PcCareWorklistQuery>()
     override suspend fun invalidateWorklist(query: PcCareWorklistQuery) {
         invalidatedWorklistQueries += query
@@ -145,6 +154,15 @@ internal class FakePcCareRepository : PcCareRepository {
     ): AppResult<String> {
         slotRegistrations += listOf(taskId, normalizedTag, slotFieldKey, proofOutboxItemId)
         return AppResult.Ok("slot-outbox-${slotRegistrations.size}")
+    }
+
+    override suspend fun registerTaskProof(
+        taskId: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ): AppResult<String> {
+        taskProofRegistrations += listOf(taskId, slotFieldKey, proofOutboxItemId)
+        return AppResult.Ok("task-proof-outbox-${taskProofRegistrations.size}")
     }
 
     override suspend fun submitTask(taskId: String, rowVersion: Int): AppResult<String> {

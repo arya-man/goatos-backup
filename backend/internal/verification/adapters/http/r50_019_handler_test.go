@@ -118,6 +118,37 @@ func TestVerificationCategoryModuleDutyAllowsAssignedVerifierAndCEO(t *testing.T
 	})
 }
 
+func TestInventoryVaccineCategoryAllowsPCCareVerifierDuty(t *testing.T) {
+	const (
+		tenantID = "10000000-0000-4000-8000-000000000001"
+		actorID  = "20000000-0000-4000-8000-000000000002"
+	)
+	repo := &moduleDutyQueueRepo{}
+	service := verificationapp.NewService(repo, nil)
+	if err := service.RegisterCategory(domain.CategoryDefinition{
+		Vertical: "preventive_care", Module: "pc_care", Category: "inventory_vaccine",
+		NavigationModule: "pc_care", NavigationModuleLabel: "Preventive Care", PageKey: "inventory_vaccine", PageLabel: "Vaccine Inventory",
+	}); err != nil {
+		t.Fatalf("register category: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/verify/alerts?category=inventory_vaccine&limit=20", nil)
+	ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+	ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{
+		Role: permissions.RoleVerifier, ScopeType: "tenant", ScopeID: tenantID,
+	}})
+	handler := NewHandler(service).WithModuleDutyReader(moduleDutyReader{modules: []string{"pc_care"}})
+	rec := httptest.NewRecorder()
+	handler.ListAlerts(rec, req.WithContext(ctx))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected pc_care verifier duty to read inventory_vaccine queue, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if repo.listCalls != 1 {
+		t.Fatalf("queue reads=%d, want 1", repo.listCalls)
+	}
+}
+
 // R50-019: Mixed-grant handler test — hasTenantWidePermission must not
 // escape scope. It checks if the actor has the requested permission at the
 // tenant scope (ScopeType="tenant", ScopeID=tenantID).

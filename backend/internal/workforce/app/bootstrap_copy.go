@@ -31,6 +31,9 @@ type moduleNavContribution struct {
 	// permissions.routePermissions requires the same permission, so an unlisted page is
 	// unreachable rather than merely invisible.
 	requiredPermission string
+	// requiredRole is reserved for role-owned chrome whose backing API permission is intentionally
+	// broader than the people who should see this module tab.
+	requiredRole string
 	// requiredAnyPermission gates a nav item when any one of several authorities can
 	// use the surface, e.g. Weighing is visible to planners, monitors, and executors
 	// but each command remains route/API-authorized by its own permission.
@@ -87,9 +90,10 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:            moduleStatusAvailable,
 		priority:          1,
 		contributions: []moduleNavContribution{
-			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead}, //nav-composition:ignore: registry entry
-			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},         //nav-composition:ignore: registry entry
-			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},     //nav-composition:ignore: registry entry
+			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead},                                             //nav-composition:ignore: registry entry
+			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},                                                     //nav-composition:ignore: registry entry
+			{key: "vaccination_stock", labelKey: "nav.stock", href: "/vaccination/stock", shared_key: "", priority: 0, requiredPermission: permissions.PCCareExecute, requiredRole: permissions.RolePCDirector}, //nav-composition:ignore: registry entry
+			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},                                                 //nav-composition:ignore: registry entry
 			// Leadership's Videos tab is a REVIEW/audit surface (context/architecture/
 			// verifier-app-and-flow.md; verdict-exclusivity rule in AGENTS.md): it must show the
 			// complete evidence trail -- pending, approved, rejected, AND already-closed proofs --
@@ -471,6 +475,9 @@ func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) 
 		if !grantsHavePermission(grants, contrib.requiredPermission) {
 			continue
 		}
+		if contrib.requiredRole != "" && !hasRole(grants, contrib.requiredRole) {
+			continue
+		}
 		if !grantsHaveAnyPermission(grants, contrib.requiredAnyPermission) {
 			continue
 		}
@@ -574,7 +581,11 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	// Growth Director is a separate specialty and may be held alongside them, so the sets are
 	// unioned rather than returned early. appendMissing keeps the result duplicate-free: a
 	// principal holding BOTH would otherwise contribute "weighing" twice and render it twice.
-	if hasRole(grants, permissions.RolePCDirector) || hasRole(grants, permissions.RoleParkHead) {
+	if hasRole(grants, permissions.RolePCDirector) {
+		// Inventory-vaccine stock work is vaccine-owned chrome even though it executes on the
+		// PC Care task API, so Vaccination must be the first offered phone surface.
+		keys = appendMissing(keys, "vaccination", "pc_care", "weighing", "aas_health")
+	} else if hasRole(grants, permissions.RoleParkHead) {
 		keys = appendMissing(keys, "vaccination", "weighing", "aas_health", "pc_care")
 	}
 	if hasRole(grants, permissions.RoleGrowthDirector) {
@@ -1167,6 +1178,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.milk_feeding":     "Milk Feeding",
 		"nav.colostrum":        "Colostrum",
 		"nav.feed_direction":   "Feed Direction",
+		"nav.stock":            "Stock",
 		"nav.feed_packing":     "Feed Packing",
 		"nav.feed_wastage":     "Feed Wastage",
 		"nav.pc_deworming":     "Deworming",
@@ -1214,6 +1226,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.milk_feeding":     "दूध पिलाना",
 		"nav.colostrum":        "खीस",
 		"nav.feed_direction":   "फ़ीड दिशा",
+		"nav.stock":            "स्टॉक",
 		"nav.feed_packing":     "फ़ीड पैकिंग",
 		"nav.feed_wastage":     "फ़ीड बर्बादी",
 		"nav.pc_deworming":     "डीवर्मिंग",
@@ -1261,6 +1274,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.milk_feeding":     "ಹಾಲು ಕುಡಿಸುವುದು",
 		"nav.colostrum":        "ಗಿಣ್ಣು ಹಾಲು",
 		"nav.feed_direction":   "ಆಹಾರ ನಿರ್ದೇಶನ",
+		"nav.stock":            "ಸ್ಟಾಕ್",
 		"nav.feed_packing":     "ಆಹಾರ ಪ್ಯಾಕಿಂಗ್",
 		"nav.feed_wastage":     "ಆಹಾರ ವ್ಯರ್ಥ",
 		"nav.pc_deworming":     "ಜಂತುಹುಳು ನಿವಾರಣೆ",
@@ -1308,6 +1322,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.milk_feeding":     "పాలు పట్టించడం",
 		"nav.colostrum":        "జున్నుపాలు",
 		"nav.feed_direction":   "ఫీడ్ దిశ",
+		"nav.stock":            "స్టాక్",
 		"nav.feed_packing":     "ఫీడ్ ప్యాకింగ్",
 		"nav.feed_wastage":     "ఫీడ్ వృథా",
 		"nav.pc_deworming":     "నట్టల నివారణ",

@@ -3,7 +3,9 @@ package postgres
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/vgoats/goatos/backend/internal/pccare/domain"
 	"github.com/vgoats/goatos/backend/internal/pccare/ports"
 )
 
@@ -17,7 +19,7 @@ import (
 // so casting the empty-string cursor component straight to uuid raised 22P02 before a single
 // row was read. Every optional uuid parameter in that predicate must stay nullif-guarded.
 //
-// Gated by pgtest.SkipIfNoDocker + GOATOS_RUN_POSTGRES_TESTS.
+// Gated by the repository's postgres integration test harness.
 func TestListTasksFirstPageServesWithEmptyOptionalFilters(t *testing.T) {
 	ctx := context.Background()
 	repo, _ := setupPCCareDB(t, ctx)
@@ -107,4 +109,69 @@ func TestListTasksKeysetCursorResumesAfterFirstPage(t *testing.T) {
 	if !seen[first.TaskID] || !seen[second.TaskID] {
 		t.Fatalf("keyset walk missed a task: saw %v", seen)
 	}
+}
+
+func TestListTasksCurrentOrCarryHidesOldCompletedButKeepsCarryAndTodayDone(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupPCCareDB(t, ctx)
+
+	oldOpen := createPCTask(t, ctx, repo, domain.CategoryDeworming, "idem-carry-old-open")
+	oldDone := createPCTask(t, ctx, repo, domain.CategoryTicksRemoval, "idem-carry-old-done")
+	currentDone, err := repo.CreateTask(ctx, ports.CreateTaskParams{
+		TenantID:            pcTenant,
+		Category:            domain.CategoryHoofTrimming,
+		ParkID:              pcPark,
+		ShedID:              pcShedA,
+		PlannedBusinessDate: pcBusinessDay(2026, time.August, 22),
+		AssigneeUserIDs:     []string{pcOperator1},
+		IdempotencyKey:      "idem-carry-current-done",
+		CreatedBy:           pcVerifier,
+		ActorID:             pcVerifier,
+		ActorType:           "human",
+		TraceID:             "trace-carry-current-done",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask currentDone: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+UPDATE pc_care_tasks
+SET status = 'completed', work_state = 'completed'
+WHERE tenant_id = $1::uuid AND task_id IN ($2::uuid, $3::uuid)`,
+		pcTenant, oldDone.TaskID, currentDone.TaskID); err != nil {
+		t.Fatalf("mark completed: %v", err)
+	}
+
+	page, err := repo.ListTasks(ctx, ports.ListTasksQuery{
+		TenantID:        pcTenant,
+		DueBusinessDate: "2026-08-22",
+		TenantWide:      true,
+		AssigneeUserID:  pcOperator1,
+		CurrentOrCarry:  true,
+		Limit:           20,
+	})
+	if err != nil {
+		t.Fatalf("ListTasks CurrentOrCarry: %v", err)
+	}
+	got := map[string]ports.TaskRow{}
+	for _, item := range page.Items {
+		got[item.TaskID] = item
+	}
+	if _, ok := got[oldOpen.TaskID]; !ok {
+		t.Fatalf("old open carry-over task %s missing; got %v", oldOpen.TaskID, taskIDs(page.Items))
+	}
+	if _, ok := got[currentDone.TaskID]; !ok {
+		t.Fatalf("current-day completed task %s missing; got %v", currentDone.TaskID, taskIDs(page.Items))
+	}
+	if _, ok := got[oldDone.TaskID]; ok {
+		t.Fatalf("old completed task %s should not appear in current/carry worklist; got %v", oldDone.TaskID, taskIDs(page.Items))
+	}
+}
+
+func taskIDs(items []ports.TaskRow) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.TaskID)
+	}
+	return out
 }

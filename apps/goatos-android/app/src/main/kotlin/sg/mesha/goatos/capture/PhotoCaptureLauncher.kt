@@ -2,6 +2,7 @@ package sg.mesha.goatos.capture
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -31,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,7 +51,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import sg.mesha.goatos.R
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -122,6 +127,12 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
     var cameraError by remember { mutableStateOf<String?>(null) }
     var isCapturing by remember { mutableStateOf(false) }
     var resultDelivered by remember { mutableStateOf(false) }
+    var boundCamera by remember { mutableStateOf<Camera?>(null) }
+    var previewView by remember { mutableStateOf<PreviewView?>(null) }
+    var hasFlashUnit by remember { mutableStateOf(false) }
+    var torchMode by remember { mutableStateOf(ProofTorchMode.AUTO) }
+    var lowLight by remember { mutableStateOf(false) }
+    var torchEnabled by remember { mutableStateOf(false) }
 
     fun deliver(result: CapturedPhoto?) {
         if (resultDelivered) return
@@ -162,6 +173,20 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
 
     BackHandler(onBack = ::cancel)
 
+    LaunchedEffect(cameraReady, hasFlashUnit, torchMode, previewView) {
+        while (cameraReady && hasFlashUnit && torchMode == ProofTorchMode.AUTO) {
+            val bitmap = previewView?.bitmap
+            lowLight = withContext(Dispatchers.Default) { isLowLightPreview(bitmap) }
+            delay(1200L)
+        }
+    }
+
+    LaunchedEffect(boundCamera, hasFlashUnit, torchMode, lowLight) {
+        val shouldEnable = proofTorchEnabled(torchMode, lowLight, hasFlashUnit)
+        torchEnabled = shouldEnable
+        runCatching { boundCamera?.cameraControl?.enableTorch(shouldEnable) }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             imageCapture = null
@@ -178,13 +203,16 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
         androidx.compose.ui.viewinterop.AndroidView(
             factory = { ctx ->
                 PreviewView(ctx).also { view ->
+                    previewView = view
                     view.scaleType = PreviewView.ScaleType.FILL_CENTER
                     cameraSession.bind(
                         context = ctx,
                         previewView = view,
                         lifecycleOwner = lifecycleOwner,
-                        onBound = { capture ->
+                        onBound = { capture, camera ->
                             imageCapture = capture
+                            boundCamera = camera
+                            hasFlashUnit = camera.cameraInfo.hasFlashUnit()
                             cameraReady = true
                             cameraError = null
                         },
@@ -198,6 +226,10 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
             onRelease = {
                 cameraReady = false
                 imageCapture = null
+                boundCamera = null
+                previewView = null
+                hasFlashUnit = false
+                torchEnabled = false
                 cameraSession.release()
             },
             modifier = Modifier.fillMaxSize(),
@@ -244,8 +276,49 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
                 enabled = cameraReady && !isCapturing,
                 onClick = ::takePhoto,
             )
-            Spacer(Modifier.size(48.dp)) // balances the cancel control.
+            if (hasFlashUnit) {
+                TorchIconButton(
+                    mode = torchMode,
+                    torchEnabled = torchEnabled,
+                    onClick = { torchMode = torchMode.next() },
+                )
+            } else {
+                Spacer(Modifier.size(48.dp)) // balances the cancel control.
+            }
         }
+    }
+}
+
+@Composable
+private fun TorchIconButton(
+    mode: ProofTorchMode,
+    torchEnabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val label = stringResource(proofTorchLabelRes(mode, torchEnabled))
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .minimumInteractiveComponentSize()
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(
+                if (torchEnabled) {
+                    MeshaColors.BrandTint
+                } else {
+                    MeshaColors.Surf3
+                },
+            )
+            .semantics {
+                contentDescription = label
+                role = Role.Button
+            },
+    ) {
+        Icon(
+            MeshaIcons.Flash,
+            contentDescription = null,
+            tint = if (torchEnabled) MeshaColors.BrandD else MeshaColors.Ink,
+        )
     }
 }
 
@@ -282,12 +355,13 @@ private class PhotoCameraSession {
     private var provider: ProcessCameraProvider? = null
     private var preview: Preview? = null
     private var capture: ImageCapture? = null
+    private var camera: Camera? = null
 
     fun bind(
         context: Context,
         previewView: PreviewView,
         lifecycleOwner: androidx.lifecycle.LifecycleOwner,
-        onBound: (ImageCapture) -> Unit,
+        onBound: (ImageCapture, Camera) -> Unit,
         onError: (Throwable) -> Unit,
     ) {
         val bindGeneration = ++generation
@@ -304,7 +378,7 @@ private class PhotoCameraSession {
                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                         .build()
                     cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
+                    val boundCamera = cameraProvider.bindToLifecycle(
                         lifecycleOwner,
                         CameraSelector.DEFAULT_BACK_CAMERA,
                         cameraPreview,
@@ -313,7 +387,8 @@ private class PhotoCameraSession {
                     provider = cameraProvider
                     preview = cameraPreview
                     capture = imageCapture
-                    onBound(imageCapture)
+                    camera = boundCamera
+                    onBound(imageCapture, boundCamera)
                 }.onFailure(onError)
             },
             ContextCompat.getMainExecutor(context),
@@ -323,10 +398,12 @@ private class PhotoCameraSession {
     fun release() {
         generation += 1
         val currentProvider = provider
+        runCatching { camera?.cameraControl?.enableTorch(false) }
         preview?.let { useCase -> runCatching { currentProvider?.unbind(useCase) } }
         capture?.let { useCase -> runCatching { currentProvider?.unbind(useCase) } }
         preview = null
         capture = null
+        camera = null
         provider = null
     }
 }

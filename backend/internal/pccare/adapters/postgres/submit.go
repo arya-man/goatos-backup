@@ -20,10 +20,10 @@ import (
 
 const (
 	pcCarePendingVerificationEventType     = "pc_care.task.pending_verification"
-	pcCarePendingVerificationSchemaVersion = "v1"
+	pcCarePendingVerificationSchemaVersion = "1.0.0"
 	pcCarePendingVerificationSchemaRef     = "contracts/jsonschema/domain-event-envelope.schema.json"
 	pcCarePendingVerificationTopic         = "pc_care.events"
-	pcCarePendingVerificationAggregateType = "pc_care_task"
+	pcCarePendingVerificationAggregateType = "verification_item"
 )
 
 // SubmitTask flips the WHOLE task open|rework -> pending_verification once every scanned
@@ -119,10 +119,30 @@ FOR UPDATE`, p.TenantID, p.TaskID).Scan(
 		return ports.SubmitTaskResult{}, domain.ErrTaskNotOpen
 	}
 
-	// Readiness: every scanned animal must carry every slot the category demands. ONE bounded
-	// count per submit (a write, not a list), category-aware.
-	var animalCount, missingCount int
-	if err := tx.QueryRow(ctx, `
+	var animalCount int
+	var mediaRefs []ports.LabeledRef
+	if category == domain.CategoryInventoryVaccine {
+		var err error
+		var requirementCount int
+		if err := tx.QueryRow(ctx, `
+SELECT count(*)::int
+FROM pc_care_task_inventory_requirements
+WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND required_doses > 0`,
+			p.TenantID, p.TaskID).Scan(&requirementCount); err != nil {
+			return ports.SubmitTaskResult{}, fmt.Errorf("pccare: inventory requirement count: %w", err)
+		}
+		if requirementCount == 0 {
+			return ports.SubmitTaskResult{}, domain.ErrProofIncomplete
+		}
+		mediaRefs, animalCount, err = r.inventoryTaskProofMediaRefs(ctx, tx, p.TenantID, p.TaskID)
+		if err != nil {
+			return ports.SubmitTaskResult{}, err
+		}
+	} else {
+		// Readiness: every scanned animal must carry every slot the category demands. ONE bounded
+		// count per submit (a write, not a list), category-aware.
+		var missingCount int
+		if err := tx.QueryRow(ctx, `
 SELECT count(*)::int,
        count(*) FILTER (
          WHERE CASE WHEN $3::bool
@@ -132,16 +152,17 @@ SELECT count(*)::int,
        )::int
 FROM pc_care_task_animals
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid`,
-		p.TenantID, p.TaskID,
-		category == domain.CategoryDeworming || category == domain.CategoryTicksRemoval,
-	).Scan(&animalCount, &missingCount); err != nil {
-		return ports.SubmitTaskResult{}, fmt.Errorf("pccare: submit readiness count: %w", err)
-	}
-	if animalCount == 0 {
-		return ports.SubmitTaskResult{}, domain.ErrNoAnimals
-	}
-	if missingCount > 0 {
-		return ports.SubmitTaskResult{}, domain.ErrProofIncomplete
+			p.TenantID, p.TaskID,
+			category == domain.CategoryDeworming || category == domain.CategoryTicksRemoval,
+		).Scan(&animalCount, &missingCount); err != nil {
+			return ports.SubmitTaskResult{}, fmt.Errorf("pccare: submit readiness count: %w", err)
+		}
+		if animalCount == 0 {
+			return ports.SubmitTaskResult{}, domain.ErrNoAnimals
+		}
+		if missingCount > 0 {
+			return ports.SubmitTaskResult{}, domain.ErrProofIncomplete
+		}
 	}
 
 	if err := tx.QueryRow(ctx, `
@@ -164,9 +185,12 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, p.TenantID, p.TaskID); err !
 		return ports.SubmitTaskResult{}, fmt.Errorf("pccare: stamp animal submits: %w", err)
 	}
 
-	mediaRefs, err := r.composeSubmitMediaRefs(ctx, tx, p.TenantID, p.TaskID, category)
-	if err != nil {
-		return ports.SubmitTaskResult{}, err
+	if category != domain.CategoryInventoryVaccine {
+		var err error
+		mediaRefs, err = r.composeSubmitMediaRefs(ctx, tx, p.TenantID, p.TaskID, category)
+		if err != nil {
+			return ports.SubmitTaskResult{}, err
+		}
 	}
 
 	actorType := strings.TrimSpace(p.ActorType)

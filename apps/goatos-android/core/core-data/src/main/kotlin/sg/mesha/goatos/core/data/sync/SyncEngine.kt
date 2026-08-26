@@ -460,6 +460,7 @@ class SyncEngine(
         OutboxOpType.WEIGHING_SCOPE_SUBMIT -> dispatchWeighingScopeSubmit(item)
         OutboxOpType.PC_CARE_SCAN_ADD -> dispatchPcCareScanAdd(item)
         OutboxOpType.PC_CARE_SLOT_REGISTER -> dispatchPcCareSlotRegister(item)
+        OutboxOpType.PC_CARE_TASK_PROOF_REGISTER -> dispatchPcCareTaskProofRegister(item)
         OutboxOpType.PC_CARE_TASK_SUBMIT -> dispatchPcCareTaskSubmit(item)
     }
 
@@ -1123,6 +1124,19 @@ class SyncEngine(
             ),
         )
         // The route returns no body; store an empty JSON object like other body-less successes.
+        return "{}"
+    }
+
+    private suspend fun dispatchPcCareTaskProofRegister(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PcCareTaskProofRegisterPayload>(item.payloadJson)
+        api.registerPcCareTaskProof(
+            payload.taskId,
+            payload.slotFieldKey,
+            item.idempotencyKey,
+            sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto(
+                proofRef = resolveUploadedProofRef(payload.proofOutboxItemId),
+            ),
+        )
         return "{}"
     }
 

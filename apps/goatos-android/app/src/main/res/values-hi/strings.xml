@@ -41,6 +41,10 @@
     <string name="proof_camera_state_ready">रिकॉर्ड करने के लिए तैयार</string>
     <string name="proof_camera_state_recording">रिकॉर्डिंग जारी है</string>
     <string name="proof_camera_upload_background">प्रमाण अपलोड पृष्ठभूमि में जारी हैं</string>
+    <string name="proof_camera_flash_auto">फ़्लैश ऑटो</string>
+    <string name="proof_camera_flash_auto_on">फ़्लैश ऑटो · चालू</string>
+    <string name="proof_camera_flash_on">फ़्लैश चालू</string>
+    <string name="proof_camera_flash_off">फ़्लैश बंद</string>
     <string name="proof_photo_title">प्रमाण फ़ोटो लें</string>
     <string name="proof_photo_instruction">प्रमाण के विषय को साफ़ दिखाई देने दें</string>
     <string name="proof_photo_feed_weight_title">फ़ीड वज़न फ़ोटो लें</string>

@@ -51,6 +51,8 @@ data class PcCareTaskCardUi(
 data class PcCareWorklistUiState(
     /** The tab's title — the backend nav label passed through, so the screen never invents one. */
     val title: String = "",
+    /** Visible module eyebrow for the hosted tab. */
+    val moduleLabel: String = "Preventive Care",
     /** ISO business date currently shown. */
     val dateLabel: String = "",
     /** Today's business date (Asia/Kolkata), the date bar's upper bound. */
@@ -59,6 +61,7 @@ data class PcCareWorklistUiState(
     val lastSyncedAt: Long? = null,
     val emptyMessage: String? = null,
     val isErrorEmpty: Boolean = false,
+    val showDateBar: Boolean = true,
 )
 
 sealed interface PcCareWorklistEvent {
@@ -137,6 +140,8 @@ data class PcCareTaskUiState(
     /** Transient scan notice ("Already scanned · 1234"); auto-dismissed by the ViewModel. */
     val scanNotice: String = "",
     val animals: List<PcCareAnimalUi> = emptyList(),
+    val inventoryRequirements: List<PcCareInventoryRequirementUi> = emptyList(),
+    val taskProofSlot: PcCareSlotChipUi? = null,
     val animalCountLabel: String = "",
     val submitEnabled: Boolean = false,
     /** Why submit is blocked ("2 animals still need videos"); blank when submittable. */
@@ -168,6 +173,12 @@ data class PcCareTaskUiState(
     val focusAnimal: PcCareAnimalUi? = null,
 )
 
+@Immutable
+data class PcCareInventoryRequirementUi(
+    val vaccineLabel: String,
+    val requiredDosesLabel: String,
+)
+
 /** One tappable pen-roster row: the animal's RFID and its video state. */
 @Immutable
 data class PcCareRosterRowUi(
@@ -187,6 +198,7 @@ sealed interface PcCareTaskEvent {
     data class ScanInputChanged(val value: String) : PcCareTaskEvent
     data object SubmitTypedScan : PcCareTaskEvent
     data class RecordSlot(val tagKey: String, val slotFieldKey: String) : PcCareTaskEvent
+    data class RecordTaskProof(val slotFieldKey: String, val mediaKind: String) : PcCareTaskEvent
     data object Submit : PcCareTaskEvent
     data object ConfirmSubmit : PcCareTaskEvent
     data object DismissSubmitConfirmation : PcCareTaskEvent

@@ -64,4 +64,24 @@ class ExecutionRouteIdentityTest {
         assertTrue(vaccinationRoute.contains("shedExecutionRoute(selected, Routes.VACCINATION)"))
         assertFalse(vaccinationRoute.contains("Leadership"))
     }
+
+    @Test
+    fun `vaccination stock route opens inventory category worklist`() {
+        assertEquals("/vaccination/stock", Routes.VACCINATION_STOCK)
+        assertEquals("/pc/inventory-vaccine", Routes.PC_INVENTORY_VACCINE)
+
+        val navHost = Path.of("src/main/kotlin/sg/mesha/goatos/ui/AppNavHost.kt").readText()
+        val stockBinding =
+            """pcCareCategoryComposable\(\s*Routes\.VACCINATION_STOCK,\s*"inventory_vaccine",\s*"Stock"""".toRegex()
+        val binding = """pcCareCategoryComposable\(Routes\.PC_INVENTORY_VACCINE,\s*"inventory_vaccine",\s*"Vaccine Stock"""".toRegex()
+
+        assertTrue(
+            "The backend bootstrap href /vaccination/stock must stay wired to the inventory_vaccine task category.",
+            stockBinding.containsMatchIn(navHost),
+        )
+        assertTrue(
+            "The legacy /pc/inventory-vaccine route stays wired as a compatibility route.",
+            binding.containsMatchIn(navHost),
+        )
+    }
 }

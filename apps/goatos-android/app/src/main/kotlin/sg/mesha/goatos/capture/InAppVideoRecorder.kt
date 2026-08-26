@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -112,6 +113,12 @@ fun InAppVideoRecorderOverlay(
     var previewTimeoutTriggered by remember { mutableStateOf(false) }
     var retryGeneration by remember { mutableStateOf(0) }
     var pendingValidation by remember { mutableStateOf<File?>(null) }  // HIGH-2: validation off-main
+    var boundCamera by remember { mutableStateOf<Camera?>(null) }
+    var previewView by remember { mutableStateOf<PreviewView?>(null) }
+    var hasFlashUnit by remember { mutableStateOf(false) }
+    var torchMode by remember { mutableStateOf(ProofTorchMode.AUTO) }
+    var lowLight by remember { mutableStateOf(false) }
+    var torchEnabled by remember { mutableStateOf(false) }
 
     fun deliver(result: CapturedVideo?) {
         if (resultDelivered) return
@@ -202,6 +209,20 @@ fun InAppVideoRecorderOverlay(
         }
     }
 
+    LaunchedEffect(previewStreaming, hasFlashUnit, torchMode, previewView) {
+        while (previewStreaming && hasFlashUnit && torchMode == ProofTorchMode.AUTO) {
+            val bitmap = previewView?.bitmap
+            lowLight = withContext(Dispatchers.Default) { isLowLightPreview(bitmap) }
+            delay(1200L)
+        }
+    }
+
+    LaunchedEffect(boundCamera, hasFlashUnit, torchMode, lowLight) {
+        val shouldEnable = proofTorchEnabled(torchMode, lowLight, hasFlashUnit)
+        torchEnabled = shouldEnable
+        runCatching { boundCamera?.cameraControl?.enableTorch(shouldEnable) }
+    }
+
     // HIGH-2: Validate off-main to avoid jank at Stop-tap
     LaunchedEffect(pendingValidation) {
         val fileToValidate = pendingValidation
@@ -249,6 +270,7 @@ fun InAppVideoRecorderOverlay(
             androidx.compose.ui.viewinterop.AndroidView(
             factory = { ctx ->
                 PreviewView(ctx).also { view ->
+                    previewView = view
                     view.scaleType = PreviewView.ScaleType.FILL_CENTER
                     // Gate 1: Monitor preview stream state
                     view.previewStreamState.observe(lifecycleOwner) { streamState ->
@@ -261,8 +283,10 @@ fun InAppVideoRecorderOverlay(
                         context = ctx,
                         previewView = view,
                         lifecycleOwner = lifecycleOwner,
-                        onBound = { capture ->
+                        onBound = { capture, camera ->
                             videoCapture = capture
+                            boundCamera = camera
+                            hasFlashUnit = camera.cameraInfo.hasFlashUnit()
                             cameraReady = true
                             cameraError = null
                         },
@@ -278,6 +302,10 @@ fun InAppVideoRecorderOverlay(
                 cameraReady = false
                 previewStreaming = false
                 videoCapture = null
+                boundCamera = null
+                previewView = null
+                hasFlashUnit = false
+                torchEnabled = false
                 cameraSession.release()
             },
             modifier = Modifier.fillMaxSize(),
@@ -346,6 +374,15 @@ fun InAppVideoRecorderOverlay(
                 style = MeshaType.caption,
             )
             Spacer(Modifier.height(12.dp))
+            if (hasFlashUnit) {
+                TorchModeButton(
+                    mode = torchMode,
+                    torchEnabled = torchEnabled,
+                    onClick = { torchMode = torchMode.next() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+            }
             StopRecordingButton(
                 isRecording = isRecording,
                 enabled = previewStreaming && !previewTimeoutTriggered,
@@ -357,6 +394,10 @@ fun InAppVideoRecorderOverlay(
                     cameraSession.release()
                     cameraReady = false
                     videoCapture = null
+                    boundCamera = null
+                    previewView = null
+                    hasFlashUnit = false
+                    torchEnabled = false
                     previewStreaming = false
                     retryGeneration++ // CRITICAL-1: increment to force AndroidView factory re-run + rebind
                 },
@@ -678,6 +719,36 @@ private fun StopRecordingButton(
     }
 }
 
+@Composable
+private fun TorchModeButton(
+    mode: ProofTorchMode,
+    torchEnabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val label = stringResource(proofTorchLabelRes(mode, torchEnabled))
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MeshaColors.Surf.copy(alpha = 0.72f),
+            contentColor = if (torchEnabled) MeshaColors.BrandD else MeshaColors.Ink,
+        ),
+        shape = RoundedCornerShape(16.dp),
+        modifier = modifier
+            .minimumInteractiveComponentSize()
+            .height(48.dp)
+            .semantics {
+                contentDescription = label
+                stateDescription = label
+                role = Role.Button
+            },
+    ) {
+        Icon(MeshaIcons.Flash, contentDescription = null)
+        Spacer(Modifier.width(8.dp))
+        Text(text = label, style = MeshaType.button)
+    }
+}
+
 /** Owns exactly the CameraX use cases bound to the Compose-hosted [PreviewView].
  * bindToLifecycle stops capture while the Activity is stopped; [release] handles the more common
  * in-Activity route/dialog dismissal and invalidates any still-pending provider callback. */
@@ -686,12 +757,13 @@ private class ProofCameraSession {
     private var provider: ProcessCameraProvider? = null
     private var preview: Preview? = null
     private var capture: VideoCapture<Recorder>? = null
+    private var camera: Camera? = null
 
     fun bind(
         context: Context,
         previewView: PreviewView,
         lifecycleOwner: androidx.lifecycle.LifecycleOwner,
-        onBound: (VideoCapture<Recorder>) -> Unit,
+        onBound: (VideoCapture<Recorder>, Camera) -> Unit,
         onError: (Throwable) -> Unit,
     ) {
         val bindGeneration = ++generation
@@ -707,7 +779,7 @@ private class ProofCameraSession {
                     val recorder = Recorder.Builder().setQualitySelector(QualitySelector.from(Quality.HD)).build()
                     val videoCapture = VideoCapture.withOutput(recorder)
                     cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
+                    val boundCamera = cameraProvider.bindToLifecycle(
                         lifecycleOwner,
                         CameraSelector.DEFAULT_BACK_CAMERA,
                         cameraPreview,
@@ -716,7 +788,8 @@ private class ProofCameraSession {
                     provider = cameraProvider
                     preview = cameraPreview
                     capture = videoCapture
-                    onBound(videoCapture)
+                    camera = boundCamera
+                    onBound(videoCapture, boundCamera)
                 }.onFailure(onError)
             },
             ContextCompat.getMainExecutor(context),
@@ -726,10 +799,12 @@ private class ProofCameraSession {
     fun release() {
         generation += 1
         val currentProvider = provider
+        runCatching { camera?.cameraControl?.enableTorch(false) }
         preview?.let { useCase -> runCatching { currentProvider?.unbind(useCase) } }
         capture?.let { useCase -> runCatching { currentProvider?.unbind(useCase) } }
         preview = null
         capture = null
+        camera = null
         provider = null
     }
 }

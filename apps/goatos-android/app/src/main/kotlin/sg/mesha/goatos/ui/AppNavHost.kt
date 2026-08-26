@@ -411,10 +411,15 @@ object Routes {
     // href:"/feed/wastage"}), so registering the route is what makes the tab work.
     const val FEED_WASTAGE = "/feed/wastage"
 
-    // PC Care module bar (backend module `pc_care`, maintainer decision 2026-08-21). The four
+    // Vaccination-owned stock tab. It renders the inventory_vaccine PC Care task queue because
+    // the work is assigned to the PC Director, but the phone chrome belongs under Vaccination.
+    const val VACCINATION_STOCK = "/vaccination/stock"
+
+    // PC Care module bar (backend module `pc_care`, maintainer decision 2026-08-21). The
     // category worklists are L0 roots matching the backend-composed nav hrefs VERBATIM
     // (bootstrap_copy.go), plus the CEO planner tab. Category keys are the backend's category
     // vocabulary (backend/internal/pccare/domain).
+    const val PC_INVENTORY_VACCINE = "/pc/inventory-vaccine"
     const val PC_DEWORMING = "/pc/deworming"
     const val PC_TICKS = "/pc/ticks"
     const val PC_HOOF_TRIMMING = "/pc/hoof-trimming"
@@ -2836,13 +2841,27 @@ fun AppNavHost(
             }
         }
 
+        // Vaccination stock uses the PC Care execution API, but the visible product owner is the
+        // Vaccination module and the bottom tab label is Stock.
+        pcCareCategoryComposable(
+            Routes.VACCINATION_STOCK,
+            "inventory_vaccine",
+            "Stock",
+            navController,
+            canExecutePcCare,
+            canPlanPcCare,
+            moduleLabel = "Vaccination",
+            showDateBar = false,
+        )
+
         // --- PC Care (module pc_care, maintainer decision 2026-08-21) -----------------------
-        // Four L0 category tabs — THE bar (the Feed shape, maintainer feedback 2026-08-21).
+        // L0 category tabs — THE bar (the Feed shape, maintainer feedback 2026-08-21).
         // Each route binds its category constant + backend tab label. What a tab renders is the
         // backend's `pc_care_execute` capability: an executor gets the scan worklist, everyone
         // else the read-only monitor list with the plan wizard offered on `pc_care_plan`.
         // Titles mirror the backend nav labels ("nav.pc_*" in bootstrap_copy.go) so the screen
         // header and the bottom-bar tab read identically.
+        pcCareCategoryComposable(Routes.PC_INVENTORY_VACCINE, "inventory_vaccine", "Vaccine Stock", navController, canExecutePcCare, canPlanPcCare)
         pcCareCategoryComposable(Routes.PC_DEWORMING, "deworming", "Deworming", navController, canExecutePcCare, canPlanPcCare)
         pcCareCategoryComposable(Routes.PC_TICKS, "ticks_removal", "Ticks Removal", navController, canExecutePcCare, canPlanPcCare)
         pcCareCategoryComposable(Routes.PC_HOOF_TRIMMING, "hoof_trimming", "Hoof Trimming", navController, canExecutePcCare, canPlanPcCare)
@@ -2915,6 +2934,7 @@ fun AppNavHost(
             }
             CaptureAccessGate {
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
                 PcCareTaskScreen(
                     state = state,
                     onEvent = { event ->
@@ -3279,19 +3299,20 @@ private fun HealthListDestination(
 
 /**
  * Cold start must never land on a route the backend did not expose to this principal, and it
- * must honor the DEFAULT MODULE's landing href, not merely the first bottom-bar item.
+ * must honor the backend's active bottom bar. The drawer may list modules in a stable product
+ * order while VisibleNavigation carries the role-specific active bar; the served bar wins.
  *
- * Precedence: the backend's default (first available) module's href, then the first supported
- * bottom-bar item, then Calendar as a safe fallback. Operator/verifier are unaffected -- their
- * default module href IS their landing (/vaccination, /verify). The `in supportedRootDestinations`
- * guard keeps an unknown future root from failing startup with a 403.
+ * Precedence: first supported bottom-bar item, then the backend's first available module href,
+ * then Calendar as a safe fallback. The `in supportedRootDestinations` guard keeps an unknown
+ * future root from failing startup with a 403.
  */
 internal fun startDestinationFor(navState: NavState): String {
+    navState.items.firstOrNull { isRootDestination(it.href) }?.href
+        ?.let { return it }
     navState.availableModules().firstOrNull()?.href
         ?.takeIf { isRootDestination(it) }
         ?.let { return it }
-    return navState.items.firstOrNull { isRootDestination(it.href) }?.href
-        ?: Routes.CALENDAR
+    return Routes.CALENDAR
 }
 
 
@@ -3311,6 +3332,7 @@ private val supportedRootDestinations = setOf(
     Routes.VERIFY_ACTION,
     Routes.YOU,
     Routes.VACCINATION_ALERTS,
+    Routes.VACCINATION_STOCK,
     // Weighing's OWN alerts feed is a BOTTOM-BAR destination, so it is a root exactly like
     // the vaccination feed above it. Registering the composable alone was not enough: a
     // notification or deep link naming a non-root route is treated as unhosted and lands on
@@ -3341,10 +3363,11 @@ private val supportedRootDestinations = setOf(
     Routes.COUNTS_COLOSTRUM,
     Routes.HEALTH_ADULTS,
     Routes.HEALTH_KIDS,
-    // PC Care roots (maintainer decision 2026-08-21): the four backend-composed category tabs
+    // PC Care roots (maintainer decision 2026-08-21): the backend-composed category tabs
     // ARE the module bar (the Feed shape) — there is no fifth planner tab. Each is an L0
     // bottom-bar destination exactly like its siblings; what a tab renders is decided by the
     // backend pc_care_execute / pc_care_plan capability flags, never by a role string.
+    Routes.PC_INVENTORY_VACCINE,
     Routes.PC_DEWORMING,
     Routes.PC_TICKS,
     Routes.PC_HOOF_TRIMMING,
@@ -3426,12 +3449,14 @@ private fun NavGraphBuilder.pcCareCategoryComposable(
     navController: NavHostController,
     canExecutePcCare: Boolean,
     canPlanPcCare: Boolean,
+    moduleLabel: String = "Preventive Care",
+    showDateBar: Boolean = true,
 ) {
     composable(route) { entry ->
         if (canExecutePcCare) {
             // Executor face: the scan worklist for tasks assigned to this person.
             val vm: PcCareWorklistViewModel = hiltViewModel()
-            LaunchedEffect(vm) { vm.bind(category, title) }
+            LaunchedEffect(vm) { vm.bind(category, title, moduleLabel, showDateBar) }
             val state by vm.state.collectAsStateWithLifecycle()
             val rows = vm.rows.collectAsLazyPagingItems()
             val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error

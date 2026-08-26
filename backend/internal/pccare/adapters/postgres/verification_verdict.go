@@ -23,7 +23,7 @@ const (
 	pcCareTaskCompletedSchemaVersion = "1.0.0"
 	pcCareTaskCompletedSchemaRef     = "domain-event-envelope.v1"
 	pcCareTaskCompletedTopic         = "pc_care.events"
-	pcCareTaskCompletedAggregateType = "pc_care_task"
+	pcCareTaskCompletedAggregateType = "verification_item"
 
 	pcCareCompletedAction = "pc_care.task.completed"
 	pcCareReworkAction    = "pc_care.task.rework"

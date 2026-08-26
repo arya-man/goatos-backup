@@ -130,6 +130,10 @@ export type UpdateVaccinationOperatorAssignmentConfigRequest = AppApiComponents[
 export type UpdateVaccinationCapacityConfigRequest = AppApiComponents["schemas"]["UpdateVaccinationCapacityConfigRequest"];
 export type VaccinationDriveAssignmentRow = AppApiComponents["schemas"]["VaccinationDriveAssignmentRow"];
 export type VaccinationDriveAssignmentResponse = AppApiComponents["schemas"]["VaccinationDriveAssignmentResponse"];
+export type PCCareCategory = AppApiComponents["schemas"]["PCCareCategory"];
+export type PCCareTask = AppApiComponents["schemas"]["PCCareTask"];
+export type PCCareTaskPage = AppApiComponents["schemas"]["PCCareTaskPage"];
+export type PCCareInventoryRequirement = AppApiComponents["schemas"]["PCCareInventoryRequirement"];
 
 // CEO vaccination command board read model.
 export type VaccinationCommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoardResponse"];
@@ -2241,6 +2245,32 @@ export async function getVaccinationCommandBoard(params: {
         park_id: params.parkId,
         as_of: params.asOf,
         drive_park_id: params.driveParkId,
+      }),
+    }),
+  );
+}
+
+export async function listPCCareTasks(params: {
+  date: string;
+  parkId?: string;
+  category?: PCCareCategory;
+  limit?: number;
+  cursor?: string;
+  currentOrCarry?: boolean;
+}): Promise<ApiResult<PCCareTaskPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<PCCareTaskPage>("/app/pc-care/tasks", {
+      cache: "no-store",
+      query: compactQuery({
+        date: params.date,
+        park_id: params.parkId,
+        category: params.category,
+        limit: params.limit,
+        cursor: params.cursor,
+        current_or_carry: params.currentOrCarry ? "true" : undefined,
       }),
     }),
   );

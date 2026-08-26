@@ -226,6 +226,14 @@ enum class OutboxOpType {
     PC_CARE_SLOT_REGISTER,
 
     /**
+     * PC Care task-level proof registration
+     * (`PUT /app/pc-care/tasks/{task_id}/proofs/{slot}`): attaches one fridge-stock proof to an
+     * inventory_vaccine task. The video/photo rides by REFERENCE to its coupled PROOF_UPLOAD row
+     * on the SAME task group, so upload drains before registration and before submit.
+     */
+    PC_CARE_TASK_PROOF_REGISTER,
+
+    /**
      * PC Care task submit (`POST /app/pc-care/tasks/{task_id}/submit`): submits the WHOLE task —
      * refused until every scanned animal carries its full slot set. It shares the task group with
      * the PROOF_UPLOAD and [PC_CARE_SLOT_REGISTER] rows, so every proof resolves server-side
