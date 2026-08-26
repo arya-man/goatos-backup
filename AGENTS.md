@@ -408,6 +408,22 @@ state checks and push the scoped fix to `main` instead of stopping at an
 explanation. If the worktree contains unrelated dirty files, isolate only the
 fix files in the commit/push path or state the concrete blocker.
 
+If `main` push is rejected by the landing gate, **do not stop at "can't push to
+main."** Run `make land-main` from a clean isolated worktree, inspect every named
+failure, fix branch-owned blockers, commit them, push the branch, and rerun the
+gate. Repeat until the exact SHA lands on `main` or the remaining blocker is a
+real external prerequisite the agent cannot change (for example a missing local
+OCI tunnel/VM credential, expired cloud auth, or an unavailable maintainer-owned
+service). A missing local Docker binary is **not** a blocker on Ravi's laptop:
+follow the OCI-DB rule at the top of this file and use OCI-hosted disposable
+Postgres/query-plan proof instead of asking for or installing local Docker. If a
+gate prints `docker: command not found`, first look for its OCI/admin-DSN
+override (for example `GOATOS_SQLC_PLAN_ADMIN_DSN` for query-plan proof) and run
+that path; do not report local Docker absence as the reason `main` cannot land.
+Even then, report the specific prerequisite and the exact command/output that
+proved it; do not present a guard failure as the final answer while fixable
+blockers remain.
+
 Report the verification boundary honestly and briefly. If only a narrow check
 was run, say so; do not spend 20 minutes manufacturing confidence for a one-line
 change.
