@@ -87,6 +87,12 @@ interface OutboxDao {
             // they drain in this same pass, in order, and treating them as blockers would
             // hold back work that is about to succeed.
             "AND older.status = 'FAILED' " +
+            // Counts shifting raises are independent commands that only share a lane because
+            // their destination shed is the server ordering key. A definitive rejection of one
+            // move must not poison every later move into that same shed: the later row is not
+            // dependent on the older payload. Keep the terminal blocker for proof/session writes
+            // where a later row would incorrectly close or advance work over an unsent earlier row.
+            "AND NOT (candidate.opType = 'COUNTS_SHIFTING' AND older.opType = 'COUNTS_SHIFTING') " +
             "AND (older.conflict = 1 " +
             "  OR older.attemptCount >= older.maxAttempts " +
             "  OR older.nextAttemptAt > :now) " +
