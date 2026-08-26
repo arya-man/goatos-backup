@@ -177,7 +177,7 @@ internal fun ToxinTaskCard(card: ToxinTaskCardUi, onOpen: () -> Unit) {
                 style = MeshaType.cardTitle,
                 modifier = Modifier.weight(1f),
             )
-            ToxinStatusChip(label = card.statusChip)
+            ToxinStatusChip(label = card.statusChip, tone = card.statusTone)
         }
         // Why this round exists at all when it is a retest. Backend-owned sentence, verbatim.
         if (card.originLine.isNotBlank()) {

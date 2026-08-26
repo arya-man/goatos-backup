@@ -45,18 +45,27 @@ type taskPayload struct {
 	QuantityKg     float64 `json:"quantity_kg"`
 	Status         string  `json:"status"`
 	StatusChip     string  `json:"status_chip"`
-	Outcome        string  `json:"outcome,omitempty"`
-	OutcomeLabel   string  `json:"outcome_label,omitempty"`
-	StripPhotoRef  string  `json:"strip_photo_ref,omitempty"`
-	SubmittedBy    string  `json:"submitted_by,omitempty"`
-	SubmittedAt    string  `json:"submitted_at,omitempty"`
-	ReviewedAt     string  `json:"reviewed_at,omitempty"`
-	ReviewReason   string  `json:"review_reason,omitempty"`
-	CancelReason   string  `json:"cancel_reason,omitempty"`
-	StepsDone      int     `json:"steps_done"`
-	StepsTotal     int     `json:"steps_total"`
-	RowVersion     int64   `json:"row_version"`
-	CreatedAt      string  `json:"created_at"`
+	// StatusTone is how the chip should READ, not how it should be coloured: the phone maps it
+	// to its own palette. Sent because "Overdue" and "Step 2 of 5" are the same field and must
+	// not look the same on the card.
+	StatusTone string `json:"status_tone"`
+	// IsOverdue is the 12-hour start deadline, decided on the SERVER clock. The phone must never
+	// derive it: a device with a wrong clock would either hide a late load or redden a fresh one.
+	IsOverdue bool `json:"is_overdue"`
+	// DueAt is when this round became (or becomes) overdue, RFC3339. Blank when unknown.
+	DueAt         string `json:"due_at,omitempty"`
+	Outcome       string `json:"outcome,omitempty"`
+	OutcomeLabel  string `json:"outcome_label,omitempty"`
+	StripPhotoRef string `json:"strip_photo_ref,omitempty"`
+	SubmittedBy   string `json:"submitted_by,omitempty"`
+	SubmittedAt   string `json:"submitted_at,omitempty"`
+	ReviewedAt    string `json:"reviewed_at,omitempty"`
+	ReviewReason  string `json:"review_reason,omitempty"`
+	CancelReason  string `json:"cancel_reason,omitempty"`
+	StepsDone     int    `json:"steps_done"`
+	StepsTotal    int    `json:"steps_total"`
+	RowVersion    int64  `json:"row_version"`
+	CreatedAt     string `json:"created_at"`
 	// ContextLine is the backend-composed card subtitle: feed, vendor, load and date in
 	// one farm-worded line.
 	ContextLine string `json:"context_line"`
@@ -155,6 +164,9 @@ func toTaskPayload(row ports.TaskRow, now time.Time, canExecute bool) taskPayloa
 		QuantityKg:     t.QuantityKg,
 		Status:         t.Status,
 		StatusChip:     domain.StatusChip(t, row.Completions, now),
+		StatusTone:     statusTone(t, row.Completions, now),
+		IsOverdue:      taskIsOverdue(t, now),
+		DueAt:          taskDueAt(t),
 		Outcome:        t.Outcome,
 		OutcomeLabel:   domain.OutcomeLabel(t.Outcome),
 		StripPhotoRef:  t.StripPhotoRef,
@@ -248,5 +260,45 @@ func toTaskDetailPayload(row ports.TaskRow, now time.Time, canExecute bool) task
 			{Value: domain.OutcomePositive, Label: domain.OutcomeLabel(domain.OutcomePositive)},
 			{Value: domain.OutcomeInvalid, Label: domain.OutcomeLabel(domain.OutcomeInvalid)},
 		},
+	}
+}
+
+// taskIsOverdue and taskDueAt resolve the 12-hour start clock from the task's own created_at.
+// Parsing failure degrades to "not overdue" rather than to a red card on a timestamp we could not
+// read — an unreadable clock is not evidence that work is late.
+func taskIsOverdue(t domain.Task, now time.Time) bool {
+	createdAt, err := time.Parse(time.RFC3339Nano, t.CreatedAt)
+	if err != nil {
+		return false
+	}
+	return domain.IsOverdue(t, createdAt, now)
+}
+
+func taskDueAt(t domain.Task) string {
+	createdAt, err := time.Parse(time.RFC3339Nano, t.CreatedAt)
+	if err != nil {
+		return ""
+	}
+	due := domain.DueAt(createdAt)
+	if due.IsZero() {
+		return ""
+	}
+	return due.UTC().Format(time.RFC3339)
+}
+
+// statusTone tells the card how the chip should read. Overdue is the only DANGER on this screen;
+// a finished round is OK; everything else is ordinary progress.
+func statusTone(t domain.Task, completions []domain.StepCompletion, now time.Time) string {
+	switch {
+	case taskIsOverdue(t, now):
+		return "danger"
+	case t.Status == domain.StatusAccepted:
+		return "ok"
+	case t.Status == domain.StatusPendingReview:
+		return "info"
+	case t.Status == domain.StatusCancelled:
+		return "muted"
+	default:
+		return "muted"
 	}
 }

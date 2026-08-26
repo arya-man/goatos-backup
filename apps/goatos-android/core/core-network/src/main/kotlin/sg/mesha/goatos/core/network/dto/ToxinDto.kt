@@ -54,6 +54,11 @@ data class ToxinTaskDto(
     @SerialName("status") val status: String = "",
     /** Backend-composed chip copy, rendered VERBATIM. */
     @SerialName("status_chip") val statusChip: String = "",
+    // How the chip should READ, decided by the backend: "danger" | "ok" | "info" | "muted".
+    @SerialName("status_tone") val statusTone: String = "",
+    // The 12-hour start deadline, decided on the SERVER clock. Never derived on the phone: a
+    // device with a wrong clock would hide a late load or redden a fresh one.
+    @SerialName("is_overdue") val isOverdue: Boolean = false,
     @SerialName("outcome") val outcome: String = "",
     @SerialName("outcome_label") val outcomeLabel: String = "",
     @SerialName("strip_photo_ref") val stripPhotoRef: String = "",
@@ -131,6 +136,11 @@ data class ToxinTaskDetailDto(
     @SerialName("quantity_kg") val quantityKg: Double = 0.0,
     @SerialName("status") val status: String = "",
     @SerialName("status_chip") val statusChip: String = "",
+    // How the chip should READ, decided by the backend: "danger" | "ok" | "info" | "muted".
+    @SerialName("status_tone") val statusTone: String = "",
+    // The 12-hour start deadline, decided on the SERVER clock. Never derived on the phone: a
+    // device with a wrong clock would hide a late load or redden a fresh one.
+    @SerialName("is_overdue") val isOverdue: Boolean = false,
     @SerialName("outcome") val outcome: String = "",
     @SerialName("outcome_label") val outcomeLabel: String = "",
     @SerialName("strip_photo_ref") val stripPhotoRef: String = "",
@@ -172,6 +182,8 @@ data class ToxinTaskDetailDto(
         quantityKg = quantityKg,
         status = status,
         statusChip = statusChip,
+        statusTone = statusTone,
+        isOverdue = isOverdue,
         outcome = outcome,
         outcomeLabel = outcomeLabel,
         stripPhotoRef = stripPhotoRef,

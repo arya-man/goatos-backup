@@ -5388,6 +5388,15 @@ export interface components {
             /** @description Backend-owned chip copy, including live wait countdown wording. */
             status_chip: string;
             /**
+             * @description How the chip should READ. Sent because "Overdue" and "Step 2 of 5" arrive in the same field and must not look alike on the card.
+             * @enum {string}
+             */
+            status_tone?: "ok" | "warn" | "danger" | "info" | "muted";
+            /** @description Past the 12-hour start deadline and still unfinished, decided on the SERVER clock. The client must never derive it -- a device with a wrong clock would hide a late load or redden a fresh one. */
+            is_overdue?: boolean;
+            /** @description When this round became (or becomes) overdue, RFC3339. Blank when unknown. */
+            due_at?: string;
+            /**
              * @description The recorded reading token. Absent until step 7; render outcome_label.
              * @enum {string}
              */

@@ -124,7 +124,7 @@ fun ToxinTaskDetailScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        ToxinStatusChip(label = state.statusChip)
+                        ToxinStatusChip(label = state.statusChip, tone = state.statusTone)
                     }
                     // Every one of these is a BACKEND-owned sentence; the screen shows whichever
                     // the payload carried and composes none of them.
