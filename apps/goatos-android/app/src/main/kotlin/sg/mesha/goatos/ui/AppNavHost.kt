@@ -2880,6 +2880,13 @@ fun AppNavHost(
                             vm.onEvent(event)
                             rows.refresh()
                         }
+                        is ToxinTaskListEvent.SelectFilter -> {
+                            // Re-scope the list, then tell Paging to reload: the ViewModel swaps
+                            // the pager for the new key, and refresh() drives the first page of
+                            // it rather than leaving the previous slice's rows on screen.
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
                         is ToxinTaskListEvent.OpenTask -> {
                             vm.onEvent(event)
                             navController.navigate(Routes.toxinTaskRoute(event.taskId)) {

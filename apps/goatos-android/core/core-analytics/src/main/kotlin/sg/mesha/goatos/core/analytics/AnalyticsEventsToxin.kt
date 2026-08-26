@@ -19,6 +19,9 @@ object AnalyticsEventsToxin {
     /** The toxin test-task list (the module's L0 route) was opened or resumed. */
     const val TOXIN_LIST_VIEWED = "toxin_list_viewed"
 
+    /** The tester switched the list's filter chip; the reason param carries the backend key. */
+    const val TOXIN_LIST_FILTERED = "toxin_list_filtered"
+
     /** A task row was tapped and the guided 7-step drill opened. */
     const val TOXIN_TASK_OPENED = "toxin_task_opened"
 

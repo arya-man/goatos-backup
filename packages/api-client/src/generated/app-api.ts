@@ -5449,6 +5449,20 @@ export interface components {
             status_counts: {
                 [key: string]: number;
             };
+            /** @description The list's selectable slices in display order, with backend-owned labels. Rendered verbatim; the client sends back only `key`. Served on the app task list, absent on the review list. */
+            filters?: components["schemas"]["ToxinTaskFilter"][];
+        };
+        ToxinTaskFilter: {
+            /** @enum {string} */
+            key: "all" | "pending" | "completed";
+            /** @description Backend-owned chip copy, rendered VERBATIM. */
+            label: string;
+            /** @description WHOLE-TENANT count of rounds in this slice, never a page-local sum. */
+            count: number;
+            /** @description Whether this chip is the slice the response was served for. */
+            selected: boolean;
+            /** @description Backend-owned copy for when THIS slice has no rows, rendered verbatim. Carried per slice because "nothing here" means something different in each. */
+            empty_message: string;
         };
         ToxinTaskDetail: components["schemas"]["ToxinTask"] & {
             steps: components["schemas"]["ToxinStep"][];
@@ -17689,7 +17703,9 @@ export interface operations {
     listToxinTasks: {
         parameters: {
             query?: {
-                /** @description Comma-separated statuses (in_progress, pending_review, accepted, cancelled). */
+                /** @description The list slice to serve, named by KEY. The backend owns which statuses each key means, so "pending" is one definition across every surface. Absent or unknown resolves to `all`, so a stale client sees its work rather than an empty screen. */
+                filter?: "all" | "pending" | "completed";
+                /** @description Comma-separated statuses (in_progress, pending_review, accepted, cancelled). Overrides `filter` when present; prefer `filter` in clients. */
                 status?: string;
                 limit?: number;
                 /** @description Keyset cursor from a previous page's next_cursor. */

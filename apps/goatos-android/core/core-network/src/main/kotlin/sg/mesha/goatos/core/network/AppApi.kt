@@ -1243,10 +1243,11 @@ interface AppApi {
 
     /**
      * GET /app/toxin/tasks — the tester's task list, one row per test round, keyset-paged.
-     * [status] is a comma-joined backend status filter; blank means every status.
+     * [filter] is a backend filter KEY (`all` | `pending` | `completed`); blank means `all`.
+     * The client never composes a status list — the backend owns what each key means.
      */
     suspend fun getToxinTasks(
-        status: String? = null,
+        filter: String? = null,
         limit: Int? = null,
         cursor: String? = null,
     ): ToxinTaskPageDto
@@ -2258,7 +2259,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun cancelPcCareTask(taskId: String) = Unit
 
     override suspend fun getToxinTasks(
-        status: String?,
+        filter: String?,
         limit: Int?,
         cursor: String?,
     ): ToxinTaskPageDto = ToxinTaskPageDto()

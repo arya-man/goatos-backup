@@ -153,3 +153,52 @@ func TestBackendOwnedCopy(t *testing.T) {
 		t.Fatal("procedure shape drifted")
 	}
 }
+
+// TestTaskFiltersPartitionEveryStatus pins the list's filter contract (maintainer decision
+// 2026-08-26): three chips, All selected by default, and Pending/Completed disjoint AND
+// exhaustive over every task status.
+//
+// Exhaustiveness is the half that matters later: a status added without a home here would be
+// reachable only under All, so a round would silently vanish from both working chips.
+func TestTaskFiltersPartitionEveryStatus(t *testing.T) {
+	everyStatus := []string{StatusInProgress, StatusPendingReview, StatusAccepted, StatusCancelled}
+
+	seen := map[string]int{}
+	for _, f := range TaskFilters() {
+		for _, s := range f.Statuses {
+			seen[s]++
+		}
+	}
+	for _, s := range everyStatus {
+		switch seen[s] {
+		case 1: // exactly one working chip claims it
+		case 0:
+			t.Fatalf("status %q belongs to no filter — it would show only under All", s)
+		default:
+			t.Fatalf("status %q is claimed by %d filters; Pending and Completed must be disjoint", s, seen[s])
+		}
+	}
+
+	filters := TaskFilters()
+	if filters[0].Key != FilterAll {
+		t.Fatalf("first chip is %q, want %q — All is the default selection", filters[0].Key, FilterAll)
+	}
+	if len(StatusesForFilter(FilterAll)) != 0 {
+		t.Fatal("All must resolve to no status predicate")
+	}
+	// A stale client's retired key must fall back to All, never to an empty screen.
+	if got := FilterKeyOrDefault("some_retired_key"); got != FilterAll {
+		t.Fatalf("unknown filter key resolved to %q, want %q", got, FilterAll)
+	}
+
+	counts := map[string]int{StatusInProgress: 2, StatusPendingReview: 1, StatusAccepted: 4, StatusCancelled: 3}
+	if got := CountForFilter(FilterPending, counts); got != 3 {
+		t.Fatalf("Pending count = %d, want 3", got)
+	}
+	if got := CountForFilter(FilterCompleted, counts); got != 7 {
+		t.Fatalf("Completed count = %d, want 7", got)
+	}
+	if got := CountForFilter(FilterAll, counts); got != 10 {
+		t.Fatalf("All count = %d, want 10", got)
+	}
+}
