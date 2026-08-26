@@ -209,6 +209,16 @@ type ShedWeights struct {
 	// The Weights page calendar renders these as day markers, so the marker's grain
 	// is the same park/window filter the reader is already using.
 	LumpWeighingDates []string `json:"lump_weighing_dates"`
+	// LatestWeighingDate is the Asia/Kolkata business DATE of the most recent weigh of ANY kind --
+	// individual or whole-shed -- inside the queried range. Empty when nothing was weighed.
+	//
+	// It exists because the Weights page opens on "the last two whole-shed weigh dates", and a
+	// window whose END came from that same lump-only set silently dropped every kid weighed since:
+	// 199 kids scanned across 17 sheds on 25 Aug fell outside a window that closed on the 24th,
+	// purely because the 25th had no whole-shed weigh to put it on that map. The START still comes
+	// from the lump dates -- two of them are what make a shed-average movement measurable -- but the
+	// END is the last day the farm weighed anything at all.
+	LatestWeighingDate string `json:"latest_weighing_date,omitempty"`
 	// PeriodStart / PeriodEnd echo the RESOLVED window (YYYY-MM-DD, Asia/Kolkata) so
 	// the screen labels what it is actually showing rather than what it asked for.
 	PeriodStart string `json:"period_start"`

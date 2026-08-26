@@ -439,3 +439,65 @@ func TestShedWeightsGainNeedsTwoWeighedDatesInsideSelectedWindow(t *testing.T) {
 	}
 	t.Fatal("expected the per-shed row")
 }
+
+// A DAY WITH ONLY SCANNED KIDS IS STILL A DAY THE FARM WEIGHED.
+//
+// The defect this pins, reported off real STG data (2026-08-26): the Weights page opens on "the last
+// two whole-shed weigh dates" and took BOTH ends of its window from that lump-only list. On 25 Aug
+// the farm scanned 199 kids across 17 sheds and weighed no shed whole, so the 25th never entered
+// lump_weighing_dates and the window closed on the 24th -- dropping all 199 kids out of the KPIs,
+// the gain charts and Fair fight, while the period label read as though nothing were missing.
+//
+// The START must still come from the lump dates: two whole-shed weighs are what make a shed-average
+// movement measurable. Only the END moves, to the last day anything was weighed at all -- which is
+// what LatestWeighingDate answers and lump_weighing_dates cannot.
+func TestShedWeightsLatestWeighingDateSeesAScanOnlyDay(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	from, to := shedWeightsWindow()
+
+	// Two whole-shed weighs -- the pair the window's START is drawn from.
+	//
+	// One bucket PER WEIGH DATE, which is how the farm's data really lands:
+	// weighing_shed_observations_one_open_scope_uidx admits exactly one live row per bucket, so a
+	// shed weighed twice is two buckets, not two rows on one.
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartA, "2026-07-10")
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartB, "2026-07-17")
+	insertProof(t, ctx, pool, repoShedProofTwo, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
+	seedLoadBucketPartition(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoExpectedShed, "", "per_shed_partition")
+	seedLoadBucketPartition(t, ctx, pool, loadPartANew, loadCampaignPartB, repoExpectedShed, "", "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 20.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadPartANew, loadCampaignPartB, repoShedProofTwo, 27.0, 10,
+		time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+
+	lumpOnly, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "")
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	if lumpOnly.LatestWeighingDate != "2026-07-17" {
+		t.Fatalf("with only whole-shed weighs the latest date is the later of them, got %q", lumpOnly.LatestWeighingDate)
+	}
+
+	// Now a SCAN-ONLY day, three days after the last whole-shed weigh. This is the 25 Aug shape.
+	seedShedWeightScan(t, ctx, pool, "SCAN-ONLY-DAY-1", 18.0, time.Date(2026, 7, 20, 6, 0, 0, 0, time.UTC))
+
+	after, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "", from, to, "")
+	if err != nil {
+		t.Fatalf("GetShedWeights after the scan-only day: %v", err)
+	}
+	if after.LatestWeighingDate != "2026-07-20" {
+		t.Fatalf("a scan-only day is still a day the farm weighed: want 2026-07-20, got %q", after.LatestWeighingDate)
+	}
+	// And it stays OUT of the lump dates, because the window's START must keep meaning "a day a shed
+	// was weighed whole". Folding it in there would move the start onto a day with no shed average.
+	for _, day := range after.LumpWeighingDates {
+		if day == "2026-07-20" {
+			t.Fatalf("a scan-only day must not become a lump-sum weighing date: %v", after.LumpWeighingDates)
+		}
+	}
+}

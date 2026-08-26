@@ -106,9 +106,23 @@ async function landingWindow(params: RouteSearchParams, today: string, parkID: s
 
   const dates = [...new Set(result.data.lump_weighing_dates ?? [])].sort();
   if (dates.length < 2) return defaultWindow(today);
+  // START from the lump dates, END from the last day the farm weighed ANYTHING.
+  //
+  // The two are different questions and were answered by one list. A shed-average movement needs two
+  // whole-shed weighs, so the START has to be the second-to-last of those. The END does not: on
+  // 25 Aug 2026 the farm scanned 199 kids across 17 sheds and no shed was weighed whole, so that day
+  // was absent from lump_weighing_dates entirely and a window closing on the later lump date shut
+  // one day early -- dropping every one of those kids from the KPIs, the gain charts and Fair fight,
+  // with the period label reading as if nothing had been missed.
+  //
+  // The backend owns the date (`latest_weighing_date`, whole-filter over both weighing grains); a max
+  // taken across the returned rows here would be the page deriving business truth from its own rows.
+  // An empty value falls back to the lump date, which is the behaviour this replaces.
+  const latest = result.data.latest_weighing_date ?? "";
+  const end = BUSINESS_DAY.test(latest) && latest > dates[dates.length - 1] ? latest : dates[dates.length - 1];
   return {
     from: dates[dates.length - 2],
-    to: dates[dates.length - 1],
+    to: end > today ? today : end,
   };
 }
 
