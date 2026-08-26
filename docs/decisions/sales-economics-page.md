@@ -184,6 +184,27 @@ the page (₹54k). Two causes, both real:
    at another item's rate — inventing a price would make the total look complete
    when it is not. Recording those purchases is what closes the remaining gap.
 
+### The window is a calendar, and both controls write one contract
+
+Maintainer request 2026-08-26. The window is the SHARED
+`components/date-range-picker.tsx` — the same calendar Verify, the video log and
+Herd Analytics use, reused rather than grown a fourth time, for the reason the
+shared operational-location helper exists (six SQL paths once composed a shed
+location six different ways).
+
+The quick-window chips and the calendar write the SAME `from`/`to` parameters,
+so the screen carries ONE window concept: two controls that wrote different
+parameters could disagree about which window was in force. The default window is
+expressed by ABSENCE of both parameters, so a bookmark keeps meaning "the last 90
+days" rather than freezing on the day it was taken. Malformed, inverted or
+half-present parameters fall back to the default instead of throwing — a
+hand-edited URL must not take the page down — and a future end clamps to today,
+because nothing was weighed or fed tomorrow.
+
+A window shorter than two weighing rounds honestly reports nothing rather than
+inventing figures: weighing campaigns are week-grain, so a 7-day window can
+contain no pair.
+
 ### Grain and caps
 
 The shed and breed tables are capped at `MaxGroupRows` as a backstop (both are

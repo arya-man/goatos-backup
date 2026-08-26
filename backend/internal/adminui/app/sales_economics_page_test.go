@@ -63,6 +63,11 @@ func TestSalesEconomicsPageContractAndNavigation(t *testing.T) {
 	// Backend-owned copy: every key the renderer needs must be published.
 	for _, key := range []string{
 		"crumb", "filter.park.all", "filter.window", "period.covering",
+		// The SHARED calendar's labels — same key shape Verify, the video log and
+		// Herd Analytics use, so a reader of any of those screens finds them here.
+		"filter.date", "filter.date.today", "filter.date.single", "filter.date.range",
+		"filter.date.aria", "filter.date.previous_month", "filter.date.next_month",
+		"filter.date.range_start_hint", "filter.date.range_end_hint", "filter.date.range_separator",
 		"section.pulse.title", "section.pulse.aria",
 		"kpi.feed_burn", "kpi.feed_burn.hint",
 		"kpi.value_added", "kpi.value_added.hint",

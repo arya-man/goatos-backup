@@ -2658,10 +2658,23 @@ func pageSpecificCopy(id string) map[string]string {
 		return map[string]string{
 			"crumb": "Sales",
 
-			// Scope + window controls.
-			"filter.park.all": "Both parks",
-			"filter.window":   "Window",
-			"period.covering": "Covering",
+			// Scope + window controls. The calendar is the SHARED
+			// components/date-range-picker.tsx that Verify, the video log and Herd
+			// Analytics use, so these follow the same "filter.date.*" key shape
+			// those screens use rather than inventing a fourth vocabulary.
+			"filter.park.all":              "Both parks",
+			"filter.window":                "Quick window",
+			"filter.date":                  "Dates",
+			"filter.date.today":            "Today",
+			"filter.date.single":           "Single day",
+			"filter.date.range":            "Date range",
+			"filter.date.aria":             "Choose which dates these figures cover",
+			"filter.date.previous_month":   "Previous month",
+			"filter.date.next_month":       "Next month",
+			"filter.date.range_start_hint": "Pick the first day of the range.",
+			"filter.date.range_end_hint":   "Now pick the last day of the range.",
+			"filter.date.range_separator":  "to",
+			"period.covering":              "Covering",
 
 			// Pulse tiles.
 			"section.pulse.title": "Business pulse",
