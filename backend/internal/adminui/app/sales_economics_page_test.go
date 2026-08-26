@@ -79,7 +79,7 @@ func TestSalesEconomicsPageContractAndNavigation(t *testing.T) {
 		"chart.breeds.value", "chart.breeds.compare", "empty.breeds",
 		"column.shed", "column.breed", "column.animals", "column.adg",
 		"column.feed_cost_day", "column.value_per_day", "column.net_per_day",
-		"column.cost_per_kg_gain", "column.signal",
+		"column.cost_per_kg_gain", "column.signal", "value.of_herd",
 		"kpi.net", "kpi.net.earning", "kpi.net.burning", "kpi.comparable",
 		"farm.line", "farm.animals", "farm.unpriced", "farm.caution",
 		"signal.earning", "signal.burning", "signal.watch",

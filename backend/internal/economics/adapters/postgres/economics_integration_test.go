@@ -569,3 +569,61 @@ func TestEconomicsFeedAndValueTilesCoverTheSameAnimals(t *testing.T) {
 		t.Fatalf("farm unpriced kg = %v, want 0 (every seeded item is priced)", p.FarmUnpricedKg)
 	}
 }
+
+// MEASURED IS NOT THE HERD. Every figure on a shed or breed row is computed from
+// the animals that were weighed twice AND priced — but a bare count beside a
+// breed name reads as "how many of this breed do we have". On the live herd that
+// gap is 121 measured against 846 Anantapur Sheep, and a reader who takes the
+// first number for the second concludes the farm shrank by 85%. Both counts are
+// therefore published, and this pins that they are DIFFERENT numbers with
+// different meanings.
+func TestEconomicsPublishesHerdCountBesideMeasuredCount(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedEconomicsFixture(t, ctx, pool)
+
+	// Two Sojat in one pen are weighed twice; THREE more of the same breed sit
+	// in the same pen unweighed. Only the two can be costed; all five are herd.
+	for i, tag := range []string{"EC-M1", "EC-M2"} {
+		seedEcGoat(t, ctx, pool, fmt.Sprintf("22222222-0000-4000-8000-000000000c%02d", i), fmt.Sprintf("3%03d", i), tag,
+			"Sojat", "male", "F2-Male", ecPark, ecShed, "Part 1")
+		seedEcScan(t, ctx, pool, ecCampaignW1, ecBucketW1, tag, 20.0, ecDay(8, 6), "pending")
+		seedEcScan(t, ctx, pool, ecCampaignW2, ecBucketW2, tag, 21.4, ecDay(15, 6), "pending")
+	}
+	for i := 0; i < 3; i++ {
+		seedEcGoat(t, ctx, pool, fmt.Sprintf("22222222-0000-4000-8000-000000000d%02d", i), fmt.Sprintf("4%03d", i),
+			fmt.Sprintf("EC-UNWEIGHED-%d", i), "Sojat", "male", "F2-Male", ecPark, ecShed, "Part 1")
+	}
+
+	seedEcPurchase(t, ctx, pool, "Maize Crush", 1, "2026-07-01", 100, 1000)
+	seedEcFeedIssue(t, ctx, pool, ecFeedIssue, "2026-07-15", "normal")
+	seedEcFeedRow(t, ctx, pool, ecFeedIssue, ecShed, "Part 1", "F2-Male", "Sojat", "Maize Crush", 2.0, nil, 4, false, "normal", 1)
+
+	from, to := ecWindow()
+	repo := NewRepository(pool, 5*time.Second)
+	out, err := repo.GetBusinessEconomics(ctx, ecTenant, []string{ecPark}, from, to)
+	if err != nil {
+		t.Fatalf("GetBusinessEconomics: %v", err)
+	}
+
+	if len(out.Breeds) != 1 || out.Breeds[0].Breed != "Sojat" {
+		t.Fatalf("breeds = %+v, want one Sojat row", out.Breeds)
+	}
+	breed := out.Breeds[0]
+	if breed.Animals != 2 {
+		t.Fatalf("measured animals = %d, want 2 (only these were weighed twice)", breed.Animals)
+	}
+	if breed.HerdAnimals != 5 {
+		t.Fatalf("herd animals = %d, want 5 (the three unweighed are still ours)", breed.HerdAnimals)
+	}
+
+	if len(out.Sheds) != 1 {
+		t.Fatalf("sheds = %+v, want one pen row", out.Sheds)
+	}
+	pen := out.Sheds[0]
+	if pen.Animals != 2 || pen.HerdAnimals != 5 {
+		t.Fatalf("pen measured/herd = %d/%d, want 2/5", pen.Animals, pen.HerdAnimals)
+	}
+}

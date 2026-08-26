@@ -24385,6 +24385,7 @@ components:
         not growing.
       required:
         - animals
+        - herd_animals
         - adg_g_per_day
         - feed_cost_per_day_rupees
         - value_added_per_day_rupees
@@ -24394,7 +24395,14 @@ components:
       properties:
         animals:
           type: integer
-          description: Paired animals in this group whose ration cell resolved and priced.
+          description: Paired animals in this group whose ration cell resolved and priced — the denominator of every figure on the row.
+        herd_animals:
+          type: integer
+          description: >-
+            Live animals the group actually HOLDS in scope. Published beside
+            `animals` because a bare count against a breed reads as the herd
+            count; the row is computed from the measured subset and the page must
+            say so rather than letting the reader assume the farm shrank.
         adg_g_per_day:
           type: number
           nullable: true
