@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/toxin/domain"
 	"github.com/vgoats/goatos/backend/internal/toxin/ports"
 )
@@ -298,10 +299,13 @@ func encodeCursor(createdAt, taskID string) string { return createdAt + "|" + ta
 func decodeCursor(cursor string) (string, string, error) {
 	parts := strings.SplitN(cursor, "|", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", fmt.Errorf("toxin: bad cursor")
+		return "", "", fmt.Errorf("%w: bad cursor", ports.ErrInvalidArgument)
 	}
 	if _, err := time.Parse(time.RFC3339Nano, parts[0]); err != nil {
-		return "", "", fmt.Errorf("toxin: bad cursor: %w", err)
+		return "", "", fmt.Errorf("%w: bad cursor timestamp: %v", ports.ErrInvalidArgument, err)
+	}
+	if !uuidutil.IsUUIDString(parts[1]) {
+		return "", "", fmt.Errorf("%w: bad cursor task id", ports.ErrInvalidArgument)
 	}
 	return parts[0], parts[1], nil
 }
