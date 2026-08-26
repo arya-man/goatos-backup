@@ -1241,6 +1241,30 @@ Canonical source: `context/architecture/verifier-app-and-flow.md` → "Roles (tr
 alignment)"; pinned by `TestVerificationSeparationOfDuty` and
 `TestVerdictRouteIsVerifierOnlyWhileQueueReadStaysLeadershipVisible`.
 
+Confirmed TOXIN module rule (maintainer decisions 2026-08-25; a RECORDED, SCOPED exception
+to the verifier verdict-exclusivity rule above that leaves that rule untouched): every feed
+load recorded on `/procurement/feed-purchases` owes one aflatoxin strip test (SafetiX SHF
+001-A), born automatically per feed-purchase row from `procurement.feed_purchase.recorded`
+— never hand-created, no calendar, no due clock. The test is a 7-STEP GUIDED FLOW with
+PROOF AT EVERY WORKING STEP: steps 1/2/3/5/6 one in-app-camera VIDEO each, step 4 a
+settling wait (the farm does NOT centrifuge — the extract sits ~1 hour), step 7 one
+in-app-camera strip PHOTO plus the reading (Negative/Positive/Invalid). ALL THREE WAITS
+ARE HARD-BLOCKED ON THE SERVER CLOCK (60 min after step 3 → step 5; 3 min → step 6; 8 min
+→ step 7); the phone renders server step states and never derives gate logic from its own
+clock. Steps are PERSON-INDEPENDENT among `toxin.execute` holders; each completion records
+who. An Invalid strip or a rejected review CANCELS the whole round and mints a fresh
+retest task in the SAME transaction (`round_no+1`; one live round per load, enforced by a
+partial unique index); rejects require a reason and never name a step. REVIEW IS CEO/CXO
+ONLY: `toxin.verdict` is granted to `ceo_internal` alone on its own routes — the module is
+an approval gate in the `counts_approver` shape, deliberately NOT a Verification category,
+so the verifier never sees toxin work and `verification.verdict` stays verifier-only.
+Access is PER PERSON via `toxin_tester` (`perPersonGrants`; today the two named park
+heads) — never on the park_head/director job. `toxin.execute` is ORed into the
+`/app/proofs/*` routes. v1: accepted Positive FLAGS the load, does not block feeding; no
+FCM. Canonical prose: `docs/decisions/toxin-testing-module.md`; pinned by
+`TestToxinVerdictIsCEOOnly`, `TestToxinTesterCarriesOnlyTestingAuthority`,
+`TestToxinModuleIsOfferedPerPersonNotPerJob` (each mutation-tested when written).
+
 Confirmed THE APPROVE CARRIES THE NUMBER rule (maintainer decision 2026-08-20, SUPERSEDING
 the separate-save-act half of the 2026-08-17 weighing weight-correction and 2026-08-18 feed
 wastage measurement decisions): where a verification item declares a measurement, the verifier

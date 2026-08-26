@@ -123,6 +123,14 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         // Submit mirrors packing/wastage: outbox overlay shows "In review" at once, and the sync
         // pass reconciles the Room task rows directly from the server's returned status/row_version.
         OutboxOpType.PC_CARE_TASK_SUBMIT -> overlayDirectReconcileLifecycle()
+        // A toxin step completion rides behind its proof upload on the same task lane. The step
+        // row shows an outbox-derived "sending" overlay at once, and the sync pass reconciles the
+        // server's RETURNED detail (the authoritative step states + `available_at`) straight into
+        // Room — the phone never advances a gate itself.
+        OutboxOpType.TOXIN_STEP_COMPLETE -> overlayDirectReconcileLifecycle()
+        // Step 7's reading submit, same shape: overlay "In review" at once, then the server's
+        // returned detail (status chip, outcome label) reconciles the Room task rows directly.
+        OutboxOpType.TOXIN_SUBMIT -> overlayDirectReconcileLifecycle()
     }
 
 private fun exactItemLifecycle() = lifecycle(

@@ -90,6 +90,10 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/authaudit"
 	"github.com/vgoats/goatos/backend/internal/platform/buildinfo"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	toxinhttp "github.com/vgoats/goatos/backend/internal/toxin/adapters/http"
+	toxinpg "github.com/vgoats/goatos/backend/internal/toxin/adapters/postgres"
+	toxinproof "github.com/vgoats/goatos/backend/internal/toxin/adapters/proof"
+	toxinapp "github.com/vgoats/goatos/backend/internal/toxin/app"
 	"golang.org/x/oauth2"
 
 	"github.com/vgoats/goatos/backend/internal/platform/firebaseidentity"
@@ -652,6 +656,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// migration 000174's lock). Procurement owns the write; feeddirection keeps the stock read.
 	procurementFeedPurchaseHandler := procurementhttp.NewFeedPurchaseHandler(
 		procurementapp.NewFeedPurchaseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+	// Toxin (maintainer decision 2026-08-25): the aflatoxin strip-test module. Tasks are
+	// born from procurement.feed_purchase.recorded (consumer wired in kernelstages); the
+	// routes here serve the tester's guided step flow and the CEO/CXO-only review.
+	toxinHandler := toxinhttp.NewHandler(
+		toxinapp.NewService(toxinpg.NewRepository(pool, cfg.Postgres.QueryTimeout), toxinproof.NewValidator(proofRepo)), log)
 	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
 	// record with no state machine to orchestrate.
 	salesHandler := saleshttp.NewSalesHandler(
@@ -1227,6 +1236,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	procurementhttp.Register(protectedMux, procurementHandler)
 	procurementhttp.RegisterVendors(protectedMux, procurementVendorHandler)
 	procurementhttp.RegisterFeedPurchases(protectedMux, procurementFeedPurchaseHandler)
+	toxinhttp.Register(protectedMux, toxinHandler)
 	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)

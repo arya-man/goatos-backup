@@ -82,6 +82,10 @@ import sg.mesha.goatos.feature.pccare.PcCarePlanWizardScreen
 import sg.mesha.goatos.feature.pccare.PcCareTaskScreen
 import sg.mesha.goatos.feature.pccare.PcCareWorklistEvent
 import sg.mesha.goatos.feature.pccare.PcCareWorklistScreen
+import sg.mesha.goatos.feature.toxin.ToxinTaskDetailEvent
+import sg.mesha.goatos.feature.toxin.ToxinTaskDetailScreen
+import sg.mesha.goatos.feature.toxin.ToxinTaskListEvent
+import sg.mesha.goatos.feature.toxin.ToxinTaskListScreen
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
 import sg.mesha.goatos.feature.feed.FeedTransportEvent
@@ -178,6 +182,8 @@ import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
 import sg.mesha.goatos.viewmodel.PcCarePlanViewModel
 import sg.mesha.goatos.viewmodel.PcCareTaskViewModel
 import sg.mesha.goatos.viewmodel.PcCareWorklistViewModel
+import sg.mesha.goatos.viewmodel.ToxinTaskDetailViewModel
+import sg.mesha.goatos.viewmodel.ToxinTaskListViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.RecordViewModel
 import sg.mesha.goatos.viewmodel.RfidPromoteViewModel
@@ -444,6 +450,17 @@ object Routes {
         "/pc/animal/${Uri.encode(taskId)}/${Uri.encode(tagKey)}" +
             "?$PC_TAG_VERBATIM_ARG=${Uri.encode(tagVerbatim)}" +
             "&$PC_TASK_TITLE_ARG=${Uri.encode(title)}"
+
+    // Toxin module (backend module `toxin`, maintainer decision 2026-08-25 —
+    // docs/decisions/toxin-testing-module.md). The list is an L0 root whose href matches the
+    // backend-composed nav item VERBATIM (bootstrap_copy.go: {key:"toxin", href:"/toxin"}); the
+    // guided round is a distinct hosted drill with Up/Back and NO root chrome, never a prefix
+    // reuse of the L0 route.
+    const val TOXIN = "/toxin"
+    const val TOXIN_TASK_ID_ARG = "task_id"
+    const val TOXIN_TASK = "/toxin/tasks/{$TOXIN_TASK_ID_ARG}"
+
+    fun toxinTaskRoute(taskId: String): String = "/toxin/tasks/${Uri.encode(taskId)}"
 
     fun pcTaskRoute(taskId: String, category: String, title: String, monitor: Boolean = false): String =
         "/pc/task/${Uri.encode(taskId)}" +
@@ -2858,6 +2875,68 @@ fun AppNavHost(
             }
         }
 
+        // --- Toxin (module toxin, maintainer decision 2026-08-25) --------------------------
+        // ONE L0 list of aflatoxin test rounds waiting on someone, plus the hosted guided drill.
+        // Module visibility is backend-composed (the `toxin.read` permission on the per-person
+        // `toxin_tester` role), so nothing here gates on a role string — registering the routes is
+        // what makes the backend's nav item work.
+        composable(Routes.TOXIN) {
+            val vm: ToxinTaskListViewModel = hiltViewModel()
+            // Mirrors the backend nav label ("nav.toxin" in bootstrap_copy.go), the same way the
+            // PC Care tabs below carry theirs, so the screen header and the nav item read
+            // identically.
+            LaunchedEffect(vm) { vm.bind(TOXIN_TAB_TITLE) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            ToxinTaskListScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        ToxinTaskListEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is ToxinTaskListEvent.OpenTask -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.toxinTaskRoute(event.taskId)) {
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                },
+            )
+        }
+
+        // The guided round (L1 drill): the seven steps, their two in-app-camera media kinds, and
+        // the strip reading. Both capture sources are bound only while this destination is on
+        // screen, exactly like the feed distribution completion screen.
+        composable(
+            route = Routes.TOXIN_TASK,
+            arguments = listOf(navArgument(Routes.TOXIN_TASK_ID_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: ToxinTaskDetailViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
+                ToxinTaskDetailScreen(
+                    state = state,
+                    onEvent = { event ->
+                        when (event) {
+                            ToxinTaskDetailEvent.Back -> navController.popBackStack()
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
+        }
+
         // --- PC Care (module pc_care, maintainer decision 2026-08-21) -----------------------
         // Four L0 category tabs — THE bar (the Feed shape, maintainer feedback 2026-08-21).
         // Each route binds its category constant + backend tab label. What a tab renders is the
@@ -3441,6 +3520,9 @@ private fun executionRoutePattern(base: String): String =
  * [PcCareWorklistViewModel] instance (VMs are scoped per NavBackStackEntry, so the tabs never
  * share state), and a card tap pushes the hosted task drill carrying the same category + title.
  */
+/** The backend's `nav.toxin` label, mirrored so the L0 header matches the nav item. */
+private const val TOXIN_TAB_TITLE = "Tests"
+
 private fun NavGraphBuilder.pcCareCategoryComposable(
     route: String,
     category: String,

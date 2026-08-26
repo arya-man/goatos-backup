@@ -43,6 +43,10 @@ var perPersonGrants = []personGrant{
 		rosterDisplayName: "Chandrakant",
 		roles: []string{
 			permissions.RoleCountsApprover,
+			// Toxin tester (maintainer decision 2026-08-25): he runs the SHF 001-A
+			// aflatoxin strip test on purchased feed loads. Per person, never on the
+			// director job — see permissions.RoleToxinTester's doc comment.
+			permissions.RoleToxinTester,
 			// stg-operator-scope: tenant approved — maintainer decision 2026-08-07. This is an
 			// authority grant layered on a DIRECTOR, not a park staff account: he already holds
 			// pc_director at tenant scope for both-park visibility, and a park-scoped operator row
@@ -68,6 +72,9 @@ var perPersonGrants = []personGrant{
 		rosterDisplayName: "Dinakar",
 		roles: []string{
 			permissions.RoleCountsApprover,
+			// Toxin tester (maintainer decision 2026-08-25): same per-person grant as
+			// Chandrakant's — the two of them run the aflatoxin strip test.
+			permissions.RoleToxinTester,
 			permissions.RolePCDirector,
 			permissions.RoleGrowthDirector,
 			// stg-operator-scope: tenant approved — maintainer decision 2026-08-07. Same reasoning

@@ -183,11 +183,11 @@ var protectedRoutes = []Route{
 	// state weighing hit above. Adding health.execute here keeps each role scoped to the one
 	// module it owns; handing it task.execute instead would carry vaccination SOP submission with
 	// it, which is the privilege escalation this route shape exists to avoid.
-	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute}},
-	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute}},
-	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute}},
-	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute}},
-	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute}},
+	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
+	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
+	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
+	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
+	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
 	{OperationID: "downloadProof", Method: "GET", Pattern: "/app/proofs/{proof_id}/download", Permissions: []string{TaskRead}},
 	{OperationID: "recordAppAnalyticsEvent", Method: "POST", Pattern: "/app/analytics/events", Permissions: []string{AppBootstrap}},
 	{OperationID: "recordAppScanCapture", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-captures", Permissions: []string{TaskExecute}},
@@ -232,6 +232,18 @@ var protectedRoutes = []Route{
 	{OperationID: "listFeedPurchases", Method: "GET", Pattern: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseRead}},
 	{OperationID: "createFeedPurchase", Method: "POST", Pattern: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseWrite}},
 	{OperationID: "getFeedPurchaseOptions", Method: "GET", Pattern: "/procurement/feed-purchase-options", Permissions: []string{FeedPurchaseRead}},
+
+	// TOXIN (maintainer decision 2026-08-25): the aflatoxin strip-test module. The task
+	// list and detail are ToxinRead; the step work is ToxinExecute; the verdict routes are
+	// ToxinVerdict — CEO/CXO ONLY, deliberately not verification.verdict, so the tenant
+	// verifier can never reach toxin work. Patterns must stay byte-identical to
+	// toxin/adapters/http.Register.
+	{OperationID: "listToxinTasks", Method: "GET", Pattern: "/app/toxin/tasks", Permissions: []string{ToxinRead}},
+	{OperationID: "getToxinTask", Method: "GET", Pattern: "/app/toxin/tasks/{task_id}", Permissions: []string{ToxinRead}},
+	{OperationID: "completeToxinStep", Method: "POST", Pattern: "/app/toxin/tasks/{task_id}/steps/{step_no}/complete", Permissions: []string{ToxinExecute}},
+	{OperationID: "submitToxinReading", Method: "POST", Pattern: "/app/toxin/tasks/{task_id}/submit", Permissions: []string{ToxinExecute}},
+	{OperationID: "listToxinReview", Method: "GET", Pattern: "/toxin/review", Permissions: []string{ToxinVerdict}},
+	{OperationID: "recordToxinVerdict", Method: "POST", Pattern: "/toxin/tasks/{task_id}/verdict", Permissions: []string{ToxinVerdict}},
 
 	// SALES (/procurement/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
 	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --
