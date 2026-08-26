@@ -181,7 +181,15 @@ sexed_buckets AS (
   JOIN goats g ON g.shed_id = src.resolved_id AND g.tenant_id = $1::uuid
    AND g.lifecycle_status = 'alive'
   LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-  WHERE src.resolved_partition_label = '' OR gsp.partition_label = src.resolved_partition_label
+  -- MATCH ON THE SCRUBBED KEY, NOT THE LABEL. The bucket's location is named "Godel 2 - Part 1",
+  -- from which the partition extracts as "1", while the register writes the human label
+  -- "Part 1" on the goat. Comparing those two strings raw matches NOTHING, so a real shed of 38
+  -- males was claimed by neither sex and 76 kids fell out of the page's totals — male + female
+  -- stopped adding up to every kid, with nothing on screen to say why. Both sides are reduced to
+  -- the same key here: lowercased, trimmed, and with a leading "part" dropped.
+  WHERE src.resolved_partition_label = ''
+     OR regexp_replace(lower(btrim(gsp.partition_label)), '^(part|pt)[\s.-]*', '')
+        = regexp_replace(lower(btrim(src.resolved_partition_label)), '^(part|pt)[\s.-]*', '')
   GROUP BY src.location_id, src.partition_label
   HAVING count(DISTINCT lower(btrim(g.sex))) = 1
      AND min(lower(btrim(g.sex))) = $5::text
