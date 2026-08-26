@@ -117,10 +117,50 @@ cost-per-kg, no value-added and the Watch verdict — a gain that was not
 measured cannot be priced. Pinned and mutation-tested by
 `TestEconomicsSubNoiseGainScoresFlatAndIsNeverPriced`.
 
+### The grain is the PEN and the BREED, not the animal
+
+Maintainer decision 2026-08-26. A per-animal list is hundreds of rows nobody
+acts on; a pen and a breed are things the farm can change. The page therefore
+shows **shed by shed** (worst daily net first — the pens costing money lead) and
+**breed by breed** (best net first — which breed pays for its feed).
+
+Every group figure is PER HEAD PER DAY, never a group total: only the weighed
+animals of a pen are in scope, so a total would understate a pen where few
+animals were weighed, while a per-head figure compares honestly across pens of
+any size. The figures are means and are consistent with each other — the value
+figure is the shown gain priced — and an animal scored flat by the noise floor
+is INSIDE the mean at zero gain, because a pen that is not growing must read as
+not growing.
+
+The breed chart encodes the actual question — *how much of what this breed
+returns does its feed eat* — as one bar per breed: the bar is the feed cost, a
+marker line is the return, and a red bar past its line is a breed losing money
+every day it stays. The shared `SvgColumnBars` was tried first and rejected: it
+draws unlabelled columns (right for a day series, where position is the label,
+wrong for six breeds that need their names) and puts float values in an SVG
+`<title>`, which hydration-mismatches. `features/sales/breed-economics-bars.tsx`
+follows the same rules as the shared primitives — server component, CSS custom
+properties, no copy of its own.
+
+### The whole-farm figure is the LATEST DAY, and says what it could not price
+
+Maintainer correction 2026-08-26, after the reported figure (~₹69k) did not match
+the page (₹54k). Two causes, both real:
+
+1. **An average across a window where spend doubled describes no real day.**
+   Daily feed spend ran ₹27,648 → ₹64,676 across the 18 sheet days of a 90-day
+   window. The page now reports the LATEST sheet day with its date named.
+2. **Unpriced feed was silently dropped.** Two concentrates (Vijay, RGS) have no
+   purchase rows at all, so ~86 kg a day sat outside the money and the total was
+   quietly short. The kg is now reported beside the figure. It is never estimated
+   at another item's rate — inventing a price would make the total look complete
+   when it is not. Recording those purchases is what closes the remaining gap.
+
 ### Grain and caps
 
-The per-animal table is capped at 200 rows (worst daily net first); every pulse and band figure is a whole-filter
-aggregate computed independently, so the caps never bend a headline number
-(`TestEconomicsPaginationCapNeverBendsSummaries`). Status boundaries
+The shed and breed tables are capped at `MaxGroupRows` as a backstop (both are
+naturally bounded); every pulse and band figure is a whole-filter aggregate
+computed independently of that grouping and cap, so neither ever bends a
+headline number (`TestEconomicsPaginationCapNeverBendsSummaries`). Status boundaries
 (rework weighs, non-closed deals, blocked cells) are pinned by
 `TestEconomicsStatusMatrixReworkDealsAndBlockedFeed`.

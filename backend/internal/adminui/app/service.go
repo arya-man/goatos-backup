@@ -879,14 +879,14 @@ func weightsGainThresholdTable() domain.TableContract {
 	return t
 }
 
-// economicsAnimalsTable builds the per-animal economics table on /sales/economics.
+// economicsAnimalsTable builds the per-PEN economics table on /sales/economics.
 //
 // Column labels come from the page's OWN copy map rather than humanLabel, because the farm
 // says "Gain per day" and "Cost per kg gain", not "Adg" and "Cost Per Kg Gain". Same
 // single-source reasoning as feedPurchaseTable: the header and the cells cannot drift.
 func economicsAnimalsTable() domain.TableContract {
-	t := withoutRowClick(tableP("economics-animals", "Per-animal economics", "/economics/overview",
-		[]string{"tag", "animal", "shed", "latest_weight", "adg", "feed_cost_day", "cost_per_kg_gain", "value_per_day", "net_per_day", "signal"},
+	t := withoutRowClick(tableP("economics-sheds", "Shed economics", "/economics/overview",
+		[]string{"shed", "animals", "adg", "feed_cost_day", "value_per_day", "net_per_day", "cost_per_kg_gain", "signal"},
 		"", []int{10, 25, 50}))
 	copy := pageCopy("sales-economics")
 	for i := range t.Columns {
@@ -2673,14 +2673,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.value_added":      "Growth value of the same animals",
 			"kpi.value_added.hint": "What their measured daily gain is worth at the realized price per kg.",
 
-			"kpi.net":          "Net per day, weighed animals",
-			"kpi.net.earning":  "These animals earn more than they eat.",
-			"kpi.net.burning":  "These animals eat more than they earn.",
-			"kpi.comparable":   "animals — both figures above cover exactly this set, so the difference is real",
-			"farm.line":        "Whole herd, for comparison",
-			"farm.animals":     "live animals",
-			"farm.days":        "days with a feed sheet in this window",
-			"farm.caution":     "This covers a bigger group than the two figures above, so do not subtract it from them.",
+			"kpi.net":         "Net per day, weighed animals",
+			"kpi.net.earning": "These animals earn more than they eat.",
+			"kpi.net.burning": "These animals eat more than they earn.",
+			"kpi.comparable":  "animals — both figures above cover exactly this set, so the difference is real",
+			"farm.line":       "Whole herd, latest feed sheet",
+			"farm.animals":    "live animals",
+			"farm.unpriced":   "kg on that sheet has no purchase price on record, so it is not counted in this figure",
+			"farm.caution":    "This covers a bigger group than the two figures above, so do not subtract it from them.",
 
 			"kpi.realized_price":               "Realized price per kg",
 			"kpi.realized_price.window":        "From this window's closed deals.",
@@ -2718,12 +2718,16 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.bands":            "No animals weighed twice in this window yet — a second weigh is what a daily gain is made of.",
 
 			// Per-animal table.
-			"section.animals.title":    "Per-animal economics",
-			"section.animals.subtitle": "Every live animal weighed twice in the window, worst daily net first. Cost is the animal's own pen and ration cell, priced at the latest load.",
-			"column.tag":               "Tag",
-			"column.animal":            "Animal",
+			"section.animals.title":    "Shed by shed",
+			"section.animals.subtitle": "Every pen with weighed animals, worst daily net first. All figures are per head per day, so pens compare fairly whatever their size.",
+			"section.breeds.title":     "Breed by breed",
+			"section.breeds.subtitle":  "What a head of each breed eats per day against what its measured growth returns. The bar is the feed cost and the line is the return: a bar reaching its line is a breed barely paying for itself, and a red bar past its line is one losing money every day it stays.",
+			"chart.breeds.value":       "feed per head per day",
+			"chart.breeds.compare":     "growth value per head per day",
+			"empty.breeds":             "No breed has weighed-and-priced animals in this view yet.",
 			"column.shed":              "Shed",
-			"column.latest_weight":     "Latest weight",
+			"column.breed":             "Breed",
+			"column.animals":           "Animals",
 			"column.adg":               "Gain per day",
 			"column.feed_cost_day":     "Feed cost per day",
 			"column.cost_per_kg_gain":  "Cost per kg gain",
@@ -2738,8 +2742,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.g_per_day_suffix":   "g/day",
 			"value.per_day_suffix":     "per day",
 			"value.per_kg_suffix":      "per kg",
-			"animals.capped":           "Showing the animals that need attention first. The headline figures above cover every weighed animal, not only these rows.",
-			"empty.animals":            "No animal has two weighs in this window yet. Economics starts with a second weigh.",
+			"animals.capped":           "Per head per day, over the weighed animals of each pen.",
+			"empty.animals":            "No pen has animals weighed twice in this window yet. Economics starts with a second weigh.",
 
 			// Page-level states.
 			"error.load": "Could not load the economics figures. Refresh to try again.",

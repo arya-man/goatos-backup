@@ -198,14 +198,15 @@ func TestEconomicsOneToManyFeedCellsCollapsePerAnimal(t *testing.T) {
 		t.Fatalf("GetBusinessEconomics: %v", err)
 	}
 
-	if len(out.Animals) != 1 {
-		t.Fatalf("one paired animal in two matching feed cells must stay ONE row, got %d", len(out.Animals))
+	// One pen, one animal: a duplicate-row bug would double the pen's per-head cost.
+	if len(out.Sheds) != 1 {
+		t.Fatalf("one paired animal in two matching feed cells must stay ONE pen row, got %d", len(out.Sheds))
 	}
-	row := out.Animals[0]
-	if row.TagDisplay != "ec-a" || row.DisplayID != "G-980001" {
-		t.Fatalf("row identity = %q/%q", row.TagDisplay, row.DisplayID)
+	row := out.Sheds[0]
+	if row.Animals != 1 {
+		t.Fatalf("pen animals = %d, want 1", row.Animals)
 	}
-	if !almostEqual(row.ADGGPerDay, 200) {
+	if row.ADGGPerDay == nil || !almostEqual(*row.ADGGPerDay, 200) {
 		t.Fatalf("adg = %v, want 200 g/day", row.ADGGPerDay)
 	}
 	if row.FeedCostPerDayRupees == nil || !almostEqual(*row.FeedCostPerDayRupees, 5) {
@@ -213,6 +214,10 @@ func TestEconomicsOneToManyFeedCellsCollapsePerAnimal(t *testing.T) {
 	}
 	if row.CostPerKgGainRupees == nil || !almostEqual(*row.CostPerKgGainRupees, 25) {
 		t.Fatalf("cost/kg gain = %v, want ₹25 (₹5 over 0.2 kg)", row.CostPerKgGainRupees)
+	}
+	// The same animal must appear once under its breed too.
+	if len(out.Breeds) != 1 || out.Breeds[0].Breed != "Sojat" || out.Breeds[0].Animals != 1 {
+		t.Fatalf("breeds = %+v, want one Sojat row of 1 animal", out.Breeds)
 	}
 	// Realized ₹400/kg from the fixture deal → value 0.2 × 400 = ₹80, net ₹75.
 	if out.Pulse.RealizedPricePerKg == nil || !almostEqual(*out.Pulse.RealizedPricePerKg, 400) {
@@ -229,9 +234,9 @@ func TestEconomicsOneToManyFeedCellsCollapsePerAnimal(t *testing.T) {
 	}
 }
 
-// PAGINATION CAP. The per-animal table is capped at MaxAnimalRows; the pulse
-// denominators are whole-filter aggregates computed independently, so the cap
-// must never bend them.
+// GROUPING NEVER BENDS THE SUMMARIES. Many animals collapse into few pen rows;
+// the pulse denominators are whole-filter aggregates computed independently of
+// that grouping (and of the MaxGroupRows backstop), so neither may bend them.
 func TestEconomicsPaginationCapNeverBendsSummaries(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -239,7 +244,7 @@ func TestEconomicsPaginationCapNeverBendsSummaries(t *testing.T) {
 	defer pool.Close()
 	seedEconomicsFixture(t, ctx, pool)
 
-	total := domain.MaxAnimalRows + 5
+	total := domain.MaxGroupRows + 5
 	for i := 0; i < total; i++ {
 		tag := fmt.Sprintf("EC-P%04d", i)
 		goatID := fmt.Sprintf("22222222-0000-4000-8000-0000000%05d", 10000+i)
@@ -247,6 +252,11 @@ func TestEconomicsPaginationCapNeverBendsSummaries(t *testing.T) {
 		seedEcScan(t, ctx, pool, ecCampaignW1, ecBucketW1, tag, 20.0, ecDay(8, 6), "pending")
 		seedEcScan(t, ctx, pool, ecCampaignW2, ecBucketW2, tag, 21.4, ecDay(15, 6), "pending")
 	}
+	// One priced ration cell for the pen they all share: without a cost there is
+	// nothing to group and the table is empty by design.
+	seedEcPurchase(t, ctx, pool, "Maize Crush", 1, "2026-07-01", 100, 1000)
+	seedEcFeedIssue(t, ctx, pool, ecFeedIssue, "2026-07-15", "normal")
+	seedEcFeedRow(t, ctx, pool, ecFeedIssue, ecShed, "", "F2-Male", "Sojat", "Maize Crush", 2.0, nil, 4, false, "normal", 1)
 
 	from, to := ecWindow()
 	repo := NewRepository(pool, 30*time.Second)
@@ -254,8 +264,11 @@ func TestEconomicsPaginationCapNeverBendsSummaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetBusinessEconomics: %v", err)
 	}
-	if len(out.Animals) != domain.MaxAnimalRows {
-		t.Fatalf("animal rows = %d, want the %d cap", len(out.Animals), domain.MaxAnimalRows)
+	// All the seeded animals sit in ONE pen, so the shed table collapses to a
+	// single row while the pulse still counts every animal — the cap and the
+	// grouping must never bend a summary.
+	if len(out.Sheds) != 1 || out.Sheds[0].Animals != total {
+		t.Fatalf("sheds = %d rows, first covering %v animals; want 1 row of %d", len(out.Sheds), out.Sheds, total)
 	}
 	if out.Pulse.PairedAnimals != total {
 		t.Fatalf("pulse paired = %d, want the uncapped %d", out.Pulse.PairedAnimals, total)
@@ -294,6 +307,12 @@ func TestEconomicsParkScopeNarrowsAnimalsNotDeals(t *testing.T) {
 	seedEcScan(t, ctx, pool, ecCampaignP2, ecBucketP2, "EC-S2", 30.0, ecDay(8, 6), "pending")
 	seedEcScan(t, ctx, pool, ecCampaignP2, ecBucketP2, "EC-S2", 31.4, ecDay(15, 7), "pending")
 
+	// Price the FIRST park's pen only (the seed helpers author sheets for that
+	// park), which is exactly what the park-filter assertion needs.
+	seedEcPurchase(t, ctx, pool, "Maize Crush", 1, "2026-07-01", 100, 1000)
+	seedEcFeedIssue(t, ctx, pool, ecFeedIssue, "2026-07-15", "normal")
+	seedEcFeedRow(t, ctx, pool, ecFeedIssue, ecShed, "", "F2-Male", "Sojat", "Maize Crush", 2.0, nil, 4, false, "normal", 1)
+
 	from, to := ecWindow()
 	repo := NewRepository(pool, 5*time.Second)
 
@@ -311,8 +330,8 @@ func TestEconomicsParkScopeNarrowsAnimalsNotDeals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("one park: %v", err)
 	}
-	if one.Pulse.WeighedIdentities != 1 || len(one.Animals) != 1 || one.Animals[0].TagDisplay != "ec-s1" {
-		t.Fatalf("park filter must keep only the first park's animal, got weighed=%d animals=%+v", one.Pulse.WeighedIdentities, one.Animals)
+	if one.Pulse.WeighedIdentities != 1 || len(one.Sheds) != 1 || one.Sheds[0].Animals != 1 {
+		t.Fatalf("park filter must keep only the first park's animal, got weighed=%d sheds=%+v", one.Pulse.WeighedIdentities, one.Sheds)
 	}
 	if len(one.Parks) != 1 || one.Parks[0].ParkID != ecPark {
 		t.Fatalf("park vocabulary must carry exactly the scoped park, got %+v", one.Parks)
@@ -368,15 +387,14 @@ VALUES ($1::uuid, $2::uuid, '2026-07-21', 'CBE', 'Open Buyer', 'Sheep', 'Sojat',
 		t.Fatalf("GetBusinessEconomics: %v", err)
 	}
 
-	if len(out.Animals) != 1 || out.Animals[0].TagDisplay != "ec-k" {
-		t.Fatalf("animals = %+v, want exactly ec-k (rework leaves EC-R unpaired)", out.Animals)
+	// EC-K's pen has only a blocked cell and an unpriced item, so it has NO
+	// priced animal and therefore no shed row at all — a pen we cannot cost is
+	// absent, never shown at zero.
+	if len(out.Sheds) != 0 {
+		t.Fatalf("sheds = %+v, want none (blocked + unpriced leaves nothing costable)", out.Sheds)
 	}
-	row := out.Animals[0]
-	if row.FeedCostPerDayRupees != nil {
-		t.Fatalf("blocked + unpriced cells must leave cost NULL, got %v", *row.FeedCostPerDayRupees)
-	}
-	if row.Signal != domain.SignalWatch {
-		t.Fatalf("signal = %q, want watch (no cost side)", row.Signal)
+	if out.Pulse.PricedAnimals != 0 {
+		t.Fatalf("priced animals = %d, want 0", out.Pulse.PricedAnimals)
 	}
 	if out.Pulse.UnpricedFeedItems != 1 {
 		t.Fatalf("unpriced feed items = %d, want 1 (Mystery Bran)", out.Pulse.UnpricedFeedItems)
@@ -433,48 +451,35 @@ func TestEconomicsSubNoiseGainScoresFlatAndIsNeverPriced(t *testing.T) {
 		t.Fatalf("GetBusinessEconomics: %v", err)
 	}
 
-	byTag := map[string]domain.AnimalEconomics{}
-	for _, row := range out.Animals {
-		byTag[row.TagDisplay] = row
+	// Both animals share one pen. The flat one must be IN the pen's figures at
+	// full cost and zero gain, so the pen's mean gain is (200 + 0) / 2 = 100 —
+	// dropping it would flatter the pen by pretending only the grower exists.
+	if len(out.Sheds) != 1 {
+		t.Fatalf("sheds = %d, want 1 (both animals share a pen)", len(out.Sheds))
 	}
-	flat, ok := byTag["ec-flat"]
-	if !ok {
-		t.Fatal("a flat animal must KEEP its row — its feed cost is real and worth seeing")
+	pen := out.Sheds[0]
+	if pen.Animals != 2 {
+		t.Fatalf("pen animals = %d, want 2 (the flat animal is not dropped)", pen.Animals)
 	}
-	if flat.ADGGPerDay != 0 {
-		t.Fatalf("sub-noise change must score 0 g/day, got %v", flat.ADGGPerDay)
+	if pen.ADGGPerDay == nil || !almostEqual(*pen.ADGGPerDay, 100) {
+		t.Fatalf("pen mean gain = %v, want 100 g/day ((200+0)/2 — flat counted at zero)", pen.ADGGPerDay)
 	}
-	if flat.CostPerKgGainRupees != nil {
-		t.Fatalf("a gain that was not measured cannot be priced: cost/kg = %v", *flat.CostPerKgGainRupees)
-	}
-	if flat.ValueAddedPerDayRupees != nil || flat.NetPerDayRupees != nil {
-		t.Fatalf("flat animal must carry no value/net, got %v/%v", flat.ValueAddedPerDayRupees, flat.NetPerDayRupees)
-	}
-	if flat.Signal != domain.SignalWatch {
-		t.Fatalf("flat animal signal = %q, want watch", flat.Signal)
-	}
-	if flat.FeedCostPerDayRupees == nil || !almostEqual(*flat.FeedCostPerDayRupees, 5) {
-		t.Fatalf("flat animal must still show its real feed cost, got %v", flat.FeedCostPerDayRupees)
+	if pen.FeedCostPerDayRupees == nil || !almostEqual(*pen.FeedCostPerDayRupees, 5) {
+		t.Fatalf("pen feed/head/day = %v, want ₹5", pen.FeedCostPerDayRupees)
 	}
 
-	real, ok := byTag["ec-real"]
-	if !ok {
-		t.Fatal("the genuinely growing animal must be present")
-	}
-	if !almostEqual(real.ADGGPerDay, 200) {
-		t.Fatalf("real gain = %v, want 200 g/day", real.ADGGPerDay)
-	}
-	if real.CostPerKgGainRupees == nil || !almostEqual(*real.CostPerKgGainRupees, 25) {
-		t.Fatalf("real cost/kg = %v, want 25", real.CostPerKgGainRupees)
-	}
-
-	// The flat animal must not drag the medians either: only measured growth is
-	// priced, so cost_animals counts EC-REAL alone.
+	// The flat animal must not drag the MEDIAN cost-per-kg either: only measured
+	// growth is priced, so cost_animals counts EC-REAL alone.
 	if out.Pulse.CostAnimals != 1 {
 		t.Fatalf("cost animals = %d, want 1 (the flat animal has no priceable gain)", out.Pulse.CostAnimals)
 	}
 	if out.Pulse.PairedAnimals != 2 {
 		t.Fatalf("paired animals = %d, want 2 (both were weighed twice)", out.Pulse.PairedAnimals)
+	}
+	// Whole-window per-animal gain is still available through the pulse: the
+	// noise floor is a DATA rule, not a display rule, so it holds at every grain.
+	if out.Pulse.ValueAddedPerDayRupees == nil || !almostEqual(*out.Pulse.ValueAddedPerDayRupees, 80) {
+		t.Fatalf("value = %v, want ₹80 (only the real grower)", out.Pulse.ValueAddedPerDayRupees)
 	}
 }
 
@@ -555,7 +560,12 @@ func TestEconomicsFeedAndValueTilesCoverTheSameAnimals(t *testing.T) {
 	if p.FarmAnimals <= p.PricedAnimals {
 		t.Fatalf("farm animals = %d must exceed the priced set %d", p.FarmAnimals, p.PricedAnimals)
 	}
-	if p.FarmFeedDays != 1 {
-		t.Fatalf("farm feed days = %d, want 1 (one sheet seeded)", p.FarmFeedDays)
+	// The farm figure names the day it describes, and reports unpriced feed in kg
+	// rather than swallowing it.
+	if p.FarmFeedDay != "2026-07-15" {
+		t.Fatalf("farm feed day = %q, want the latest sheet day 2026-07-15", p.FarmFeedDay)
+	}
+	if p.FarmUnpricedKg == nil || *p.FarmUnpricedKg != 0 {
+		t.Fatalf("farm unpriced kg = %v, want 0 (every seeded item is priced)", p.FarmUnpricedKg)
 	}
 }

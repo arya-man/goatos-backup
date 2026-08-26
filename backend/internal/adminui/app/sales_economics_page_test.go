@@ -27,7 +27,7 @@ func TestSalesEconomicsPageContractAndNavigation(t *testing.T) {
 
 	// One table only: the sold-animal panel was dropped (maintainer decision
 	// 2026-08-25) because no per-animal sale price exists to render.
-	if len(page.Tables) != 1 || page.Tables[0].ID != "economics-animals" {
+	if len(page.Tables) != 1 || page.Tables[0].ID != "economics-sheds" {
 		t.Fatalf("economics tables = %+v", page.Tables)
 	}
 	for _, tbl := range page.Tables {
@@ -48,8 +48,8 @@ func TestSalesEconomicsPageContractAndNavigation(t *testing.T) {
 
 	// The column ORDER is part of the contract (see feed_purchase_page_test.go).
 	wantAnimalColumns := []string{
-		"tag", "animal", "shed", "latest_weight", "adg",
-		"feed_cost_day", "cost_per_kg_gain", "value_per_day", "net_per_day", "signal",
+		"shed", "animals", "adg", "feed_cost_day",
+		"value_per_day", "net_per_day", "cost_per_kg_gain", "signal",
 	}
 	if len(page.Tables[0].Columns) != len(wantAnimalColumns) {
 		t.Fatalf("animal columns = %+v", page.Tables[0].Columns)
@@ -75,6 +75,13 @@ func TestSalesEconomicsPageContractAndNavigation(t *testing.T) {
 		"bands.animals", "bands.gain", "bands.cost", "bands.value", "bands.net",
 		"bands.sell", "bands.keep", "bands.unknown", "empty.bands",
 		"section.animals.title", "section.animals.subtitle",
+		"section.breeds.title", "section.breeds.subtitle",
+		"chart.breeds.value", "chart.breeds.compare", "empty.breeds",
+		"column.shed", "column.breed", "column.animals", "column.adg",
+		"column.feed_cost_day", "column.value_per_day", "column.net_per_day",
+		"column.cost_per_kg_gain", "column.signal",
+		"kpi.net", "kpi.net.earning", "kpi.net.burning", "kpi.comparable",
+		"farm.line", "farm.animals", "farm.unpriced", "farm.caution",
 		"signal.earning", "signal.burning", "signal.watch",
 		"value.none", "value.kg_suffix", "value.g_per_day_suffix", "value.per_day_suffix", "value.per_kg_suffix",
 		"animals.capped", "empty.animals",
