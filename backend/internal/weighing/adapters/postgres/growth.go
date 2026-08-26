@@ -612,6 +612,12 @@ WITH obs AS (
     -- untouched here -- but a reader on Male must still be told how many MALE kids are heavy enough
     -- to sell. The parameters were previously not even passed, so this block answered about the
     -- whole herd beside a headline about half of it.
+    --
+    -- AllTimeTags, NOT Tags: the ordinary scope is bounded by the selected window plus the 90-day
+    -- gain lookback, and using it here narrowed a latest-EVER count to "weighed recently" -- an
+    -- animal last weighed a year ago and long since heavy enough to sell would have dropped out of
+    -- the denominator. This farm's data cannot show that today because every weigh in it falls
+    -- inside the lookback, which is exactly why the regression test below reaches outside it.
     AND (NOT $3::bool OR lower(btrim(wo.scanned_identifier)) = ANY($4::text[]))
 ),
 latest AS (
@@ -620,7 +626,7 @@ latest AS (
   ORDER BY animal_key, accepted_at DESC, observation_id DESC
 )
 SELECT COUNT(*), COUNT(*) FILTER (WHERE weight_kg >= 30), COUNT(*) FILTER (WHERE weight_kg >= 35)
-FROM latest`, tenantID, parkIDs, sexFiltered, scope.Tags)
+FROM latest`, tenantID, parkIDs, sexFiltered, scope.AllTimeTags)
 	var s domain.GrowthSaleReadiness
 	if err != nil {
 		return s, err
