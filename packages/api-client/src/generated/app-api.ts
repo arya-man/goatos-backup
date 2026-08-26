@@ -9816,14 +9816,16 @@ export interface components {
             parks: components["schemas"]["WeighingPark"][];
             trace_id?: string;
         };
-        /** @description The Sales → Economics page: pulse tiles, per-animal daily economics and break-even weight bands. `estimate` is always true — feed cost is directed-and-priced, not eaten. There is deliberately no per-animal sale panel: no per-animal sale price is recorded anywhere, so the honest sale figure is the deal-grain realized price per kg on the pulse. */
+        /** @description The Sales → Economics page: pulse tiles, per-pen and per-breed economics, and break-even weight bands. The grain is the pen and the breed, never the individual animal — a per-animal list is hundreds of rows nobody acts on, while a pen and a breed are things the farm can change. `estimate` is always true — feed cost is directed-and-priced, not eaten. There is deliberately no per-animal sale panel: no per-animal sale price is recorded anywhere, so the honest sale figure is the deal-grain realized price per kg on the pulse. */
         BusinessEconomicsResponse: {
             period: components["schemas"]["GrowthDirectorPeriod"];
             /** @description Park filter vocabulary, limited to the caller's authorized scope. */
             parks: components["schemas"]["WeighingPark"][];
             pulse: components["schemas"]["EconomicsPulse"];
-            /** @description Per-animal daily economics, worst daily net first, capped at 200 rows. The pulse carries the uncapped denominators, so the cap never bends a headline figure. */
-            animals: components["schemas"]["EconomicsAnimal"][];
+            /** @description Per-PEN economics, worst daily net first. The pen is the grain the farm actually feeds (one bag per pen), so it is the grain a cost decision is made at. */
+            sheds: components["schemas"]["EconomicsShed"][];
+            /** @description Per-BREED economics across the whole selected scope, BEST net first — which breed pays for its feed. */
+            breeds: components["schemas"]["EconomicsBreed"][];
             /** @description Always all six weight bands (<15, 15-20, 20-25, 25-30, 30-35, 35+), ascending. */
             bands: components["schemas"]["EconomicsBand"][];
             estimate: boolean;
@@ -9836,10 +9838,15 @@ export interface components {
             value_added_per_day_rupees: number | null;
             /** @description value_added_per_day_rupees − feed_cost_per_day_rupees, over the one shared set. */
             net_per_day_rupees: number | null;
-            /** @description WHOLE-SCOPE daily feed spend, covering `farm_animals` — a different and much larger population than the two figures above. Must always be rendered with that population named, never subtracted from the value figure. */
+            /** @description WHOLE-SCOPE feed spend on `farm_feed_day` (the latest sheet day), covering `farm_animals` — a different and much larger population than the figures above, and never to be subtracted from them. It is the LATEST DAY, not a window average: daily spend can more than double across a window, so an average describes no real day. */
             farm_feed_cost_per_day_rupees: number | null;
-            /** @description Days in the window that actually carry a feed sheet — the denominator `farm_feed_cost_per_day_rupees` is averaged over. A 90-day window may hold far fewer sheet days. */
-            farm_feed_days: number;
+            /**
+             * Format: date
+             * @description The business date `farm_feed_cost_per_day_rupees` describes.
+             */
+            farm_feed_day: string;
+            /** @description Feed directed on that day that no purchase row can price, in kg — the honest size of what the rupee figure is missing. Never estimated at another item's rate. */
+            farm_unpriced_kg: number | null;
             /** @description Live animals in scope — the population the farm feed figure covers. */
             farm_animals: number;
             realized_price_per_kg: number | null;
@@ -9861,24 +9868,27 @@ export interface components {
             animals_sold: number;
             sold_revenue_rupees: number;
         };
-        /** @description One live, matched animal weighed at least twice in the window. Money fields are nullable; null means "not computable", never zero. */
-        EconomicsAnimal: {
-            tag_display: string;
-            display_id: string;
-            breed: string;
-            sex: string;
-            stage: string;
-            /** @description Park-prefixed shed + pen, composed by the backend per the operational-location rule. */
-            shed_display: string;
-            latest_weight_kg: number;
-            adg_g_per_day: number;
-            span_days: number;
+        /** @description Shared shape of the pen and breed rows. Every money figure is PER HEAD PER DAY over `animals`, never a group total: only weighed animals are in scope, so a total would understate a pen where few were weighed, while a per-head figure compares honestly across groups of any size. The figures are means and are consistent with each other — `value_added_per_day_rupees` is `adg_g_per_day` priced. Animals scored flat by the 3% scale-noise floor are included at zero gain: a group that is not growing must read as not growing. */
+        EconomicsGroup: {
+            /** @description Paired animals in this group whose ration cell resolved and priced. */
+            animals: number;
+            adg_g_per_day: number | null;
             feed_cost_per_day_rupees: number | null;
-            cost_per_kg_gain_rupees: number | null;
             value_added_per_day_rupees: number | null;
             net_per_day_rupees: number | null;
+            cost_per_kg_gain_rupees: number | null;
             /** @enum {string} */
             signal: "earning" | "burning" | "watch";
+        };
+        EconomicsShed: components["schemas"]["EconomicsGroup"] & {
+            location_id: string;
+            /** @description The pen within location_id, blank for an undivided shed. Half of this row's identity. */
+            partition_label: string;
+            /** @description Backend-composed park-prefixed shed + pen label. */
+            shed_display: string;
+        };
+        EconomicsBreed: components["schemas"]["EconomicsGroup"] & {
+            breed: string;
         };
         /** @description One weight band's break-even read: the band's median animal's gain, cost and return per day. sell_signal is true when the median net is zero or negative — keeping the median animal of this band loses money at today's realized price. */
         EconomicsBand: {

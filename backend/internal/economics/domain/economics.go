@@ -28,10 +28,11 @@ const DefaultPeriodDays = 90
 // planner cap.
 const MaxParks = 100
 
-// MaxAnimalRows caps the per-animal economics table. The pulse and band
-// figures are whole-filter aggregates computed independently of this cap, so
-// truncating the table never bends a summary number.
-const MaxAnimalRows = 200
+// MaxGroupRows caps the shed and breed tables. The pulse and band figures are
+// whole-filter aggregates computed independently of this cap, so truncating a
+// table never bends a summary number. Sheds and breeds are naturally bounded
+// (a farm has tens of pens and a handful of breeds); the cap is a backstop.
+const MaxGroupRows = 200
 
 // PeriodResolutionCampaignWeek discloses the window semantics: weighing data is
 // selected by CAMPAIGN-WEEK OVERLAP while feed and sales rows use the exact
@@ -79,7 +80,10 @@ type Period struct {
 }
 
 // BusinessEconomics is the whole Sales → Economics page: the pulse tiles, the
-// per-animal table and the break-even bands. Estimate is ALWAYS true: feed cost
+// per-SHED table, the per-BREED comparison and the break-even bands. The grain
+// is the pen and the breed, never the individual animal (maintainer decision
+// 2026-08-26): a per-animal list is 300 rows nobody acts on, while a pen and a
+// breed are things the farm can actually change. Estimate is ALWAYS true: feed cost
 // is what the sheet DIRECTED priced at the latest load, not what was eaten.
 //
 // There is deliberately NO per-animal sale panel (maintainer decision
@@ -91,9 +95,10 @@ type BusinessEconomics struct {
 	Period   Period            `json:"period"`
 	Parks    []Park            `json:"parks"`
 	Pulse    Pulse             `json:"pulse"`
-	Animals  []AnimalEconomics `json:"animals"`
-	Bands    []BandEconomics   `json:"bands"`
-	Estimate bool              `json:"estimate"`
+	Sheds    []ShedEconomics  `json:"sheds"`
+	Breeds   []BreedEconomics `json:"breeds"`
+	Bands    []BandEconomics  `json:"bands"`
+	Estimate bool             `json:"estimate"`
 }
 
 // Pulse is the headline strip. Money figures are nullable and null never means
@@ -123,17 +128,21 @@ type Pulse struct {
 	ValueAddedPerDayRupees *float64 `json:"value_added_per_day_rupees"`
 	// NetPerDayRupees is ValueAdded − FeedCost over that one shared set.
 	NetPerDayRupees *float64 `json:"net_per_day_rupees"`
-	// FarmFeedCostPerDayRupees is the WHOLE-SCOPE daily feed spend: every priced
-	// directed cell (normal AND experiment — trial feed is real money) summed
-	// per feed day, averaged over the days that have a sheet. It covers
-	// FarmAnimals, NOT the tile set above, and must always be rendered with that
-	// population named.
+	// FarmFeedCostPerDayRupees is the WHOLE-SCOPE feed spend on the LATEST sheet
+	// day (FarmFeedDay), not a window average: spend on the live herd climbed
+	// ₹27,648 -> ₹64,676 across one window's sheet days, so an average described
+	// no day that ever happened and understated the current rate by ₹10,000.
+	// It covers FarmAnimals, NOT the tile set above, and must always be rendered
+	// with that population and that day named.
 	FarmFeedCostPerDayRupees *float64 `json:"farm_feed_cost_per_day_rupees"`
-	// FarmFeedDays is how many days in the window actually carry a feed sheet —
-	// the denominator FarmFeedCostPerDayRupees is averaged over. A window can be
-	// 90 days long and hold 18 sheets; without this the reader assumes the
-	// average spans the whole window.
-	FarmFeedDays int `json:"farm_feed_days"`
+	// FarmFeedDay is the business date FarmFeedCostPerDayRupees describes.
+	FarmFeedDay string `json:"farm_feed_day"`
+	// FarmUnpricedKg is feed directed on that day that NO purchase can price, in
+	// kg. It is the honest size of what the rupee figure is missing (on the live
+	// herd, two concentrates with no purchase rows at all). Never estimated at
+	// another item's rate: inventing a price would make the total look complete
+	// when it is not.
+	FarmUnpricedKg *float64 `json:"farm_unpriced_kg"`
 	// FarmAnimals is the live animal count in scope — the population the farm
 	// feed figure covers.
 	FarmAnimals int `json:"farm_animals"`
@@ -167,30 +176,51 @@ type Pulse struct {
 	SoldRevenueRupees float64 `json:"sold_revenue_rupees"`
 }
 
-// AnimalEconomics is one live, matched, paired animal's daily economics. Rows
-// exist only for animals weighed at least twice in the window whose tag
-// resolves in the herd register — the trust figures on the pulse carry the
-// rest. Money fields are nullable; null means "not computable", never zero.
-type AnimalEconomics struct {
-	TagDisplay  string `json:"tag_display"`
-	DisplayID   string `json:"display_id"`
-	Breed       string `json:"breed"`
-	Sex         string `json:"sex"`
-	Stage       string `json:"stage"`
-	ShedDisplay string `json:"shed_display"`
-
-	LatestWeightKg float64 `json:"latest_weight_kg"`
-	ADGGPerDay     float64 `json:"adg_g_per_day"`
-	SpanDays       int     `json:"span_days"`
-
-	// FeedCostPerDayRupees is the animal's pen + stage + breed feed cell: the
-	// priced per-head daily direction for exactly the grain the feed sheet
-	// feeds this animal under, averaged over the window's sheet days.
+// GroupEconomics is the shared shape of the two comparison tables. Every money
+// figure is PER HEAD PER DAY over the animals behind it, never a group total:
+// only the weighed animals of a pen are in scope, so a "pen total" would
+// understate a pen where few animals were weighed, while a per-head figure
+// compares honestly across pens of any size.
+//
+// The figures are MEANS over that group, and deliberately consistent with each
+// other: ValueAddedPerDayRupees is ADGGPerDay priced, so the two always agree.
+// Money fields are nullable; null means "not computable", never zero.
+type GroupEconomics struct {
+	// Animals is the denominator: paired animals in this group whose ration cell
+	// resolved and priced.
+	Animals int `json:"animals"`
+	// ADGGPerDay is the mean measured daily gain. Animals scored flat by the 3%
+	// scale-noise floor are IN this mean at 0 — a pen that is not growing must
+	// read as not growing.
+	ADGGPerDay             *float64 `json:"adg_g_per_day"`
 	FeedCostPerDayRupees   *float64 `json:"feed_cost_per_day_rupees"`
-	CostPerKgGainRupees    *float64 `json:"cost_per_kg_gain_rupees"`
 	ValueAddedPerDayRupees *float64 `json:"value_added_per_day_rupees"`
 	NetPerDayRupees        *float64 `json:"net_per_day_rupees"`
+	CostPerKgGainRupees    *float64 `json:"cost_per_kg_gain_rupees"`
 	Signal                 string   `json:"signal"`
+}
+
+// ShedEconomics is one operational location — a PEN where the shed is divided,
+// the shed itself where it is not. The pen is the grain the farm actually feeds
+// (one bag per pen), so it is the grain a cost decision is made at.
+type ShedEconomics struct {
+	LocationID string `json:"location_id"`
+	// PartitionLabel is the pen within LocationID, blank for an undivided shed.
+	// It is half of this row's identity, not decoration: a partitioned shed
+	// returns several rows under ONE location_id.
+	PartitionLabel string `json:"partition_label"`
+	// ShedDisplay is the backend-composed park-prefixed shed + pen label.
+	ShedDisplay string `json:"shed_display"`
+	GroupEconomics
+}
+
+// BreedEconomics is one breed across the whole selected scope: what a head of
+// that breed eats a day against what its measured growth returns. This is the
+// buy/keep question — which breed pays for its feed — so it is deliberately
+// scope-wide rather than per pen.
+type BreedEconomics struct {
+	Breed string `json:"breed"`
+	GroupEconomics
 }
 
 // BandEconomics is the break-even read at weight-band grain: for each road-to-

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/economics/domain"
@@ -233,7 +234,8 @@ func (r *Repository) GetBusinessEconomics(ctx context.Context, tenantID string, 
 		},
 		Parks:    []domain.Park{},
 		Pulse:    domain.Pulse{PriceBasis: domain.PriceBasisNone},
-		Animals:  []domain.AnimalEconomics{},
+		Sheds:    []domain.ShedEconomics{},
+		Breeds:   []domain.BreedEconomics{},
 		Bands:    emptyBands(),
 		Estimate: true,
 	}
@@ -287,6 +289,7 @@ func (r *Repository) GetBusinessEconomics(ctx context.Context, tenantID string, 
 // cost — the single grain every growth-side widget is derived from.
 type econRow struct {
 	tag            string
+	shedID         string
 	displayID      string
 	breed          string
 	sex            string
@@ -321,6 +324,7 @@ func (r *Repository) econRows(ctx context.Context, tenantID string, parkIDs []st
 	defer cancel()
 	const q = econChain + `
 SELECT e.tag_key, e.display_id, e.breed, e.sex, e.stage,
+       COALESCE(e.shed_id::text, '') AS shed_id,
        COALESCE(shed.name, '') AS shed_name, e.pen, COALESCE(park.name, '') AS park_name,
        e.w_last::float8, e.adg_g_day::float8, e.span_days,
        e.cost_per_head_day
@@ -337,7 +341,7 @@ LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = e.p
 		var row econRow
 		if err := rows.Scan(
 			&row.tag, &row.displayID, &row.breed, &row.sex, &row.stage,
-			&row.shedName, &row.pen, &row.parkName,
+			&row.shedID, &row.shedName, &row.pen, &row.parkName,
 			&row.latestWeightKg, &row.adgGPerDay, &row.spanDays,
 			&row.costPerHeadDay,
 		); err != nil {
@@ -348,8 +352,9 @@ LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = e.p
 	return out, rows.Err()
 }
 
-// assembleGrowth derives the animal table, the bands and the pulse growth
-// figures from the one econ row set, so all three agree by construction.
+// assembleGrowth derives the shed table, the breed comparison, the bands and
+// the pulse growth figures from the ONE econ row set, so every surface on the
+// page agrees by construction.
 func assembleGrowth(out *domain.BusinessEconomics, rows []econRow, realizedPerKg *float64) {
 	costPerKg := make([]float64, 0, len(rows))
 	// The two comparable tiles range over the PRICED set: every animal whose
@@ -358,26 +363,31 @@ func assembleGrowth(out *domain.BusinessEconomics, rows []econRow, realizedPerKg
 	var pricedFeedPerDay, pricedGainKgPerDay float64
 	var pricedAnimals int
 
-	animals := make([]domain.AnimalEconomics, 0, len(rows))
 	bandRows := make([][]econRow, len(domain.BandLabels))
-	for _, row := range rows {
-		animal := domain.AnimalEconomics{
-			TagDisplay:           row.tag,
-			DisplayID:            row.displayID,
-			Breed:                row.breed,
-			Sex:                  row.sex,
-			Stage:                row.stage,
-			ShedDisplay:          operationalLabel(row.parkName, row.shedName, row.pen),
-			LatestWeightKg:       row.latestWeightKg,
-			ADGGPerDay:           row.adgGPerDay,
-			SpanDays:             row.spanDays,
-			FeedCostPerDayRupees: row.costPerHeadDay,
-		}
-		deriveAnimalMoney(&animal, realizedPerKg)
-		animals = append(animals, animal)
+	shedGroups := map[string][]econRow{}
+	shedOrder := []string{}
+	breedGroups := map[string][]econRow{}
+	breedOrder := []string{}
 
+	for _, row := range rows {
 		idx := weightBandIndex(row.latestWeightKg)
 		bandRows[idx] = append(bandRows[idx], row)
+
+		// Group keys are the STABLE identity, never the display label: shed name
+		// repeats across parks, so keying on it would merge two parks' pens into
+		// one row (the operational-location rule's name-keying defect).
+		shedKey := row.shedID + "\x00" + row.pen
+		if _, seen := shedGroups[shedKey]; !seen {
+			shedOrder = append(shedOrder, shedKey)
+		}
+		shedGroups[shedKey] = append(shedGroups[shedKey], row)
+
+		if breed := strings.TrimSpace(row.breed); breed != "" {
+			if _, seen := breedGroups[breed]; !seen {
+				breedOrder = append(breedOrder, breed)
+			}
+			breedGroups[breed] = append(breedGroups[breed], row)
+		}
 
 		if row.costPerHeadDay != nil {
 			pricedAnimals++
@@ -406,16 +416,52 @@ func assembleGrowth(out *domain.BusinessEconomics, rows []econRow, realizedPerKg
 		}
 	}
 
-	// Worst daily net first — the burners the CEO should look at — then the
-	// costliest, then the tag for a stable order; capped AFTER the aggregates
-	// above so the cap never bends a headline number.
-	sort.SliceStable(animals, func(i, j int) bool {
-		return animalRowLess(animals[i], animals[j])
-	})
-	if len(animals) > domain.MaxAnimalRows {
-		animals = animals[:domain.MaxAnimalRows]
+	// Sheds, worst net first — the pens costing money lead.
+	sheds := make([]domain.ShedEconomics, 0, len(shedOrder))
+	for _, key := range shedOrder {
+		members := shedGroups[key]
+		group := groupEconomics(members, realizedPerKg)
+		if group.Animals == 0 {
+			continue
+		}
+		sheds = append(sheds, domain.ShedEconomics{
+			LocationID:     members[0].shedID,
+			PartitionLabel: members[0].pen,
+			ShedDisplay:    operationalLabel(members[0].parkName, members[0].shedName, members[0].pen),
+			GroupEconomics: group,
+		})
 	}
-	out.Animals = animals
+	sort.SliceStable(sheds, func(i, j int) bool {
+		if less, decided := netLess(sheds[i].GroupEconomics, sheds[j].GroupEconomics); decided {
+			return less
+		}
+		return sheds[i].ShedDisplay < sheds[j].ShedDisplay
+	})
+	if len(sheds) > domain.MaxGroupRows {
+		sheds = sheds[:domain.MaxGroupRows]
+	}
+	out.Sheds = sheds
+
+	// Breeds, BEST net first: this is the "which breed pays for its feed"
+	// question, so the answer leads.
+	breeds := make([]domain.BreedEconomics, 0, len(breedOrder))
+	for _, breed := range breedOrder {
+		group := groupEconomics(breedGroups[breed], realizedPerKg)
+		if group.Animals == 0 {
+			continue
+		}
+		breeds = append(breeds, domain.BreedEconomics{Breed: breed, GroupEconomics: group})
+	}
+	sort.SliceStable(breeds, func(i, j int) bool {
+		if less, decided := netLess(breeds[j].GroupEconomics, breeds[i].GroupEconomics); decided {
+			return less
+		}
+		return breeds[i].Breed < breeds[j].Breed
+	})
+	if len(breeds) > domain.MaxGroupRows {
+		breeds = breeds[:domain.MaxGroupRows]
+	}
+	out.Breeds = breeds
 
 	bands := emptyBands()
 	for idx, members := range bandRows {
@@ -448,20 +494,63 @@ func assembleGrowth(out *domain.BusinessEconomics, rows []econRow, realizedPerKg
 	out.Bands = bands
 }
 
-// animalRowLess orders the table worst daily net first (nulls last), then
-// costliest first (nulls last), then tag.
-func animalRowLess(a, b domain.AnimalEconomics) bool {
+// groupEconomics reduces one pen's or breed's animals to PER-HEAD-PER-DAY
+// means. Only PRICED animals count: an animal whose ration never resolved has
+// no cost, so including it would divide a real cost across a head it cannot
+// account for. A flat animal IS included, at its full cost and zero gain —
+// a pen that is not growing must read as not growing.
+func groupEconomics(members []econRow, realizedPerKg *float64) domain.GroupEconomics {
+	var feedSum, gainSum float64
+	n := 0
+	for _, row := range members {
+		if row.costPerHeadDay == nil {
+			continue
+		}
+		n++
+		feedSum += *row.costPerHeadDay
+		if row.adgGPerDay > 0 {
+			gainSum += row.adgGPerDay
+		}
+	}
+	group := domain.GroupEconomics{Animals: n, Signal: domain.SignalWatch}
+	if n == 0 {
+		return group
+	}
+	feed := feedSum / float64(n)
+	gain := gainSum / float64(n)
+	group.FeedCostPerDayRupees = &feed
+	group.ADGGPerDay = &gain
+	if gain > 0 {
+		costPerKg := feed / (gain / 1000.0)
+		group.CostPerKgGainRupees = &costPerKg
+	}
+	if realizedPerKg != nil {
+		value := (gain / 1000.0) * *realizedPerKg
+		group.ValueAddedPerDayRupees = &value
+		net := value - feed
+		group.NetPerDayRupees = &net
+		if net > 0 {
+			group.Signal = domain.SignalEarning
+		} else {
+			group.Signal = domain.SignalBurning
+		}
+	}
+	return group
+}
+
+// netLess orders two groups worst-net-first, reporting whether the comparison
+// was decided so the caller can fall back to a stable label order.
+func netLess(a, b domain.GroupEconomics) (less bool, decided bool) {
 	switch {
-	case a.NetPerDayRupees != nil && b.NetPerDayRupees != nil && *a.NetPerDayRupees != *b.NetPerDayRupees:
-		return *a.NetPerDayRupees < *b.NetPerDayRupees
+	case a.NetPerDayRupees != nil && b.NetPerDayRupees != nil:
+		if *a.NetPerDayRupees == *b.NetPerDayRupees {
+			return false, false
+		}
+		return *a.NetPerDayRupees < *b.NetPerDayRupees, true
 	case (a.NetPerDayRupees != nil) != (b.NetPerDayRupees != nil):
-		return a.NetPerDayRupees != nil
-	case a.FeedCostPerDayRupees != nil && b.FeedCostPerDayRupees != nil && *a.FeedCostPerDayRupees != *b.FeedCostPerDayRupees:
-		return *a.FeedCostPerDayRupees > *b.FeedCostPerDayRupees
-	case (a.FeedCostPerDayRupees != nil) != (b.FeedCostPerDayRupees != nil):
-		return a.FeedCostPerDayRupees != nil
+		return a.NetPerDayRupees != nil, true
 	default:
-		return a.TagDisplay < b.TagDisplay
+		return false, false
 	}
 }
 
@@ -573,22 +662,34 @@ func (r *Repository) realizedPriceOnce(ctx context.Context, q, tenantID, startDa
 	return &perKg, nil
 }
 
-// pulseBurn fills the FARM-scope disclosure line: the whole-scope daily feed
-// spend (every directed cell — normal AND experiment, plus non-sheet external
-// consumption — priced at the latest load, summed per day and averaged over the
-// days that carry a sheet), how many sheet days that average ranges over, and
-// the feed items whose directed kg found NO purchase to price them.
+// pulseBurn fills the FARM-scope disclosure line: what the farm spends on feed
+// on its LATEST sheet day, how much feed on that sheet could not be priced, and
+// how many live animals that covers.
 //
-// This is NOT the feed tile. The tile covers the weighed animals so it can be
-// subtracted from the value figure; this covers the whole herd and is rendered
-// with its population and day count named beside it.
+// LATEST DAY, NOT A WINDOW AVERAGE — and this is a correction, not a
+// preference. Feed spend on the live herd climbed ₹27,648 -> ₹64,676 across the
+// 18 sheet days of a 90-day window (sheets start partial, then the herd and
+// ration grow). Averaging those gave ₹54,106, a figure that describes NO day
+// the farm ever had and understates the current rate by ₹10,000. "What do we
+// spend per day" means today's rate, so that is what this reports, with the
+// day named beside it.
 //
-// projection-review: membership=priced (feed_day, park, feed_item) directed
-// cells of the window plus external consumption; group_key=feed_day for the
-// per-day sum, then a whole-set avg — numerator days and denominator days are
-// the same day_total set; join_cardinality=issues to rows 1:N aggregated
-// before the union, price LATERAL 0..1 per (park,item,day); pagination=NONE
-// (one row); scope=tenant + park ANY + feed_day half-open window.
+// UNPRICED KG IS REPORTED IN KG, NOT SWALLOWED. An item with no purchase row
+// prices nothing and silently leaves the rupee total short — on the live herd
+// Vijay Concentrate and RGS Concentrate have no purchase rows at all, so ~86 kg
+// a day sits outside the money. The kg is surfaced so the reader can see the
+// figure is short and why, rather than being handed a confident total that
+// quietly omits real feed. It is never estimated from another item's price:
+// inventing a rate would make the total look complete when it is not.
+//
+// Same day_item ∪ external-consumption shape and pricing LATERAL as the Feed
+// Analytics expenditure read, so the two screens agree on a given day's rupees.
+//
+// projection-review: membership=the latest sheet day's priced (park, item)
+// cells; group_key=none, plain SUMs over that one day; join_cardinality=issues
+// to rows 1:N aggregated before the union, price LATERAL 0..1 per
+// (park, item, day); pagination=NONE (one row); scope=tenant + park ANY +
+// feed_day window.
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded windowed aggregate, the same
 // shape as feeddirection's stockExpenditureSQL.
@@ -607,8 +708,6 @@ WITH day_item AS (
           AND i.park_id = ANY($2::uuid[])
           AND i.state IN ('issued','amended','locked')
           AND i.feed_day >= $3::date AND i.feed_day < $4::date
-          -- A blocked cell (NULL) directed nothing: it is a feed PROBLEM, not an
-          -- unpriced purchase, and must not surface in the unpriced-items count.
           AND r.quantity_kg IS NOT NULL
         GROUP BY i.feed_day, i.park_id, r.feed_item_key
         UNION ALL
@@ -636,21 +735,25 @@ priced AS (
         LIMIT 1
     ) price ON true
 ),
-day_total AS (
-    SELECT feed_day, SUM(rupees) AS rupees
-    FROM priced
-    WHERE rupees IS NOT NULL
-    GROUP BY feed_day
-)
-SELECT (SELECT avg(rupees)::float8 FROM day_total) AS burn_per_day,
-       (SELECT count(*) FROM day_total)                AS feed_days,
+latest AS (SELECT max(feed_day) AS d FROM priced)
+SELECT (SELECT d FROM latest)::text,
+       (SELECT SUM(rupees)::float8 FROM priced WHERE feed_day = (SELECT d FROM latest)),
+       -- Real feed on that sheet that no purchase can price. Reported, never estimated.
+       (SELECT COALESCE(SUM(kg), 0)::float8 FROM priced
+         WHERE feed_day = (SELECT d FROM latest) AND rupees IS NULL AND kg > 0),
        -- An authored zero directs no kg, so it needs no price either.
-       (SELECT count(DISTINCT feed_item_key) FROM priced WHERE rupees IS NULL AND kg > 0) AS unpriced_items,
+       (SELECT count(DISTINCT feed_item_key) FROM priced WHERE rupees IS NULL AND kg > 0),
        (SELECT count(*) FROM goats g
-         WHERE g.tenant_id = $1::uuid AND g.exited_at IS NULL AND g.park_id = ANY($2::uuid[])) AS farm_animals`
-	return r.pool.QueryRow(ctx, q, tenantID, parkIDs, startDate, endExclusiveDate).Scan(
-		&out.FarmFeedCostPerDayRupees, &out.FarmFeedDays, &out.UnpricedFeedItems, &out.FarmAnimals,
+         WHERE g.tenant_id = $1::uuid AND g.exited_at IS NULL AND g.park_id = ANY($2::uuid[]))`
+	var feedDay *string
+	err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, startDate, endExclusiveDate).Scan(
+		&feedDay, &out.FarmFeedCostPerDayRupees, &out.FarmUnpricedKg,
+		&out.UnpricedFeedItems, &out.FarmAnimals,
 	)
+	if feedDay != nil {
+		out.FarmFeedDay = *feedDay
+	}
+	return err
 }
 
 // projection-review: membership=closed live-animal deals of the window;
@@ -678,29 +781,4 @@ WHERE tenant_id = $1::uuid
 	}
 	out.AnimalsSold = int(animals)
 	return nil
-}
-
-// deriveAnimalMoney fills the derived money fields and the signal. Null never
-// means zero: a missing side leaves the derived field nil and the signal on
-// "watch".
-func deriveAnimalMoney(row *domain.AnimalEconomics, realizedPerKg *float64) {
-	gainKgPerDay := row.ADGGPerDay / 1000.0
-	if row.FeedCostPerDayRupees != nil && gainKgPerDay > 0 {
-		v := *row.FeedCostPerDayRupees / gainKgPerDay
-		row.CostPerKgGainRupees = &v
-	}
-	if realizedPerKg != nil && gainKgPerDay > 0 {
-		v := gainKgPerDay * *realizedPerKg
-		row.ValueAddedPerDayRupees = &v
-	}
-	row.Signal = domain.SignalWatch
-	if row.FeedCostPerDayRupees != nil && row.ValueAddedPerDayRupees != nil {
-		net := *row.ValueAddedPerDayRupees - *row.FeedCostPerDayRupees
-		row.NetPerDayRupees = &net
-		if net > 0 {
-			row.Signal = domain.SignalEarning
-		} else {
-			row.Signal = domain.SignalBurning
-		}
-	}
 }
