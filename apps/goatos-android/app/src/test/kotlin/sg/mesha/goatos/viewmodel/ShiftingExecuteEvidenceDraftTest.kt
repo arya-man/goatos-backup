@@ -24,6 +24,7 @@ import org.junit.Test
 import sg.mesha.goatos.capture.CapturedVideo
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
@@ -156,18 +157,49 @@ class ShiftingExecuteEvidenceDraftTest {
         assertEquals(3, proofRepo.captureCalls.size)
     }
 
+    @Test
+    fun `each shifting proof capture event carries its own slot field proof and outbox context`() = runTest(dispatcher) {
+        val repo = FakeShiftingPendingRepository(priority = "high")
+        val drafts = FakeCaptureDraftRepository()
+        val sync = FakeShiftingSyncRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val analytics = RecordingEvidenceAnalytics()
+
+        val vm = newViewModel(repo, drafts, sync, proofRepo, analytics)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingExecuteEvent.RecordVideo)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingExecuteEvent.RecordFeedPackingVideo)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingExecuteEvent.RecordFeedGivenVideo)
+        advanceUntilIdle()
+
+        val events = analytics.events
+            .filter { it.first == AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_VIDEO_CAPTURED }
+            .map { it.second }
+        assertEquals(listOf("shifting_shifting_video", "shifting_packing_video", "shifting_feeding_video"), events.map { it[AnalyticsEvents.Params.FIELD] })
+        assertEquals(listOf("shifting", "packing", "feeding"), events.map { it["slot_key"] })
+        assertEquals(listOf("proof-0", "proof-1", "proof-2"), events.map { it[AnalyticsEvents.Params.PROOF_ID] })
+        assertEquals(listOf("proof-outbox-1", "proof-outbox-2", "proof-outbox-3"), events.map { it["outbox_item_id"] })
+        assertTrue(events.all { it["group_key"] == MOVEMENT_ID })
+        assertTrue(events.all { it[AnalyticsEvents.Params.SOURCE] == "shifting_execute" })
+        assertTrue(events.all { it[AnalyticsEvents.Params.KIND] == "shifting_complete" })
+        assertTrue(events.all { it[AnalyticsEvents.Params.SHED_ID] == DEST_SHED_ID })
+    }
+
     private fun newViewModel(
         repo: FakeShiftingPendingRepository,
         drafts: FakeCaptureDraftRepository,
         sync: FakeShiftingSyncRepository,
         proofCaptureRepository: FakeProofCaptureRepository = FakeProofCaptureRepository(),
+        analytics: AnalyticsPort = RecordingEvidenceAnalytics(),
     ) = ShiftingExecuteViewModel(
         repo = repo,
         drafts = drafts,
         syncRepository = sync,
         proofCaptureSource = AlwaysCapturingProofSource(),
         proofCaptureRepository = proofCaptureRepository,
-        analytics = NoopEvidenceAnalytics(),
+        analytics = analytics,
         crashReporter = NoopEvidenceCrashReporter(),
         // A FRESH handle every time: this is what "Back then re-open" does to the destination.
         savedStateHandle = SavedStateHandle(mapOf("shifting_event_id" to MOVEMENT_ID)),
@@ -362,8 +394,11 @@ private class AlwaysCapturingProofSource : ProofCaptureSource {
     override suspend fun pickVideo(): CapturedVideo = captureVideo()
 }
 
-private class NoopEvidenceAnalytics : AnalyticsPort {
-    override fun track(event: String, props: Map<String, String>) {}
+private class RecordingEvidenceAnalytics : AnalyticsPort {
+    val events = mutableListOf<Pair<String, Map<String, String>>>()
+    override fun track(event: String, props: Map<String, String>) {
+        events += event to props
+    }
     override fun setUserProperty(name: String, value: String?) {}
     override fun setUserId(id: String?) {}
 }

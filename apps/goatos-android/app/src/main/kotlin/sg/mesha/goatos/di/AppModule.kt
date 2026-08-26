@@ -841,6 +841,7 @@ object AppModule {
             // PC Care: a successful slot registration re-polls the task's captures so the server's
             // per-slot truth (proof ref, attribution) lands back in the Room rows screens observe.
             OutboxOpType.PC_CARE_SLOT_REGISTER to sg.mesha.goatos.core.data.sync.pcCareSlotRegisterRefreshHook(pcCareRepository),
+            OutboxOpType.PC_CARE_TASK_PROOF_REGISTER to sg.mesha.goatos.core.data.sync.pcCareTaskProofRegisterRefreshHook(pcCareRepository),
         ),
         preSuccessRefreshHooks = mapOf(
             OutboxOpType.HEALTH_CASE_OPEN to healthCaseOpenRefreshHook(healthRepository),
@@ -964,6 +965,12 @@ private class DeferredPcCareRepository(
         slotFieldKey: String,
         proofOutboxItemId: String,
     ) = delegate.registerSlotProof(taskId, normalizedTag, slotFieldKey, proofOutboxItemId)
+    override suspend fun registerTaskProof(
+        taskId: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ) = delegate.registerTaskProof(taskId, slotFieldKey, proofOutboxItemId)
+    override suspend fun proofDownloadUrl(proofId: String) = delegate.proofDownloadUrl(proofId)
     override suspend fun submitTask(taskId: String, rowVersion: Int) = delegate.submitTask(taskId, rowVersion)
     override suspend fun persistTaskSubmitResult(taskId: String, status: String, rowVersion: Int, animalCount: Int) =
         delegate.persistTaskSubmitResult(taskId, status, rowVersion, animalCount)

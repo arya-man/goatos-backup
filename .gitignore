@@ -192,6 +192,11 @@ backend/outbox-relay
 # local E2E configuration — host addresses, key paths, credentials
 tools/e2e/e2e.env
 
+# Local phone/runtime E2E evidence. These folders contain private env files, device DB pulls,
+# screenshots, XML dumps, logcat output, and captured/served proof media.
+context/execution/
+backend/context/
+
 # Visual-parity screenshots and diffs are build output, not source.
 .e2e-artifacts/
 

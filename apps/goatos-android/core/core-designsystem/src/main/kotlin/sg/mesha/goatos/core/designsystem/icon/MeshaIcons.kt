@@ -108,6 +108,10 @@ object MeshaIcons {
     )
     val Play: ImageVector = strokeIcon("play", "M8 5.5v13l10-6.5z")
     val Pause: ImageVector = strokeIcon("pause", "M8.5 5.5v13M15.5 5.5v13")
+    val Flash: ImageVector = strokeIcon(
+        "flash",
+        "M13 2.5 5.5 13h5L9 21.5 18.5 10h-5z",
+    )
     val Vaccine: ImageVector = strokeIcon(
         "vial",
         "M9 3.5h6M10 3.5v6.5l-3 8a2 2 0 0 0 2 2.5h6a2 2 0 0 0 2 -2.5l-3 -8V3.5M8 13.5h8",

@@ -390,9 +390,6 @@ fun FeedTransportCaptureScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // ALREADY SUBMITTED: the task went to the verifier (or was decided) elsewhere, so there
-            // is nothing to record. Mirrors FeedPackingCompleteScreen's / FeedDistributionCompleteScreen's
-            // same-shaped gate.
             if (state.alreadySubmitted) {
                 item {
                     FeedDistStatusCardBody(
@@ -400,7 +397,6 @@ fun FeedTransportCaptureScreen(
                         tone = MeshaColors.Muted,
                     )
                 }
-                return@LazyColumn
             }
 
             item {
@@ -431,6 +427,7 @@ fun FeedTransportCaptureScreen(
                             onEvent(FeedTransportCaptureEvent.RecordVideo)
                         }
                     },
+                    showAction = !state.alreadySubmitted,
                 )
             }
         }

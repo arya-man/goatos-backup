@@ -423,6 +423,7 @@ object Routes {
     // (bootstrap_copy.go), plus the CEO planner tab. Category keys are the backend's category
     // vocabulary (backend/internal/pccare/domain).
     const val PC_DEWORMING = "/pc/deworming"
+    const val PC_VACCINE_STOCK = "/pc/vaccine-stock"
     const val PC_TICKS = "/pc/ticks"
     const val PC_HOOF_TRIMMING = "/pc/hoof-trimming"
     const val PC_HAIR_TRIMMING = "/pc/hair-trimming"
@@ -572,7 +573,7 @@ object Routes {
     // a prefix reuse. The grain is the PEN-DAY: no {session_no} and no {workflow} segment on
     // purpose (wastage is measured once per day, and the server stamps `experiment`).
     const val FEED_WASTAGE_COMPLETE =
-        "/feed/wastage/complete/{park_id}/{shed_id}/{target_date}?shed_label={shed_label}&park_label={park_label}&partition_label={partition_label}&experiment_arm={experiment_arm}&lifecycle_status={lifecycle_status}"
+        "/feed/wastage/complete/{park_id}/{shed_id}/{target_date}?shed_label={shed_label}&park_label={park_label}&partition_label={partition_label}&experiment_arm={experiment_arm}&lifecycle_status={lifecycle_status}&capture_allowed={capture_allowed}"
 
     fun feedWastageCompleteRoute(
         parkId: String,
@@ -588,13 +589,16 @@ object Routes {
         // The row's backend-owned lifecycle bucket; first-paint hint for the capture screen's
         // already-submitted lock (a reinstall wipes the local draft).
         lifecycleStatus: String,
+        // Backend/bootstrap-owned execute gate carried from the worklist. The detail also honors
+        // this so stale/deep routes do not expose camera actions to read-only users.
+        captureAllowed: Boolean,
     ): String {
         fun e(value: String): String = Uri.encode(value)
         val park = parkId.ifBlank { "-" }
         return "/feed/wastage/complete/${e(park)}/${e(shedId)}/${e(targetDate)}" +
             "?shed_label=${e(shedLabel)}&park_label=${e(parkLabel)}" +
             "&partition_label=${e(partitionLabel)}&experiment_arm=${e(experimentArm)}" +
-            "&lifecycle_status=${e(lifecycleStatus)}"
+            "&lifecycle_status=${e(lifecycleStatus)}&capture_allowed=$captureAllowed"
     }
 
     /**
@@ -2607,6 +2611,7 @@ fun AppNavHost(
                                     partitionLabel = event.partitionLabel,
                                     experimentArm = event.experimentArm,
                                     lifecycleStatus = event.lifecycleStatus,
+                                    captureAllowed = state.canCapture,
                                 ),
                             ) { launchSingleTop = true }
                         }
@@ -2644,6 +2649,10 @@ fun AppNavHost(
                 navArgument(FeedWastageCompleteViewModel.ARG_LIFECYCLE_STATUS) {
                     type = NavType.StringType
                     defaultValue = ""
+                },
+                navArgument(FeedWastageCompleteViewModel.ARG_CAPTURE_ALLOWED) {
+                    type = NavType.StringType
+                    defaultValue = "false"
                 },
             ),
         ) {
@@ -2952,6 +2961,16 @@ fun AppNavHost(
         // Titles mirror the backend nav labels ("nav.pc_*" in bootstrap_copy.go) so the screen
         // header and the bottom-bar tab read identically.
         pcCareCategoryComposable(Routes.PC_DEWORMING, "deworming", "Deworming", navController, canExecutePcCare, canPlanPcCare)
+        pcCareCategoryComposable(
+            Routes.PC_VACCINE_STOCK,
+            "inventory_vaccine",
+            "Stock",
+            navController,
+            canExecutePcCare,
+            canPlanPcCare,
+            moduleLabel = "Vaccination",
+            showDateBar = false,
+        )
         pcCareCategoryComposable(Routes.PC_TICKS, "ticks_removal", "Ticks Removal", navController, canExecutePcCare, canPlanPcCare)
         pcCareCategoryComposable(Routes.PC_HOOF_TRIMMING, "hoof_trimming", "Hoof Trimming", navController, canExecutePcCare, canPlanPcCare)
         pcCareCategoryComposable(Routes.PC_HAIR_TRIMMING, "hair_trimming", "Hair Trimming", navController, canExecutePcCare, canPlanPcCare)
@@ -3023,6 +3042,7 @@ fun AppNavHost(
             }
             CaptureAccessGate {
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
                 PcCareTaskScreen(
                     state = state,
                     onEvent = { event ->
@@ -3454,6 +3474,7 @@ private val supportedRootDestinations = setOf(
     // bottom-bar destination exactly like its siblings; what a tab renders is decided by the
     // backend pc_care_execute / pc_care_plan capability flags, never by a role string.
     Routes.PC_DEWORMING,
+    Routes.PC_VACCINE_STOCK,
     Routes.PC_TICKS,
     Routes.PC_HOOF_TRIMMING,
     Routes.PC_HAIR_TRIMMING,
@@ -3537,12 +3558,14 @@ private fun NavGraphBuilder.pcCareCategoryComposable(
     navController: NavHostController,
     canExecutePcCare: Boolean,
     canPlanPcCare: Boolean,
+    moduleLabel: String = "Preventive Care",
+    showDateBar: Boolean = true,
 ) {
     composable(route) { entry ->
         if (canExecutePcCare) {
             // Executor face: the scan worklist for tasks assigned to this person.
             val vm: PcCareWorklistViewModel = hiltViewModel()
-            LaunchedEffect(vm) { vm.bind(category, title) }
+            LaunchedEffect(vm) { vm.bind(category, title, moduleLabel = moduleLabel, showDateBar = showDateBar) }
             val state by vm.state.collectAsStateWithLifecycle()
             val rows = vm.rows.collectAsLazyPagingItems()
             val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error

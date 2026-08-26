@@ -16,10 +16,12 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
+import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.FeedWastageQuery
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
@@ -49,11 +51,13 @@ import javax.inject.Inject
 class FeedWastageViewModel @Inject constructor(
     private val repo: FeedRepository,
     private val submittedGrains: SubmittedGrainsSource,
+    private val bootstrapRepository: BootstrapRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
 
     private val _filters = MutableStateFlow(FeedWastageSelection())
+    private val _canExecuteWastage = MutableStateFlow(false)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val observed: StateFlow<FeedWastageEnvelope> = _filters
@@ -73,9 +77,10 @@ class FeedWastageViewModel @Inject constructor(
     val state: StateFlow<FeedWastageUiState> = combine(
         observed,
         _filters,
+        _canExecuteWastage,
         _isRefreshing,
         _isOffline,
-    ) { envelope, selection, isRefreshing, isOffline ->
+    ) { envelope, selection, canExecuteWastage, isRefreshing, isOffline ->
         val dto = envelope.resource.data
         val hasSummary = dto != null
         FeedWastageUiState(
@@ -83,7 +88,7 @@ class FeedWastageViewModel @Inject constructor(
             targetDateLabel = selection.targetDate,
             today = todayIso(),
             minDate = minFeedDayIso(),
-            canCapture = selection.targetDate == todayIso(),
+            canCapture = canExecuteWastage && selection.targetDate == todayIso(),
             filters = envelope.filters.toFilterUi(selection),
             summary = dto?.toSummaryUi() ?: FeedWastageSummaryUi(),
             hasSummary = hasSummary,
@@ -129,7 +134,20 @@ class FeedWastageViewModel @Inject constructor(
             .cachedIn(viewModelScope)
 
     init {
-        analytics.track(AnalyticsEvents.FEED_WASTAGE_VIEWED)
+        analytics.track(
+            AnalyticsEvents.FEED_WASTAGE_VIEWED,
+            mapOf(
+                AnalyticsEvents.Params.SOURCE to SCREEN_FEED_WASTAGE,
+                AnalyticsEvents.Params.KIND to KIND_WASTAGE,
+            ),
+        )
+        viewModelScope.launch {
+            _canExecuteWastage.value = runCatching {
+                bootstrapRepository.operatorProfile()?.primaryRoleHint == ROLE_OPERATOR
+            }.onFailure {
+                crashReporter.recordException(it, "feed wastage execute-role bootstrap failed")
+            }.getOrDefault(false)
+        }
     }
 
     fun onRowsLoadFailed(error: Throwable) {
@@ -152,8 +170,11 @@ class FeedWastageViewModel @Inject constructor(
             is FeedWastageEvent.OpenRow -> analytics.track(
                 AnalyticsEvents.FEED_ROW_TAPPED,
                 mapOf(
+                    AnalyticsEvents.Params.SOURCE to SCREEN_FEED_WASTAGE,
                     AnalyticsEvents.Params.KIND to KIND_WASTAGE,
                     AnalyticsEvents.Params.SHED_ID to event.shedId,
+                    AnalyticsEvents.Params.PARTITION_LABEL to event.partitionLabel,
+                    AnalyticsEvents.Params.ACTION to ACTION_OPEN_ROW,
                 ),
             )
             FeedWastageEvent.ClearFilters -> clearFilters()
@@ -295,6 +316,8 @@ class FeedWastageViewModel @Inject constructor(
     private companion object {
         const val INDIA_ZONE = "Asia/Kolkata"
         const val KIND_WASTAGE = "wastage"
+        const val SCREEN_FEED_WASTAGE = "feed_wastage"
+        const val ACTION_OPEN_ROW = "open_row"
         const val PAST_WINDOW_DAYS = 30L
         const val TITLE = "Feed Wastage"
         const val LOADING_MESSAGE = "Loading wastage worklist…"
@@ -306,5 +329,6 @@ class FeedWastageViewModel @Inject constructor(
         const val DIMENSION_ALL = "all"
         const val ACTION_SET = "set"
         const val ACTION_CLEARED = "cleared"
+        const val ROLE_OPERATOR = "operator"
     }
 }

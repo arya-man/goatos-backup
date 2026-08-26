@@ -12,6 +12,7 @@ import sg.mesha.goatos.core.data.PcCareScanOutcome
 import sg.mesha.goatos.core.data.PcCareWorklistQuery
 import sg.mesha.goatos.core.data.cache.PcCareAnimalRowEntity
 import sg.mesha.goatos.core.data.cache.PcCareScanStatus
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
@@ -20,6 +21,7 @@ import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
 import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
 import sg.mesha.goatos.core.network.dto.PcCareSlotDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskProofDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.rfid.RfidRead
@@ -40,6 +42,7 @@ internal fun pcCareTaskDtoFixture(
         PcCareSlotDto(fieldKey = "during_video", label = "While trimming", minDurationHintSeconds = 10),
         PcCareSlotDto(fieldKey = "after_video", label = "After trimming"),
     ),
+    taskProofs: List<PcCareTaskProofDto> = emptyList(),
 ): PcCareTaskDto = PcCareTaskDto(
     taskId = taskId,
     category = category,
@@ -57,6 +60,7 @@ internal fun pcCareTaskDtoFixture(
     rowVersion = rowVersion,
     assigneeNames = listOf("Amit Kumar"),
     expectedSlots = expectedSlots,
+    taskProofs = taskProofs,
 )
 
 internal fun pcCareAnimalEntity(
@@ -83,16 +87,23 @@ internal fun pcCareAnimalEntity(
 internal class FakePcCareRepository : PcCareRepository {
     val detailFlow = MutableStateFlow<PcCareTaskDto?>(null)
     val animalsFlow = MutableStateFlow<List<PcCareAnimalRowEntity>>(emptyList())
+    val worklistQueries = mutableListOf<PcCareWorklistQuery>()
+    var worklistTasks: List<PcCareTaskDto> = emptyList()
 
     var scanEnqueues = 0
         private set
     var submitCalls = mutableListOf<Pair<String, Int>>()
     var slotRegistrations = mutableListOf<List<String>>()
+    var taskProofRegistrations = mutableListOf<List<String>>()
+    val proofDownloadUrls = mutableMapOf<String, String>()
     var pollCount = 0
         private set
     var failNextSubmit = false
 
-    override fun worklistRows(query: PcCareWorklistQuery) = flowOf<androidx.paging.PagingData<PcCareTaskDto>>()
+    override fun worklistRows(query: PcCareWorklistQuery): Flow<androidx.paging.PagingData<PcCareTaskDto>> {
+        worklistQueries += query
+        return flowOf(androidx.paging.PagingData.from(worklistTasks))
+    }
     val invalidatedWorklistQueries = mutableListOf<PcCareWorklistQuery>()
     override suspend fun invalidateWorklist(query: PcCareWorklistQuery) {
         invalidatedWorklistQueries += query
@@ -147,6 +158,18 @@ internal class FakePcCareRepository : PcCareRepository {
         return AppResult.Ok("slot-outbox-${slotRegistrations.size}")
     }
 
+    override suspend fun registerTaskProof(
+        taskId: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ): AppResult<String> {
+        taskProofRegistrations += listOf(taskId, slotFieldKey, proofOutboxItemId)
+        return AppResult.Ok("task-proof-outbox-${taskProofRegistrations.size}")
+    }
+
+    override suspend fun proofDownloadUrl(proofId: String): AppResult<String> =
+        AppResult.Ok(proofDownloadUrls[proofId] ?: "https://proof.local/$proofId")
+
     override suspend fun submitTask(taskId: String, rowVersion: Int): AppResult<String> {
         if (failNextSubmit) {
             failNextSubmit = false
@@ -192,8 +215,29 @@ internal class PcCareFakeReaderPort : RfidReaderPort {
 /** Minimal [SyncRepository]: only the abstract members; every enqueue keeps its default. */
 internal class MinimalPcCareSyncRepository : SyncRepository {
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
+    private val items = mutableMapOf<String, MutableStateFlow<SyncQueueItem?>>()
     override fun observeStatus(): StateFlow<SyncStatus> = status
-    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf(null)
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = items.getOrPut(itemId) { MutableStateFlow(null) }
+    fun emit(
+        itemId: String,
+        status: SyncItemStatus,
+        conflict: Boolean = false,
+        lastError: String? = null,
+    ) {
+        items.getOrPut(itemId) { MutableStateFlow(null) }.value = SyncQueueItem(
+            id = itemId,
+            opType = "PC_CARE_TASK_SUBMIT",
+            idempotencyKey = "pc-care:submit:task-1:rv:7",
+            groupKey = "pc-care:task:task-1",
+            status = status,
+            attemptCount = if (status == SyncItemStatus.FAILED) 1 else 0,
+            maxAttempts = 8,
+            conflict = conflict,
+            createdAt = 1L,
+            updatedAt = 2L,
+            lastError = lastError,
+        )
+    }
     override suspend fun enqueueProofUpload(
         groupKey: String,
         idempotencyKey: String,

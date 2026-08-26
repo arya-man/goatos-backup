@@ -74,6 +74,9 @@ This doc extends:
   scan, weighing individual looks like captured animal rows, lump-sum weighing
   looks like the five-video shed form, feed/milk/shifting/workflow screens keep
   their own step rows.
+- Review/preview stays outside the live camera surface. The recorder captures
+  and stops; feature screens show the resulting proof preview with the shared
+  `ProofMediaPreview` and instrumented proof player.
 
 ## Non-goals
 
@@ -89,6 +92,17 @@ This doc extends:
   phone-camera proof capture. Capture surfaces must go through the shared proof
   capture/orchestration path so processing, Gallery save, fallback, retry, Room
   events, and Firebase events stay consistent.
+- Do not create feature-local ExoPlayer instances for operator proof previews.
+  Use the shared proof-media player path so signed-url playback failures are
+  visible through the common telemetry client.
+- Do not create feature-local camera launchers that skip shared lifecycle
+  analytics. `BindVideoCaptureSource`/`InAppVideoRecorderOverlay` own durable
+  `proof_camera_*` and `proof_gallery_picker_*` events for every feature that
+  opens the phone camera.
+- Do not let proof-dependent submit/completion writes spend their retry budget
+  while referenced proof-upload rows are still queued, in flight, or backed off.
+  They must wait without attempt burn and submit only after proof ids are
+  available, while true missing/corrupt proof references remain terminal.
 - Do not allow non-operator flows to create phone-camera proof videos through
   this pipeline.
 

@@ -1210,6 +1210,13 @@ interface AppApi {
         request: PcCareSlotProofRequestDto,
     )
 
+    suspend fun registerPcCareTaskProof(
+        taskId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareSlotProofRequestDto,
+    )
+
     /**
      * POST /app/pc-care/tasks/{task_id}/submit — submit the WHOLE task (any assignee). Refused
      * until every scanned animal carries its full slot set (`422 proof_incomplete`) or while no
@@ -2213,6 +2220,13 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun registerPcCareSlotProof(
         taskId: String,
         animalRowId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareSlotProofRequestDto,
+    ) = Unit
+
+    override suspend fun registerPcCareTaskProof(
+        taskId: String,
         slot: String,
         idempotencyKey: String,
         request: PcCareSlotProofRequestDto,

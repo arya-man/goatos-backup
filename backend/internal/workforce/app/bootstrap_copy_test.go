@@ -83,7 +83,7 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 				}
 				for _, it := range m.NavItems {
 					if it.Key == "vaccination" || it.Key == "weighing" || it.Href == "/leadership" {
-						t.Fatalf("CEO vaccination bar must not contain operator Drives, Weighing, or /leadership; got %+v", m.NavItems)
+						t.Fatalf("CEO vaccination bar must not contain operator Stock, Weighing, or /leadership; got %+v", m.NavItems)
 					}
 				}
 				for i := range wantItems {
@@ -117,6 +117,30 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		for _, banned := range []string{"counts", "feed_direction", "breeding", "leadership", "verification"} {
 			if _, ok := keys[banned]; ok {
 				t.Fatalf("%s must NOT see %q; got %v", role, banned, keys)
+			}
+		}
+		var vaccination *domain.BootstrapModule
+		for i := range modules {
+			if modules[i].Key == "vaccination" {
+				vaccination = &modules[i]
+				break
+			}
+		}
+		if vaccination == nil {
+			t.Fatalf("%s vaccination module missing; got %+v", role, modules)
+		}
+		wantVaccinationItems := []domain.BootstrapNavigationItem{
+				{Key: "vaccination", Label: "Stock", Href: "/pc/vaccine-stock"},
+			{Key: "videos", Label: "Videos", Href: "/vaccination/videos"},
+			{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
+			{Key: "you", Label: "You", Href: "/you"},
+		}
+		if len(vaccination.NavItems) != len(wantVaccinationItems) {
+			t.Fatalf("%s vaccination bar=%+v want %+v", role, vaccination.NavItems, wantVaccinationItems)
+		}
+		for i := range wantVaccinationItems {
+			if vaccination.NavItems[i] != wantVaccinationItems[i] {
+				t.Fatalf("%s vaccination bar[%d]=%+v want %+v", role, i, vaccination.NavItems[i], wantVaccinationItems[i])
 			}
 		}
 		if got := navChromeFor(grants, modules); got != domain.NavChromeExpanded {

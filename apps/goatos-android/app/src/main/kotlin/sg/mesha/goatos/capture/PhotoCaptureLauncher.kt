@@ -2,6 +2,7 @@ package sg.mesha.goatos.capture
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -31,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +53,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.channels.Channel
 import sg.mesha.goatos.R
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
@@ -64,15 +68,25 @@ import java.io.File
  */
 @Composable
 fun BindPhotoCaptureSource(source: DelegatingPhotoCaptureSource) {
+    val context = LocalContext.current
+    val analytics = remember {
+        dagger.hilt.android.EntryPointAccessors.fromApplication(context.applicationContext, ProofCaptureAnalyticsEntryPoint::class.java)
+            .analyticsPort()
+    }
     var captureRequested by remember { mutableStateOf(false) }
     var captureContext by remember { mutableStateOf(PhotoCaptureContext()) }
+    var requestToken by remember { mutableStateOf(0L) }
+    var nextRequestToken by remember { mutableStateOf(0L) }
     val resultChannel = remember { Channel<CapturedPhoto?>(capacity = 1) }
 
     DisposableEffect(source) {
         val bindToken = source.bind(
             capture = { context ->
+                nextRequestToken += 1L
+                requestToken = nextRequestToken
                 captureContext = context
                 captureRequested = true
+                trackPhotoCameraEvent(analytics, AnalyticsEvents.PROOF_CAMERA_REQUESTED, requestToken, context)
                 resultChannel.receive()
             },
         )
@@ -91,8 +105,25 @@ fun BindPhotoCaptureSource(source: DelegatingPhotoCaptureSource) {
                 decorFitsSystemWindows = false,
             ),
         ) {
+            LaunchedEffect(requestToken) {
+                trackPhotoCameraEvent(analytics, AnalyticsEvents.PROOF_CAMERA_VISIBLE, requestToken, captureContext)
+            }
             InAppPhotoCaptureOverlay(
                 photoContext = captureContext,
+                requestToken = requestToken,
+                onCameraEvent = { stage ->
+                    val event = when (stage) {
+                        "bound" -> AnalyticsEvents.PROOF_CAMERA_BOUND
+                        "streaming" -> AnalyticsEvents.PROOF_CAMERA_STREAMING
+                        "cancelled" -> AnalyticsEvents.PROOF_CAMERA_CANCELLED
+                        "finalized" -> AnalyticsEvents.PROOF_CAMERA_FINALIZED
+                        "torch_on" -> AnalyticsEvents.PROOF_CAMERA_TORCH_ON
+                        "torch_off" -> AnalyticsEvents.PROOF_CAMERA_TORCH_OFF
+                        "torch_failed" -> AnalyticsEvents.PROOF_CAMERA_TORCH_FAILED
+                        else -> AnalyticsEvents.PROOF_CAMERA_FAILED
+                    }
+                    trackPhotoCameraEvent(analytics, event, requestToken, captureContext, reason = stage)
+                },
                 onResult = { result ->
                     if (captureRequested) {
                         captureRequested = false
@@ -111,17 +142,25 @@ fun BindPhotoCaptureSource(source: DelegatingPhotoCaptureSource) {
  * ([DisposableEffect]) — no leaked camera session once the operator backs out or the shot completes.
  */
 @Composable
-private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult: (CapturedPhoto?) -> Unit) {
+private fun InAppPhotoCaptureOverlay(
+    photoContext: PhotoCaptureContext,
+    requestToken: Long,
+    onCameraEvent: (String) -> Unit,
+    onResult: (CapturedPhoto?) -> Unit,
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraSession = remember { PhotoCameraSession() }
     val cameraUnavailableMessage = stringResource(R.string.proof_camera_unavailable)
 
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+    var camera by remember { mutableStateOf<Camera?>(null) }
     var cameraReady by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
     var isCapturing by remember { mutableStateOf(false) }
     var resultDelivered by remember { mutableStateOf(false) }
+    var torchEnabled by remember { mutableStateOf(false) }
+    var hasFlash by remember { mutableStateOf(false) }
 
     fun deliver(result: CapturedPhoto?) {
         if (resultDelivered) return
@@ -141,6 +180,7 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(results: ImageCapture.OutputFileResults) {
                     isCapturing = false
+                    onCameraEvent("finalized")
                     deliver(
                         CapturedPhoto(
                             localUri = file.toURI().toString(),
@@ -153,18 +193,35 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
                     isCapturing = false
                     file.delete()
                     cameraError = cameraUnavailableMessage
+                    onCameraEvent("failed")
                 }
             },
         )
     }
 
-    fun cancel() = deliver(null)
+    fun cancel() {
+        onCameraEvent("cancelled")
+        deliver(null)
+    }
+
+    fun toggleTorch() {
+        val boundCamera = camera ?: return
+        val target = !torchEnabled
+        boundCamera.cameraControl.enableTorch(target).addListener(
+            {
+                torchEnabled = target
+                onCameraEvent(if (target) "torch_on" else "torch_off")
+            },
+            ContextCompat.getMainExecutor(context),
+        )
+    }
 
     BackHandler(onBack = ::cancel)
 
     DisposableEffect(Unit) {
         onDispose {
             imageCapture = null
+            camera = null
             cameraSession.release()
         }
     }
@@ -183,14 +240,19 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
                         context = ctx,
                         previewView = view,
                         lifecycleOwner = lifecycleOwner,
-                        onBound = { capture ->
+                        onBound = { capture, boundCamera ->
                             imageCapture = capture
+                            camera = boundCamera
                             cameraReady = true
+                            hasFlash = boundCamera.cameraInfo.hasFlashUnit()
                             cameraError = null
+                            onCameraEvent("bound")
+                            onCameraEvent("streaming")
                         },
                         onError = {
                             cameraReady = false
                             cameraError = cameraUnavailableMessage
+                            onCameraEvent("failed")
                         },
                     )
                 }
@@ -198,6 +260,7 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
             onRelease = {
                 cameraReady = false
                 imageCapture = null
+                camera = null
                 cameraSession.release()
             },
             modifier = Modifier.fillMaxSize(),
@@ -244,7 +307,24 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
                 enabled = cameraReady && !isCapturing,
                 onClick = ::takePhoto,
             )
-            Spacer(Modifier.size(48.dp)) // balances the cancel control.
+            IconButton(
+                onClick = {
+                    runCatching { toggleTorch() }
+                        .onFailure { onCameraEvent("torch_failed") }
+                },
+                enabled = cameraReady && hasFlash,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(if (torchEnabled) MeshaColors.Brand else MeshaColors.Surf3),
+            ) {
+                Icon(
+                    MeshaIcons.Flash,
+                    contentDescription = if (torchEnabled) "Turn flash off" else "Turn flash on",
+                    tint = if (torchEnabled) MeshaColors.OnBrand else MeshaColors.Ink,
+                )
+            }
         }
     }
 }
@@ -287,7 +367,7 @@ private class PhotoCameraSession {
         context: Context,
         previewView: PreviewView,
         lifecycleOwner: androidx.lifecycle.LifecycleOwner,
-        onBound: (ImageCapture) -> Unit,
+        onBound: (ImageCapture, Camera) -> Unit,
         onError: (Throwable) -> Unit,
     ) {
         val bindGeneration = ++generation
@@ -304,7 +384,7 @@ private class PhotoCameraSession {
                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                         .build()
                     cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
+                    val camera = cameraProvider.bindToLifecycle(
                         lifecycleOwner,
                         CameraSelector.DEFAULT_BACK_CAMERA,
                         cameraPreview,
@@ -313,7 +393,7 @@ private class PhotoCameraSession {
                     provider = cameraProvider
                     preview = cameraPreview
                     capture = imageCapture
-                    onBound(imageCapture)
+                    onBound(imageCapture, camera)
                 }.onFailure(onError)
             },
             ContextCompat.getMainExecutor(context),
@@ -337,4 +417,27 @@ private class PhotoCameraSession {
 private fun newPhotoCaptureFile(context: Context): File {
     val dir = File(context.filesDir, "captures").apply { mkdirs() }
     return File(dir, "proof-${System.currentTimeMillis()}.jpg")
+}
+
+private fun trackPhotoCameraEvent(
+    analytics: AnalyticsPort,
+    event: String,
+    token: Long,
+    captureContext: PhotoCaptureContext,
+    reason: String? = null,
+) {
+    trackProofCameraEvent(
+        analytics = analytics,
+        event = event,
+        token = token,
+        captureContext = ProofCaptureContext(
+            title = captureContext.title,
+            primaryTag = "",
+            workLabel = captureContext.title,
+            prompt = captureContext.prompt,
+            headerTitle = captureContext.title,
+        ),
+        source = "in_app_photo_camera",
+        reason = reason,
+    )
 }

@@ -149,7 +149,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private var feedVideoStatusJob: Job? = null
     private var waterVideoStatusJob: Job? = null
     init {
-        analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_OPENED)
+        analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_OPENED, distributionEventProps(action = ACTION_DETAIL_OPENED))
         recomputeCanComplete()
         observeSyncStatus()
         observeDurableProofs()
@@ -261,7 +261,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         if (replacing) trackReuploadTapped(ProofSlot.FEED_WEIGHT_PHOTO)
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED,
-            mapOf(AnalyticsEvents.Params.KIND to "feed_weight_photo"),
+            distributionEventProps(ProofSlot.FEED_WEIGHT_PHOTO, ACTION_RECORD_PROOF),
         )
         _state.update {
             it.copy(
@@ -339,7 +339,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     observeProofItem(ProofSlot.FEED_WEIGHT_PHOTO, proofOutboxId)
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,
-                        mapOf(AnalyticsEvents.Params.KIND to "feed_weight_photo"),
+                        distributionEventProps(
+                            ProofSlot.FEED_WEIGHT_PHOTO,
+                            ACTION_CAPTURED,
+                            mapOf(PARAM_PROOF_ID to result.value.id, PARAM_OUTBOX_ITEM_ID to proofOutboxId),
+                        ),
                     )
                     _state.update {
                         it.copy(
@@ -357,7 +361,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed distribution feed weight photo enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
-                        mapOf(AnalyticsEvents.Params.REASON to result.message),
+                        distributionEventProps(ProofSlot.FEED_WEIGHT_PHOTO, ACTION_CAPTURE_FAILED, mapOf(AnalyticsEvents.Params.REASON to result.message)),
                     )
                     _state.update {
                         it.copy(
@@ -379,7 +383,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         if (replacing) trackReuploadTapped(ProofSlot.FEED_VIDEO)
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED,
-            mapOf(AnalyticsEvents.Params.KIND to "feed_video"),
+            distributionEventProps(ProofSlot.FEED_VIDEO, ACTION_RECORD_PROOF),
         )
         _state.update {
             it.copy(
@@ -452,7 +456,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     observeProofItem(ProofSlot.FEED_VIDEO, proofOutboxId)
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,
-                        mapOf(AnalyticsEvents.Params.KIND to "feed_video"),
+                        distributionEventProps(
+                            ProofSlot.FEED_VIDEO,
+                            ACTION_CAPTURED,
+                            mapOf(PARAM_PROOF_ID to result.value.id, PARAM_OUTBOX_ITEM_ID to proofOutboxId),
+                        ),
                     )
                     _state.update {
                         it.copy(
@@ -471,7 +479,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed distribution video enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
-                        mapOf(AnalyticsEvents.Params.REASON to result.message),
+                        distributionEventProps(ProofSlot.FEED_VIDEO, ACTION_CAPTURE_FAILED, mapOf(AnalyticsEvents.Params.REASON to result.message)),
                     )
                     _state.update {
                         it.copy(
@@ -491,7 +499,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         if (replacing) trackReuploadTapped(ProofSlot.WATER_VIDEO)
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED,
-            mapOf(AnalyticsEvents.Params.KIND to "water_video"),
+            distributionEventProps(ProofSlot.WATER_VIDEO, ACTION_RECORD_PROOF),
         )
         _state.update {
             it.copy(
@@ -564,7 +572,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     observeProofItem(ProofSlot.WATER_VIDEO, proofOutboxId)
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,
-                        mapOf(AnalyticsEvents.Params.KIND to "water_video"),
+                        distributionEventProps(
+                            ProofSlot.WATER_VIDEO,
+                            ACTION_CAPTURED,
+                            mapOf(PARAM_PROOF_ID to result.value.id, PARAM_OUTBOX_ITEM_ID to proofOutboxId),
+                        ),
                     )
                     _state.update {
                         it.copy(
@@ -582,7 +594,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed distribution water video enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
-                        mapOf(AnalyticsEvents.Params.REASON to result.message),
+                        distributionEventProps(ProofSlot.WATER_VIDEO, ACTION_CAPTURE_FAILED, mapOf(AnalyticsEvents.Params.REASON to result.message)),
                     )
                     _state.update {
                         it.copy(
@@ -616,11 +628,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         ) {
             analytics.track(
                 AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_BLOCKED,
-                mapOf(
+                distributionEventProps(action = ACTION_SUBMIT_BLOCKED, extra = mapOf(
                     "feed_weight_photo_status" to current.feedWeightPhotoStatus.name.lowercase(Locale.ROOT),
                     "feed_video_status" to current.videoStatus.name.lowercase(Locale.ROOT),
                     "water_video_status" to current.waterVideoStatus.name.lowercase(Locale.ROOT),
-                ),
+                )),
             )
             trackSubmitSources(
                 result = "blocked",
@@ -670,7 +682,21 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     observeOutboxItem(result.value)
                     // Optimistic offline overlay for the shared Feed Direction list: its chip reads
                     // lifecycleStatus, and nothing here recorded the submit, so a queued
-                    analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SUBMITTED)
+                    analytics.track(
+                        AnalyticsEvents.FEED_DISTRIBUTION_SUBMITTED,
+                        distributionEventProps(
+                            action = ACTION_SUBMIT,
+                            extra = mapOf(
+                                PARAM_OUTBOX_ITEM_ID to result.value,
+                                PARAM_FEED_WEIGHT_PROOF_OUTBOX_ITEM_ID to feedWeightPhotoItem.orEmpty(),
+                                PARAM_FEED_VIDEO_PROOF_OUTBOX_ITEM_ID to videoItem.orEmpty(),
+                                PARAM_WATER_VIDEO_PROOF_OUTBOX_ITEM_ID to waterVideoItem.orEmpty(),
+                                PARAM_FEED_WEIGHT_PROOF_REF to feedWeightRemote.orEmpty(),
+                                PARAM_FEED_VIDEO_PROOF_REF to videoRemote.orEmpty(),
+                                PARAM_WATER_VIDEO_PROOF_REF to waterVideoRemote.orEmpty(),
+                            ),
+                        ),
+                    )
                     trackSubmitSources(
                         result = "submitted",
                         feedWeightItem = feedWeightPhotoItem,
@@ -688,7 +714,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed distribution complete enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
-                        mapOf(AnalyticsEvents.Params.REASON to result.message),
+                        distributionEventProps(action = ACTION_SUBMIT_FAILED, extra = mapOf(AnalyticsEvents.Params.REASON to result.message)),
                     )
                     _state.update {
                         it.copy(result = FeedDistributionResultUi(FeedDistributionStatus.FAILED, result.message), canComplete = true)
@@ -725,16 +751,33 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_SOURCES,
             mapOf(
+                AnalyticsEvents.Params.SOURCE to SCREEN_FEED_DISTRIBUTION_DETAIL,
+                AnalyticsEvents.Params.KIND to KIND_DISTRIBUTION,
+                PARAM_ACTION to "submit_sources",
+                AnalyticsEvents.Params.SHED_ID to shedId,
+                PARAM_SHED_LABEL to shedLabel,
+                PARAM_PARK_LABEL to parkLabel,
+                PARAM_SESSION_NO to sessionNo.toString(),
+                PARAM_SESSION_LABEL to sessionLabel,
+                PARAM_WORKFLOW to workflow,
+                PARAM_PARTITION_LABEL to partitionLabel,
+                PARAM_GROUP_KEY to groupKey,
                 AnalyticsEvents.Params.FEED_WEIGHT_SOURCE to slotSourceLabel(feedWeightItem, feedWeightRemote),
                 AnalyticsEvents.Params.FEED_VIDEO_SOURCE to slotSourceLabel(videoItem, videoRemote),
                 AnalyticsEvents.Params.WATER_VIDEO_SOURCE to slotSourceLabel(waterVideoItem, waterVideoRemote),
+                PARAM_FEED_WEIGHT_PROOF_OUTBOX_ITEM_ID to feedWeightItem.orEmpty(),
+                PARAM_FEED_VIDEO_PROOF_OUTBOX_ITEM_ID to videoItem.orEmpty(),
+                PARAM_WATER_VIDEO_PROOF_OUTBOX_ITEM_ID to waterVideoItem.orEmpty(),
+                PARAM_FEED_WEIGHT_PROOF_REF to feedWeightRemote.orEmpty(),
+                PARAM_FEED_VIDEO_PROOF_REF to videoRemote.orEmpty(),
+                PARAM_WATER_VIDEO_PROOF_REF to waterVideoRemote.orEmpty(),
                 AnalyticsEvents.Params.RESULT to result,
             ),
         )
     }
 
     private fun syncNow() {
-        analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SYNC_TAPPED)
+        analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SYNC_TAPPED, distributionEventProps(action = ACTION_REFRESH))
         viewModelScope.launch {
             syncRepository.triggerDrain()
             // Manual sync must also re-fetch teammate/server proof slots: another operator may
@@ -1207,7 +1250,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         if (proofStatus == FeedDistributionProofStatus.SYNCED && syncedProofAnalytics.add(slot)) {
             analytics.track(
                 AnalyticsEvents.FEED_DISTRIBUTION_PROOF_UPLOAD_SYNCED,
-                mapOf(AnalyticsEvents.Params.KIND to slot.analyticsKind()),
+                distributionEventProps(slot, ACTION_UPLOAD_SYNCED),
             )
         }
         recomputeCanComplete()
@@ -1216,9 +1259,13 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private fun trackCaptureFailure(kind: String, reason: String) {
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
-            mapOf(
+            distributionEventProps(
+                kind,
+                ACTION_CAPTURE_FAILED,
+                mapOf(
                 AnalyticsEvents.Params.KIND to kind,
                 AnalyticsEvents.Params.REASON to reason,
+                ),
             ),
         )
     }
@@ -1230,7 +1277,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private fun trackReuploadTapped(slot: ProofSlot) {
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_PROOF_REUPLOAD_TAPPED,
-            mapOf(AnalyticsEvents.Params.KIND to slot.analyticsKind()),
+            distributionEventProps(slot, ACTION_RE_RECORD_PROOF),
         )
     }
 
@@ -1299,6 +1346,32 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             ).filter { it.isNotBlank() }.joinToString(" . "),
         )
 
+    private fun distributionEventProps(
+        slot: ProofSlot? = null,
+        action: String,
+        extra: Map<String, String> = emptyMap(),
+    ): Map<String, String> = buildMap {
+        put(AnalyticsEvents.Params.SOURCE, SCREEN_FEED_DISTRIBUTION_DETAIL)
+        put(AnalyticsEvents.Params.KIND, slot?.analyticsKind() ?: KIND_DISTRIBUTION)
+        put(PARAM_ACTION, action)
+        put(AnalyticsEvents.Params.SHED_ID, shedId)
+        put(PARAM_SHED_LABEL, shedLabel)
+        put(PARAM_PARK_LABEL, parkLabel)
+        put(PARAM_SESSION_NO, sessionNo.toString())
+        put(PARAM_SESSION_LABEL, sessionLabel)
+        put(PARAM_WORKFLOW, workflow)
+        put(PARAM_PARTITION_LABEL, partitionLabel)
+        put(PARAM_GROUP_KEY, groupKey)
+        slot?.fieldKey()?.let { put(AnalyticsEvents.Params.FIELD, it) }
+        putAll(extra)
+    }
+
+    private fun distributionEventProps(
+        kind: String,
+        action: String,
+        extra: Map<String, String> = emptyMap(),
+    ): Map<String, String> = distributionEventProps(action = action, extra = extra + (AnalyticsEvents.Params.KIND to kind))
+
     private fun sg.mesha.goatos.feature.counts.CountsWriteStatus.toDistributionStatus(): FeedDistributionStatus = when (this) {
         sg.mesha.goatos.feature.counts.CountsWriteStatus.SYNCED -> FeedDistributionStatus.SYNCED
         sg.mesha.goatos.feature.counts.CountsWriteStatus.FAILED -> FeedDistributionStatus.FAILED
@@ -1343,6 +1416,34 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         private const val FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO = "feed_distribution_feed_weight_photo"
         private const val FIELD_FEED_DISTRIBUTION_VIDEO = "feed_distribution_video"
         private const val FIELD_FEED_DISTRIBUTION_WATER_VIDEO = "feed_distribution_water_video"
+        private const val KIND_DISTRIBUTION = "distribution"
+        private const val SCREEN_FEED_DISTRIBUTION_DETAIL = "feed_distribution_complete"
+        private const val ACTION_DETAIL_OPENED = "detail_opened"
+        private const val ACTION_RECORD_PROOF = "record_proof"
+        private const val ACTION_RE_RECORD_PROOF = "re_record_proof"
+        private const val ACTION_CAPTURED = "captured"
+        private const val ACTION_CAPTURE_FAILED = "capture_failed"
+        private const val ACTION_UPLOAD_SYNCED = "upload_synced"
+        private const val ACTION_REFRESH = "refresh"
+        private const val ACTION_SUBMIT = "submit"
+        private const val ACTION_SUBMIT_BLOCKED = "submit_blocked"
+        private const val ACTION_SUBMIT_FAILED = "submit_failed"
+        private const val PARAM_ACTION = "action"
+        private const val PARAM_SHED_LABEL = "shed_label"
+        private const val PARAM_PARK_LABEL = "park_label"
+        private const val PARAM_SESSION_NO = "session_no"
+        private const val PARAM_SESSION_LABEL = "session_label"
+        private const val PARAM_WORKFLOW = "workflow"
+        private const val PARAM_PARTITION_LABEL = "partition_label"
+        private const val PARAM_GROUP_KEY = "group_key"
+        private const val PARAM_PROOF_ID = "proof_id"
+        private const val PARAM_OUTBOX_ITEM_ID = "outbox_item_id"
+        private const val PARAM_FEED_WEIGHT_PROOF_OUTBOX_ITEM_ID = "feed_weight_proof_outbox_item_id"
+        private const val PARAM_FEED_VIDEO_PROOF_OUTBOX_ITEM_ID = "feed_video_proof_outbox_item_id"
+        private const val PARAM_WATER_VIDEO_PROOF_OUTBOX_ITEM_ID = "water_video_proof_outbox_item_id"
+        private const val PARAM_FEED_WEIGHT_PROOF_REF = "feed_weight_proof_ref"
+        private const val PARAM_FEED_VIDEO_PROOF_REF = "feed_video_proof_ref"
+        private const val PARAM_WATER_VIDEO_PROOF_REF = "water_video_proof_ref"
         private const val QUEUED_MESSAGE = "Sent for verification. A verifier will review the three proofs."
         private const val SYNCED_MESSAGE = "Sent. Waiting for verifier approval before this feeding is counted."
         private const val VIDEO_QUEUED = "Feed video saved on this phone. It will upload automatically."
@@ -1359,6 +1460,12 @@ private fun ProofSlot.analyticsKind(): String = when (this) {
     ProofSlot.FEED_WEIGHT_PHOTO -> "feed_weight_photo"
     ProofSlot.FEED_VIDEO -> "feed_video"
     ProofSlot.WATER_VIDEO -> "water_video"
+}
+
+private fun ProofSlot.fieldKey(): String = when (this) {
+    ProofSlot.FEED_WEIGHT_PHOTO -> "feed_distribution_feed_weight_photo"
+    ProofSlot.FEED_VIDEO -> "feed_distribution_video"
+    ProofSlot.WATER_VIDEO -> "feed_distribution_water_video"
 }
 
 }

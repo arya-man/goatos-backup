@@ -453,6 +453,50 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid`, countsTenant, appl
 	}
 }
 
+func TestListPendingExecutionHidesSourceStaleAuthorizedRows(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newRealIdentityApprovalRepo(t, pool)
+
+	staleGoat := "00000000-0000-4000-8000-00000000e901"
+	freshGoat := "00000000-0000-4000-8000-00000000e902"
+	staleEventID := authorizedShifting(t, ctx, pool, repo, "queue-stale-source", []string{staleGoat})
+	freshEventID := authorizedShifting(t, ctx, pool, repo, "queue-fresh-source", []string{freshGoat})
+	if _, err := pool.Exec(ctx, `
+UPDATE goats SET shed_id = $3::uuid, current_location_id = $3::uuid, row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, countsTenant, staleGoat, countsShedC); err != nil {
+		t.Fatalf("move approved goat out of source: %v", err)
+	}
+
+	page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+		TenantID: countsTenant,
+	})
+	if err != nil {
+		t.Fatalf("list pending execution: %v", err)
+	}
+	for _, item := range page.Items {
+		if item.ShiftingEventID == staleEventID {
+			t.Fatalf("work list included source-stale authorized event %s", staleEventID)
+		}
+	}
+	if len(page.Items) != 1 || page.Items[0].ShiftingEventID != freshEventID {
+		t.Fatalf("work list items=%v, want only fresh authorized event %s", page.Items, freshEventID)
+	}
+
+	authorizedPage, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+		TenantID: countsTenant,
+		Status:   "authorized",
+	})
+	if err != nil {
+		t.Fatalf("list authorized execution: %v", err)
+	}
+	for _, item := range authorizedPage.Items {
+		if item.ShiftingEventID == staleEventID {
+			t.Fatalf("authorized bucket included source-stale event %s", staleEventID)
+		}
+	}
+}
+
 // TestListPendingExecutionStatusBucketsAreDisjointAndTotal is the adversarial status matrix for the
 // approve-first bucket rule (maintainer decision 2026-08-09).
 //

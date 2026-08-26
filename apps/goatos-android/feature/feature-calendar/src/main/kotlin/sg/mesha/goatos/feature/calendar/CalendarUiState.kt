@@ -213,6 +213,8 @@ data class CalendarUiState(
     val errorMessage: String? = null,
     val segments: List<CalendarSegment> = emptyList(),
     val selectedSegmentId: String = "",
+    /** Backend-composed operational worklist: render cards directly, no week/month tabs or date strip. */
+    val taskListOnly: Boolean = false,
     // WEEK
     val weekDays: List<CalendarWeekDay> = emptyList(),
     val weekItems: List<CalendarItem> = emptyList(),

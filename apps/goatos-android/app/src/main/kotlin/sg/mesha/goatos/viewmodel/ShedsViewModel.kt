@@ -559,6 +559,7 @@ class ShedsViewModel @Inject constructor(
             roleNote = null,
             adherence = protocolAdherenceSummary(rowsForSelectedDay, totals, isComplete = pageComplete),
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
+            taskListOnly = true,
             parkFilters = filterOptions?.parks.orEmpty().toShedParkFilters(_selectedParkId.value),
             rows = shedRows,
             hostedFromCalendar = calendarHosted,
@@ -1054,6 +1055,7 @@ internal fun emptyShedsState(
     date = if (selectedDay == window.today) "Today · ${shortDateLabel(selectedDay)}" else shortDateLabel(selectedDay),
     window = window.windowLabel,
     dayTabs = if (readOnly) emptyList() else buildOperatorDayTabs(emptyList(), window, selectedDay),
+    taskListOnly = true,
     hostedFromCalendar = hostedFromCalendar,
     canOpenShed = !readOnly,
 )

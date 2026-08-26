@@ -205,6 +205,7 @@ fun FeedDistributionCompleteScreen(
                     message = state.feedWeightPhotoMessage,
                     onClick = { onEvent(FeedDistributionEvent.TakeFeedWeightPhoto) },
                     remotePreviewUrl = state.feedWeightPhotoRemoteUrl,
+                    showAction = !state.alreadySubmitted,
                 )
             }
             item {
@@ -225,6 +226,7 @@ fun FeedDistributionCompleteScreen(
                     message = state.videoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordFeedVideo) },
                     remotePreviewUrl = state.videoRemoteUrl,
+                    showAction = !state.alreadySubmitted,
                 )
             }
             item {
@@ -245,6 +247,7 @@ fun FeedDistributionCompleteScreen(
                     message = state.waterVideoMessage,
                     onClick = { onEvent(FeedDistributionEvent.RecordWaterVideo) },
                     remotePreviewUrl = state.waterVideoRemoteUrl,
+                    showAction = !state.alreadySubmitted,
                 )
             }
         }
@@ -319,6 +322,7 @@ internal fun FeedDistProofAction(
     message: String?,
     onClick: () -> Unit,
     remotePreviewUrl: String? = null,
+    showAction: Boolean = true,
 ) {
     val failed = status == FeedDistributionProofStatus.FAILED
     val synced = status == FeedDistributionProofStatus.SYNCED
@@ -374,8 +378,10 @@ internal fun FeedDistProofAction(
             val previewToShow = previewPath ?: remotePreviewUrl
             if (!previewToShow.isNullOrBlank()) {
                 FeedDistPreview(path = previewToShow, kind = previewKind)
-                FeedDistRetryButton(label = if (failed) retryLabel else replaceLabel, enabled = enabled, onClick = onClick)
-            } else if (!uploading) {
+                if (showAction) {
+                    FeedDistRetryButton(label = if (failed) retryLabel else replaceLabel, enabled = enabled, onClick = onClick)
+                }
+            } else if (!uploading && showAction) {
                 FeedDistRetryButton(label = if (captured || failed) replaceLabel else title, enabled = enabled, onClick = onClick)
             }
             if (!message.isNullOrBlank()) {

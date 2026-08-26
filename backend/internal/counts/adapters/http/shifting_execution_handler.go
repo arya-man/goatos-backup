@@ -501,6 +501,9 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		h.writeError(w, r, http.StatusConflict, "destination_tag_conflict", err.Error(), err)
 	case errors.Is(err, identityports.ErrDestinationStageAmbiguous):
 		h.writeError(w, r, http.StatusConflict, "destination_stage_ambiguous", err.Error(), err)
+	case errors.Is(err, identityports.ErrWriteConflict):
+		h.writeError(w, r, http.StatusConflict, "shifting_source_changed",
+			"the animal is no longer at the approved source location; refresh the shifting list before retrying", err)
 	case errors.Is(err, identityports.ErrInvalidReference):
 		h.writeError(w, r, http.StatusUnprocessableEntity, "invalid_destination_tag",
 			"destination_tag is not an active management stage", err)

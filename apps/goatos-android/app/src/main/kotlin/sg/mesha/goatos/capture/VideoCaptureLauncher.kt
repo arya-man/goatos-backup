@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.key
@@ -13,9 +14,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.data.capture.ProofArtifactValidator
 import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
 import java.io.File
@@ -40,6 +47,10 @@ fun BindVideoCaptureSource(
     artifactValidator: ProofArtifactValidator = remember { FileSystemProofArtifactValidator() },
 ) {
     val context = LocalContext.current
+    val analytics = remember {
+        EntryPointAccessors.fromApplication(context.applicationContext, ProofCaptureAnalyticsEntryPoint::class.java)
+            .analyticsPort()
+    }
     // The ONE capture request the recorder is currently open for, or null when no camera is up.
     // Identity (`token`) is what binds a recording to a subject: a scan of a different animal
     // cancels the in-flight request and starts a NEW token, so a clip finalized late by CameraX
@@ -59,8 +70,10 @@ fun BindVideoCaptureSource(
             launch = { captureContext ->
                 val token = relay.nextRequestToken()
                 activeRequest = CaptureRequest(token, captureContext)
+                trackProofCameraEvent(analytics, AnalyticsEvents.PROOF_CAMERA_REQUESTED, token, captureContext)
                 try {
-                    relay.awaitResult(token)
+                    val result = relay.awaitResult(token)
+                    result
                 } finally {
                     // Only close the camera if it is still OURS. A request cancelled by a scan of
                     // a different animal must not tear down the request that replaced it.
@@ -70,10 +83,23 @@ fun BindVideoCaptureSource(
                 }
             },
             pick = {
+                trackProofCameraEvent(analytics, AnalyticsEvents.PROOF_GALLERY_PICKER_OPENED, 0L, null, source = "gallery_picker")
                 pickerLauncher.launch("video/*")
-                pickerChannel.receive()?.let { selected ->
+                val selected = pickerChannel.receive()
+                if (selected == null) {
+                    trackProofCameraEvent(analytics, AnalyticsEvents.PROOF_GALLERY_PICKER_CANCELLED, 0L, null, source = "gallery_picker")
+                    null
+                } else {
                     withContext(Dispatchers.IO) {
                         copyPickedVideoToPrivateCache(context, selected, System.currentTimeMillis(), artifactValidator)
+                    }.also { imported ->
+                        trackProofCameraEvent(
+                            analytics = analytics,
+                            event = if (imported == null) AnalyticsEvents.PROOF_GALLERY_PICKER_FAILED else AnalyticsEvents.PROOF_GALLERY_PICKER_IMPORTED,
+                            token = 0L,
+                            captureContext = null,
+                            source = "gallery_picker",
+                        )
                     }
                 }
             },
@@ -102,6 +128,9 @@ fun BindVideoCaptureSource(
             // composes a fresh one. `request.token` is captured by this composition, so whatever
             // that recorder eventually reports is stamped with the request it was shot for.
             key(request.token) {
+                LaunchedEffect(request.token) {
+                    trackProofCameraEvent(analytics, AnalyticsEvents.PROOF_CAMERA_VISIBLE, request.token, request.captureContext)
+                }
                 InAppVideoRecorderOverlay(
                     captureContext = request.captureContext,
                     onResult = { result ->
@@ -112,11 +141,51 @@ fun BindVideoCaptureSource(
                         }
                         relay.deliverResult(request.token, result)
                     },
+                    onCameraEvent = { stage ->
+                        val event = when (stage) {
+                            "bound" -> AnalyticsEvents.PROOF_CAMERA_BOUND
+                            "streaming" -> AnalyticsEvents.PROOF_CAMERA_STREAMING
+                            "recording_started" -> AnalyticsEvents.PROOF_CAMERA_RECORDING_STARTED
+                            "stop_tapped" -> AnalyticsEvents.PROOF_CAMERA_STOP_TAPPED
+                            "retry_tapped" -> AnalyticsEvents.PROOF_CAMERA_RETRY_TAPPED
+                            "cancelled" -> AnalyticsEvents.PROOF_CAMERA_CANCELLED
+                            "finalized" -> AnalyticsEvents.PROOF_CAMERA_FINALIZED
+                            "torch_on" -> AnalyticsEvents.PROOF_CAMERA_TORCH_ON
+                            "torch_off" -> AnalyticsEvents.PROOF_CAMERA_TORCH_OFF
+                            "torch_failed" -> AnalyticsEvents.PROOF_CAMERA_TORCH_FAILED
+                            else -> AnalyticsEvents.PROOF_CAMERA_FAILED
+                        }
+                        trackProofCameraEvent(analytics, event, request.token, request.captureContext, reason = stage)
+                    },
                     artifactValidator = artifactValidator,  // MEDIUM: pass injected validator
                 )
             }
         }
     }
+}
+
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface ProofCaptureAnalyticsEntryPoint {
+    fun analyticsPort(): AnalyticsPort
+}
+
+internal fun trackProofCameraEvent(
+    analytics: AnalyticsPort,
+    event: String,
+    token: Long,
+    captureContext: ProofCaptureContext?,
+    source: String = "in_app_camera",
+    reason: String? = null,
+) {
+    val props = buildMap {
+        put(AnalyticsEvents.Params.SOURCE, source)
+        put("request_token", token.toString())
+        captureContext?.prompt?.name?.lowercase()?.let { put("prompt", it) }
+        captureContext?.workLabel?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.KIND, it.take(64)) }
+        reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it) }
+    }
+    analytics.track(event, props)
 }
 
 /** One in-flight capture request: its identity and the operator-facing copy it opened with. */

@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.data.PcCareWorklistQuery
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.sync.submittedGrainKey
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
+import sg.mesha.goatos.feature.pccare.PcCareInventoryRequirementUi
 import sg.mesha.goatos.feature.pccare.PcCareStatusTone
 import sg.mesha.goatos.feature.pccare.PcCareTaskCardUi
 import sg.mesha.goatos.feature.pccare.PcCareWorklistUiState
@@ -52,6 +53,8 @@ class PcCareWorklistViewModel @Inject constructor(
     private data class Selection(
         val category: String = "",
         val title: String = "",
+        val moduleLabel: String = "Preventive Care",
+        val showDateBar: Boolean = true,
         val date: String = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString(),
         /** Bumped by refresh so an unchanged selection is still a NEW value (StateFlow conflates). */
         val refreshNonce: Int = 0,
@@ -61,10 +64,15 @@ class PcCareWorklistViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(false)
 
     /** Binds this instance to its tab. Idempotent — recomposition may call it again. */
-    fun bind(category: String, title: String) {
+    fun bind(category: String, title: String, moduleLabel: String = "Preventive Care", showDateBar: Boolean = true) {
         val current = selection.value
-        if (current.category == category && current.title == title) return
-        selection.value = current.copy(category = category, title = title)
+        if (
+            current.category == category &&
+            current.title == title &&
+            current.moduleLabel == moduleLabel &&
+            current.showDateBar == showDateBar
+        ) return
+        selection.value = current.copy(category = category, title = title, moduleLabel = moduleLabel, showDateBar = showDateBar)
         analytics.track(
             AnalyticsEvents.PC_CARE_WORKLIST_VIEWED,
             mapOf(AnalyticsEvents.Params.KIND to category),
@@ -74,10 +82,12 @@ class PcCareWorklistViewModel @Inject constructor(
     val state: StateFlow<PcCareWorklistUiState> = combine(selection, _isRefreshing) { sel, refreshing ->
         PcCareWorklistUiState(
             title = sel.title,
+            moduleLabel = sel.moduleLabel,
             dateLabel = sel.date,
             today = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString(),
             isRefreshing = refreshing,
             emptyMessage = EMPTY_MESSAGE,
+            showDateBar = sel.showDateBar,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PcCareWorklistUiState())
 
@@ -113,21 +123,26 @@ class PcCareWorklistViewModel @Inject constructor(
 
     private fun refresh() {
         viewModelScope.launch {
-            // Drop the freshness marker FIRST so the re-created pager refetches instead of
-            // TTL-skipping — an explicit refresh means "show me the server's list now".
-            val sel = selection.value
-            if (sel.category.isNotBlank()) {
-                // exception:exempt local cache-marker delete; a failure just leaves the TTL skip
-                runCatching {
-                    repository.invalidateWorklist(PcCareWorklistQuery(category = sel.category, date = sel.date))
+            _isRefreshing.value = true
+            try {
+                // Drop the freshness marker FIRST so the re-created pager refetches instead of
+                // TTL-skipping — an explicit refresh means "show me the server's list now".
+                val sel = selection.value
+                if (sel.category.isNotBlank()) {
+                    // exception:exempt local cache-marker delete; a failure just leaves the TTL skip
+                    runCatching {
+                        repository.invalidateWorklist(PcCareWorklistQuery(category = sel.category, date = sel.date))
+                    }
                 }
+                // A NEW value, not an equal one: MutableStateFlow conflates on equality.
+                selection.value = selection.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
+            } finally {
+                _isRefreshing.value = false
             }
-            // A NEW value, not an equal one: MutableStateFlow conflates on equality.
-            selection.value = selection.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
         }
     }
 
-    /** Window: recent history through a short planning horizon (planner may schedule ahead). */
+    /** Operator/director worklist stays on current and future work; old finished cards live in monitor. */
     private fun selectDate(date: LocalDate) {
         val today = LocalDate.now(ZoneId.of(INDIA_ZONE))
         if (date > today.plusDays(FUTURE_WINDOW_DAYS) || date < today.minusDays(PAST_WINDOW_DAYS)) return
@@ -139,7 +154,7 @@ class PcCareWorklistViewModel @Inject constructor(
 
     private companion object {
         const val INDIA_ZONE = "Asia/Kolkata"
-        const val PAST_WINDOW_DAYS = 30L
+        const val PAST_WINDOW_DAYS = 0L
         const val FUTURE_WINDOW_DAYS = 7L
         const val EMPTY_MESSAGE = "No care tasks for this day"
     }
@@ -157,7 +172,7 @@ internal fun PcCareTaskDto.toCardUi(locallySubmittedForReview: Set<String>): PcC
         else -> status
     }
     val (label, tone) = when (effectiveStatus) {
-        PC_CARE_STATUS_PENDING_VERIFICATION -> "Sent for checking" to PcCareStatusTone.REVIEW
+        PC_CARE_STATUS_PENDING_VERIFICATION -> "In review" to PcCareStatusTone.REVIEW
         PC_CARE_STATUS_REWORK -> "Needs another video" to PcCareStatusTone.DANGER
         PC_CARE_STATUS_COMPLETED -> "Done" to PcCareStatusTone.DONE
         else -> when (workState) {
@@ -178,11 +193,16 @@ internal fun PcCareTaskDto.toCardUi(locallySubmittedForReview: Set<String>): PcC
         dueDateLabel = dueBusinessDate,
         assigneeLine = assigneeNames.joinToString(", "),
         animalCountLabel = if (animalCount > 0) "$animalCount animals" else "",
+        inventoryRequirements = inventoryRequirements.map {
+            PcCareInventoryRequirementUi(
+                vaccineLabel = it.vaccineLabel,
+                requiredDosesLabel = "${it.requiredDoses} doses",
+            )
+        },
         reworkReason = if (effectiveStatus == PC_CARE_STATUS_REWORK) reworkReason else "",
         cancellable = effectiveStatus == PC_CARE_STATUS_OPEN,
-        // A submitted (or approved) task is closed to the operator: the row keeps its chip but
-        // no longer opens the capture screen. Rework reopens it.
-        openable = effectiveStatus == PC_CARE_STATUS_OPEN || effectiveStatus == PC_CARE_STATUS_REWORK,
+        // Submitted rows still open the detail record; the detail screen owns the read-only lock.
+        openable = true,
     )
 }
 

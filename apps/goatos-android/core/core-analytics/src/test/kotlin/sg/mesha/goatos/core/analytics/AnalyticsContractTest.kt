@@ -180,9 +180,9 @@ class AnalyticsContractTest {
         // P1 fix (2026-08-15): FIREBASE_MAX_EVENT_PARAMS is a HARD 25 -- GA4's own platform
         // ceiling, not just a locally-chosen budget. To fit the proof-flow params (split-operator
         // slot info, submit source, retry/failure reason, live-status transition) within that cap,
-        // feed_video_source and water_video_source were dropped from the Firebase envelope
-        // (feed_weight_source alone represents the "which slot source" diagnostic there); the full
-        // triple still reaches the backend mirror via BackendAnalyticsAdapter on the same call
+        // feed_video_source, water_video_source and generic previous/next transitions are dropped
+        // from the Firebase envelope; the camera-specific source/kind/request/prompt context and
+        // the full payload still reach the backend mirror via BackendAnalyticsAdapter on the same call
         // site. This test proves the adapter output actually contains every SURVIVING param, not
         // just that the constants exist, and that the two dropped ones are genuinely dropped.
         val params = firebaseEventParams(
@@ -197,6 +197,9 @@ class AnalyticsContractTest {
                 AnalyticsEvents.Params.WATER_VIDEO_SOURCE to "missing",
                 AnalyticsEvents.Params.PREVIOUS to "editable",
                 AnalyticsEvents.Params.NEXT to "readonly",
+                AnalyticsEvents.Params.KIND to "Vaccination stock",
+                "request_token" to "request-123",
+                "prompt" to "inventory_vaccine",
                 AnalyticsEvents.Params.STATUS to "pending_verification",
                 "failure_kind" to "processed_video_track_truncated",
             ),
@@ -209,13 +212,15 @@ class AnalyticsContractTest {
         assertEquals("sync_tap", params[AnalyticsEvents.Params.SOURCE])
         assertEquals("local_present", params[AnalyticsEvents.Params.LOCAL_SLOT_STATE])
         assertEquals("local_outbox", params[AnalyticsEvents.Params.FEED_WEIGHT_SOURCE])
-        assertEquals("editable", params[AnalyticsEvents.Params.PREVIOUS])
-        assertEquals("readonly", params[AnalyticsEvents.Params.NEXT])
+        assertEquals("Vaccination stock", params[AnalyticsEvents.Params.KIND])
+        assertEquals("request-123", params["request_token"])
+        assertEquals("inventory_vaccine", params["prompt"])
         assertEquals("pending_verification", params[AnalyticsEvents.Params.STATUS])
         assertEquals("processed_video_track_truncated", params["failure_kind"])
         assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.FEED_VIDEO_SOURCE])
         assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.WATER_VIDEO_SOURCE])
-        assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.KIND])
+        assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.PREVIOUS])
+        assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.NEXT])
     }
 
     @Test

@@ -147,4 +147,12 @@ class ProofMediaTelemetryTest {
             "the telemetry interceptor must still stamp trace context",
         )
     }
+
+    @Test
+    fun `production playback factory keeps local file schemes off the http-only data source`() {
+        val source = java.io.File("src/main/kotlin/sg/mesha/goatos/core/media/ProofMediaHttp.kt").readText()
+
+        assertTrue(source.contains("DefaultDataSource.Factory(context, dataSourceFactory(client))"))
+        assertTrue(source.contains("playbackDataSourceFactory(context, client)"))
+    }
 }

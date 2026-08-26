@@ -148,8 +148,9 @@ private val FIREBASE_PARAM_ALLOWLIST = listOf(
     AnalyticsEvents.Params.SOURCE,
     AnalyticsEvents.Params.LOCAL_SLOT_STATE,
     AnalyticsEvents.Params.FEED_WEIGHT_SOURCE,
-    AnalyticsEvents.Params.PREVIOUS,
-    AnalyticsEvents.Params.NEXT,
+    AnalyticsEvents.Params.KIND,
+    "request_token",
+    "prompt",
     AnalyticsEvents.Params.STATUS,
     "failure_kind",
 )

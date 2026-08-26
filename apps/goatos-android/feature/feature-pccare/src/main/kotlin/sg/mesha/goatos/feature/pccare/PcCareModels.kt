@@ -24,7 +24,7 @@ data class PcCareTaskCardUi(
     val listKey: String,
     val taskId: String,
     val category: String,
-    /** Chip copy ("Open" / "Sent for checking" / "Needs another video" / "Done"). */
+    /** Chip copy ("Open" / "In review" / "Needs another video" / "Done"). */
     val statusLabel: String,
     val statusTone: PcCareStatusTone,
     /** Backend-composed pen display ("Castro - 2") — rendered VERBATIM. */
@@ -35,15 +35,13 @@ data class PcCareTaskCardUi(
     val assigneeLine: String,
     /** "12 animals", or blank before any scan. */
     val animalCountLabel: String,
+    /** Compact dose requirements shown on inventory-stock task cards. */
+    val inventoryRequirements: List<PcCareInventoryRequirementUi> = emptyList(),
     /** The verifier's rejection sentence, backend-owned, rendered VERBATIM; blank unless rework. */
     val reworkReason: String = "",
     /** True while an open-for-cancel action is offered (planner monitor only). */
     val cancellable: Boolean = false,
-    /**
-     * True while the operator can still work this task (open / sent back for rework). A task
-     * that is sent for checking or approved is closed to the operator — the row shows its
-     * status chip and does not open.
-     */
+    /** True when the visible row can open its detail record; detail owns any read-only lock. */
     val openable: Boolean = true,
 )
 
@@ -51,6 +49,8 @@ data class PcCareTaskCardUi(
 data class PcCareWorklistUiState(
     /** The tab's title — the backend nav label passed through, so the screen never invents one. */
     val title: String = "",
+    /** Visible module eyebrow for the hosted tab. */
+    val moduleLabel: String = "Preventive Care",
     /** ISO business date currently shown. */
     val dateLabel: String = "",
     /** Today's business date (Asia/Kolkata), the date bar's upper bound. */
@@ -59,6 +59,7 @@ data class PcCareWorklistUiState(
     val lastSyncedAt: Long? = null,
     val emptyMessage: String? = null,
     val isErrorEmpty: Boolean = false,
+    val showDateBar: Boolean = true,
 )
 
 sealed interface PcCareWorklistEvent {
@@ -88,6 +89,8 @@ enum class PcCareSlotState {
     FAILED,
 }
 
+enum class PcCareProofPreviewKind { PHOTO, VIDEO }
+
 /**
  * One expected proof slot on one scanned animal. Slots are PARALLEL: each chip's enabled state
  * depends ONLY on its own [state] plus the task lifecycle lock — NEVER on a sibling slot.
@@ -105,6 +108,9 @@ data class PcCareSlotChipUi(
     val canRecord: Boolean = false,
     /** Backend-owned farm copy saying what this video must show, rendered verbatim. */
     val description: String = "",
+    /** Local captured proof preview, preferring the processed overlay artifact when available. */
+    val previewPath: String = "",
+    val previewKind: PcCareProofPreviewKind = PcCareProofPreviewKind.VIDEO,
 )
 
 @Immutable
@@ -127,9 +133,9 @@ data class PcCareTaskUiState(
     val parkLabel: String = "",
     val dateLabel: String = "",
     val assigneeLine: String = "",
-    /** True once the task is sent for checking or already approved — the screen is read-only. */
+    /** True once the task is in review or already approved — the screen is read-only. */
     val isLocked: Boolean = false,
-    /** Farm copy for the lock ("Sent for checking" / "Approved"); blank while unlocked. */
+    /** Farm copy for the lock ("In review" / "Approved"); blank while unlocked. */
     val lockNotice: String = "",
     /** The verifier's rejection sentence, backend-owned, VERBATIM; blank unless rework. */
     val reworkReason: String = "",
@@ -137,6 +143,10 @@ data class PcCareTaskUiState(
     /** Transient scan notice ("Already scanned · 1234"); auto-dismissed by the ViewModel. */
     val scanNotice: String = "",
     val animals: List<PcCareAnimalUi> = emptyList(),
+    val inventoryRequirements: List<PcCareInventoryRequirementUi> = emptyList(),
+    val taskProofSlot: PcCareSlotChipUi? = null,
+    val taskProofPhotoSlot: PcCareSlotChipUi? = null,
+    val taskProofVideoSlot: PcCareSlotChipUi? = null,
     val animalCountLabel: String = "",
     val submitEnabled: Boolean = false,
     /** Why submit is blocked ("2 animals still need videos"); blank when submittable. */
@@ -168,6 +178,12 @@ data class PcCareTaskUiState(
     val focusAnimal: PcCareAnimalUi? = null,
 )
 
+@Immutable
+data class PcCareInventoryRequirementUi(
+    val vaccineLabel: String,
+    val requiredDosesLabel: String,
+)
+
 /** One tappable pen-roster row: the animal's RFID and its video state. */
 @Immutable
 data class PcCareRosterRowUi(
@@ -187,6 +203,7 @@ sealed interface PcCareTaskEvent {
     data class ScanInputChanged(val value: String) : PcCareTaskEvent
     data object SubmitTypedScan : PcCareTaskEvent
     data class RecordSlot(val tagKey: String, val slotFieldKey: String) : PcCareTaskEvent
+    data class RecordTaskProof(val slotFieldKey: String, val mediaKind: String) : PcCareTaskEvent
     data object Submit : PcCareTaskEvent
     data object ConfirmSubmit : PcCareTaskEvent
     data object DismissSubmitConfirmation : PcCareTaskEvent

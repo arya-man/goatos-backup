@@ -19,6 +19,8 @@ type moduleNavContribution struct {
 	key        string // e.g., "vaccination", "overview", "calendar"
 	labelKey   string // i18n key in bootstrapLabels
 	href       string
+	hrefIfRole string
+	hrefRole   string
 	shared_key string // "" if not shared; if set, dedupe by this key across modules
 	priority   int    // lower = earlier in nav; shared items use the first module's priority
 	// requiredPermission gates this single nav item. "" means the item is ungated and
@@ -87,9 +89,9 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:            moduleStatusAvailable,
 		priority:          1,
 		contributions: []moduleNavContribution{
-			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead}, //nav-composition:ignore: registry entry
-			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},         //nav-composition:ignore: registry entry
-			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},     //nav-composition:ignore: registry entry
+			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead},                                          //nav-composition:ignore: registry entry
+			{key: "vaccination", labelKey: "nav.stock", href: "/vaccination", hrefIfRole: "/pc/vaccine-stock", hrefRole: permissions.RolePCDirector, shared_key: "", priority: 1, requiredPermission: permissions.TaskExecute}, //nav-composition:ignore: registry entry
+			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction, excludedPermission: permissions.TaskExecute}, //nav-composition:ignore: registry entry
 			// Leadership's Videos tab is a REVIEW/audit surface (context/architecture/
 			// verifier-app-and-flow.md; verdict-exclusivity rule in AGENTS.md): it must show the
 			// complete evidence trail -- pending, approved, rejected, AND already-closed proofs --
@@ -493,7 +495,10 @@ func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) 
 		if contrib.excludedPermission != "" && grantsHavePermission(grants, contrib.excludedPermission) {
 			continue
 		}
-		out = append(out, contrib)
+			if contrib.hrefIfRole != "" && hasRole(grants, contrib.hrefRole) {
+				contrib.href = contrib.hrefIfRole
+			}
+			out = append(out, contrib)
 	}
 	return out
 }
@@ -1183,7 +1188,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.overview":         "Overview",
 		"nav.calendar":         "Calendar",
 		"nav.alerts":           "Alerts",
-		"nav.drives":           "Drives",
+		"nav.stock":            "Stock",
 		"nav.birth":            "Birth",
 		"nav.death":            "Death",
 		"nav.shifting":         "Shifting",
@@ -1232,7 +1237,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.overview":         "अवलोकन",
 		"nav.calendar":         "कैलेंडर",
 		"nav.alerts":           "अलर्ट",
-		"nav.drives":           "ड्राइव",
+		"nav.stock":            "स्टॉक",
 		"nav.birth":            "जन्म",
 		"nav.death":            "मृत्यु",
 		"nav.shifting":         "शिफ्टिंग",
@@ -1281,7 +1286,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.overview":         "ಅವಲೋಕನ",
 		"nav.calendar":         "ಕ್ಯಾಲೆಂಡರ್",
 		"nav.alerts":           "ಎಚ್ಚರಿಕೆಗಳು",
-		"nav.drives":           "ಡ್ರೈವ್‌ಗಳು",
+		"nav.stock":            "ಸ್ಟಾಕ್",
 		"nav.birth":            "ಜನನ",
 		"nav.death":            "ಮರಣ",
 		"nav.shifting":         "ಸ್ಥಳಾಂತರ",
@@ -1330,7 +1335,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.overview":         "అవలోకనం",
 		"nav.calendar":         "క్యాలెండర్",
 		"nav.alerts":           "అలర్ట్లు",
-		"nav.drives":           "డ్రైవ్‌లు",
+		"nav.stock":            "స్టాక్",
 		"nav.birth":            "జననం",
 		"nav.death":            "మరణం",
 		"nav.shifting":         "షిఫ్టింగ్",

@@ -2446,7 +2446,11 @@ class WeighingViewModel @Inject constructor(
                         )
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_SUCCEEDED,
-                            shedVideoActionProps(shedVideoAction, replacingProofId ?: proof.value.id),
+                            shedVideoActionProps(
+                                action = shedVideoAction,
+                                proofId = proof.value.id,
+                                replacedProofId = replacingProofId,
+                            ),
                         )
                     }
                     is AppResult.Err -> {
@@ -2600,12 +2604,17 @@ class WeighingViewModel @Inject constructor(
         )
     }
 
-    private fun shedVideoActionProps(action: String, proofId: String?): Map<String, String> =
+    private fun shedVideoActionProps(
+        action: String,
+        proofId: String?,
+        replacedProofId: String? = null,
+    ): Map<String, String> =
         buildMap {
             put(AnalyticsEvents.Params.CATEGORY, action)
             put(AnalyticsEvents.Params.ITEM_ID, scopeKey.orEmpty())
             put(AnalyticsEvents.Params.SHED_ID, campaignShedId)
             proofId?.let { put(AnalyticsEvents.Params.PROOF_ID, it) }
+            replacedProofId?.let { put(AnalyticsEvents.Params.REPLACED_PROOF_ID, it) }
         }
 
     override fun onCleared() {

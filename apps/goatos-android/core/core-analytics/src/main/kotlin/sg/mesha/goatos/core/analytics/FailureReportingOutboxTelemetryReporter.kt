@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.common.OutboxWritePhase
  * | `ATTEMPT_STARTED` |   yes  |    yes     | —                             |     —     |
  * | `ATTEMPT_FAILED`  |   yes  |    yes     | `sync_write_attempt_failed`   |     —     |
  * | `RETRY_SCHEDULED` |   yes  |    yes     | —                             |     —     |
+ * | `DEPENDENCY_WAIT` |   yes  |    yes     | `sync_write_dependency_wait`  |     —     |
  * | `TERMINAL`        |   yes  |    yes     | `sync_write_dead`             | throttled |
  *
  * The healthy phases stay logcat + breadcrumb deliberately: they are what makes a stalled queue
@@ -86,6 +87,10 @@ class FailureReportingOutboxTelemetryReporter(
                     crashReporter.recordException(DeadQueuedWrite(summary), summary)
                 }
             }
+            OutboxWritePhase.DEPENDENCY_WAIT -> analytics.track(
+                AnalyticsEvents.SYNC_WRITE_DEPENDENCY_WAIT,
+                baseParams(event),
+            )
             OutboxWritePhase.ENQUEUED,
             OutboxWritePhase.ATTEMPT_STARTED,
             OutboxWritePhase.RETRY_SCHEDULED,
@@ -95,6 +100,10 @@ class FailureReportingOutboxTelemetryReporter(
 
     private fun baseParams(event: OutboxTelemetryEvent): Map<String, String> = mapOf(
         AnalyticsEvents.Params.OP_TYPE to event.opType,
+        AnalyticsEvents.Params.OUTBOX_ITEM_ID to event.itemId,
+        AnalyticsEvents.Params.GROUP_KEY to event.groupKey,
+        AnalyticsEvents.Params.IDEMPOTENCY_KEY to event.idempotencyKey,
+        AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID to event.referencedProofOutboxItemId,
         AnalyticsEvents.Params.ATTEMPT to event.attempt.toString(),
         AnalyticsEvents.Params.MAX_ATTEMPTS to event.maxAttempts.toString(),
         AnalyticsEvents.Params.REASON to event.failureClass.orEmpty(),
@@ -114,6 +123,9 @@ class FailureReportingOutboxTelemetryReporter(
         append(event.phase.name.lowercase())
         append(" op=").append(event.opType)
         append(" item=").append(event.itemId)
+        event.groupKey.takeIf { it.isNotBlank() }?.let { append(" group=").append(it) }
+        event.idempotencyKey.takeIf { it.isNotBlank() }?.let { append(" idempotency=").append(it) }
+        event.referencedProofOutboxItemId.takeIf { it.isNotBlank() }?.let { append(" proof_outbox=").append(it) }
         append(" attempt=").append(event.attempt).append('/').append(event.maxAttempts)
         event.failureClass?.let { append(" failure=").append(it) }
         event.terminalReason?.let { append(" terminal_reason=").append(it) }

@@ -28,12 +28,13 @@ type Service interface {
 	PlannerParkSheds(ctx context.Context, actor domain.Actor, parkID, category, plannedBusinessDate, cursor string, limit int) (ports.PlannerParkSheds, error)
 	CreateTask(ctx context.Context, actor domain.Actor, in app.CreateTaskInput) (ports.TaskRow, error)
 	CancelTask(ctx context.Context, actor domain.Actor, taskID, traceID string) error
-	ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int) (ports.TaskPage, error)
+	ListTasks(ctx context.Context, actor domain.Actor, parkID, category, dueBusinessDate, cursor string, limit int, currentOrCarry bool) (ports.TaskPage, error)
 	Worklist(ctx context.Context, actor domain.Actor, category, dueBusinessDate, cursor string, limit int) (ports.TaskPage, error)
 	GetTask(ctx context.Context, actor domain.Actor, taskID string) (ports.TaskRow, error)
 	ListTaskAnimals(ctx context.Context, actor domain.Actor, taskID, cursor string, limit int) ([]ports.AnimalRow, string, error)
 	ScanAnimal(ctx context.Context, actor domain.Actor, in app.ScanAnimalInput) (ports.ScanAnimalResult, error)
 	RegisterSlotProof(ctx context.Context, actor domain.Actor, in app.RegisterSlotProofInput) error
+	RegisterTaskProof(ctx context.Context, actor domain.Actor, in app.RegisterTaskProofInput) error
 	SubmitTask(ctx context.Context, actor domain.Actor, in app.SubmitTaskInput) (ports.SubmitTaskResult, error)
 	TaskRoster(ctx context.Context, actor domain.Actor, taskID, cursor string, limit int) (ports.TaskRosterPage, error)
 }
@@ -67,6 +68,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/pc-care/tasks/{task_id}/roster", h.GetTaskRoster)
 	mux.HandleFunc("POST /app/pc-care/tasks/{task_id}/animals", h.PostScanAnimal)
 	mux.HandleFunc("PUT /app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}", h.PutSlotProof)
+	mux.HandleFunc("PUT /app/pc-care/tasks/{task_id}/proofs/{slot}", h.PutTaskProof)
 	mux.HandleFunc("POST /app/pc-care/tasks/{task_id}/submit", h.PostSubmitTask)
 }
 
@@ -111,6 +113,26 @@ type taskDTO struct {
 	// ExpectedSlots is the BACKEND-OWNED slot contract for this task's category: clients
 	// iterate it verbatim and never hardcode a category→slot map (proof grain is backend-owned).
 	ExpectedSlots []slotDTO `json:"expected_slots"`
+	// InventoryRequirements is present for inventory_vaccine tasks and names the stock the
+	// director must show in the fridge proof.
+	InventoryRequirements []inventoryRequirementDTO `json:"inventory_requirements,omitempty"`
+	// TaskProofs is present for task-level proof categories such as inventory_vaccine so a
+	// second device can render already-captured fridge proof media.
+	TaskProofs []taskProofDTO `json:"task_proofs,omitempty"`
+}
+
+type inventoryRequirementDTO struct {
+	VaccineLabel   string   `json:"vaccine_label"`
+	RequiredDoses  int32    `json:"required_doses"`
+	SourceBatchIDs []string `json:"source_batch_ids,omitempty"`
+}
+
+type taskProofDTO struct {
+	SlotKey        string     `json:"slot_key"`
+	ProofRef       string     `json:"proof_ref"`
+	CapturedBy     string     `json:"captured_by,omitempty"`
+	CapturedByName string     `json:"captured_by_name,omitempty"`
+	CapturedAt     *time.Time `json:"captured_at,omitempty"`
 }
 
 func taskDTOFrom(t ports.TaskRow) taskDTO {
@@ -127,6 +149,25 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 	if assigneeNames == nil {
 		assigneeNames = []string{}
 	}
+	requirements := make([]inventoryRequirementDTO, 0, len(t.InventoryRequirements))
+	for _, req := range t.InventoryRequirements {
+		requirements = append(requirements, inventoryRequirementDTO{
+			VaccineLabel:   req.VaccineLabel,
+			RequiredDoses:  req.RequiredDoses,
+			SourceBatchIDs: req.SourceBatchIDs,
+		})
+	}
+	taskProofs := make([]taskProofDTO, 0, len(t.TaskProofs))
+	for _, proof := range t.TaskProofs {
+		capturedAt := proof.CapturedAt
+		taskProofs = append(taskProofs, taskProofDTO{
+			SlotKey:        proof.SlotKey,
+			ProofRef:       proof.ProofRef,
+			CapturedBy:     proof.CapturedBy,
+			CapturedByName: proof.CapturedByName,
+			CapturedAt:     &capturedAt,
+		})
+	}
 	return taskDTO{
 		TaskID:         t.TaskID,
 		Category:       t.Category,
@@ -138,18 +179,20 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 		OperationalLocationDisplay: oploc.OperationalLocation{
 			ShedName: t.ShedName, PartitionLabel: t.PartitionLabel,
 		}.Display(),
-		PlannedBusinessDate: t.PlannedBusinessDate,
-		DueBusinessDate:     t.DueBusinessDate,
-		WorkState:           t.WorkState,
-		Status:              t.Status,
-		ReworkReason:        t.ReworkReason,
-		RowVersion:          t.RowVersion,
-		SubmittedAt:         t.SubmittedAt,
-		AssigneeUserIDs:     assigneeIDs,
-		AssigneeNames:       assigneeNames,
-		AnimalCount:         t.AnimalCount,
-		CaptureMode:         domain.CaptureModeForCategory(t.Category),
-		ExpectedSlots:       slotDTOs,
+		PlannedBusinessDate:   t.PlannedBusinessDate,
+		DueBusinessDate:       t.DueBusinessDate,
+		WorkState:             t.WorkState,
+		Status:                t.Status,
+		ReworkReason:          t.ReworkReason,
+		RowVersion:            t.RowVersion,
+		SubmittedAt:           t.SubmittedAt,
+		AssigneeUserIDs:       assigneeIDs,
+		AssigneeNames:         assigneeNames,
+		AnimalCount:           t.AnimalCount,
+		CaptureMode:           domain.CaptureModeForCategory(t.Category),
+		ExpectedSlots:         slotDTOs,
+		InventoryRequirements: requirements,
+		TaskProofs:            taskProofs,
 	}
 }
 
@@ -314,7 +357,7 @@ func (h *Handler) GetPlannerCatalog(w http.ResponseWriter, r *http.Request) {
 	resp := plannerCatalogResponse{
 		Parks:      make([]plannerParkDTO, 0, len(catalog.Parks)),
 		Operators:  make([]plannerOperatorDTO, 0, len(catalog.Operators)),
-		Categories: make([]categoryDTO, 0, len(domain.Categories)),
+		Categories: make([]categoryDTO, 0, len(domain.PlannerCategories)),
 	}
 	for _, park := range catalog.Parks {
 		resp.Parks = append(resp.Parks, plannerParkDTO{ParkID: park.ParkID, ParkLabel: park.ParkName})
@@ -326,7 +369,7 @@ func (h *Handler) GetPlannerCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.Operators = append(resp.Operators, plannerOperatorDTO{UserID: op.UserID, DisplayName: op.DisplayName, ParkIDs: parkIDs})
 	}
-	for _, category := range domain.Categories {
+	for _, category := range domain.PlannerCategories {
 		resp.Categories = append(resp.Categories, categoryDTO{Key: category, Label: domain.CategoryLabel(category)})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
@@ -420,6 +463,7 @@ func (h *Handler) GetTasks(w http.ResponseWriter, r *http.Request) {
 		strings.TrimSpace(r.URL.Query().Get("date")),
 		strings.TrimSpace(r.URL.Query().Get("cursor")),
 		intQuery(r, "limit", 25),
+		strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("current_or_carry")), "true"),
 	)
 	if err != nil {
 		h.writeServiceError(w, r, "pc care list tasks", err)
@@ -595,6 +639,36 @@ func (h *Handler) PutSlotProof(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, map[string]string{"status": "recorded"})
 }
 
+func (h *Handler) PutTaskProof(w http.ResponseWriter, r *http.Request) {
+	a, ok := h.requireAuthed(w, r)
+	if !ok {
+		return
+	}
+	key, ok := idempotencyKey(w, r, h)
+	if !ok {
+		return
+	}
+	var body slotProofRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
+		return
+	}
+	err := h.service.RegisterTaskProof(r.Context(), a, app.RegisterTaskProofInput{
+		TaskID:         r.PathValue("task_id"),
+		SlotKey:        r.PathValue("slot"),
+		ProofRef:       body.ProofRef,
+		IdempotencyKey: key,
+		ActorID:        a.UserID,
+		ActorType:      "operator",
+		TraceID:        httpmiddleware.TraceIDFromContext(r.Context()),
+	})
+	if err != nil {
+		h.writeServiceError(w, r, "pc care task proof", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, map[string]string{"status": "recorded"})
+}
+
 func (h *Handler) PostSubmitTask(w http.ResponseWriter, r *http.Request) {
 	a, ok := h.requireAuthed(w, r)
 	if !ok {
@@ -653,6 +727,8 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "invalid_slot", Message: "this video step does not belong to this work"}, nil)
 	case errors.Is(err, domain.ErrInvalidCategory):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "invalid_category", Message: "unknown work category"}, nil)
+	case errors.Is(err, domain.ErrKernelOwnedCategory):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "kernel_owned_category", Message: "this work is created automatically"}, nil)
 	case errors.Is(err, domain.ErrAssigneesRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "assignees_required", Message: "assign at least one operator"}, nil)
 	case errors.Is(err, ports.ErrShedNotInPark), errors.Is(err, ports.ErrInvalidPartition):

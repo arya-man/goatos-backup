@@ -90,6 +90,8 @@ fun interface PostTerminalFailureHook {
  */
 class NonRetryableSyncException(message: String) : Exception(message)
 
+private class ProofDependencyPendingException(message: String) : Exception(message)
+
 /**
  * Drains the outbox oldest-first (per group) and performs the real app-api call per queued
  * item — the pure, framework-agnostic "do the work" body a `CoroutineWorker.doWork()` would
@@ -292,6 +294,9 @@ class SyncEngine(
                 phase = OutboxWritePhase.ATTEMPT_STARTED,
                 opType = item.opType,
                 itemId = item.id,
+                groupKey = item.groupKey,
+                idempotencyKey = item.idempotencyKey,
+                referencedProofOutboxItemId = item.referencedProofOutboxItemId(),
                 attempt = item.attemptCount + 1,
                 maxAttempts = item.maxAttempts,
             ),
@@ -310,6 +315,9 @@ class SyncEngine(
             true
         } catch (cancellation: CancellationException) {
             throw cancellation
+        } catch (pendingProof: ProofDependencyPendingException) {
+            recordPendingProofDependency(item, pendingProof)?.let(rememberRetryDue)
+            false
         } catch (error: Throwable) {
             recordFailure(item, error)?.let(rememberRetryDue)
             false
@@ -358,6 +366,9 @@ class SyncEngine(
                     phase = OutboxWritePhase.ATTEMPT_FAILED,
                     opType = item.opType,
                     itemId = item.id,
+                    groupKey = item.groupKey,
+                    idempotencyKey = item.idempotencyKey,
+                    referencedProofOutboxItemId = item.referencedProofOutboxItemId(),
                     attempt = attempt,
                     maxAttempts = item.maxAttempts,
                     failureClass = failureClass,
@@ -369,6 +380,9 @@ class SyncEngine(
                         phase = OutboxWritePhase.TERMINAL,
                         opType = item.opType,
                         itemId = item.id,
+                        groupKey = item.groupKey,
+                        idempotencyKey = item.idempotencyKey,
+                        referencedProofOutboxItemId = item.referencedProofOutboxItemId(),
                         attempt = attempt,
                         maxAttempts = item.maxAttempts,
                         failureClass = failureClass,
@@ -383,6 +397,9 @@ class SyncEngine(
                         phase = OutboxWritePhase.RETRY_SCHEDULED,
                         opType = item.opType,
                         itemId = item.id,
+                        groupKey = item.groupKey,
+                        idempotencyKey = item.idempotencyKey,
+                        referencedProofOutboxItemId = item.referencedProofOutboxItemId(),
                         attempt = attempt,
                         maxAttempts = item.maxAttempts,
                         failureClass = failureClass,
@@ -399,10 +416,42 @@ class SyncEngine(
         }
     }
 
+    private suspend fun recordPendingProofDependency(item: OutboxEntity, error: ProofDependencyPendingException): Long? {
+        val nextAttemptAt = clock() + PROOF_DEPENDENCY_WAIT_RETRY_MS
+        val applied = store.markFailed(
+            id = item.id,
+            attemptCount = item.attemptCount,
+            nextAttemptAt = nextAttemptAt,
+            conflict = false,
+            lastError = error.outboxLastError(),
+            now = clock(),
+        )
+        if (applied) {
+            report(
+                OutboxTelemetryEvent(
+                    phase = OutboxWritePhase.DEPENDENCY_WAIT,
+                    opType = item.opType,
+                    itemId = item.id,
+                    groupKey = item.groupKey,
+                    idempotencyKey = item.idempotencyKey,
+                    referencedProofOutboxItemId = item.referencedProofOutboxItemId(),
+                    attempt = item.attemptCount,
+                    maxAttempts = item.maxAttempts,
+                    failureClass = error.javaClass.simpleName,
+                    retryInMs = (nextAttemptAt - clock()).coerceAtLeast(0),
+                ),
+            )
+        }
+        return if (applied) nextAttemptAt else null
+    }
+
     /** Telemetry is diagnostics, never control flow: a broken reporter must not fail a write. */
     private fun report(event: OutboxTelemetryEvent) {
         runCatching { telemetry.onOutboxWrite(event) }
     }
+
+    private fun OutboxEntity.referencedProofOutboxItemId(): String =
+        PROOF_OUTBOX_ITEM_ID_REGEX.find(payloadJson)?.groupValues?.getOrNull(1).orEmpty()
 
     /** Logs a post-success local-cache reconcile failure (e.g. the Room mirror write in
      *  [reconcileFeatureSuccess] threw) without ever rethrowing: the golden rule is "never
@@ -465,6 +514,7 @@ class SyncEngine(
         OutboxOpType.WEIGHING_SCOPE_SUBMIT -> dispatchWeighingScopeSubmit(item)
         OutboxOpType.PC_CARE_SCAN_ADD -> dispatchPcCareScanAdd(item)
         OutboxOpType.PC_CARE_SLOT_REGISTER -> dispatchPcCareSlotRegister(item)
+        OutboxOpType.PC_CARE_TASK_PROOF_REGISTER -> dispatchPcCareTaskProofRegister(item)
         OutboxOpType.PC_CARE_TASK_SUBMIT -> dispatchPcCareTaskSubmit(item)
         OutboxOpType.TOXIN_STEP_COMPLETE -> dispatchToxinStepComplete(item)
         OutboxOpType.TOXIN_SUBMIT -> dispatchToxinSubmit(item)
@@ -922,39 +972,19 @@ class SyncEngine(
      * Resolves the uploaded proof_id for a shifting completion from its coupled PROOF_UPLOAD outbox
      * row. Same-group ordering means that row has already drained to SUCCEEDED before this completion
      * runs; if it has not (a rare concurrency edge, or a pre-upgrade row with no coupling), the
-     * completion is retried (plain exception -> non-conflict retry) until the video is uploaded. A
-     * missing coupling or a permanently-failed upload is terminal — a shed move without a verifiable
-     * video must not reach the backend.
+     * completion waits on the shared proof-dependency lane until the video is uploaded. A missing
+     * coupling or a permanently-failed upload is terminal — a shed move without a verifiable video
+     * must not reach the backend.
      */
     private suspend fun resolveShiftingProofRef(payload: ShiftingCompletePayload): String {
         val proofItemId = payload.proofOutboxItemId
             ?: throw NonRetryableSyncException("Shifting completion is missing its mandatory video reference.")
-        val proofRow = store.findById(proofItemId)
-            ?: throw NonRetryableSyncException("The shifting video upload could not be found.")
-        if (proofRow.status != OutboxStatus.SUCCEEDED.name) {
-            throw IllegalStateException("Waiting for the shifting video to finish uploading before completing.")
-        }
-        val resultJson = proofRow.resultJson
-            ?: throw IllegalStateException("The shifting video upload result is not yet available.")
-        val proofId = syncJson.decodeFromString<ProofUploadResponseDto>(resultJson).proof.proofId
-        if (proofId.isBlank()) {
-            throw NonRetryableSyncException("The shifting video upload did not return a proof id.")
-        }
-        return proofId
+        return resolveUploadedProofRef(proofItemId)
     }
 
     private suspend fun resolveOptionalShiftingProofRef(proofItemId: String?, label: String): String? {
         if (proofItemId.isNullOrBlank()) return null
-        val proofRow = store.findById(proofItemId)
-            ?: throw NonRetryableSyncException("The shifting $label video upload could not be found.")
-        if (proofRow.status != OutboxStatus.SUCCEEDED.name) {
-            throw IllegalStateException("Waiting for the shifting $label video to finish uploading before completing.")
-        }
-        val resultJson = proofRow.resultJson
-            ?: throw IllegalStateException("The shifting $label video upload result is not yet available.")
-        return syncJson.decodeFromString<ProofUploadResponseDto>(resultJson).proof.proofId
-            .takeIf { it.isNotBlank() }
-            ?: throw NonRetryableSyncException("The shifting $label video upload did not return a proof id.")
+        return resolveUploadedProofRef(proofItemId)
     }
 
     private suspend fun dispatchFeedDirectionComplete(item: OutboxEntity): String {
@@ -1159,6 +1189,19 @@ class SyncEngine(
         return "{}"
     }
 
+    private suspend fun dispatchPcCareTaskProofRegister(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PcCareTaskProofRegisterPayload>(item.payloadJson)
+        api.registerPcCareTaskProof(
+            payload.taskId,
+            payload.slotFieldKey,
+            item.idempotencyKey,
+            sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto(
+                proofRef = resolveUploadedProofRef(payload.proofOutboxItemId),
+            ),
+        )
+        return "{}"
+    }
+
     /**
      * The WHOLE-task PC Care submit. Drains after every coupled PROOF_UPLOAD and
      * [dispatchPcCareSlotRegister] row on the same task group, so the server holds every slot
@@ -1293,8 +1336,11 @@ class SyncEngine(
     private suspend fun resolveUploadedProofRef(proofItemId: String): String {
         val proofRow = store.findById(proofItemId)
             ?: throw NonRetryableSyncException("A required proof upload could not be found.")
+        if (proofRow.status == OutboxStatus.FAILED.name && (proofRow.conflict || proofRow.attemptCount >= proofRow.maxAttempts)) {
+            throw NonRetryableSyncException("A required proof upload failed permanently; record the proof again.")
+        }
         if (proofRow.status != OutboxStatus.SUCCEEDED.name) {
-            throw IllegalStateException("Waiting for a proof upload to finish before completing.")
+            throw ProofDependencyPendingException("Waiting for a proof upload to finish before completing.")
         }
         val resultJson = proofRow.resultJson
             ?: throw IllegalStateException("A proof upload result is not yet available.")
@@ -1425,6 +1471,8 @@ class SyncEngine(
         // successive batches of this size rather than one unbounded SELECT * materialization.
         const val DRAIN_BATCH_SIZE = 200
         const val NO_RETRY_DUE = Long.MAX_VALUE
+        const val PROOF_DEPENDENCY_WAIT_RETRY_MS = 1_000L
+        val PROOF_OUTBOX_ITEM_ID_REGEX = Regex(""""proof_outbox_item_id"\s*:\s*"([^"]+)"""")
         // Mirrors WeighingRepository's private WEIGHING_CACHED_TRANSITION_SCOPES bound for the
         // SAME weighing_transition_epoch table -- every writer of that table prunes to this bound.
         const val WEIGHING_SCOPE_SUBMIT_CACHED_TRANSITION_SCOPES = 50

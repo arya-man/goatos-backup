@@ -466,6 +466,22 @@ func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 	}
 }
 
+func TestAppPCCareTaskProofRouteAuthorizeExecutor(t *testing.T) {
+	route, ok := Match("PUT", "/app/pc-care/tasks/994cecc6-310d-4405-8bde-66dbf2db7589/proofs/stock_fridge_video")
+	if !ok {
+		t.Fatal("pc-care task proof route is not registered")
+	}
+	if route.OperationID != "appRegisterPCCareTaskProof" {
+		t.Fatalf("operation_id=%q, want appRegisterPCCareTaskProof", route.OperationID)
+	}
+	if len(route.Permissions) != 1 || route.Permissions[0] != PCCareExecute {
+		t.Fatalf("permissions=%v, want [%s]", route.Permissions, PCCareExecute)
+	}
+	if !AuthorizeRoute(route, []string{RoleOperator}) {
+		t.Fatal("operator must authorize app pc-care task proof registration")
+	}
+}
+
 func TestProcurementBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 	routes := []struct {
 		method string

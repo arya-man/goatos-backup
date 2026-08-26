@@ -550,6 +550,36 @@ object AnalyticsEvents {
     /** A PC Care task detail was opened from a worklist card. */
     const val PC_CARE_TASK_OPENED = "pc_care_task_opened"
 
+    /** The vaccination Stock proof detail rendered; [Params.STATUS] is the task lifecycle. */
+    const val PC_CARE_STOCK_PROOF_SCREEN_VISIBLE = "pc_care_stock_proof_screen_visible"
+
+    /** A vaccination Stock proof row/button was tapped; [Params.KIND] = photo/video. */
+    const val PC_CARE_STOCK_PROOF_ACTION_TAPPED = "pc_care_stock_proof_action_tapped"
+
+    /** Camera returned for Stock proof capture before durable Room enqueue. */
+    const val PC_CARE_STOCK_PROOF_CAPTURE_RESULT = "pc_care_stock_proof_capture_result"
+
+    /** Captured Stock proof row was inserted into Room and upload enqueue was requested. */
+    const val PC_CARE_STOCK_PROOF_ROOM_WRITTEN = "pc_care_stock_proof_room_written"
+
+    /** Upload outbox id became visible in Room for the Stock proof. */
+    const val PC_CARE_STOCK_PROOF_UPLOAD_ENQUEUED = "pc_care_stock_proof_upload_enqueued"
+
+    /** Stock proof slot registration write was enqueued or failed. */
+    const val PC_CARE_STOCK_PROOF_REGISTRATION = "pc_care_stock_proof_registration"
+
+    /** Stock proof manual refresh/sync action started or completed. */
+    const val PC_CARE_STOCK_PROOF_SYNC = "pc_care_stock_proof_sync"
+
+    /** Stock detail proof preview URL hydration/playback. */
+    const val PC_CARE_STOCK_PROOF_PREVIEW = "pc_care_stock_proof_preview"
+
+    /** Stock proof submit button was tapped or blocked before confirmation. */
+    const val PC_CARE_STOCK_PROOF_SUBMIT = "pc_care_stock_proof_submit"
+
+    /** Stock proof submit write was enqueued or failed. */
+    const val PC_CARE_STOCK_PROOF_SUBMIT_ENQUEUED = "pc_care_stock_proof_submit_enqueued"
+
     /** A scanned tag was accepted into the task (queued durably for sync). */
     const val PC_CARE_SCAN_ACCEPTED = "pc_care_scan_accepted"
 
@@ -766,6 +796,38 @@ object AnalyticsEvents {
     /** A proof-video job reached a terminal state and will need operator/manual action. */
     const val PROOF_VIDEO_DEAD_LETTER = "proof_video_dead_letter"
 
+    /** Shared Room-first proof pipeline events, emitted for every feature using ProofCaptureRepository. */
+    const val PROOF_CAMERA_REQUESTED = "proof_camera_requested"
+    const val PROOF_CAMERA_VISIBLE = "proof_camera_visible"
+    const val PROOF_CAMERA_BOUND = "proof_camera_bound"
+    const val PROOF_CAMERA_STREAMING = "proof_camera_streaming"
+    const val PROOF_CAMERA_RECORDING_STARTED = "proof_camera_recording_started"
+    const val PROOF_CAMERA_STOP_TAPPED = "proof_camera_stop_tapped"
+    const val PROOF_CAMERA_CANCELLED = "proof_camera_cancelled"
+    const val PROOF_CAMERA_RETRY_TAPPED = "proof_camera_retry_tapped"
+    const val PROOF_CAMERA_FINALIZED = "proof_camera_finalized"
+    const val PROOF_CAMERA_FAILED = "proof_camera_failed"
+    const val PROOF_CAMERA_TORCH_ON = "proof_camera_torch_on"
+    const val PROOF_CAMERA_TORCH_OFF = "proof_camera_torch_off"
+    const val PROOF_CAMERA_TORCH_FAILED = "proof_camera_torch_failed"
+    const val PROOF_GALLERY_PICKER_OPENED = "proof_gallery_picker_opened"
+    const val PROOF_GALLERY_PICKER_CANCELLED = "proof_gallery_picker_cancelled"
+    const val PROOF_GALLERY_PICKER_IMPORTED = "proof_gallery_picker_imported"
+    const val PROOF_GALLERY_PICKER_FAILED = "proof_gallery_picker_failed"
+    const val PROOF_PROCESSING_STARTED = "proof_processing_started"
+    const val PROOF_PROCESSING_COMPLETED = "proof_processing_completed"
+    const val PROOF_PROCESSING_FAILED = "proof_processing_failed"
+    const val PROOF_CAPTURE_COMPLETED = "proof_capture_completed"
+    const val PROOF_GALLERY_SAVE_STARTED = "proof_gallery_save_started"
+    const val PROOF_GALLERY_SAVE_COMPLETED = "proof_gallery_save_completed"
+    const val PROOF_GALLERY_SAVE_FAILED = "proof_gallery_save_failed"
+    const val PROOF_UPLOAD_REGISTERED = "proof_upload_registered"
+    const val PROOF_UPLOAD_STARTED = "proof_upload_started"
+    const val PROOF_UPLOAD_COMPLETED = "proof_upload_completed"
+    const val PROOF_UPLOAD_FAILED = "proof_upload_failed"
+    const val PROOF_UPLOAD_ENQUEUE_FAILED = "proof_upload_enqueue_failed"
+    const val PROOF_UPLOAD_DRIVER_MISSING = "proof_upload_driver_missing"
+
     /** Standard event parameter keys. */
     /**
      * The OS notification-permission prompt was shown. Until this existed, POST_NOTIFICATIONS was
@@ -803,6 +865,12 @@ object AnalyticsEvents {
      * failure's exception CLASS name). Never a payload, a server error string, or a credential.
      */
     const val SYNC_WRITE_ATTEMPT_FAILED = "sync_write_attempt_failed"
+
+    /**
+     * A queued submit/completion write is waiting for one or more referenced proof-upload rows to
+     * succeed. Emitted from the outbox drain seam without consuming the write's retry budget.
+     */
+    const val SYNC_WRITE_DEPENDENCY_WAIT = "sync_write_dependency_wait"
 
     /**
      * A queued write is DEAD — it will never be sent again without a manual retry. The loudest
@@ -870,6 +938,7 @@ object AnalyticsEvents {
 
         const val ITEM_ID = "item_id"
         const val PROOF_ID = "proof_id"
+        const val REPLACED_PROOF_ID = "replaced_proof_id"
         const val PROOF_SURFACE = "proof_surface"
         const val PROOF_MODE = "proof_mode"
         const val PROOF_STATE = "proof_state"
@@ -891,6 +960,18 @@ object AnalyticsEvents {
          * construction (it is an enum), and it carries no goat, shed, or operator identity.
          */
         const val OP_TYPE = "op_type"
+
+        /** Local outbox row id for durable-sync lifecycle/debug events. */
+        const val OUTBOX_ITEM_ID = "outbox_item_id"
+
+        /** Local durable sync lane key, used to reconstruct ordering/dependency waits. */
+        const val GROUP_KEY = "group_key"
+
+        /** Deterministic write key used for server replay/idempotency. */
+        const val IDEMPOTENCY_KEY = "idempotency_key"
+
+        /** Referenced proof upload outbox row id for dependent register/submit writes. */
+        const val PROOF_OUTBOX_ITEM_ID = "proof_outbox_item_id"
 
         /** How many attempts that queued write is allowed before it is declared dead. */
         const val MAX_ATTEMPTS = "max_attempts"

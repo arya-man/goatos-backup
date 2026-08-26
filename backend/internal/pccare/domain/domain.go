@@ -26,22 +26,33 @@ func PartitionMatchKey(label string) string {
 // The four work categories. These are STORAGE/CONTRACT tokens, never user-facing copy — clients
 // render the backend-owned labels carried on the nav/worklist contracts.
 const (
-	CategoryDeworming    = "deworming"
-	CategoryTicksRemoval = "ticks_removal"
-	CategoryHoofTrimming = "hoof_trimming"
-	CategoryHairTrimming = "hair_trimming"
+	CategoryDeworming        = "deworming"
+	CategoryTicksRemoval     = "ticks_removal"
+	CategoryHoofTrimming     = "hoof_trimming"
+	CategoryHairTrimming     = "hair_trimming"
+	CategoryInventoryVaccine = "inventory_vaccine"
 )
 
 // Categories lists every valid category, in display order.
-var Categories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming}
+var Categories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryInventoryVaccine}
+
+// PlannerCategories lists categories humans may plan through the PC Care create wizard.
+// Kernel-owned categories stay readable/listable, but are created by reconciliation stages.
+var PlannerCategories = []string{CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming}
 
 // IsValidCategory reports whether c names a real PC Care category.
 func IsValidCategory(c string) bool {
 	switch c {
-	case CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming:
+	case CategoryDeworming, CategoryTicksRemoval, CategoryHoofTrimming, CategoryHairTrimming, CategoryInventoryVaccine:
 		return true
 	}
 	return false
+}
+
+// IsKernelOwnedCategory reports categories that are created by kernel reconciliation, not
+// by planner/API writes.
+func IsKernelOwnedCategory(c string) bool {
+	return c == CategoryInventoryVaccine
 }
 
 // Slot field keys. The 1-video categories use SlotVideo; the trimming categories use the
@@ -49,10 +60,12 @@ func IsValidCategory(c string) bool {
 // the animal proof-registration path segment) and the Android capture slot identity — one
 // definition, owned here.
 const (
-	SlotVideo  = "video"
-	SlotBefore = "before_video"
-	SlotDuring = "during_video"
-	SlotAfter  = "after_video"
+	SlotVideo            = "video"
+	SlotBefore           = "before_video"
+	SlotDuring           = "during_video"
+	SlotAfter            = "after_video"
+	SlotStockFridgePhoto = "stock_fridge_photo"
+	SlotStockFridgeVideo = "stock_fridge_video"
 )
 
 // Capture modes (maintainer decision 2026-08-21, second pass). The quick jobs — deworming and
@@ -63,6 +76,7 @@ const (
 const (
 	CaptureModeScanRecord = "scan_record"
 	CaptureModeRosterPick = "roster_pick"
+	CaptureModeTaskProof  = "task_proof"
 )
 
 // CaptureModeForCategory maps a work category to its capture mode.
@@ -70,6 +84,8 @@ func CaptureModeForCategory(category string) string {
 	switch category {
 	case CategoryHoofTrimming, CategoryHairTrimming:
 		return CaptureModeRosterPick
+	case CategoryInventoryVaccine:
+		return CaptureModeTaskProof
 	}
 	return CaptureModeScanRecord
 }
@@ -118,6 +134,17 @@ func SlotsForCategory(category string) []Slot {
 			{FieldKey: SlotDuring, Label: "While trimming", Description: "Record the hair being trimmed", MinDurationHintSeconds: 10},
 			{FieldKey: SlotAfter, Label: "After trimming", Description: "Show the trimmed coat after the work"},
 		}
+	case CategoryInventoryVaccine:
+		return []Slot{
+			{
+				FieldKey: SlotStockFridgePhoto, Label: "Fridge stock photo",
+				Description: "Take a clear photo of the vaccine stock available in the fridge",
+			},
+			{
+				FieldKey: SlotStockFridgeVideo, Label: "Fridge stock video",
+				Description: "Record the vaccine stock available in the fridge for the scheduled vaccination",
+			},
+		}
 	}
 	return nil
 }
@@ -145,6 +172,8 @@ func CategoryLabel(category string) string {
 		return "Hoof Trimming"
 	case CategoryHairTrimming:
 		return "Hair Trimming"
+	case CategoryInventoryVaccine:
+		return "Vaccine Inventory"
 	}
 	return category
 }
@@ -163,13 +192,14 @@ func SlotDisplayLabel(category, fieldKey string) string {
 // ONE RefType — the verdict consumers filter on Module+RefType, and the verifier's queue splits
 // by category as page filters (never one Verify tab per category).
 const (
-	VerificationVerticalPreventiveCare = "preventive_care"
-	VerificationModulePCCare           = "pc_care"
-	VerificationCategoryDeworming      = "pc_deworming"
-	VerificationCategoryTicksRemoval   = "pc_ticks_removal"
-	VerificationCategoryHoofTrimming   = "pc_hoof_trimming"
-	VerificationCategoryHairTrimming   = "pc_hair_trimming"
-	VerificationRefTypeTask            = "pc_care_task"
+	VerificationVerticalPreventiveCare   = "preventive_care"
+	VerificationModulePCCare             = "pc_care"
+	VerificationCategoryDeworming        = "pc_deworming"
+	VerificationCategoryTicksRemoval     = "pc_ticks_removal"
+	VerificationCategoryHoofTrimming     = "pc_hoof_trimming"
+	VerificationCategoryHairTrimming     = "pc_hair_trimming"
+	VerificationCategoryInventoryVaccine = "inventory_vaccine"
+	VerificationRefTypeTask              = "pc_care_task"
 )
 
 // VerificationCategoryFor maps a work category to its verification category.
@@ -183,6 +213,8 @@ func VerificationCategoryFor(category string) string {
 		return VerificationCategoryHoofTrimming
 	case CategoryHairTrimming:
 		return VerificationCategoryHairTrimming
+	case CategoryInventoryVaccine:
+		return VerificationCategoryInventoryVaccine
 	}
 	return ""
 }
@@ -240,4 +272,7 @@ var (
 	ErrTaskAlreadyPlanned = errors.New("pccare: a task for this pen, category and date already exists")
 	// ErrAssigneesRequired is returned when a planner create names no operators.
 	ErrAssigneesRequired = errors.New("pccare: at least one assigned operator is required")
+	// ErrKernelOwnedCategory is returned when a planner/API write tries to create work whose
+	// source of truth is a kernel reconciliation path.
+	ErrKernelOwnedCategory = errors.New("pccare: category is created by the kernel")
 )

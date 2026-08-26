@@ -480,6 +480,12 @@ interface SyncRepository {
         proofOutboxItemId: String,
     ): AppResult<String> = AppResult.Err("pc care slot proof sync is not configured")
 
+    suspend fun enqueuePcCareTaskProofRegister(
+        taskId: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("pc care task proof sync is not configured")
+
     /**
      * Enqueues the WHOLE-task PC Care submit (`POST /app/pc-care/tasks/{task_id}/submit`), on the
      * SAME task group as the slot registrations and uploads, so it drains last. The idempotency
@@ -1320,6 +1326,23 @@ class DefaultSyncRepository(
                 taskId = taskId.trim(),
                 animalRowId = animalRowId.trim(),
                 normalizedTag = normalizedTag,
+                slotFieldKey = slotFieldKey,
+                proofOutboxItemId = proofOutboxItemId,
+            ),
+        ),
+    )
+
+    override suspend fun enqueuePcCareTaskProofRegister(
+        taskId: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.PC_CARE_TASK_PROOF_REGISTER,
+        groupKey = pcCareTaskGroupKey(taskId.trim()),
+        idempotencyKey = pcCareTaskProofIdempotencyKey(taskId.trim(), slotFieldKey, proofOutboxItemId),
+        payloadJson = syncJson.encodeToString(
+            PcCareTaskProofRegisterPayload(
+                taskId = taskId.trim(),
                 slotFieldKey = slotFieldKey,
                 proofOutboxItemId = proofOutboxItemId,
             ),

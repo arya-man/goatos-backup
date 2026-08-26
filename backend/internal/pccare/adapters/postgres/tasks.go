@@ -230,7 +230,9 @@ const taskSelectColumns = `
   t.submitted_at,
   coalesce(assignees.user_ids, ARRAY[]::text[]),
   coalesce(assignees.names, ARRAY[]::text[]),
-  coalesce(animals.animal_count, 0)`
+  coalesce(animals.animal_count, 0),
+  coalesce(requirements.items, '[]'::jsonb),
+  coalesce(task_proofs.items, '[]'::jsonb)`
 
 // taskFromJoins is the FROM/JOIN block matching taskSelectColumns. The assignee and animal
 // sides are PRE-AGGREGATED to exactly one row per task before joining, so they cannot multiply
@@ -252,18 +254,87 @@ LEFT JOIN LATERAL (
   SELECT count(*)::int AS animal_count
   FROM pc_care_task_animals an
   WHERE an.tenant_id = t.tenant_id AND an.task_id = t.task_id
-) animals ON true`
+) animals ON true
+LEFT JOIN LATERAL (
+  SELECT jsonb_agg(
+           jsonb_build_object(
+             'vaccine_label', r.vaccine_label,
+             'required_doses', r.required_doses,
+             'source_batch_ids', (
+               SELECT coalesce(jsonb_agg(b::text ORDER BY b::text), '[]'::jsonb)
+               FROM unnest(r.source_batch_ids) AS b
+             )
+           )
+           ORDER BY r.vaccine_label
+         ) AS items
+  FROM pc_care_task_inventory_requirements r
+  WHERE r.tenant_id = t.tenant_id AND r.task_id = t.task_id
+) requirements ON true
+LEFT JOIN LATERAL (
+  SELECT jsonb_agg(
+           jsonb_build_object(
+             'slot_key', p.slot_key,
+             'proof_ref', p.proof_ref,
+             'captured_by', p.captured_by::text,
+             'captured_by_name', coalesce(m.display_name, ''),
+             'captured_at', p.captured_at
+           )
+           ORDER BY p.slot_key
+         ) AS items
+  FROM pc_care_task_proofs p
+  LEFT JOIN workforce_members m
+    ON m.tenant_id = p.tenant_id AND m.user_id = p.captured_by AND m.status = 'active'
+  WHERE p.tenant_id = t.tenant_id AND p.task_id = t.task_id
+) task_proofs ON true`
 
 func scanTaskRow(row pgx.Row) (ports.TaskRow, error) {
 	var t ports.TaskRow
 	var submittedAt *time.Time
+	var requirementsJSON []byte
+	var taskProofsJSON []byte
 	if err := row.Scan(
 		&t.TaskID, &t.Category, &t.ParkID, &t.ParkName, &t.ShedID, &t.ShedName,
 		&t.PartitionLabel, &t.PlannedBusinessDate, &t.DueBusinessDate,
 		&t.WorkState, &t.Status, &t.ReworkReason, &t.RowVersion,
 		&t.SubmittedBy, &submittedAt, &t.AssigneeUserIDs, &t.AssigneeNames, &t.AnimalCount,
+		&requirementsJSON, &taskProofsJSON,
 	); err != nil {
 		return ports.TaskRow{}, err
+	}
+	if len(requirementsJSON) > 0 {
+		var raw []struct {
+			VaccineLabel   string   `json:"vaccine_label"`
+			RequiredDoses  int32    `json:"required_doses"`
+			SourceBatchIDs []string `json:"source_batch_ids"`
+		}
+		if err := json.Unmarshal(requirementsJSON, &raw); err != nil {
+			return ports.TaskRow{}, fmt.Errorf("pccare: decode inventory requirements: %w", err)
+		}
+		t.InventoryRequirements = make([]ports.InventoryRequirement, 0, len(raw))
+		for _, item := range raw {
+			t.InventoryRequirements = append(t.InventoryRequirements, ports.InventoryRequirement{
+				VaccineLabel: item.VaccineLabel, RequiredDoses: item.RequiredDoses, SourceBatchIDs: item.SourceBatchIDs,
+			})
+		}
+	}
+	if len(taskProofsJSON) > 0 {
+		var raw []struct {
+			SlotKey        string    `json:"slot_key"`
+			ProofRef       string    `json:"proof_ref"`
+			CapturedBy     string    `json:"captured_by"`
+			CapturedByName string    `json:"captured_by_name"`
+			CapturedAt     time.Time `json:"captured_at"`
+		}
+		if err := json.Unmarshal(taskProofsJSON, &raw); err != nil {
+			return ports.TaskRow{}, fmt.Errorf("pccare: decode task proofs: %w", err)
+		}
+		t.TaskProofs = make([]ports.TaskProofRow, 0, len(raw))
+		for _, item := range raw {
+			t.TaskProofs = append(t.TaskProofs, ports.TaskProofRow{
+				SlotKey: item.SlotKey, ProofRef: item.ProofRef, CapturedBy: item.CapturedBy,
+				CapturedByName: item.CapturedByName, CapturedAt: item.CapturedAt,
+			})
+		}
 	}
 	t.SubmittedAt = submittedAt
 	return t, nil
@@ -320,7 +391,13 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 	// guard short-circuits at execution (first-page reads 500'd on STG, 2026-08-22).
 	listTasksPageSQL := `
 	WHERE t.tenant_id = $1::uuid
-	  AND t.due_business_date = $2::date
+	  AND (
+	        (NOT $14::bool AND t.due_business_date = $2::date)
+	        OR ($14::bool AND (
+	             (t.due_business_date = $2::date)
+	             OR (t.due_business_date < $2::date AND t.work_state IN ('scheduled', 'delayed'))
+	        ))
+	      )
   AND t.work_state <> 'canceled'
   AND ($3::bool OR t.park_id = ANY($4::uuid[]))
   AND ($5::text = '' OR t.park_id = nullif($5::text, '')::uuid)
@@ -339,7 +416,7 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 	rows, err := r.pool.Query(ctx, "SELECT"+taskSelectColumns+taskFromJoins+listTasksPageSQL,
 		q.TenantID, q.DueBusinessDate, q.TenantWide, q.AuthorizedParkIDs,
 		q.ParkID, q.Category, q.AssigneeUserID, limit+1,
-		afterPark, afterShed, afterPartition, afterCategory, afterTask)
+		afterPark, afterShed, afterPartition, afterCategory, afterTask, q.CurrentOrCarry)
 	if err != nil {
 		return ports.TaskPage{}, fmt.Errorf("pccare: list tasks: %w", err)
 	}

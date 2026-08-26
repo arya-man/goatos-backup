@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -88,6 +89,10 @@ object ProofMediaHttp {
     @UnstableApi
     fun dataSourceFactory(client: OkHttpClient): DataSource.Factory =
         OkHttpDataSource.Factory(client)
+
+    @UnstableApi
+    fun playbackDataSourceFactory(context: Context, client: OkHttpClient): DataSource.Factory =
+        DefaultDataSource.Factory(context, dataSourceFactory(client))
 }
 
 /**
@@ -106,7 +111,7 @@ class TelemetryProofPlayerFactory(private val client: OkHttpClient) : ProofPlaye
     override fun create(context: Context): ExoPlayer =
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(
-                DefaultMediaSourceFactory(ProofMediaHttp.dataSourceFactory(client)),
+                DefaultMediaSourceFactory(ProofMediaHttp.playbackDataSourceFactory(context, client)),
             )
             .build()
 }
