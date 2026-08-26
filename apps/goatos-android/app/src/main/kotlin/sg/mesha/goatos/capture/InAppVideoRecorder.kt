@@ -688,6 +688,10 @@ internal fun recorderCopyResources(prompt: ProofCapturePrompt): RecorderCopyReso
         R.string.proof_camera_title,
         R.string.proof_camera_instruction,
     )
+    ProofCapturePrompt.INVENTORY_VACCINE_STOCK -> RecorderCopyResources(
+        R.string.proof_camera_title,
+        R.string.proof_camera_instruction,
+    )
     ProofCapturePrompt.BIRTH -> RecorderCopyResources(
         R.string.proof_camera_birth_title,
         R.string.proof_camera_birth_instruction,

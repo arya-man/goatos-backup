@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS public.pc_care_task_proofs (
     FOREIGN KEY (tenant_id, task_id)
     REFERENCES public.pc_care_tasks (tenant_id, task_id)
     ON DELETE CASCADE,
-  CONSTRAINT pc_care_task_proofs_slot_check CHECK (slot_key IN ('stock_fridge_video')),
+  CONSTRAINT pc_care_task_proofs_slot_check CHECK (slot_key IN ('stock_fridge_photo', 'stock_fridge_video')),
   CONSTRAINT pc_care_task_proofs_proof_ref_check CHECK (btrim(proof_ref) <> '')
 );
 

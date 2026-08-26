@@ -44,15 +44,15 @@ class PcCareInventoryTaskScreenshotTest {
                                 ),
                                 taskProofSlot = PcCareSlotChipUi(
                                     fieldKey = "stock_fridge_video",
-                                    label = "Fridge stock proof",
+                                    label = "Fridge stock video",
                                     state = PcCareSlotState.EMPTY,
                                     statusLabel = "Not recorded",
                                     canRecord = true,
                                     description = "Take a photo or video of the vaccine stock inside the fridge.",
                                 ),
                                 taskProofPhotoSlot = PcCareSlotChipUi(
-                                    fieldKey = "stock_fridge_video",
-                                    label = "Fridge stock proof",
+                                    fieldKey = "stock_fridge_photo",
+                                    label = "Fridge stock photo",
                                     state = PcCareSlotState.SYNCED,
                                     statusLabel = "Proof uploaded",
                                     canRecord = true,
@@ -61,7 +61,7 @@ class PcCareInventoryTaskScreenshotTest {
                                 ),
                                 taskProofVideoSlot = PcCareSlotChipUi(
                                     fieldKey = "stock_fridge_video",
-                                    label = "Fridge stock proof",
+                                    label = "Fridge stock video",
                                     state = PcCareSlotState.SYNCED,
                                     statusLabel = "Proof uploaded",
                                     canRecord = true,

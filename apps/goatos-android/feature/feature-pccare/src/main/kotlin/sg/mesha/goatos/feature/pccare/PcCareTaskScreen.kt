@@ -13,11 +13,15 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -26,10 +30,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.ProofMediaPreview
@@ -70,7 +77,11 @@ fun PcCareTaskScreen(
         )
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(bottom = 16.dp),
+            contentPadding = if (taskProofMode) {
+                PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+            } else {
+                PaddingValues(bottom = 16.dp)
+            },
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             // Bluetooth RFID reader banner — the weighing capture screen's shape: green when the
@@ -134,29 +145,36 @@ fun PcCareTaskScreen(
             }
 
             if (taskProofMode && (state.taskProofPhotoSlot != null || state.taskProofVideoSlot != null)) {
-                item(key = "task_proof") {
-                    Column(
-                        modifier = pcCareCardModifier(enabled = false, onClick = null),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        state.taskProofPhotoSlot?.let { proofSlot ->
-                            PcCareTaskProofRow(
-                                title = "Photo evidence",
-                                slot = proofSlot,
-                                locked = state.isLocked,
-                                actionLabel = if (proofSlot.state == PcCareSlotState.EMPTY) "Take photo" else "Replace photo",
-                                onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "photo")) },
-                            )
-                        }
-                        state.taskProofVideoSlot?.let { proofSlot ->
-                            PcCareTaskProofRow(
-                                title = "Video evidence",
-                                slot = proofSlot,
-                                locked = state.isLocked,
-                                actionLabel = if (proofSlot.state == PcCareSlotState.EMPTY) "Record video" else "Replace video",
-                                onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "video")) },
-                            )
-                        }
+                state.taskProofPhotoSlot?.let { proofSlot ->
+                    item(key = "task_proof_photo") {
+                        PcCareTaskProofAction(
+                            title = "Take photo",
+                            subtitle = "Photo evidence",
+                            icon = MeshaIcons.Plus,
+                            slot = proofSlot,
+                            locked = state.isLocked,
+                            loadingLabel = "Saving photo",
+                            retryLabel = "Retry photo",
+                            replaceLabel = "Replace photo",
+                            capturedLabel = proofSlot.statusLabel.ifBlank { "Photo captured" },
+                            onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "photo")) },
+                        )
+                    }
+                }
+                state.taskProofVideoSlot?.let { proofSlot ->
+                    item(key = "task_proof_video") {
+                        PcCareTaskProofAction(
+                            title = "Record video",
+                            subtitle = "Video evidence",
+                            icon = MeshaIcons.Video,
+                            slot = proofSlot,
+                            locked = state.isLocked,
+                            loadingLabel = "Saving video",
+                            retryLabel = "Retry video",
+                            replaceLabel = "Replace video",
+                            capturedLabel = proofSlot.statusLabel.ifBlank { "Video captured" },
+                            onRecord = { onEvent(PcCareTaskEvent.RecordTaskProof(proofSlot.fieldKey, "video")) },
+                        )
                     }
                 }
             }
@@ -409,59 +427,111 @@ private fun PcCareSlotChipRow(
 }
 
 @Composable
-private fun PcCareTaskProofRow(
+private fun PcCareTaskProofAction(
     title: String,
+    subtitle: String,
+    icon: ImageVector,
     slot: PcCareSlotChipUi,
     locked: Boolean,
-    actionLabel: String,
+    loadingLabel: String,
+    retryLabel: String,
+    replaceLabel: String,
+    capturedLabel: String,
     onRecord: () -> Unit,
 ) {
-    Column(
+    val failed = slot.state == PcCareSlotState.FAILED
+    val synced = slot.state == PcCareSlotState.SYNCED
+    val working = slot.state == PcCareSlotState.WORKING
+    val captured = slot.state != PcCareSlotState.EMPTY
+    val enabled = !locked && slot.canRecord && !working
+    val border = when {
+        failed -> MeshaColors.Danger
+        synced -> MeshaColors.Ok
+        captured -> MeshaColors.Brand.copy(alpha = 0.5f)
+        else -> MeshaColors.Hair
+    }
+    val iconBg = when {
+        failed -> MeshaColors.Danger.copy(alpha = 0.14f)
+        synced -> MeshaColors.Ok.copy(alpha = 0.14f)
+        captured -> MeshaColors.Brand.copy(alpha = 0.14f)
+        else -> MeshaColors.Surf2
+    }
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(MeshaColors.Surf2)
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .heightIn(min = 82.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, border, RoundedCornerShape(18.dp))
+            .clickable(enabled = enabled && !captured, onClick = onRecord)
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.Top,
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(iconBg),
+            contentAlignment = Alignment.Center,
         ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(text = title, color = MeshaColors.Ink, style = MeshaType.pillStrong)
-                if (slot.statusLabel.isNotBlank()) {
-                    Text(
-                        text = slot.statusLabel,
-                        color = when (slot.state) {
-                            PcCareSlotState.SYNCED -> MeshaColors.Ok
-                            PcCareSlotState.PEER -> MeshaColors.BrandD
-                            PcCareSlotState.FAILED -> MeshaColors.Danger
-                            PcCareSlotState.WORKING -> MeshaColors.Warn
-                            PcCareSlotState.EMPTY -> MeshaColors.Muted
-                        },
-                        style = MeshaType.caption,
-                    )
-                }
-                if (slot.hintLabel.isNotBlank()) {
-                    Text(text = slot.hintLabel, color = MeshaColors.Faint, style = MeshaType.caption)
-                }
-            }
-            if (!locked && slot.canRecord) {
-                PcCarePrimaryButton(label = actionLabel, enabled = true, onClick = onRecord)
+            when {
+                working -> CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MeshaColors.Brand)
+                failed -> Icon(MeshaIcons.Warn, contentDescription = null, tint = MeshaColors.Danger, modifier = Modifier.size(22.dp))
+                synced -> Icon(MeshaIcons.Check, contentDescription = null, tint = MeshaColors.Ok, modifier = Modifier.size(22.dp))
+                captured -> Icon(icon, contentDescription = null, tint = MeshaColors.BrandD, modifier = Modifier.size(22.dp))
+                else -> Icon(icon, contentDescription = null, tint = MeshaColors.Muted, modifier = Modifier.size(22.dp))
             }
         }
-        if (slot.previewPath.isNotBlank()) {
-            ProofMediaPreview(
-                path = slot.previewPath,
-                kind = when (slot.previewKind) {
-                    PcCareProofPreviewKind.PHOTO -> ProofMediaPreviewKind.Photo
-                    PcCareProofPreviewKind.VIDEO -> ProofMediaPreviewKind.Video
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = when {
+                    working -> loadingLabel
+                    failed -> retryLabel
+                    captured -> capturedLabel
+                    else -> title
                 },
+                color = proofActionTitleColor(failed = failed, enabled = enabled, captured = captured, working = working),
+                style = MeshaType.cardTitle,
             )
+            Text(text = subtitle, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
+            if (slot.previewPath.isNotBlank()) {
+                ProofMediaPreview(
+                    path = slot.previewPath,
+                    kind = when (slot.previewKind) {
+                        PcCareProofPreviewKind.PHOTO -> ProofMediaPreviewKind.Photo
+                        PcCareProofPreviewKind.VIDEO -> ProofMediaPreviewKind.Video
+                    },
+                )
+                if (enabled) {
+                    PcCareProofRetryButton(label = if (failed) retryLabel else replaceLabel, onClick = onRecord)
+                }
+            } else if (!working && enabled) {
+                PcCareProofRetryButton(label = if (captured || failed) replaceLabel else title, onClick = onRecord)
+            }
+            if (slot.hintLabel.isNotBlank()) {
+                Text(text = slot.hintLabel, color = MeshaColors.Faint, style = MeshaType.caption)
+            }
         }
     }
+}
+
+@Composable
+private fun proofActionTitleColor(failed: Boolean, enabled: Boolean, captured: Boolean, working: Boolean): Color =
+    when {
+        failed -> MeshaColors.Danger
+        enabled || captured || working -> MeshaColors.Ink
+        else -> MeshaColors.Faint
+    }
+
+@Composable
+private fun PcCareProofRetryButton(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = MeshaColors.BrandD,
+        style = MeshaType.cta,
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+    )
 }
 
 @Composable

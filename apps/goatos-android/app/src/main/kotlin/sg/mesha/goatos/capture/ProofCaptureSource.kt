@@ -25,6 +25,7 @@ data class CapturedVideo(
  * not to the host route: one Death workflow contains both death and post-mortem recordings. */
 enum class ProofCapturePrompt {
     VACCINATION,
+    INVENTORY_VACCINE_STOCK,
     BIRTH,
     DEATH,
     POST_MORTEM,

@@ -150,6 +150,25 @@ class PcCareTaskViewModel @Inject constructor(
                 }
             }
         }
+        viewModelScope.launch {
+            repository.observeTaskDetail(taskId)
+                .map { detail ->
+                    if (pcCareIsTaskProofMode(detail)) {
+                        detail?.status?.ifBlank { detail.workState }
+                    } else {
+                        null
+                    }
+                }
+                .distinctUntilChanged()
+                .collect { status ->
+                    if (status != null) {
+                        analytics.track(
+                            AnalyticsEvents.PC_CARE_STOCK_PROOF_SCREEN_VISIBLE,
+                            pcCareStockProofAnalyticsProps(status = status),
+                        )
+                    }
+                }
+        }
         viewModelScope.launch { repository.observeRoster(taskId).collect { latestRoster = it } }
         // Self-healing registration reconcile on every screen open (and again on every manual
         // refresh): a clip whose UPLOAD row is durable but whose slot registration enqueue was
@@ -272,6 +291,7 @@ class PcCareTaskViewModel @Inject constructor(
     private fun autoRecordAfterScan(tagVerbatim: String) {
         val detail = latestDetail ?: return
         if (detail.captureMode == PC_CARE_CAPTURE_MODE_ROSTER) return
+        if (pcCareIsTaskProofMode(detail)) return
         if (local.value.capturingSlotKey != null) return
         val slotFieldKey = detail.expectedSlots.firstOrNull()?.fieldKey ?: return
         onRecordSlot(normalizePcCareTag(tagVerbatim), slotFieldKey, tagVerbatimFallback = tagVerbatim)
@@ -454,8 +474,13 @@ class PcCareTaskViewModel @Inject constructor(
             return
         }
         val detail = latestDetail
-        if (detail == null || detail.captureMode != PC_CARE_CAPTURE_MODE_TASK_PROOF || isLifecycleLocked(detail)) return
-        val slotDto = detail.expectedSlots.firstOrNull { it.fieldKey == slotFieldKey } ?: return
+        if (detail == null || !pcCareIsTaskProofMode(detail) || isLifecycleLocked(detail)) return
+        val expectedSlots = pcCareTaskProofExpectedSlots(detail)
+        val slotDto = expectedSlots.firstOrNull { it.fieldKey == slotFieldKey } ?: return
+        analytics.track(
+            AnalyticsEvents.PC_CARE_STOCK_PROOF_ACTION_TAPPED,
+            pcCareStockProofAnalyticsProps(fieldKey = slotFieldKey, mediaKind = mediaKind, status = detail.status, source = "proof_row"),
+        )
         local.update { it.copy(capturingSlotKey = slotFieldKey, message = null) }
         viewModelScope.launch {
             try {
@@ -465,7 +490,7 @@ class PcCareTaskViewModel @Inject constructor(
                             PhotoCaptureContext(
                                 title = slotDto.label,
                                 instruction = slotDto.description.ifBlank { "Show vaccine stock in the fridge" },
-                                prompt = ProofCapturePrompt.VACCINATION,
+                                prompt = ProofCapturePrompt.INVENTORY_VACCINE_STOCK,
                             ),
                         )?.let {
                             PcCareCapturedTaskProof(
@@ -482,7 +507,7 @@ class PcCareTaskViewModel @Inject constructor(
                                 title = slotDto.label,
                                 primaryTag = detail.operationalLocationDisplay.ifBlank { detail.shedLabel },
                                 workLabel = slotDto.description.ifBlank { "Show vaccine stock in the fridge" },
-                                prompt = ProofCapturePrompt.VACCINATION,
+                                prompt = ProofCapturePrompt.INVENTORY_VACCINE_STOCK,
                                 headerTitle = categoryTitle.ifBlank { null },
                             ),
                         )?.let {
@@ -497,9 +522,39 @@ class PcCareTaskViewModel @Inject constructor(
                     }
                 } catch (error: Exception) {
                     crashReporter.recordException(error, "pc care task proof capture failed")
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_STOCK_PROOF_CAPTURE_RESULT,
+                        pcCareStockProofAnalyticsProps(
+                            fieldKey = slotFieldKey,
+                            mediaKind = mediaKind,
+                            status = detail.status,
+                            outcome = "failure",
+                            reason = error.javaClass.simpleName.take(MAX_REASON_CHARS),
+                        ),
+                    )
                     null
                 }
-                if (captured == null) return@launch
+                if (captured == null) {
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_STOCK_PROOF_CAPTURE_RESULT,
+                        pcCareStockProofAnalyticsProps(
+                            fieldKey = slotFieldKey,
+                            mediaKind = mediaKind,
+                            status = detail.status,
+                            outcome = "cancelled",
+                        ),
+                    )
+                    return@launch
+                }
+                analytics.track(
+                    AnalyticsEvents.PC_CARE_STOCK_PROOF_CAPTURE_RESULT,
+                    pcCareStockProofAnalyticsProps(
+                        fieldKey = slotFieldKey,
+                        mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                        status = detail.status,
+                        outcome = "success",
+                    ),
+                )
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                     val slot = EvidenceSlot(
                         identity = ProofIdentity(
@@ -529,6 +584,16 @@ class PcCareTaskViewModel @Inject constructor(
                         )
                     ) {
                         is AppResult.Ok -> {
+                            analytics.track(
+                                AnalyticsEvents.PC_CARE_STOCK_PROOF_ROOM_WRITTEN,
+                                pcCareStockProofAnalyticsProps(
+                                    fieldKey = slotFieldKey,
+                                    mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                    status = detail.status,
+                                    outcome = "success",
+                                    source = "room",
+                                ),
+                            )
                             var proofOutboxId = result.value.outboxItemId
                             var waited = 0L
                             while (proofOutboxId.isNullOrBlank() && waited < PROOF_ROW_SETTLE_MAX_MS) {
@@ -539,23 +604,75 @@ class PcCareTaskViewModel @Inject constructor(
                                     ?.outboxItemId
                             }
                             if (proofOutboxId.isNullOrBlank()) {
+                                analytics.track(
+                                    AnalyticsEvents.PC_CARE_STOCK_PROOF_UPLOAD_ENQUEUED,
+                                    pcCareStockProofAnalyticsProps(
+                                        fieldKey = slotFieldKey,
+                                        mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                        status = detail.status,
+                                        outcome = "failure",
+                                        reason = "missing_upload_outbox",
+                                    ),
+                                )
                                 local.update { it.copy(message = "$proofNoun didn't save. Record again.") }
                                 return@withContext
                             }
+                            analytics.track(
+                                AnalyticsEvents.PC_CARE_STOCK_PROOF_UPLOAD_ENQUEUED,
+                                pcCareStockProofAnalyticsProps(
+                                    fieldKey = slotFieldKey,
+                                    mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                    status = detail.status,
+                                    outcome = "success",
+                                    source = "room",
+                                ),
+                            )
                             captureDrafts.putProof(CaptureFlow.PC_CARE, taskId, slotFieldKey, proofOutboxId)
                             when (val registered = repository.registerTaskProof(taskId, slotFieldKey, proofOutboxId)) {
-                                is AppResult.Ok -> analytics.track(
-                                    AnalyticsEvents.PC_CARE_SLOT_CAPTURED,
-                                    mapOf(AnalyticsEvents.Params.KIND to slotFieldKey),
-                                )
+                                is AppResult.Ok -> {
+                                    analytics.track(
+                                        AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION,
+                                        pcCareStockProofAnalyticsProps(
+                                            fieldKey = slotFieldKey,
+                                            mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                            status = detail.status,
+                                            outcome = "success",
+                                            source = "outbox",
+                                        ),
+                                    )
+                                    analytics.track(
+                                        AnalyticsEvents.PC_CARE_SLOT_CAPTURED,
+                                        mapOf(AnalyticsEvents.Params.KIND to slotFieldKey),
+                                    )
+                                }
                                 is AppResult.Err -> {
                                     registered.cause?.let { crashReporter.recordException(it, "pc care task proof registration enqueue failed") }
+                                    analytics.track(
+                                        AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION,
+                                        pcCareStockProofAnalyticsProps(
+                                            fieldKey = slotFieldKey,
+                                            mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                            status = detail.status,
+                                            outcome = "failure",
+                                            reason = registered.message.take(MAX_REASON_CHARS),
+                                        ),
+                                    )
                                     local.update { it.copy(message = "$proofNoun saved, but couldn't be attached. Tap refresh to retry.") }
                                 }
                             }
                         }
                         is AppResult.Err -> {
                             result.cause?.let { crashReporter.recordException(it, "pc care task proof capture enqueue failed") }
+                            analytics.track(
+                                AnalyticsEvents.PC_CARE_STOCK_PROOF_ROOM_WRITTEN,
+                                pcCareStockProofAnalyticsProps(
+                                    fieldKey = slotFieldKey,
+                                    mediaKind = pcCareMediaKindFromMime(captured.mimeType),
+                                    status = detail.status,
+                                    outcome = "failure",
+                                    reason = result.message.take(MAX_REASON_CHARS),
+                                ),
+                            )
                             local.update { it.copy(message = result.message) }
                         }
                     }
@@ -571,8 +688,15 @@ class PcCareTaskViewModel @Inject constructor(
         if (bits.submitInFlight || bits.submitQueued) return
         val detail = latestDetail ?: return
         if (isLifecycleLocked(detail)) return
-        val evaluation = if (detail.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF) {
-            pcCareEvaluateTaskProofSubmit(detail.expectedSlots, latestProofs, detail.taskProofs, local.value.capturingSlotKey)
+        val taskProofMode = pcCareIsTaskProofMode(detail)
+        if (taskProofMode) {
+            analytics.track(
+                AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT,
+                pcCareStockProofAnalyticsProps(status = detail.status, outcome = "tapped", source = "submit_bar"),
+            )
+        }
+        val evaluation = if (taskProofMode) {
+            pcCareEvaluateTaskProofSubmit(pcCareTaskProofExpectedSlots(detail), latestProofs, detail.taskProofs, local.value.capturingSlotKey)
         } else {
             pcCareEvaluateSubmit(detail.expectedSlots, latestAnimals, latestProofs, json)
         }
@@ -581,8 +705,25 @@ class PcCareTaskViewModel @Inject constructor(
                 AnalyticsEvents.PC_CARE_SUBMIT_BLOCKED,
                 mapOf(AnalyticsEvents.Params.REASON to evaluation.blockedReason.take(MAX_REASON_CHARS)),
             )
+            if (taskProofMode) {
+                analytics.track(
+                    AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT,
+                    pcCareStockProofAnalyticsProps(
+                        status = detail.status,
+                        outcome = "blocked",
+                        reason = evaluation.blockedReason,
+                        source = "submit_bar",
+                    ),
+                )
+            }
             local.update { it.copy(message = evaluation.blockedReason) }
             return
+        }
+        if (taskProofMode) {
+            analytics.track(
+                AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT,
+                pcCareStockProofAnalyticsProps(status = detail.status, outcome = "confirmation_shown", source = "submit_bar"),
+            )
         }
         local.update { it.copy(showSubmitConfirmation = true, message = null) }
     }
@@ -597,14 +738,25 @@ class PcCareTaskViewModel @Inject constructor(
             local.update { it.copy(showSubmitConfirmation = false) }
             return
         }
-        val evaluation = if (detail.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF) {
-            pcCareEvaluateTaskProofSubmit(detail.expectedSlots, latestProofs, detail.taskProofs, local.value.capturingSlotKey)
+        val evaluation = if (pcCareIsTaskProofMode(detail)) {
+            pcCareEvaluateTaskProofSubmit(pcCareTaskProofExpectedSlots(detail), latestProofs, detail.taskProofs, local.value.capturingSlotKey)
         } else {
             pcCareEvaluateSubmit(detail.expectedSlots, latestAnimals, latestProofs, json)
         }
         if (!evaluation.ready) {
             // The task stopped being submittable between arm and confirm — close and say so,
             // rather than submitting stale work or silently doing nothing.
+            if (pcCareIsTaskProofMode(detail)) {
+                analytics.track(
+                    AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT,
+                    pcCareStockProofAnalyticsProps(
+                        status = detail.status,
+                        outcome = "blocked_on_confirm",
+                        reason = evaluation.blockedReason,
+                        source = "submit_dialog",
+                    ),
+                )
+            }
             local.update { it.copy(showSubmitConfirmation = false, message = evaluation.blockedReason) }
             return
         }
@@ -613,6 +765,12 @@ class PcCareTaskViewModel @Inject constructor(
             when (val result = repository.submitTask(taskId, detail.rowVersion)) {
                 is AppResult.Ok -> {
                     analytics.track(AnalyticsEvents.PC_CARE_SUBMIT_CONFIRMED)
+                    if (pcCareIsTaskProofMode(detail)) {
+                        analytics.track(
+                            AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT_ENQUEUED,
+                            pcCareStockProofAnalyticsProps(status = detail.status, outcome = "success", source = "submit_dialog"),
+                        )
+                    }
                     local.update { it.copy(submitInFlight = false, submitQueued = true) }
                 }
                 is AppResult.Err -> {
@@ -623,6 +781,17 @@ class PcCareTaskViewModel @Inject constructor(
                         AnalyticsEvents.PC_CARE_FAILURE,
                         mapOf(AnalyticsEvents.Params.REASON to result.message.take(MAX_REASON_CHARS)),
                     )
+                    if (pcCareIsTaskProofMode(detail)) {
+                        analytics.track(
+                            AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT_ENQUEUED,
+                            pcCareStockProofAnalyticsProps(
+                                status = detail.status,
+                                outcome = "failure",
+                                reason = result.message,
+                                source = "submit_dialog",
+                            ),
+                        )
+                    }
                     local.update { it.copy(submitInFlight = false, message = "Couldn't send the task. Try again.") }
                 }
             }
@@ -631,6 +800,13 @@ class PcCareTaskViewModel @Inject constructor(
 
     private fun refresh() {
         if (local.value.isRefreshing) return
+        val detail = latestDetail
+        if (pcCareIsTaskProofMode(detail)) {
+            analytics.track(
+                AnalyticsEvents.PC_CARE_STOCK_PROOF_SYNC,
+                pcCareStockProofAnalyticsProps(status = detail?.status.orEmpty(), outcome = "started", source = "refresh_button"),
+            )
+        }
         local.update { it.copy(isRefreshing = true) }
         viewModelScope.launch {
             try {
@@ -638,6 +814,12 @@ class PcCareTaskViewModel @Inject constructor(
                 syncRepository.triggerDrain()
                 repository.refreshTaskDetail(taskId)
                 repository.pollTaskOnce(taskId)
+                if (pcCareIsTaskProofMode(detail)) {
+                    analytics.track(
+                        AnalyticsEvents.PC_CARE_STOCK_PROOF_SYNC,
+                        pcCareStockProofAnalyticsProps(status = latestDetail?.status ?: detail?.status.orEmpty(), outcome = "completed", source = "refresh_button"),
+                    )
+                }
             } finally {
                 local.update { it.copy(isRefreshing = false) }
             }
@@ -660,13 +842,74 @@ class PcCareTaskViewModel @Inject constructor(
             val slot = row.fieldKey.substringAfter(':')
             if (hasAnimalSlotKey && tag.isNotBlank() && slot.isNotBlank()) {
                 repository.registerSlotProof(taskId, tag, slot, outboxId)
-            } else if (row.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_VIDEO) {
-                repository.registerTaskProof(taskId, row.fieldKey, outboxId)
+            } else if (row.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_PHOTO || row.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_VIDEO) {
+                val slotFieldKey = pcCareStockSlotKeyForMime(row.mimeType)
+                val result = repository.registerTaskProof(taskId, slotFieldKey, outboxId)
+                analytics.track(
+                    AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION,
+                    pcCareStockProofAnalyticsProps(
+                        fieldKey = slotFieldKey,
+                        mediaKind = pcCareMediaKindFromMime(row.mimeType),
+                        status = latestDetail?.status.orEmpty(),
+                        outcome = if (result is AppResult.Ok) "success" else "failure",
+                        source = "reconcile",
+                    ),
+                )
             }
         }
     }
 
+    private fun pcCareStockProofAnalyticsProps(
+        fieldKey: String = PC_CARE_SLOT_STOCK_FRIDGE_VIDEO,
+        mediaKind: String = "task_proof",
+        status: String = latestDetail?.status.orEmpty(),
+        outcome: String? = null,
+        reason: String? = null,
+        source: String? = null,
+    ): Map<String, String> = buildMap {
+        put(AnalyticsEvents.Params.KIND, mediaKind)
+        put(AnalyticsEvents.Params.FIELD, fieldKey)
+        put("field_key", fieldKey)
+        put("task_id", taskId)
+        put("feature_surface", "pc_care_stock")
+        status.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.STATUS, it) }
+        outcome?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.OUTCOME, it) }
+        reason?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.REASON, it.take(MAX_REASON_CHARS)) }
+        source?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.SOURCE, it) }
+    }
+
+    private fun pcCareMediaKindFromMime(mimeType: String): String =
+        if (mimeType.startsWith("image/", ignoreCase = true)) "photo" else "video"
+
+    private fun pcCareStockSlotKeyForMime(mimeType: String): String =
+        if (mimeType.startsWith("image/", ignoreCase = true)) PC_CARE_SLOT_STOCK_FRIDGE_PHOTO else PC_CARE_SLOT_STOCK_FRIDGE_VIDEO
+
     // ---- State assembly ----------------------------------------------------------------------
+
+    private fun pcCareIsTaskProofMode(detail: PcCareTaskDto?): Boolean =
+        detail?.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF || detail?.category == PC_CARE_CATEGORY_INVENTORY_VACCINE
+
+    private fun pcCareEffectiveExpectedSlots(detail: PcCareTaskDto?): List<PcCareSlotDto> {
+        if (detail == null) return emptyList()
+        if (!pcCareIsTaskProofMode(detail)) return detail.expectedSlots
+        return pcCareTaskProofExpectedSlots(detail)
+    }
+
+    private fun pcCareTaskProofExpectedSlots(detail: PcCareTaskDto): List<PcCareSlotDto> {
+        val byKey = detail.expectedSlots.associateBy { it.fieldKey }
+        return listOf(
+            byKey[PC_CARE_SLOT_STOCK_FRIDGE_PHOTO] ?: PcCareSlotDto(
+                fieldKey = PC_CARE_SLOT_STOCK_FRIDGE_PHOTO,
+                label = "Fridge stock photo",
+                description = "Take a clear photo of the vaccine stock available in the fridge",
+            ),
+            byKey[PC_CARE_SLOT_STOCK_FRIDGE_VIDEO] ?: PcCareSlotDto(
+                fieldKey = PC_CARE_SLOT_STOCK_FRIDGE_VIDEO,
+                label = "Fridge stock video",
+                description = "Record the vaccine stock available in the fridge for the scheduled vaccination",
+            ),
+        )
+    }
 
     private fun buildState(
         detail: PcCareTaskDto?,
@@ -676,9 +919,9 @@ class PcCareTaskViewModel @Inject constructor(
         bits: LocalBits,
     ): PcCareTaskUiState {
         val locked = isLifecycleLocked(detail) || bits.submitQueued || monitorView
-        val expectedSlots = detail?.expectedSlots.orEmpty()
+        val expectedSlots = pcCareEffectiveExpectedSlots(detail)
         val rosterMode = detail?.captureMode == PC_CARE_CAPTURE_MODE_ROSTER
-        val taskProofMode = detail?.captureMode == PC_CARE_CAPTURE_MODE_TASK_PROOF
+        val taskProofMode = pcCareIsTaskProofMode(detail)
         val rosterRows = if (rosterMode) {
             pcCareBuildRosterRows(expectedSlots, roster, animals, proofs, bits.capturingSlotKey, json)
         } else {
@@ -742,17 +985,17 @@ class PcCareTaskViewModel @Inject constructor(
                 )
             },
             taskProofSlot = if (taskProofMode) {
-                expectedSlots.firstOrNull()?.let { slot ->
+                expectedSlots.firstOrNull { it.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_PHOTO }?.let { slot ->
                     pcCareBuildTaskProofSlot(slot, proofs, detail?.taskProofs.orEmpty(), bits.capturingSlotKey)
                 }
             } else {
                 null
             },
             taskProofPhotoSlot = if (taskProofMode) {
-                expectedSlots.firstOrNull()?.let { slot ->
+                expectedSlots.firstOrNull { it.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_PHOTO }?.let { slot ->
                     pcCareBuildTaskProofSlot(
                         slot = slot,
-                        proofs = proofs.filter { it.mimeType.startsWith("image/", ignoreCase = true) },
+                        proofs = proofs,
                         taskProofs = detail?.taskProofs.orEmpty(),
                         capturingSlotKey = bits.capturingSlotKey,
                     )
@@ -761,10 +1004,10 @@ class PcCareTaskViewModel @Inject constructor(
                 null
             },
             taskProofVideoSlot = if (taskProofMode) {
-                expectedSlots.firstOrNull()?.let { slot ->
+                expectedSlots.firstOrNull { it.fieldKey == PC_CARE_SLOT_STOCK_FRIDGE_VIDEO }?.let { slot ->
                     pcCareBuildTaskProofSlot(
                         slot = slot,
-                        proofs = proofs.filterNot { it.mimeType.startsWith("image/", ignoreCase = true) },
+                        proofs = proofs,
                         taskProofs = detail?.taskProofs.orEmpty(),
                         capturingSlotKey = bits.capturingSlotKey,
                     )
@@ -820,6 +1063,8 @@ class PcCareTaskViewModel @Inject constructor(
         /** Backend capture_mode token for the roster-tap flow (trimming work). */
         internal const val PC_CARE_CAPTURE_MODE_ROSTER = "roster_pick"
         internal const val PC_CARE_CAPTURE_MODE_TASK_PROOF = "task_proof"
+        internal const val PC_CARE_CATEGORY_INVENTORY_VACCINE = "inventory_vaccine"
+        internal const val PC_CARE_SLOT_STOCK_FRIDGE_PHOTO = "stock_fridge_photo"
         internal const val PC_CARE_SLOT_STOCK_FRIDGE_VIDEO = "stock_fridge_video"
 
         const val ARG_TASK_ID = "task_id"
@@ -1218,20 +1463,25 @@ internal fun pcCareEvaluateTaskProofSubmit(
     taskProofs: List<PcCareTaskProofDto>,
     capturingSlotKey: String?,
 ): PcCareSubmitEvaluation {
-    val slot = expectedSlots.firstOrNull()
-        ?: return PcCareSubmitEvaluation(ready = false, blockedReason = "Record the fridge stock proof first")
-    if (taskProofs.any { it.slotKey == slot.fieldKey && it.proofRef.isNotBlank() }) {
-        return PcCareSubmitEvaluation(ready = true)
+    if (expectedSlots.isEmpty()) {
+        return PcCareSubmitEvaluation(ready = false, blockedReason = "Record the fridge stock photo and video first")
     }
-    val localRow = proofs
-        .filter { it.fieldKey == slot.fieldKey && it.syncStatus != CaptureSyncStatus.FAILED }
-        .maxByOrNull { it.capturedAtMs }
-    return when {
-        localRow?.syncStatus == CaptureSyncStatus.SYNCED && !localRow.serverProofId.isNullOrBlank() ->
-            PcCareSubmitEvaluation(ready = true)
-        localRow != null || capturingSlotKey == slot.fieldKey ->
-            PcCareSubmitEvaluation(ready = false, blockedReason = "Proof is still uploading")
-        else ->
-            PcCareSubmitEvaluation(ready = false, blockedReason = "Record the fridge stock proof first")
+    var uploading = false
+    expectedSlots.forEach { slot ->
+        if (taskProofs.any { it.slotKey == slot.fieldKey && it.proofRef.isNotBlank() }) return@forEach
+        val localRow = proofs
+            .filter { it.fieldKey == slot.fieldKey && it.syncStatus != CaptureSyncStatus.FAILED }
+            .maxByOrNull { it.capturedAtMs }
+        if (localRow?.syncStatus == CaptureSyncStatus.SYNCED && !localRow.serverProofId.isNullOrBlank()) return@forEach
+        if (localRow != null || capturingSlotKey == slot.fieldKey) {
+            uploading = true
+        } else {
+            return PcCareSubmitEvaluation(ready = false, blockedReason = "Record the fridge stock photo and video first")
+        }
+    }
+    return if (uploading) {
+        PcCareSubmitEvaluation(ready = false, blockedReason = "Proof is still uploading")
+    } else {
+        PcCareSubmitEvaluation(ready = true)
     }
 }

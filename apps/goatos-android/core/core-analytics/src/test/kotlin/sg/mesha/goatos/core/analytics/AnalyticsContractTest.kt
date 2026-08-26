@@ -50,6 +50,15 @@ class AnalyticsContractTest {
         assertEquals("proof_camera_retake_tapped", AnalyticsEvents.PROOF_CAMERA_RETAKE_TAPPED)
         assertEquals("proof_camera_use_tapped", AnalyticsEvents.PROOF_CAMERA_USE_TAPPED)
         assertEquals("proof_camera_capture_result", AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT)
+        assertEquals("pc_care_stock_proof_screen_visible", AnalyticsEvents.PC_CARE_STOCK_PROOF_SCREEN_VISIBLE)
+        assertEquals("pc_care_stock_proof_action_tapped", AnalyticsEvents.PC_CARE_STOCK_PROOF_ACTION_TAPPED)
+        assertEquals("pc_care_stock_proof_capture_result", AnalyticsEvents.PC_CARE_STOCK_PROOF_CAPTURE_RESULT)
+        assertEquals("pc_care_stock_proof_room_written", AnalyticsEvents.PC_CARE_STOCK_PROOF_ROOM_WRITTEN)
+        assertEquals("pc_care_stock_proof_upload_enqueued", AnalyticsEvents.PC_CARE_STOCK_PROOF_UPLOAD_ENQUEUED)
+        assertEquals("pc_care_stock_proof_registration", AnalyticsEvents.PC_CARE_STOCK_PROOF_REGISTRATION)
+        assertEquals("pc_care_stock_proof_sync", AnalyticsEvents.PC_CARE_STOCK_PROOF_SYNC)
+        assertEquals("pc_care_stock_proof_submit", AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT)
+        assertEquals("pc_care_stock_proof_submit_enqueued", AnalyticsEvents.PC_CARE_STOCK_PROOF_SUBMIT_ENQUEUED)
     }
 
     @Test

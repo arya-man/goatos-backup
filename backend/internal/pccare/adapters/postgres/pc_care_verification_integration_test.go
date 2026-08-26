@@ -299,23 +299,51 @@ func TestInventoryVaccineTaskProofGatesSubmitAndFansOutToVerification(t *testing
 	if err := repo.RegisterTaskProof(ctx, ports.RegisterTaskProofParams{
 		TenantID:       pcTenant,
 		TaskID:         task.TaskID,
-		SlotKey:        domain.SlotStockFridgeVideo,
-		ProofRef:       "proof-fridge-stock",
+		SlotKey:        domain.SlotStockFridgePhoto,
+		ProofRef:       "proof-fridge-stock-photo",
 		CapturedBy:     pcOperator1,
-		IdempotencyKey: "pc-inventory-task-proof",
+		IdempotencyKey: "pc-inventory-task-proof-photo",
 		ActorID:        pcOperator1,
 		ActorType:      "operator",
-		TraceID:        "trace-inventory-task-proof",
+		TraceID:        "trace-inventory-task-proof-photo",
 	}); err != nil {
-		t.Fatalf("RegisterTaskProof: %v", err)
+		t.Fatalf("RegisterTaskProof photo: %v", err)
+	}
+
+	if _, err := repo.SubmitTask(ctx, ports.SubmitTaskParams{
+		TenantID: pcTenant, TaskID: task.TaskID, SubmittedBy: pcOperator1,
+		IdempotencyKey: "pc-inventory-submit-only-photo", ActorType: "operator",
+	}); !errors.Is(err, domain.ErrProofIncomplete) {
+		t.Fatalf("inventory submit with photo only err = %v, want ErrProofIncomplete", err)
+	}
+
+	if err := repo.RegisterTaskProof(ctx, ports.RegisterTaskProofParams{
+		TenantID:       pcTenant,
+		TaskID:         task.TaskID,
+		SlotKey:        domain.SlotStockFridgeVideo,
+		ProofRef:       "proof-fridge-stock-video",
+		CapturedBy:     pcOperator1,
+		IdempotencyKey: "pc-inventory-task-proof-video",
+		ActorID:        pcOperator1,
+		ActorType:      "operator",
+		TraceID:        "trace-inventory-task-proof-video",
+	}); err != nil {
+		t.Fatalf("RegisterTaskProof video: %v", err)
 	}
 
 	proofs, err := repo.ListTaskProofs(ctx, pcTenant, task.TaskID)
 	if err != nil {
 		t.Fatalf("ListTaskProofs: %v", err)
 	}
-	if len(proofs) != 1 || proofs[0].SlotKey != domain.SlotStockFridgeVideo || proofs[0].ProofRef != "proof-fridge-stock" {
-		t.Fatalf("task proofs = %+v, want the fridge-stock proof", proofs)
+	if len(proofs) != 2 {
+		t.Fatalf("task proofs = %+v, want photo and video proofs", proofs)
+	}
+	bySlot := map[string]string{}
+	for _, proof := range proofs {
+		bySlot[proof.SlotKey] = proof.ProofRef
+	}
+	if bySlot[domain.SlotStockFridgePhoto] != "proof-fridge-stock-photo" || bySlot[domain.SlotStockFridgeVideo] != "proof-fridge-stock-video" {
+		t.Fatalf("task proofs = %+v, want independent photo/video fridge-stock proofs", proofs)
 	}
 	if _, err := repo.SubmitTask(ctx, ports.SubmitTaskParams{
 		TenantID: pcTenant, TaskID: task.TaskID, SubmittedBy: pcOperator1,
@@ -346,8 +374,10 @@ INSERT INTO pc_care_task_inventory_requirements (
 	if result.AnimalCount != 0 {
 		t.Fatalf("inventory task animal count = %d, want 0 because proof is task-level", result.AnimalCount)
 	}
-	if len(result.MediaRefs) != 1 || result.MediaRefs[0].ProofRef != "proof-fridge-stock" || result.MediaRefs[0].Label != "Fridge stock proof" {
-		t.Fatalf("inventory media refs = %+v, want labeled fridge proof", result.MediaRefs)
+	if len(result.MediaRefs) != 2 ||
+		result.MediaRefs[0].ProofRef != "proof-fridge-stock-photo" || result.MediaRefs[0].Label != "Fridge stock photo" ||
+		result.MediaRefs[1].ProofRef != "proof-fridge-stock-video" || result.MediaRefs[1].Label != "Fridge stock video" {
+		t.Fatalf("inventory media refs = %+v, want labeled fridge photo and video proofs", result.MediaRefs)
 	}
 
 	var payload []byte
@@ -374,8 +404,10 @@ WHERE tenant_id = $1::uuid
 	if envelope.Payload.Category != domain.CategoryInventoryVaccine || envelope.Payload.AnimalCount != 0 {
 		t.Fatalf("pending payload category/count = %q/%d, want inventory_vaccine/0", envelope.Payload.Category, envelope.Payload.AnimalCount)
 	}
-	if len(envelope.Payload.MediaRefs) != 1 || envelope.Payload.MediaRefs[0].ProofRef != "proof-fridge-stock" || envelope.Payload.MediaRefs[0].Label != "Fridge stock proof" {
-		t.Fatalf("pending payload media refs = %+v, want fridge proof for verifier", envelope.Payload.MediaRefs)
+	if len(envelope.Payload.MediaRefs) != 2 ||
+		envelope.Payload.MediaRefs[0].ProofRef != "proof-fridge-stock-photo" || envelope.Payload.MediaRefs[0].Label != "Fridge stock photo" ||
+		envelope.Payload.MediaRefs[1].ProofRef != "proof-fridge-stock-video" || envelope.Payload.MediaRefs[1].Label != "Fridge stock video" {
+		t.Fatalf("pending payload media refs = %+v, want fridge photo and video proofs for verifier", envelope.Payload.MediaRefs)
 	}
 }
 

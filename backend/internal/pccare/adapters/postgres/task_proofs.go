@@ -22,7 +22,7 @@ func (r *Repository) RegisterTaskProof(ctx context.Context, p ports.RegisterTask
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 
-	if strings.TrimSpace(p.SlotKey) != domain.SlotStockFridgeVideo {
+	if !domain.IsValidSlotForCategory(domain.CategoryInventoryVaccine, strings.TrimSpace(p.SlotKey)) {
 		return domain.ErrInvalidSlotForCategory
 	}
 
@@ -154,17 +154,33 @@ ORDER BY p.slot_key`, tenantID, taskID)
 }
 
 func (r *Repository) inventoryTaskProofMediaRefs(ctx context.Context, tx pgx.Tx, tenantID, taskID string) ([]ports.LabeledRef, int, error) {
-	var proofRef string
-	err := tx.QueryRow(ctx, `
-SELECT proof_ref
+	rows, err := tx.Query(ctx, `
+SELECT slot_key, proof_ref
 FROM pc_care_task_proofs
-WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND slot_key = $3`,
-		tenantID, taskID, domain.SlotStockFridgeVideo).Scan(&proofRef)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, 0, domain.ErrProofIncomplete
-	}
+WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND slot_key = ANY($3)`,
+		tenantID, taskID, []string{domain.SlotStockFridgePhoto, domain.SlotStockFridgeVideo})
 	if err != nil {
 		return nil, 0, fmt.Errorf("pccare: read inventory task proof: %w", err)
 	}
-	return []ports.LabeledRef{{ProofRef: proofRef, Label: domain.SlotDisplayLabel(domain.CategoryInventoryVaccine, domain.SlotStockFridgeVideo)}}, 0, nil
+	defer rows.Close()
+	bySlot := map[string]string{}
+	for rows.Next() {
+		var slotKey, proofRef string
+		if err := rows.Scan(&slotKey, &proofRef); err != nil {
+			return nil, 0, fmt.Errorf("pccare: scan inventory task proof: %w", err)
+		}
+		bySlot[slotKey] = proofRef
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("pccare: iterate inventory task proof: %w", err)
+	}
+	out := make([]ports.LabeledRef, 0, len(domain.SlotsForCategory(domain.CategoryInventoryVaccine)))
+	for _, slot := range domain.SlotsForCategory(domain.CategoryInventoryVaccine) {
+		proofRef := strings.TrimSpace(bySlot[slot.FieldKey])
+		if proofRef == "" {
+			return nil, 0, domain.ErrProofIncomplete
+		}
+		out = append(out, ports.LabeledRef{ProofRef: proofRef, Label: slot.Label})
+	}
+	return out, 0, nil
 }

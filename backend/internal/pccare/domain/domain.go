@@ -64,6 +64,7 @@ const (
 	SlotBefore           = "before_video"
 	SlotDuring           = "during_video"
 	SlotAfter            = "after_video"
+	SlotStockFridgePhoto = "stock_fridge_photo"
 	SlotStockFridgeVideo = "stock_fridge_video"
 )
 
@@ -134,10 +135,16 @@ func SlotsForCategory(category string) []Slot {
 			{FieldKey: SlotAfter, Label: "After trimming", Description: "Show the trimmed coat after the work"},
 		}
 	case CategoryInventoryVaccine:
-		return []Slot{{
-			FieldKey: SlotStockFridgeVideo, Label: "Fridge stock proof",
-			Description: "Show the vaccine stock available in the fridge for the scheduled vaccination",
-		}}
+		return []Slot{
+			{
+				FieldKey: SlotStockFridgePhoto, Label: "Fridge stock photo",
+				Description: "Take a clear photo of the vaccine stock available in the fridge",
+			},
+			{
+				FieldKey: SlotStockFridgeVideo, Label: "Fridge stock video",
+				Description: "Record the vaccine stock available in the fridge for the scheduled vaccination",
+			},
+		}
 	}
 	return nil
 }
