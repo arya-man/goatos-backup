@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -643,8 +644,311 @@ func (r *Repository) ExecutionAnalytics(ctx context.Context, tenantID string, q 
 			out.PackingVarianceHasMore = true
 		}
 	}
+
+	if q.Wants(domain.ExecutionSectionDistributionCompletions) {
+		if err := r.distributionCompletions(ctx, tenantID, parkIDs, to, q, &out); err != nil {
+			return domain.ExecutionAnalytics{}, err
+		}
+	}
 	return out, nil
 }
+
+// distributionCompletions serves the completion arm: one PAGE of pen-sessions, the whole-day status
+// totals behind the tiles, and the day's place vocabulary for the filter selects.
+//
+// Proof REFERENCES only. The uploader name and upload time behind each reference belong to the proof
+// module and are resolved by the app service through its ProofUploadDescriber port, so this adapter
+// never reads proof_artifacts.
+func (r *Repository) distributionCompletions(
+	ctx context.Context, tenantID string, parkIDs []uuid.UUID, windowEnd time.Time,
+	q domain.DirectedAnalyticsQuery, out *domain.ExecutionAnalytics,
+) error {
+	// The table describes ONE business day, defaulting to the window's last day -- YESTERDAY, the
+	// same "up to yesterday" basis the rest of this page states in its banner. Today is deliberately
+	// not the default: a day still being worked would list every pen not yet fed as untouched, which
+	// reads as a failure rather than as work in progress.
+	completionDay := q.CompletionDay
+	if completionDay.IsZero() {
+		completionDay = windowEnd
+	}
+	day := completionDay.Format("2006-01-02")
+	out.CompletionDay = day
+
+	limit, offset, err := domain.NormaliseCompletionPage(q.CompletionLimit, q.CompletionOffset)
+	if err != nil {
+		return err
+	}
+	if !domain.IsValidDistributionCompletionStatus(q.CompletionStatus) {
+		// Rejected, never ignored: silently dropping an unknown status would answer a filtered
+		// request with every row, under the heading of the filter the caller asked for.
+		return domain.ErrInvalidCompletionStatus
+	}
+	parkFilter := nullableUUID(q.CompletionParkID)
+	shedFilter := nullableUUID(q.CompletionShedID)
+
+	// One row MORE than the page: if it comes back there is a next page, without a second scan.
+	rows, err := r.pool.Query(ctx, distributionCompletionRowsSQL,
+		tenantID, parkIDs, day, parkFilter, shedFilter, q.CompletionStatus, limit+1, offset)
+	if err != nil {
+		return fmt.Errorf("feed analytics distribution completions: %w", err)
+	}
+	defer rows.Close()
+	out.DistributionCompletions = []domain.DistributionCompletionRow{}
+	for rows.Next() {
+		var (
+			row                          domain.DistributionCompletionRow
+			weightRef, feedRef, waterRef string
+		)
+		if err := rows.Scan(
+			&row.FeedDay, &row.ParkID, &row.ParkLabel, &row.ShedID, &row.ShedLabel,
+			&row.PartitionLabel, &row.SessionNo, &row.SessionLabel, &row.Workflow,
+			&row.Status, &row.ReworkReason,
+			&weightRef, &feedRef, &waterRef,
+			&row.SubmittedAt, &row.VerifiedAt, &row.SubmittedByName, &row.VerifiedByName,
+		); err != nil {
+			return fmt.Errorf("feed analytics distribution completions scan: %w", err)
+		}
+		// Canonical composition, never hand-rolled (operational-location rule).
+		row.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedName:       row.ShedLabel,
+			PartitionLabel: row.PartitionLabel,
+		}.Display()
+		// Always three slots, in the order they are shot. An empty ProofRef IS the missing video.
+		refs := map[string]string{
+			domain.DistributionSlotFeedWeightPhoto: weightRef,
+			domain.DistributionSlotFeedVideo:       feedRef,
+			domain.DistributionSlotWaterVideo:      waterRef,
+		}
+		row.Proofs = make([]domain.DistributionProofSlot, 0, len(domain.DistributionSlotOrder))
+		for _, slot := range domain.DistributionSlotOrder {
+			row.Proofs = append(row.Proofs, domain.DistributionProofSlot{FieldKey: slot, ProofRef: refs[slot]})
+		}
+		out.DistributionCompletions = append(out.DistributionCompletions, row)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("feed analytics distribution completions rows: %w", err)
+	}
+	if len(out.DistributionCompletions) > limit {
+		out.DistributionCompletions = out.DistributionCompletions[:limit]
+		out.DistributionCompletionsHasMore = true
+	}
+
+	// Totals follow the PLACE filters and ignore the STATUS one.
+	totalRows, err := r.pool.Query(ctx, distributionCompletionTotalsSQL,
+		tenantID, parkIDs, day, parkFilter, shedFilter)
+	if err != nil {
+		return fmt.Errorf("feed analytics distribution completion totals: %w", err)
+	}
+	defer totalRows.Close()
+	for totalRows.Next() {
+		var status string
+		var n int64
+		if err := totalRows.Scan(&status, &n); err != nil {
+			return fmt.Errorf("feed analytics distribution completion totals scan: %w", err)
+		}
+		switch status {
+		case domain.DistributionCompletionNotStarted:
+			out.CompletionTotals.NotStarted = n
+		case domain.DistributionCompletionAwaitingVerification:
+			out.CompletionTotals.AwaitingVerification = n
+		case domain.DistributionCompletionRework:
+			out.CompletionTotals.Rework = n
+		case domain.DistributionCompletionCompleted:
+			out.CompletionTotals.Completed = n
+		}
+	}
+	if err := totalRows.Err(); err != nil {
+		return fmt.Errorf("feed analytics distribution completion totals rows: %w", err)
+	}
+
+	// Filter vocabulary: the whole day, unnarrowed by either filter.
+	optRows, err := r.pool.Query(ctx, distributionCompletionOptionsSQL, tenantID, parkIDs, day, nil, nil)
+	if err != nil {
+		return fmt.Errorf("feed analytics distribution completion options: %w", err)
+	}
+	defer optRows.Close()
+	out.CompletionFilterOptions = []domain.CompletionFilterOption{}
+	for optRows.Next() {
+		var opt domain.CompletionFilterOption
+		if err := optRows.Scan(&opt.ParkID, &opt.ParkLabel, &opt.ShedID, &opt.ShedLabel); err != nil {
+			return fmt.Errorf("feed analytics distribution completion options scan: %w", err)
+		}
+		out.CompletionFilterOptions = append(out.CompletionFilterOptions, opt)
+	}
+	if err := optRows.Err(); err != nil {
+		return fmt.Errorf("feed analytics distribution completion options rows: %w", err)
+	}
+	return nil
+}
+
+// nullableUUID turns an optional filter id into a bind that is either a uuid or SQL NULL. An empty
+// string must not reach a ::uuid cast -- it errors rather than meaning "no filter".
+func nullableUUID(raw string) *string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+// ---------------------------------------------------------------------------
+// Distribution completion table (maintainer decision 2026-08-26): every pen-session ONE feed day
+// directed, with its proof state -- including the ones NOBODY TOUCHED, which is the whole reason it
+// exists (operators were skipping proof uploads and no screen could show it).
+// ---------------------------------------------------------------------------
+
+// distributionCompletionScopeSQL is the shared FROM/WHERE of the three completion reads below: the
+// day's expected pen-sessions UNION the day's completions, labelled and filtered.
+//
+// projection-review: grain=pen-session (feed_day, park_id, shed_id, partition_key, session_no,
+// workflow) on BOTH sides.
+//
+//	producer `expected` unique columns after GROUP BY: (feed_day, park_id, shed_id, partition_key,
+//	  session_no, workflow) -- exactly the group key, so it is one row per pen-session by
+//	  construction; the N feed-item/ration-grain side is collapsed by that GROUP BY BEFORE any join.
+//	producer `done` unique columns: (tenant_id, park_id, shed_id, partition_key, session_no,
+//	  target_date, workflow) = feed_distribution_completions_natural_uq (migration 000137) -- the
+//	  same six coordinates plus the tenant this query already fixes, so one row per pen-session.
+//	consumer `keys` match columns: (feed_day, park_id, shed_id, partition_key, session_no, workflow)
+//	  -- identical list on both LEFT JOINs, so each is 1:0..1 and neither can fan out.
+//	row multiplicity: keys:expected 1:0..1, keys:done 1:0..1, keys:locations 1:0..1 twice by the
+//	  locations (tenant_id, location_id) PK, keys:workforce_members 1:0..1 twice by (tenant_id,
+//	  user_id). The rows read and the totals read range over this SAME key set -- the totals are a
+//	  GROUP BY over it with no LIMIT -- so the tiles and the table can never describe different sets.
+//	pagination=rows arm only (LIMIT/OFFSET over a stable ORDER BY); the totals and the filter
+//	  options are whole-scope aggregates and are invariant to page size, per the operational
+//	  read-model contract.
+//	scope=tenant_id on every table plus the caller's authorized park set; the park/shed/status
+//	  filters can only narrow within that.
+//
+// The UNION keys on the six identity columns ONLY: including session_label would make the same
+// pen-session appear twice whenever the sheet and a completion disagree on the label, and each half
+// would then read as a separate bag of work.
+//
+// A completion with no sheet row still lists (the UNION's second leg). That is not hypothetical -- a
+// sheet can be re-issued after a pen was already fed -- and dropping it would hide work that was
+// actually done, the opposite failure to the one this table addresses.
+//
+// The location joins are LEFT and fall back to the sheet's own snapshotted labels. An INNER join
+// reads as harmless -- a completion carries an FK to locations -- but it lets a missing or retired
+// shed row DELETE a pen-session from a table whose entire purpose is showing pen-sessions nobody
+// touched. Falling back to a stale label is honest; dropping the line is not.
+//
+// scale-guard:ignore: 5k-50k-envelope -- ONE park-day, bounded by the park's pens x sessions
+// (physical infrastructure, never herd size), over the same indexed date columns as the status
+// counts above; binds are cast and the indexed columns stay bare.
+const distributionCompletionScopeSQL = `
+WITH expected AS (
+    SELECT i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow,
+           MAX(COALESCE(r.partition_label, ''))  AS partition_label,
+           MAX(r.session_label)                  AS session_label,
+           MAX(r.park_label)                     AS park_label,
+           MAX(r.shed_label)                     AS shed_label
+    FROM feed_direction_issues i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1
+     AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    WHERE i.tenant_id = $1
+      AND ($2::uuid[] IS NULL OR i.park_id = ANY ($2::uuid[]))
+      AND i.feed_day = $3
+      AND i.state IN ('issued', 'amended', 'locked')
+      AND i.workflow IN ('normal', 'experiment')
+    GROUP BY i.feed_day, i.park_id, r.shed_id, r.partition_key, r.session_no, r.workflow
+),
+done AS (
+    SELECT c.target_date AS feed_day, c.park_id, c.shed_id, c.partition_key, c.session_no, c.workflow,
+           COALESCE(c.partition_label, '') AS partition_label,
+           c.status, COALESCE(c.rework_reason, '') AS rework_reason,
+           COALESCE(c.feed_weight_proof_ref, '')  AS feed_weight_proof_ref,
+           COALESCE(c.distribution_proof_ref, '') AS distribution_proof_ref,
+           COALESCE(c.water_proof_ref, '')        AS water_proof_ref,
+           c.created_at, c.verified_at, c.completed_by, c.verified_by
+    FROM feed_distribution_completions c
+    WHERE c.tenant_id = $1
+      AND ($2::uuid[] IS NULL OR c.park_id = ANY ($2::uuid[]))
+      AND c.target_date = $3
+),
+keys AS (
+    SELECT feed_day, park_id, shed_id, partition_key, session_no, workflow FROM expected
+    UNION
+    SELECT feed_day, park_id, shed_id, partition_key, session_no, workflow FROM done
+),
+scoped AS (
+    SELECT k.feed_day,
+           k.park_id,
+           COALESCE(lp.name, e.park_label, '')                    AS park_label,
+           k.shed_id,
+           COALESCE(ls.name, e.shed_label, '')                    AS shed_label,
+           COALESCE(e.partition_label, d.partition_label, '')     AS partition_label,
+           k.session_no,
+           COALESCE(e.session_label, '')                          AS session_label,
+           k.workflow,
+           COALESCE(d.status, '')                                 AS raw_status,
+           COALESCE(d.rework_reason, '')                          AS rework_reason,
+           COALESCE(d.feed_weight_proof_ref, '')                  AS feed_weight_proof_ref,
+           COALESCE(d.distribution_proof_ref, '')                 AS distribution_proof_ref,
+           COALESCE(d.water_proof_ref, '')                        AS water_proof_ref,
+           d.created_at                                           AS submitted_at,
+           d.verified_at,
+           COALESCE(wc.display_name, '')                          AS submitted_by_name,
+           COALESCE(wv.display_name, '')                          AS verified_by_name
+    FROM keys k
+    LEFT JOIN expected e
+      ON e.feed_day = k.feed_day AND e.park_id = k.park_id AND e.shed_id = k.shed_id
+     AND e.partition_key = k.partition_key AND e.session_no = k.session_no AND e.workflow = k.workflow
+    LEFT JOIN done d
+      ON d.feed_day = k.feed_day AND d.park_id = k.park_id AND d.shed_id = k.shed_id
+     AND d.partition_key = k.partition_key AND d.session_no = k.session_no AND d.workflow = k.workflow
+    LEFT JOIN locations lp ON lp.tenant_id = $1 AND lp.location_id = k.park_id
+    LEFT JOIN locations ls ON ls.tenant_id = $1 AND ls.location_id = k.shed_id
+    LEFT JOIN workforce_members wc ON wc.tenant_id = $1 AND wc.user_id = d.completed_by
+    LEFT JOIN workforce_members wv ON wv.tenant_id = $1 AND wv.user_id = d.verified_by
+    WHERE ($4::uuid IS NULL OR k.park_id = $4::uuid)
+      AND ($5::uuid IS NULL OR k.shed_id = $5::uuid)
+),
+bucketed AS (
+    SELECT scoped.*,
+           CASE raw_status
+               WHEN 'completed' THEN 'completed'
+               WHEN 'pending_verification' THEN 'pending_verification'
+               WHEN 'rework' THEN 'rework'
+               ELSE 'not_started'
+           END AS status
+    FROM scoped
+)`
+
+// distributionCompletionRowsSQL is the PAGE. The status filter applies here and NOT to the totals.
+//
+// The result set is ONE park-day of pen-sessions -- bounded by the park's pens x sessions, physical
+// infrastructure that does not grow with the herd -- and the offset is rejected past 5000, so it
+// cannot walk a deep scan. Keyset is not usable here: the sort key is the composed farm/shed/pen
+// label, neither unique nor indexable, and the ORDER BY ends in the row's own identity so a page
+// boundary never splits or repeats a pen-session.
+//
+// scale-guard:ignore: bounded offset over one park-day, rejected past 5000; see above.
+const distributionCompletionRowsSQL = distributionCompletionScopeSQL + `
+SELECT feed_day::text, park_id::text, park_label, shed_id::text, shed_label, partition_label,
+       session_no, session_label, workflow, status, rework_reason,
+       feed_weight_proof_ref, distribution_proof_ref, water_proof_ref,
+       submitted_at, verified_at, submitted_by_name, verified_by_name
+FROM bucketed
+WHERE ($6 = '' OR status = $6)
+ORDER BY park_label, shed_label, partition_label, session_no, workflow
+LIMIT $7 OFFSET $8`
+
+// distributionCompletionTotalsSQL counts the whole day at the selected PLACE scope, deliberately
+// ignoring the status filter -- see CompletionTotals for why both exclusions matter.
+const distributionCompletionTotalsSQL = distributionCompletionScopeSQL + `
+SELECT status, count(*) FROM bucketed GROUP BY status`
+
+// distributionCompletionOptionsSQL is the day's (park, shed) vocabulary for the filter selects. The
+// caller passes NIL for the place binds ($4/$5) on purpose: a select whose options are narrowed by
+// its own current value cannot be widened back, so the reader would be stuck on the farm they
+// picked.
+const distributionCompletionOptionsSQL = distributionCompletionScopeSQL + `
+SELECT DISTINCT park_id::text, park_label, shed_id::text, shed_label
+FROM bucketed
+ORDER BY park_label, shed_label`
 
 // ---------------------------------------------------------------------------
 // Experiment analytics

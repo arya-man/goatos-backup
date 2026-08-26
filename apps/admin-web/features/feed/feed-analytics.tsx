@@ -22,6 +22,7 @@ import { RangeCoverageNote } from "./range-coverage-note";
 import { getCensusLocations } from "@/lib/api/herd-locations";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedPager } from "./feed-pager";
+import { FeedCompletionTable } from "./feed-completion-table";
 import { feedHref, feedLimit, feedOffset } from "./feed-scope";
 import { SegmentedLinks } from "@/components/segmented-links";
 import { SvgBars } from "@/components/svg-bars";
@@ -89,6 +90,27 @@ function readTab(sp: RouteSearchParams): Tab {
 function readRange(sp: RouteSearchParams): Range {
   const raw = one(sp, "range");
   return (RANGES as readonly string[]).includes(raw ?? "") ? (raw as Range) : "30";
+}
+
+/**
+ * The completion table's own day picker; absent/malformed means the BACKEND default (yesterday,
+ * IST). Deliberately not defaulted here: the day the table describes is business truth the payload
+ * echoes back as `completion_day`, and a second client-side default would drift from it the moment
+ * the two clocks disagree — which they do for every request between midnight and 05:30 IST.
+ */
+function readCompletionDay(sp: RouteSearchParams): string | undefined {
+  const raw = one(sp, "fdc_day");
+  return raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : undefined;
+}
+
+/**
+ * The completion table's status filter. An unknown value is dropped rather than forwarded: the
+ * backend rejects one with a 400, which would take the whole page down over a mistyped URL.
+ */
+const COMPLETION_STATUSES = ["not_started", "pending_verification", "rework", "completed"] as const;
+function readCompletionStatus(sp: RouteSearchParams): string {
+  const raw = one(sp, "fdc_status") ?? "";
+  return (COMPLETION_STATUSES as readonly string[]).includes(raw) ? raw : "";
 }
 
 /** The wastage table's own day picker; absent/malformed means the backend default (today, IST). */
@@ -245,6 +267,16 @@ export async function FeedAnalyticsPage({
   const variancePageSizes = tablePageSizes(pageContract, "packing-mismatches");
   const varianceLimit = feedLimit(searchParams, "fav_limit", variancePageSizes, variancePageSizes[0]);
   const varianceOffset = feedOffset(searchParams, "fav_offset");
+  // The completion table's own state: a day, a page and three narrowing filters, all in the URL so
+  // a view survives reload and pastes as a link. The DAY is not defaulted here -- the backend owns
+  // it (yesterday, IST) and echoes it back as completion_day, and a second client-side default
+  // would drift from it for every request between midnight and 05:30 IST.
+  const completionPageSizes = tablePageSizes(pageContract, "distribution-completions");
+  const completionLimit = feedLimit(searchParams, "fdc_limit", completionPageSizes, completionPageSizes[0]);
+  const completionOffset = feedOffset(searchParams, "fdc_offset");
+  const completionParkFilter = parkId || (one(searchParams, "fdc_park") ?? "");
+  const completionShedFilter = one(searchParams, "fdc_shed") ?? "";
+  const completionStatusFilter = readCompletionStatus(searchParams);
   const locations = wantExperiment ? await getCensusLocations() : { parks: [] as { id: string; name: string }[], sheds: [] };
   const wantStock = tab === "overview" || tab === "items";
   const [directed, execution, experiment, stock] = await Promise.all([
@@ -254,10 +286,19 @@ export async function FeedAnalyticsPage({
     wantExecution
       ? getFeedAnalyticsExecution({
           ...params,
+          // Overview reads ONLY the adherence KPI off `days`, so it asks for that arm alone rather
+          // than paying for the mismatch, consumption and completion queries it never renders.
+          ...(tab === "overview" ? { sections: "days" } : {}),
           variance_limit: String(varianceLimit),
           variance_offset: String(varianceOffset),
           variance_park_label: favPark,
           variance_feed_item_key: favItem,
+          completion_day: readCompletionDay(searchParams),
+          completion_limit: String(completionLimit),
+          completion_offset: String(completionOffset),
+          completion_park_id: completionParkFilter,
+          completion_shed_id: completionShedFilter,
+          completion_status: completionStatusFilter,
         })
       : Promise.resolve<ApiResult<FeedAnalyticsExecutionResponse> | null>(null),
     wantExperiment
@@ -356,6 +397,17 @@ export async function FeedAnalyticsPage({
             offset: varianceOffset,
             pageSizes: variancePageSizes,
             searchParams,
+          }}
+          completion={{
+            searchParams,
+            parkScopeLocked: Boolean(parkId),
+            park: completionParkFilter,
+            shed: completionShedFilter,
+            status: completionStatusFilter,
+            selectedRowId: one(searchParams, "fdc_row") ?? "",
+            offset: completionOffset,
+            limit: completionLimit,
+            pageSizes: completionPageSizes,
           }}
         />
       ) : null}
@@ -616,6 +668,7 @@ function ExecutionTab({
   data,
   pageContract,
   variance,
+  completion,
 }: {
   data: FeedAnalyticsExecutionResponse;
   pageContract: AdminUiPageContract;
@@ -631,13 +684,49 @@ function ExecutionTab({
     pageSizes: number[];
     searchParams: RouteSearchParams;
   };
+  /** The completion table's page and filters; its DAY and its rows are owned by the backend read. */
+  completion: {
+    searchParams: RouteSearchParams;
+    parkScopeLocked: boolean;
+    park: string;
+    shed: string;
+    status: string;
+    selectedRowId: string;
+    offset: number;
+    limit: number;
+    pageSizes: number[];
+  };
 }) {
+  const completionTable = (
+    <FeedCompletionTable
+      data={data}
+      searchParams={completion.searchParams}
+      basePath={PAGE_PATH}
+      pageContract={pageContract}
+      filters={{
+        park: completion.park,
+        shed: completion.shed,
+        status: completion.status,
+        selectedRowId: completion.selectedRowId,
+        offset: completion.offset,
+        limit: completion.limit,
+        pageSizes: completion.pageSizes,
+      }}
+      parkScopeLocked={completion.parkScopeLocked}
+    />
+  );
+  // A window with no completions at all still renders the completion table, and that is the point:
+  // "nobody proved anything in 30 days" is exactly the state this table was added to make visible,
+  // and hiding it behind the charts' empty card would answer the question with a blank screen.
   if (data.days.length === 0) {
     return (
-      <section className="card">
-        <h2 className="h">{fa(pageContract, "empty.title")}</h2>
-        <p className="muted small">{fa(pageContract, "empty.execution.body")}</p>
-      </section>
+      <div className="grid" style={{ gap: 14 }}>
+        <section className="card">
+          <h2 className="h">{fa(pageContract, "empty.title")}</h2>
+          <p className="muted small">{fa(pageContract, "empty.execution.body")}</p>
+        </section>
+        {completionTable}
+      </div>
     );
   }
   // Farm/item narrowing is applied by the backend before LIMIT/OFFSET; applying it here after
@@ -874,6 +963,9 @@ function ExecutionTab({
           <FeedChartLegend entries={consumptionSeries.map((c) => ({ label: c.label, colorVar: c.colorVar }))} />
         </div>
       </section>
+      {/* The completion table sits UNDER everything else on this tab (maintainer ask): the charts
+          answer "how is adherence trending", this answers "who did not upload yesterday". */}
+      {completionTable}
     </>
   );
 }

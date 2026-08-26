@@ -129,6 +129,35 @@ type ProofValidator interface {
 	ListPenSessionCaptures(ctx context.Context, q PenSessionCaptureQuery) ([]CapturedProofSlot, error)
 }
 
+// ProofUploadDescriber resolves proof ids a COMPLETION already names back to who uploaded them and
+// when. It is a SEPARATE, optional port from ProofValidator on purpose: every write path in this
+// module needs the validator, and none of them needs this, so folding it in would make each
+// completion fake carry a method it never calls.
+//
+// Same boundary rule as ListPenSessionCaptures: feeddirection does not read proof_artifacts itself.
+// It differs in its KEY — captures are found by the phone's client_task_key, which only an APK that
+// stamped one produces, while this takes the proof ids the completion row stores. For a leadership
+// read of what a verifier acted on, the completion's own references are the authoritative set.
+type ProofUploadDescriber interface {
+	// DescribeProofUploads returns one entry per proof id that resolves. An id that does not resolve
+	// is simply absent from the map — never a fabricated zero-value entry, which would render as a
+	// proof that exists with no uploader and no time.
+	DescribeProofUploads(ctx context.Context, tenantID string, proofIDs []string) (map[string]ProofUpload, error)
+}
+
+// ProofUpload is the provenance of ONE stored proof: who put it there and when.
+type ProofUpload struct {
+	ProofID string
+	// UploadedAt is the completed-upload instant, falling back to the artifact's creation time when
+	// the upload timestamp is absent.
+	UploadedAt time.Time
+	// UploadedByName is the uploader's workforce display name, empty when it cannot be resolved.
+	// An id is never returned in its place: a name that cannot be resolved is dropped, per the
+	// backend-owned-copy rule.
+	UploadedByName string
+	MimeType       string
+}
+
 // MediaKind is the capture kind a proof step demands.
 type MediaKind string
 

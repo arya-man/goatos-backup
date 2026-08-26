@@ -100,6 +100,10 @@ type Service struct {
 	transportEnqueuer FeedTransportVerificationEnqueuer
 	// proofs is the OPTIONAL validator for attached video proofs. Nil skips validation.
 	proofs ports.ProofValidator
+	// proofUploads resolves a completion's stored proof references back to who uploaded them and
+	// when, for the leadership execution table. Optional and set from the same validator; nil leaves
+	// the table's proof slots carrying their reference and no provenance.
+	proofUploads ports.ProofUploadDescriber
 	// alerts is the OPTIONAL reader for the feed module's own lifecycle alerts feed
 	// (backend/internal/feeddirection/domain/alerts.go). Without it, ListAlerts fails closed with
 	// ErrAlertsUnavailable. See alerts.go.
@@ -173,8 +177,17 @@ func (s *Service) WithCompletionStore(store ports.CompletionStore) *Service {
 }
 
 // WithProofValidator wires optional video-proof validation. Nil skips validation.
+//
+// It ALSO picks up the optional ProofUploadDescriber seam when the same validator implements it (the
+// postgres-backed one does), rather than asking every composition root to wire the pair. Deliberate:
+// a second wiring line is a second thing to forget, and forgetting it degrades silently -- the
+// execution table would render every proof with a blank uploader and no time, which reads as "nobody
+// filmed it" rather than as missing wiring.
 func (s *Service) WithProofValidator(proofs ports.ProofValidator) *Service {
 	s.proofs = proofs
+	if describer, ok := proofs.(ports.ProofUploadDescriber); ok {
+		s.proofUploads = describer
+	}
 	return s
 }
 

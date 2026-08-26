@@ -5649,6 +5649,96 @@ export interface components {
             packing_variance_has_more: boolean;
             /** @description Every measured packing bag in the window, ordered by absolute difference descending. Always present; empty only when no verified packing reading exists in the served scope. */
             packing_variance: components["schemas"]["FeedAnalyticsPackingVarianceRow"][];
+            /**
+             * Format: date
+             * @description The single business day the completion arm describes.
+             */
+            completion_day: string;
+            /** @description Whether a further page of pen-sessions exists past the rows returned. `distribution_completions` is a PAGE (see `completion_limit` / `completion_offset`); `completion_totals` is not and stays a whole-day figure. */
+            distribution_completions_has_more: boolean;
+            /** @description One PAGE of the pen-sessions the frozen sheet directed on `completion_day`, with their feed-distribution proof state -- INCLUDING the pen-sessions nobody touched, which carry status `not_started`. Always present; empty when no sheet was issued for that day. */
+            distribution_completions: components["schemas"]["FeedAnalyticsDistributionCompletionRow"][];
+            completion_totals: components["schemas"]["FeedAnalyticsCompletionTotals"];
+            /** @description The (farm, shed) vocabulary present on that day, so the screen's selects offer exactly the places that exist. Unnarrowed by the completion filters themselves -- a select whose options are narrowed by its own current value cannot be widened back. */
+            completion_filter_options: components["schemas"]["FeedAnalyticsCompletionFilterOption"][];
+        };
+        /** @description The four-bucket census of `completion_day` at the selected FARM/SHED scope. It deliberately ignores `completion_status`, and it is never the page: a tile counting only the page would say "3 not fed" when the day had eleven, and one following the status filter would zero the other three tiles and throw away the comparison the reader came for. */
+        FeedAnalyticsCompletionTotals: {
+            /** Format: int64 */
+            not_started: number;
+            /** Format: int64 */
+            pending_verification: number;
+            /** Format: int64 */
+            rework: number;
+            /** Format: int64 */
+            completed: number;
+        };
+        /** @description One selectable place. The farm travels with the shed because shed NAMES repeat across farms (Castro, Gandhi, Godel 1 and Yashoda each exist in both), so a bare name is neither a safe key nor a readable label. */
+        FeedAnalyticsCompletionFilterOption: {
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+        };
+        /** @description ONE pen-session of one feed day: what the frozen sheet directed, and what evidence came back for it. The grain is the pen-session -- (feed day, park, shed, partition, session, workflow) -- which is exactly the completion's natural key and exactly the unit the three proofs prove. A shed-level row would let one pen's video read as the whole shed's work. */
+        FeedAnalyticsDistributionCompletionRow: {
+            /** Format: date */
+            feed_day: string;
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            /** @description The pen inside the shed ("2", "Part 3"); absent for an undivided shed. */
+            partition_label?: string;
+            /** @description The backend-composed shed+pen label ("Godel 1 - Part 3"), rendered verbatim. Clients compose no location text of their own. */
+            operational_location_display: string;
+            /** Format: int32 */
+            session_no: number;
+            /** @description The sheet's own session name ("Morning"). */
+            session_label?: string;
+            /** @enum {string} */
+            workflow: "normal" | "experiment";
+            /**
+             * @description `not_started` -- the sheet directed this pen-session and NO completion exists, so nobody submitted anything. `pending_verification` -- proofs submitted, awaiting a verdict. `rework` -- the verifier REJECTED the proofs; work was done and filmed, and must be re-shot. `completed` -- the verifier approved.
+             *
+             *     Four buckets, not the three the operator app uses: that vocabulary folds `rework` into "pending" because from the phone both mean "my turn again", but on a leadership screen the same fold makes a bounced video indistinguishable from a pen nobody went to.
+             * @enum {string}
+             */
+            status: "not_started" | "pending_verification" | "rework" | "completed";
+            /** @description The operator who submitted the completion; empty when nothing was submitted or the principal does not resolve to a workforce member. An id is never rendered in its place. */
+            submitted_by_name: string;
+            /** Format: date-time */
+            submitted_at: string | null;
+            verified_by_name: string;
+            /** Format: date-time */
+            verified_at: string | null;
+            /** @description The verifier's rejection sentence; present only on a `rework` row. */
+            rework_reason?: string;
+            /** @description ALWAYS exactly three entries, in the order they are shot on the ground. A proof that was never recorded is an entry with an empty `proof_ref`, never an absent entry. */
+            proofs: components["schemas"]["FeedAnalyticsDistributionProofSlot"][];
+        };
+        /**
+         * @description ONE of a pen-session's three proofs as the COMPLETION recorded it (migration 000151): the weighed feed before it goes out, the feed going out, and the water. The reference comes from the completion row, never from the phone's capture key -- the completion is what a verifier acts on, so its three references are the only ones that answer what the pen was judged on.
+         *
+         *     Provenance is per SLOT and never taken from whoever submitted: the three may be shot by THREE DIFFERENT PEOPLE on three phones (maintainer decision 2026-08-14).
+         */
+        FeedAnalyticsDistributionProofSlot: {
+            /** @enum {string} */
+            field_key: "feed_distribution_feed_weight_photo" | "feed_distribution_video" | "feed_distribution_water_video";
+            /** @description The server proof id; empty when this slot was never recorded. */
+            proof_ref: string;
+            /**
+             * Format: date-time
+             * @description When that upload finished; null when the slot is empty or the artifact is gone.
+             */
+            uploaded_at: string | null;
+            /** @description Display name of whoever uploaded THIS proof. Empty when unresolvable. */
+            uploaded_by_name: string;
+            mime_type: string;
         };
         /** @description One (feed day, feed item) of authored absolute kg across every experiment pen. */
         FeedAnalyticsExperimentItem: {
@@ -16078,6 +16168,22 @@ export interface operations {
                 variance_park_label?: string;
                 /** @description Optional mismatch-table feed item key filter, applied before variance_limit/variance_offset so a matching item on a later unfiltered page is not hidden by client-side filtering. */
                 variance_feed_item_key?: string;
+                /** @description The SINGLE business day the `distribution_completions` arm describes, independent of the window above. Defaults to YESTERDAY (Asia/Kolkata) -- the same basis the rest of the page states. Today is deliberately not the default: mid-day, every pen-session not yet fed would list as untouched, reading as a failure rather than as work in progress. */
+                completion_day?: string;
+                /** @description Completion rows per page (1-100); absent takes the contract default of 10. */
+                completion_limit?: number;
+                /** @description Completion rows to skip (0-5000). Out of range is rejected with 400 rather than clamped, for the same reason as variance_offset. */
+                completion_offset?: number;
+                /** @description Optional completion-table farm filter, applied before completion_limit/completion_offset so paging is over the narrowed set. Authorization still comes from park_id and the caller's park grants; this is a display filter, not a scope grant. */
+                completion_park_id?: string;
+                /** @description Optional completion-table shed filter. Keyed by shed id, never by name: shed names repeat across farms, so a name filter would merge two real sheds. */
+                completion_shed_id?: string;
+                /**
+                 * @description Optional completion-table status filter. An unknown value is rejected with 400 rather than ignored: answering a filtered request with every row, under the heading of the filter the caller asked for, misstates the day.
+                 *
+                 *     It narrows the ROWS only. `completion_totals` deliberately ignores it, so the four counts keep describing the whole day at the selected place scope.
+                 */
+                completion_status?: "not_started" | "pending_verification" | "rework" | "completed";
                 /** @description Comma-separated arms to compute; omit for all. Each arm is several queries, so a page that needs one array from a second, differently-scoped read should ask for that arm alone. An unrequested arm comes back empty, NOT absent. An unknown name is rejected with 400 rather than ignored, because serving a payload without the array the caller asked for renders as "no data" on screen. */
                 sections?: string;
             };
