@@ -83,6 +83,25 @@ data class ToxinTaskPageDto(
     @SerialName("next_cursor") val nextCursor: String = "",
     /** Whole-tenant aggregates per status, never page-local sums. */
     @SerialName("status_counts") val statusCounts: Map<String, Int> = emptyMap(),
+    /**
+     * The list's selectable slices in display order, labels included. Rendered verbatim; the
+     * client sends back only [ToxinTaskFilterDto.key], so "Pending" stays one backend
+     * definition rather than a status list each surface re-derives.
+     */
+    @SerialName("filters") val filters: List<ToxinTaskFilterDto> = emptyList(),
+)
+
+/** One filter chip on the task list. */
+@Serializable
+data class ToxinTaskFilterDto(
+    @SerialName("key") val key: String = "",
+    /** Backend-owned chip copy, rendered VERBATIM. */
+    @SerialName("label") val label: String = "",
+    /** Whole-tenant count for this slice, never a page-local sum. */
+    @SerialName("count") val count: Int = 0,
+    @SerialName("selected") val selected: Boolean = false,
+    /** Backend-owned "nothing here" copy for THIS slice, rendered VERBATIM. */
+    @SerialName("empty_message") val emptyMessage: String = "",
 )
 
 @Serializable

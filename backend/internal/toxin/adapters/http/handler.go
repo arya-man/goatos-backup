@@ -67,21 +67,27 @@ func Register(mux *http.ServeMux, h *Handler) {
 // kilobyte.
 const maxToxinRequestBytes = 64 * 1024
 
-// ListTasks serves GET /app/toxin/tasks — the tester's list.
+// ListTasks serves GET /app/toxin/tasks — the tester's list, sliced by the `filter` chip.
 func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
-	h.list(w, r, nil)
+	h.list(w, r, nil, true)
 }
 
 // ListReview serves GET /toxin/review — the CEO/CXO review tab. Same page shape as the
 // tester's list; the route (and its toxin.verdict permission) is what narrows it to
 // submitted work by default.
 func (h *Handler) ListReview(w http.ResponseWriter, r *http.Request) {
-	h.list(w, r, []string{domain.StatusPendingReview})
+	h.list(w, r, []string{domain.StatusPendingReview}, false)
 }
 
-func (h *Handler) list(w http.ResponseWriter, r *http.Request, defaultStatuses []string) {
+func (h *Handler) list(w http.ResponseWriter, r *http.Request, defaultStatuses []string, withFilters bool) {
 	q := r.URL.Query()
 	statuses := defaultStatuses
+	// The client names a FILTER KEY; the backend owns which statuses that means. An unknown key
+	// falls back to All rather than serving an empty screen to a stale APK.
+	filterKey := domain.FilterKeyOrDefault(strings.TrimSpace(q.Get("filter")))
+	if withFilters {
+		statuses = domain.StatusesForFilter(filterKey)
+	}
 	if raw := strings.TrimSpace(q.Get("status")); raw != "" {
 		statuses = strings.Split(raw, ",")
 		for i := range statuses {
@@ -108,12 +114,16 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request, defaultStatuses [
 	for _, row := range page.Rows {
 		items = append(items, toTaskPayload(row, now, canExecute))
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, taskPagePayload{
+	payload := taskPagePayload{
 		Tasks:      items,
 		NextCursor: page.NextCursor,
 		// StatusCounts are whole-tenant aggregates, never page-local sums.
 		StatusCounts: page.StatusCounts,
-	})
+	}
+	if withFilters {
+		payload.Filters = toFilterPayloads(filterKey, page.StatusCounts)
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, payload)
 }
 
 // GetTask serves GET /app/toxin/tasks/{task_id} — the guided step flow with live states.

@@ -811,7 +811,7 @@ interface AppApiService {
 
     @GET("app/toxin/tasks")
     suspend fun getToxinTasks(
-        @Query("status") status: String?,
+        @Query("filter") filter: String?,
         @Query("limit") limit: Int?,
         @Query("cursor") cursor: String?,
     ): ToxinTaskPageDto
@@ -1627,10 +1627,10 @@ class RetrofitAppApi(
     override suspend fun cancelPcCareTask(taskId: String) = service.cancelPcCareTask(taskId)
 
     override suspend fun getToxinTasks(
-        status: String?,
+        filter: String?,
         limit: Int?,
         cursor: String?,
-    ): ToxinTaskPageDto = service.getToxinTasks(status, limit, cursor)
+    ): ToxinTaskPageDto = service.getToxinTasks(filter, limit, cursor)
 
     override suspend fun getToxinTask(taskId: String): ToxinTaskDetailDto = service.getToxinTask(taskId)
 

@@ -16,6 +16,7 @@ import sg.mesha.goatos.core.network.dto.ToxinOutcomeOptionDto
 import sg.mesha.goatos.core.network.dto.ToxinStepDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskDto
+import sg.mesha.goatos.core.network.dto.ToxinTaskFilterDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 
 /** Test doubles for the Toxin ViewModels (module toxin, maintainer decision 2026-08-25). */
@@ -27,10 +28,14 @@ class FakeToxinRepository(
 ) : ToxinRepository {
     private val detail = MutableStateFlow(initialDetail)
     private val _statusCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+    private val _filters = MutableStateFlow<List<ToxinTaskFilterDto>>(emptyList())
 
     var refreshDetailCalls: Int = 0
         private set
     val invalidatedStatuses = mutableListOf<String>()
+
+    /** Every filter key the ViewModel asked the pager for, in order. */
+    val requestedFilters = mutableListOf<String>()
     val persistedDetails = mutableListOf<ToxinTaskDetailDto>()
 
     /** Simulates the server's next composition landing in Room (a refresh, or a write reconcile). */
@@ -38,12 +43,22 @@ class FakeToxinRepository(
         detail.value = next
     }
 
-    override fun tasks(status: String): Flow<PagingData<ToxinTaskDto>> = flowOf(PagingData.from(pages))
+    override fun tasks(filter: String): Flow<PagingData<ToxinTaskDto>> {
+        requestedFilters += filter
+        return flowOf(PagingData.from(pages))
+    }
 
     override val statusCounts: StateFlow<Map<String, Int>> = _statusCounts
 
-    override suspend fun invalidateTasks(status: String) {
-        invalidatedStatuses += status
+    override val filters: StateFlow<List<ToxinTaskFilterDto>> = _filters
+
+    /** Simulates the backend's composed chips landing from a list refresh. */
+    fun emitFilters(next: List<ToxinTaskFilterDto>) {
+        _filters.value = next
+    }
+
+    override suspend fun invalidateTasks(filter: String) {
+        invalidatedStatuses += filter
     }
 
     override fun observeTaskDetail(taskId: String): Flow<ToxinTaskDetailDto?> =

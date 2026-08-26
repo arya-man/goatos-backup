@@ -6436,11 +6436,21 @@ paths:
         WHOLE-TENANT aggregates over the same vocabulary as `status`, never page sums. `status`
         accepts a comma-separated list; absent means every status.
       parameters:
+        - name: filter
+          in: query
+          required: false
+          schema: { type: string, enum: [all, pending, completed], default: all }
+          description: >-
+            The list slice to serve, named by KEY. The backend owns which statuses each key
+            means, so "pending" is one definition across every surface. Absent or unknown
+            resolves to `all`, so a stale client sees its work rather than an empty screen.
         - name: status
           in: query
           required: false
           schema: { type: string }
-          description: Comma-separated statuses (in_progress, pending_review, accepted, cancelled).
+          description: >-
+            Comma-separated statuses (in_progress, pending_review, accepted, cancelled).
+            Overrides `filter` when present; prefer `filter` in clients.
         - name: limit
           in: query
           required: false
@@ -13235,6 +13245,35 @@ components:
           type: object
           additionalProperties: { type: integer }
           description: WHOLE-TENANT counts per status, never page-local sums.
+        filters:
+          type: array
+          description: >-
+            The list's selectable slices in display order, with backend-owned labels. Rendered
+            verbatim; the client sends back only `key`. Served on the app task list, absent on
+            the review list.
+          items:
+            $ref: "#/components/schemas/ToxinTaskFilter"
+    ToxinTaskFilter:
+      type: object
+      required: [key, label, count, selected, empty_message]
+      properties:
+        key:
+          type: string
+          enum: [all, pending, completed]
+        label:
+          type: string
+          description: Backend-owned chip copy, rendered VERBATIM.
+        count:
+          type: integer
+          description: WHOLE-TENANT count of rounds in this slice, never a page-local sum.
+        selected:
+          type: boolean
+          description: Whether this chip is the slice the response was served for.
+        empty_message:
+          type: string
+          description: >-
+            Backend-owned copy for when THIS slice has no rows, rendered verbatim. Carried per
+            slice because "nothing here" means something different in each.
     ToxinTaskDetail:
       allOf:
         - $ref: "#/components/schemas/ToxinTask"
