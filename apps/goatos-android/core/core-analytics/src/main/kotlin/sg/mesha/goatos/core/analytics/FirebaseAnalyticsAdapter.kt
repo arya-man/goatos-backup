@@ -105,7 +105,8 @@ class FirebaseAnalyticsAdapter(
 // local_slot_state, feed_weight_source), submit source (source), retry/failure reason (retry_count,
 // reason, outcome), and live-status transition (previous, next, status), plus the pre-existing
 // proof-capture core diagnostics (proof_id, task_id, field_key, feature_surface, rfid_tag,
-// processing_state, duration_bucket, proof_upload_status, submit_status) and result/failure_kind.
+// processing_state, proof_upload_status), stuck-submit state (submit_status), shared camera torch
+// mode (torch_mode), and result/kind.
 internal const val FIREBASE_MAX_EVENT_PARAMS = 25
 internal const val FIREBASE_MAX_PARAM_VALUE_LENGTH = 100
 
@@ -137,9 +138,9 @@ private val FIREBASE_PARAM_ALLOWLIST = listOf(
     AnalyticsEvents.Params.OUTCOME,
     AnalyticsEvents.Params.REASON,
     "processing_state",
-    "duration_bucket",
     "proof_upload_status",
     "submit_status",
+    "torch_mode",
     // proof-flow-integration additions (2026-08-15) -- kept within the 25-cap by trading off the
     // lower-value legacy params documented in the comment above.
     AnalyticsEvents.Params.RESULT,
