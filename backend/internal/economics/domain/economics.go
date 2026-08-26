@@ -186,9 +186,15 @@ type Pulse struct {
 // other: ValueAddedPerDayRupees is ADGGPerDay priced, so the two always agree.
 // Money fields are nullable; null means "not computable", never zero.
 type GroupEconomics struct {
-	// Animals is the denominator: paired animals in this group whose ration cell
-	// resolved and priced.
+	// Animals is the denominator of every figure on the row: paired animals in
+	// this group whose ration cell resolved and priced.
 	Animals int `json:"animals"`
+	// HerdAnimals is how many live animals the group actually HOLDS in scope.
+	// It is published beside Animals because a bare "120" against a breed reads
+	// as the herd count, and the herd holds 846 of that breed — the row is
+	// computed from the 120 that were weighed twice, and the page must say so
+	// rather than letting the reader assume the farm shrank.
+	HerdAnimals int `json:"herd_animals"`
 	// ADGGPerDay is the mean measured daily gain. Animals scored flat by the 3%
 	// scale-noise floor are IN this mean at 0 — a pen that is not growing must
 	// read as not growing.

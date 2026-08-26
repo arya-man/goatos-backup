@@ -9870,8 +9870,10 @@ export interface components {
         };
         /** @description Shared shape of the pen and breed rows. Every money figure is PER HEAD PER DAY over `animals`, never a group total: only weighed animals are in scope, so a total would understate a pen where few were weighed, while a per-head figure compares honestly across groups of any size. The figures are means and are consistent with each other — `value_added_per_day_rupees` is `adg_g_per_day` priced. Animals scored flat by the 3% scale-noise floor are included at zero gain: a group that is not growing must read as not growing. */
         EconomicsGroup: {
-            /** @description Paired animals in this group whose ration cell resolved and priced. */
+            /** @description Paired animals in this group whose ration cell resolved and priced — the denominator of every figure on the row. */
             animals: number;
+            /** @description Live animals the group actually HOLDS in scope. Published beside `animals` because a bare count against a breed reads as the herd count; the row is computed from the measured subset and the page must say so rather than letting the reader assume the farm shrank. */
+            herd_animals: number;
             adg_g_per_day: number | null;
             feed_cost_per_day_rupees: number | null;
             value_added_per_day_rupees: number | null;

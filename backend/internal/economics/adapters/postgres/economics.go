@@ -271,7 +271,11 @@ func (r *Repository) GetBusinessEconomics(ctx context.Context, tenantID string, 
 	if err != nil {
 		return out, err
 	}
-	assembleGrowth(&out, econRows, realizedPerKg)
+	herdByBreed, herdByPen, err := r.herdCounts(ctx, tenantID, parkIDs)
+	if err != nil {
+		return out, err
+	}
+	assembleGrowth(&out, econRows, realizedPerKg, herdByBreed, herdByPen)
 
 	if out.Pulse.WeighedIdentities, err = r.weighedIdentities(ctx, tenantID, parkIDs, startDate, endExclusiveDate); err != nil {
 		return out, err
@@ -355,7 +359,7 @@ LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = e.p
 // assembleGrowth derives the shed table, the breed comparison, the bands and
 // the pulse growth figures from the ONE econ row set, so every surface on the
 // page agrees by construction.
-func assembleGrowth(out *domain.BusinessEconomics, rows []econRow, realizedPerKg *float64) {
+func assembleGrowth(out *domain.BusinessEconomics, rows []econRow, realizedPerKg *float64, herdByBreed, herdByPen map[string]int) {
 	costPerKg := make([]float64, 0, len(rows))
 	// The two comparable tiles range over the PRICED set: every animal whose
 	// ration cell resolved and priced. A priced animal that did not measurably
@@ -424,6 +428,7 @@ func assembleGrowth(out *domain.BusinessEconomics, rows []econRow, realizedPerKg
 		if group.Animals == 0 {
 			continue
 		}
+		group.HerdAnimals = herdByPen[key]
 		sheds = append(sheds, domain.ShedEconomics{
 			LocationID:     members[0].shedID,
 			PartitionLabel: members[0].pen,
@@ -450,6 +455,7 @@ func assembleGrowth(out *domain.BusinessEconomics, rows []econRow, realizedPerKg
 		if group.Animals == 0 {
 			continue
 		}
+		group.HerdAnimals = herdByBreed[breed]
 		breeds = append(breeds, domain.BreedEconomics{Breed: breed, GroupEconomics: group})
 	}
 	sort.SliceStable(breeds, func(i, j int) bool {
@@ -578,6 +584,58 @@ func medianOf(values []float64) (float64, bool) {
 		return sorted[mid], true
 	}
 	return (sorted[mid-1] + sorted[mid]) / 2, true
+}
+
+// herdCounts returns how many LIVE animals each breed and each pen actually
+// holds in scope — the "of 846" beside the "120 measured".
+//
+// It is a SEPARATE read from the econ chain on purpose: the chain is keyed on
+// animals that were WEIGHED, and the whole point of this figure is to count the
+// ones that were not.
+//
+// projection-review: membership=live goats in the caller's parks;
+// group_key=breed for one map and (shed_id, pen) for the other — each a plain
+// count over the same goat rows; join_cardinality=goat_shed_partitions is
+// 0..1 (PK tenant_id, goat_id) so no goat is counted twice; pagination=NONE,
+// bounded by breeds (single digits) and pens (~105 live); scope=tenant +
+// park ANY.
+//
+// scale-guard:ignore: 5k-50k-envelope — one bounded grouped count over the
+// live herd, the same shape as the counts breakdown read.
+func (r *Repository) herdCounts(ctx context.Context, tenantID string, parkIDs []string) (byBreed map[string]int, byPen map[string]int, err error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	const q = `
+SELECT btrim(COALESCE(g.breed, '')) AS breed,
+       COALESCE(g.shed_id::text, '') AS shed_id,
+       COALESCE(NULLIF(gsp.partition_label, 'whole'), '') AS pen,
+       count(*)
+FROM goats g
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+WHERE g.tenant_id = $1::uuid
+  AND g.exited_at IS NULL
+  AND g.park_id = ANY($2::uuid[])
+GROUP BY 1, 2, 3`
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	byBreed = map[string]int{}
+	byPen = map[string]int{}
+	for rows.Next() {
+		var breed, shedID, pen string
+		var count int
+		if err := rows.Scan(&breed, &shedID, &pen, &count); err != nil {
+			return nil, nil, err
+		}
+		if breed != "" {
+			byBreed[breed] += count
+		}
+		byPen[shedID+"\x00"+pen] += count
+	}
+	return byBreed, byPen, rows.Err()
 }
 
 // weighedIdentities counts the window's distinct weighed tag identities — the

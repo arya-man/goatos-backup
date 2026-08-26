@@ -301,7 +301,12 @@ export async function EconomicsPage({
                           <td>
                             <b>{breed.breed}</b>
                           </td>
-                          <td>{num(breed.animals)}</td>
+                          <td>
+                            {num(breed.animals)}{" "}
+                            <span className="muted">
+                              {copy(pageContract, "value.of_herd")} {num(breed.herd_animals)}
+                            </span>
+                          </td>
                           <td>{gramsPerDay(breed.adg_g_per_day, none, gday)}</td>
                           <td>{money(breed.feed_cost_per_day_rupees, none)}</td>
                           <td>{money(breed.value_added_per_day_rupees, none)}</td>
@@ -347,7 +352,12 @@ export async function EconomicsPage({
                             <td>
                               <b>{shed.shed_display}</b>
                             </td>
-                            <td>{num(shed.animals)}</td>
+                            <td>
+                              {num(shed.animals)}{" "}
+                              <span className="muted">
+                                {copy(pageContract, "value.of_herd")} {num(shed.herd_animals)}
+                              </span>
+                            </td>
                             <td>{gramsPerDay(shed.adg_g_per_day, none, gday)}</td>
                             <td>{money(shed.feed_cost_per_day_rupees, none)}</td>
                             <td>{money(shed.value_added_per_day_rupees, none)}</td>
