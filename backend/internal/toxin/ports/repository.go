@@ -17,6 +17,9 @@ var (
 	// ErrInvalidProof reports a capture ref that is unknown, wrong-tenant, unfinished, the
 	// wrong media kind, or not captured by the in-app camera.
 	ErrInvalidProof = errors.New("toxin: proof capture is not usable")
+	// ErrInvalidArgument reports malformed caller input that reached the persistence seam,
+	// such as a keyset cursor that was not minted by this endpoint.
+	ErrInvalidArgument = errors.New("toxin: invalid argument")
 	// ErrIdempotencyConflict reports a same-key different-payload replay.
 	ErrIdempotencyConflict = errors.New("toxin: idempotency key was already used for a different request")
 )

@@ -95,6 +95,8 @@ func HTTPError(err error) *Error {
 		return Conflict("version_conflict", "This test changed after it was opened. Reload and review it again.")
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		return Conflict("idempotency_conflict", "This form changed after it was submitted. Reload and try again.")
+	case errors.Is(err, ports.ErrInvalidArgument):
+		return BadRequest("invalid_cursor", "That page cursor is not valid. Refresh the list.")
 	case errors.Is(err, ErrIdempotencyKeyRequired):
 		return BadRequest("missing_idempotency_key", "This could not be recorded safely. Try again.")
 	default:
