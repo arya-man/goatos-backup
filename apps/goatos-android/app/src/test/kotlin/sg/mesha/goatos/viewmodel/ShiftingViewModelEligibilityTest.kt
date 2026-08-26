@@ -121,7 +121,7 @@ class ShiftingViewModelEligibilityTest {
     }
 
     @Test
-    fun `successful shifting submission clears the draft and requests return to Actions`() = runTest(dispatcher) {
+    fun `queued shifting submission clears the draft and requests return to Actions`() = runTest(dispatcher) {
         val sync = NoopShiftingSyncRepository()
         val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync)
         advanceUntilIdle()
@@ -134,15 +134,13 @@ class ShiftingViewModelEligibilityTest {
         vm.onEvent(ShiftingEvent.Submit)
         advanceUntilIdle()
 
-        sync.succeed("shift-outbox")
-        advanceUntilIdle()
-
         assertEquals("", vm.state.value.animalQuery)
         assertTrue(vm.state.value.selectedAnimals.isEmpty())
-        // A successful child form returns to Actions; it must not leave its success banner on the
-        // now-empty form, which is the current broken behaviour.
+        // The device has accepted the write once it is queued. Do not strand the operator on a
+        // locked copy of the old draft while the outbox waits for network/backend sync.
         assertNull(vm.state.value.lastRecordedMessage)
         assertTrue(vm.state.value.returnToActions)
+        assertEquals("Saved on this phone. It will sync automatically.", vm.state.value.submissionNotice)
         vm.onEvent(ShiftingEvent.NavigationHandled)
         assertFalse(vm.state.value.returnToActions)
     }
@@ -179,8 +177,9 @@ class ShiftingViewModelEligibilityTest {
         vm.onEvent(ShiftingEvent.Submit)
         advanceUntilIdle()
 
-        assertEquals(CountsWriteStatus.QUEUED, vm.state.value.result.status)
-        assertEquals("Saved on this phone. It will sync automatically.", vm.state.value.result.message)
+        assertEquals(CountsWriteStatus.IDLE, vm.state.value.result.status)
+        assertTrue(vm.state.value.returnToActions)
+        assertEquals("Saved on this phone. It will sync automatically.", vm.state.value.submissionNotice)
         assertEquals(
             listOf(
                 AnalyticsEvents.COUNTS_SHIFTING_CONFIRM_OPENED,
