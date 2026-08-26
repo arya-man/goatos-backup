@@ -47,6 +47,7 @@ class ToxinTaskListViewModelTest {
             originLine = "Retest after an invalid strip",
             stepsDone = 3,
             stepsTotal = 7,
+            canExecute = true,
         ).toCardUi()
 
         assertEquals("task-1", card.listKey)
@@ -64,10 +65,28 @@ class ToxinTaskListViewModelTest {
         // replacement arrives as its OWN task (retest = a new round, never an edit), so closing
         // this row strands nothing.
         listOf("pending_review", "accepted", "cancelled").forEach { status ->
-            val card = ToxinTaskDto(taskId = "task-$status", status = status, statusChip = "Chip").toCardUi()
+            val card = ToxinTaskDto(taskId = "task-$status", status = status, statusChip = "Chip", canExecute = true).toCardUi()
             assertFalse("status=$status must not open", card.openable)
             assertEquals("Chip", card.statusChip)
         }
+    }
+
+    @Test
+    fun `a watcher sees the same open round as a card that does not open`() {
+        // Maintainer decision 2026-08-26: CEO/CXO watches and casts the verdict; only the named
+        // testers run the test. Their card still carries the full backend chip and context line —
+        // it simply stops being a way in, so nobody films a step the server would refuse.
+        val watched = ToxinTaskDto(
+            taskId = "task-1",
+            status = "in_progress",
+            statusChip = "In progress",
+            contextLine = "Maize · Kumar Traders · Load 4 · 25 Aug",
+            canExecute = false,
+        ).toCardUi()
+
+        assertFalse("a watcher's card must not open", watched.openable)
+        assertEquals("In progress", watched.statusChip)
+        assertEquals("Maize · Kumar Traders · Load 4 · 25 Aug", watched.contextLine)
     }
 
     @Test
