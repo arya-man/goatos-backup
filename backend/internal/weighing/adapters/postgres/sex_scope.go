@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
 // Sex scoping for the Weights REPORTING screen.
@@ -81,7 +83,13 @@ func normalizeSexFilter(sex string) (string, error) {
 	case "female":
 		return "female", nil
 	default:
-		return "", fmt.Errorf("weighing: unsupported sex filter %q", sex)
+		// WRAPPED IN ErrInvalidArgument so the HTTP layer answers 400, not 500. A bare fmt.Errorf
+		// fell through every errors.Is arm of the weighing error mapper and landed on the
+		// internal-error path: `?sex=foo` returned "500 internal error" while the handler's own
+		// comment claimed unknown values were rejected as invalid input. A caller who mistypes a
+		// filter has made a bad REQUEST, and telling them the server broke sends them looking in
+		// the wrong place.
+		return "", fmt.Errorf("%w: unsupported sex filter %q", ports.ErrInvalidArgument, sex)
 	}
 }
 
