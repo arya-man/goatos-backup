@@ -169,4 +169,32 @@ class OutboxSameMillisecondOrderTest {
         assertEquals(listOf("other-submit"), eligible)
         database.close()
     }
+
+    @Test
+    fun `a terminal failed shifting raise does not block the next raise into the same shed`() = runBlocking {
+        val database = db()
+        val dao = database.outboxDao()
+        dao.insert(
+            row(
+                "old-shift",
+                "COUNTS_SHIFTING",
+                "destination-shed-1",
+                createdAt = 5L,
+                status = "FAILED",
+                nextAttemptAt = Long.MAX_VALUE,
+                attempts = 1,
+                conflict = true,
+            ),
+        )
+        dao.insert(row("new-shift", "COUNTS_SHIFTING", "destination-shed-1", createdAt = 6L))
+
+        val eligible = dao.eligibleForDrain(now = 1_000L, limit = 50).map { it.id }
+
+        assertEquals(
+            "one rejected shifting raise must not poison every future move into that destination shed",
+            listOf("new-shift"),
+            eligible,
+        )
+        database.close()
+    }
 }
