@@ -155,6 +155,43 @@ class BackendAnalyticsAdapterTest {
     }
 
     @Test
+    fun `proof camera capture result is durable and preserves camera diagnostics on replay`() = runTest {
+        val api = FakeAppApi(shouldFail = true)
+        val queue = DurableAnalyticsQueue(context, ioDispatcher = kotlinx.coroutines.test.UnconfinedTestDispatcher())
+        val backend = adapter(api, this, queue)
+
+        backend.track(
+            AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
+            mapOf(
+                AnalyticsEvents.Params.KIND to "photo",
+                AnalyticsEvents.Params.SOURCE to "inventory_vaccine_stock",
+                AnalyticsEvents.Params.RESULT to "success",
+                AnalyticsEvents.Params.STATUS to "torch_on",
+                "torch_mode" to "auto",
+                "low_light" to "true",
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals(1, queue.size())
+        val originalId = api.received.single().clientEventId
+        api.received.clear()
+
+        api.shouldFail = false
+        backend.track(AnalyticsEvents.APP_OPEN)
+        advanceUntilIdle()
+
+        assertEquals(0, queue.size())
+        val drained = api.received.single { it.eventName == AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT }
+        assertEquals(originalId, drained.clientEventId)
+        assertEquals("photo", drained.properties[AnalyticsEvents.Params.KIND])
+        assertEquals("inventory_vaccine_stock", drained.properties[AnalyticsEvents.Params.SOURCE])
+        assertEquals("success", drained.properties[AnalyticsEvents.Params.RESULT])
+        assertEquals("torch_on", drained.properties[AnalyticsEvents.Params.STATUS])
+        assertEquals("auto", drained.properties["torch_mode"])
+        assertEquals("true", drained.properties["low_light"])
+    }
+
+    @Test
     fun `the critical event allowlist covers the documented forensic events`() {
         val allowlist = BackendAnalyticsAdapter.CRITICAL_EVENT_ALLOWLIST
         assertTrue(allowlist.contains("proof_processing_failed"))

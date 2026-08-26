@@ -58,3 +58,15 @@ internal fun proofCameraStatus(torchEnabled: Boolean): String =
     if (torchEnabled) "torch_on" else "torch_off"
 
 internal fun ProofTorchMode.analyticsValue(): String = name.lowercase()
+
+internal fun proofCameraDiagnosticProps(
+    torchEnabled: Boolean,
+    torchMode: ProofTorchMode,
+    lowLight: Boolean,
+    hasFlashUnit: Boolean,
+): Map<String, String> = mapOf(
+    AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+    "torch_mode" to torchMode.analyticsValue(),
+    "low_light" to lowLight.toString(),
+    "has_flash_unit" to hasFlashUnit.toString(),
+)

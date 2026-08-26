@@ -148,6 +148,8 @@ class AnalyticsContractTest {
                 "processed_size_bucket" to "1_5mb",
                 "proof_upload_status" to "synced",
                 "submit_status" to "retrying",
+                "torch_mode" to "auto",
+                "low_light" to "true",
                 "attempt_count" to "2",
                 "max_attempts" to "5",
                 "geocoded_address" to "full street address should stay out of firebase",
@@ -171,6 +173,7 @@ class AnalyticsContractTest {
         assertEquals("processed", params["processing_state"])
         assertEquals("synced", params["proof_upload_status"])
         assertEquals("retrying", params["submit_status"])
+        assertEquals("auto", params["torch_mode"])
         // Dropped-from-Firebase diagnostics: still not backfilled from arbitrary props.
         assertNull("Params.RFID is a duplicate of rfid_tag; dropped to stay within the 25-cap", params[AnalyticsEvents.Params.RFID])
         assertNull(params["capture_source"])
@@ -179,8 +182,10 @@ class AnalyticsContractTest {
         assertNull(params["upload_original"])
         assertNull(params["location_status"])
         assertNull(params["geocoder_status"])
+        assertNull(params["duration_bucket"])
         assertNull(params["original_size_bucket"])
         assertNull(params["processed_size_bucket"])
+        assertNull(params["low_light"])
         assertNull(params["attempt_count"])
         assertNull(params["max_attempts"])
         assertNull(params["subject_id"])
@@ -265,9 +270,9 @@ class AnalyticsContractTest {
             put(AnalyticsEvents.Params.OUTCOME, "v")
             put(AnalyticsEvents.Params.REASON, "v")
             put("processing_state", "v")
-            put("duration_bucket", "v")
             put("proof_upload_status", "v")
             put("submit_status", "v")
+            put("torch_mode", "v")
             put(AnalyticsEvents.Params.RESULT, "v")
             put(AnalyticsEvents.Params.SLOT_MASK, "v")
             put(AnalyticsEvents.Params.RETRY_COUNT, "v")

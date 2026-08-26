@@ -150,12 +150,13 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
             AnalyticsEvents.PROOF_CAMERA_SHUTTER_TAPPED,
             PROOF_CAMERA_KIND_PHOTO,
             source = proofCameraSource(photoContext.prompt),
-            props = mapOf(
-                AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+            props = proofCameraDiagnosticProps(
+                torchEnabled = torchEnabled,
+                torchMode = torchMode,
+                lowLight = lowLight,
+                hasFlashUnit = hasFlashUnit,
+            ) + mapOf(
                 AnalyticsEvents.Params.OUTCOME to if (cameraReady) "camera_ready" else "camera_not_ready",
-                "torch_mode" to torchMode.analyticsValue(),
-                "low_light" to lowLight.toString(),
-                "has_flash_unit" to hasFlashUnit.toString(),
             ),
         )
         val file = newPhotoCaptureFile(context)
@@ -170,9 +171,13 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
                         AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
                         PROOF_CAMERA_KIND_PHOTO,
                         source = proofCameraSource(photoContext.prompt),
-                        props = mapOf(
+                        props = proofCameraDiagnosticProps(
+                            torchEnabled = torchEnabled,
+                            torchMode = torchMode,
+                            lowLight = lowLight,
+                            hasFlashUnit = hasFlashUnit,
+                        ) + mapOf(
                             AnalyticsEvents.Params.RESULT to "success",
-                            AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
                         ),
                     )
                     deliver(
@@ -191,7 +196,12 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
                         AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
                         PROOF_CAMERA_KIND_PHOTO,
                         source = proofCameraSource(photoContext.prompt),
-                        props = mapOf(
+                        props = proofCameraDiagnosticProps(
+                            torchEnabled = torchEnabled,
+                            torchMode = torchMode,
+                            lowLight = lowLight,
+                            hasFlashUnit = hasFlashUnit,
+                        ) + mapOf(
                             AnalyticsEvents.Params.RESULT to "failure",
                             AnalyticsEvents.Params.REASON to (exception::class.simpleName ?: "image_capture_error"),
                         ),
@@ -206,16 +216,23 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
             AnalyticsEvents.PROOF_CAMERA_CANCEL_TAPPED,
             PROOF_CAMERA_KIND_PHOTO,
             source = proofCameraSource(photoContext.prompt),
-            props = mapOf(
-                AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
-                "torch_mode" to torchMode.analyticsValue(),
+            props = proofCameraDiagnosticProps(
+                torchEnabled = torchEnabled,
+                torchMode = torchMode,
+                lowLight = lowLight,
+                hasFlashUnit = hasFlashUnit,
             ),
         )
         analytics.trackProofCamera(
             AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
             PROOF_CAMERA_KIND_PHOTO,
             source = proofCameraSource(photoContext.prompt),
-            props = mapOf(AnalyticsEvents.Params.RESULT to "cancelled"),
+            props = proofCameraDiagnosticProps(
+                torchEnabled = torchEnabled,
+                torchMode = torchMode,
+                lowLight = lowLight,
+                hasFlashUnit = hasFlashUnit,
+            ) + mapOf(AnalyticsEvents.Params.RESULT to "cancelled"),
         )
         deliver(null)
     }
@@ -276,6 +293,20 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
                         onError = {
                             cameraReady = false
                             cameraError = cameraUnavailableMessage
+                            analytics.trackProofCamera(
+                                AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
+                                PROOF_CAMERA_KIND_PHOTO,
+                                source = proofCameraSource(photoContext.prompt),
+                                props = proofCameraDiagnosticProps(
+                                    torchEnabled = false,
+                                    torchMode = torchMode,
+                                    lowLight = lowLight,
+                                    hasFlashUnit = hasFlashUnit,
+                                ) + mapOf(
+                                    AnalyticsEvents.Params.RESULT to "failure",
+                                    AnalyticsEvents.Params.REASON to "camera_bind_error",
+                                ),
+                            )
                         },
                     )
                 }
@@ -348,6 +379,7 @@ private fun InAppPhotoCaptureOverlay(photoContext: PhotoCaptureContext, onResult
                                 AnalyticsEvents.Params.PREVIOUS to previous.analyticsValue(),
                                 AnalyticsEvents.Params.NEXT to next.analyticsValue(),
                                 AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+                                "torch_mode" to next.analyticsValue(),
                                 "low_light" to lowLight.toString(),
                                 "has_flash_unit" to hasFlashUnit.toString(),
                             ),

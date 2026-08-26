@@ -141,7 +141,12 @@ fun InAppVideoRecorderOverlay(
                 AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
                 PROOF_CAMERA_KIND_VIDEO,
                 source = analyticsSource,
-                props = mapOf(
+                props = proofCameraDiagnosticProps(
+                    torchEnabled = torchEnabled,
+                    torchMode = torchMode,
+                    lowLight = lowLight,
+                    hasFlashUnit = hasFlashUnit,
+                ) + mapOf(
                     AnalyticsEvents.Params.RESULT to "failure",
                     AnalyticsEvents.Params.REASON to "record_audio_permission_missing",
                 ),
@@ -153,12 +158,13 @@ fun InAppVideoRecorderOverlay(
             AnalyticsEvents.PROOF_CAMERA_RECORD_STARTED,
             PROOF_CAMERA_KIND_VIDEO,
             source = analyticsSource,
-            props = mapOf(
-                AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+            props = proofCameraDiagnosticProps(
+                torchEnabled = torchEnabled,
+                torchMode = torchMode,
+                lowLight = lowLight,
+                hasFlashUnit = hasFlashUnit,
+            ) + mapOf(
                 AnalyticsEvents.Params.OUTCOME to if (previewStreaming) "preview_streaming" else "preview_waiting",
-                "torch_mode" to torchMode.analyticsValue(),
-                "low_light" to lowLight.toString(),
-                "has_flash_unit" to hasFlashUnit.toString(),
             ),
         )
         activeRecording = capture.output
@@ -181,7 +187,12 @@ fun InAppVideoRecorderOverlay(
                             AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
                             PROOF_CAMERA_KIND_VIDEO,
                             source = analyticsSource,
-                            props = mapOf(AnalyticsEvents.Params.RESULT to "cancelled"),
+                            props = proofCameraDiagnosticProps(
+                                torchEnabled = torchEnabled,
+                                torchMode = torchMode,
+                                lowLight = lowLight,
+                                hasFlashUnit = hasFlashUnit,
+                            ) + mapOf(AnalyticsEvents.Params.RESULT to "cancelled"),
                         )
                         deliver(null)
                     } else if (!event.hasError()) {
@@ -193,7 +204,12 @@ fun InAppVideoRecorderOverlay(
                             AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
                             PROOF_CAMERA_KIND_VIDEO,
                             source = analyticsSource,
-                            props = mapOf(
+                            props = proofCameraDiagnosticProps(
+                                torchEnabled = torchEnabled,
+                                torchMode = torchMode,
+                                lowLight = lowLight,
+                                hasFlashUnit = hasFlashUnit,
+                            ) + mapOf(
                                 AnalyticsEvents.Params.RESULT to "failure",
                                 AnalyticsEvents.Params.REASON to "camera_finalize_error",
                             ),
@@ -210,8 +226,12 @@ fun InAppVideoRecorderOverlay(
             AnalyticsEvents.PROOF_CAMERA_RECORD_STOP_TAPPED,
             PROOF_CAMERA_KIND_VIDEO,
             source = analyticsSource,
-            props = mapOf(
-                AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+            props = proofCameraDiagnosticProps(
+                torchEnabled = torchEnabled,
+                torchMode = torchMode,
+                lowLight = lowLight,
+                hasFlashUnit = hasFlashUnit,
+            ) + mapOf(
                 AnalyticsEvents.Params.DURATION_MS to (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L).toString(),
             ),
         )
@@ -223,9 +243,11 @@ fun InAppVideoRecorderOverlay(
             AnalyticsEvents.PROOF_CAMERA_CANCEL_TAPPED,
             PROOF_CAMERA_KIND_VIDEO,
             source = analyticsSource,
-            props = mapOf(
-                AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
-                "torch_mode" to torchMode.analyticsValue(),
+            props = proofCameraDiagnosticProps(
+                torchEnabled = torchEnabled,
+                torchMode = torchMode,
+                lowLight = lowLight,
+                hasFlashUnit = hasFlashUnit,
             ),
         )
         cancelled = true
@@ -235,7 +257,12 @@ fun InAppVideoRecorderOverlay(
                 AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
                 PROOF_CAMERA_KIND_VIDEO,
                 source = analyticsSource,
-                props = mapOf(AnalyticsEvents.Params.RESULT to "cancelled"),
+                props = proofCameraDiagnosticProps(
+                    torchEnabled = torchEnabled,
+                    torchMode = torchMode,
+                    lowLight = lowLight,
+                    hasFlashUnit = hasFlashUnit,
+                ) + mapOf(AnalyticsEvents.Params.RESULT to "cancelled"),
             )
             deliver(null)
         } else {
@@ -267,6 +294,20 @@ fun InAppVideoRecorderOverlay(
             if (!previewStreaming) {
                 previewTimeoutTriggered = true
                 cameraError = previewTimeoutMessage
+                analytics.trackProofCamera(
+                    AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
+                    PROOF_CAMERA_KIND_VIDEO,
+                    source = analyticsSource,
+                    props = proofCameraDiagnosticProps(
+                        torchEnabled = torchEnabled,
+                        torchMode = torchMode,
+                        lowLight = lowLight,
+                        hasFlashUnit = hasFlashUnit,
+                    ) + mapOf(
+                        AnalyticsEvents.Params.RESULT to "failure",
+                        AnalyticsEvents.Params.REASON to "preview_timeout",
+                    ),
+                )
             }
         }
     }
@@ -314,7 +355,11 @@ fun InAppVideoRecorderOverlay(
                         AnalyticsEvents.Params.RESULT to "success",
                         AnalyticsEvents.Params.DURATION_MS to
                             (captured.endedAtMs - captured.startedAtMs).coerceAtLeast(0L).toString(),
-                        AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+                    ) + proofCameraDiagnosticProps(
+                        torchEnabled = torchEnabled,
+                        torchMode = torchMode,
+                        lowLight = lowLight,
+                        hasFlashUnit = hasFlashUnit,
                     ),
                 )
                 deliver(captured)
@@ -326,7 +371,12 @@ fun InAppVideoRecorderOverlay(
                     AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
                     PROOF_CAMERA_KIND_VIDEO,
                     source = analyticsSource,
-                    props = mapOf(
+                    props = proofCameraDiagnosticProps(
+                        torchEnabled = torchEnabled,
+                        torchMode = torchMode,
+                        lowLight = lowLight,
+                        hasFlashUnit = hasFlashUnit,
+                    ) + mapOf(
                         AnalyticsEvents.Params.RESULT to "failure",
                         AnalyticsEvents.Params.REASON to "invalid_video",
                     ),
@@ -383,6 +433,20 @@ fun InAppVideoRecorderOverlay(
                             cameraReady = false
                             previewStreaming = false
                             cameraError = cameraUnavailableMessage
+                            analytics.trackProofCamera(
+                                AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT,
+                                PROOF_CAMERA_KIND_VIDEO,
+                                source = analyticsSource,
+                                props = proofCameraDiagnosticProps(
+                                    torchEnabled = false,
+                                    torchMode = torchMode,
+                                    lowLight = lowLight,
+                                    hasFlashUnit = hasFlashUnit,
+                                ) + mapOf(
+                                    AnalyticsEvents.Params.RESULT to "failure",
+                                    AnalyticsEvents.Params.REASON to "camera_bind_error",
+                                ),
+                            )
                         },
                     )
                 }
@@ -478,6 +542,7 @@ fun InAppVideoRecorderOverlay(
                                 AnalyticsEvents.Params.PREVIOUS to previous.analyticsValue(),
                                 AnalyticsEvents.Params.NEXT to next.analyticsValue(),
                                 AnalyticsEvents.Params.STATUS to proofCameraStatus(torchEnabled),
+                                "torch_mode" to next.analyticsValue(),
                                 "low_light" to lowLight.toString(),
                                 "has_flash_unit" to hasFlashUnit.toString(),
                             ),
