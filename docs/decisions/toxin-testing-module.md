@@ -302,3 +302,42 @@ audience is logged loudly and sends nothing — a message nobody receives must n
 Copy names the load, per the meaningful-notification rule: *"Maize from Kamadhenu Feeds (P) Limited
 at CBE (4200 kg, batch 12) arrived 25/08/2026 and the strip test has not been started. It has been
 waiting 15 hours."* Pinned by `TestOverdueReminderNamesTheLoad`.
+## The Feed → Toxin report (maintainer decision 2026-08-26)
+
+A web page under Feed, `/feed/toxin`, answering what the task list cannot: which loads arrived,
+who tested them, what the strip said, and whether the screening is keeping up.
+
+**THE GRAIN IS THE FEED LOAD, NOT THE TEST — this is the whole design.** A delivery whose strip
+came back void is retested, so it carries two or three `toxin_test_tasks` rows. It is still ONE
+delivery. A per-task report would count that bag of feed twice and show two outstanding problems
+where the farm has one. Every figure on the page is therefore taken from the load's LATEST round,
+selected with `DISTINCT ON (feed_purchase_id) ORDER BY round_no DESC` — an EXACT collapse, not a
+ranking guess, because `toxin_test_tasks_round_uq (tenant_id, feed_purchase_id, round_no)` already
+makes it unique. Pinned by `TestReportCountsLoadsNotRounds`, which drives a void-then-retest
+delivery through the real Postgres and asserts the report lists one row for three task rows.
+
+**Chips are a partition.** All / Waiting / In review / Cleared / Flagged are disjoint and
+exhaustive over every `(status, outcome)` pair, so a load appears under exactly one and the badge
+on a chip always equals the rows that chip lists. `TestReportFiltersPartitionEveryStatusAndOutcome`
+asserts it in the domain, and `TestReportBucketSQLMatchesTheDomainPartition` drives every pair
+through BOTH the SQL `CASE` and the Go function so the two implementations cannot drift.
+
+**An accepted POSITIVE is Flagged, never Cleared.** Reading "cleared" off `status='accepted'`
+alone would tell the farm a contaminated load is safe to feed — the single most consequential line
+on the page, pinned by `TestAcceptedPositiveIsFlaggedNotCleared`.
+
+**Access.** `GET /feed/toxin/reports` is gated on `toxin.read`, NOT `toxin.verdict`: reading the
+record is a different authority from accepting a positive, and a future feed-desk reader must not
+need the second to do the first. Both halves per
+`docs/decisions/role-scoped-ui-is-capability-gated.md` — the `toxin_report` page-contract control
+is the UI half, the route permission is the endpoint half.
+
+**Windows.** The KPI strip, weekly series and supplier rollup cover 30 days. The loads TABLE is
+deliberately unwindowed: a load waiting since before the window is exactly the row a reader needs,
+and windowing it away would make the screening look finished.
+
+**Suppliers to watch** ranks by the share of a supplier's loads that came back positive or void,
+and excludes suppliers with a single load — one bad load out of one is 100% on no evidence.
+
+Out of scope in this first cut, deliberately: no row drawer (the strip photo and step timeline stay
+on the CEO review surface), and no park filter — the report is small enough to read whole.

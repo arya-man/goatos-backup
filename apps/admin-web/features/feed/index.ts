@@ -16,3 +16,4 @@ export { FeedDirectionPage } from "./feed-direction";
 export { FeedPackingPage } from "./feed-packing";
 export { FeedConfigPage } from "./feed-config";
 export { FeedAnalyticsPage } from "./feed-analytics";
+export { ToxinReportPage } from "./toxin-report";

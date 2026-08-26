@@ -2596,6 +2596,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed/toxin/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The Feed -> Toxin leadership report.
+         * @description One row per FEED LOAD -- that load's latest test round -- plus the 30-day summary, the weekly received-vs-tested series, the outcome mix and the supplier rollup. The grain is the load, never the task: a delivery that was retested after a void strip carries several rounds and must still read as ONE delivery. Gated on toxin.read, not toxin.verdict: this is a record of what arrived, not the authority to accept a positive.
+         */
+        get: operations["loadToxinReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/toxin/review": {
         parameters: {
             query?: never;
@@ -5471,6 +5491,97 @@ export interface components {
             /** @description Whether this chip is the slice the response was served for. */
             selected: boolean;
             /** @description Backend-owned copy for when THIS slice has no rows, rendered verbatim. Carried per slice because "nothing here" means something different in each. */
+            empty_message: string;
+        };
+        ToxinReportFilter: {
+            /** @enum {string} */
+            key: "all" | "waiting" | "review" | "cleared" | "flagged";
+            /** @description Backend-owned chip copy */
+            label: string;
+            /** @description WHOLE-TENANT count of LOADS in this slice, never a page-local sum. */
+            count: number;
+            selected: boolean;
+            /** @description Backend-owned copy for when THIS slice is empty. Per slice, because empty under Flagged is good news and empty under All is not. */
+            empty_message: string;
+        };
+        ToxinReportLoad: {
+            /** Format: uuid */
+            feed_purchase_id: string;
+            /**
+             * Format: uuid
+             * @description The LATEST round for this load; earlier rounds stay readable on the task.
+             */
+            task_id: string;
+            /** @description Which test round this is; >1 means it was retested. */
+            round_no: number;
+            feed_item_label: string;
+            /** @description Backend-composed sub-line, e.g. "Batch 4 - CPT - test 2". */
+            batch_label: string;
+            vendor: string;
+            farm_label: string;
+            /** Format: date */
+            purchase_date: string;
+            quantity_kg: number;
+            quantity_label: string;
+            /** @description Resolved workforce NAME, blank when nobody has tested it or the person cannot be resolved. Never a user id. */
+            tested_by_name: string;
+            /** @description What the column renders */
+            tested_by_label: string;
+            /** @description IST reading time; blank when not submitted. */
+            submitted_at: string;
+            /** @description What the strip said */
+            result_label: string;
+            /** @enum {string} */
+            result_tone: "ok" | "warn" | "danger" | "info" | "muted";
+            /** @description Recorded-to-reading for a tested load; how long it has been waiting otherwise. */
+            turnaround_label: string;
+            /** @enum {string} */
+            bucket: "all" | "waiting" | "review" | "cleared" | "flagged";
+        };
+        ToxinReportSummary: {
+            loads_received: number;
+            loads_received_note: string;
+            loads_tested: number;
+            loads_tested_note: string;
+            needs_attention: number;
+            needs_attention_note: string;
+            waiting: number;
+            waiting_note: string;
+            window_label: string;
+            /** @description The banner; blank when nothing is flagged. */
+            alert_message: string;
+        };
+        ToxinReportWeek: {
+            /** Format: date */
+            week_start: string;
+            label: string;
+            received: number;
+            tested: number;
+        };
+        ToxinReportMixSlice: {
+            key: string;
+            label: string;
+            count: number;
+            /** @enum {string} */
+            tone: "ok" | "warn" | "danger" | "info" | "muted";
+        };
+        ToxinReportVendor: {
+            vendor: string;
+            loads: number;
+            flagged: number;
+            share_label: string;
+            /** @enum {string} */
+            tone: "ok" | "warn" | "danger" | "info" | "muted";
+        };
+        ToxinReport: {
+            filters: components["schemas"]["ToxinReportFilter"][];
+            loads: components["schemas"]["ToxinReportLoad"][];
+            next_cursor: string;
+            summary: components["schemas"]["ToxinReportSummary"];
+            weeks: components["schemas"]["ToxinReportWeek"][];
+            outcome_mix: components["schemas"]["ToxinReportMixSlice"][];
+            vendors: components["schemas"]["ToxinReportVendor"][];
+            /** @description The SELECTED chip's empty line, so the table never shows another slice's copy. */
             empty_message: string;
         };
         ToxinTaskDetail: components["schemas"]["ToxinTask"] & {
@@ -17833,6 +17944,35 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    loadToxinReport: {
+        parameters: {
+            query?: {
+                /** @description Which slice of loads to list. The chips are disjoint and exhaustive over every task status; absent or unknown means all. */
+                filter?: "all" | "waiting" | "review" | "cleared" | "flagged";
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One keyset page of loads plus the whole-window analytics. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToxinReport"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

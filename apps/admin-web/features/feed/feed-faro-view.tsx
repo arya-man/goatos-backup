@@ -18,15 +18,27 @@ import { faro } from "@grafana/faro-web-sdk";
 // No visible output — this component renders nothing.
 
 export type FeedFaroViewProps = {
-  /** The page contract's route_id: feed-direction | feed-packing | feed-config. */
+  /** The page contract's route_id: feed-direction | feed-packing | feed-config | toxin-reports. */
   routeId: string;
   parkId?: string;
   targetDate?: string;
   /** Authored ration gaps visible on this page, when the surface reports them. */
   blockedCells?: number;
+  /**
+   * Feed loads whose aflatoxin strip came back positive or unusable, on the Toxin report.
+   * Tracked for the same reason as blockedCells: a flagged load is a bag of feed nobody should
+   * issue, and its count must be visible over time rather than only to whoever opened the page.
+   */
+  flaggedLoads?: number;
 };
 
-export function FeedFaroView({ routeId, parkId, targetDate, blockedCells }: FeedFaroViewProps) {
+export function FeedFaroView({
+  routeId,
+  parkId,
+  targetDate,
+  blockedCells,
+  flaggedLoads,
+}: FeedFaroViewProps) {
   useEffect(() => {
     // faro.api is undefined when Faro was never initialized (no collector configured locally, or
     // during SSR) — the optional call keeps this a no-op there rather than a crash.
@@ -35,8 +47,9 @@ export function FeedFaroView({ routeId, parkId, targetDate, blockedCells }: Feed
       park_id: parkId ?? "",
       target_date: targetDate ?? "",
       blocked_cells: blockedCells === undefined ? "" : String(blockedCells),
+      flagged_loads: flaggedLoads === undefined ? "" : String(flaggedLoads),
     });
-  }, [routeId, parkId, targetDate, blockedCells]);
+  }, [routeId, parkId, targetDate, blockedCells, flaggedLoads]);
 
   return null;
 }

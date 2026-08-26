@@ -796,6 +796,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileSalesControls(out[i].Controls, input, out[i].Copy)
 		case "feed-purchases":
 			out[i].Controls = compileFeedPurchaseControls(out[i].Controls, input, out[i].Copy)
+		case "toxin-reports":
+			out[i].Controls = compileToxinReportControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 			// The breed catalog for the inline breed correction, injected the same way Feed's
@@ -804,6 +806,34 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 		}
 	}
 	return out
+}
+
+// compileToxinReportControls gates the Feed -> Toxin report on permissions.ToxinRead.
+//
+// Capability-gated per docs/decisions/role-scoped-ui-is-capability-gated.md, and BOTH halves are
+// named deliberately: this contract control is the UI half, and the ToxinRead gate on
+// loadToxinReport in permissions/routes.go is the endpoint half. Neither alone is the rule -- a
+// contract-only gate leaves the data readable by a typed URL, and an endpoint-only gate leaves a
+// nav leaf that opens onto an error.
+//
+// ToxinRead, NOT ToxinVerdict: reading what arrived and how the screening is keeping up is a
+// different authority from accepting a positive result, and a future feed-desk reader must not
+// need the second to do the first.
+func compileToxinReportControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	ungated := len(input.Grants) == 0
+	mayRead := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.ToxinRead})
+	reason := ""
+	if !mayRead {
+		reason = controlCopy(copy, "toxin_report.disabled_no_access", "Feed toxin results are visible to the CEO's office.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "toxin_report",
+		Label:          controlCopy(copy, "toxin_report.title", "Toxin results"),
+		Kind:           "visibility",
+		Enabled:        mayRead,
+		DisabledReason: reason,
+		Action:         "GET /feed/toxin/reports",
+	})
 }
 
 // compileHealthConfigControls splits /health/config by authority: HealthConfigRead reaches the
