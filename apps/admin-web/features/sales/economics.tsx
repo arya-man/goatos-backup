@@ -1,12 +1,15 @@
 import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
 
+import type { DateRangePickerLabels } from "@/components/date-range-picker";
 import { Tag } from "@/components/ui-primitives";
 import { BreedEconomicsBars, type BreedBarDatum } from "./breed-economics-bars";
+import { EconomicsDateFilter } from "./economics-date-filter";
 import { copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, getSalesEconomics, type BusinessEconomicsResponse } from "@/lib/api/server";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
+import { istDayPlus, todayIso } from "@/lib/format";
 import { humanDate, inr, num } from "@/features/procurement/sales-format";
 
 const PAGE_PATH = "/sales/economics";
@@ -32,11 +35,32 @@ function hrefWithQuery(sp: RouteSearchParams, patch: Record<string, string | nul
   return qs ? `${PAGE_PATH}?${qs}` : PAGE_PATH;
 }
 
-/** Today's business date in Asia/Kolkata, shifted back `daysBack` days (inclusive-window start). */
-function istDateDaysBack(daysBack: number): string {
-  const nowIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
-  nowIST.setUTCDate(nowIST.getUTCDate() - daysBack);
-  return nowIST.toISOString().slice(0, 10);
+const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The default window: the last DEFAULT_WINDOW days of business, ending today. */
+function defaultWindow(today: string): { from: string; to: string } {
+  return { from: istDayPlus(today, -(DEFAULT_WINDOW - 1)), to: today };
+}
+
+/**
+ * The selected inclusive window, both ends "YYYY-MM-DD" Asia/Kolkata business dates —
+ * what the API's from/to expect.
+ *
+ * The calendar and the quick-window chips write the SAME two parameters, so the screen
+ * carries one window concept rather than a picked range and a separate day count that can
+ * disagree about which is in force.
+ *
+ * Malformed, inverted or half-present parameters fall back to the default rather than
+ * throwing: a hand-edited URL must not take the page down. A future end is clamped to
+ * today, because nothing was weighed or fed tomorrow.
+ */
+function selectedWindow(params: RouteSearchParams, today: string): { from: string; to: string } {
+  const rawFrom = one(params, "from")?.trim();
+  const rawTo = one(params, "to")?.trim();
+  if (rawFrom && rawTo && BUSINESS_DAY.test(rawFrom) && BUSINESS_DAY.test(rawTo) && rawFrom <= rawTo) {
+    return { from: rawFrom > today ? today : rawFrom, to: rawTo > today ? today : rawTo };
+  }
+  return defaultWindow(today);
 }
 
 function signalTone(signal: string): "ok" | "dng" | "mut" {
@@ -86,13 +110,14 @@ export async function EconomicsPage({
 }) {
   const sp = searchParams;
   const park = one(sp, "park") ?? "";
-  const windowDays = boundedInt(one(sp, "days"), DEFAULT_WINDOW, WINDOW_DAYS[0], WINDOW_DAYS[WINDOW_DAYS.length - 1]);
+  const today = todayIso();
+  const fallback = defaultWindow(today);
+  const window = selectedWindow(sp, today);
 
   const result = await getSalesEconomics({
     park_id: park || undefined,
-    // The backend defaults to its own 90-day window; a chosen chip pins the start
-    // explicitly so 30/180 work the same way.
-    from: istDateDaysBack(windowDays - 1),
+    from: window.from,
+    to: window.to,
   });
   if (firstAuthRequiredError(result)) redirect(INTERNAL_LOGIN_PATH);
 
@@ -117,6 +142,19 @@ export async function EconomicsPage({
   const shedRows = sheds.slice((shedPage - 1) * shedPageSize, shedPage * shedPageSize);
 
   const priceBasisHint = pulse ? copy(pageContract, `kpi.realized_price.${pulse.price_basis}`) : "";
+
+  const pickerLabels: DateRangePickerLabels = {
+    field: copy(pageContract, "filter.date"),
+    today: copy(pageContract, "filter.date.today"),
+    single: copy(pageContract, "filter.date.single"),
+    range: copy(pageContract, "filter.date.range"),
+    aria: copy(pageContract, "filter.date.aria"),
+    previousMonth: copy(pageContract, "filter.date.previous_month"),
+    nextMonth: copy(pageContract, "filter.date.next_month"),
+    rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
+    rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
+    rangeSeparator: copy(pageContract, "filter.date.range_separator"),
+  };
 
   // Feed as the fill inside the return as the track, on ONE shared scale: a fill
   // that nearly covers its track is a breed barely paying for itself.
@@ -163,15 +201,36 @@ export async function EconomicsPage({
         <span className="muted small" style={{ alignSelf: "center" }}>
           {copy(pageContract, "filter.window")}:
         </span>
-        {WINDOW_DAYS.map((d) => (
-          <Link
-            key={d}
-            className={`btn small${windowDays === d ? " primary" : ""}`}
-            href={hrefWithQuery(sp, { days: String(d), spage: null })}
-          >
-            {d}d
-          </Link>
-        ))}
+        {WINDOW_DAYS.map((d) => {
+          // Presets write the SAME from/to the calendar does, so the two controls
+          // can never disagree about which window is in force. The default-length
+          // preset is expressed by ABSENCE, matching the calendar's contract.
+          const presetFrom = istDayPlus(today, -(d - 1));
+          const isDefault = d === DEFAULT_WINDOW;
+          const active = window.from === presetFrom && window.to === today;
+          return (
+            <Link
+              key={d}
+              className={`btn small${active ? " primary" : ""}`}
+              href={hrefWithQuery(sp, {
+                from: isDefault ? null : presetFrom,
+                to: isDefault ? null : today,
+                spage: null,
+              })}
+            >
+              {d}d
+            </Link>
+          );
+        })}
+        <EconomicsDateFilter
+          labels={pickerLabels}
+          basePath={PAGE_PATH}
+          from={window.from}
+          to={window.to}
+          today={today}
+          defaultFrom={fallback.from}
+          defaultTo={fallback.to}
+        />
       </div>
 
       {!result.ok ? (
