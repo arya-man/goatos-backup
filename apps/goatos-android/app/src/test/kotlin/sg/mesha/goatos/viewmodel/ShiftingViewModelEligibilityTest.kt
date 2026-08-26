@@ -21,6 +21,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
@@ -53,6 +54,7 @@ import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_HEALTH
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_SPACING
 import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_DESTINATION
 import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_KEEP_CURRENT
+import sg.mesha.goatos.feature.counts.CountsWriteStatus
 import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.rfid.FakeScanSource
 import sg.mesha.goatos.rfid.ScanSource
@@ -119,7 +121,7 @@ class ShiftingViewModelEligibilityTest {
     }
 
     @Test
-    fun `successful shifting submission clears the draft and requests return to Actions`() = runTest(dispatcher) {
+    fun `queued shifting submission clears the draft and requests return to Actions`() = runTest(dispatcher) {
         val sync = NoopShiftingSyncRepository()
         val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync)
         advanceUntilIdle()
@@ -132,17 +134,61 @@ class ShiftingViewModelEligibilityTest {
         vm.onEvent(ShiftingEvent.Submit)
         advanceUntilIdle()
 
-        sync.succeed("shift-outbox")
-        advanceUntilIdle()
-
         assertEquals("", vm.state.value.animalQuery)
         assertTrue(vm.state.value.selectedAnimals.isEmpty())
-        // A successful child form returns to Actions; it must not leave its success banner on the
-        // now-empty form, which is the current broken behaviour.
+        // The device has accepted the write once it is queued. Do not strand the operator on a
+        // locked copy of the old draft while the outbox waits for network/backend sync.
         assertNull(vm.state.value.lastRecordedMessage)
         assertTrue(vm.state.value.returnToActions)
+        assertEquals("Saved on this phone. It will sync automatically.", vm.state.value.submissionNotice)
         vm.onEvent(ShiftingEvent.NavigationHandled)
         assertFalse(vm.state.value.returnToActions)
+    }
+
+    @Test
+    fun `invalid shifting submit attempt is tracked before enqueue`() = runTest(dispatcher) {
+        val sync = NoopShiftingSyncRepository()
+        val analytics = NoopShiftingAnalytics()
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync, analytics = analytics)
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.Submit)
+
+        assertNull(sync.lastShiftingRequest)
+        assertEquals(AnalyticsEvents.SUBMIT_BLOCKED, analytics.events.single().first)
+        assertEquals("shifting", analytics.events.single().second[AnalyticsEvents.Params.KIND])
+        assertEquals(
+            "Find and select the animals that moved.",
+            analytics.events.single().second[AnalyticsEvents.Params.REASON],
+        )
+    }
+
+    @Test
+    fun `confirmed shifting submit records breadcrumbs and shows queued immediately`() = runTest(dispatcher) {
+        val sync = NoopShiftingSyncRepository()
+        val analytics = NoopShiftingAnalytics()
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync, analytics = analytics)
+        advanceUntilIdle()
+
+        selectAnimalAndPen(vm)
+        vm.onEvent(ShiftingEvent.RequestSubmitConfirmation)
+        assertTrue(vm.state.value.showSubmitConfirmation)
+
+        vm.onEvent(ShiftingEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals(CountsWriteStatus.IDLE, vm.state.value.result.status)
+        assertTrue(vm.state.value.returnToActions)
+        assertEquals("Saved on this phone. It will sync automatically.", vm.state.value.submissionNotice)
+        assertEquals(
+            listOf(
+                AnalyticsEvents.COUNTS_SHIFTING_CONFIRM_OPENED,
+                AnalyticsEvents.COUNTS_SHIFTING_SUBMIT_ATTEMPTED,
+                AnalyticsEvents.COUNTS_SHIFTING_SUBMITTED,
+            ),
+            analytics.events.map { it.first },
+        )
+        assertEquals("1", analytics.events.last().second[AnalyticsEvents.Params.ANIMAL_COUNT])
     }
 
     /**
@@ -422,10 +468,11 @@ class ShiftingViewModelEligibilityTest {
         syncRepository: NoopShiftingSyncRepository = NoopShiftingSyncRepository(),
         destinations: List<CountsDestinationParkDto>? = null,
         scanSource: ScanSource = FakeScanSource(),
+        analytics: NoopShiftingAnalytics = NoopShiftingAnalytics(),
     ) = ShiftingViewModel(
         syncRepository = syncRepository,
         countsRepository = FakeShiftingCountsRepository(matches, destinations),
-        analytics = NoopShiftingAnalytics(),
+        analytics = analytics,
         crashReporter = NoopShiftingCrashReporter(),
         scanSource = scanSource,
         savedStateHandle = SavedStateHandle(),
@@ -602,7 +649,7 @@ private class FakeShiftingCountsRepository(
     override suspend fun lookupAnimals(query: String, parkId: String?, shedId: String?): Result<List<GoatSearchItemDto>> = Result.success(matches)
 }
 
-private class NoopShiftingSyncRepository : SyncRepository {
+internal class NoopShiftingSyncRepository : SyncRepository {
     var lastShiftingRequest: CountsShiftingEventRequestDto? = null
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     fun succeed(itemId: String) {
@@ -653,7 +700,10 @@ private class NoopShiftingSyncRepository : SyncRepository {
 }
 
 private class NoopShiftingAnalytics : AnalyticsPort {
-    override fun track(event: String, props: Map<String, String>) {}
+    val events = mutableListOf<Pair<String, Map<String, String>>>()
+    override fun track(event: String, props: Map<String, String>) {
+        events += event to props
+    }
     override fun setUserProperty(name: String, value: String?) {}
     override fun setUserId(id: String?) {}
 }
