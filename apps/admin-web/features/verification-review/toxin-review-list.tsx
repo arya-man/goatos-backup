@@ -2,7 +2,7 @@
 
 // The CEO/CXO Toxin review list + drawer (maintainer decision 2026-08-25).
 //
-// Rendered on /verify when the backend-declared `toxin_tab` control is enabled and ?toxin=1 is
+// Mounted on /verify when the backend-declared `toxin_tab` control is enabled and ?toxin=1 is
 // selected. Every visible business string is BACKEND-OWNED: rows render status_chip /
 // context_line / outcome_label / origin_line verbatim (mapped in ./toxin-rows.ts), the drawer
 // renders the detail payload's step titles/instructions and the page contract's toxin.* copy.
