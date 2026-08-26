@@ -470,19 +470,28 @@ class ShiftingViewModel @Inject constructor(
      * change what they are confirming while they look at it.
      */
     private fun onRequestSubmitConfirmation() {
-        if (!_state.value.canSubmit) return
+        val current = _state.value
+        if (!current.canSubmit) {
+            trackSubmitBlocked(current)
+            return
+        }
         stopRfidScan()
+        analytics.track(AnalyticsEvents.COUNTS_SHIFTING_CONFIRM_OPENED, current.submitAnalyticsProps())
         _state.update { it.copy(showSubmitConfirmation = true) }
     }
 
     private fun submit() {
         val current = _state.value
-        if (!current.canSubmit) return
+        if (!current.canSubmit) {
+            trackSubmitBlocked(current)
+            return
+        }
         // The movement is being recorded: a reader still listening would drop the next animal's tag
         // into a form that has already left the operator's hands.
         stopRfidScan()
         _state.update { it.copy(showSubmitConfirmation = false) }
         val key = idempotencyKey.current()
+        analytics.track(AnalyticsEvents.COUNTS_SHIFTING_SUBMIT_ATTEMPTED, current.submitAnalyticsProps())
         viewModelScope.launch {
             val result = syncRepository.enqueueCountsShifting(
                 // Destination shed partitions ordering: two movements INTO the same shed drain
@@ -494,8 +503,14 @@ class ShiftingViewModel @Inject constructor(
             when (result) {
                 is AppResult.Ok -> {
                     outboxItemId.value = result.value
+                    _state.update {
+                        it.copy(
+                            result = CountsWriteResultUi(CountsWriteStatus.QUEUED, QUEUED_MESSAGE),
+                            canSubmit = false,
+                        )
+                    }
                     observeOutboxItem(result.value)
-                    analytics.track(AnalyticsEvents.COUNTS_SHIFTING_SUBMITTED)
+                    analytics.track(AnalyticsEvents.COUNTS_SHIFTING_SUBMITTED, current.submitAnalyticsProps())
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, "counts shifting enqueue failed") }
@@ -514,6 +529,24 @@ class ShiftingViewModel @Inject constructor(
             }
         }
     }
+
+    private fun trackSubmitBlocked(state: ShiftingUiState) {
+        val reason = state.validationMessage ?: "result_committed_or_form_not_ready"
+        analytics.track(
+            AnalyticsEvents.SUBMIT_BLOCKED,
+            state.submitAnalyticsProps() + (AnalyticsEvents.Params.REASON to reason),
+        )
+    }
+
+    private fun ShiftingUiState.submitAnalyticsProps(): Map<String, String> = mapOf(
+        AnalyticsEvents.Params.KIND to "shifting",
+        AnalyticsEvents.Params.ANIMAL_COUNT to selectedAnimals.size.toString(),
+        AnalyticsEvents.Params.PARK_ID to destinationParkId,
+        AnalyticsEvents.Params.SHED_ID to destinationShedId,
+        "priority" to priority,
+        "category" to category,
+        "stage_mode" to stageMode,
+    )
 
     /**
      * The wire body. `impacts` and `effective_at` are no longer sent at all: the backend derives

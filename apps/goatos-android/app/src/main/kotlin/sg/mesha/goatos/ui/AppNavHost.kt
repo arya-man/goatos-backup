@@ -2307,6 +2307,12 @@ fun AppNavHost(
                     .remove<String>(Routes.COUNTS_SHIFTING_SUBMISSION_NOTICE)
             }
             val pendingRows = pendingVm.rows.collectAsLazyPagingItems()
+            LaunchedEffect(submissionNotice) {
+                if (submissionNotice != null) {
+                    pendingVm.onEvent(ShiftingPendingEvent.Refresh)
+                    pendingRows.refresh()
+                }
+            }
             val refreshState = pendingRows.loadState.refresh
             LaunchedEffect(refreshState) {
                 when (refreshState) {
