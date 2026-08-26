@@ -501,3 +501,191 @@ func TestShedWeightsLatestWeighingDateSeesAScanOnlyDay(t *testing.T) {
 		}
 	}
 }
+
+// THE SEX FILTER REACHES EVERY BLOCK OF THE GROWTH READ, NOT MOST OF THEM.
+//
+// Review findings, 2026-08-26. One read resolves ONE sex scope and then hands it to a dozen
+// helpers, and four of them quietly ignored it -- three by never being passed it, one by taking
+// the parameters and never referencing them, which compiles and reads as done:
+//
+//   - lump_sum.shed_week_trend  accepted sexFiltered/scope and used neither, so a reader on Female
+//     saw a female headline above whole-shed pens holding no females.
+//   - sale_readiness            was never passed the scope, so "ready to sell" counted the whole
+//     herd beside a headline about half of it.
+//   - eligibility               likewise: the phone's "70/382" coverage tile ignored the filter.
+//   - shed_leaderboard          was HALF filtered -- its daily gain followed the scope while its
+//     kid count and median weight did not, so one row carried a male-only
+//     gain beside an all-kids count with nothing saying so.
+//
+// A whole-shed pen is claimed only when its cohort is entirely that sex, so a fixture whose only
+// pen is female must vanish from the male read completely -- head count included, which is the
+// assertion that catches a filter applied to the rows but not the aggregate.
+func TestGrowthReadSexFilterOneToManyPageBoundaryParkScopeStatusBuckets(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	from, to := shedWeightsWindow()
+
+	// Her OWN shed, holding nobody else. A whole-shed pen is claimed only when its cohort is
+	// entirely one sex, so putting her on a shed the shared fixture already fills with both sexes
+	// would make the pen mixed -- claimed by neither reader -- and the lump assertion below would
+	// then pass for the wrong reason.
+	const (
+		femaleGoat = "00000000-0000-4000-8000-0000000092a1"
+		femaleShed = "00000000-0000-4000-8000-0000000092a2"
+	)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+VALUES ($1::uuid, $2::uuid, 'shed', 'Sex Filter Demo Shed', $3::uuid, 'active')
+ON CONFLICT (tenant_id, location_id) DO NOTHING`, femaleShed, repoTenant, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, breed, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, 'G-990931', 'Beetal', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
+ON CONFLICT (goat_id) DO UPDATE SET sex = EXCLUDED.sex, shed_id = EXCLUDED.shed_id`,
+		femaleGoat, repoTenant, repoParty, femaleShed, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', 'FEMALE-TAG-1', 'female-tag-1', 'global', true, 'active', now(), 'test')
+ON CONFLICT DO NOTHING`, repoTenant, femaleGoat)
+
+	// Two weighs, two business days apart, so this kid has a real pair to count.
+	seedShedWeightScan(t, ctx, pool, "FEMALE-TAG-1", 18.0, time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedShedWeightScan(t, ctx, pool, "FEMALE-TAG-1", 20.0, time.Date(2026, 7, 17, 6, 0, 0, 0, time.UTC))
+
+	// A whole-shed pen whose residents are that same female cohort.
+	seedShedWeightsCampaign(t, ctx, pool, loadCampaignPartA, "2026-07-10")
+	insertProof(t, ctx, pool, repoShedProofTwo, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)
+	seedLoadBucketPartition(t, ctx, pool, loadPartAOld, loadCampaignPartA, femaleShed, "", "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, loadPartAOld, loadCampaignPartA, repoShedProof, 20.0, 10,
+		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+
+	female, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG(female): %v", err)
+	}
+	male, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "male")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG(male): %v", err)
+	}
+
+	// lump_sum: the pen is a FEMALE cohort, so it is the female reader's and nobody else's.
+	if len(female.LumpSum.ShedWeekTrend) == 0 {
+		t.Fatal("the female read must keep a female-cohort whole-shed pen in its lump-sum trend")
+	}
+	if n := len(male.LumpSum.ShedWeekTrend); n != 0 {
+		t.Fatalf("a female-cohort pen must not appear in the male lump-sum trend, got %d row(s)", n)
+	}
+	var maleHeads int
+	for _, p := range male.LumpSum.ShedWeekTrend {
+		maleHeads += p.HeadCount
+	}
+	if maleHeads != 0 {
+		t.Fatalf("the male lump-sum head count must be 0, got %d", maleHeads)
+	}
+
+	// eligibility: the female kid is countable for her, invisible to him.
+	if female.Eligibility.TotalAnimalsWeighed == 0 || female.Eligibility.AnimalsWithTwoPlusWeighs == 0 {
+		t.Fatalf("the female read must count her own coverage, got %#v", female.Eligibility)
+	}
+	if male.Eligibility.TotalAnimalsWeighed >= female.Eligibility.TotalAnimalsWeighed &&
+		female.Eligibility.TotalAnimalsWeighed > 0 && male.Eligibility.TotalAnimalsWeighed == female.Eligibility.TotalAnimalsWeighed {
+		t.Fatalf("eligibility ignored the filter: male=%d female=%d equal",
+			male.Eligibility.TotalAnimalsWeighed, female.Eligibility.TotalAnimalsWeighed)
+	}
+
+	// sale_readiness: a latest-EVER count, still narrowed to the reader's half of the herd.
+	if female.SaleReadiness.AnimalsConsidered == 0 {
+		t.Fatal("the female read must consider her own kids for sale readiness")
+	}
+	if male.SaleReadiness.AnimalsConsidered == female.SaleReadiness.AnimalsConsidered {
+		t.Fatalf("sale_readiness ignored the filter: both sexes considered %d animals",
+			male.SaleReadiness.AnimalsConsidered)
+	}
+
+	// shed_leaderboard: the row's COUNT must follow the same filter its gain already did.
+	var femaleLeaderboardN int
+	for _, row := range female.ShedLeaderboard {
+		femaleLeaderboardN += row.AnimalCount
+	}
+	var maleLeaderboardN int
+	for _, row := range male.ShedLeaderboard {
+		maleLeaderboardN += row.AnimalCount
+	}
+	if femaleLeaderboardN == 0 {
+		t.Fatal("the female leaderboard must count her kids")
+	}
+	if maleLeaderboardN == femaleLeaderboardN {
+		t.Fatalf("leaderboard counts ignored the filter: both sexes counted %d kids", maleLeaderboardN)
+	}
+
+	// ONE-TO-MANY. She was weighed TWICE. Every one of these blocks counts ANIMALS, not weighs, so
+	// two observations of one tag must collapse to one kid -- the fan-out that turns a coverage
+	// tile into a lie the moment an operator re-scans.
+	if got := female.Eligibility.TotalAnimalsWeighed; got != 1 {
+		t.Fatalf("two weighs of one tag are one animal: eligibility counted %d", got)
+	}
+	if got := female.Eligibility.AnimalsWithTwoPlusWeighs; got != 1 {
+		t.Fatalf("one animal has the second weigh, got %d", got)
+	}
+	if femaleLeaderboardN != 1 {
+		t.Fatalf("the leaderboard counts animals, not weighs: got %d", femaleLeaderboardN)
+	}
+
+	// PAGE BOUNDARY. LosingAnimalCount is a whole-filter summary and LosingAnimals is the list it
+	// drills into; the domain comment says both exist precisely because they answer different
+	// questions, and a summary recomputed from a page slice is how "15 losing" came to open a list
+	// of 2. They must agree here, where the list is whole.
+	if female.Headline.LosingAnimalCount != len(female.LosingAnimals) {
+		t.Fatalf("losing summary must match the list it opens: count=%d, list=%d",
+			female.Headline.LosingAnimalCount, len(female.LosingAnimals))
+	}
+
+	// PARK SCOPE. These kids and this pen hang off repoPark. A caller authorized for a park that
+	// owns none of them must get nothing back -- the scope predicate carrying, not the caller's
+	// good manners. Every block is checked, because a filter threaded into three of four is exactly
+	// the defect this test exists for.
+	const otherPark = "00000000-0000-4000-8000-0000000030fe"
+	scoped, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{otherPark}, from, to, "female")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG(other park): %v", err)
+	}
+	if len(scoped.LumpSum.ShedWeekTrend) != 0 || len(scoped.ShedLeaderboard) != 0 {
+		t.Fatalf("another park's growth read must be empty: %d lump row(s), %d leaderboard row(s)",
+			len(scoped.LumpSum.ShedWeekTrend), len(scoped.ShedLeaderboard))
+	}
+	if scoped.Eligibility.TotalAnimalsWeighed != 0 || scoped.SaleReadiness.AnimalsConsidered != 0 {
+		t.Fatalf("another park's coverage must be empty: eligibility=%d sale=%d",
+			scoped.Eligibility.TotalAnimalsWeighed, scoped.SaleReadiness.AnimalsConsidered)
+	}
+
+	// STATUS BUCKETS. A WITHDRAWN whole-shed weigh is not a measurement. `withdrawn_at IS NULL` is
+	// the live rule here -- migration 000058 narrowed verification_status to pending/verified/rework,
+	// so the `<> 'rejected'` predicates these queries still carry can no longer exclude anything --
+	// and it is why the uniqueness on that table is PARTIAL: a reopened bucket legitimately holds
+	// several rows, one of them live.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_shed_observations (
+  tenant_id, campaign_id, campaign_shed_id, weight_kg, average_weight_kg, animal_count,
+  proof_artifact_id, recorded_by, idempotency_key, accepted_at, verification_status, withdrawn_at
+) VALUES ($1::uuid, $2::uuid, $3::uuid, 499950, 999.9, 500,
+  $4::uuid, $5::uuid, 'sexfilter-withdrawn', $6::timestamptz, 'rework', $6::timestamptz)`,
+		repoTenant, loadCampaignPartA, loadPartAOld, repoShedProofTwo, repoOperator,
+		time.Date(2026, 7, 11, 6, 0, 0, 0, time.UTC))
+	afterWithdrawn, err := repo.GetLeadershipGrowthADG(ctx, repoTenant, []string{repoPark}, from, to, "female")
+	if err != nil {
+		t.Fatalf("GetLeadershipGrowthADG after a withdrawn weigh: %v", err)
+	}
+	var beforeHeads, afterHeads int
+	for _, p := range female.LumpSum.ShedWeekTrend {
+		beforeHeads += p.HeadCount
+	}
+	for _, p := range afterWithdrawn.LumpSum.ShedWeekTrend {
+		afterHeads += p.HeadCount
+	}
+	if afterHeads != beforeHeads {
+		t.Fatalf("a withdrawn weigh must not enter the lump-sum trend: %d head became %d", beforeHeads, afterHeads)
+	}
+}
