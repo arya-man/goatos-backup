@@ -384,6 +384,7 @@ fun GoatOsShell(navState: NavState) {
             canExecuteWeighing = canExecuteWeighing,
             canExecutePcCare = canExecutePcCare,
             canPlanPcCare = canPlanPcCare,
+            showCalendarAsDriveList = shouldPresentCalendarAsDriveList(navState.items),
             // The SAME "has this person's own navigation arrived yet" test the push-route effect
             // above applies. Destinations that redirect on an absent capability must not act while
             // every flag still reads false because bootstrap has not answered.
@@ -670,10 +671,11 @@ private fun MeshaNavBar(
         tonalElevation = 0.dp,
     ) {
         val currentBaseRoute = currentRoute?.routeBase()
-        // Backend-composed, MODULE-SCOPED destinations. Labels render verbatim: bootstrap_copy.go
-        // already localizes them (en/hi/kn/te), so re-translating client-side would both violate
-        // the golden frontend rule and actively mislabel items (the backend calls the vaccination
-        // module's own tab "Drives", not "Vaccination").
+        // Backend-composed, MODULE-SCOPED destinations. Labels normally render verbatim from
+        // bootstrap_copy.go. The one local alias below is scoped to the PC director's
+        // Stock-enabled vaccination bar: the backend route is still /calendar, but the product
+        // face is the operational Drives list, not the generic calendar module.
+        val stockEnabledVaccinationBar = items.any { it.key == "vaccination_stock" && it.href.routeBase() == Routes.VACCINATION_STOCK }
         items.forEach { item ->
             // Compare BASE to BASE. `currentBaseRoute` is already stripped at '?', but a
             // backend-composed href can carry a query -- the verifier's tabs are
@@ -683,6 +685,14 @@ private fun MeshaNavBar(
             // operator/CEO (whose hrefs carry no query) looked fine. Same mismatch also kept the
             // double-tap guard armed forever for those tabs.
             val isSelected = currentBaseRoute == item.href.routeBase()
+            val visibleLabel = if (
+                navBarItemIsDirectorDrivesAlias(stockEnabledVaccinationBar, item)
+            ) {
+                "Drives"
+            } else {
+                item.label
+            }
+            val visibleIcon = navBarIconFor(stockEnabledVaccinationBar, item)
             NavigationBarItem(
                 selected = isSelected,
                 onClick = {
@@ -690,18 +700,38 @@ private fun MeshaNavBar(
                 },
                 icon = {
                     Icon(
-                        imageVector = MeshaIcons.forNavKey(item.key),
-                        contentDescription = item.label,
+                        imageVector = visibleIcon,
+                        contentDescription = visibleLabel,
                         modifier = Modifier.size(24.dp),
                     )
                 },
                 // design-system:ignore: weight-only override on the M3 NavigationBarItem label
                 // (no fontSize to pair with); applying a full MeshaType style would also change
                 // the bar label's size away from the M3 default.
-                label = { Text(item.label, fontWeight = FontWeight.SemiBold) },
+                label = { Text(visibleLabel, fontWeight = FontWeight.SemiBold) },
                 colors = itemColors,
             )
         }
+    }
+}
+
+internal fun navBarIconFor(stockEnabledVaccinationBar: Boolean, item: NavItem): ImageVector =
+    if (navBarItemIsDirectorDrivesAlias(stockEnabledVaccinationBar, item)) {
+        MeshaIcons.Syringe
+    } else {
+        MeshaIcons.forNavKey(item.key)
+    }
+
+private fun navBarItemIsDirectorDrivesAlias(stockEnabledVaccinationBar: Boolean, item: NavItem): Boolean =
+    stockEnabledVaccinationBar &&
+        (item.key == "calendar" || item.key == "drives" || item.key == "vaccination_drives") &&
+        item.href.routeBase() == Routes.CALENDAR
+
+internal fun shouldPresentCalendarAsDriveList(items: List<NavItem>): Boolean {
+    val hasStock = items.any { it.key == "vaccination_stock" && it.href.routeBase() == Routes.VACCINATION_STOCK }
+    return items.any { item ->
+        item.href.routeBase() == Routes.CALENDAR &&
+            (item.key == "drives" || (hasStock && item.key == "calendar"))
     }
 }
 

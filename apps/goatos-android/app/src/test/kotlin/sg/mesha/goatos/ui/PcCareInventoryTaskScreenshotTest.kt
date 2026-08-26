@@ -11,6 +11,7 @@ import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.feature.pccare.PcCareInventoryRequirementUi
+import sg.mesha.goatos.feature.pccare.PcCareProofPreviewKind
 import sg.mesha.goatos.feature.pccare.PcCareSlotChipUi
 import sg.mesha.goatos.feature.pccare.PcCareSlotState
 import sg.mesha.goatos.feature.pccare.PcCareTaskScreen
@@ -48,6 +49,24 @@ class PcCareInventoryTaskScreenshotTest {
                                     statusLabel = "Not recorded",
                                     canRecord = true,
                                     description = "Take a photo or video of the vaccine stock inside the fridge.",
+                                ),
+                                taskProofPhotoSlot = PcCareSlotChipUi(
+                                    fieldKey = "stock_fridge_video",
+                                    label = "Fridge stock proof",
+                                    state = PcCareSlotState.SYNCED,
+                                    statusLabel = "Proof uploaded",
+                                    canRecord = true,
+                                    previewPath = "/tmp/goatos-stock-proof-photo.jpg",
+                                    previewKind = PcCareProofPreviewKind.PHOTO,
+                                ),
+                                taskProofVideoSlot = PcCareSlotChipUi(
+                                    fieldKey = "stock_fridge_video",
+                                    label = "Fridge stock proof",
+                                    state = PcCareSlotState.SYNCED,
+                                    statusLabel = "Proof uploaded",
+                                    canRecord = true,
+                                    previewPath = "/tmp/goatos-stock-proof-video.mp4",
+                                    previewKind = PcCareProofPreviewKind.VIDEO,
                                 ),
                                 submitEnabled = false,
                                 submitBlockedReason = "Record the fridge stock proof first",

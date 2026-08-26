@@ -45,6 +45,7 @@ import sg.mesha.goatos.capture.rememberDelegatingPhotoCaptureSource
 import sg.mesha.goatos.capture.rememberDelegatingProofCaptureSource
 import sg.mesha.goatos.feature.calendar.CalendarDayScreen
 import sg.mesha.goatos.feature.calendar.CalendarEvent
+import sg.mesha.goatos.feature.calendar.CalendarPresentation
 import sg.mesha.goatos.feature.calendar.CalendarScreen
 import sg.mesha.goatos.feature.counts.AddBirthEvent
 import sg.mesha.goatos.feature.counts.AddBirthScreen
@@ -1066,6 +1067,7 @@ fun AppNavHost(
     canExecuteWeighing: Boolean = false,
     canExecutePcCare: Boolean = false,
     canPlanPcCare: Boolean = false,
+    showCalendarAsDriveList: Boolean = false,
     /**
      * Whether the backend's nav answer has ARRIVED. Every `canExecute*` flag above is read off the
      * nav feature flags, which are empty until bootstrap resolves -- so before this is true they
@@ -1110,6 +1112,7 @@ fun AppNavHost(
             CalendarScreen(
                 state = state.copy(coverageBanner = coverageState),
                 monthItems = monthItems,
+                presentation = if (showCalendarAsDriveList) CalendarPresentation.DriveList else CalendarPresentation.Calendar,
                 onEvent = { event ->
                     when (event) {
                         is CalendarEvent.TapItem -> {

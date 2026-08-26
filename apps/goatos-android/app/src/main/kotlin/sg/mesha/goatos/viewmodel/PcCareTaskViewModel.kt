@@ -19,6 +19,7 @@ import kotlinx.serialization.json.Json
 import sg.mesha.goatos.capture.PhotoCaptureContext
 import sg.mesha.goatos.capture.PhotoCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureContext
+import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -48,6 +49,7 @@ import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskProofDto
 import sg.mesha.goatos.feature.pccare.PcCareAnimalUi
 import sg.mesha.goatos.feature.pccare.PcCareInventoryRequirementUi
+import sg.mesha.goatos.feature.pccare.PcCareProofPreviewKind
 import sg.mesha.goatos.feature.pccare.PcCareRosterRowUi
 import sg.mesha.goatos.feature.pccare.PcCareSlotChipUi
 import sg.mesha.goatos.feature.pccare.PcCareSlotState
@@ -463,6 +465,7 @@ class PcCareTaskViewModel @Inject constructor(
                             PhotoCaptureContext(
                                 title = slotDto.label,
                                 instruction = slotDto.description.ifBlank { "Show vaccine stock in the fridge" },
+                                prompt = ProofCapturePrompt.VACCINATION,
                             ),
                         )?.let {
                             PcCareCapturedTaskProof(
@@ -479,6 +482,7 @@ class PcCareTaskViewModel @Inject constructor(
                                 title = slotDto.label,
                                 primaryTag = detail.operationalLocationDisplay.ifBlank { detail.shedLabel },
                                 workLabel = slotDto.description.ifBlank { "Show vaccine stock in the fridge" },
+                                prompt = ProofCapturePrompt.VACCINATION,
                                 headerTitle = categoryTitle.ifBlank { null },
                             ),
                         )?.let {
@@ -723,7 +727,7 @@ class PcCareTaskViewModel @Inject constructor(
             isLocked = locked,
             lockNotice = when {
                 detail?.status == PC_CARE_STATUS_COMPLETED -> "Checked and approved"
-                detail?.status == PC_CARE_STATUS_PENDING_VERIFICATION || bits.submitQueued -> "Sent for checking"
+                detail?.status == PC_CARE_STATUS_PENDING_VERIFICATION || bits.submitQueued -> "In review"
                 monitorView -> "Viewing only"
                 else -> ""
             },
@@ -740,6 +744,30 @@ class PcCareTaskViewModel @Inject constructor(
             taskProofSlot = if (taskProofMode) {
                 expectedSlots.firstOrNull()?.let { slot ->
                     pcCareBuildTaskProofSlot(slot, proofs, detail?.taskProofs.orEmpty(), bits.capturingSlotKey)
+                }
+            } else {
+                null
+            },
+            taskProofPhotoSlot = if (taskProofMode) {
+                expectedSlots.firstOrNull()?.let { slot ->
+                    pcCareBuildTaskProofSlot(
+                        slot = slot,
+                        proofs = proofs.filter { it.mimeType.startsWith("image/", ignoreCase = true) },
+                        taskProofs = detail?.taskProofs.orEmpty(),
+                        capturingSlotKey = bits.capturingSlotKey,
+                    )
+                }
+            } else {
+                null
+            },
+            taskProofVideoSlot = if (taskProofMode) {
+                expectedSlots.firstOrNull()?.let { slot ->
+                    pcCareBuildTaskProofSlot(
+                        slot = slot,
+                        proofs = proofs.filterNot { it.mimeType.startsWith("image/", ignoreCase = true) },
+                        taskProofs = detail?.taskProofs.orEmpty(),
+                        capturingSlotKey = bits.capturingSlotKey,
+                    )
                 }
             } else {
                 null
@@ -975,6 +1003,8 @@ internal fun pcCareBuildTaskProofSlot(
                 statusLabel = "Proof sent",
                 hintLabel = hint,
                 canRecord = true,
+                previewPath = localRow.previewUri().orEmpty(),
+                previewKind = pcCarePreviewKind(localRow.mimeType),
             )
             ProofProcessingStatus.RECORD_AGAIN -> PcCareSlotChipUi(
                 fieldKey = slot.fieldKey,
@@ -984,6 +1014,8 @@ internal fun pcCareBuildTaskProofSlot(
                 statusLabel = "Record again",
                 hintLabel = hint,
                 canRecord = true,
+                previewPath = localRow.previewUri().orEmpty(),
+                previewKind = pcCarePreviewKind(localRow.mimeType),
             )
             else -> PcCareSlotChipUi(
                 fieldKey = slot.fieldKey,
@@ -993,6 +1025,8 @@ internal fun pcCareBuildTaskProofSlot(
                 statusLabel = localRow.processingStatus.operatorLabel,
                 hintLabel = hint,
                 canRecord = localRow.syncStatus == CaptureSyncStatus.FAILED,
+                previewPath = localRow.previewUri().orEmpty(),
+                previewKind = pcCarePreviewKind(localRow.mimeType),
             )
         }
     }
@@ -1022,6 +1056,9 @@ internal fun pcCareBuildTaskProofSlot(
         canRecord = true,
     )
 }
+
+private fun pcCarePreviewKind(mimeType: String): PcCareProofPreviewKind =
+    if (mimeType.startsWith("image/", ignoreCase = true)) PcCareProofPreviewKind.PHOTO else PcCareProofPreviewKind.VIDEO
 
 internal fun pcCareBuildAnimalUis(
     expectedSlots: List<PcCareSlotDto>,

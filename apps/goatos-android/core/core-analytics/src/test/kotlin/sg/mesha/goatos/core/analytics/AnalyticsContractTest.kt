@@ -40,6 +40,16 @@ class AnalyticsContractTest {
         assertEquals("feed_distribution_teammate_proof_adopted", AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_PROOF_ADOPTED)
         assertEquals("feed_distribution_submit_sources", AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_SOURCES)
         assertEquals("feed_distribution_live_status_changed", AnalyticsEvents.FEED_DISTRIBUTION_LIVE_STATUS_CHANGED)
+        assertEquals("proof_camera_screen_viewed", AnalyticsEvents.PROOF_CAMERA_SCREEN_VIEWED)
+        assertEquals("proof_camera_flash_tapped", AnalyticsEvents.PROOF_CAMERA_FLASH_TAPPED)
+        assertEquals("proof_camera_shutter_tapped", AnalyticsEvents.PROOF_CAMERA_SHUTTER_TAPPED)
+        assertEquals("proof_camera_record_started", AnalyticsEvents.PROOF_CAMERA_RECORD_STARTED)
+        assertEquals("proof_camera_record_stop_tapped", AnalyticsEvents.PROOF_CAMERA_RECORD_STOP_TAPPED)
+        assertEquals("proof_camera_cancel_tapped", AnalyticsEvents.PROOF_CAMERA_CANCEL_TAPPED)
+        assertEquals("proof_camera_retry_tapped", AnalyticsEvents.PROOF_CAMERA_RETRY_TAPPED)
+        assertEquals("proof_camera_retake_tapped", AnalyticsEvents.PROOF_CAMERA_RETAKE_TAPPED)
+        assertEquals("proof_camera_use_tapped", AnalyticsEvents.PROOF_CAMERA_USE_TAPPED)
+        assertEquals("proof_camera_capture_result", AnalyticsEvents.PROOF_CAMERA_CAPTURE_RESULT)
     }
 
     @Test
@@ -198,6 +208,7 @@ class AnalyticsContractTest {
                 AnalyticsEvents.Params.PREVIOUS to "editable",
                 AnalyticsEvents.Params.NEXT to "readonly",
                 AnalyticsEvents.Params.STATUS to "pending_verification",
+                AnalyticsEvents.Params.KIND to "video",
                 "failure_kind" to "processed_video_track_truncated",
             ),
         )
@@ -212,10 +223,10 @@ class AnalyticsContractTest {
         assertEquals("editable", params[AnalyticsEvents.Params.PREVIOUS])
         assertEquals("readonly", params[AnalyticsEvents.Params.NEXT])
         assertEquals("pending_verification", params[AnalyticsEvents.Params.STATUS])
-        assertEquals("processed_video_track_truncated", params["failure_kind"])
+        assertEquals("video", params[AnalyticsEvents.Params.KIND])
         assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.FEED_VIDEO_SOURCE])
         assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.WATER_VIDEO_SOURCE])
-        assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params[AnalyticsEvents.Params.KIND])
+        assertNull("dropped to fit the 25-cap; full value still reaches the backend mirror", params["failure_kind"])
     }
 
     @Test

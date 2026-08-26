@@ -179,6 +179,36 @@ object AnalyticsEvents {
     const val VACCINATION_SUBMIT_SUCCESS = "vaccination_submit_success"
     const val VACCINATION_SUBMIT_FAILURE = "vaccination_submit_failure"
 
+    /** Shared in-app proof camera became visible. [Params.KIND] is `photo` or `video`. */
+    const val PROOF_CAMERA_SCREEN_VIEWED = "proof_camera_screen_viewed"
+
+    /** User tapped the shared camera flash/torch control. */
+    const val PROOF_CAMERA_FLASH_TAPPED = "proof_camera_flash_tapped"
+
+    /** User tapped the shared photo shutter button. */
+    const val PROOF_CAMERA_SHUTTER_TAPPED = "proof_camera_shutter_tapped"
+
+    /** Shared video recorder started recording. */
+    const val PROOF_CAMERA_RECORD_STARTED = "proof_camera_record_started"
+
+    /** User tapped the shared video recorder stop button. */
+    const val PROOF_CAMERA_RECORD_STOP_TAPPED = "proof_camera_record_stop_tapped"
+
+    /** User tapped cancel/back from the shared proof camera. */
+    const val PROOF_CAMERA_CANCEL_TAPPED = "proof_camera_cancel_tapped"
+
+    /** User tapped retry after a shared camera preview/validation error. */
+    const val PROOF_CAMERA_RETRY_TAPPED = "proof_camera_retry_tapped"
+
+    /** User discarded a captured proof from the shared camera review screen. */
+    const val PROOF_CAMERA_RETAKE_TAPPED = "proof_camera_retake_tapped"
+
+    /** User accepted a captured proof from the shared camera review screen. */
+    const val PROOF_CAMERA_USE_TAPPED = "proof_camera_use_tapped"
+
+    /** Shared proof camera ended in success, cancel, or failure. */
+    const val PROOF_CAMERA_CAPTURE_RESULT = "proof_camera_capture_result"
+
     const val WEIGHING_SCAN = "weighing_scan"
     const val WEIGHING_WEIGHT_CAPTURE_ATTEMPT = "weighing_weight_capture_attempt"
     const val WEIGHING_WEIGHT_CAPTURE_SUCCESS = "weighing_weight_capture_success"

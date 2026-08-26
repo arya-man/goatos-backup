@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.data.PcCareWorklistQuery
 import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.sync.submittedGrainKey
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
+import sg.mesha.goatos.feature.pccare.PcCareInventoryRequirementUi
 import sg.mesha.goatos.feature.pccare.PcCareStatusTone
 import sg.mesha.goatos.feature.pccare.PcCareTaskCardUi
 import sg.mesha.goatos.feature.pccare.PcCareWorklistUiState
@@ -122,17 +123,22 @@ class PcCareWorklistViewModel @Inject constructor(
 
     private fun refresh() {
         viewModelScope.launch {
-            // Drop the freshness marker FIRST so the re-created pager refetches instead of
-            // TTL-skipping — an explicit refresh means "show me the server's list now".
-            val sel = selection.value
-            if (sel.category.isNotBlank()) {
-                // exception:exempt local cache-marker delete; a failure just leaves the TTL skip
-                runCatching {
-                    repository.invalidateWorklist(PcCareWorklistQuery(category = sel.category, date = sel.date))
+            _isRefreshing.value = true
+            try {
+                // Drop the freshness marker FIRST so the re-created pager refetches instead of
+                // TTL-skipping — an explicit refresh means "show me the server's list now".
+                val sel = selection.value
+                if (sel.category.isNotBlank()) {
+                    // exception:exempt local cache-marker delete; a failure just leaves the TTL skip
+                    runCatching {
+                        repository.invalidateWorklist(PcCareWorklistQuery(category = sel.category, date = sel.date))
+                    }
                 }
+                // A NEW value, not an equal one: MutableStateFlow conflates on equality.
+                selection.value = selection.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
+            } finally {
+                _isRefreshing.value = false
             }
-            // A NEW value, not an equal one: MutableStateFlow conflates on equality.
-            selection.value = selection.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
         }
     }
 
@@ -166,7 +172,7 @@ internal fun PcCareTaskDto.toCardUi(locallySubmittedForReview: Set<String>): PcC
         else -> status
     }
     val (label, tone) = when (effectiveStatus) {
-        PC_CARE_STATUS_PENDING_VERIFICATION -> "Sent for checking" to PcCareStatusTone.REVIEW
+        PC_CARE_STATUS_PENDING_VERIFICATION -> "In review" to PcCareStatusTone.REVIEW
         PC_CARE_STATUS_REWORK -> "Needs another video" to PcCareStatusTone.DANGER
         PC_CARE_STATUS_COMPLETED -> "Done" to PcCareStatusTone.DONE
         else -> when (workState) {
@@ -187,6 +193,12 @@ internal fun PcCareTaskDto.toCardUi(locallySubmittedForReview: Set<String>): PcC
         dueDateLabel = dueBusinessDate,
         assigneeLine = assigneeNames.joinToString(", "),
         animalCountLabel = if (animalCount > 0) "$animalCount animals" else "",
+        inventoryRequirements = inventoryRequirements.map {
+            PcCareInventoryRequirementUi(
+                vaccineLabel = it.vaccineLabel,
+                requiredDosesLabel = "${it.requiredDoses} doses",
+            )
+        },
         reworkReason = if (effectiveStatus == PC_CARE_STATUS_REWORK) reworkReason else "",
         cancellable = effectiveStatus == PC_CARE_STATUS_OPEN,
         // A submitted (or approved) task is closed to the operator: the row keeps its chip but

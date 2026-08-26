@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
 import kotlinx.coroutines.Dispatchers
@@ -38,13 +37,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import java.io.IOException
 import java.net.URL
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
-import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.media.LocalProofPlayerFactory
 
 enum class ProofMediaPreviewKind { Photo, Video }
 
@@ -113,14 +111,15 @@ private fun ProofPhotoPreview(path: String, modifier: Modifier = Modifier) {
 @Composable
 private fun ProofVideoPreview(path: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val playerFactory = LocalProofPlayerFactory.current
     var isPlaying by remember(path) { mutableStateOf(false) }
     var armed by remember(path) { mutableStateOf(false) }
     var firstFrameRendered by remember(path) { mutableStateOf(false) }
-    val player = remember(path, armed) {
+    val player = remember(path, armed, playerFactory) {
         if (!armed) {
             null
         } else {
-            ExoPlayer.Builder(context).build().apply {
+            playerFactory.create(context).apply {
                 setMediaItem(MediaItem.fromUri(Uri.parse(path)))
                 playWhenReady = false
                 prepare()
@@ -163,11 +162,11 @@ private fun ProofVideoPreview(path: String, modifier: Modifier = Modifier) {
         if (!isPlaying || !firstFrameRendered) {
             ProofVideoPoster(path)
         }
-        Text(
-            text = if (isPlaying) "Pause" else "Play",
-            color = MeshaColors.OnBrand,
-            style = MeshaType.cta,
+        Box(
             modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(10.dp)
+                .size(40.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .background(MeshaColors.Brand)
                 .clickable {
@@ -178,9 +177,16 @@ private fun ProofVideoPreview(path: String, modifier: Modifier = Modifier) {
                         if (!armed) armed = true
                         isPlaying = true
                     }
-                }
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-        )
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = if (isPlaying) MeshaIcons.Pause else MeshaIcons.Play,
+                contentDescription = if (isPlaying) "Pause video preview" else "Play video preview",
+                tint = MeshaColors.OnBrand,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }
 
