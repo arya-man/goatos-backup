@@ -4,6 +4,10 @@ package sg.mesha.goatos.feature.toxin
 // AnalyticsEventsToxin + CrashReporter wiring for every read refresh and row open.
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
@@ -71,6 +76,9 @@ fun ToxinTaskListScreen(
                 )
             },
         )
+        if (state.filters.isNotEmpty()) {
+            ToxinFilterRow(filters = state.filters, onEvent = onEvent)
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = 4.dp, bottom = 20.dp),
@@ -105,6 +113,53 @@ fun ToxinTaskListScreen(
                 }
             }
         }
+    }
+}
+
+/**
+ * The list's filter chips. Order, labels and counts are all BACKEND-COMPOSED — this only draws
+ * them and reports the tapped key back. The row scrolls horizontally so a future fourth chip, or
+ * a long translated label, never squeezes the others off-screen.
+ */
+@Composable
+private fun ToxinFilterRow(
+    filters: List<ToxinFilterUi>,
+    onEvent: (ToxinTaskListEvent) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        filters.forEach { filter ->
+            ToxinFilterChip(filter = filter) {
+                onEvent(ToxinTaskListEvent.SelectFilter(filter.key))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToxinFilterChip(filter: ToxinFilterUi, onClick: () -> Unit) {
+    val background = if (filter.selected) MeshaColors.BrandTint else MeshaColors.Surf
+    val border = if (filter.selected) MeshaColors.BrandD else MeshaColors.Hair
+    val labelColor = if (filter.selected) MeshaColors.BrandD else MeshaColors.Muted
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(background)
+            .border(1.dp, border, RoundedCornerShape(999.dp))
+            .selectable(selected = filter.selected, role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Backend-owned chip copy and count, rendered verbatim.
+        Text(text = filter.label, color = labelColor, style = MeshaType.pill)
+        Text(text = filter.count.toString(), color = labelColor.copy(alpha = 0.75f), style = MeshaType.pill)
     }
 }
 

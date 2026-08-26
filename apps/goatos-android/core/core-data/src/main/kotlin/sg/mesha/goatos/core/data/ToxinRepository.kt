@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
 import sg.mesha.goatos.core.network.dto.ToxinTaskDto
+import sg.mesha.goatos.core.network.dto.ToxinTaskFilterDto
 
 /** One screen-page of toxin test tasks — bounds BOTH the network request and the Room window
  *  (docs/decisions/mobile-data-fetch-anti-patterns.md). */
@@ -52,16 +53,19 @@ private const val TOXIN_CACHE_SHAPE = "task-v1"
  * never derives its own gate from the device clock.
  */
 interface ToxinRepository {
-    /** The paged task list for one status filter ("" = every status), a Room PagingSource
-     *  filled by a RemoteMediator. */
-    fun tasks(status: String): Flow<PagingData<ToxinTaskDto>>
+    /** The paged task list for one backend filter KEY ("" = the backend default, All), a Room
+     *  PagingSource filled by a RemoteMediator. */
+    fun tasks(filter: String): Flow<PagingData<ToxinTaskDto>>
+
+    /** The backend-composed filter chips from the LAST list refresh, in display order. */
+    val filters: StateFlow<List<ToxinTaskFilterDto>>
 
     /** Whole-tenant status counts from the LAST list refresh (never page-local sums). */
     val statusCounts: StateFlow<Map<String, Int>>
 
     /** Drops one scope's freshness marker so the next pager refetches instead of TTL-skipping.
      *  Cached rows keep serving until fresh rows land. */
-    suspend fun invalidateTasks(status: String)
+    suspend fun invalidateTasks(filter: String)
 
     /** Room-first task detail; null while nothing is cached yet (corrupt rows quarantine). */
     fun observeTaskDetail(taskId: String): Flow<ToxinTaskDetailDto?>
@@ -86,9 +90,12 @@ class DefaultToxinRepository(
     private val _statusCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
     override val statusCounts: StateFlow<Map<String, Int>> = _statusCounts
 
+    private val _filters = MutableStateFlow<List<ToxinTaskFilterDto>>(emptyList())
+    override val filters: StateFlow<List<ToxinTaskFilterDto>> = _filters
+
     @OptIn(ExperimentalPagingApi::class)
-    override fun tasks(status: String): Flow<PagingData<ToxinTaskDto>> {
-        val key = scopeKey(status)
+    override fun tasks(filter: String): Flow<PagingData<ToxinTaskDto>> {
+        val key = scopeKey(filter)
         return Pager(
             config = PagingConfig(
                 pageSize = TOXIN_PAGE_SIZE,
@@ -98,12 +105,13 @@ class DefaultToxinRepository(
                 maxSize = TOXIN_PAGE_SIZE * 3,
             ),
             remoteMediator = ToxinTaskRemoteMediator(
-                status = status,
+                filter = filter,
                 api = api,
                 database = database,
                 json = json,
                 clock = clock,
                 onCounts = { counts -> _statusCounts.value = counts },
+                onFilters = { chips -> _filters.value = chips },
             ),
             pagingSourceFactory = { database.toxinTaskItemDao().pagingSource(key) },
         ).flow
@@ -112,10 +120,10 @@ class DefaultToxinRepository(
             .flowOn(Dispatchers.Default)
     }
 
-    override suspend fun invalidateTasks(status: String) {
+    override suspend fun invalidateTasks(filter: String) {
         // Deleting the remote key makes the next mediator initialize() LAUNCH_INITIAL_REFRESH;
         // the item rows are left in place so the screen keeps rendering until fresh rows land.
-        database.toxinTaskRemoteKeyDao().delete(scopeKey(status))
+        database.toxinTaskRemoteKeyDao().delete(scopeKey(filter))
     }
 
     override fun observeTaskDetail(taskId: String): Flow<ToxinTaskDetailDto?> =
@@ -167,8 +175,8 @@ class DefaultToxinRepository(
         detailDao.enforceCacheBounds()
     }
 
-    private fun scopeKey(status: String): String =
-        cacheKey(TOXIN_CACHE_SHAPE, "toxin-tasks", status, TOXIN_PAGE_SIZE.toString())
+    private fun scopeKey(filter: String): String =
+        cacheKey(TOXIN_CACHE_SHAPE, "toxin-tasks", filter, TOXIN_PAGE_SIZE.toString())
 
     private companion object {
         const val LOG_TAG = "GoatOsToxin"
@@ -188,14 +196,15 @@ class DefaultToxinRepository(
  */
 @OptIn(ExperimentalPagingApi::class)
 private class ToxinTaskRemoteMediator(
-    private val status: String,
+    private val filter: String,
     private val api: AppApi,
     private val database: GoatDatabase,
     private val json: Json,
     private val clock: () -> Long,
     private val onCounts: (Map<String, Int>) -> Unit,
+    private val onFilters: (List<ToxinTaskFilterDto>) -> Unit,
 ) : RemoteMediator<Int, ToxinTaskItemEntity>() {
-    private val queryKey = cacheKey("task-v1", "toxin-tasks", status, TOXIN_PAGE_SIZE.toString())
+    private val queryKey = cacheKey("task-v1", "toxin-tasks", filter, TOXIN_PAGE_SIZE.toString())
 
     override suspend fun initialize(): InitializeAction = InitializeAction.LAUNCH_INITIAL_REFRESH
 
@@ -217,11 +226,17 @@ private class ToxinTaskRemoteMediator(
         }
         return try {
             val response = api.getToxinTasks(
-                status = status.ifBlank { null },
+                filter = filter.ifBlank { null },
                 limit = TOXIN_PAGE_SIZE,
                 cursor = cursor,
             )
-            if (loadType == LoadType.REFRESH) onCounts(response.statusCounts)
+            if (loadType == LoadType.REFRESH) {
+                onCounts(response.statusCounts)
+                // Chips ride the same refresh: their counts are whole-tenant, so they must not be
+                // updated from an APPEND page, which carries the same aggregates but is fetched
+                // long after the user last saw the list.
+                if (response.filters.isNotEmpty()) onFilters(response.filters)
+            }
             // An absent next_cursor is the contract's own end-of-pages signal; a cursor that did
             // not ADVANCE is also the end, or an echoing backend would spin this mediator forever
             // on one page (the non-terminating pagination loop the scale rules ban).
