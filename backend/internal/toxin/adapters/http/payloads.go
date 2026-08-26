@@ -1,0 +1,210 @@
+package http
+
+import (
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/toxin/domain"
+	"github.com/vgoats/goatos/backend/internal/toxin/ports"
+)
+
+// Step states the clients render verbatim.
+const (
+	stepStateDone      = "done"
+	stepStateAvailable = "available"
+	stepStateWaiting   = "waiting"
+	stepStateLocked    = "locked"
+)
+
+// stepPayload is one procedure step with its live state. All copy is BACKEND-OWNED.
+type stepPayload struct {
+	StepNo      int    `json:"step_no"`
+	Kind        string `json:"kind"`
+	Title       string `json:"title"`
+	Instruction string `json:"instruction"`
+	State       string `json:"state"`
+	WaitMinutes int    `json:"wait_minutes,omitempty"`
+	// AvailableAt is set while State is waiting: the server instant the step unlocks.
+	AvailableAt string `json:"available_at,omitempty"`
+	ProofRef    string `json:"proof_ref,omitempty"`
+	CompletedBy string `json:"completed_by,omitempty"`
+	CompletedAt string `json:"completed_at,omitempty"`
+}
+
+// taskPayload is the wire shape of one toxin test round.
+type taskPayload struct {
+	TaskID         string  `json:"task_id"`
+	FeedPurchaseID string  `json:"feed_purchase_id"`
+	RoundNo        int     `json:"round_no"`
+	Origin         string  `json:"origin"`
+	OriginLine     string  `json:"origin_line,omitempty"`
+	FarmLabel      string  `json:"farm_label"`
+	FeedItemLabel  string  `json:"feed_item_label"`
+	Vendor         string  `json:"vendor"`
+	BatchNo        int     `json:"batch_no"`
+	PurchaseDate   string  `json:"purchase_date"`
+	QuantityKg     float64 `json:"quantity_kg"`
+	Status         string  `json:"status"`
+	StatusChip     string  `json:"status_chip"`
+	Outcome        string  `json:"outcome,omitempty"`
+	OutcomeLabel   string  `json:"outcome_label,omitempty"`
+	StripPhotoRef  string  `json:"strip_photo_ref,omitempty"`
+	SubmittedBy    string  `json:"submitted_by,omitempty"`
+	SubmittedAt    string  `json:"submitted_at,omitempty"`
+	ReviewedAt     string  `json:"reviewed_at,omitempty"`
+	ReviewReason   string  `json:"review_reason,omitempty"`
+	CancelReason   string  `json:"cancel_reason,omitempty"`
+	StepsDone      int     `json:"steps_done"`
+	StepsTotal     int     `json:"steps_total"`
+	RowVersion     int64   `json:"row_version"`
+	CreatedAt      string  `json:"created_at"`
+	// ContextLine is the backend-composed card subtitle: feed, vendor, load and date in
+	// one farm-worded line.
+	ContextLine string `json:"context_line"`
+}
+
+type taskPagePayload struct {
+	Tasks        []taskPayload  `json:"tasks"`
+	NextCursor   string         `json:"next_cursor,omitempty"`
+	StatusCounts map[string]int `json:"status_counts"`
+}
+
+type taskDetailPayload struct {
+	taskPayload
+	Steps          []stepPayload   `json:"steps"`
+	ReadingGuide   []string        `json:"reading_guide"`
+	OutcomeOptions []outcomeOption `json:"outcome_options"`
+}
+
+type outcomeOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+type completeStepPayload struct {
+	ProofRef string `json:"proof_ref"`
+}
+
+type submitPayload struct {
+	Outcome       string `json:"outcome"`
+	StripPhotoRef string `json:"strip_photo_ref"`
+}
+
+type verdictPayload struct {
+	Decision   string `json:"decision"`
+	Reason     string `json:"reason,omitempty"`
+	RowVersion int64  `json:"row_version"`
+}
+
+func toTaskPayload(row ports.TaskRow, now time.Time) taskPayload {
+	t := row.Task
+	context := t.FeedItemLabel
+	if t.Vendor != "" {
+		context += " · " + t.Vendor
+	}
+	context += " · " + t.FarmLabel + " · " + t.PurchaseDate
+	return taskPayload{
+		TaskID:         t.TaskID,
+		FeedPurchaseID: t.FeedPurchaseID,
+		RoundNo:        t.RoundNo,
+		Origin:         t.Origin,
+		OriginLine:     domain.OriginLine(t.Origin),
+		FarmLabel:      t.FarmLabel,
+		FeedItemLabel:  t.FeedItemLabel,
+		Vendor:         t.Vendor,
+		BatchNo:        t.BatchNo,
+		PurchaseDate:   t.PurchaseDate,
+		QuantityKg:     t.QuantityKg,
+		Status:         t.Status,
+		StatusChip:     domain.StatusChip(t, row.Completions, now),
+		Outcome:        t.Outcome,
+		OutcomeLabel:   domain.OutcomeLabel(t.Outcome),
+		StripPhotoRef:  t.StripPhotoRef,
+		SubmittedBy:    t.SubmittedBy,
+		SubmittedAt:    t.SubmittedAt,
+		ReviewedAt:     t.ReviewedAt,
+		ReviewReason:   t.ReviewReason,
+		CancelReason:   t.CancelReason,
+		StepsDone:      len(row.Completions),
+		StepsTotal:     len(domain.WorkingSteps()),
+		RowVersion:     t.RowVersion,
+		CreatedAt:      t.CreatedAt,
+		ContextLine:    context,
+	}
+}
+
+// toStepPayloads composes each step's live state against the server clock. The phone
+// renders the states verbatim and never derives its own gate logic — its clock is not
+// the gate's clock.
+func toStepPayloads(row ports.TaskRow, now time.Time) []stepPayload {
+	next := domain.NextStepNo(row.Completions)
+	out := make([]stepPayload, 0, len(domain.Steps()))
+	for _, spec := range domain.Steps() {
+		p := stepPayload{
+			StepNo:      spec.No,
+			Kind:        spec.Kind,
+			Title:       spec.Title,
+			Instruction: spec.Instruction,
+			WaitMinutes: spec.WaitMinutes,
+		}
+		if done, ok := completionFor(row.Completions, spec.No); ok {
+			p.State = stepStateDone
+			p.ProofRef = done.ProofRef
+			p.CompletedBy = done.CompletedBy
+			p.CompletedAt = done.CompletedAt.UTC().Format(time.RFC3339)
+			out = append(out, p)
+			continue
+		}
+		if spec.Kind == domain.StepKindWait {
+			// The wait row mirrors the step it gates: done once the settling hour has
+			// passed, waiting while it runs, locked before the shake video exists.
+			gated, _ := domain.StepSpecFor(5)
+			opensAt := domain.GateOpensAt(gated, row.Completions)
+			switch {
+			case opensAt.IsZero():
+				p.State = stepStateLocked
+			case now.Before(opensAt):
+				p.State = stepStateWaiting
+				p.AvailableAt = opensAt.UTC().Format(time.RFC3339)
+			default:
+				p.State = stepStateDone
+			}
+			out = append(out, p)
+			continue
+		}
+		if row.Task.Status != domain.StatusInProgress || next == 0 || spec.No != next {
+			p.State = stepStateLocked
+			out = append(out, p)
+			continue
+		}
+		if opensAt := domain.GateOpensAt(spec, row.Completions); !opensAt.IsZero() && now.Before(opensAt) {
+			p.State = stepStateWaiting
+			p.AvailableAt = opensAt.UTC().Format(time.RFC3339)
+		} else {
+			p.State = stepStateAvailable
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func completionFor(completions []domain.StepCompletion, stepNo int) (domain.StepCompletion, bool) {
+	for _, c := range completions {
+		if c.StepNo == stepNo {
+			return c, true
+		}
+	}
+	return domain.StepCompletion{}, false
+}
+
+func toTaskDetailPayload(row ports.TaskRow, now time.Time) taskDetailPayload {
+	return taskDetailPayload{
+		taskPayload:  toTaskPayload(row, now),
+		Steps:        toStepPayloads(row, now),
+		ReadingGuide: domain.ReadingGuide(),
+		OutcomeOptions: []outcomeOption{
+			{Value: domain.OutcomeNegative, Label: domain.OutcomeLabel(domain.OutcomeNegative)},
+			{Value: domain.OutcomePositive, Label: domain.OutcomeLabel(domain.OutcomePositive)},
+			{Value: domain.OutcomeInvalid, Label: domain.OutcomeLabel(domain.OutcomeInvalid)},
+		},
+	}
+}

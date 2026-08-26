@@ -43,6 +43,11 @@ import sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskPageDto
 import sg.mesha.goatos.core.network.dto.PcCareTaskRosterDto
+import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.ToxinStepDto
+import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
+import sg.mesha.goatos.core.network.dto.ToxinTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCapturesDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
@@ -1232,6 +1237,46 @@ interface AppApi {
 
     suspend fun cancelPcCareTask(taskId: String)
 
+    // ------------------------------------------------------------------
+    // Toxin (aflatoxin strip test, maintainer decision 2026-08-25)
+    // ------------------------------------------------------------------
+
+    /**
+     * GET /app/toxin/tasks — the tester's task list, one row per test round, keyset-paged.
+     * [status] is a comma-joined backend status filter; blank means every status.
+     */
+    suspend fun getToxinTasks(
+        status: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): ToxinTaskPageDto
+
+    /**
+     * GET /app/toxin/tasks/{task_id} — the guided 7-step flow with LIVE server-composed step
+     * states. The phone renders [ToxinStepDto.state] verbatim and never derives gate logic from
+     * its own clock.
+     */
+    suspend fun getToxinTask(taskId: String): ToxinTaskDetailDto
+
+    /**
+     * POST /app/toxin/tasks/{task_id}/steps/{step_no}/complete — records one step's proof.
+     * `422 wait_not_elapsed` (server clock gate) and `409 step_already_done` carry backend farm
+     * copy to surface verbatim; both mean "refresh and re-render server state".
+     */
+    suspend fun completeToxinStep(
+        taskId: String,
+        stepNo: Int,
+        idempotencyKey: String,
+        request: ToxinStepCompleteRequestDto,
+    ): ToxinTaskDetailDto
+
+    /** POST /app/toxin/tasks/{task_id}/submit — step 7's strip photo + reading. */
+    suspend fun submitToxinReading(
+        taskId: String,
+        idempotencyKey: String,
+        request: ToxinSubmitRequestDto,
+    ): ToxinTaskDetailDto
+
     suspend fun getFeedDistributionCaptures(
         parkId: String?,
         shedId: String,
@@ -2211,6 +2256,35 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     )
 
     override suspend fun cancelPcCareTask(taskId: String) = Unit
+
+    override suspend fun getToxinTasks(
+        status: String?,
+        limit: Int?,
+        cursor: String?,
+    ): ToxinTaskPageDto = ToxinTaskPageDto()
+
+    override suspend fun getToxinTask(taskId: String): ToxinTaskDetailDto = ToxinTaskDetailDto(
+        taskId = taskId,
+        status = "in_progress",
+        statusChip = "Test in progress",
+        stepsTotal = 6,
+        steps = listOf(
+            ToxinStepDto(stepNo = 1, kind = "video", title = "Weigh the sample", instruction = "", state = "available"),
+        ),
+    )
+
+    override suspend fun completeToxinStep(
+        taskId: String,
+        stepNo: Int,
+        idempotencyKey: String,
+        request: ToxinStepCompleteRequestDto,
+    ): ToxinTaskDetailDto = getToxinTask(taskId)
+
+    override suspend fun submitToxinReading(
+        taskId: String,
+        idempotencyKey: String,
+        request: ToxinSubmitRequestDto,
+    ): ToxinTaskDetailDto = getToxinTask(taskId).copy(status = "pending_review", statusChip = "Sent for review")
 }
 
 /**

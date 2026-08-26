@@ -2516,6 +2516,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/toxin/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the tester's toxin test tasks.
+         * @description The aflatoxin strip-test rounds for this tenant, keyset-paged. `status_counts` are WHOLE-TENANT aggregates over the same vocabulary as `status`, never page sums. `status` accepts a comma-separated list; absent means every status.
+         */
+        get: operations["listToxinTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/toxin/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One toxin test round with its live 7-step state.
+         * @description The guided flow: every step with its backend-composed state (done / available / waiting / locked), the strip reading guide, and the outcome vocabulary. Step states are gated on the SERVER clock; clients render them verbatim and never derive their own wait logic.
+         */
+        get: operations["getToxinTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/toxin/tasks/{task_id}/steps/{step_no}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete one video step of the toxin procedure.
+         * @description Records the step's in-app-camera video proof. The `Idempotency-Key` header is REQUIRED. The server refuses out-of-order steps, an unfinished wait gate (409 with the unlock instant on the step state), the wait row itself, and step 7 -- the reading goes through submit.
+         */
+        post: operations["completeToxinStep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/toxin/tasks/{task_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit the strip reading (step 7) with its photo.
+         * @description Records the strip photo and the reading. The `Idempotency-Key` header is REQUIRED. Negative and Positive move the round to pending_review; an Invalid strip cancels the round and mints a fresh retest task for the same load in the same transaction.
+         */
+        post: operations["submitToxinReading"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/toxin/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The CEO/CXO toxin review list.
+         * @description Same page shape as the tester's list, defaulting to status=pending_review. CEO/CXO ONLY (toxin.verdict) -- deliberately not the generic Verification queue and never visible to the tenant verifier.
+         */
+        get: operations["listToxinReview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/toxin/tasks/{task_id}/verdict": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept or reject a submitted toxin test (CEO/CXO only).
+         * @description Accept closes the round. Reject REQUIRES a reason (400 reject_reason_required without one), cancels the round, and mints a fresh retest task for the same load. The `Idempotency-Key` header is REQUIRED, `row_version` fences the write (409 version_conflict on a stale value), and a round not awaiting review answers 409 test_not_awaiting_review.
+         */
+        post: operations["recordToxinVerdict"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/overview": {
         parameters: {
             query?: never;
@@ -5237,6 +5357,127 @@ export interface components {
             payment_statuses: ("Paid" | "Pending")[];
             /** @description Suppliers already bought from, most recent first. A suggestion list, not a closed vocabulary. */
             vendors: string[];
+        };
+        /** @description One aflatoxin strip-test round for one purchased feed load. All visible copy (status_chip, context_line, outcome_label, origin_line, cancel_reason) is BACKEND-OWNED farm wording; clients render it verbatim. */
+        ToxinTask: {
+            /** Format: uuid */
+            task_id: string;
+            /** Format: uuid */
+            feed_purchase_id?: string;
+            /** @description Which testing round this is for the load, counting from 1. */
+            round_no: number;
+            /**
+             * @description Why this round exists. A raw token; render origin_line, never this.
+             * @enum {string}
+             */
+            origin: "purchase" | "invalid_retest" | "rejected_retest";
+            /** @description Backend-composed retest explanation. Absent on round 1. */
+            origin_line?: string;
+            farm_label: string;
+            feed_item_label: string;
+            vendor?: string;
+            batch_no?: number;
+            /**
+             * Format: date
+             * @description The load's purchase business date, never a timestamp.
+             */
+            purchase_date: string;
+            quantity_kg?: number;
+            /** @enum {string} */
+            status: "in_progress" | "pending_review" | "accepted" | "cancelled";
+            /** @description Backend-owned chip copy, including live wait countdown wording. */
+            status_chip: string;
+            /**
+             * @description The recorded reading token. Absent until step 7; render outcome_label.
+             * @enum {string}
+             */
+            outcome?: "negative" | "positive" | "invalid";
+            /** @description Farm-worded reading ("Negative", "Positive", "Invalid strip"). */
+            outcome_label?: string;
+            /** @description Proof reference of the final strip photo. Absent until step 7. */
+            strip_photo_ref?: string;
+            submitted_by?: string;
+            /** Format: date-time */
+            submitted_at?: string;
+            /** Format: date-time */
+            reviewed_at?: string;
+            /** @description The reject reason recorded at review, when one exists. */
+            review_reason?: string;
+            /** @description Backend-owned farm copy stored on a cancelled round. */
+            cancel_reason?: string;
+            steps_done: number;
+            steps_total: number;
+            /**
+             * Format: int64
+             * @description Optimistic-concurrency fence carried back on the verdict write.
+             */
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** @description Backend-composed card subtitle -- feed, vendor, load and date in one line. */
+            context_line: string;
+        };
+        /** @description One procedure step with its live state, composed against the SERVER clock. Clients render states verbatim and never derive their own wait-gate logic. */
+        ToxinStep: {
+            step_no: number;
+            /** @enum {string} */
+            kind: "video" | "wait" | "photo_reading";
+            title: string;
+            instruction: string;
+            /** @enum {string} */
+            state: "done" | "available" | "waiting" | "locked";
+            /** @description The wait row's duration. Present on kind wait only. */
+            wait_minutes?: number;
+            /**
+             * Format: date-time
+             * @description When a waiting step unlocks, on the server clock. Present while state is waiting.
+             */
+            available_at?: string;
+            /** @description The completed step's proof reference. Present when state is done. */
+            proof_ref?: string;
+            completed_by?: string;
+            /** Format: date-time */
+            completed_at?: string;
+        };
+        ToxinTaskPage: {
+            tasks: components["schemas"]["ToxinTask"][];
+            /** @description Keyset cursor for the next page. Absent on the last page. */
+            next_cursor?: string;
+            /** @description WHOLE-TENANT counts per status, never page-local sums. */
+            status_counts: {
+                [key: string]: number;
+            };
+        };
+        ToxinTaskDetail: components["schemas"]["ToxinTask"] & {
+            steps: components["schemas"]["ToxinStep"][];
+            /** @description Backend-owned lines explaining how to read the strip. */
+            reading_guide: string[];
+            /** @description The reading vocabulary the submit accepts, with farm-worded labels. */
+            outcome_options: {
+                value: string;
+                label: string;
+            }[];
+        };
+        ToxinStepCompleteRequest: {
+            /** @description The step's uploaded in-app-camera video proof reference. */
+            proof_ref: string;
+        };
+        ToxinSubmitRequest: {
+            /** @enum {string} */
+            outcome: "negative" | "positive" | "invalid";
+            /** @description The final strip photo's proof reference. */
+            strip_photo_ref: string;
+        };
+        ToxinVerdictRequest: {
+            /** @enum {string} */
+            decision: "accept" | "reject";
+            /** @description REQUIRED when rejecting (400 reject_reason_required without one). */
+            reason?: string;
+            /**
+             * Format: int64
+             * @description The row_version the reviewer loaded; a stale value answers 409 version_conflict.
+             */
+            row_version: number;
         };
         /** @description One row of the sales ledger -- one sheet row, or one deal recorded in the app. */
         SalesDeal: {
@@ -17440,6 +17681,194 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listToxinTasks: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated statuses (in_progress, pending_review, accepted, cancelled). */
+                status?: string;
+                limit?: number;
+                /** @description Keyset cursor from a previous page's next_cursor. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of toxin tasks plus whole-tenant status counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToxinTaskPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getToxinTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToxinTaskDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    completeToxinStep: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                task_id: string;
+                step_no: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToxinStepCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description The task detail after the step landed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToxinTaskDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    submitToxinReading: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToxinSubmitRequest"];
+            };
+        };
+        responses: {
+            /** @description The task detail after the reading landed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToxinTaskDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listToxinReview: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated statuses; absent means pending_review. */
+                status?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of tasks awaiting review plus whole-tenant status counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToxinTaskPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordToxinVerdict: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToxinVerdictRequest"];
+            };
+        };
+        responses: {
+            /** @description The task detail after the verdict landed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToxinTaskDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

@@ -2605,6 +2605,87 @@ export async function listVerificationQueue(
   return { ok: true, data: absolutizeVerificationMedia(result.data, config.data.baseUrl) };
 }
 
+export type ToxinTask = AppApiComponents["schemas"]["ToxinTask"];
+export type ToxinTaskPage = AppApiComponents["schemas"]["ToxinTaskPage"];
+export type ToxinTaskDetail = AppApiComponents["schemas"]["ToxinTaskDetail"];
+export type ToxinVerdictRequest = AppApiComponents["schemas"]["ToxinVerdictRequest"];
+
+// The CEO/CXO toxin review list (GET /toxin/review): aflatoxin strip tests awaiting review,
+// defaulting to status=pending_review server-side. Gated on permissions.ToxinVerdict — the same
+// capability as the /verify page contract's toxin_tab control (maintainer decision 2026-08-25:
+// toxin review is deliberately NOT the generic Verification queue, and the tenant verifier never
+// sees it). The page must only call this when controlEnabled(pageContract, "toxin_tab", false).
+export async function listToxinReview(
+  params: { status?: string; limit?: number; cursor?: string } = {},
+): Promise<ApiResult<ToxinTaskPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ToxinTaskPage>("/toxin/review", {
+      cache: "no-store",
+      query: compactQuery({
+        status: params.status,
+        cursor: params.cursor,
+        limit: params.limit ?? 20,
+      }),
+    }),
+  );
+}
+
+// One toxin test round with its 7 steps, reading guide, and row_version — the toxin review
+// drawer's detail read (GET /app/toxin/tasks/{task_id}).
+export async function getToxinTask(taskId: string): Promise<ApiResult<ToxinTaskDetail>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/app/toxin/tasks/${encodeURIComponent(taskId)}` as keyof AppApiPaths & string;
+  return request(() => client.request<ToxinTaskDetail>(path, { cache: "no-store" }));
+}
+
+// The CEO/CXO toxin verdict (POST /toxin/tasks/{task_id}/verdict). Accept closes the round;
+// reject (reason REQUIRED) cancels it and the backend mints a retest task. row_version fences the
+// write (409 version_conflict on a stale value); the Idempotency-Key makes a retried submit one act.
+export async function recordToxinVerdict(
+  taskId: string,
+  body: ToxinVerdictRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<ToxinTaskDetail>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/toxin/tasks/${encodeURIComponent(taskId)}/verdict` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<ToxinTaskDetail>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+// Resolves one proof reference to a browser-usable signed URL via GET /app/proofs/{proof_id}/download.
+//
+// Toxin step rows carry only proof_ref — the signed-URL resolver that decorates verification queue
+// items is verification-item-specific, so the toxin drawer resolves each step's proof itself, one
+// bounded call per done step (at most 7 per task, in parallel). A ref that cannot be resolved
+// returns null and the drawer renders the step's completed_by/completed_at without a media link —
+// honest degradation, never a broken player. Known limitation (see downloadProof's 307 branch in
+// the contract): a deployment that answers with a storage redirect instead of the JSON envelope
+// resolves as null here too.
+export async function getProofDownloadUrl(proofRef: string): Promise<string | null> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return null;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/app/proofs/${encodeURIComponent(proofRef)}/download` as keyof AppApiPaths & string;
+  const result = await request(() =>
+    client.request<{ download_url: string }>(path, { cache: "no-store" }),
+  );
+  if (!result.ok || !result.data?.download_url) return null;
+  return absolutizeBackendURL(result.data.download_url, config.data.baseUrl);
+}
+
 export type VerificationOversightAnalyticsResponse =
   AppApiComponents["schemas"]["VerificationOversightAnalyticsResponse"];
 

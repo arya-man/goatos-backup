@@ -59,4 +59,7 @@
          verification, or already accepted/closed): the shed stays visible until its drive
          closes, but must not re-open the scan screen. See ShedRow.opensRecordOnly. -->
     <string name="sheds_toast_already_submitted_fmt">%1$s is already submitted for verification</string>
+    <string name="proof_photo_toxin_strip_title">Take strip photo</string>
+    <string name="proof_photo_toxin_strip_instruction">Hold the strip flat and steady so both lines are clearly visible</string>
+    <string name="proof_video_toxin_step_header">Aflatoxin test</string>
 </resources>

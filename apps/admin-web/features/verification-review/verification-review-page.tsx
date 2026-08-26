@@ -34,6 +34,7 @@ import {
 import { VideoLog } from "./video-log";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
 import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
+import { ToxinReviewScreen, toxinTabLabel } from "./toxin-review-section";
 
 const PATHNAME = "/verify";
 
@@ -72,6 +73,16 @@ export async function VerificationReviewPage({
   const today = todayIso();
   const dateRange = parseDateRange(sp, today);
   const trail = decodeTrail(one(sp, "vi_trail"));
+
+  // The TOXIN review tab (maintainer decision 2026-08-25). Gated on the backend-declared
+  // toxin_tab control (permissions.ToxinVerdict — CEO/CXO only; the verifier never holds it and
+  // never sees the chip). When active, the toxin screen replaces the verification queue entirely:
+  // toxin is deliberately NOT a verification category, so its rows never mix into this table.
+  const toxinTabEnabled = controlEnabled(pageContract, "toxin_tab", false);
+  const toxinActive = toxinTabEnabled && one(sp, "toxin") === "1";
+  if (toxinActive) {
+    return <ToxinReviewScreen searchParams={sp} pageContract={pageContract} />;
+  }
 
   // ONE read on the critical path. The staff roster the re-assign picker offers used to be fetched
   // here too -- listStaffPositions with limit 500, awaited alongside the queue on every load -- for
@@ -401,6 +412,24 @@ export async function VerificationReviewPage({
                 {option.label}
               </Link>
             ))}
+          </div>
+        ) : null}
+
+        {/* The TOXIN chip — offered ONLY when the backend contract enables toxin_tab (CEO/CXO,
+            permissions.ToxinVerdict). A ?toxin=1 toggle: selecting it swaps this whole board for
+            the toxin review screen above. Styled as a .vr-lg chip so it sits in the same chip
+            vocabulary as the module row, in its own row because it is a different surface, not a
+            module of this queue. */}
+        {toxinTabEnabled ? (
+          <div className="vr-legend" role="group" aria-label={toxinTabLabel(pageContract)}>
+            <Link
+              href={hrefWith(sp, { toxin: "1", ...RESET_ON_FILTER })}
+              replace
+              scroll={false}
+              className="vr-lg"
+            >
+              {toxinTabLabel(pageContract)}
+            </Link>
           </div>
         ) : null}
 

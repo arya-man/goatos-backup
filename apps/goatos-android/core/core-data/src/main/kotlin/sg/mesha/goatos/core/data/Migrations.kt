@@ -1302,3 +1302,43 @@ val MIGRATION_48_49: Migration = object : Migration(48, 49) {
         )
     }
 }
+
+/**
+ * v49 -> v50: adds the three Toxin read-model tables (module toxin, maintainer decision
+ * 2026-08-25) — the paged aflatoxin test-task list rows + their per-scope remote keys (the
+ * [MIGRATION_48_49] PC Care pair shape) and the task-detail JSON blob cache carrying the
+ * server-composed 7-step state contract. Purely additive; no existing table changes, so an
+ * installed APK carrying an unsynced write outbox upgrades in place without data loss.
+ *
+ * Each CREATE spells its table name out as a literal (never an interpolated loop) so
+ * `make room-migration-guard` can statically match every new v50 @Entity table against a CREATE
+ * here (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_49_50: Migration = object : Migration(49, 50) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `toxin_task_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_toxin_task_items_queryKey_sortIndex` " +
+                "ON `toxin_task_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_toxin_task_items_grainKey` " +
+                "ON `toxin_task_items` (`grainKey`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `toxin_task_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `toxin_task_detail_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}

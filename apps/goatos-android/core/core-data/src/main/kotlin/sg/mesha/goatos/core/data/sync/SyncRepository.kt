@@ -490,6 +490,31 @@ interface SyncRepository {
         rowVersion: Int,
     ): AppResult<String> = AppResult.Err("pc care submit sync is not configured")
 
+    /**
+     * Enqueues one Toxin step completion
+     * (`POST /app/toxin/tasks/{task_id}/steps/{step_no}/complete`, module toxin). The mandatory
+     * proof (video, or step 7's strip photo) is passed by REFERENCE to its PROOF_UPLOAD outbox
+     * row ([proofOutboxItemId]); both writes MUST share the task group ([toxinTaskGroupKey]) so
+     * the upload drains first. The idempotency key is [toxinStepIdempotencyKey] — STABLE per
+     * (task, step, proof row), never a timestamp.
+     */
+    suspend fun enqueueToxinStepComplete(
+        taskId: String,
+        stepNo: Int,
+        proofOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("toxin step sync is not configured")
+
+    /**
+     * Enqueues the Toxin reading submit (`POST /app/toxin/tasks/{task_id}/submit`) — step 7's
+     * strip photo + outcome, on the SAME task group as the uploads and step completions so it
+     * drains last. [outcome] is one of the BACKEND-OWNED `outcome_options` values.
+     */
+    suspend fun enqueueToxinSubmit(
+        taskId: String,
+        outcome: String,
+        stripPhotoOutboxItemId: String,
+    ): AppResult<String> = AppResult.Err("toxin submit sync is not configured")
+
     suspend fun enqueueMilkPreparationSubmit(
         groupKey: String,
         idempotencyKey: String,
@@ -1310,6 +1335,40 @@ class DefaultSyncRepository(
         idempotencyKey = pcCareSubmitIdempotencyKey(taskId.trim(), rowVersion),
         payloadJson = syncJson.encodeToString(
             PcCareTaskSubmitPayload(taskId = taskId.trim(), rowVersion = rowVersion),
+        ),
+    )
+
+    override suspend fun enqueueToxinStepComplete(
+        taskId: String,
+        stepNo: Int,
+        proofOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.TOXIN_STEP_COMPLETE,
+        groupKey = toxinTaskGroupKey(taskId.trim()),
+        idempotencyKey = toxinStepIdempotencyKey(taskId.trim(), stepNo, proofOutboxItemId),
+        payloadJson = syncJson.encodeToString(
+            ToxinStepCompletePayload(
+                taskId = taskId.trim(),
+                stepNo = stepNo,
+                proofOutboxItemId = proofOutboxItemId,
+            ),
+        ),
+    )
+
+    override suspend fun enqueueToxinSubmit(
+        taskId: String,
+        outcome: String,
+        stripPhotoOutboxItemId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.TOXIN_SUBMIT,
+        groupKey = toxinTaskGroupKey(taskId.trim()),
+        idempotencyKey = toxinSubmitIdempotencyKey(taskId.trim(), outcome.trim(), stripPhotoOutboxItemId),
+        payloadJson = syncJson.encodeToString(
+            ToxinSubmitPayload(
+                taskId = taskId.trim(),
+                outcome = outcome.trim(),
+                stripPhotoOutboxItemId = stripPhotoOutboxItemId,
+            ),
         ),
     )
 

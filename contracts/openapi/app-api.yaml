@@ -6367,6 +6367,252 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/toxin/tasks:
+    get:
+      tags:
+        - Toxin
+      operationId: listToxinTasks
+      summary: One page of the tester's toxin test tasks.
+      description: >-
+        The aflatoxin strip-test rounds for this tenant, keyset-paged. `status_counts` are
+        WHOLE-TENANT aggregates over the same vocabulary as `status`, never page sums. `status`
+        accepts a comma-separated list; absent means every status.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string }
+          description: Comma-separated statuses (in_progress, pending_review, accepted, cancelled).
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+          description: Keyset cursor from a previous page's next_cursor.
+      responses:
+        "200":
+          description: One page of toxin tasks plus whole-tenant status counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToxinTaskPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/toxin/tasks/{task_id}:
+    get:
+      tags:
+        - Toxin
+      operationId: getToxinTask
+      summary: One toxin test round with its live 7-step state.
+      description: >-
+        The guided flow: every step with its backend-composed state (done / available / waiting /
+        locked), the strip reading guide, and the outcome vocabulary. Step states are gated on the
+        SERVER clock; clients render them verbatim and never derive their own wait logic.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToxinTaskDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/toxin/tasks/{task_id}/steps/{step_no}/complete:
+    post:
+      tags:
+        - Toxin
+      operationId: completeToxinStep
+      summary: Complete one video step of the toxin procedure.
+      description: >-
+        Records the step's in-app-camera video proof. The `Idempotency-Key` header is REQUIRED. The
+        server refuses out-of-order steps, an unfinished wait gate (409 with the unlock instant on
+        the step state), the wait row itself, and step 7 -- the reading goes through submit.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: step_no
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ToxinStepCompleteRequest"
+      responses:
+        "200":
+          description: The task detail after the step landed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToxinTaskDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/toxin/tasks/{task_id}/submit:
+    post:
+      tags:
+        - Toxin
+      operationId: submitToxinReading
+      summary: Submit the strip reading (step 7) with its photo.
+      description: >-
+        Records the strip photo and the reading. The `Idempotency-Key` header is REQUIRED. Negative
+        and Positive move the round to pending_review; an Invalid strip cancels the round and mints
+        a fresh retest task for the same load in the same transaction.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ToxinSubmitRequest"
+      responses:
+        "200":
+          description: The task detail after the reading landed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToxinTaskDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /toxin/review:
+    get:
+      tags:
+        - Toxin
+      operationId: listToxinReview
+      summary: The CEO/CXO toxin review list.
+      description: >-
+        Same page shape as the tester's list, defaulting to status=pending_review. CEO/CXO ONLY
+        (toxin.verdict) -- deliberately not the generic Verification queue and never visible to the
+        tenant verifier.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string }
+          description: Comma-separated statuses; absent means pending_review.
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: One page of tasks awaiting review plus whole-tenant status counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToxinTaskPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /toxin/tasks/{task_id}/verdict:
+    post:
+      tags:
+        - Toxin
+      operationId: recordToxinVerdict
+      summary: Accept or reject a submitted toxin test (CEO/CXO only).
+      description: >-
+        Accept closes the round. Reject REQUIRES a reason (400 reject_reason_required without one),
+        cancels the round, and mints a fresh retest task for the same load. The `Idempotency-Key`
+        header is REQUIRED, `row_version` fences the write (409 version_conflict on a stale value),
+        and a round not awaiting review answers 409 test_not_awaiting_review.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ToxinVerdictRequest"
+      responses:
+        "200":
+          description: The task detail after the verdict landed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToxinTaskDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /sales/overview:
     get:
       tags:
@@ -12802,6 +13048,180 @@ components:
           type: array
           description: Suppliers already bought from, most recent first. A suggestion list, not a closed vocabulary.
           items: { type: string }
+    ToxinTask:
+      type: object
+      description: >-
+        One aflatoxin strip-test round for one purchased feed load. All visible copy
+        (status_chip, context_line, outcome_label, origin_line, cancel_reason) is BACKEND-OWNED
+        farm wording; clients render it verbatim.
+      required:
+        - task_id
+        - status
+        - status_chip
+        - context_line
+        - steps_done
+        - steps_total
+        - row_version
+        - created_at
+        - farm_label
+        - feed_item_label
+        - purchase_date
+        - round_no
+        - origin
+      properties:
+        task_id: { type: string, format: uuid }
+        feed_purchase_id: { type: string, format: uuid }
+        round_no:
+          type: integer
+          description: Which testing round this is for the load, counting from 1.
+        origin:
+          type: string
+          enum: [purchase, invalid_retest, rejected_retest]
+          description: Why this round exists. A raw token; render origin_line, never this.
+        origin_line:
+          type: string
+          description: Backend-composed retest explanation. Absent on round 1.
+        farm_label: { type: string }
+        feed_item_label: { type: string }
+        vendor: { type: string }
+        batch_no: { type: integer }
+        purchase_date:
+          type: string
+          format: date
+          description: The load's purchase business date, never a timestamp.
+        quantity_kg: { type: number }
+        status:
+          type: string
+          enum: [in_progress, pending_review, accepted, cancelled]
+        status_chip:
+          type: string
+          description: Backend-owned chip copy, including live wait countdown wording.
+        outcome:
+          type: string
+          enum: [negative, positive, invalid]
+          description: The recorded reading token. Absent until step 7; render outcome_label.
+        outcome_label:
+          type: string
+          description: Farm-worded reading ("Negative", "Positive", "Invalid strip").
+        strip_photo_ref:
+          type: string
+          description: Proof reference of the final strip photo. Absent until step 7.
+        submitted_by: { type: string }
+        submitted_at: { type: string, format: date-time }
+        reviewed_at: { type: string, format: date-time }
+        review_reason:
+          type: string
+          description: The reject reason recorded at review, when one exists.
+        cancel_reason:
+          type: string
+          description: Backend-owned farm copy stored on a cancelled round.
+        steps_done: { type: integer }
+        steps_total: { type: integer }
+        row_version:
+          type: integer
+          format: int64
+          description: Optimistic-concurrency fence carried back on the verdict write.
+        created_at: { type: string, format: date-time }
+        context_line:
+          type: string
+          description: Backend-composed card subtitle -- feed, vendor, load and date in one line.
+    ToxinStep:
+      type: object
+      description: >-
+        One procedure step with its live state, composed against the SERVER clock. Clients render
+        states verbatim and never derive their own wait-gate logic.
+      required: [step_no, kind, title, instruction, state]
+      properties:
+        step_no: { type: integer }
+        kind:
+          type: string
+          enum: [video, wait, photo_reading]
+        title: { type: string }
+        instruction: { type: string }
+        state:
+          type: string
+          enum: [done, available, waiting, locked]
+        wait_minutes:
+          type: integer
+          description: The wait row's duration. Present on kind wait only.
+        available_at:
+          type: string
+          format: date-time
+          description: When a waiting step unlocks, on the server clock. Present while state is waiting.
+        proof_ref:
+          type: string
+          description: The completed step's proof reference. Present when state is done.
+        completed_by: { type: string }
+        completed_at: { type: string, format: date-time }
+    ToxinTaskPage:
+      type: object
+      required: [tasks, status_counts]
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ToxinTask"
+        next_cursor:
+          type: string
+          description: Keyset cursor for the next page. Absent on the last page.
+        status_counts:
+          type: object
+          additionalProperties: { type: integer }
+          description: WHOLE-TENANT counts per status, never page-local sums.
+    ToxinTaskDetail:
+      allOf:
+        - $ref: "#/components/schemas/ToxinTask"
+        - type: object
+          required: [steps, reading_guide, outcome_options]
+          properties:
+            steps:
+              type: array
+              items:
+                $ref: "#/components/schemas/ToxinStep"
+            reading_guide:
+              type: array
+              description: Backend-owned lines explaining how to read the strip.
+              items: { type: string }
+            outcome_options:
+              type: array
+              description: The reading vocabulary the submit accepts, with farm-worded labels.
+              items:
+                type: object
+                required: [value, label]
+                properties:
+                  value: { type: string }
+                  label: { type: string }
+    ToxinStepCompleteRequest:
+      type: object
+      required: [proof_ref]
+      properties:
+        proof_ref:
+          type: string
+          description: The step's uploaded in-app-camera video proof reference.
+    ToxinSubmitRequest:
+      type: object
+      required: [outcome, strip_photo_ref]
+      properties:
+        outcome:
+          type: string
+          enum: [negative, positive, invalid]
+        strip_photo_ref:
+          type: string
+          description: The final strip photo's proof reference.
+    ToxinVerdictRequest:
+      type: object
+      required: [decision, row_version]
+      properties:
+        decision:
+          type: string
+          enum: [accept, reject]
+        reason:
+          type: string
+          description: REQUIRED when rejecting (400 reject_reason_required without one).
+        row_version:
+          type: integer
+          format: int64
+          description: The row_version the reviewer loaded; a stale value answers 409 version_conflict.
     SalesDeal:
       type: object
       description: One row of the sales ledger -- one sheet row, or one deal recorded in the app.

@@ -219,6 +219,36 @@ class GoatDatabaseMigrationTest {
         db.close()
     }
 
+    @Test
+    fun `migration 49 to 50 creates the three toxin tables and preserves existing pc care rows`() {
+        helper.createDatabase(DB_NAME, 49).apply {
+            // A pre-upgrade PC Care row proves the additive migration touches nothing existing.
+            execSQL(
+                "INSERT INTO `pc_care_task_items` " +
+                    "(`queryKey`, `grainKey`, `sortIndex`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('scope-1', 'task-1', 0, '{}', 1)",
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, 50, true, MIGRATION_49_50)
+        listOf(
+            "toxin_task_items",
+            "toxin_task_remote_keys",
+            "toxin_task_detail_cache",
+        ).forEach { table ->
+            db.query("SELECT COUNT(*) FROM `$table`").use { cursor ->
+                assertEquals(true, cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+        }
+        db.query("SELECT `dtoJson` FROM `pc_care_task_items` WHERE `queryKey`='scope-1'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("{}", cursor.getString(0))
+        }
+        db.close()
+    }
+
     /** The real v1 (bootstrap-cache-only) schema, then the actual migration objects applied in order. */
     private fun buildV1ThenMigrate(): SupportSQLiteDatabase {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -285,6 +315,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_46_47.migrate(db)
         MIGRATION_47_48.migrate(db)
         MIGRATION_48_49.migrate(db)
+        MIGRATION_49_50.migrate(db)
         return db
     }
 
@@ -303,7 +334,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 49
+        const val CURRENT_VERSION = 50
     }
 }
 
