@@ -574,6 +574,33 @@ object AnalyticsEvents {
     /** A PC Care task detail was opened from a worklist card. */
     const val PC_CARE_TASK_OPENED = "pc_care_task_opened"
 
+    /** The vaccination Stock proof detail rendered; [Params.STATUS] is the task lifecycle. */
+    const val PC_CARE_STOCK_PROOF_SCREEN_VISIBLE = "pc_care_stock_proof_screen_visible"
+
+    /** A vaccination Stock proof row/button was tapped; [Params.KIND] = photo/video. */
+    const val PC_CARE_STOCK_PROOF_ACTION_TAPPED = "pc_care_stock_proof_action_tapped"
+
+    /** Camera returned for Stock proof capture before durable Room enqueue. */
+    const val PC_CARE_STOCK_PROOF_CAPTURE_RESULT = "pc_care_stock_proof_capture_result"
+
+    /** Captured Stock proof row was inserted into Room and upload enqueue was requested. */
+    const val PC_CARE_STOCK_PROOF_ROOM_WRITTEN = "pc_care_stock_proof_room_written"
+
+    /** Upload outbox id became visible in Room for the Stock proof. */
+    const val PC_CARE_STOCK_PROOF_UPLOAD_ENQUEUED = "pc_care_stock_proof_upload_enqueued"
+
+    /** Stock proof slot registration write was enqueued or failed. */
+    const val PC_CARE_STOCK_PROOF_REGISTRATION = "pc_care_stock_proof_registration"
+
+    /** Stock proof manual refresh/sync action started or completed. */
+    const val PC_CARE_STOCK_PROOF_SYNC = "pc_care_stock_proof_sync"
+
+    /** Stock proof submit button was tapped or blocked before confirmation. */
+    const val PC_CARE_STOCK_PROOF_SUBMIT = "pc_care_stock_proof_submit"
+
+    /** Stock proof submit write was enqueued or failed. */
+    const val PC_CARE_STOCK_PROOF_SUBMIT_ENQUEUED = "pc_care_stock_proof_submit_enqueued"
+
     /** A scanned tag was accepted into the task (queued durably for sync). */
     const val PC_CARE_SCAN_ACCEPTED = "pc_care_scan_accepted"
 

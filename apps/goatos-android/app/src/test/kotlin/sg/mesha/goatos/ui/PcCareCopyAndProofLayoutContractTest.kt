@@ -35,7 +35,9 @@ class PcCareCopyAndProofLayoutContractTest {
         assertTrue(source.contains("Video evidence"))
         assertTrue(source.contains("taskProofPhotoSlot"))
         assertTrue(source.contains("taskProofVideoSlot"))
-        assertTrue(source.contains("PcCareTaskProofRow"))
+        assertTrue(source.contains("PcCareTaskProofAction"))
+        assertTrue(source.contains("heightIn(min = 82.dp)"))
+        assertTrue(source.contains("RoundedCornerShape(18.dp)"))
     }
 
     @Test

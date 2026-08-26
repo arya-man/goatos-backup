@@ -77,8 +77,13 @@ func TestTaskDTOIncludesInventoryVaccineWireShape(t *testing.T) {
 			SourceBatchIDs: []string{"batch-ppr"},
 		}},
 		TaskProofs: []ports.TaskProofRow{{
+			SlotKey:        domain.SlotStockFridgePhoto,
+			ProofRef:       "proof-fridge-stock-photo",
+			CapturedBy:     httpActor,
+			CapturedByName: "Chandrakant",
+		}, {
 			SlotKey:        domain.SlotStockFridgeVideo,
-			ProofRef:       "proof-fridge-stock",
+			ProofRef:       "proof-fridge-stock-video",
 			CapturedBy:     httpActor,
 			CapturedByName: "Chandrakant",
 		}},
@@ -96,8 +101,10 @@ func TestTaskDTOIncludesInventoryVaccineWireShape(t *testing.T) {
 		t.Fatalf("category/capture_mode = %v/%v, want inventory_vaccine/task_proof", got["category"], got["capture_mode"])
 	}
 	slots, ok := got["expected_slots"].([]any)
-	if !ok || len(slots) != 1 || slots[0].(map[string]any)["field_key"] != domain.SlotStockFridgeVideo {
-		t.Fatalf("expected_slots = %#v, want stock_fridge_video", got["expected_slots"])
+	if !ok || len(slots) != 2 ||
+		slots[0].(map[string]any)["field_key"] != domain.SlotStockFridgePhoto ||
+		slots[1].(map[string]any)["field_key"] != domain.SlotStockFridgeVideo {
+		t.Fatalf("expected_slots = %#v, want stock_fridge_photo + stock_fridge_video", got["expected_slots"])
 	}
 	reqs, ok := got["inventory_requirements"].([]any)
 	if !ok || len(reqs) != 1 {
@@ -114,12 +121,15 @@ func TestTaskDTOIncludesInventoryVaccineWireShape(t *testing.T) {
 		t.Fatalf("inventory requirement used stale vaccine_key key: %#v", req)
 	}
 	proofs, ok := got["task_proofs"].([]any)
-	if !ok || len(proofs) != 1 {
-		t.Fatalf("task_proofs = %#v, want one task proof", got["task_proofs"])
+	if !ok || len(proofs) != 2 {
+		t.Fatalf("task_proofs = %#v, want photo and video task proofs", got["task_proofs"])
 	}
-	proof := proofs[0].(map[string]any)
-	if proof["slot_key"] != domain.SlotStockFridgeVideo || proof["proof_ref"] != "proof-fridge-stock" || proof["captured_by_name"] != "Chandrakant" {
-		t.Fatalf("task proof = %#v, want stock_fridge_video proof", proof)
+	firstProof := proofs[0].(map[string]any)
+	secondProof := proofs[1].(map[string]any)
+	if firstProof["slot_key"] != domain.SlotStockFridgePhoto || firstProof["proof_ref"] != "proof-fridge-stock-photo" ||
+		secondProof["slot_key"] != domain.SlotStockFridgeVideo || secondProof["proof_ref"] != "proof-fridge-stock-video" ||
+		secondProof["captured_by_name"] != "Chandrakant" {
+		t.Fatalf("task proofs = %#v, want independent stock photo/video proofs", proofs)
 	}
 }
 

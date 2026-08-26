@@ -129,6 +129,41 @@ Operator UI may show business status such as `Compressing proof...` and
 `Uploading proof...`, but must not expose codec, Room, outbox, GCS, idempotency,
 or other implementation terms.
 
+## 2c. Shared camera analytics contract
+
+Every feature that opens the shared proof camera must emit two layers of events:
+the feature-specific caller events and the common camera events. This applies to
+vaccination, PC Care/vaccine Stock, weighing, feed, shifting, and any future
+operator proof flow.
+
+Caller events must be emitted before and after the camera handoff, because the
+camera surface only knows the prompt/source, not the business gate that opened it.
+At minimum, each caller must log:
+
+- screen visible, including feature surface, task/session id, lifecycle status,
+  and whether the screen is editable or locked
+- exact row/button tapped to open camera, including field/slot key, media kind,
+  subject id when present, and source surface
+- camera result returned: success, cancelled, or failure
+- Room write or failure for the captured proof row
+- upload/outbox id visible or missing after the Room settle window
+- business registration/finalization enqueue, success, or failure
+- submit tapped, submit blocked, submit confirmation shown, submit enqueue
+  success/failure, and manual refresh started/completed for proof submit screens
+
+Common camera events are owned by the shared CameraX surfaces:
+`proof_camera_screen_viewed`, flash toggle, shutter/record start, record stop,
+cancel, retry/retake/use when the surface has those actions, and
+`proof_camera_capture_result`. The common event `source` is derived from
+`ProofCapturePrompt`; callers must choose the correct prompt instead of sending a
+blank/default prompt.
+
+Camera screens are camera-only. Do not add business proof previews, submit
+buttons, verifier copy, or feature-specific review UI inside
+`InAppVideoRecorderOverlay` or `PhotoCaptureLauncher`. Review/replace/submit
+belongs on the caller screen after the camera returns, using the processed
+Room-backed preview from `ProofMediaPreview`.
+
 ## 3. Room-first, single source of truth, background sync
 
 The on-device database is the single source of truth for both scans and proof
