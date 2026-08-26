@@ -1323,6 +1323,23 @@ rows.
 | `GET/POST /app/pc-care/*` (planner catalog/sheds, tasks, worklist, captures, animals, proofs, submit) | EXCLUDED — operator/planner execution surfaces (the mobile module's own screens). No leadership read API or aggregate; the verifier reviews through the existing generic verification routes already covered here. |
 | event `pc_care.task.completed` | EXCLUDED — the module's single canonical completion event, consumed today by nothing (registered producer-only in the domain-event registry). Becomes a coverage row when a governed care-adherence aggregate is built over it. |
 
+## Feed distribution completion table: excluded admin analytics detail (2026-08-26)
+
+The feed analytics execution tab now exposes a per-pen-session distribution
+completion table for admin-web: every pen-session directed for one feed day,
+including untouched pens, status bucket, completion submitter/verifier, and the
+three proof references with uploader provenance. This is an operational
+leadership UI detail under the existing `/feed-analytics/execution` admin
+surface, not a CEO-assistant governed metric, Cube model, `ceo_ai.*` view, or
+MCP Toolbox tool. CEO-assistant feed answers remain on the existing governed
+feed coverage paths; if leadership later asks for a natural-language KPI such
+as "which farms had the most unfed pens yesterday", that should be backed by a
+new aggregate/view and a real coverage row rather than this paged admin table.
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| `func:NormaliseCompletionPage`, `func:NormalizeDistributionCompletionStatus`, `func:IsValidDistributionCompletionStatus`, `func:DescribeProofUploads` | EXCLUDED | Helper/read-detail functions for the admin-web feed distribution completion table. They normalize paging/status filters and resolve stored proof ids to uploader provenance for a paged operational table; they introduce no standalone assistant read surface, governed aggregate, Cube metric, `ceo_ai.*` view, or MCP tool. |
+
 ## Herd Signals BLE telemetry: excluded backend infrastructure (2026-08-23)
 
 Herd Signals (migration `000192_herd_signals.sql` onwards) ingests and stores BLE
