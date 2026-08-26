@@ -252,6 +252,8 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             FeedDistributionEvent.MarkDone -> markDone()
             FeedDistributionEvent.SyncNow -> syncNow()
             FeedDistributionEvent.Back -> analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_BACK_TAPPED)
+            FeedDistributionEvent.FeedVideoPlaybackFailed -> refreshTeammatePreviewUrl(ProofSlot.FEED_VIDEO)
+            FeedDistributionEvent.WaterVideoPlaybackFailed -> refreshTeammatePreviewUrl(ProofSlot.WATER_VIDEO)
         }
     }
 
@@ -1132,6 +1134,31 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private suspend fun fetchProofPreviewUrl(proofId: String): String? {
         if (proofId.isBlank()) return null
         return feedRepository.fetchProofDownloadUrl(proofId)
+    }
+
+    private fun refreshTeammatePreviewUrl(slot: ProofSlot) {
+        val proofRef = when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightRemoteRef.value
+            ProofSlot.FEED_VIDEO -> videoRemoteRef.value
+            ProofSlot.WATER_VIDEO -> waterVideoRemoteRef.value
+        } ?: return
+        viewModelScope.launch {
+            _state.update {
+                when (slot) {
+                    ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = null)
+                    ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = null)
+                    ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = null)
+                }
+            }
+            val url = fetchProofPreviewUrl(proofRef) ?: return@launch
+            _state.update {
+                when (slot) {
+                    ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = url)
+                    ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = url)
+                    ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = url)
+                }
+            }
+        }
     }
 
     private fun clearProofRowId(slot: ProofSlot) {

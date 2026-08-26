@@ -30,7 +30,8 @@ func (r *Repository) ReconcileInventoryVaccineTasks(ctx context.Context, tenantI
 	latestVaccinationDate := taskDay.AddDate(0, 0, 7).Format("2006-01-02")
 
 	var result ReconcileInventoryVaccineTasksResult
-	err := r.pool.QueryRow(ctx, `
+	err := r.pool.QueryRow(ctx, ` -- scale-guard:ignore: bounded kernel reconciliation for one tenant and 7-day vaccination assignment window, not request-path fanout
+-- projection-review: membership=vaccination_drive_assignments; group_key=(tenant_id, park_id, shed_id, normalized partition_label, task_date, vaccine_label) so each stock task/requirement line is idempotent; join_cardinality=drive assignments and obligation instances are collapsed by GROUP BY before writes, director assignees are inserted through bounded active pc_director users, and stale tasks are semi-joined by NOT EXISTS so no branch multiplies task rows; pagination=none because this is a scheduled/kernel reconciliation over a fixed seven-day window, not a request page; scope=tenant_id plus drive park/shed/partition/date predicates
 WITH directors AS (
   SELECT array_agg(m.user_id ORDER BY m.display_name, m.user_id) AS user_ids,
          min(m.user_id::text) AS created_by,
@@ -133,6 +134,7 @@ inserted_assignees AS (
   RETURNING 1
 ),
 requirement_source AS (
+  -- projection-review: membership=requirement_source; group_key=(tenant_id, task_id, vaccine_label) so one-to-many assignment members collapse into a single requirement row per stock task and vaccine; join_cardinality=obligation_instances are filtered by the assignment's vaccine_rule_ids and optional assignment_members exact match before COUNT(DISTINCT obligation_id), while protocol_rule_dimensions is limited to one row per rule; pagination=none because reconciliation is a bounded kernel job over the generated live task set, with ListTasks pagination covered separately; scope=tenant_id plus task_date, park_id, shed_id, partition_label, batch status, obligation status, and exact member constraints
   SELECT
     lt.tenant_id,
     lt.task_id,

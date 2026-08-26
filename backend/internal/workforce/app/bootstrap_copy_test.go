@@ -130,7 +130,7 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 			t.Fatalf("%s vaccination module missing; got %+v", role, modules)
 		}
 		wantVaccinationItems := []domain.BootstrapNavigationItem{
-				{Key: "vaccination", Label: "Stock", Href: "/pc/vaccine-stock"},
+			{Key: "vaccination", Label: "Stock", Href: "/pc/vaccine-stock"},
 			{Key: "videos", Label: "Videos", Href: "/vaccination/videos"},
 			{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 			{Key: "you", Label: "You", Href: "/you"},

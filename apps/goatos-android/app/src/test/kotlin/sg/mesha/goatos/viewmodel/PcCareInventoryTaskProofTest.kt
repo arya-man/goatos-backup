@@ -273,7 +273,7 @@ class PcCareInventoryTaskProofTest {
     }
 
     @Test
-    fun `server task proof preview uses server url before stale local row`() {
+    fun `uploaded local task proof uses matching server preview before local cache`() {
         val captured = pcCareBuildTaskProofSlot(
             stockVideoSlot,
             listOf(proof(syncStatus = CaptureSyncStatus.SYNCED, serverProofId = "server-proof-video")),

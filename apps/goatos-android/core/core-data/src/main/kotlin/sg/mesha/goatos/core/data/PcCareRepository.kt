@@ -331,7 +331,7 @@ class DefaultPcCareRepository(
         }
     }
 
-    override suspend fun proofDownloadUrl(proofId: String): AppResult<String> = try {
+    override suspend fun proofDownloadUrl(proofId: String): AppResult<String> = try { // offline-first-guard:ignore: signed proof URL is short-lived; Room caches proof rows, not expiring download URLs
         AppResult.Ok(api.getProofDownloadUrl(proofId))
     } catch (t: Throwable) {
         if (t is CancellationException) throw t

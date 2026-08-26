@@ -46,7 +46,7 @@ class PcCareCopyAndProofLayoutContractTest {
             "../feature/feature-calendar/src/main/kotlin/sg/mesha/goatos/feature/calendar/CalendarScreen.kt",
         ).readText()
 
-        assertTrue(source.contains("presentation != CalendarPresentation.DriveList"))
+        assertTrue(source.contains("!state.taskListOnly"))
         assertTrue(source.contains("onOpenFilters"))
     }
 }

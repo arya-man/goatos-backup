@@ -244,6 +244,13 @@ dispatch_jobs() {
   _dispatch_clear_traps
   _DISPATCH_ALL_PIDS=""
   _DISPATCH_RUNDIR=""
-  rm -rf "$rundir"
+  case "${GOATOS_CI_KEEP_LOGS:-0}" in
+    1|true|TRUE|True)
+      echo "ci-local: preserved parallel job logs at $rundir"
+      ;;
+    *)
+      rm -rf "$rundir"
+      ;;
+  esac
   return 0
 }

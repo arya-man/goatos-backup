@@ -63,15 +63,15 @@ export function VaccinationOperationsPage({
         fallback={
           <section className="card" id="pc-care-inventory-progress">
             <div className="hd">
-              <h2>Vaccine fridge stock checks</h2>
+              <h2>{copy(pageContract, "section.inventory_progress.title")}</h2>
             </div>
             <div className="bd">
-              <div className="muted">Loading inventory task progress...</div>
+              <div className="muted">{copy(pageContract, "inventory_progress.loading")}</div>
             </div>
           </section>
         }
       >
-        <InventoryVaccineProgressSection searchParams={sp} />
+        <InventoryVaccineProgressSection searchParams={sp} pageContract={pageContract} />
       </Suspense>
 
       {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,

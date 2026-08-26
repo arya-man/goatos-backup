@@ -656,6 +656,101 @@ class WeighingViewModelTest {
     }
 
     @Test
+    fun `latest synced shed proof survives reopen before shed draft exists`() = runTest(dispatcher) {
+        val proofs = FakeProofCaptureRepository(maxProofs = 10).also { repo ->
+            repo.seedProofs(
+                ProofCaptureRow(
+                    id = "old-shed-proof-synced",
+                    fieldKey = "weighing_shed_partition_video",
+                    proofSubject = ProofSubject.SHED,
+                    subjectId = "shed-1",
+                    localUri = "file://old-shed-proof-synced.mp4",
+                    mimeType = "video/mp4",
+                    caption = "Weighing lump-sum · Shed 1 · video 1",
+                    capturedAtMs = 1_000,
+                    capturedStartMs = 1_000,
+                    capturedEndMs = 2_000,
+                    capturedByPrincipalId = null,
+                    syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-old-shed-proof",
+                    lastError = null,
+                ),
+                ProofCaptureRow(
+                    id = "fresh-shed-proof-synced",
+                    fieldKey = "weighing_shed_partition_video",
+                    proofSubject = ProofSubject.SHED,
+                    subjectId = "shed-1",
+                    localUri = "file://fresh-shed-proof-synced.mp4",
+                    mimeType = "video/mp4",
+                    caption = "Weighing lump-sum · Shed 1 · video 1",
+                    capturedAtMs = 2_000,
+                    capturedStartMs = 2_000,
+                    capturedEndMs = 3_000,
+                    capturedByPrincipalId = null,
+                    syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-fresh-shed-proof",
+                    lastError = null,
+                ),
+            )
+        }
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0)),
+            scoped = true,
+            proofCaptureRepository = proofs,
+            weighingCategory = "per_shed_partition",
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val proof = vm.state.value.shedProofs.single()
+        assertEquals("fresh-shed-proof-synced", proof.id)
+        assertEquals(ProofUploadStatus.SYNCED, proof.status)
+    }
+
+    @Test
+    fun `latest synced shed proof can submit after reopen before shed draft exists`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0),
+        )
+        val proofs = FakeProofCaptureRepository(maxProofs = 10).also { repo ->
+            repo.seedProofs(
+                ProofCaptureRow(
+                    id = "fresh-shed-proof-synced",
+                    fieldKey = "weighing_shed_partition_video",
+                    proofSubject = ProofSubject.SHED,
+                    subjectId = "shed-1",
+                    localUri = "file://fresh-shed-proof-synced.mp4",
+                    mimeType = "video/mp4",
+                    caption = "Weighing lump-sum · Shed 1 · video 1",
+                    capturedAtMs = 2_000,
+                    capturedStartMs = 2_000,
+                    capturedEndMs = 3_000,
+                    capturedByPrincipalId = null,
+                    syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-fresh-shed-proof",
+                    lastError = null,
+                ),
+            )
+        }
+        val vm = weighingViewModel(
+            repository = repository,
+            scoped = true,
+            proofCaptureRepository = proofs,
+            weighingCategory = "per_shed_partition",
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onWeightInputChange("123")
+        vm.recordShedPartition()
+        advanceUntilIdle()
+
+        val capture = repository.recordShedPartitionCalls.single()
+        assertTrue(capture.resultJson.contains("\"total_weight_kg\":123.0"))
+        assertEquals(listOf("server-fresh-shed-proof"), capture.proofArtifactIds)
+    }
+
+    @Test
     fun `shed partition category is normalized before field gates run`() = runTest(dispatcher) {
         val vm = weighingViewModel(
             repository = FakeWeighingRepository(),

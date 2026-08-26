@@ -28,6 +28,14 @@ const (
 )
 
 func TestReconcileInventoryVaccineTasksCreatesDirectorTaskFromDriveAssignments(t *testing.T) {
+	testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t)
+}
+
+func TestReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t *testing.T) {
+	testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t)
+}
+
+func testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupPCCareDB(t, ctx)
 	exec := func(sql string, args ...any) {

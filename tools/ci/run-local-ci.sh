@@ -511,6 +511,7 @@ run_common() {
   # original two ratchets instead of folded into the same baseline.
   step "exception-guard (whole-tree ratchet v2)" make exception-guard-ratchet-v2
   step "telemetry-guard (whole-tree ratchet v2)" make telemetry-guard-ratchet-v2
+  return 0
 }
 
 run_backend() {
@@ -591,6 +592,7 @@ run_backend() {
   fi
   # CEO-AI answer-quality eval: cheap golden self-test always; live regression opt-in.
   run_ceo_ai_eval
+  return 0
 }
 
 run_query_plans() {
@@ -598,6 +600,7 @@ run_query_plans() {
   # Required for every backend diff. This deliberately stays outside the broad Postgres/E2E opt-in:
   # index regressions in production queries must fail ordinary PR, push, and local landing CI.
   step "required PostgreSQL query plans" make validate-sqlc-plans
+  return 0
 }
 
 run_admin_web() {
@@ -617,6 +620,7 @@ run_admin_web() {
   step "admin-web mock-fidelity" npm --prefix apps/admin-web run check:mock-fidelity
   step "admin-web request-plan"  npm --prefix apps/admin-web run check:action-center-request-plan
   step "admin-web production build + token leak" env GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run build
+  return 0
 }
 
 run_android_guards() {
@@ -805,6 +809,7 @@ run_android() {
   step_cached "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
   gradle_lock_clear_trap
   gradle_lock_release
+  return 0
 }
 
 run_guardrails() {

@@ -1,6 +1,7 @@
 package sg.mesha.goatos.core.data.capture
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -111,6 +112,23 @@ class ProofArtifactValidatorTest {
         val testValidator = ProcessedProbeSuccessInvalidMetadataValidator()
         val result = testValidator.validateProcessedArtifact("any-uri")
         assertFalse("Should reject processed artifact when metadata is invalid", result.isValid)
+    }
+
+    @Test
+    fun validateProcessedArtifact_rejectsWhenProcessedVideoFramesDoNotDecode() {
+        val video = tempFolder.newFile("processed.mp4").apply { writeBytes(ByteArray(2048) { 1 }) }
+        val validator = FileSystemProofArtifactValidator(
+            metadataProbe = { FileSystemProofArtifactValidator.ProbeSuccess(2_000L, "640", "480") },
+            videoTrackDurationReader = { 2_000L },
+            processedFrameDecoder = { _, _ -> false },
+        )
+
+        val result = validator.validateProcessedArtifact(video.toURI().toString())
+
+        assertFalse("Should reject processed artifact when representative frames do not decode", result.isValid)
+        assertEquals("processed_video_decode_failed", result.failureKind)
+        assertEquals(2_000L, result.containerDurationMs)
+        assertEquals(2_000L, result.videoTrackDurationMs)
     }
 
     // Test implementations for different probe scenarios
