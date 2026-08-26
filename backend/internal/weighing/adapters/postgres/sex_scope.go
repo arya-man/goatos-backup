@@ -62,6 +62,11 @@ type SexScope struct {
 	// "every animal of this sex weighed recently". Use Tags for a windowed read; use this ONLY
 	// where the read itself spans all time, or the two will disagree about who exists.
 	AllTimeTags []string
+	// allTimeResolved records whether AllTimeTags was actually asked for. It exists so that reading
+	// it when it was never resolved is a LOUD failure rather than a silent one: an unresolved list
+	// is empty, and an empty tag list filters every animal out, so a caller that forgot to ask
+	// would quietly report zero sale-ready kids instead of erroring.
+	allTimeResolved bool
 	// LocationIDs and PartitionLabels are PARALLEL arrays naming whole-shed buckets whose
 	// resident cohort is entirely the requested sex. Parallel arrays rather than a struct
 	// slice because they are passed straight into SQL as two binds and zipped there; they are
@@ -115,9 +120,28 @@ func (r *Repository) resolveSexScope(ctx context.Context, tenantID string, parkI
 	return ResolveSexScope(ctx, r.pool, tenantID, parkIDs, sex, periodStart, periodEnd)
 }
 
+// resolveSexScopeWithAllTime additionally resolves AllTimeTags, for a read that spans all time.
+func (r *Repository) resolveSexScopeWithAllTime(ctx context.Context, tenantID string, parkIDs []string, sex string, periodStart, periodEnd time.Time) (SexScope, error) {
+	return resolveSexScope(ctx, r.pool, tenantID, parkIDs, sex, periodStart, periodEnd, true)
+}
+
 // ResolveSexScope is the ONE implementation of the rule, callable with any pool so the Growth
 // Director read in its own package resolves the same kids the rest of the page does.
+// ResolveSexScope resolves the WINDOW-BOUNDED scope: the tags weighed in the selected window plus
+// the gain lookback, and the whole-shed buckets in scope. AllTimeTags is deliberately NOT resolved,
+// because the all-history scan behind it is pure cost to a caller that never reads it -- which is
+// every windowed read on the page. Use ResolveSexScopeWithAllTime when the read spans all time.
 func ResolveSexScope(ctx context.Context, pool *pgxpool.Pool, tenantID string, parkIDs []string, sex string, periodStart, periodEnd time.Time) (SexScope, error) {
+	return resolveSexScope(ctx, pool, tenantID, parkIDs, sex, periodStart, periodEnd, false)
+}
+
+// ResolveSexScopeWithAllTime resolves the same scope PLUS AllTimeTags, for a caller with a read
+// that is deliberately not windowed (today: sale readiness, which reports latest-EVER weights).
+func ResolveSexScopeWithAllTime(ctx context.Context, pool *pgxpool.Pool, tenantID string, parkIDs []string, sex string, periodStart, periodEnd time.Time) (SexScope, error) {
+	return resolveSexScope(ctx, pool, tenantID, parkIDs, sex, periodStart, periodEnd, true)
+}
+
+func resolveSexScope(ctx context.Context, pool *pgxpool.Pool, tenantID string, parkIDs []string, sex string, periodStart, periodEnd time.Time, includeAllTime bool) (SexScope, error) {
 	out := SexScope{Tags: []string{}, AllTimeTags: []string{}, LocationIDs: []string{}, PartitionLabels: []string{}}
 	normalized, err := normalizeSexFilter(sex)
 	if err != nil {
@@ -127,7 +151,7 @@ func ResolveSexScope(ctx context.Context, pool *pgxpool.Pool, tenantID string, p
 		return out, nil
 	}
 
-	const q = ` -- scale-guard:ignore: bounded by the selected window and park list; one reporting read per Weights page load, resolving only the tags actually weighed and the lump-sum buckets actually scoped
+	const q = ` -- scale-guard:ignore: bounded by the selected window and park list; one reporting read per Weights page load, resolving only the tags actually weighed and the lump-sum buckets actually scoped. The one unwindowed arm (weighed_ever) is OPT-IN behind $6 and executes as a One-Time Filter for every caller that does not ask, so a windowed read pays nothing for it; the single caller that does ask, sale readiness, scans no more than it already scans for itself
 WITH scoped AS (
   SELECT cs.campaign_shed_id, cs.location_id, COALESCE(cs.partition_label, '') AS partition_label, cs.weighing_category
   FROM weighing_campaign_sheds cs
@@ -176,7 +200,13 @@ weighed_ever AS (
   SELECT DISTINCT lower(btrim(o.scanned_identifier)) AS tag
   FROM weighing_observations o
   JOIN scoped s ON s.campaign_shed_id = o.campaign_shed_id
-  WHERE o.tenant_id = $1::uuid
+  -- OPT-IN, and $6 is what keeps it free for everyone else. This arm has no date bound, so it is
+  -- an all-history scan of the tenant's weighs -- pure cost to the windowed reads (shed weights,
+  -- Growth Director) that share this resolver and never read the result. With $6 false Postgres
+  -- resolves this to a One-Time Filter and executes no scan at all (verified by EXPLAIN ANALYZE:
+  -- "One-Time Filter: false", actual rows=0), so the cost lands only on the caller that asked.
+  WHERE $6::bool
+    AND o.tenant_id = $1::uuid
     AND o.verification_status <> 'rejected'
     AND btrim(o.scanned_identifier) <> ''
 ),
@@ -246,11 +276,12 @@ SELECT
 	// i names one bucket in both. Built any other way — one DISTINCT and its partner not, or two
 	// differently ordered aggregates — every index would silently shift and pair a location with
 	// another bucket's partition.
-	if err := pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, normalized).Scan(
+	if err := pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, normalized, includeAllTime).Scan(
 		&out.Tags, &out.AllTimeTags, &out.LocationIDs, &out.PartitionLabels,
 	); err != nil {
 		return SexScope{}, err
 	}
+	out.allTimeResolved = includeAllTime
 	if len(out.LocationIDs) != len(out.PartitionLabels) {
 		return SexScope{}, fmt.Errorf("weighing: sex scope bucket arrays disagree (%d locations, %d partitions)", len(out.LocationIDs), len(out.PartitionLabels))
 	}
