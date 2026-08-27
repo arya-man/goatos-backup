@@ -136,7 +136,12 @@ class MilkPreparationListViewModel @Inject constructor(
 
     /** Calendar jump from the date bar's picker; same today cap as the chevrons. */
     private fun selectDate(dateIso: String) {
-        val requested = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: return
+        val requested = try {
+            LocalDate.parse(dateIso)
+        } catch (_: RuntimeException) {
+            // exception:exempt invalid date-picker value is ignored; no work is submitted or lost
+            return
+        }
         applyDate(requested)
     }
 
@@ -158,8 +163,12 @@ class MilkPreparationListViewModel @Inject constructor(
 /** "Today · 27 Jul" only when [dateIso] IS today IST; otherwise just the formatted date — matching
  *  the WorkflowListViewModel date-bar convention (a past/future selection is never mislabeled Today). */
 private fun milkPreparationDateLabel(dateIso: String): String {
-    // exception:exempt display-only fallback — unparseable date renders verbatim; nothing actionable to record
-    val parsed = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: return dateIso
+        val parsed = try {
+            LocalDate.parse(dateIso)
+        } catch (_: RuntimeException) {
+            // exception:exempt display-only fallback renders the raw date label
+            return dateIso
+        }
     val label = parsed.format(MILK_DAY_LABEL)
     return if (dateIso == LocalDate.now(MILK_IST).toString()) "Today · $label" else label
 }
@@ -276,7 +285,12 @@ private fun milkPreparationCard(
 internal fun Int.videosRecorded(): String = if (this == 1) "1 video" else "$this videos"
 
 private fun String.toMilkDateLabel(prefix: String = ""): String =
-    runCatching { prefix + LocalDate.parse(this).format(MILK_DAY_LABEL) }.getOrDefault(this)
+    try {
+        prefix + LocalDate.parse(this).format(MILK_DAY_LABEL)
+    } catch (_: RuntimeException) {
+        // exception:exempt display-only fallback renders the original backend date string
+        this
+    }
 
 private fun formatLitres(millilitres: Long): String = formatDecimal(millilitres.toDouble() / 1_000.0) + " L"
 private fun formatDecimal(value: Double): String =

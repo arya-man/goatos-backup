@@ -260,9 +260,13 @@ internal fun MilkWorkDateBar(
 
 private val MILK_BAR_IST = ZoneId.of("Asia/Kolkata")
 
-private fun String.milkDateToUtcMillisOrNull(): Long? = runCatching {
-    LocalDate.parse(this).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-}.getOrNull()
+private fun String.milkDateToUtcMillisOrNull(): Long? =
+    try {
+        LocalDate.parse(this).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    } catch (_: RuntimeException) {
+        // exception:exempt invalid selected date disables date-picker preselection only
+        null
+    }
 
 @Composable
 private fun MilkDateButton(

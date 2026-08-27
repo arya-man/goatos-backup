@@ -168,7 +168,12 @@ class MilkFeedingListViewModel @Inject constructor(
 
     /** Calendar jump from the date bar's picker; same today cap as the chevrons. */
     private fun selectDate(dateIso: String) {
-        val requested = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: return
+        val requested = try {
+            LocalDate.parse(dateIso)
+        } catch (_: RuntimeException) {
+            // exception:exempt invalid date-picker value is ignored; no work is submitted or lost
+            return
+        }
         applyDate(requested)
     }
 
@@ -182,8 +187,13 @@ class MilkFeedingListViewModel @Inject constructor(
 
     private fun refresh() = viewModelScope.launch {
         refreshing.value = true
-        val result = runCatching { repo.refresh(feedingDate.value).getOrThrow() }
-        manualRefreshOffline.value = result.exceptionOrNull().isConnectivityFailure()
+        val error = try {
+            repo.refresh(feedingDate.value).getOrThrow()
+            null
+        } catch (failure: Exception) {
+            failure
+        }
+        manualRefreshOffline.value = error.isConnectivityFailure()
         refreshing.value = false
     }
 }
@@ -191,8 +201,12 @@ class MilkFeedingListViewModel @Inject constructor(
 /** "Today · 27 Jul" only when [dateIso] IS today IST; otherwise just the formatted date — matching
  *  the WorkflowListViewModel date-bar convention (a past/future selection is never mislabeled Today). */
 private fun milkFeedingDateLabel(dateIso: String): String {
-    // exception:exempt display-only fallback — unparseable date renders verbatim; nothing actionable to record
-    val parsed = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: return dateIso
+        val parsed = try {
+            LocalDate.parse(dateIso)
+        } catch (_: RuntimeException) {
+            // exception:exempt display-only fallback renders the raw date label
+            return dateIso
+        }
     val label = parsed.format(MILK_FEEDING_DAY_LABEL)
     return if (dateIso == LocalDate.now(MILK_FEEDING_IST).toString()) "Today · $label" else label
 }

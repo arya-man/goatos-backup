@@ -25,13 +25,13 @@ WHERE NOT EXISTS (
     AND existing.target_type = @target_type
     AND existing.target_id = @target_id
     AND (
-      -- NON-REPEAT: unchanged, deliberately byte-for-byte. This is the generic obligation
-      -- insert; a broad rewrite would change behaviour for every caller of it.
+      -- NON-REPEAT: missed is closed history. A fresh generation pass must be able to create
+      -- new work instead of letting a terminal missed row suppress the insert.
       (
         sqlc.narg('repeat_cycle_source_ref')::text IS NULL
         AND existing."sequence" = @sequence
         AND existing.due_at = @due_at
-        AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+        AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred')
       )
       OR
       -- REPEAT: deduped by the administration that CAUSED it, never by its due date. A

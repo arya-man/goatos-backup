@@ -169,13 +169,13 @@ WHERE NOT EXISTS (
     AND existing.target_type = $5
     AND existing.target_id = $6
     AND (
-      -- NON-REPEAT: unchanged, deliberately byte-for-byte. This is the generic obligation
-      -- insert; a broad rewrite would change behaviour for every caller of it.
+      -- NON-REPEAT: missed is closed history. A fresh generation pass must be able to create
+      -- new work instead of letting a terminal missed row suppress the insert.
       (
         $18::text IS NULL
         AND existing."sequence" = $16
         AND existing.due_at = $9
-        AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+        AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred')
       )
       OR
       -- REPEAT: deduped by the administration that CAUSED it, never by its due date. A

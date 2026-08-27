@@ -693,6 +693,106 @@ func TestPublishStillSucceedsWithTheDuplicateRecheckInPlace(t *testing.T) {
 	}
 }
 
+func TestPublishCampaignAllowsRepeatWeighingOnDifferentBusinessDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	locationID := lcpUUID(22601)
+	oldCampaignID := lcpUUID(22602)
+	oldBucketID := lcpUUID(22603)
+	lsInsertShed(t, ctx, pool, locationID, repoPark, "Repeat Shed", 760)
+	lcpInsertCampaign(t, ctx, pool, oldCampaignID, repoPark, "2027-02-01", domain.StatusPublished, repoOperator)
+	lsSetCampaignWeighDate(t, ctx, pool, oldCampaignID, "2027-02-01")
+	lcpInsertBucket(t, ctx, pool, oldBucketID, oldCampaignID, locationID, domain.CategoryIndividualAnimal, repoOperator, 1, "in_progress")
+
+	draft, err := repo.CreateCampaign(ctx, domain.CreateCampaign{
+		TenantID:          repoTenant,
+		ParkID:            repoPark,
+		PeriodStartDate:   "2027-02-08",
+		PeriodEndDate:     "2027-02-08",
+		StartBusinessDate: "2027-02-08",
+		PlannedCapPerDay:  100,
+		OperatorUserID:    repoOperator,
+		CreatedBy:         repoOperator,
+		IdempotencyKey:    "repeat-weighing-different-date-draft",
+		Sheds: []domain.CreateCampaignShed{{
+			LocationID:       locationID,
+			LocationType:     "shed",
+			DisplayName:      "Repeat Shed",
+			WeighingCategory: domain.CategoryIndividualAnimal,
+			OperatorUserID:   repoOperator,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+
+	published, err := repo.PublishCampaign(ctx, repoTenant, draft.CampaignID, repoOperator, "repeat-weighing-different-date-publish")
+	if err != nil {
+		t.Fatalf("publish repeat weighing on different date: %v", err)
+	}
+	if published.Status != domain.StatusPublished {
+		t.Fatalf("status=%s, want published", published.Status)
+	}
+}
+
+func TestPublishCampaignIgnoresSameShedConflictInAnotherPark(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	locationID := lcpUUID(22611)
+	otherPark := lcpUUID(22612)
+	otherCampaignID := lcpUUID(22613)
+	otherBucketID := lcpUUID(22614)
+	lsInsertShed(t, ctx, pool, locationID, repoPark, "Cross Park Shed", 761)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (tenant_id, location_id, location_type, code, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'X-PARK', 'Cross Park', 'active')`,
+		repoTenant, otherPark)
+	lcpInsertCampaign(t, ctx, pool, otherCampaignID, otherPark, "2027-02-15", domain.StatusPublished, repoOperator)
+	lsSetCampaignWeighDate(t, ctx, pool, otherCampaignID, "2027-02-15")
+	lcpInsertBucket(t, ctx, pool, otherBucketID, otherCampaignID, locationID, domain.CategoryIndividualAnimal, repoOperator, 1, "in_progress")
+	execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_campaign_sheds SET park_id=$1::uuid WHERE campaign_shed_id=$2::uuid`, otherPark, otherBucketID)
+
+	draft, err := repo.CreateCampaign(ctx, domain.CreateCampaign{
+		TenantID:          repoTenant,
+		ParkID:            repoPark,
+		PeriodStartDate:   "2027-02-15",
+		PeriodEndDate:     "2027-02-15",
+		StartBusinessDate: "2027-02-15",
+		PlannedCapPerDay:  100,
+		OperatorUserID:    repoOperator,
+		CreatedBy:         repoOperator,
+		IdempotencyKey:    "repeat-weighing-other-park-draft",
+		Sheds: []domain.CreateCampaignShed{{
+			LocationID:       locationID,
+			LocationType:     "shed",
+			DisplayName:      "Cross Park Shed",
+			WeighingCategory: domain.CategoryIndividualAnimal,
+			OperatorUserID:   repoOperator,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+
+	published, err := repo.PublishCampaign(ctx, repoTenant, draft.CampaignID, repoOperator, "repeat-weighing-other-park-publish")
+	if err != nil {
+		t.Fatalf("publish with same shed key in another park: %v", err)
+	}
+	if published.Status != domain.StatusPublished {
+		t.Fatalf("status=%s, want published", published.Status)
+	}
+}
+
 func TestPublishBlocksPartShedWhenLegacyNormalizedPartitionAppearsAfterCreate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

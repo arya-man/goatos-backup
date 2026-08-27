@@ -549,7 +549,7 @@ WHERE tenant_id = $1
     ($6::text IS NULL
       AND "sequence" = $7
       AND due_at = $8::timestamptz
-      AND status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed'))
+      AND status IN ('scheduled', 'due', 'in_progress', 'deferred'))
     OR
     ($6::text IS NOT NULL
       AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
