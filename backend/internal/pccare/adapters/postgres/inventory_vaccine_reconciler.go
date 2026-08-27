@@ -42,7 +42,7 @@ func (r *Repository) ReconcileInventoryVaccineTasks(ctx context.Context, tenantI
 	latestVaccinationDate := taskDay.AddDate(0, 0, 7).Format("2006-01-02")
 
 	var result ReconcileInventoryVaccineTasksResult
-	err := r.pool.QueryRow(ctx, ` // scale-guard:ignore: bounded kernel reconciliation over a seven-day window; materializes tasks/requirements for readers.
+	err := r.pool.QueryRow(ctx, `-- scale-guard:ignore: bounded kernel reconciliation over a seven-day window; materializes tasks/requirements for readers.
 -- projection-review: membership=vaccination_drive_assignments exact assignment or exact assignment_members when present; group_key=tenant_id + park_id + lower(btrim(vaccine_label)) + task_date; join_cardinality=protocol_rule_dimensions collapsed by LATERAL LIMIT 1 and obligations deduped by count(DISTINCT obligation_id); pagination=single bounded kernel reconciliation over as_of..as_of+7 before task listing; scope=park-level fridge stock tasks and legacy shed-scoped rows canceled during cutover.
 WITH directors AS (
   SELECT array_agg(m.user_id ORDER BY m.display_name, m.user_id) AS user_ids,
