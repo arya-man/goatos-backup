@@ -53,11 +53,12 @@ func (f *fakePeopleRepo) CreatePerson(_ context.Context, cmd ports.CreatePersonC
 }
 
 type fakeIdentity struct {
-	uid      string
-	existed  bool
-	err      error
-	email    string
-	password string
+	uid         string
+	existed     bool
+	passwordSet bool
+	err         error
+	email       string
+	password    string
 }
 
 func (f *fakeIdentity) EnsureEmailUser(_ context.Context, email, _, password string) (ports.EnsuredUser, error) {
@@ -66,7 +67,7 @@ func (f *fakeIdentity) EnsureEmailUser(_ context.Context, email, _, password str
 	if f.err != nil {
 		return ports.EnsuredUser{}, f.err
 	}
-	return ports.EnsuredUser{UID: f.uid, Existed: f.existed}, nil
+	return ports.EnsuredUser{UID: f.uid, Existed: f.existed, PasswordSet: f.passwordSet}, nil
 }
 
 func validCreateRequest() domain.CreatePersonRequest {
@@ -163,6 +164,23 @@ func TestCreatePersonExistingAccountIsReportedAndPasswordNotClaimed(t *testing.T
 	}
 	if resp.Login.AccountStatus != "existing" {
 		t.Fatalf("account status = %q, want existing (existing accounts keep their own password)", resp.Login.AccountStatus)
+	}
+}
+
+// A Google-SSO-only account that just gained the convention password must be
+// reported distinctly: the admin copy for "existing" says the standard password
+// does NOT apply, which would be a lie for this case.
+func TestCreatePersonExistingSSOAccountGainingPasswordIsReported(t *testing.T) {
+	repo := &fakePeopleRepo{}
+	identity := &fakeIdentity{uid: "firebase-uid-3", existed: true, passwordSet: true}
+	svc := NewPeopleService(repo, identity, testIssuer)
+
+	resp, err := svc.CreatePerson(context.Background(), testTenantID, testActorID, "key-2b", validCreateRequest(), "trace")
+	if err != nil {
+		t.Fatalf("CreatePerson: %v", err)
+	}
+	if resp.Login.AccountStatus != "existing_password_added" {
+		t.Fatalf("account status = %q, want existing_password_added", resp.Login.AccountStatus)
 	}
 }
 

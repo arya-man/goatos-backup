@@ -2149,7 +2149,7 @@ export interface components {
         PersonLogin: {
             email: string;
             /** @enum {string} */
-            account_status: "created" | "existing";
+            account_status: "created" | "existing" | "existing_password_added";
         };
         PersonResponse: {
             person: components["schemas"]["PersonSummary"];
