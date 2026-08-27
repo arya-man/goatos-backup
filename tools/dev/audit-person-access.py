@@ -483,13 +483,16 @@ for p in people:
     chk(s == 200, f"{p['name']}: phone revoke of {victim} accepted", f"status {s}")
     st1, after = phone_bar(tok)                 # SAME token
     chk(victim not in after, f"{p['name']}: {victim} left the phone bar", f"bar still {after}")
-    # A person left with NO phone module has no phone: 403 is the correct answer, the same
-    # way an operator with no web module is refused the console. Only assert 200 when
-    # something is left.
-    if len(base) > 1:
+    # The phone opens for anyone holding ANY mobile row -- that is what grants app.bootstrap.
+    # A person can therefore lose their last BAR module and still open the app (Hemant holds
+    # People on the phone with no phone module of its own), so the check is on the rows, not
+    # on how many icons were showing.
+    after_rows = access_of(p["member"]) or {"modules": []}
+    mobile_left = any(m["granted_mobile"] for m in after_rows["modules"])
+    if mobile_left:
         chk(st1 == 200, f"{p['name']}: phone still opens after revoke", f"status {st1}")
     else:
-        chk(st1 == 403, f"{p['name']}: phone refused when the last module went", f"status {st1}")
+        chk(st1 == 403, f"{p['name']}: phone refused when no mobile access is left", f"status {st1}")
 
     fresh = mint(p["uid"])                      # a real log out + log in
     st2, after2 = phone_bar(fresh)

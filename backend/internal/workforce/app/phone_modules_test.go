@@ -18,13 +18,30 @@ import (
 // lost, tapped it, and the work failed -- and re-logging in changed nothing, because nothing
 // was stale. The server was answering from a source the tick never touched.
 
+// phoneRepo builds a principal whose stored access covers `person` on the phone. The bar is
+// still OFFERED from `dept`; what the ticks change is whether each offered module has any
+// item this person may open, which is what the nav filter already asks.
 func phoneRepo(t *testing.T, grants []domain.GrantSummary, dept, person []string) *fakeRepo {
 	t.Helper()
+	assignments := []permissions.ModuleAssignment{}
+	for _, m := range person {
+		levels := []string{permissions.LevelView, permissions.LevelDo}
+		kept := make([]string, 0, len(levels))
+		for _, l := range levels {
+			if permissions.LevelOffered(m, l) {
+				kept = append(kept, l)
+			}
+		}
+		assignments = append(assignments, permissions.ModuleAssignment{
+			Module: m, Surface: permissions.SurfaceMobile, Capabilities: kept,
+		})
+	}
 	return &fakeRepo{
 		profile:             profile("active"),
 		grants:              grants,
 		grantedModules:      dept,
 		personMobileModules: person,
+		personAssignments:   assignments,
 	}
 }
 
@@ -164,29 +181,31 @@ func TestNoRoleLosesAPhoneModuleWhenTheBarReadsTicks(t *testing.T) {
 
 		// The retired path. For leadership the keys are ignored entirely (the curated list
 		// wins), which is exactly the branch that used to keep every module on their phone.
-		bar := LeadershipPhoneModules(roles)
-		if len(bar) == 0 {
-			bar = departmentBarFor(roles)
-		}
-		// A standalone verifier is exempt on the request path, so her bar is never composed
-		// from ticks and comparing one would report a difference nobody can experience.
+		// A standalone verifier is exempt on the request path: her bar is composed from
+		// verify DUTIES, and comparing one would report a difference nobody can experience.
 		fromTicks := !isStandaloneVerifierPrincipal(grants)
 		old := moduleKeySet(modulesFor(grants, departmentBarFor(roles), "en"))
 
 		assignments := permissions.FillDefaultPages(
-			permissions.NarrowForRetiredLenses(roles,
-				permissions.NarrowMobileToDepartmentBar(roles, bar,
-					permissions.AssignmentsForRoles(roles))))
-		ticked := make([]string, 0, len(assignments))
-		for _, a := range assignments {
-			if a.Surface == permissions.SurfaceMobile && len(a.Capabilities) > 0 {
-				ticked = append(ticked, a.Module)
+			permissions.NarrowForRetiredLenses(roles, permissions.AssignmentsForRoles(roles)))
+		ticked := []string(nil)
+		if fromTicks {
+			ticked = []string{}
+			for _, a := range assignments {
+				if a.Surface == permissions.SurfaceMobile && len(a.Capabilities) > 0 {
+					ticked = append(ticked, a.Module)
+				}
 			}
 		}
-		if !fromTicks {
-			ticked = departmentBarFor(roles)
+		scope := scopeOf(grants)
+		if fromTicks {
+			held := map[string]struct{}{}
+			for _, perm := range permissions.PermissionsForAssignmentsWithBaseline(assignments) {
+				held[perm] = struct{}{}
+			}
+			scope.held = held
 		}
-		now := moduleKeySet(modulesForFrom(grants, ticked, "en", fromTicks))
+		now := moduleKeySet(modulesForScope(scope, departmentBarFor(roles), "en", false, ticked))
 
 		for key := range old {
 			if _, kept := now[key]; !kept {

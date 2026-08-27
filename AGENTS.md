@@ -1620,7 +1620,7 @@ it needs the local stack, so it is deliberately not in CI.
 
 Resolution is `permissions.PageAccessForAssignments`, read by BOTH the bootstrap narrowing and
 the access editor, so the ticks the screen shows are the ticks the sidebar obeys. Schema:
-migration `000219_person_page_access.sql`. Canonical prose:
+migration `000220_person_page_access.sql`. Canonical prose:
 `docs/decisions/per-person-page-access.md`. Pinned by
 `TestRetiredProcurementDirectorLensIsReproducedByTicks` (the holder's two stacked roles produce
 exactly the six leaves his live bootstrap served on 2026-08-27, and no page contract for

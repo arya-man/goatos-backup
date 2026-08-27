@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
@@ -183,6 +184,26 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 		code := cmd.DesignationCode
 		designation = &code
 	}
+	// The target must be an ACTIVE member OF THIS TENANT, checked inside the write
+	// transaction rather than trusted from the request.
+	//
+	// tenant_id comes from the authenticated context, but person_id comes from the URL and
+	// the foreign key is on workforce_member_id ALONE -- so without this a PUT could write
+	// (this tenant, another tenant's member). Those rows would never resolve, because every
+	// read joins on tenant AND member, but they would be persisted and AUDITED as though
+	// someone's access had really been changed. An audit trail that records a change that
+	// never happened is worse than no row at all.
+	var exists bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM workforce_members
+		   WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND status = 'active')`,
+		cmd.TenantID, cmd.PersonID).Scan(&exists); err != nil {
+		return ports.PersonAccessRecord{}, err
+	}
+	if !exists {
+		return ports.PersonAccessRecord{}, ports.ErrPersonNotFound
+	}
+
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO person_access (tenant_id, workforce_member_id, scope_mode, designation_code, updated_at, updated_by, row_version)
 		 VALUES ($1::uuid, $2::uuid, $3, $4, now(), nullif($5, '')::uuid, 1)
@@ -403,7 +424,7 @@ func (r *AccessRepository) ResolvePageAccess(ctx context.Context, tenantID, user
 // The expansion is deliberately NOT done in SQL. What a capability means lives in
 // permissions.PermissionsForAssignments, and a second implementation in SQL is
 // how the write path and the enforcement path come to disagree.
-func (r *AccessRepository) ResolvePermissions(ctx context.Context, tenantID, userID string) ([]string, error) {
+func (r *AccessRepository) ResolvePermissions(ctx context.Context, tenantID, userID string) ([]string, bool, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT ma.module_key, ma.surface, ma.capabilities
 		   FROM person_module_access ma
@@ -415,19 +436,38 @@ func (r *AccessRepository) ResolvePermissions(ctx context.Context, tenantID, use
 		    AND m.status = 'active'`,
 		tenantID, userID)
 	if err != nil {
-		return nil, err
+		return provisionedOrErr(err)
 	}
 	defer rows.Close()
 	assignments := make([]permissions.ModuleAssignment, 0, 32)
 	for rows.Next() {
 		var a permissions.ModuleAssignment
 		if err := rows.Scan(&a.Module, &a.Surface, &a.Capabilities); err != nil {
-			return nil, err
+			return provisionedOrErr(err)
 		}
 		assignments = append(assignments, a)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return provisionedOrErr(err)
 	}
-	return permissions.PermissionsForAssignmentsWithBaseline(assignments), nil
+	return permissions.PermissionsForAssignmentsWithBaseline(assignments), true, nil
+}
+
+// provisionedOrErr separates "this deployment has not created the access tables yet" from
+// every other read failure, because the two are handled OPPOSITELY by the caller.
+//
+// The request path fails CLOSED on a read error: a person whose ticks deliberately REMOVED
+// a role-derived permission would otherwise get that authority back from a transient
+// database blip -- fail-open on exactly the path this model exists to control.
+//
+// An undefined table is not a blip. It is the deploy window before the migration has run,
+// and failing closed there would 403 the entire farm. Postgres names that case precisely
+// (SQLSTATE 42P01), so it is reported as "not provisioned" and the caller takes the role
+// path, exactly as it does for a person with no rows.
+func provisionedOrErr(err error) ([]string, bool, error) {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+		return nil, false, nil
+	}
+	return nil, true, err
 }

@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"io"
 	"log/slog"
 	"net/http"
@@ -128,6 +129,10 @@ func (r *bootstrapLocaleRepo) ListActiveGrantsForActor(context.Context, string, 
 
 func (r *bootstrapLocaleRepo) ListCapabilities(context.Context, string, string) ([]domain.CapabilityAssignment, error) {
 	return r.caps, nil
+}
+
+func (r *bootstrapLocaleRepo) ListPersonAssignments(context.Context, string, string) ([]permissions.ModuleAssignment, error) {
+	return nil, nil
 }
 
 func (r *bootstrapLocaleRepo) ListGrantedModuleKeys(context.Context, string, string) ([]string, error) {
