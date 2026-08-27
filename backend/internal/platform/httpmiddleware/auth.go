@@ -75,6 +75,7 @@ type PersonAccessSource interface {
 	// error fails CLOSED, since falling back to the role path would hand back exactly the
 	// authority a person's ticks were used to remove.
 	ResolvePermissions(ctx context.Context, tenantID, userID string) (perms []string, provisioned bool, err error)
+	ResolveParkScope(ctx context.Context, tenantID, userID string) (scopeMode string, parkIDs []string, provisioned bool, err error)
 }
 
 // SetPersonAccessSource wires the per-person resolver. Called at composition time.
@@ -193,7 +194,7 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		// exception is the deploy window before the migration has run, which Postgres names
 		// precisely (undefined table) and which the repository reports as
 		// ErrPersonAccessNotProvisioned; failing closed there would 403 the whole farm.
-		authorized, source := a.decide(ctx, route, roles, tenantID, userID)
+		ctx, authorized, source := a.decide(ctx, route, roles, tenantID, userID)
 		if !authorized {
 			// required_* travel with the denial: `roles:""` alone says the caller
 			// held nothing, but not what the route WANTED — and that missing half
@@ -596,6 +597,12 @@ func ResolveAuthorizedParkScope(ctx context.Context, tenantID, requestedParkID s
 // serves both an executor and a read-only overseer expresses itself. Passing none is a
 // programming error and fails closed.
 func ResolveAuthorizedParkScopeForCapabilities(ctx context.Context, tenantID, requestedParkID string, capabilities ...string) ParkScopeDecision {
+	if scope, ok := PersonParkScopeFromContext(ctx); ok {
+		if scope.TenantWide {
+			return ParkScopeDecision{ParkID: requestedParkID, Allowed: true}
+		}
+		return decideParkScope(scope.ParkIDs, requestedParkID)
+	}
 	grants := AuthGrantsFromContext(ctx)
 	// No grants at all = internal/service context (e.g. context.Background() in an
 	// integration test or a CLI), same escape hatch the blind form has always had.
@@ -738,11 +745,11 @@ func AuthorizedParkIDsForCapability(grants []permissions.ActiveGrant, capability
 // Extracted so the fail-closed rule below is unit-testable: it is the one place a database
 // blip could hand back authority a person's ticks removed, and that is not a property to
 // leave to an integration test.
-func (a *AuthMiddleware) decide(ctx context.Context, route permissions.Route, roles []string, tenantID, userID string) (bool, string) {
+func (a *AuthMiddleware) decide(ctx context.Context, route permissions.Route, roles []string, tenantID, userID string) (context.Context, bool, string) {
 	return decideAuthorization(ctx, a.personAccess, route, roles, tenantID, userID, a.log)
 }
 
-func decideAuthorization(ctx context.Context, src PersonAccessSource, route permissions.Route, roles []string, tenantID, userID string, logs ...*slog.Logger) (bool, string) {
+func decideAuthorization(ctx context.Context, src PersonAccessSource, route permissions.Route, roles []string, tenantID, userID string, logs ...*slog.Logger) (context.Context, bool, string) {
 	log := slog.Default()
 	if len(logs) > 0 && logs[0] != nil {
 		log = logs[0]
@@ -772,18 +779,38 @@ func decideAuthorization(ctx context.Context, src PersonAccessSource, route perm
 			)
 			authorized = false
 			source = "person_unavailable"
-		case len(held) == 0:
-			log.WarnContext(ctx, "person_access_missing_falling_back_to_role",
-				slog.String("actor_id", userID),
-				slog.String("tenant_id", tenantID),
-				slog.String("route", route.OperationID),
-			)
 		default:
 			if allowed, decidable := permissions.AuthorizePermissionSet(route, held); decidable {
 				authorized = allowed
 				source = "person"
+				if allowed {
+					scopeMode, parkIDs, scopeProvisioned, err := src.ResolveParkScope(ctx, tenantID, userID)
+					switch {
+					case err == nil && scopeProvisioned:
+						ctx = WithPersonParkScope(ctx, PersonParkScope{
+							TenantWide: strings.EqualFold(strings.TrimSpace(scopeMode), "tenant"),
+							ParkIDs:    parkIDs,
+						})
+					case err == nil && !scopeProvisioned:
+						log.WarnContext(ctx, "person_access_scope_not_provisioned_falling_back_to_role",
+							slog.String("actor_id", userID),
+							slog.String("tenant_id", tenantID),
+							slog.String("route", route.OperationID),
+						)
+					default:
+						log.ErrorContext(ctx, "person_access_scope_lookup_failed",
+							slog.String("request_id", RequestIDFromContext(ctx)),
+							slog.String("trace_id", TraceIDFromContext(ctx)),
+							slog.String("actor_id", userID),
+							slog.String("route", route.OperationID),
+							slog.String("error", err.Error()),
+						)
+						authorized = false
+						source = "person_unavailable"
+					}
+				}
 			}
 		}
 	}
-	return authorized, source
+	return ctx, authorized, source
 }

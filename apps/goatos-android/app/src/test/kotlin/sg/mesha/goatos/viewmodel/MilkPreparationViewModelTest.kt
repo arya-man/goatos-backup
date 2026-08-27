@@ -3,6 +3,8 @@ package sg.mesha.goatos.viewmodel
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -425,12 +427,61 @@ class MilkPreparationViewModelTest {
         )
     }
 
+    @Test
+    fun `past preparation date is read-only and cannot enqueue submit`() = runTest(dispatcher) {
+        val syncRepository = FakeMilkPreparationSyncRepository()
+        val draftRepository = FakeMilkPreparationDraftRepository()
+        val pastDate = LocalDate.now(ZoneId.of("Asia/Kolkata")).minusDays(1).toString()
+        draftRepository.putAnswers(
+            CaptureFlow.MILK_PREPARATION,
+            "park-1:$pastDate",
+            mapOf(
+                "goat_milk_used" to "true",
+                "morning" to "10",
+                "evening" to "10",
+                "step:goat_milk_quantity" to "5",
+            ),
+        )
+        val viewModel = MilkPreparationViewModel(
+            sync = syncRepository,
+            repo = FakeMilkPreparationRepository(
+                seedTask = MilkPreparationFarmTaskDto(parkId = "park-1", verificationStatus = "not_submitted"),
+            ),
+            capture = FakeProofCaptureSource(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            drafts = draftRepository,
+            analytics = FakeAnalyticsPort(),
+            saved = SavedStateHandle(
+                mapOf(
+                    MilkPreparationViewModel.ARG_PARK_ID to "park-1",
+                    MilkPreparationViewModel.ARG_PREPARATION_DATE to pastDate,
+                ),
+            ),
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("past preparation date must render read-only", false, viewModel.state.value.isEditable)
+        viewModel.onEvent(MilkPreparationEvent.SetStepAnswer("goat_milk_quantity", "99"))
+        advanceUntilIdle()
+        assertEquals(
+            "past preparation date must not mutate restored draft step answers",
+            "5",
+            viewModel.state.value.steps.first { it.code == "goat_milk_quantity" }.answer,
+        )
+        viewModel.onEvent(MilkPreparationEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals("past preparation date must never enqueue a backdated submit", 0, syncRepository.milkPreparationSubmitCalls)
+    }
+
 }
 
 private class FakeMilkPreparationSyncRepository : SyncRepository {
     private val status = MutableStateFlow(sg.mesha.goatos.core.data.sync.SyncStatus.empty(online = true))
     val deletedOutboxItems = mutableListOf<String>()
     var submitResult: AppResult<String> = AppResult.Ok("submit-outbox-id")
+    var milkPreparationSubmitCalls = 0
 
     override fun observeStatus(): MutableStateFlow<sg.mesha.goatos.core.data.sync.SyncStatus> = status
     val itemFlow = MutableStateFlow<sg.mesha.goatos.core.data.sync.SyncQueueItem?>(null)
@@ -503,7 +554,10 @@ private class FakeMilkPreparationSyncRepository : SyncRepository {
         goatMilkUsed: Boolean,
         answers: sg.mesha.goatos.core.data.sync.MilkPreparationAnswersPayload,
         proofItems: Map<String, String>,
-    ): AppResult<String> = submitResult
+    ): AppResult<String> {
+        milkPreparationSubmitCalls += 1
+        return submitResult
+    }
 
     override suspend fun enqueueMilkFeedingSubmit(
         groupKey: String,

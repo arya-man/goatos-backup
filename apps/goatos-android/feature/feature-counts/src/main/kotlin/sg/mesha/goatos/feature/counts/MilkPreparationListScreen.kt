@@ -168,7 +168,9 @@ fun MilkPreparationListScreen(
                 }
             }
             items(state.cards, key = { it.parkId }) { card ->
-                MilkPreparationCard(card) { onEvent(MilkPreparationListEvent.OpenFarm(card.parkId, state.selectedDate)) }
+                MilkPreparationCard(card.copy(canOpen = card.canOpen && state.isToday)) {
+                    onEvent(MilkPreparationListEvent.OpenFarm(card.parkId, state.selectedDate))
+                }
             }
         }
     }

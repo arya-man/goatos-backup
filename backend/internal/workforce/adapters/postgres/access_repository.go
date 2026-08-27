@@ -425,32 +425,97 @@ func (r *AccessRepository) ResolvePageAccess(ctx context.Context, tenantID, user
 // permissions.PermissionsForAssignments, and a second implementation in SQL is
 // how the write path and the enforcement path come to disagree.
 func (r *AccessRepository) ResolvePermissions(ctx context.Context, tenantID, userID string) ([]string, bool, error) {
-	rows, err := r.pool.Query(ctx,
-		`SELECT ma.module_key, ma.surface, ma.capabilities
-		   FROM person_module_access ma
-		   JOIN workforce_members m
-		     ON m.tenant_id = ma.tenant_id
-		    AND m.workforce_member_id = ma.workforce_member_id
-		  WHERE ma.tenant_id = $1::uuid
+	var (
+		hasAccess bool
+		rowsRaw   []byte
+	)
+	err := r.pool.QueryRow(ctx,
+		`SELECT a.workforce_member_id IS NOT NULL AS has_access,
+		        coalesce(
+		          (SELECT jsonb_agg(jsonb_build_object(
+		                    'module', ma.module_key,
+		                    'surface', ma.surface,
+		                    'capabilities', to_jsonb(ma.capabilities))
+		                  ORDER BY ma.module_key, ma.surface)
+		             FROM person_module_access ma
+		            WHERE ma.tenant_id = m.tenant_id
+		              AND ma.workforce_member_id = m.workforce_member_id),
+		          '[]'::jsonb) AS modules
+		   FROM workforce_members m
+		   LEFT JOIN person_access a
+		     ON a.tenant_id = m.tenant_id
+		    AND a.workforce_member_id = m.workforce_member_id
+		  WHERE m.tenant_id = $1::uuid
 		    AND m.user_id = $2::uuid
 		    AND m.status = 'active'`,
-		tenantID, userID)
+		tenantID, userID,
+	).Scan(&hasAccess, &rowsRaw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
 	if err != nil {
 		return provisionedOrErr(err)
 	}
-	defer rows.Close()
-	assignments := make([]permissions.ModuleAssignment, 0, 32)
-	for rows.Next() {
-		var a permissions.ModuleAssignment
-		if err := rows.Scan(&a.Module, &a.Surface, &a.Capabilities); err != nil {
-			return provisionedOrErr(err)
-		}
-		assignments = append(assignments, a)
+	if !hasAccess {
+		return nil, false, nil
 	}
-	if err := rows.Err(); err != nil {
-		return provisionedOrErr(err)
+	var rows []moduleRowJSON
+	if err := json.Unmarshal(rowsRaw, &rows); err != nil {
+		return nil, true, fmt.Errorf("decode runtime module rows: %w", err)
+	}
+	assignments := make([]permissions.ModuleAssignment, 0, 32)
+	for _, row := range rows {
+		assignments = append(assignments, permissions.ModuleAssignment{
+			Module:       row.Module,
+			Surface:      row.Surface,
+			Capabilities: row.Capabilities,
+		})
 	}
 	return permissions.PermissionsForAssignmentsWithBaseline(assignments), true, nil
+}
+
+// ResolveParkScope is the REQUEST PATH scope read for a principal whose per-person permissions
+// are deciding the route. It intentionally returns only the header mode and selected parks; the
+// capability question stays in ResolvePermissions/permissions.
+func (r *AccessRepository) ResolveParkScope(ctx context.Context, tenantID, userID string) (string, []string, bool, error) {
+	var (
+		scopeMode string
+		parksRaw  []byte
+	)
+	err := r.pool.QueryRow(ctx,
+		`SELECT coalesce(a.scope_mode, 'parks') AS scope_mode,
+		        coalesce(
+		          (SELECT jsonb_agg(ps.park_id::text ORDER BY ps.park_id::text)
+		             FROM person_park_scope ps
+		            WHERE ps.tenant_id = m.tenant_id
+		              AND ps.workforce_member_id = m.workforce_member_id),
+		          '[]'::jsonb) AS park_ids
+		   FROM workforce_members m
+		   JOIN person_access a
+		     ON a.tenant_id = m.tenant_id
+		    AND a.workforce_member_id = m.workforce_member_id
+		  WHERE m.tenant_id = $1::uuid
+		    AND m.user_id = $2::uuid
+		    AND m.status = 'active'`,
+		tenantID, userID,
+	).Scan(&scopeMode, &parksRaw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil, false, nil
+	}
+	if err != nil {
+		if isUndefinedTable(err) {
+			return "", nil, false, nil
+		}
+		return "", nil, true, err
+	}
+	var parkIDs []string
+	if err := json.Unmarshal(parksRaw, &parkIDs); err != nil {
+		return "", nil, true, fmt.Errorf("decode runtime park scope: %w", err)
+	}
+	if parkIDs == nil {
+		parkIDs = []string{}
+	}
+	return scopeMode, parkIDs, true, nil
 }
 
 // provisionedOrErr separates "this deployment has not created the access tables yet" from
@@ -465,9 +530,16 @@ func (r *AccessRepository) ResolvePermissions(ctx context.Context, tenantID, use
 // (SQLSTATE 42P01), so it is reported as "not provisioned" and the caller takes the role
 // path, exactly as it does for a person with no rows.
 func provisionedOrErr(err error) ([]string, bool, error) {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+	if isUndefinedTable(err) {
 		return nil, false, nil
 	}
 	return nil, true, err
+}
+
+func isUndefinedTable(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+		return true
+	}
+	return false
 }
