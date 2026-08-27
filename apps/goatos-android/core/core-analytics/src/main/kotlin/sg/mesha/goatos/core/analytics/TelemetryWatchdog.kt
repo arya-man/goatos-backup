@@ -16,7 +16,8 @@ import kotlinx.coroutines.launch
  * [DeadControlWatchdog] closes that gap with two rules:
  *  1. [armIntent] fires an INTENT event synchronously, at the tap, before anything can no-op.
  *  2. If the matching [disarm] does not arrive within [timeoutMs], a distinct
- *     "dead control" event AND a non-fatal are emitted — the tap happened, the system did nothing.
+ *     "dead control" event and Crashlytics breadcrumb are emitted — the tap happened, the system
+ *     did nothing.
  *
  * One [Job] is held at a time: a new [armIntent] cancels and replaces any pending watchdog for
  * this control, so a mashed dead button produces repeated INTENT events (a real signal — the
@@ -54,10 +55,7 @@ class DeadControlWatchdog(
         pending = scope.launch {
             delay(timeoutMs)
             runCatching { analytics.track(deadControlEvent, contextProps) }
-            crashReporter.recordException(
-                DeadControlException(deadControlEvent, contextProps, timeoutMs),
-                "dead-control watchdog fired: $deadControlEvent",
-            )
+            crashReporter.log("dead-control watchdog fired: $deadControlEvent")
         }
     }
 
@@ -75,13 +73,3 @@ class DeadControlWatchdog(
         pending = null
     }
 }
-
-/** Non-fatal payload for a fired [DeadControlWatchdog] — deliberately holds only the coarse,
- *  non-PII context props already sent as analytics params, never free-text user content. */
-class DeadControlException(
-    event: String,
-    contextProps: Map<String, String>,
-    timeoutMs: Long,
-) : Exception(
-    "dead control: $event did not resolve within ${timeoutMs}ms; context=$contextProps",
-)

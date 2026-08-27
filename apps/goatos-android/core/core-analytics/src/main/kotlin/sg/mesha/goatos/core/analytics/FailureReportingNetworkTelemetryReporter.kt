@@ -105,6 +105,7 @@ class FailureReportingNetworkTelemetryReporter(
 
     private fun isCrashlyticsActionable(event: NetworkTelemetryEvent): Boolean {
         if (event.statusCode < 0) return false
+        if (event.route in TELEMETRY_INGEST_ROUTES) return false
         if (event.statusCode == 401 && event.route in DEVICE_SESSION_ROUTES) return false
         return true
     }

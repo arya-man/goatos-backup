@@ -3,8 +3,10 @@ package sg.mesha.goatos.core.analytics
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import java.net.ConnectException
 import java.net.NoRouteToHostException
+import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Real [CrashReporter] backed by Firebase Crashlytics. Bound in place of [NoopCrashReporter] for
@@ -18,7 +20,7 @@ class FirebaseCrashReporter internal constructor(
 
     override fun recordException(throwable: Throwable, message: String?) {
         message?.let { sink.log(it) }
-        if (throwable.hasNetworkConnectivityCause()) return
+        if (throwable.shouldSkipCrashlyticsNonFatal()) return
         sink.recordException(throwable)
     }
 
@@ -68,6 +70,19 @@ private fun Throwable.isNetworkConnectivityFailure(): Boolean = when (this) {
     is SocketTimeoutException,
     is ConnectException,
     is NoRouteToHostException,
+    is SocketException,
     -> true
     else -> false
+}
+
+internal fun Throwable.shouldSkipCrashlyticsNonFatal(): Boolean =
+    this is CancellationException || hasNetworkConnectivityCause() || hasRawHttpExceptionCause()
+
+private fun Throwable.hasRawHttpExceptionCause(): Boolean {
+    var cursor: Throwable? = this
+    while (cursor != null) {
+        if (cursor.javaClass.name == "retrofit2.HttpException") return true
+        cursor = cursor.cause
+    }
+    return false
 }

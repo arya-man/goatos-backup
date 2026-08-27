@@ -542,15 +542,13 @@ class WeighingPlanWizardViewModel @Inject constructor(
                         analytics.track(AnalyticsEvents.WEIGHING_PLAN_SAVE_SUCCEEDED)
                     }
                     is AppResult.Err -> {
+                        val reason = result.message
                         raw.value = raw.value.copy(busy = false, message = result.message)
                         analytics.track(
                             AnalyticsEvents.WEIGHING_PLAN_SAVE_FAILED,
-                            mapOf(AnalyticsEvents.Params.REASON to (result.message ?: "unknown"))
+                            mapOf(AnalyticsEvents.Params.REASON to reason)
                         )
-                        crashReporter.recordException(
-                            result.cause ?: IllegalStateException(result.message),
-                            "weighing plan edit save failed"
-                        )
+                        crashReporter.log("weighing plan edit save failed: $reason")
                     }
                 }
                 return@launch
@@ -561,15 +559,13 @@ class WeighingPlanWizardViewModel @Inject constructor(
                     analytics.track(AnalyticsEvents.WEIGHING_PLAN_SAVE_SUCCEEDED)
                 }
                 is AppResult.Err -> {
+                    val reason = result.message
                     raw.value = raw.value.copy(busy = false, message = result.message)
                     analytics.track(
                         AnalyticsEvents.WEIGHING_PLAN_SAVE_FAILED,
-                        mapOf(AnalyticsEvents.Params.REASON to (result.message ?: "unknown"))
+                        mapOf(AnalyticsEvents.Params.REASON to reason)
                     )
-                    crashReporter.recordException(
-                        result.cause ?: IllegalStateException(result.message),
-                        "weighing plan save failed"
-                    )
+                    crashReporter.log("weighing plan save failed: $reason")
                 }
             }
         }
