@@ -206,12 +206,11 @@ android {
         }
         create("prod") {
             dimension = "env"
+            signingConfig = signingConfigs.getByName("stgRelease")
             buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "false")
             buildConfigField("String", "API_BASE_URL", "\"https://api.goatos.mesha.sg/\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"https://dashboard.mesha.sg/login\"")
-            // Telemetry (docs/TELEMETRY.md): OFF until prod's real Firebase project is confirmed
-            // and its google-services.json replaces the PLACEHOLDER at app/src/prod/google-services.json
-            // (OBSERVABILITY_DESIGN.md §6: "prod needs its Layer-1 terraform foundation before enabling").
+            // Reuses the existing goatos-stg Firebase/GCP project with the production package.
             buildConfigField(
                 "boolean",
                 "TELEMETRY_ENABLED",
