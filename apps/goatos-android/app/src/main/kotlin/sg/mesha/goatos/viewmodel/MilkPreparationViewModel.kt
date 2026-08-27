@@ -7,6 +7,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -136,12 +137,7 @@ class MilkPreparationListViewModel @Inject constructor(
 
     /** Calendar jump from the date bar's picker; same today cap as the chevrons. */
     private fun selectDate(dateIso: String) {
-        val requested = try {
-            LocalDate.parse(dateIso)
-        } catch (_: RuntimeException) {
-            // exception:exempt invalid date-picker value is ignored; no work is submitted or lost
-            return
-        }
+        val requested = parseMilkPreparationDateOrNull(dateIso) ?: return
         applyDate(requested)
     }
 
@@ -163,15 +159,17 @@ class MilkPreparationListViewModel @Inject constructor(
 /** "Today · 27 Jul" only when [dateIso] IS today IST; otherwise just the formatted date — matching
  *  the WorkflowListViewModel date-bar convention (a past/future selection is never mislabeled Today). */
 private fun milkPreparationDateLabel(dateIso: String): String {
-        val parsed = try {
-            LocalDate.parse(dateIso)
-        } catch (_: RuntimeException) {
-            // exception:exempt display-only fallback renders the raw date label
-            return dateIso
-        }
+    val parsed = parseMilkPreparationDateOrNull(dateIso) ?: return dateIso
     val label = parsed.format(MILK_DAY_LABEL)
     return if (dateIso == LocalDate.now(MILK_IST).toString()) "Today · $label" else label
 }
+
+private fun parseMilkPreparationDateOrNull(dateIso: String): LocalDate? =
+    try {
+        LocalDate.parse(dateIso)
+    } catch (_: DateTimeParseException) {
+        null
+    }
 
 internal fun buildMilkPreparationListUi(
     page: MilkPreparationPageDto?,
@@ -285,12 +283,7 @@ private fun milkPreparationCard(
 internal fun Int.videosRecorded(): String = if (this == 1) "1 video" else "$this videos"
 
 private fun String.toMilkDateLabel(prefix: String = ""): String =
-    try {
-        prefix + LocalDate.parse(this).format(MILK_DAY_LABEL)
-    } catch (_: RuntimeException) {
-        // exception:exempt display-only fallback renders the original backend date string
-        this
-    }
+    parseMilkPreparationDateOrNull(this)?.let { prefix + it.format(MILK_DAY_LABEL) } ?: this
 
 private fun formatLitres(millilitres: Long): String = formatDecimal(millilitres.toDouble() / 1_000.0) + " L"
 private fun formatDecimal(value: Double): String =

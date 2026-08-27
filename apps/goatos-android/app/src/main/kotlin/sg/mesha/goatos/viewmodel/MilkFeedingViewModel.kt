@@ -7,6 +7,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -168,12 +169,7 @@ class MilkFeedingListViewModel @Inject constructor(
 
     /** Calendar jump from the date bar's picker; same today cap as the chevrons. */
     private fun selectDate(dateIso: String) {
-        val requested = try {
-            LocalDate.parse(dateIso)
-        } catch (_: RuntimeException) {
-            // exception:exempt invalid date-picker value is ignored; no work is submitted or lost
-            return
-        }
+        val requested = parseMilkFeedingDateOrNull(dateIso) ?: return
         applyDate(requested)
     }
 
@@ -201,15 +197,17 @@ class MilkFeedingListViewModel @Inject constructor(
 /** "Today · 27 Jul" only when [dateIso] IS today IST; otherwise just the formatted date — matching
  *  the WorkflowListViewModel date-bar convention (a past/future selection is never mislabeled Today). */
 private fun milkFeedingDateLabel(dateIso: String): String {
-        val parsed = try {
-            LocalDate.parse(dateIso)
-        } catch (_: RuntimeException) {
-            // exception:exempt display-only fallback renders the raw date label
-            return dateIso
-        }
+    val parsed = parseMilkFeedingDateOrNull(dateIso) ?: return dateIso
     val label = parsed.format(MILK_FEEDING_DAY_LABEL)
     return if (dateIso == LocalDate.now(MILK_FEEDING_IST).toString()) "Today · $label" else label
 }
+
+private fun parseMilkFeedingDateOrNull(dateIso: String): LocalDate? =
+    try {
+        LocalDate.parse(dateIso)
+    } catch (_: DateTimeParseException) {
+        null
+    }
 
 internal fun buildMilkFeedingListUi(
     page: MilkFeedingPageDto?,
