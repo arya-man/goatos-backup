@@ -935,6 +935,14 @@
   /* People/HRMS directory: same nowrap rule — names, emails, and park labels must never
      character-wrap inside a clickable cell; the twrap owns horizontal scrolling. */
   .main table.people-table th,.main table.people-table td,.main table.people-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  /* Feed purchases ledger: same defect class — the global .celllink overflow-wrap:anywhere split
+     the 3-letter farm code, the load number, and the ₹ per-kg rate character-by-character down
+     the column. Short cells stay single-line; Feed (3) and Vendor (8) wrap at word boundaries
+     only, with a floor so table auto-layout can't crush them; the twrap owns horizontal scroll. */
+  .main table.feed-purchases-table th,.main table.feed-purchases-table td,.main table.feed-purchases-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  .main table.feed-purchases-table th:nth-child(3),.main table.feed-purchases-table td:nth-child(3),.main table.feed-purchases-table td:nth-child(3) .celllink,
+  .main table.feed-purchases-table th:nth-child(8),.main table.feed-purchases-table td:nth-child(8),.main table.feed-purchases-table td:nth-child(8) .celllink{white-space:normal;overflow-wrap:normal;word-break:normal}
+  .main table.feed-purchases-table td:nth-child(3),.main table.feed-purchases-table td:nth-child(8){min-width:200px}
   /* Per-column min-width so table auto-layout can't collapse a column to a sliver and force a wrap.
      Cols: 1 Display ID · 2 Tag 1 · 3 Tag 2 · 4 Park · 5 Shed · 6 Breed · 7 Sex · 8 Weight ·
      9 Lifecycle · 10 Health · 11 Breeding. */
