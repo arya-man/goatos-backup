@@ -3211,6 +3211,8 @@ WITH open_claims AS (
   SELECT
     cs.campaign_id,
     cs.display_name,
+    cs.park_id,
+    cs.start_business_date,
     COALESCE(represented_shed.location_id, cs.location_id)::text AS location_id,
     CASE WHEN represented_shed.location_id IS NULL THEN COALESCE(cs.partition_label, '') ELSE '' END AS partition_label
   FROM weighing_campaign_sheds cs
@@ -3257,6 +3259,8 @@ FROM mine
 JOIN open_claims other
   ON other.location_id=mine.location_id
  AND other.partition_label=mine.partition_label
+ AND other.park_id=mine.park_id
+ AND other.start_business_date=mine.start_business_date
  AND other.campaign_id <> mine.campaign_id
 ORDER BY mine.display_name`, tenantID, campaignID)
 	if err != nil {
