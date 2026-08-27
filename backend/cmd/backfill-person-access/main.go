@@ -188,12 +188,15 @@ func orEmptyPages(in []string) []string {
 }
 
 type person struct {
-	tenantID   string
-	memberID   string
-	name       string
-	roles      []string
-	parkIDs    []string
-	tenantWide bool
+	tenantID string
+	memberID string
+	name     string
+	roles    []string
+	parkIDs  []string
+	// deptModules is what this person's DEPARTMENT grants on the phone today. Empty means
+	// their bar was never department-composed (leadership, a verifier, or no department).
+	deptModules []string
+	tenantWide  bool
 }
 
 func backfillPeople(ctx context.Context, pool *pgxpool.Pool, tenantID string, dryRun, overwrite bool) error {
@@ -218,6 +221,11 @@ func backfillPeople(ctx context.Context, pool *pgxpool.Pool, tenantID string, dr
 		       m.display_name,
 		       coalesce(array_agg(DISTINCT g.role) FILTER (WHERE g.role IS NOT NULL), '{}') AS roles,
 		       coalesce(array_agg(DISTINCT g.scope_id::text) FILTER (WHERE g.scope_type = 'park' AND g.scope_id IS NOT NULL), '{}') AS park_ids,
+	       coalesce((SELECT array_agg(DISTINCT dmg.module_key)
+	                   FROM department_module_grants dmg
+	                  WHERE dmg.tenant_id = m.tenant_id
+	                    AND dmg.department_id = m.department_id
+	                    AND dmg.status = 'active'), '{}') AS dept_modules,
 		       bool_or(g.scope_type = 'tenant') AS tenant_wide
 		FROM workforce_members m
 		LEFT JOIN user_scope_grants g
@@ -237,7 +245,7 @@ func backfillPeople(ctx context.Context, pool *pgxpool.Pool, tenantID string, dr
 	for rows.Next() {
 		var p person
 		var tenantWide *bool
-		if err := rows.Scan(&p.tenantID, &p.memberID, &p.name, &p.roles, &p.parkIDs, &tenantWide); err != nil {
+		if err := rows.Scan(&p.tenantID, &p.memberID, &p.name, &p.roles, &p.parkIDs, &p.deptModules, &tenantWide); err != nil {
 			rows.Close()
 			return err
 		}
@@ -311,7 +319,9 @@ func shapePerson(p person) ([]permissions.ModuleAssignment, string) {
 	// that was not narrowed, so the editor opens showing what the person can actually reach
 	// rather than an empty grid.
 	assignments := permissions.FillDefaultPages(
-		permissions.NarrowForRetiredLenses(p.roles, permissions.AssignmentsForRoles(p.roles)),
+		permissions.NarrowForRetiredLenses(p.roles,
+			permissions.NarrowMobileToDepartmentBar(p.roles, p.deptModules,
+				permissions.AssignmentsForRoles(p.roles))),
 	)
 	scopeMode := "parks"
 	if p.tenantWide {

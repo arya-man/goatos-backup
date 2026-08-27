@@ -1388,7 +1388,7 @@ remains backend infrastructure only.
 ## Per-person module and page access: excluded access-control surfaces (2026-08-24, 2026-08-27)
 
 The People/HRMS rewrite replaced role-derived access with per-person assignment
-(migrations `000215` and `000216`). Every surface below is ACCESS CONTROL: who
+(migrations `000218` and `000219`). Every surface below is ACCESS CONTROL: who
 may open which module and which screen. None of it is a business fact about the
 farm — it describes the product's own permission model, not animals, work, feed,
 proof or money — so none of it belongs in a leadership answer.

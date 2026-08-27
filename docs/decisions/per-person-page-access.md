@@ -55,7 +55,7 @@ its module, its sidebar label, its route. Three properties:
    fails if a page contract's route belongs to no module (it could never be
    narrowed).
 
-Storage is `person_module_access.pages` (migration `000216`). Resolution is
+Storage is `person_module_access.pages` (migration `000219`). Resolution is
 `permissions.PageAccessForAssignments`, read by BOTH the bootstrap narrowing and
 the access editor, so the ticks the editor shows are the ticks the sidebar obeys.
 

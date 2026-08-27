@@ -56,6 +56,58 @@ func applyRetiredProcurementDirectorNarrowing(in []ModuleAssignment) []ModuleAss
 	return out
 }
 
+// leadershipBarRoles are the roles whose PHONE module set is composed from their permissions
+// rather than from their department (workforce/app.leadershipGrantRoles, which this mirrors
+// for the one-time backfill). Their bar never came from department_module_grants, so it must
+// not be intersected with it.
+var leadershipBarRoles = map[string]struct{}{
+	RoleCEOInternal:    {},
+	RolePCDirector:     {},
+	RoleGrowthDirector: {},
+	RoleFeedDirector:   {},
+	RoleHealthDirector: {},
+	RoleParkHead:       {},
+	RoleVerifier:       {},
+}
+
+// NarrowMobileToDepartmentBar trims a person's PHONE rows to the modules their department
+// actually grants today.
+//
+// The role mapping is a superset by construction: `operator` maps to nine modules because
+// SOME operator's department grants each of them, while any ONE operator's department grants
+// six. That was harmless while the bar came from department_module_grants and the ticks only
+// carried permissions -- but the moment the phone reads the ticks, the extra rows become
+// modules that operator never had. A live run showed exactly that: Health appeared on an
+// operator's bar for the first time.
+//
+// So the backfill intersects, once, per person. `dept` empty means this person's bar was
+// never department-composed (leadership, a verifier, or someone with no department at all),
+// and nothing is trimmed.
+func NarrowMobileToDepartmentBar(roles []string, dept []string, assignments []ModuleAssignment) []ModuleAssignment {
+	if len(dept) == 0 {
+		return assignments
+	}
+	for _, r := range roles {
+		if _, leadership := leadershipBarRoles[r]; leadership {
+			return assignments
+		}
+	}
+	allowed := make(map[string]struct{}, len(dept))
+	for _, d := range dept {
+		allowed[d] = struct{}{}
+	}
+	out := make([]ModuleAssignment, 0, len(assignments))
+	for _, a := range assignments {
+		if a.Surface == SurfaceMobile {
+			if _, ok := allowed[a.Module]; !ok {
+				continue
+			}
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
 // NarrowForRetiredLenses applies every recorded lens narrowing that a person's retired
 // roles used to receive as code. Called by the backfill, never at request time.
 //

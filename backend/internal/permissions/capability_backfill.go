@@ -75,6 +75,10 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		one(assign("vaccination", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("weighing", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("counts", SurfaceMobile, LevelView, LevelDo)),
+		// The kid-milk round. Its own module since the 2026-07-31 split, and the operator's
+		// department grants it today -- omitting it here would take Milk off their bar the
+		// moment the phone started reading these ticks.
+		one(assign("milk", SurfaceMobile, LevelDo)),
 		one(assign("feed_direction", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("aas_health", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("pc_care", SurfaceMobile, LevelView, LevelDo)),
@@ -87,6 +91,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	RoleParkHead: rows(
 		one(assign("vaccination", SurfaceMobile, LevelView, LevelOversee)),
 		one(assign("counts", SurfaceMobile, LevelView, LevelDo)),
+		one(assign("milk", SurfaceMobile, LevelDo)),
 		one(assign("feed_direction", SurfaceMobile, LevelView, LevelDo)),
 		one(assign("aas_health", SurfaceMobile, LevelView)),
 		one(assign("procurement", SurfaceMobile, LevelView, LevelDo, LevelOversee)),
@@ -164,7 +169,14 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	),
 	// Granted BY NAME alongside a job (maintainer decision 2026-08-05). Carries approval
 	// authority and nothing else -- no read, no write. LevelView is deliberately absent.
-	RoleCountsApprover: bothSurfaces("counts", LevelOversee),
+	// Approving is its OWN module on both surfaces (the 2026-08-05 decision that put the
+	// queue back on the phone as a separate module rather than a tab inside Counts). The
+	// `counts` row is kept alongside it because the retired role's three approve permissions
+	// resolve from either -- dropping it would change what this person holds.
+	RoleCountsApprover: rows(
+		bothSurfaces("counts", LevelOversee),
+		bothSurfaces("approvals", LevelOversee),
+	),
 	// Granted BY NAME to the park heads who run the strip test (maintainer decision
 	// 2026-08-25), the same per-person shape as counts_approver. Carries testing
 	// authority and nothing else.
