@@ -31,11 +31,11 @@ description: Scripted Cloud Run staging rollout for API, MCP, admin-web, migrate
 tasks:
   render:
     type: container
-    image: asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:62f959fadae455a5a7b7bc188f6d0e7ad42965d822b62285e9d626bd1a0fa47a
+    image: asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:eadd50667db423879ba9fcde748754544fcace2b883b3b9880029f750716bbc5
     command: ["/usr/local/bin/goatos-stg-clouddeploy-task"]
     args: ["render"]
   deploy:
     type: container
-    image: asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:62f959fadae455a5a7b7bc188f6d0e7ad42965d822b62285e9d626bd1a0fa47a
+    image: asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:eadd50667db423879ba9fcde748754544fcace2b883b3b9880029f750716bbc5
     command: ["/usr/local/bin/goatos-stg-clouddeploy-task"]
     args: ["deploy"]
