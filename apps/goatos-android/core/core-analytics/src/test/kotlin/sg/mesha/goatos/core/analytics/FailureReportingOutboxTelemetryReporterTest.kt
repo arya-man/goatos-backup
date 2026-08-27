@@ -151,6 +151,32 @@ class FailureReportingOutboxTelemetryReporterTest {
     }
 
     @Test
+    fun `flattened transport subclasses are counted without opening a Crashlytics issue`() {
+        val reporter = reporter()
+        listOf(
+            "EOFException",
+            "InterruptedIOException",
+            "SSLException",
+            "SSLHandshakeException",
+            "ProtocolException",
+            "RecoverableIOException",
+            "CustomSocketException",
+        ).forEach { failureClass ->
+            reporter.onOutboxWrite(
+                event(
+                    OutboxWritePhase.TERMINAL,
+                    attempt = 5,
+                    failureClass = failureClass,
+                    terminalReason = OutboxTerminalReason.ATTEMPTS_EXHAUSTED,
+                ),
+            )
+        }
+
+        assertEquals(7, analytics.events.size)
+        assertTrue(crash.exceptions.isEmpty())
+    }
+
+    @Test
     fun `an exhausted client defect is loud - non-fatal plus analytics`() {
         reporter().onOutboxWrite(
             event(
