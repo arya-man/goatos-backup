@@ -28,6 +28,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 )
 
 func main() {
@@ -318,9 +319,16 @@ func shapePerson(p person) ([]permissions.ModuleAssignment, string) {
 	// decision 2026-08-27). FillDefaultPages then stamps the full page list on every web row
 	// that was not narrowed, so the editor opens showing what the person can actually reach
 	// rather than an empty grid.
+	// The phone bar this person has TODAY, frozen into their ticks so the cutover changes
+	// nothing. Leadership never had a department-composed bar -- theirs is the curated
+	// per-role drawer -- so the two sources are different questions and only one applies.
+	bar := workforceapp.LeadershipPhoneModules(p.roles)
+	if len(bar) == 0 {
+		bar = p.deptModules
+	}
 	assignments := permissions.FillDefaultPages(
 		permissions.NarrowForRetiredLenses(p.roles,
-			permissions.NarrowMobileToDepartmentBar(p.roles, p.deptModules,
+			permissions.NarrowMobileToDepartmentBar(p.roles, bar,
 				permissions.AssignmentsForRoles(p.roles))),
 	)
 	scopeMode := "parks"

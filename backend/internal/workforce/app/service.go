@@ -455,7 +455,8 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	// (position_module_duties), not a department grant, and the whole verifier workspace is
 	// composed from them. Feeding her ticks in here would recompose that workspace, and the
 	// maintainer's instruction was that the verifier's separate interface does not change.
-	if len(personModules) > 0 && !isStandaloneVerifierPrincipal(grants) {
+	fromTicks := len(personModules) > 0 && !isStandaloneVerifierPrincipal(grants)
+	if fromTicks {
 		grantedModules = personModules
 	}
 	var device *domain.DeviceSummary
@@ -484,9 +485,9 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 		}
 	}
 	now := s.now().UTC()
-	bootstrapModules := modulesFor(grants, grantedModules, localeTag)
+	bootstrapModules := modulesForFrom(grants, grantedModules, localeTag, fromTicks)
 	navChrome := navChromeFor(grants, bootstrapModules)
-	visibleNav := visibleNavigationFor(grants, grantedModules, localeTag)
+	visibleNav := visibleNavigationForFrom(grants, grantedModules, localeTag, fromTicks)
 	visibleNav, bootstrapModules = applyProfileEntryPlacement(navChrome, visibleNav, bootstrapModules)
 	return &domain.BootstrapResponse{
 		Actor:                  domain.BootstrapActor{ActorID: actorID, TenantID: tenantID},
@@ -501,11 +502,11 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"proof_capture":               hasCapability(caps, "media.video_capture"),
 			"animal_id_scan":              hasCapability(caps, "animal_id.scan"),
 			"protocol_adherence_card":     canViewProtocolAdherenceCard(grants),
-			"vaccination_execute":         canExecuteVaccination(grants, grantedModules),
-			"weighing_execute":            canExecuteWeighing(grants, grantedModules),
-			"weighing_oversee_operators":  canOverseeWeighingOperators(grants, grantedModules),
-			"pc_care_execute":             canExecutePCCare(grants, grantedModules),
-			"pc_care_plan":                canPlanPCCare(grants, grantedModules),
+			"vaccination_execute":         canExecuteVaccinationFrom(grants, grantedModules, fromTicks),
+			"weighing_execute":            canExecuteWeighingFrom(grants, grantedModules, fromTicks),
+			"weighing_oversee_operators":  canOverseeWeighingOperatorsFrom(grants, grantedModules, fromTicks),
+			"pc_care_execute":             canExecutePCCareFrom(grants, grantedModules, fromTicks),
+			"pc_care_plan":                canPlanPCCareFrom(grants, grantedModules, fromTicks),
 			"verification_video_controls": canUseVerificationVideoControls(grants),
 		},
 		VisibleNavigation:       visibleNav,

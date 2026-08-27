@@ -199,6 +199,20 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// The roadmap teaser. `breeding` is a `soon` module: it renders as a disabled drawer
+		// row and opens nothing, so it carries NO permissions at any level. It needs a
+		// catalog entry all the same, because the phone offers a soon module only when the
+		// principal is offered its key -- and once the bar reads ticks, an untickable module
+		// is an unofferable one. Without this the CEO lost the Breeding row.
+		Key:      "breeding",
+		Label:    "Breeding",
+		Blurb:    "Coming soon. Nothing to open yet.",
+		Surfaces: []string{SurfaceMobile},
+		Levels: map[string][]string{
+			LevelView: {},
+		},
+	},
+	{
 		// The birth / death / shifting approval queue. Its OWN module rather than a tab
 		// inside Herd Operations (maintainer decision 2026-08-05): approving is not
 		// capturing, and the audiences barely overlap -- the two named approvers hold no

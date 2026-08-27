@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -127,4 +128,87 @@ func TestEveryPhoneModuleExistsInTheCapabilityCatalog(t *testing.T) {
 			t.Errorf("phone module %q has no mobile entry in permissions.ModuleCapabilities; ticking cannot reach it, so it would disappear from every operator's bar", key)
 		}
 	}
+}
+
+// TestNoRoleLosesAPhoneModuleWhenTheBarReadsTicks is the parity proof for the cutover, and
+// the one that matters most: this feature is already in use, so nobody may open the app the
+// morning after and find a module gone.
+//
+// It composes each registered role's bar BOTH ways -- the retired path (department grants for
+// field staff, the curated per-role list for leadership) and the new one (the person's own
+// backfilled ticks) -- and fails on anything the ticks would drop. It caught three real
+// losses when it was written: Milk off every operator, and Milk plus Approvals off the CEO.
+//
+// A GAIN is reported too, because a module appearing for the first time is equally a change
+// nobody asked for -- the operator sweep found Health arriving on a phone that way.
+func TestNoRoleLosesAPhoneModuleWhenTheBarReadsTicks(t *testing.T) {
+	// The REAL role combinations on the roster, not synthetic single-role principals. A bare
+	// `counts_approver` is never anyone's whole access -- it is layered onto a job by name --
+	// and comparing one would report a difference nobody can experience.
+	for _, roles := range [][]string{
+		{permissions.RoleCEOInternal},
+		{permissions.RoleOperator},
+		{permissions.RoleVerifier},
+		{permissions.RoleFeedDirector, permissions.RoleProcurementDirector},
+		{permissions.RoleCountsApprover, permissions.RoleOperator, permissions.RoleParkHead, permissions.RolePCDirector},
+		{permissions.RoleCountsApprover, permissions.RoleGrowthDirector, permissions.RoleOperator,
+			permissions.RoleParkHead, permissions.RolePCDirector},
+	} {
+		role := strings.Join(roles, "+")
+		grants := make([]domain.GrantSummary, 0, len(roles))
+		for _, r := range roles {
+			g := grant()
+			g.Role = r
+			grants = append(grants, g)
+		}
+
+		// The retired path. For leadership the keys are ignored entirely (the curated list
+		// wins), which is exactly the branch that used to keep every module on their phone.
+		bar := LeadershipPhoneModules(roles)
+		if len(bar) == 0 {
+			bar = departmentBarFor(roles)
+		}
+		// A standalone verifier is exempt on the request path, so her bar is never composed
+		// from ticks and comparing one would report a difference nobody can experience.
+		fromTicks := !isStandaloneVerifierPrincipal(grants)
+		old := moduleKeySet(modulesFor(grants, departmentBarFor(roles), "en"))
+
+		assignments := permissions.FillDefaultPages(
+			permissions.NarrowForRetiredLenses(roles,
+				permissions.NarrowMobileToDepartmentBar(roles, bar,
+					permissions.AssignmentsForRoles(roles))))
+		ticked := make([]string, 0, len(assignments))
+		for _, a := range assignments {
+			if a.Surface == permissions.SurfaceMobile && len(a.Capabilities) > 0 {
+				ticked = append(ticked, a.Module)
+			}
+		}
+		if !fromTicks {
+			ticked = departmentBarFor(roles)
+		}
+		now := moduleKeySet(modulesForFrom(grants, ticked, "en", fromTicks))
+
+		for key := range old {
+			if _, kept := now[key]; !kept {
+				t.Errorf("%s LOSES phone module %q when the bar reads ticks", role, key)
+			}
+		}
+		for key := range now {
+			if _, had := old[key]; !had {
+				t.Errorf("%s GAINS phone module %q it does not have today", role, key)
+			}
+		}
+	}
+}
+
+// departmentBarFor is what department_module_grants gives this kind of person today. Field
+// staff sit in a department that grants the operational set; leadership sit in none, which is
+// why their retired path used the curated per-role list instead.
+func departmentBarFor(roles []string) []string {
+	for _, r := range roles {
+		if r == permissions.RoleOperator {
+			return []string{"counts", "feed_direction", "milk", "pc_care", "vaccination", "weighing"}
+		}
+	}
+	return nil
 }
