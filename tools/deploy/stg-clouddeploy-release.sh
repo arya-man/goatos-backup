@@ -10,10 +10,60 @@ TARGET_ID="${TARGET_ID:-goatos-stg}"
 WAIT_FOR_ROLLOUT="${GOATOS_STG_RELEASE_WAIT:-1}"
 ROLLOUT_TIMEOUT_SECONDS="${GOATOS_STG_ROLLOUT_TIMEOUT_SECONDS:-1800}"
 ROLLOUT_POLL_SECONDS="${GOATOS_STG_ROLLOUT_POLL_SECONDS:-20}"
+SLACK_WEBHOOK_SECRET="${SLACK_WEBHOOK_SECRET:-goatos-stg-deploy-slack-webhook-url}"
+TRIGGERED_BY="${TRIGGERED_BY:-unknown Slack user}"
+CONSOLE_AUTHUSER="${CONSOLE_AUTHUSER:-ravi@mesha.sg}"
 
 die() {
   echo "ERROR: $*" >&2
   exit 1
+}
+
+slack_webhook_url() {
+  gcloud secrets versions access latest \
+    --project="$PROJECT_ID" \
+    --secret="$SLACK_WEBHOOK_SECRET" 2>/dev/null || true
+}
+
+notify_slack_success() {
+  local webhook build_id
+  webhook="$(slack_webhook_url)"
+  [[ -n "$webhook" ]] || return 0
+  build_id="${BUILD_ID:-local}"
+
+  python3 - "$commit_sha" "$release_id" "$build_id" "$TRIGGERED_BY" "$PROJECT_NUMBER" "$REGION" "$CONSOLE_AUTHUSER" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
+import json
+import sys
+from urllib.parse import urlencode
+
+sha, release, build_id, triggered_by, project_number, region, authuser = sys.argv[1:]
+query = urlencode({"project": project_number, "authuser": authuser})
+build_url = f"https://console.cloud.google.com/cloud-build/builds;region={region}/{build_id}?{query}"
+deploy_url = f"https://console.cloud.google.com/deploy/delivery-pipelines/{region}/goatos-stg/releases/{release}?{query}"
+payload = {
+    "attachments": [{
+        "color": "#2EB67D",
+        "title": "GoatOS deploy succeeded",
+        "text": "Backend/web/kernel rollout succeeded and live images were verified.",
+        "fields": [
+            {"title": "Commit", "value": sha, "short": True},
+            {"title": "Release", "value": release, "short": True},
+            {
+                "title": "Verified services",
+                "value": "goatos-api-stg, goatos-admin-web-stg, goatos-kernel-worker-stg, goatos-mcp-stg, migrate/outbox/analytics jobs",
+                "short": False,
+            },
+            {"title": "Triggered by", "value": triggered_by, "short": False},
+        ],
+        "actions": [
+            {"type": "button", "text": "Cloud Build logs", "url": build_url},
+            {"type": "button", "text": "Cloud Deploy", "url": deploy_url},
+            {"type": "button", "text": "Dashboard", "url": "https://dashboard.mesha.sg/login"},
+        ],
+    }],
+}
+print(json.dumps(payload))
+PY
 }
 
 [[ "$PROJECT_ID" == "goatos-stg" ]] || die "PROJECT_ID must be goatos-stg, got $PROJECT_ID"
@@ -206,6 +256,7 @@ verify_stg_images() {
 if [[ "$WAIT_FOR_ROLLOUT" == "1" ]]; then
   wait_for_rollout
   verify_stg_images
+  notify_slack_success
 else
   echo "Rollout wait skipped by GOATOS_STG_RELEASE_WAIT=0; image parity not verified."
   die "STG deploy success requires verified rollout/image parity; rerun with GOATOS_STG_RELEASE_WAIT=1"
