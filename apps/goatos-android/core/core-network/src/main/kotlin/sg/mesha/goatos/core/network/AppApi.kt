@@ -1052,6 +1052,7 @@ interface AppApi {
     ): MilkPreparationSubmissionResponseDto
 
     suspend fun getMilkPreparation(
+        preparationDate: String? = null,
         parkId: String? = null,
         limit: Int = 20,
         offset: Int = 0,
@@ -1967,7 +1968,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         completionId = "fake-milk-preparation", status = "pending_verification", attemptNo = 1, rowVersion = 1,
     )
 
-    override suspend fun getMilkPreparation(parkId: String?, limit: Int, offset: Int): MilkPreparationPageDto =
+    override suspend fun getMilkPreparation(preparationDate: String?, parkId: String?, limit: Int, offset: Int): MilkPreparationPageDto =
         MilkPreparationPageDto()
 
     override suspend fun getMilkFeedingTasks(feedingDate: String, parkId: String?, sessionNo: Int?, limit: Int, offset: Int): MilkFeedingPageDto = MilkFeedingPageDto(feedingDate = feedingDate)

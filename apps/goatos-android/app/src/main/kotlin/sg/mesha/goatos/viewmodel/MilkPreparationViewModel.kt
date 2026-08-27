@@ -93,6 +93,8 @@ class MilkPreparationListViewModel @Inject constructor(
                     MilkPreparationListUiState(
                         selectedFilter = selected,
                         dateLabel = milkPreparationDateLabel(dateStr),
+                        selectedDate = dateStr,
+                        isToday = dateStr == LocalDate.now(MILK_IST).toString(),
                         isRefreshing = sync.isRefreshing,
                         isOffline = sync.isOffline,
                         emptyMessage = if (sync.isOffline) "Couldn't load Milk Preparation. It will appear once you're back online." else null,
@@ -100,6 +102,7 @@ class MilkPreparationListViewModel @Inject constructor(
                 } else {
                     buildMilkPreparationListUi(page, selected, capturedByEntity, draftDate = dateStr).copy(
                         selectedDate = dateStr,
+                        isToday = dateStr == LocalDate.now(MILK_IST).toString(),
                         isRefreshing = sync.isRefreshing,
                         isOffline = sync.isOffline,
                         lastSyncedAt = resource.lastSyncedAt,
@@ -120,6 +123,7 @@ class MilkPreparationListViewModel @Inject constructor(
             MilkPreparationListEvent.Refresh -> refresh()
             is MilkPreparationListEvent.SelectFilter -> selectedFilter.value = event.key
             is MilkPreparationListEvent.NavigateDate -> navigateDate(event.delta)
+            is MilkPreparationListEvent.SelectDate -> selectDate(event.date)
             is MilkPreparationListEvent.OpenFarm, MilkPreparationListEvent.Back -> Unit
         }
     }
@@ -127,9 +131,17 @@ class MilkPreparationListViewModel @Inject constructor(
     /** Business dates are capped at today IST, mirroring WorkflowListViewModel.selectDate — future
      *  days have no preparation tasks by definition. */
     private fun navigateDate(delta: Int) {
-        val currentDate = LocalDate.parse(selectedDate.value)
+        applyDate(LocalDate.parse(selectedDate.value).plusDays(delta.toLong()))
+    }
+
+    /** Calendar jump from the date bar's picker; same today cap as the chevrons. */
+    private fun selectDate(dateIso: String) {
+        val requested = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: return
+        applyDate(requested)
+    }
+
+    private fun applyDate(requested: LocalDate) {
         val today = LocalDate.now(MILK_IST)
-        val requested = currentDate.plusDays(delta.toLong())
         val capped = if (requested.isAfter(today)) today else requested
         if (capped.toString() == selectedDate.value) return
         selectedDate.value = capped.toString()
