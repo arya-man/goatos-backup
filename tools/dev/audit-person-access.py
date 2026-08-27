@@ -427,6 +427,133 @@ chk(r2==403, "an operator cannot CHANGE someone's access", f"got {r2}")
 print(f"  {'PASS' if r1==403 else 'FAIL'}  operator read  -> {r1}")
 print(f"  {'PASS' if r2==403 else 'FAIL'}  operator write -> {r2}")
 
+# =====================================================================
+# PASS 6 - the PHONE, per persona: does a tick move the bar and the ability
+# =====================================================================
+print("=" * 74)
+print("PASS 6 - phone grant/revoke per persona, one token, no re-login")
+print("=" * 74)
+
+def phone_bar(tok):
+    st, d = call("/app/bootstrap", tok)
+    if st != 200:
+        return st, []
+    return st, sorted(m.get("key") for m in (d.get("modules") or []) if m.get("key"))
+
+def save_person(member, mutate):
+    st, a = call(f"/admin/workforce/people/{member}/access", ceo_tok)
+    if st != 200:
+        return st
+    mods = []
+    for m in a["modules"]:
+        r = {"module_key": m["module_key"], "web": list(m["granted_web"]),
+             "mobile": list(m["granted_mobile"]), "pages": list(m["granted_pages_web"])}
+        mutate(r, m)
+        mods.append(r)
+    return call(f"/admin/workforce/people/{member}/access", ceo_tok, "PUT",
+                {"designation_code": a.get("designation_code", ""), "scope_mode": a["scope_mode"],
+                 "park_ids": a["park_ids"], "modules": mods, "row_version": a["row_version"]})[0]
+
+seen_shape = set()
+for p in people:
+    if not p["uid"] or p["roles"] == "(none)":
+        continue
+    if p["roles"] in seen_shape:
+        continue
+    seen_shape.add(p["roles"])
+    tok = mint(p["uid"])                       # ONE token, before any change
+    st0, base = phone_bar(tok)
+    if st0 != 200 or not base:
+        print(f"  {p['name']:<14} no phone bar ({st0}) - skipped")
+        continue
+    a0 = access_of(p["member"])
+    orig = {m["module_key"]: (list(m["granted_web"]), list(m["granted_mobile"]), list(m["granted_pages_web"]))
+            for m in a0["modules"]}
+    # pick a module that is actually ON the bar and is ticked on mobile
+    victim = None
+    for m in a0["modules"]:
+        if m["granted_mobile"] and m["module_key"] in base:
+            victim = m["module_key"]
+            break
+    if victim is None:
+        print(f"  {p['name']:<14} bar is composed, not ticked (verifier/duty) - exempt, bar {base}")
+        continue
+
+    s = save_person(p["member"], lambda r, m, v=victim: r.update(mobile=[]) if r["module_key"] == v else None)
+    chk(s == 200, f"{p['name']}: phone revoke of {victim} accepted", f"status {s}")
+    st1, after = phone_bar(tok)                 # SAME token
+    chk(victim not in after, f"{p['name']}: {victim} left the phone bar", f"bar still {after}")
+    # A person left with NO phone module has no phone: 403 is the correct answer, the same
+    # way an operator with no web module is refused the console. Only assert 200 when
+    # something is left.
+    if len(base) > 1:
+        chk(st1 == 200, f"{p['name']}: phone still opens after revoke", f"status {st1}")
+    else:
+        chk(st1 == 403, f"{p['name']}: phone refused when the last module went", f"status {st1}")
+
+    fresh = mint(p["uid"])                      # a real log out + log in
+    st2, after2 = phone_bar(fresh)
+    chk(victim not in after2, f"{p['name']}: {victim} still gone after re-login", f"bar {after2}")
+
+    s = save_person(p["member"], lambda r, m, o=orig: r.update(
+        web=list(o[r["module_key"]][0]), mobile=list(o[r["module_key"]][1]), pages=list(o[r["module_key"]][2])))
+    chk(s == 200, f"{p['name']}: phone restore accepted", f"status {s}")
+    st3, back = phone_bar(tok)
+    chk(back == base, f"{p['name']}: phone bar restored", f"{back} != {base}")
+    print(f"  {p['name']:<14} {p['roles'][:30]:<32} revoke+restore '{victim}' ok  (bar {len(base)})")
+
+# =====================================================================
+# PASS 7 - capability enforcement: does a LEVEL actually limit what they can do
+# =====================================================================
+print("=" * 74)
+print("PASS 7 - every person x every write route: the level decides, nothing else")
+print("=" * 74)
+
+# One WRITE route per permission, each gated on exactly that permission. A person holding
+# `view` on a module must be REFUSED its write; a person holding `do`/`configure` must not be.
+# The route is called with NO body, so a 4xx that is not 403 means the gate let them through
+# and the handler rejected the payload -- which is the "allowed" answer for this test.
+# The level -> permission map AND the write routes, both read from the SAME source the
+# server resolves through (backend/cmd/print-capability-catalog). Nothing here restates a
+# rule: a hand-copied permission string is what made a first run report six false failures
+# on procurement.vendor.write.
+_dump = json.loads(subprocess.run(
+    ["go", "run", "./cmd/print-capability-catalog"], capture_output=True, text=True, env=ENV).stdout)
+LEVEL_PERMS = {}
+for _m in _dump["modules"]:
+    for _lvl, _perms in _m["levels"].items():
+        LEVEL_PERMS[(_m["key"], _lvl)] = _perms
+# The surface-baseline permissions are DERIVED, never ticked: holding any module on a
+# surface admits you to it. They gate no business write, so they are not part of this test.
+_BASELINE = {"app.bootstrap", "admin_web.bootstrap", "locations.read", "task.read"}
+WRITE_ROUTES = {r["permission"]: (r["method"], r["path"])
+                for r in _dump["write_routes"] if r["permission"] not in _BASELINE}
+
+
+checked = 0
+for p in people:
+    if not p["uid"]:
+        continue
+    tok = mint(p["uid"])
+    a = access_of(p["member"])
+    if not a:
+        continue
+    # what this person's ticks RESOLVE to, asked of the same catalog the server uses
+    held = set()
+    for m in a["modules"]:
+        for surface in ("granted_web", "granted_mobile"):
+            for lvl in m[surface]:
+                held |= set(LEVEL_PERMS.get((m["module_key"], lvl), []))
+    for perm, (method, path) in WRITE_ROUTES.items():
+        code, _ = call(path, tok, method, {})
+        allowed = code != 403
+        should = perm in held
+        chk(allowed == should,
+            f"{p['name']}: {method} {path}",
+            f"{'allowed' if allowed else 'refused'} ({code}) but the ticks say {'allowed' if should else 'refused'} for {perm}")
+        checked += 1
+print(f"  {checked} person x write-route checks")
+
 print("")
 print("=" * 74)
 print(f"TOTAL: {P[0]} passed, {F[0]} failed")

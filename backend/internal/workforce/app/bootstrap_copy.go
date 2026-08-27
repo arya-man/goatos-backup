@@ -413,6 +413,10 @@ var soonModuleKeys = []string{"breeding"}
 // Otherwise, they see the union of their granted modules' nav contributions,
 // deduped by shared_key and ordered by priority.
 func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapNavigationItem {
+	return visibleNavigationForFrom(grants, grantedModules, localeTag, false)
+}
+
+func visibleNavigationForFrom(grants []domain.GrantSummary, grantedModules []string, localeTag string, fromTicks bool) []domain.BootstrapNavigationItem {
 	// A standalone verifier shows the active module's bottom bar -- the first feature from
 	// verifierFeatureKeys, same resolution modulesFor uses for the drawer, so
 	// visible_navigation always equals modules[0].NavItems. Built via
@@ -431,7 +435,11 @@ func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string,
 	// Leadership principals default to their curated module set. There is no synthetic
 	// leadership/overview screen; preventive-care leaders land on the shared
 	// Vaccination module, while CEO gets Vaccination plus org-level modules.
-	if isLeadershipPrincipal(grants) {
+	//
+	// When the keys ARE the person's ticks they decide here too. The drawer and the bottom
+	// bar must never disagree: a module unticked out of the drawer while the bar still lands
+	// on it is the same "you can see what you cannot use" defect, one screen over.
+	if !fromTicks && isLeadershipPrincipal(grants) {
 		keys := leadershipModuleKeys(grants)
 		if len(keys) == 0 {
 			return []domain.BootstrapNavigationItem{}
@@ -519,6 +527,20 @@ func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) 
 //     "weighing", etc.), and modulesFor will compose per-feature verification modules for each.
 //   - Single-module verifier (0-1 verify duties): return ["verification"] for the generic module.
 func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) []string {
+	return candidateModuleKeysFrom(grants, grantedModules, false)
+}
+
+// candidateModuleKeysFrom is the same resolution with one extra fact: whether the keys it was
+// handed are the person's OWN TICKS rather than a department grant.
+//
+// When they are, they ARE the answer, for leadership too. That is the whole point of the
+// per-person model, and leadership is exactly where it was still missing: the branch below
+// returns a curated per-ROLE list and never looks at the keys, so a CEO or a director kept
+// every module on their phone no matter what was unticked -- the same defect the operator had,
+// one layer over, and equally invisible to a re-login.
+//
+// A standalone verifier stays exempt: her modules are the features her verify DUTIES name.
+func candidateModuleKeysFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) []string {
 	if isStandaloneVerifierPrincipal(grants) {
 		// Every standalone verifier is scoped to the feature(s) their verify duties name,
 		// or -- for a coarse department-level "verification" grant / no duties at all --
@@ -530,7 +552,7 @@ func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) 
 		}
 		return normalized
 	}
-	if !isLeadershipPrincipal(grants) {
+	if fromTicks || !isLeadershipPrincipal(grants) {
 		return grantedModules
 	}
 	return leadershipModuleKeys(grants)
@@ -587,6 +609,22 @@ func reviewableModuleKeys() []string {
 // leadership keeps Weighing and Health and Growth Director is added alongside.
 //
 // Verification belongs to the verifier role, not leadership nav.
+// LeadershipPhoneModules is leadershipModuleKeys reached from a role list, for the ONE-TIME
+// backfill (maintainer decision 2026-08-27). It exists so the cutover can freeze what a
+// leadership principal's phone offers TODAY into their own ticks: their bar was never
+// department-composed, so without it the role mapping's own set takes over and two real park
+// heads gained Feed and Milk on their phones. Nothing on the request path calls it.
+func LeadershipPhoneModules(roles []string) []string {
+	grants := make([]domain.GrantSummary, 0, len(roles))
+	for _, r := range roles {
+		grants = append(grants, domain.GrantSummary{Role: r, Status: "active"})
+	}
+	if !isLeadershipPrincipal(grants) {
+		return nil
+	}
+	return leadershipModuleKeys(grants)
+}
+
 func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	keys := make([]string, 0, 8)
 	if hasRole(grants, permissions.RoleCEOInternal) {
@@ -716,11 +754,19 @@ func canViewProtocolAdherenceCard(grants []domain.GrantSummary) bool {
 }
 
 func canExecuteVaccination(grants []domain.GrantSummary, grantedModules []string) bool {
-	return hasPermission(grants, permissions.TaskExecute) && canUseModule(grants, grantedModules, "vaccination")
+	return canExecuteVaccinationFrom(grants, grantedModules, false)
+}
+
+func canExecuteVaccinationFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.TaskExecute) && canUseModuleFrom(grants, grantedModules, "vaccination", fromTicks)
 }
 
 func canExecuteWeighing(grants []domain.GrantSummary, grantedModules []string) bool {
-	return hasPermission(grants, permissions.WeighingExecute) && canUseModule(grants, grantedModules, "weighing")
+	return canExecuteWeighingFrom(grants, grantedModules, false)
+}
+
+func canExecuteWeighingFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.WeighingExecute) && canUseModuleFrom(grants, grantedModules, "weighing", fromTicks)
 }
 
 // canOverseeWeighingOperators gates the read-only Operators surface -- weighing shed tasks
@@ -728,7 +774,11 @@ func canExecuteWeighing(grants []domain.GrantSummary, grantedModules []string) b
 // surface from a role name; the write path still requires the caller to be the shed's assignee,
 // so this flag widens what is visible and never what is recordable.
 func canOverseeWeighingOperators(grants []domain.GrantSummary, grantedModules []string) bool {
-	return hasPermission(grants, permissions.WeighingOverseeOperators) && canUseModule(grants, grantedModules, "weighing")
+	return canOverseeWeighingOperatorsFrom(grants, grantedModules, false)
+}
+
+func canOverseeWeighingOperatorsFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.WeighingOverseeOperators) && canUseModuleFrom(grants, grantedModules, "weighing", fromTicks)
 }
 
 func canUseVerificationVideoControls(grants []domain.GrantSummary) bool {
@@ -738,17 +788,29 @@ func canUseVerificationVideoControls(grants []domain.GrantSummary) bool {
 // canExecutePCCare mirrors canExecuteWeighing: it decides which face the four PC Care category
 // tabs show. TRUE renders the operator scan worklist; FALSE renders the read-only monitor list.
 func canExecutePCCare(grants []domain.GrantSummary, grantedModules []string) bool {
-	return hasPermission(grants, permissions.PCCareExecute) && canUseModule(grants, grantedModules, "pc_care")
+	return canExecutePCCareFrom(grants, grantedModules, false)
+}
+
+func canExecutePCCareFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.PCCareExecute) && canUseModuleFrom(grants, grantedModules, "pc_care", fromTicks)
 }
 
 // canPlanPCCare gates the "Plan a care task" wizard entry on the monitor list (CEO-only via
 // pc_care.plan, the weighing.plan precedent). The write path is still gated server-side.
 func canPlanPCCare(grants []domain.GrantSummary, grantedModules []string) bool {
-	return hasPermission(grants, permissions.PCCarePlan) && canUseModule(grants, grantedModules, "pc_care")
+	return canPlanPCCareFrom(grants, grantedModules, false)
+}
+
+func canPlanPCCareFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.PCCarePlan) && canUseModuleFrom(grants, grantedModules, "pc_care", fromTicks)
 }
 
 func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {
-	for _, key := range candidateModuleKeys(grants, grantedModules) {
+	return canUseModuleFrom(grants, grantedModules, module, false)
+}
+
+func canUseModuleFrom(grants []domain.GrantSummary, grantedModules []string, module string, fromTicks bool) bool {
+	for _, key := range candidateModuleKeysFrom(grants, grantedModules, fromTicks) {
 		if key == module {
 			return true
 		}
@@ -1007,6 +1069,10 @@ func verificationModuleForFeature(featureKey string, grants []domain.GrantSummar
 // composed synthetically (verificationModuleForFeature) rather than looked up in the registry.
 // For a single-module verifier, the generic "verification" module from the registry is used.
 func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapModule {
+	return modulesForFrom(grants, grantedModules, localeTag, false)
+}
+
+func modulesForFrom(grants []domain.GrantSummary, grantedModules []string, localeTag string, fromTicks bool) []domain.BootstrapModule {
 	// Standalone verifier: ALWAYS compose per-feature verification modules (one drawer
 	// entry per feature, each with its own [Verify, Alerts, You] bar) rather than looking
 	// up registry modules. This applies uniformly regardless of how many verify duties the
@@ -1036,7 +1102,7 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 		return out
 	}
 
-	keys := candidateModuleKeys(grants, grantedModules)
+	keys := candidateModuleKeysFrom(grants, grantedModules, fromTicks)
 
 	// Standard path: look up modules in the registry (for operators and leadership).
 	available := make([]moduleDefinition, 0, len(keys))

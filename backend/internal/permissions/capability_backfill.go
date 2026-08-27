@@ -218,6 +218,15 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		bothSurfaces("toxin", LevelView, LevelOversee),
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("verification_policy", SurfaceWeb, LevelConfigure)),
+		// The kid-milk round and the approval queue. Both are real modules the leadership
+		// drawer offered before the phone read these ticks, and the founder/builder
+		// visibility invariant says leadership holds every BUILT module -- so omitting them
+		// here took Milk and Approvals off the CEO's phone.
+		bothSurfaces("milk", LevelDo, LevelConfigure),
+		bothSurfaces("approvals", LevelOversee),
+		// The roadmap row. Offered to the CEO today by the curated leadership drawer, so it
+		// is ticked here to keep it. It grants nothing -- `breeding` opens no screen.
+		one(assign("breeding", SurfaceMobile, LevelView)),
 	),
 }
 

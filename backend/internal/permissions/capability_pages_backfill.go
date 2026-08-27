@@ -87,8 +87,12 @@ func NarrowMobileToDepartmentBar(roles []string, dept []string, assignments []Mo
 	if len(dept) == 0 {
 		return assignments
 	}
+	// The verifier alone stays exempt: her bar is composed from verify DUTIES, which neither
+	// source describes. Leadership IS intersected now -- the caller hands us their curated
+	// drawer instead of a department grant, and freezing that is what keeps two real park
+	// heads from gaining Feed and Milk on their phones at cutover.
 	for _, r := range roles {
-		if _, leadership := leadershipBarRoles[r]; leadership {
+		if r == RoleVerifier {
 			return assignments
 		}
 	}
