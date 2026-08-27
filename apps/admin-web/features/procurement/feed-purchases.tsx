@@ -200,7 +200,7 @@ export async function FeedPurchasesPage({
           </div>
         ) : (
           <div className="twrap">
-            <table aria-label={ledgerTable.title}>
+            <table className="feed-purchases-table" aria-label={ledgerTable.title}>
               <thead>
                 {/* Header labels come from the page contract IN ITS ORDER; the body cells below
                     are written in that same order. Both must move together if the contract's

@@ -211,6 +211,43 @@ class MilkDateNavViewModelTest {
 
         assertTrue("a successful retry clears the offline state", !viewModel.state.value.isOffline)
     }
+
+    // --- Calendar jump (date-bar picker), 2026-08-27: SelectDate lands in one hop ---
+
+    @Test
+    fun `milk preparation SelectDate re-subscribes with the picked date and caps the future`() = runTest(dispatcher) {
+        val repo = TrackingMilkPreparationRepository()
+        val viewModel = MilkPreparationListViewModel(repo = repo, submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) }, drafts = TrackingDraftRepository())
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        val today = LocalDate.now(IST).toString()
+        val lastWeek = LocalDate.now(IST).minusDays(7).toString()
+        viewModel.onEvent(MilkPreparationListEvent.SelectDate(lastWeek))
+        advanceUntilIdle()
+        assertEquals("a calendar pick must land in ONE re-subscription, not chevron steps", listOf(today, lastWeek), repo.observedDates)
+        assertTrue("a picked past day is not Today", !viewModel.state.value.isToday)
+
+        viewModel.onEvent(MilkPreparationListEvent.SelectDate(LocalDate.now(IST).plusDays(3).toString()))
+        advanceUntilIdle()
+        assertEquals("a future pick is clamped to today", listOf(today, lastWeek, today), repo.observedDates)
+        assertTrue("clamped-to-today selection reads as Today again", viewModel.state.value.isToday)
+    }
+
+    @Test
+    fun `milk feeding SelectDate re-subscribes with the picked date`() = runTest(dispatcher) {
+        val repo = TrackingMilkFeedingRepository()
+        val viewModel = MilkFeedingListViewModel(repo = repo, submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) }, drafts = TrackingDraftRepository())
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        val today = LocalDate.now(IST).toString()
+        val lastWeek = LocalDate.now(IST).minusDays(7).toString()
+        viewModel.onEvent(MilkFeedingListEvent.SelectDate(lastWeek))
+        advanceUntilIdle()
+        assertEquals(listOf(today, lastWeek), repo.observedDates)
+        assertTrue(!viewModel.state.value.isToday)
+    }
 }
 
 /** Counts subscriptions so the test can prove flatMapLatest actually CANCELS the prior

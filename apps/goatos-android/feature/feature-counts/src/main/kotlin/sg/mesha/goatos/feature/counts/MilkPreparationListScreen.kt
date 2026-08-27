@@ -22,17 +22,33 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -79,6 +95,7 @@ data class MilkPreparationListUiState(
     val subtitle: String = "",
     val dateLabel: String = "",
     val selectedDate: String = "",
+    val isToday: Boolean = true,
     val feedingDateLabel: String = "",
     val chips: List<MilkPreparationChipUi> = emptyList(),
     val selectedFilter: String = "all",
@@ -94,6 +111,7 @@ sealed interface MilkPreparationListEvent {
     data class SelectFilter(val key: String) : MilkPreparationListEvent
     data class OpenFarm(val parkId: String, val preparationDate: String = "") : MilkPreparationListEvent
     data class NavigateDate(val delta: Int) : MilkPreparationListEvent
+    data class SelectDate(val date: String) : MilkPreparationListEvent
     data object Back : MilkPreparationListEvent
 }
 
@@ -127,8 +145,11 @@ fun MilkPreparationListScreen(
         MilkWorkDateBar(
             state.dateLabel,
             state.feedingDateLabel.takeIf(String::isNotBlank)?.let { "Feeds $it" }.orEmpty(),
+            selectedDate = state.selectedDate,
+            isToday = state.isToday,
             onPreviousDate = { onEvent(MilkPreparationListEvent.NavigateDate(-1)) },
             onNextDate = { onEvent(MilkPreparationListEvent.NavigateDate(1)) },
+            onSelectDate = { onEvent(MilkPreparationListEvent.SelectDate(it)) },
         )
         MilkStatusChips(state.chips, state.selectedFilter) { onEvent(MilkPreparationListEvent.SelectFilter(it)) }
         LazyColumn(
@@ -147,19 +168,31 @@ fun MilkPreparationListScreen(
                 }
             }
             items(state.cards, key = { it.parkId }) { card ->
-                MilkPreparationCard(card) { onEvent(MilkPreparationListEvent.OpenFarm(card.parkId, state.selectedDate)) }
+                MilkPreparationCard(card.copy(canOpen = card.canOpen && state.isToday)) {
+                    onEvent(MilkPreparationListEvent.OpenFarm(card.parkId, state.selectedDate))
+                }
             }
         }
     }
 }
 
+/**
+ * Milk date bar — ‹ [📅 Today · 27 Jul] › with a tappable calendar jump (capped at today
+ * IST; future days have no milk work by definition) and a "Today" quick-return chip on a
+ * past day, matching the Workflow/Shifting date-bar convention one screen over.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MilkWorkDateBar(
     dateLabel: String,
     secondaryLabel: String = "",
+    selectedDate: String = "",
+    isToday: Boolean = true,
     onPreviousDate: () -> Unit = {},
     onNextDate: () -> Unit = {},
+    onSelectDate: (String) -> Unit = {},
 ) {
+    var pickerOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -168,6 +201,7 @@ internal fun MilkWorkDateBar(
         MilkDateButton(MeshaIcons.ChevronLeft, onClick = onPreviousDate)
         Column(
             modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(MeshaColors.Surf2)
+                .clickable { pickerOpen = true }
                 .padding(vertical = 9.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -181,8 +215,54 @@ internal fun MilkWorkDateBar(
             }
         }
         MilkDateButton(MeshaIcons.Chevron, onClick = onNextDate)
+        if (!isToday) {
+            Text(
+                text = stringResource(R.string.counts_workflow_today),
+                color = MeshaColors.Ink,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.W800,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onSelectDate(LocalDate.now(MILK_BAR_IST).toString()) }
+                    .minimumInteractiveComponentSize()
+                    .padding(horizontal = 6.dp),
+            )
+        }
+    }
+    if (pickerOpen) {
+        val todayUtcMillis = LocalDate.now(MILK_BAR_IST).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = selectedDate.milkDateToUtcMillisOrNull() ?: todayUtcMillis,
+            selectableDates = object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean = utcTimeMillis <= todayUtcMillis
+            },
+        )
+        DatePickerDialog(
+            onDismissRequest = { pickerOpen = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { millis ->
+                        onSelectDate(Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate().toString())
+                    }
+                    pickerOpen = false
+                }) { Text(stringResource(id = android.R.string.ok)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pickerOpen = false }) {
+                    Text(stringResource(id = android.R.string.cancel))
+                }
+            },
+        ) {
+            DatePicker(state = pickerState)
+        }
     }
 }
+
+private val MILK_BAR_IST = ZoneId.of("Asia/Kolkata")
+
+private fun String.milkDateToUtcMillisOrNull(): Long? = runCatching {
+    LocalDate.parse(this).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+}.getOrNull()
 
 @Composable
 private fun MilkDateButton(

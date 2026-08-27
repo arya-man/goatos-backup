@@ -68,19 +68,32 @@ type cacheEntry struct {
 
 func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) domain.BootstrapResponse {
 	now := s.now()
+	// The person's own page ticks are resolved BEFORE the cache is consulted, and their
+	// fingerprint is part of the key.
+	//
+	// This is not an optimisation -- it is what makes the screen usable. The key is built
+	// from tenant, actor, roles and grants, none of which move when an admin edits access,
+	// so a saved change would have sat behind the 60-second TTL: the admin ticks a box,
+	// tells the person to reload, and nothing happens for a minute. That never mattered
+	// while a role change was a deploy; it matters now that access is an edit.
+	//
+	// The resolved value is carried into compile() rather than read again, so this costs
+	// ONE small indexed read per bootstrap, not two.
+	access, assigned, accessErr := s.personPageAccessFor(ctx, input)
+	fingerprint := pageAccessFingerprint(access, assigned)
 	revisionKey := ""
 	if revisions, ok := s.loadFamilyRevisions(ctx, input.TenantID); ok {
-		revisionKey = s.cacheKey(input, ReferenceFamilies{RevisionInputs: revisions}, nil)
+		revisionKey = s.cacheKey(input, ReferenceFamilies{RevisionInputs: revisions}, nil) + "::" + fingerprint
 		if cached, ok := s.cached(revisionKey, now); ok {
 			return cached
 		}
 	}
 	families, familyErr := s.loadFamilies(ctx, input.TenantID)
-	key := s.cacheKey(input, families, familyErr)
+	key := s.cacheKey(input, families, familyErr) + "::" + fingerprint
 	if cached, ok := s.cached(key, now); ok {
 		return cached
 	}
-	resp := s.compile(ctx, input, families, familyErr)
+	resp := s.compile(ctx, input, families, familyErr, access, assigned, accessErr)
 	expiresAt := now.Add(s.cacheTTL)
 	s.storeCache(key, resp, now, expiresAt)
 	if revisionKey != "" && familyErr == nil {
@@ -104,6 +117,10 @@ func (s *Service) cacheKey(input BootstrapInput, families ReferenceFamilies, fam
 	}
 	return strings.Join([]string{
 		strings.TrimSpace(input.TenantID),
+		// The ACTOR is part of the key: two people carrying identical roles can now be
+		// ticked for different pages, so a role-keyed cache would serve one of them the
+		// other's sidebar (per-person access, maintainer decision 2026-08-27).
+		strings.TrimSpace(input.ActorID),
 		strings.Join(roles, ","),
 		strings.Join(grantParts, ","),
 		strings.Join(revisionParts, ","),
@@ -166,7 +183,37 @@ func (s *Service) evictCacheEntryLocked() {
 	}
 }
 
-func (s *Service) compile(ctx context.Context, input BootstrapInput, families ReferenceFamilies, familyErr error) domain.BootstrapResponse {
+// pageAccessFingerprint identifies one principal's resolved page ticks for the cache key.
+//
+// An UNASSIGNED principal (no stored rows) gets a distinct constant rather than the empty
+// set's hash: "not narrowed at all" and "narrowed to nothing" compile to different
+// contracts, and sharing a key between them would serve one of them the other's sidebar.
+func pageAccessFingerprint(access permissions.PageAccess, assigned bool) string {
+	if !assigned {
+		return "pages:none"
+	}
+	parts := make([]string, 0, len(access.Pages)+len(access.Modules))
+	for key := range access.Pages {
+		parts = append(parts, "p:"+key)
+	}
+	for key := range access.Modules {
+		parts = append(parts, "m:"+key)
+	}
+	// Sorted: Go's map iteration order would give the same access set a different
+	// fingerprint on every request, which is a cache that never hits.
+	sort.Strings(parts)
+	return "pages:" + hashString(strings.Join(parts, ","))
+}
+
+func (s *Service) compile(
+	ctx context.Context,
+	input BootstrapInput,
+	families ReferenceFamilies,
+	familyErr error,
+	access permissions.PageAccess,
+	pageAccessAssigned bool,
+	pageAccessErr error,
+) domain.BootstrapResponse {
 	families.UIConfig = applicableConfigEntries(families.UIConfig)
 	resp := baseBootstrap()
 	resp = compileRequestContext(resp, input, families)
@@ -176,10 +223,15 @@ func (s *Service) compile(ctx context.Context, input BootstrapInput, families Re
 	// It runs before familyHashes so the contract revision reflects what is actually served.
 	if isVerifierLensPrincipal(input) {
 		resp = applyVerifierLens(resp, s.verifierNavModules(ctx, input))
-	} else if isProcurementDirectorLensPrincipal(input) {
-		// The procurement-director Procurement + Feed workspace (maintainer decision
-		// 2026-08-21) — same narrowing layer as the verifier lens above.
-		resp = applyProcurementDirectorLens(resp)
+	} else if pageAccessAssigned {
+		// Per-person page narrowing (maintainer decision 2026-08-27). This REPLACES the
+		// hand-coded procurement-director lens: "only Procurement and Feed, and not Feed
+		// Config" is now that person's ticks on /people rather than a Go file.
+		resp = applyPersonPageLens(resp, access)
+	} else if pageAccessErr != nil {
+		// The read failed. The contract is served UNNARROWED -- a person must not be locked
+		// out of a product they are authorized for by a database blip -- and it SAYS so.
+		resp.DisplayRules = append(resp.DisplayRules, personPageAccessUnavailableRule(pageAccessErr))
 	}
 	hashes := familyHashes(resp, families, input, familyErr)
 	resp.FamilyHashes = hashes
@@ -796,6 +848,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileSalesControls(out[i].Controls, input, out[i].Copy)
 		case "feed-purchases":
 			out[i].Controls = compileFeedPurchaseControls(out[i].Controls, input, out[i].Copy)
+		case "people":
+			out[i].Controls = compilePeopleControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
 			// The breed catalog for the inline breed correction, injected the same way Feed's
@@ -920,6 +974,32 @@ func compileFeedPurchaseControls(controls []domain.Control, input BootstrapInput
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /procurement/feed-purchases",
+	})
+}
+
+// compilePeopleControls gates the per-person ACCESS editor (maintainer decision 2026-08-24).
+//
+// The authority is OperatorsManageCapability, deliberately NOT the OperatorsWrite that creates a
+// person: adding a colleague and deciding what every colleague may do are different jobs, and this
+// one can grant every other permission in the catalog -- including itself.
+//
+// Declared-and-disabled rather than omitted, the same shape as sales and health config: a missing
+// button reads as a broken page, and a disabled one carrying "your role can view access but not
+// change it" is an answer. The PUT route behind it requires the same permission, so a principal
+// who defeats the disabled state still gets 403 -- the control is the honest label, not the lock.
+func compilePeopleControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.OperatorsManageCapability})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.access_write", "Your current role can view access but not change it.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "edit_access",
+		Label:          controlCopy(copy, "access.action.save", "Save access"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /admin/workforce/people/{person_id}/access",
 	})
 }
 
@@ -1519,7 +1599,7 @@ func permissionsForNav(id string) []string {
 		// they work; the register carries negotiated prices, contact numbers and banking
 		// instruments. Gating the leaf on ProcurementRead would put it in every operator's sidebar.
 		return []string{permissions.VendorRead}
-	case "procurement-sales":
+	case "sales-board":
 		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
 		// and realized prices -- the selling side, not the intake screens operators work.
 		return []string{permissions.SalesRead}
@@ -1528,8 +1608,32 @@ func permissionsForNav(id string) []string {
 		// supplier prices and payment state. Gating on ProcurementRead would put it in every
 		// operator's and park head's sidebar -- the same leak VendorRead exists to avoid.
 		return []string{permissions.FeedPurchaseRead}
-	case "counts-herd", "counts-breakdown":
+	case "counts-herd":
+		// The Herd Register really is goat data. Its leaf is withheld from the sidebar today
+		// (maintainer decision 2026-08-20) but the route stays reachable.
 		return []string{permissions.GoatRead}
+	// These leaves had NO gate, so they rendered for anyone whose sidebar carried the group
+	// and then 403'd on their own data -- a dead screen. An exhaustive persona sweep found
+	// nine of them across four real people. Each gate below is the permission that leaf's
+	// OWN data route already requires (permissions/routes.go), so the leaf is offered
+	// exactly when it can be opened.
+	case "counts-herd-analytics", "milk-preparation", "counts-breakdown":
+		// counts.read, which is what these three screens' own data routes require. Counts
+		// Breakdown was gated on goat.read while /counts/breakdown checks counts.read, so it
+		// rendered for three real people and 403'd when they opened it. Counts is a
+		// deliberately OFF feature held back by exactly counts.read, so this also stops the
+		// leaf advertising a module that is switched off.
+		return []string{permissions.CountsRead}
+	case "counts-sops", "milk-sops", "feed-sops", "weighing-sops":
+		return []string{permissions.SOPRead}
+	case "feed-config":
+		return []string{permissions.FeedConfigRead}
+	case "feed-analytics":
+		return []string{permissions.FeedDirectionRead}
+	case "vaccination-live-tracker":
+		return []string{permissions.LocationsRead, permissions.ObligationRead, permissions.VaccinationRead}
+	case "herd-signals":
+		return []string{permissions.HerdSignalsRead}
 	case "weighing-weights":
 		// The MONITOR capability, matching /app/weighing/shed-weights. Weights is an
 		// oversight read-out, not a planning surface, so it must not gate on

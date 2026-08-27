@@ -484,6 +484,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 	peopleService := workforceapp.NewPeopleService(workforceRepo, workforceIdentity, cfg.Auth.Issuer)
 	peopleHandler := workforcehttp.NewPeopleHandler(peopleService, log)
+	// Per-person module access (maintainer decision 2026-08-24). Its own repository
+	// because it owns its own tables; the SAME pool, so a save and the read that
+	// enforces it see one database.
+	accessRepo := workforcepg.NewAccessRepository(pool)
+	accessService := workforceapp.NewAccessService(accessRepo)
+	accessHandler := workforcehttp.NewAccessHandler(accessService, log)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	rosterHandler := workforcehttp.NewRosterHandler(rosterService, log)
 	proofStorage, err := buildProofStorage()
@@ -869,7 +875,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// must be wired AFTER every RegisterCategory call — a module registered later would otherwise
 	// be missing from the verifier's evidence groups.
 	adminUIService.WithVerificationModules(verificationadminuibridge.New(verificationService)).
-		WithModuleDutyReader(workforceRepo)
+		WithModuleDutyReader(workforceRepo).
+		// PAGE-GRAIN ACCESS (maintainer decision 2026-08-27). The sidebar is narrowed to
+		// the pages this person is ticked for on /people, which is what retired the
+		// hand-coded procurement-director lens. A person with no stored rows is not
+		// narrowed at all.
+		WithPersonPageAccess(accessRepo)
 
 	// Leadership read-only assistant (CEO AI). Wired end-to-end: the Vertex
 	// Gemini planner (when MESHA_AI_PROVIDER=vertex + ADC available; else the
@@ -1013,6 +1024,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
+	// PER-PERSON ACCESS (maintainer decision 2026-08-24). From here a request's
+	// permissions come from the person's own stored module rows; the route rules are
+	// unchanged. A person with no rows yet still authorizes from their role, logged
+	// each time -- see the middleware for why that bridge exists and when it goes.
+	authz.SetPersonAccessSource(accessRepo)
 
 	protectedMux := http.NewServeMux()
 	protectedMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -1086,6 +1102,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workforcehttp.Register(protectedMux, workforceHandler)
 	workforcehttp.RegisterRoster(protectedMux, rosterHandler)
 	workforcehttp.RegisterPeople(protectedMux, peopleHandler)
+	workforcehttp.RegisterAccess(protectedMux, accessHandler)
 	proofhttp.Register(protectedMux, proofHandler)
 	sophttp.Register(protectedMux, sopHandler)
 	protocolhttp.Register(protectedMux, protocolHandler)
