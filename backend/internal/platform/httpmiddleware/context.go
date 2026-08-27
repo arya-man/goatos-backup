@@ -2,6 +2,7 @@ package httpmiddleware
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -11,15 +12,24 @@ import (
 type contextKey string
 
 const (
-	requestIDKey  contextKey = "request_id"
-	traceIDKey    contextKey = "trace_id"
-	tenantIDKey   contextKey = "tenant_id"
-	actorIDKey    contextKey = "actor_id"
-	deviceIDKey   contextKey = "device_id"
-	clientInfoKey contextKey = "client_info"
-	localeTagKey  contextKey = "locale_tag"
-	authGrantsKey contextKey = "auth_grants"
+	requestIDKey   contextKey = "request_id"
+	traceIDKey     contextKey = "trace_id"
+	tenantIDKey    contextKey = "tenant_id"
+	actorIDKey     contextKey = "actor_id"
+	deviceIDKey    contextKey = "device_id"
+	clientInfoKey  contextKey = "client_info"
+	localeTagKey   contextKey = "locale_tag"
+	authGrantsKey  contextKey = "auth_grants"
+	personScopeKey contextKey = "person_scope"
 )
+
+// PersonParkScope is the runtime park scope attached when per-person access, not role grants,
+// decided the request. TenantWide means the person's own access is all parks; otherwise ParkIDs
+// is the exact selected-park set saved in person_park_scope.
+type PersonParkScope struct {
+	TenantWide bool
+	ParkIDs    []string
+}
 
 type ClientInfo struct {
 	AppVersion     string
@@ -192,4 +202,21 @@ func WithAuthGrants(ctx context.Context, grants []permissions.ActiveGrant) conte
 	out := make([]permissions.ActiveGrant, len(grants))
 	copy(out, grants)
 	return context.WithValue(ctx, authGrantsKey, out)
+}
+
+// PersonParkScopeFromContext returns the per-person runtime scope attached by AuthMiddleware.
+func PersonParkScopeFromContext(ctx context.Context) (PersonParkScope, bool) {
+	scope, ok := ctx.Value(personScopeKey).(PersonParkScope)
+	if !ok {
+		return PersonParkScope{}, false
+	}
+	scope.ParkIDs = append([]string(nil), scope.ParkIDs...)
+	return scope, true
+}
+
+// WithPersonParkScope attaches a per-person runtime park scope to a context.
+func WithPersonParkScope(ctx context.Context, scope PersonParkScope) context.Context {
+	scope.ParkIDs = append([]string(nil), scope.ParkIDs...)
+	sort.Strings(scope.ParkIDs)
+	return context.WithValue(ctx, personScopeKey, scope)
 }
