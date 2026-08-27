@@ -49,6 +49,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
+import java.time.format.DateTimeParseException
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -263,8 +264,7 @@ private val MILK_BAR_IST = ZoneId.of("Asia/Kolkata")
 private fun String.milkDateToUtcMillisOrNull(): Long? =
     try {
         LocalDate.parse(this).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-    } catch (_: RuntimeException) {
-        // exception:exempt invalid selected date disables date-picker preselection only
+    } catch (_: DateTimeParseException) {
         null
     }
 
