@@ -179,21 +179,37 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 		return ports.PersonAccessRecord{}, err
 	}
 	if len(cmd.Assignments) > 0 {
-		modules := make([]string, 0, len(cmd.Assignments))
-		surfaces := make([]string, 0, len(cmd.Assignments))
-		caps := make([][]string, 0, len(cmd.Assignments))
+		// One set-based insert via jsonb_to_recordset. NOT unnest() over parallel arrays:
+		// unnest on a text[][] FLATTENS it to scalars, so capabilities arrived as text and
+		// the insert failed 42804 -- Postgres cannot unnest an array-of-arrays into rows of
+		// arrays. JSON also avoids inventing a delimiter for a value that is a set.
+		//
+		// jsonb_array_elements_TEXT, never jsonb_array_elements(x)::text: the latter keeps
+		// JSON quoting and turns a JSON null into the 4-character string "null", which would
+		// store a capability no level matches.
+		rows := make([]map[string]any, 0, len(cmd.Assignments))
 		for _, a := range cmd.Assignments {
-			modules = append(modules, a.Module)
-			surfaces = append(surfaces, a.Surface)
-			caps = append(caps, a.Capabilities)
+			caps := a.Capabilities
+			if caps == nil {
+				caps = []string{}
+			}
+			rows = append(rows, map[string]any{
+				"module_key":   a.Module,
+				"surface":      a.Surface,
+				"capabilities": caps,
+			})
 		}
-		// One set-based insert. A loop of Exec here would be the banned N+1, and at
-		// ~17 modules x 2 surfaces it is a measurable number of round trips.
+		payload, err := json.Marshal(rows)
+		if err != nil {
+			return ports.PersonAccessRecord{}, err
+		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities, updated_at, updated_by)
-			 SELECT $1::uuid, $2::uuid, s.surface, s.module_key, s.capabilities, now(), nullif($6, '')::uuid
-			   FROM unnest($3::text[], $4::text[], $5::text[][]) AS s(module_key, surface, capabilities)`,
-			cmd.TenantID, cmd.PersonID, modules, surfaces, caps, cmd.ActorID); err != nil {
+			 SELECT $1::uuid, $2::uuid, r.surface, r.module_key,
+			        ARRAY(SELECT jsonb_array_elements_text(r.capabilities)),
+			        now(), nullif($4, '')::uuid
+			   FROM jsonb_to_recordset($3::jsonb) AS r(module_key text, surface text, capabilities jsonb)`,
+			cmd.TenantID, cmd.PersonID, payload, cmd.ActorID); err != nil {
 			return ports.PersonAccessRecord{}, err
 		}
 	}
@@ -224,10 +240,21 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 	if err != nil {
 		return ports.PersonAccessRecord{}, err
 	}
+	// audit_log.metadata is NOT NULL with no default, so it is passed explicitly. It
+	// carries the SHAPE of the change (how many module rows, how wide the scope) so an
+	// investigation can read what happened without re-deriving it from after_state.
+	metadata, err := json.Marshal(map[string]any{
+		"module_rows": len(cmd.Assignments),
+		"scope_mode":  cmd.ScopeMode,
+		"park_count":  len(cmd.ParkIDs),
+	})
+	if err != nil {
+		return ports.PersonAccessRecord{}, err
+	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO audit_log (tenant_id, actor_id, actor_type, action, resource_type, resource_id, after_state)
-		 VALUES ($1::uuid, nullif($2, '')::uuid, 'user', 'person_access.replaced', 'workforce_member', $3::uuid, $4::jsonb)`,
-		cmd.TenantID, cmd.ActorID, cmd.PersonID, after); err != nil {
+		`INSERT INTO audit_log (tenant_id, actor_id, actor_type, action, resource_type, resource_id, after_state, metadata)
+		 VALUES ($1::uuid, nullif($2, '')::uuid, 'user', 'person_access.replaced', 'workforce_member', $3::uuid, $4::jsonb, $5::jsonb)`,
+		cmd.TenantID, cmd.ActorID, cmd.PersonID, after, metadata); err != nil {
 		return ports.PersonAccessRecord{}, err
 	}
 
