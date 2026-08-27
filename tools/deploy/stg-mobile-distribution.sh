@@ -253,30 +253,25 @@ common_gradle_args=(
   -x lintVitalProdRelease \
   -x lintVitalAnalyzeRelease \
   -x lintVitalAnalyzeProdRelease \
+  --no-daemon \
   --no-configuration-cache \
   -PallowDirtyFirebaseDistribution=true
 )
-apk_gradle_args=(
+gradle_args=(
   :app:assembleProdRelease \
   :app:appDistributionUploadProdRelease \
+  :app:bundleProdRelease \
   "${common_gradle_args[@]}" \
   -PfadReleaseNotes="GoatOS (Mesha) release from main ${commit_sha}"
 )
-bundle_gradle_args=(
-  :app:bundleProdRelease \
-  "${common_gradle_args[@]}"
-)
 if [[ -n "$DEPLOY_VERSION_CODE" ]]; then
-  apk_gradle_args+=("-PgoatosVersionCode=$DEPLOY_VERSION_CODE")
-  bundle_gradle_args+=("-PgoatosVersionCode=$DEPLOY_VERSION_CODE")
+  gradle_args+=("-PgoatosVersionCode=$DEPLOY_VERSION_CODE")
 fi
 if [[ -n "$DEPLOY_VERSION_NAME" ]]; then
-  apk_gradle_args+=("-PgoatosVersionName=$DEPLOY_VERSION_NAME")
-  bundle_gradle_args+=("-PgoatosVersionName=$DEPLOY_VERSION_NAME")
+  gradle_args+=("-PgoatosVersionName=$DEPLOY_VERSION_NAME")
 fi
-./gradlew "${apk_gradle_args[@]}"
+./gradlew "${gradle_args[@]}"
 firebase_uploaded=true
-./gradlew "${bundle_gradle_args[@]}"
 
 cd "$repo_root"
 APK="apps/goatos-android/app/build/outputs/apk/prod/release/app-prod-release.apk"
