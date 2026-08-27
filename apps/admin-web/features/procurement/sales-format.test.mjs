@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -95,4 +96,11 @@ test("marketLossPerKg is landed minus market, and null when either side is unrec
   assert.equal(marketLossPerKg(400, 420), -20);
   assert.equal(marketLossPerKg(null, 420), null);
   assert.equal(marketLossPerKg(500, undefined), null);
+});
+
+test("record-sale vendor picker discloses a capped register instead of treating it as complete", () => {
+  const source = readFileSync(new URL("./sales-record-drawer.tsx", import.meta.url), "utf8");
+  assert.match(source, /vendorOptions\?\.truncated === true/);
+  assert.match(source, /hint\.vendor_truncated/);
+  assert.match(source, /vendorsTruncated[\s\S]*?canPickVendor/);
 });

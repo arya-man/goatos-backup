@@ -34,10 +34,16 @@ func TestSalesVerticalTiersHoldTheModule(t *testing.T) {
 		if !RolesAuthorize([]string{role}, []string{SalesRead, SalesWrite}, false) {
 			t.Fatalf("%s should read and write sales", role)
 		}
+		if RolesAuthorize([]string{role}, []string{VendorRead}, false) {
+			t.Fatalf("%s must not gain the full procurement vendor register", role)
+		}
 	}
 	am := RoleKey(TierAssistantManager, VerticalSales)
 	if !RolesAuthorize([]string{am}, []string{SalesRead}, false) {
 		t.Fatalf("%s should read sales", am)
+	}
+	if RolesAuthorize([]string{am}, []string{VendorRead}, false) {
+		t.Fatalf("%s must not gain the full procurement vendor register", am)
 	}
 	if RolesAuthorize([]string{am}, []string{SalesWrite}, false) {
 		t.Fatalf("%s must not write the ledger", am)
@@ -78,5 +84,31 @@ func TestSalesRoutesAreGatedOnTheDedicatedPermissions(t *testing.T) {
 		if !found[key] {
 			t.Fatalf("route %s missing from the permission table", key)
 		}
+	}
+}
+
+func TestSalesRolesCanReadVendorOptionsWithoutVendorRegister(t *testing.T) {
+	options, ok := Match("GET", "/procurement/vendor-options")
+	if !ok {
+		t.Fatal("vendor options route missing from the permission table")
+	}
+	if len(options.Permissions) != 0 {
+		t.Fatalf("vendor options hard permissions=%v, want none", options.Permissions)
+	}
+	if len(options.AnyPermissions) != 2 || options.AnyPermissions[0] != VendorRead || options.AnyPermissions[1] != SalesRead {
+		t.Fatalf("vendor options any permissions=%v, want [%s %s]", options.AnyPermissions, VendorRead, SalesRead)
+	}
+
+	salesManager := RoleKey(TierManager, VerticalSales)
+	if !AuthorizeRoute(options, []string{salesManager}) {
+		t.Fatalf("%s should read the vendor picklist through SalesRead", salesManager)
+	}
+
+	register, ok := Match("GET", "/procurement/vendors")
+	if !ok {
+		t.Fatal("vendor register route missing from the permission table")
+	}
+	if AuthorizeRoute(register, []string{salesManager}) {
+		t.Fatalf("%s must not read the full procurement vendor register", salesManager)
 	}
 }

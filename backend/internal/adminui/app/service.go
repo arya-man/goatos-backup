@@ -2864,6 +2864,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.clear_search":       "Clear",
 			"hint.vendor":               "Every sale is made to a vendor. Not on this list? Add them on the Vendors page, then come back.",
 			"hint.vendor_empty":         "No vendors are on the register yet. Add the buyer on the Vendors page first, then record the sale.",
+			"hint.vendor_truncated":     "The vendor register is too large to show completely here. Search and confirm the buyer on the Vendors page first, then come back.",
 			"action.open_vendors":       "Go to Vendors",
 			"hint.vendor_prefill":       "Buyer name and place are filled in from the vendor. Change them if this sale was made under a different name.",
 			"error.vendors_unavailable": "The vendor register could not be read, so a sale cannot be recorded right now. Refresh to try again.",

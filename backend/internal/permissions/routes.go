@@ -237,11 +237,10 @@ var protectedRoutes = []Route{
 	{OperationID: "updateProcurementVendorStatus", Method: "POST", Pattern: "/procurement/vendors/{vendor_id}/status", Permissions: []string{VendorWrite}},
 	{OperationID: "listProcurementVendorCatalog", Method: "GET", Pattern: "/procurement/vendor-catalog", Permissions: []string{VendorRead}},
 	// The ACTIVE register as a bounded picklist, for any screen that must name a counterparty --
-	// today Sales, which maps every deal to a vendor. Gated on VendorRead, NOT on SalesRead: it is
-	// a procurement read whichever screen asks for it, and every role holding SalesWrite today
-	// already holds VendorRead (procurement_director, ceo_internal). A future sales-only role must
-	// be granted VendorRead or it will be unable to record a sale at all.
-	{OperationID: "listProcurementVendorOptions", Method: "GET", Pattern: "/procurement/vendor-options", Permissions: []string{VendorRead}},
+	// today Sales, which maps every deal to a vendor. It deliberately returns only id/name/type
+	// labels and truncation metadata, so SalesRead may use this picker without inheriting the full
+	// procurement vendor register gated above by VendorRead.
+	{OperationID: "listProcurementVendorOptions", Method: "GET", Pattern: "/procurement/vendor-options", AnyPermissions: []string{VendorRead, SalesRead}},
 
 	// FEED PURCHASES (/procurement/feed-purchases on admin-web). Gated on the dedicated
 	// FeedPurchaseRead/FeedPurchaseWrite rather than ProcurementRead: the ledger carries supplier
