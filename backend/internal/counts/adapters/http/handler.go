@@ -268,7 +268,12 @@ func (h *Handler) SubmitMilkPreparation(w http.ResponseWriter, r *http.Request) 
 	httpresponse.WriteJSON(w, http.StatusAccepted, result)
 }
 
-// GetMilkPreparation serves today's live-herd K1/K2/K3 milk preparation direction.
+// GetMilkPreparation serves the live-herd K1/K2/K3 milk preparation direction for one
+// business day. preparation_date (YYYY-MM-DD, IST) selects the day; absent means today.
+// A past day replays that day's completion/verification overlay and K3 weaning window
+// against the CURRENT herd placement (head counts come from the live goats table), so it
+// answers "was this day's preparation submitted?" rather than reconstructing that day's
+// exact head counts — the mobile date bar renders past days read-only for this reason.
 func (h *Handler) GetMilkPreparation(w http.ResponseWriter, r *http.Request) {
 	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
 	if tenantID == "" {
@@ -276,6 +281,15 @@ func (h *Handler) GetMilkPreparation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
+	asOf := time.Now()
+	if raw := strings.TrimSpace(query.Get("preparation_date")); raw != "" {
+		parsed, parseErr := time.ParseInLocation("2006-01-02", raw, biztime.DefaultLocation())
+		if parseErr != nil {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, map[string]string{"code": "invalid_date", "message": "preparation_date must be YYYY-MM-DD"}, nil)
+			return
+		}
+		asOf = parsed
+	}
 	limit, err := boundedIntParam(query, "limit", milkPreparationDefaultLimit, 1, milkPreparationMaxLimit)
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
@@ -291,7 +305,7 @@ func (h *Handler) GetMilkPreparation(w http.ResponseWriter, r *http.Request) {
 		ParkID:   nullableString(query.Get("park_id")),
 		Limit:    limit,
 		Offset:   offset,
-		AsOf:     time.Now(),
+		AsOf:     asOf,
 	})
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, "milk preparation direction", err)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 )
 
@@ -140,5 +141,40 @@ func TestGetMilkPreparationRejectsInvalidPaging(t *testing.T) {
 	handler.GetMilkPreparation(recorder, req)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d, want 400 body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+// preparation_date drives the day the direction is rendered for (2026-08-27 milk date bar):
+// a valid IST date lands on the query's AsOf business day; garbage is a 400 invalid_date,
+// mirroring ListMilkFeedingTasks' feeding_date contract exactly.
+func TestGetMilkPreparationHonoursPreparationDate(t *testing.T) {
+	service := &milkPreparationHandlerService{}
+	handler := NewHandler(service, slog.Default())
+	req := httptest.NewRequest(http.MethodGet, "/counts/milk-preparation?preparation_date=2026-08-20", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001"))
+	recorder := httptest.NewRecorder()
+
+	handler.GetMilkPreparation(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := service.query.AsOf.In(biztime.DefaultLocation()).Format("2006-01-02"); got != "2026-08-20" {
+		t.Fatalf("AsOf business day=%q, want the requested 2026-08-20", got)
+	}
+}
+
+func TestGetMilkPreparationRejectsAnUnparseableDate(t *testing.T) {
+	service := &milkPreparationHandlerService{}
+	handler := NewHandler(service, slog.Default())
+	req := httptest.NewRequest(http.MethodGet, "/counts/milk-preparation?preparation_date=yesterday", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "10000000-0000-4000-8000-000000000001"))
+	recorder := httptest.NewRecorder()
+
+	handler.GetMilkPreparation(recorder, req)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400 body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "invalid_date") {
+		t.Fatalf("body=%s, want invalid_date code", recorder.Body.String())
 	}
 }

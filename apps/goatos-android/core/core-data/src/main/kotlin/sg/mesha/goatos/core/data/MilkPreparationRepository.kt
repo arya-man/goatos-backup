@@ -50,7 +50,9 @@ class DefaultMilkPreparationRepository(
     }
 
     override suspend fun refresh(preparationDate: String): Result<Unit> = runCatching {
-        val page = api.getMilkPreparation(limit = 20, offset = 0)
+        // The selected date MUST reach the API: caching a dateless (today) response under the
+        // selected date's key rendered today's numbers beneath a past-day label.
+        val page = api.getMilkPreparation(preparationDate = preparationDate.trim(), limit = 20, offset = 0)
         cache.upsert(
             CountsBreakdownMetaCacheEntity(
                 cacheKey = cacheKey(preparationDate),
