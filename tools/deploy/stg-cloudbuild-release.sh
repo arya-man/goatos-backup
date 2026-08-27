@@ -161,7 +161,7 @@ require_public_host_ready() {
 
 require_managed_cert_ready() {
   local host="$1"
-  gcloud compute ssl-certificates describe goatos-prod-facing-cert \
+  gcloud compute ssl-certificates list \
     --project="$PROJECT_ID" \
     --global \
     --format=json |
@@ -170,7 +170,11 @@ import json
 import sys
 
 host = sys.argv[1]
-doc = json.load(sys.stdin)
+docs = json.load(sys.stdin)
+doc = next((item for item in docs if item.get("name") == "goatos-prod-facing-cert"), None)
+if doc is None:
+    print("ERROR: goatos-prod-facing-cert was not visible in ssl-certificates list", file=sys.stderr)
+    sys.exit(1)
 managed = doc.get("managed", {})
 status = managed.get("status")
 domain_status = managed.get("domainStatus", {}).get(host)
