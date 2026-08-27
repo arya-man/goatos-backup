@@ -65,17 +65,17 @@ test("resolveFarm accepts only served option keys and falls back to the default"
 test("salesHref: a farm switch resets the ledger offset, a pager click keeps the farm", () => {
   const defaults = { farm: "all", limit: 25 };
   // The default view is the bare path — shared links stay canonical.
-  assert.equal(salesHref({}, defaults), "/procurement/sales");
-  assert.equal(salesHref({ farm: "all" }, defaults), "/procurement/sales");
+  assert.equal(salesHref({}, defaults), "/sales");
+  assert.equal(salesHref({ farm: "all" }, defaults), "/sales");
   // Farm toggle: no offset carried, so a narrowed ledger starts at page one.
-  assert.equal(salesHref({ farm: "CBE" }, defaults), "/procurement/sales?farm=CBE");
+  assert.equal(salesHref({ farm: "CBE" }, defaults), "/sales?farm=CBE");
   // Pager: farm survives the click.
   assert.equal(
     salesHref({ farm: "CBE", offset: 50, limit: 25 }, defaults),
-    "/procurement/sales?farm=CBE&offset=50",
+    "/sales?farm=CBE&offset=50",
   );
   // The default page size is omitted; a chosen one is kept.
-  assert.equal(salesHref({ limit: 50 }, defaults), "/procurement/sales?limit=50");
+  assert.equal(salesHref({ limit: 50 }, defaults), "/sales?limit=50");
 });
 
 test("monthly chart totals are plain sums of the backend components", () => {

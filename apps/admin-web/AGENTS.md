@@ -611,9 +611,13 @@ Only these routes are current implemented product routes:
                            verification queue. Polls by re-running the server tree (router.refresh).
 /procurement/source-entry    Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
-/procurement/sales           Sales board — animal + manure sales overview, buyers, demand
-                            pipeline, sale evidence, deals ledger, record-sale drawer
-                            (backend "sales" page contract; sales.read / sales.write)
+/sales                       Sales board — its OWN top-level vertical, split out of Procurement
+                            (maintainer decision 2026-08-27). Animal + manure sales overview,
+                            buyers, demand pipeline, sale evidence, deals ledger, record-sale
+                            drawer. The record-sale form maps every deal to a vendor from the
+                            procurement register, so the page also needs procurement.vendor.read
+                            alongside sales.read / sales.write (backend "sales" page contract).
+                            Moved from /procurement/sales; there is no redirect.
 /counts/herd                 Herd Register for vaccination trigger closure (route live; its
                              sidebar leaf is WITHHELD, maintainer decision 2026-08-20)
 /counts/analytics            Herd Analytics — composition now (breed / pen tag / sex / kid-adult /

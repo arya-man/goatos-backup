@@ -19,7 +19,8 @@ import {
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { firstAuthRequiredError, listSaleLocations } from "@/lib/api/server";
+import { firstAuthRequiredError, listProcurementVendorOptions, listSaleLocations } from "@/lib/api/server";
+import type { ProcurementVendorOptions } from "@/lib/api/server";
 import { getSalesOverview, listSalesBuyerLeads, listSalesDeals, listSalesFpoLeads } from "@/lib/api/procurement-server";
 import type { SalesDeal, SalesOverview } from "@/lib/api/procurement";
 import { SalesPipelineDrawers, type SalesPanel } from "./sales-pipeline-drawers";
@@ -42,7 +43,7 @@ import {
 import { SalesRecordDrawer } from "./sales-record-drawer";
 import { SaleAllocationDrawer } from "./sale-allocation-drawer";
 
-const PAGE_PATH = "/procurement/sales";
+const PAGE_PATH = "/sales";
 const DEFAULT_FARM = "all";
 const DEFAULT_LIMIT = 25;
 /** Only used when an older backend contract has no buyer board table; the contract page size wins. */
@@ -532,7 +533,8 @@ export async function SalesPage({
   // The whole screen's data in ONE parallel read: the overview contract, one ledger page, and the
   // first page of each pipeline (the entry drawers list and update them; LocalOverlayLink opens
   // without an RSC request, so drawer data must ride with the page).
-  const [overviewResult, dealsResult, buyerLeadsResult, fpoLeadsResult, saleLocations] = await Promise.all([
+  const [overviewResult, dealsResult, buyerLeadsResult, fpoLeadsResult, saleLocations, vendorOptionsResult] =
+    await Promise.all([
     getSalesOverview({ farm }),
     listSalesDeals({ farm, limit, offset }),
     listSalesBuyerLeads({ limit: 20 }),
@@ -541,12 +543,21 @@ export async function SalesPage({
     // partition-alias shed rows ("Castro 1") that hold no animals and no pens -- offering
     // them gave an operator a choice that could only ever return an empty list.
     listSaleLocations(),
+    // Every sale is made TO a vendor (maintainer decision 2026-08-27), so the record-sale drawer
+    // needs the active register with the page -- LocalOverlayLink opens it without an RSC request.
+    // ONE bounded read, never a paged walk of /procurement/vendors: that is the banned SSR
+    // full-walk shape (make admin-web-request-reads-guard).
+    listProcurementVendorOptions(),
   ]);
 
   if (firstAuthRequiredError(overviewResult, dealsResult)) redirect(INTERNAL_LOGIN_PATH);
 
   // Pass plain backend data; the drawer issues no fetch of its own on open.
   const tagLocations = saleLocations.ok ? saleLocations.data : { parks: [], locations: [] };
+  // null means the register could NOT be read (it is a separate permission, procurement.vendor.read).
+  // The drawer renders a stated error for that case rather than an empty dropdown, which would read
+  // as "there are no vendors" and send the person to add one that already exists.
+  const vendorOptions: ProcurementVendorOptions | null = vendorOptionsResult.ok ? vendorOptionsResult.data : null;
 
   const overview: SalesOverview | null = overviewResult.ok ? overviewResult.data : null;
   const deals: SalesDeal[] = dealsResult.ok ? dealsResult.data.deals : [];
@@ -579,7 +590,12 @@ export async function SalesPage({
       <div className="phead" style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6 }}>
         <div>
           <div className="crumb">
-            <b>{copy(pageContract, "crumb")}</b> · {pageContract.title}
+            {/* The crumb names the VERTICAL and the title names the page. Sales is now a vertical
+                whose single page carries the same name, so appending the title unconditionally
+                repeated that one word on both sides of the separator. The dedupe is presentation
+                only -- both strings stay backend-owned and neither is composed here. */}
+            <b>{copy(pageContract, "crumb")}</b>
+            {copy(pageContract, "crumb") === pageContract.title ? null : <> · {pageContract.title}</>}
           </div>
           <h1>{pageContract.title}</h1>
           <div className="sub">{pageContract.subtitle}</div>
@@ -756,7 +772,13 @@ export async function SalesPage({
 
       {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay
           gated on a server-read search param would never appear. */}
-      <SalesRecordDrawer deals={deals} pageContract={pageContract} listHref={listHref} canRecord={canRecord} />
+      <SalesRecordDrawer
+        deals={deals}
+        pageContract={pageContract}
+        listHref={listHref}
+        canRecord={canRecord}
+        vendorOptions={vendorOptions}
+      />
       {canRecord ? (
         <SaleAllocationDrawer
           deals={deals}

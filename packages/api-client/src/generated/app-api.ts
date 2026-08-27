@@ -2468,6 +2468,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/vendor-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The ACTIVE vendor register as a bounded picklist.
+         * @description Every screen that must name a counterparty reads this: today the Sales record-sale drawer, which maps each deal to a vendor (maintainer decision 2026-08-27).
+         *
+         *     Deliberately NOT a mode of `GET /procurement/vendors`. It is ACTIVE-ONLY, because an inactive, negotiating or banned vendor must not be offerable as the buyer of a NEW sale; it is UNPAGED, because a dropdown that stops at page one silently hides buyers; and it carries identity and location only, never the payment instruments `procurement.vendor.finance.read` guards.
+         *
+         *     It is one bounded query, never a paged full walk. A register larger than the cap sets `truncated: true` rather than silently offering a partial list.
+         */
+        get: operations["listProcurementVendorOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/vendor-catalog": {
         parameters: {
             query?: never;
@@ -5214,6 +5238,22 @@ export interface components {
             /** @description False means retired: still rendered on a vendor that carries it, never offered for a new row. */
             is_active: boolean;
         };
+        /** @description One selectable counterparty. Identity and location only -- never payment instruments. */
+        ProcurementVendorOption: {
+            /** Format: uuid */
+            vendor_id: string;
+            business_name: string;
+            /** @description What the register calls this counterparty (Sheep Agent, Manure Agent, ...). */
+            record_type: string;
+            /** @description Empty when the register carries no city for this vendor. */
+            city: string;
+            state: string;
+        };
+        ProcurementVendorOptions: {
+            vendors: components["schemas"]["ProcurementVendorOption"][];
+            /** @description True when the active register holds more vendors than one bounded read returns, so the picker can send the person to the Vendors page to search rather than imply a buyer they cannot find does not exist. */
+            truncated: boolean;
+        };
         ProcurementVendorCatalog: {
             record_types: components["schemas"]["ProcurementVendorCatalogEntry"][];
             breeds: components["schemas"]["ProcurementVendorCatalogEntry"][];
@@ -5577,6 +5617,11 @@ export interface components {
             source_purchase_id?: number | null;
             buyer_name: string;
             buyer_place?: string | null;
+            /**
+             * Format: uuid
+             * @description The procurement vendor register row this sale was made to, as an OPAQUE reference -- deliberately not a foreign key, mirroring goat_sale_allocations.sales_deal_id. Null on the imported sheet history, which predates the register. buyer_name stays the snapshot of what the buyer was called at the time of sale.
+             */
+            buyer_vendor_id?: string | null;
             /** @enum {string} */
             product_type: "Sheep" | "Goat" | "Manure";
             breed: string;
@@ -5616,6 +5661,11 @@ export interface components {
             breed: string;
             buyer_name: string;
             buyer_place?: string;
+            /**
+             * Format: uuid
+             * @description REQUIRED. The vendor register row being sold to -- the farm does not sell to a name typed into a box. Rejected when absent or not a uuid; only the shape is checked server-side, because the sales module reads no procurement table.
+             */
+            buyer_vendor_id: string;
             animal_count?: number | null;
             male_count?: number | null;
             female_count?: number | null;
@@ -17887,6 +17937,29 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listProcurementVendorOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The active register, name-ordered. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementVendorOptions"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

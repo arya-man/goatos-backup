@@ -1,6 +1,7 @@
 "use client";
 
 import { Banknote, X } from "lucide-react";
+import Link from "@/components/no-prefetch-link";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import {
@@ -11,7 +12,9 @@ import {
 import { Tag } from "@/components/ui-primitives";
 import { copy, optionalOptionGroup, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { SalesDeal } from "@/lib/api/procurement";
-import { fmtDate } from "@/lib/format";
+import type { ProcurementVendorOption, ProcurementVendorOptions } from "@/lib/api/server";
+import { ThemedDatePicker } from "@/components/themed-date-picker";
+import { fmtDate, todayIso } from "@/lib/format";
 import { dealStatusTone, inr, num } from "./sales-format";
 import { recordSaleAction } from "./sales-actions";
 
@@ -34,6 +37,18 @@ function subscribeToOverlayUrl(onChange: () => void): () => void {
 }
 
 /**
+ * How one vendor reads in the picker: the business name, then where they are.
+ *
+ * Two vendors really do share a business name in the register, so the location is what tells them
+ * apart. It is appended only when the register actually carries one -- a trailing " · " on a vendor
+ * with no city or state would read as missing data rather than absent data.
+ */
+function vendorLabel(vendor: ProcurementVendorOption): string {
+  const place = [vendor.city, vendor.state].filter((part) => part.trim() !== "").join(", ");
+  return place === "" ? vendor.business_name : `${vendor.business_name} · ${place}`;
+}
+
+/**
  * The sales board's record / detail overlay, modeled on the vendor register drawer: CLIENT state
  * driven by the URL (LocalOverlayLink changes history WITHOUT an RSC request, so a server-read
  * search param would never open it), and the mock's drawer anatomy — `.scrim`/`.drawer.on`,
@@ -44,6 +59,7 @@ export function SalesRecordDrawer({
   pageContract,
   listHref,
   canRecord,
+  vendorOptions,
 }: {
   /** The rendered ledger page. The detail view opens from this data — it issues no fetch of its own. */
   deals: SalesDeal[];
@@ -52,6 +68,12 @@ export function SalesRecordDrawer({
   listHref: string;
   /** Backend-declared record_sale capability; without it the form never renders. */
   canRecord: boolean;
+  /**
+   * The ACTIVE vendor register, read with the page. `null` means the register could not be READ
+   * (it sits behind its own permission) -- a different fact from an EMPTY register, and the two
+   * get different copy: one says the list is unavailable, the other says to go add the buyer.
+   */
+  vendorOptions: ProcurementVendorOptions | null;
 }) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -68,10 +90,24 @@ export function SalesRecordDrawer({
   // select swaps the breed group; reset during render when the selection changes, not in an effect.
   const productOptions = optionGroup(pageContract, "sales_product_types");
   const [product, setProduct] = useState(productOptions[0]?.key ?? "");
+  // The vendor IS the buyer, so picking one fills the buyer snapshot fields. They stay EDITABLE
+  // (maintainer decision 2026-08-27): the sale is still recorded under the name it was made in,
+  // which may differ from the register's spelling, and buyer_name is what the ledger and the buyer
+  // board have always shown. The vendor id is the durable link; these two are the snapshot.
+  const [vendorId, setVendorId] = useState("");
+  const [vendorQuery, setVendorQuery] = useState("");
+  const [buyerName, setBuyerName] = useState("");
+  const [buyerPlace, setBuyerPlace] = useState("");
   const [syncedSelection, setSyncedSelection] = useState(selection);
   if (syncedSelection !== selection) {
+    // Reset during render when the drawer opens on a different record, never in an effect -- an
+    // effect would let one submit's values flash into the next form.
     setSyncedSelection(selection);
     setProduct(productOptions[0]?.key ?? "");
+    setVendorId("");
+    setVendorQuery("");
+    setBuyerName("");
+    setBuyerPlace("");
   }
 
   const close = useCallback(() => {
@@ -102,6 +138,53 @@ export function SalesRecordDrawer({
   // The write vocabulary excludes the read-scope "all" entry: a deal happens at ONE farm.
   const farmOptions = optionGroup(pageContract, "sales_farms").filter((option) => option.key !== "all");
   const breedOptions = optionalOptionGroup(pageContract, `sales_breeds_${product.toLowerCase()}`);
+
+  // Three distinct states, and they are NOT the same fact:
+  //   unavailable -> the register could not be read (its own permission failed, or the API errored)
+  //   empty       -> the register was read and holds no active vendor
+  //   ready       -> there is someone to sell to
+  // Collapsing the first two would tell a person to go add a vendor that already exists, or leave
+  // them staring at an empty dropdown with no reason.
+  const vendorsUnavailable = vendorOptions === null;
+  const vendors = vendorOptions?.vendors ?? [];
+  const vendorsEmpty = !vendorsUnavailable && vendors.length === 0;
+  const canPickVendor = !vendorsUnavailable && !vendorsEmpty;
+  const selectedVendor = vendors.find((vendor) => vendor.vendor_id === vendorId) ?? null;
+
+  // A few hundred vendors is more than anyone scrolls, so typing narrows the list. TWO characters
+  // is the floor: a single letter matches most of the register and would make the field feel
+  // broken rather than filtered.
+  const trimmedQuery = vendorQuery.trim().toLowerCase();
+  const searchActive = trimmedQuery.length >= 2;
+  const matchedVendors = searchActive
+    ? vendors.filter((vendor) =>
+        // Name AND place, because "the Anantapur one" is how a buyer is remembered at least as
+        // often as by business name.
+        [vendor.business_name, vendor.city, vendor.state]
+          .join(" ")
+          .toLowerCase()
+          .includes(trimmedQuery),
+      )
+    : vendors;
+  // The chosen vendor stays in the list even when the search excludes it. Dropping it would clear
+  // the select silently and submit a sale against no vendor -- the search is a lens over the
+  // options, never an edit to the selection.
+  const shownVendors =
+    selectedVendor && !matchedVendors.some((vendor) => vendor.vendor_id === selectedVendor.vendor_id)
+      ? [selectedVendor, ...matchedVendors]
+      : matchedVendors;
+  const noMatches = searchActive && matchedVendors.length === 0;
+
+  const onVendorChange = (nextVendorId: string) => {
+    setVendorId(nextVendorId);
+    const vendor = vendors.find((candidate) => candidate.vendor_id === nextVendorId);
+    if (!vendor) return;
+    // Prefill both snapshot fields from the vendor. Overwriting rather than filling-only-if-blank
+    // is deliberate: changing the vendor mid-form must not leave the PREVIOUS buyer's name sitting
+    // in the box, which is exactly how a sale gets recorded against the wrong counterparty.
+    setBuyerName(vendor.business_name);
+    setBuyerPlace([vendor.city, vendor.state].filter((part) => part.trim() !== "").join(", "));
+  };
 
   // One read-only cell pair of the record body.
   const cell = (label: string, value: string | number | null | undefined) => (
@@ -155,7 +238,19 @@ export function SalesRecordDrawer({
 
               <div className="fld">
                 <label htmlFor="s-sale_date">{field("sale_date")}</label>
-                <input id="s-sale_date" name="sale_date" type="date" required />
+                {/* The app's shared date control -- the same one the vaccination schedule uses --
+                    rather than a native input, whose browser-drawn calendar and locale date order
+                    match nothing else on the page. Bounded by max: a sale may be recorded days
+                    after it happened, but never before it has. */}
+                <ThemedDatePicker
+                  name="sale_date"
+                  label={copy(pageContract, "date.sale_date.placeholder")}
+                  max={todayIso()}
+                  previousMonthLabel={copy(pageContract, "date.prev_month")}
+                  nextMonthLabel={copy(pageContract, "date.next_month")}
+                  invalidDateText={copy(pageContract, "date.invalid_sale_date")}
+                  required
+                />
               </div>
               <div className="fld">
                 <label htmlFor="s-farm">{field("farm")}</label>
@@ -202,12 +297,89 @@ export function SalesRecordDrawer({
                 </select>
               </div>
               <div className="fld">
+                <label htmlFor="s-buyer_vendor_id">{field("vendor")}</label>
+                {vendorsUnavailable ? (
+                  // The register could not be READ. Say that, rather than render an empty dropdown
+                  // that reads as "no vendors exist" and sends the person to add a duplicate.
+                  <div className="note warn">{copy(pageContract, "error.vendors_unavailable")}</div>
+                ) : vendorsEmpty ? (
+                  <>
+                    <div className="note">{copy(pageContract, "hint.vendor_empty")}</div>
+                    <Link href="/procurement/vendors" className="btn sm">
+                      {copy(pageContract, "action.open_vendors")}
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <div className="sales-vendor-search">
+                      <input
+                        id="s-vendor_search"
+                        type="search"
+                        // NOT part of the form payload: this filters the options and is never
+                        // submitted. The select below still carries the id that gets recorded.
+                        name="vendor_search"
+                        autoComplete="off"
+                        placeholder={copy(pageContract, "search.vendor.placeholder")}
+                        aria-controls="s-buyer_vendor_id"
+                        value={vendorQuery}
+                        onChange={(event) => setVendorQuery(event.target.value)}
+                      />
+                      {vendorQuery === "" ? null : (
+                        <button type="button" className="btn sm" onClick={() => setVendorQuery("")}>
+                          {copy(pageContract, "action.clear_search")}
+                        </button>
+                      )}
+                    </div>
+                    <select
+                      id="s-buyer_vendor_id"
+                      name="buyer_vendor_id"
+                      required
+                      // Sized to show several rows at once while filtering, so a narrowed list
+                      // reads as a result set rather than a one-line box.
+                      size={searchActive ? Math.min(8, Math.max(2, shownVendors.length + 1)) : undefined}
+                      value={vendorId}
+                      onChange={(event) => onVendorChange(event.target.value)}
+                    >
+                      <option value="" disabled>
+                        {copy(pageContract, "select.vendor.placeholder")}
+                      </option>
+                      {shownVendors.map((vendor) => (
+                        <option key={vendor.vendor_id} value={vendor.vendor_id}>
+                          {vendorLabel(vendor)}
+                        </option>
+                      ))}
+                    </select>
+                    {noMatches ? <div className="note">{copy(pageContract, "hint.vendor_no_match")}</div> : null}
+                    {/* The exit from a required field the person may not be able to fill: the
+                        buyer might simply not be on the register yet. */}
+                    <div className="note sales-vendor-hint">
+                      {copy(pageContract, "hint.vendor")}{" "}
+                      <Link href="/procurement/vendors">{copy(pageContract, "action.open_vendors")}</Link>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="fld">
                 <label htmlFor="s-buyer_name">{field("buyer_name")}</label>
-                <input id="s-buyer_name" name="buyer_name" required maxLength={160} />
+                <input
+                  id="s-buyer_name"
+                  name="buyer_name"
+                  required
+                  maxLength={160}
+                  value={buyerName}
+                  onChange={(event) => setBuyerName(event.target.value)}
+                />
               </div>
               <div className="fld">
                 <label htmlFor="s-buyer_place">{field("buyer_place")}</label>
-                <input id="s-buyer_place" name="buyer_place" maxLength={160} />
+                <input
+                  id="s-buyer_place"
+                  name="buyer_place"
+                  maxLength={160}
+                  value={buyerPlace}
+                  onChange={(event) => setBuyerPlace(event.target.value)}
+                />
+                {selectedVendor ? <div className="note">{copy(pageContract, "hint.vendor_prefill")}</div> : null}
               </div>
               <div className="fld">
                 <label htmlFor="s-animal_count">{field("animal_count")}</label>
@@ -232,7 +404,20 @@ export function SalesRecordDrawer({
               </div>
             </div>
             <div className="df">
-              <button type="submit" className="btn p">
+              {/* A sale cannot be recorded without a vendor, so Save is disabled-with-reason rather
+                  than left live to fail at the backend with a message about a field the form could
+                  not offer. The route validates the same rule regardless. */}
+              <button
+                type="submit"
+                className="btn p"
+                disabled={!canPickVendor}
+                aria-disabled={!canPickVendor}
+                title={
+                  canPickVendor
+                    ? undefined
+                    : copy(pageContract, vendorsUnavailable ? "error.vendors_unavailable" : "hint.vendor_empty")
+                }
+              >
                 {copy(pageContract, "action.save")}
               </button>
               <button type="button" className="btn" onClick={close}>
@@ -248,6 +433,14 @@ export function SalesRecordDrawer({
               {cell(field("farm"), deal.farm)}
               {cell(field("product_type"), deal.product_type)}
               {cell(field("breed"), deal.breed)}
+              {/* Resolved to the register's NAME, never the raw id -- a uuid on a farm screen is
+                  banned copy. An id that resolves to nothing (a vendor since deactivated, or the
+                  imported sheet history, which predates the register) renders as absent rather
+                  than as a broken-looking string. */}
+              {cell(
+                field("vendor"),
+                vendors.find((vendor) => vendor.vendor_id === deal.buyer_vendor_id)?.business_name ?? null,
+              )}
               {cell(field("buyer_name"), deal.buyer_name)}
               {cell(field("buyer_place"), deal.buyer_place)}
               {cell(field("animal_count"), deal.animal_count == null ? null : num(deal.animal_count))}

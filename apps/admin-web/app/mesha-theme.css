@@ -2913,6 +2913,18 @@ select:disabled { opacity: .45; }
 /* Market check is wider than the sales card once the left nav is open. Let the table own horizontal
    scroll and keep the loss signal pinned instead of clipping it at the card edge. */
 .sales-market-wrap{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+
+/* The record-sale drawer's vendor hint. Global `a{color:inherit;text-decoration:none}` makes an
+   inline anchor indistinguishable from the sentence around it, so "Go to Vendors" -- the exit from
+   a required field the person may be unable to fill -- read as plain text. Same scoped treatment
+   .cbm-verify-videos a uses. */
+.sales-vendor-hint a{color:var(--info);text-decoration:underline}
+
+/* Vendor search sits directly above its select and shares the field's width. The clear button is
+   content-sized so the input keeps the full row, matching .fld inputs elsewhere in the drawer. */
+.sales-vendor-search{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.sales-vendor-search input{flex:1 1 auto;min-width:0}
+.sales-vendor-search .btn{flex:0 0 auto;white-space:nowrap}
 .sales-kpi-row .kpi .dl{color:var(--muted)}
 .main table.sales-market-table{min-width:1720px}
 .main table.sales-market-table th,.main table.sales-market-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}

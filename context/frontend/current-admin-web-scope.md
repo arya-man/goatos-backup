@@ -554,7 +554,7 @@ These are current procurement product routes:
 ```text
 /procurement/source-entry                       Source Entry Board (+ New load)
 /procurement/source-entry/loads/{load_id}        Load Detail (+ pre-dispatch / arrival gate / accept-intake actions)
-/procurement/sales                              Sales board (overview KPIs/charts, buyers, demand pipeline, sale evidence, deals ledger + record-sale drawer; backend "sales" page contract)
+/sales                                                   Sales board (overview KPIs/charts, buyers, demand pipeline, sale evidence, deals ledger + record-sale drawer; backend "sales" page contract)
 ```
 
 Forbidden procurement UI routes:

@@ -20,7 +20,7 @@ import {
 } from "@/lib/api/procurement-server";
 import type { SalesBuyerLeadWrite, SalesDealWrite, SalesSoldTagsWrite } from "@/lib/api/procurement";
 
-const SALES_PATH = "/procurement/sales";
+const SALES_PATH = "/sales";
 
 /**
  * Reads the record-sale fields off the form.
@@ -47,6 +47,10 @@ function readSaleForm(formData: FormData): SalesDealWrite {
     breed: requiredString(formData, "breed"),
     buyer_name: requiredString(formData, "buyer_name"),
     buyer_place: optionalString(formData, "buyer_place") ?? "",
+    // REQUIRED: every sale is made to a vendor on the register (maintainer decision 2026-08-27).
+    // requiredString throws on a blank, so a form that somehow submits without a selection fails
+    // here rather than posting a vendorless deal; the backend re-validates the same rule.
+    buyer_vendor_id: requiredString(formData, "buyer_vendor_id"),
     animal_count: parseOptionalNumber("animal_count"),
     total_weight_kg: parseOptionalNumber("total_weight_kg"),
     sales_value: Number(requiredString(formData, "sales_value")),

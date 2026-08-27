@@ -312,7 +312,7 @@ const (
 	// grant change rather than a schema, API and UI change -- and because the redaction path has to
 	// be built and tested from the start to be trustworthy at all. Do not fold it into VendorRead.
 	VendorFinanceRead = "procurement.vendor.finance.read"
-	// SalesRead gates the SALES module (/procurement/sales, backend /sales/*): the ledger of what
+	// SalesRead gates the SALES module (/sales, backend /sales/*): the ledger of what
 	// the farm actually sold -- live animals and manure across CBE and CPT -- plus the demand
 	// pipelines and evidence panels behind it.
 	//
@@ -1187,7 +1187,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// instruments. Founder/builder visibility invariant: the platform-owner cohort holds the
 		// grants for every built visible module.
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
-		// The sales module (/procurement/sales): ledger, overview and record-sale. Same
+		// The sales module (/sales): ledger, overview and record-sale. Same
 		// founder/builder visibility invariant.
 		SalesRead: {}, SalesWrite: {},
 		// The feed purchase ledger (/procurement/feed-purchases): what feed was bought, at what

@@ -121,3 +121,13 @@ func (s *VendorService) UpdateVendorStatus(ctx context.Context, tenantID, vendor
 func (s *VendorService) ListVendorCatalog(ctx context.Context, tenantID string) ([]domain.VendorCatalogEntry, error) {
 	return s.repo.ListVendorCatalog(ctx, tenantID, false)
 }
+
+// ListVendorOptions returns the ACTIVE register as a bounded picklist for a counterparty dropdown.
+//
+// Read by the Sales record-sale drawer, which must map every deal to a vendor (maintainer decision
+// 2026-08-27). It stays a procurement read served under VendorRead: the SALES module reads no
+// procurement table (the 000173 lock), so the vendor is chosen in admin-web and only the chosen id
+// travels onto the sale.
+func (s *VendorService) ListVendorOptions(ctx context.Context, tenantID string) (domain.VendorOptions, error) {
+	return s.repo.ListVendorOptions(ctx, tenantID)
+}

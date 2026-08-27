@@ -19,6 +19,9 @@ type dealPayload struct {
 
 	BuyerName  string  `json:"buyer_name"`
 	BuyerPlace *string `json:"buyer_place"`
+	// The vendor register row this sale was made to, as an opaque reference. null on the imported
+	// sheet history, which predates the register (migration 000193).
+	BuyerVendorID *string `json:"buyer_vendor_id"`
 
 	ProductType string `json:"product_type"`
 	Breed       string `json:"breed"`
@@ -57,6 +60,7 @@ type dealWritePayload struct {
 	Breed         string   `json:"breed"`
 	BuyerName     string   `json:"buyer_name"`
 	BuyerPlace    string   `json:"buyer_place"`
+	BuyerVendorID string   `json:"buyer_vendor_id"`
 	AnimalCount   *float64 `json:"animal_count"`
 	MaleCount     *float64 `json:"male_count"`
 	FemaleCount   *float64 `json:"female_count"`
@@ -69,7 +73,7 @@ type dealWritePayload struct {
 func (p dealWritePayload) toDomain() domain.DealWrite {
 	return domain.DealWrite{
 		SaleDate: p.SaleDate, Farm: p.Farm, ProductType: p.ProductType, Breed: p.Breed,
-		BuyerName: p.BuyerName, BuyerPlace: p.BuyerPlace,
+		BuyerName: p.BuyerName, BuyerPlace: p.BuyerPlace, BuyerVendorID: p.BuyerVendorID,
 		AnimalCount: p.AnimalCount, MaleCount: p.MaleCount, FemaleCount: p.FemaleCount,
 		TotalWeightKg: p.TotalWeightKg, SalesValue: p.SalesValue, AdvanceAmount: p.AdvanceAmount,
 		Comments: p.Comments,
@@ -80,7 +84,7 @@ func toDealPayload(d domain.Deal) dealPayload {
 	return dealPayload{
 		DealID: d.DealID, SaleDate: d.SaleDate, Farm: d.Farm,
 		SourceSalesID: d.SourceSalesID, SourcePurchaseID: d.SourcePurchaseID,
-		BuyerName: d.BuyerName, BuyerPlace: d.BuyerPlace,
+		BuyerName: d.BuyerName, BuyerPlace: d.BuyerPlace, BuyerVendorID: d.BuyerVendorID,
 		ProductType: d.ProductType, Breed: d.Breed,
 		AnimalCount: d.AnimalCount, MaleCount: d.MaleCount, FemaleCount: d.FemaleCount,
 		TotalWeightKg: d.TotalWeightKg,

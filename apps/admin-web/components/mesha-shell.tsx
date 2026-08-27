@@ -6,6 +6,7 @@ import type { ElementType } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Banknote,
   Bell,
   BarChart3,
   CalendarDays,
@@ -20,6 +21,7 @@ import {
   MapPin,
   Milk,
   Moon,
+  Scale,
   Stethoscope,
   Sun,
   TowerControl,
@@ -47,6 +49,10 @@ type PendingNavigationTiming = {
 };
 
 const iconByToken: Record<string, ElementType> = {
+  // Sales is its own vertical in the backend nav contract (maintainer decision 2026-08-27); like
+  // `milk` and `wheat` below, the token must be registered here or the group silently falls back
+  // to the Control Tower icon.
+  banknote: Banknote,
   "bar-chart-3": BarChart3,
   "calendar-days": CalendarDays,
   "clipboard-check": ClipboardCheck,
@@ -55,6 +61,10 @@ const iconByToken: Record<string, ElementType> = {
   // Milk is its own vertical in the backend nav contract; without this token the group would
   // silently fall back to the Control Tower icon (the same defect `wheat` hit below).
   milk: Milk,
+  // Weighing's declared icon. Same latent fallback defect as `milk` and `wheat`: it was declared
+  // in the backend nav contract but never registered here, so the vertical rendered the Control
+  // Tower icon.
+  scale: Scale,
   // Health is a DISTINCT vertical from Preventive Care, so it gets its own icon rather than
   // sharing heart-pulse. It must never use the syringe/injection token, which belongs to the
   // Vaccination module under Preventive Care.

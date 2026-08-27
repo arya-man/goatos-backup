@@ -39,7 +39,8 @@ func TestSalesLedgerPostgresPaths(t *testing.T) {
 	created := seedDeal(t, repo, ctx, "key-sheep", domain.DealWrite{
 		SaleDate: "2025-04-15", Farm: "CPT", ProductType: "Sheep", Breed: "Anantapur",
 		BuyerName: "Tanveer", BuyerPlace: "Madur",
-		AnimalCount: f64(23), MaleCount: f64(12), FemaleCount: f64(11),
+		BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
+		AnimalCount:   f64(23), MaleCount: f64(12), FemaleCount: f64(11),
 		TotalWeightKg: f64(600), SalesValue: 201500, AdvanceAmount: f64(50000),
 		Comments: "prefers morning delivery",
 	})
@@ -50,6 +51,12 @@ func TestSalesLedgerPostgresPaths(t *testing.T) {
 		}
 		if created.BuyerName != "Tanveer" || created.BuyerPlace == nil || *created.BuyerPlace != "Madur" {
 			t.Fatalf("buyer mismapped: %+v", created)
+		}
+		// The vendor link round-trips as the id it was handed. It is scanned right after
+		// buyer_place, so a swapped pair in the column list would surface here rather than as a
+		// sale silently attributed to the wrong counterparty.
+		if created.BuyerVendorID == nil || *created.BuyerVendorID != "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34" {
+			t.Fatalf("vendor link mismapped: %+v", created.BuyerVendorID)
 		}
 		if created.ProductType != "Sheep" || created.Breed != "Anantapur" {
 			t.Fatalf("product/breed = %s/%s", created.ProductType, created.Breed)

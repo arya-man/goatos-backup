@@ -69,4 +69,9 @@ type VendorRepository interface {
 	// retired entries, which is what a write form wants; a read filter wants everything so an
 	// existing vendor's retired value still renders.
 	ListVendorCatalog(ctx context.Context, tenantID string, activeOnly bool) ([]domain.VendorCatalogEntry, error)
+
+	// ListVendorOptions returns the ACTIVE register as a bounded picklist for a "who is this for"
+	// dropdown -- id, name and location only, never the payment instruments VendorFinanceRead
+	// guards. One query capped at domain.MaxVendorOptions, so this is never a paged full walk.
+	ListVendorOptions(ctx context.Context, tenantID string) (domain.VendorOptions, error)
 }

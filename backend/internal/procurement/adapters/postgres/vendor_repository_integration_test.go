@@ -341,3 +341,80 @@ func derefOr(v *string) string {
 	}
 	return *v
 }
+
+// TestVendorOptionsPicklistIsActiveOnlyAndNameOrdered exercises the picklist behind every "who is
+// this sale for" dropdown against a real Postgres.
+//
+// Integration rather than unit for the same reason as the file above: everything worth breaking
+// here lives in the SQL. The active-only predicate is a MEDICAL-grade correctness rule for
+// commerce -- offering a banned counterparty as the buyer of a new sale is the defect -- and a
+// fake repository would happily return whatever the test handed it.
+func TestVendorOptionsPicklistIsActiveOnlyAndNameOrdered(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Lower-case "zebu" is seeded FIRST and must still sort LAST: the ordering is lower(name), so a
+	// plain byte order would put every capitalised name after it and scramble the picker.
+	seed := []struct {
+		name   string
+		status string
+		city   string
+	}{
+		{"zebu Agro", domain.VendorStatusActive, "Hosur"},
+		{"Anantapur Sheep Traders", domain.VendorStatusActive, "Anantapur"},
+		{"Madur Livestock", domain.VendorStatusActive, ""},
+		{"Retired Traders", domain.VendorStatusInactive, "Salem"},
+		{"Never Again Agro", domain.VendorStatusBanned, "Erode"},
+		{"Still Talking Agro", domain.VendorStatusNegotiating, "Mysore"},
+	}
+	for _, v := range seed {
+		if _, err := repo.CreateVendor(ctx, testTenant, domain.VendorWrite{
+			RecordType: "Sheep Agent", BusinessName: v.name, Status: v.status,
+			State: "TN", City: v.city,
+			// Payment instruments on every row, so the assertion below that the picklist carries
+			// none of them is testing a real exclusion rather than an empty column.
+			BankName: "HDFC Bank", AccountNo: "12345678901", UPIID: "someone@upi",
+		}.Normalize(), ""); err != nil {
+			t.Fatalf("seed vendor %q: %v", v.name, err)
+		}
+	}
+
+	options, err := repo.ListVendorOptions(ctx, testTenant)
+	if err != nil {
+		t.Fatalf("list vendor options: %v", err)
+	}
+
+	got := make([]string, 0, len(options.Vendors))
+	for _, v := range options.Vendors {
+		got = append(got, v.BusinessName)
+	}
+	want := []string{"Anantapur Sheep Traders", "Madur Livestock", "zebu Agro"}
+	if len(got) != len(want) {
+		t.Fatalf("picklist = %v, want exactly the ACTIVE vendors %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("picklist = %v, want case-insensitive name order %v", got, want)
+		}
+	}
+	if options.Truncated {
+		t.Fatal("a register of three vendors must not report itself truncated")
+	}
+
+	byName := map[string]domain.VendorOption{}
+	for _, v := range options.Vendors {
+		byName[v.BusinessName] = v
+	}
+	// A vendor with no city keeps an EMPTY place rather than a NULL the picker would have to guess
+	// at -- the label composition appends a location only when there is one.
+	if madur := byName["Madur Livestock"]; madur.City != "" || madur.State != "TN" {
+		t.Fatalf("missing city must read as empty, not null: %+v", madur)
+	}
+	if anantapur := byName["Anantapur Sheep Traders"]; anantapur.VendorID == "" || anantapur.RecordType != "Sheep Agent" {
+		t.Fatalf("picklist row must carry its id and record type: %+v", anantapur)
+	}
+}

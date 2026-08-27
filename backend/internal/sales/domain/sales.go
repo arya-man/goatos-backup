@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Farms the business operates. These are the CHECK-constrained storage forms.
@@ -94,6 +96,12 @@ type Deal struct {
 
 	BuyerName  string
 	BuyerPlace *string
+	// BuyerVendorID is the procurement vendor register row this sale was made to, as an OPAQUE
+	// reference -- deliberately not a foreign key (migration 000193, mirroring the 000177
+	// precedent). Sales still reads no procurement table; the vendor is picked in admin-web and
+	// the id arrives on the write. nil for the 2026-08-17 sheet import, which predates the
+	// register. BuyerName stays the snapshot of what the buyer was CALLED at the time of sale.
+	BuyerVendorID *string
 
 	ProductType string
 	Breed       string
@@ -152,12 +160,17 @@ const (
 // DealWrite is the validated payload for recording a sale. Optional text is a value with ""
 // meaning "not set" (stored NULL); optional numbers are pointers so 0 stays distinct from absent.
 type DealWrite struct {
-	SaleDate      string
-	Farm          string
-	ProductType   string
-	Breed         string
-	BuyerName     string
-	BuyerPlace    string
+	SaleDate    string
+	Farm        string
+	ProductType string
+	Breed       string
+	BuyerName   string
+	BuyerPlace  string
+	// BuyerVendorID is REQUIRED on every deal recorded in the app: the farm does not sell to a
+	// name typed into a box, it sells to a counterparty in the vendor register. The column is
+	// nullable in storage only so the imported sheet history, which predates the register, stays
+	// loadable -- see migration 000193.
+	BuyerVendorID string
 	AnimalCount   *float64
 	MaleCount     *float64
 	FemaleCount   *float64
@@ -188,6 +201,7 @@ func (w DealWrite) Normalize() DealWrite {
 	out.Breed = collapse(w.Breed)
 	out.BuyerName = collapse(w.BuyerName)
 	out.BuyerPlace = collapse(w.BuyerPlace)
+	out.BuyerVendorID = strings.TrimSpace(w.BuyerVendorID)
 	out.Comments = strings.TrimSpace(w.Comments)
 	return out
 }
@@ -224,6 +238,16 @@ func (w DealWrite) Validate() error {
 	}
 	if len(w.BuyerPlace) > maxDealShortField {
 		return ErrDealValidation{Field: "buyer_place", Reason: "too long"}
+	}
+	// Validate-or-reject, never silently defaulted: a sale with no vendor is refused rather than
+	// recorded against nobody. Only the SHAPE is checked here -- the domain must not read the
+	// procurement register (the 000173 lock), so that the id names a real vendor is the caller's
+	// guarantee, exactly as 000177 validates its sales_deal_id against the deal read.
+	if w.BuyerVendorID == "" {
+		return ErrDealValidation{Field: "buyer_vendor_id", Reason: "required -- pick the buyer from the vendor register"}
+	}
+	if _, err := uuid.Parse(w.BuyerVendorID); err != nil {
+		return ErrDealValidation{Field: "buyer_vendor_id", Reason: "must be a vendor from the register"}
 	}
 	if len(w.Comments) > maxDealLongField {
 		return ErrDealValidation{Field: "comments", Reason: "too long"}

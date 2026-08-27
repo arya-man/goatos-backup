@@ -411,3 +411,37 @@ func ClampVendorPageSize(requested int) int {
 		return requested
 	}
 }
+
+// ---------------------------------------------------------------------------------------------
+// Vendor picklist (maintainer decision 2026-08-27: every sale names its buyer from the register)
+// ---------------------------------------------------------------------------------------------
+
+// VendorOption is one selectable counterparty: the minimum a picker needs to identify a vendor and
+// nothing more. Deliberately NOT domain.Vendor -- a picklist must never be a path to the payment
+// instruments VendorFinanceRead guards, and shipping the full row to every dropdown would make it
+// one.
+type VendorOption struct {
+	VendorID     string
+	BusinessName string
+	RecordType   string
+	City         string
+	State        string
+}
+
+// MaxVendorOptions bounds the picklist in ONE read.
+//
+// The register is a contact book -- 307 rows at import, growing by a handful a month -- so the
+// active set fits comfortably inside this cap and the read stays a single bounded query rather
+// than the paged full-walk that admin-web-request-reads-guard exists to ban. The cap is enforced
+// in SQL and reported back through VendorOptions.Truncated, so a register that ever outgrows it
+// says so instead of silently offering a partial list of buyers.
+const MaxVendorOptions = 1000
+
+// VendorOptions is the bounded picklist plus an honest statement of whether it is complete.
+type VendorOptions struct {
+	Vendors []VendorOption
+	// Truncated is true when the active register holds more vendors than MaxVendorOptions, so a
+	// picker can tell the person to search the Vendors page instead of implying the buyer they
+	// cannot find does not exist.
+	Truncated bool
+}

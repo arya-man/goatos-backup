@@ -10,7 +10,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate, todayIso } from "@/lib/format";
 import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
-import { ThemedDatePicker } from "./themed-date-picker";
+import { ThemedDatePicker } from "@/components/themed-date-picker";
 
 export type ScheduleMoveDrawerRow = {
   eventId: string;
@@ -164,7 +164,7 @@ export function ScheduleMoveDrawer({
               min={todayIso()}
               previousMonthLabel={copy(pageContract, "schedule.move.previous_month")}
               nextMonthLabel={copy(pageContract, "schedule.move.next_month")}
-              invalidFutureDateText={copy(pageContract, "schedule.move.invalid_future_date")}
+              invalidDateText={copy(pageContract, "schedule.move.invalid_future_date")}
               required
             />
             <small className="muted">Requested start date. The system may move this to the nearest safe date if vaccine spacing rules require.</small>

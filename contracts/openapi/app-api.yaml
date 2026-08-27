@@ -6339,6 +6339,39 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /procurement/vendor-options:
+    get:
+      tags:
+        - Procurement
+      operationId: listProcurementVendorOptions
+      summary: The ACTIVE vendor register as a bounded picklist.
+      description: >-
+        Every screen that must name a counterparty reads this: today the Sales record-sale drawer,
+        which maps each deal to a vendor (maintainer decision 2026-08-27).
+
+
+        Deliberately NOT a mode of `GET /procurement/vendors`. It is ACTIVE-ONLY, because an
+        inactive, negotiating or banned vendor must not be offerable as the buyer of a NEW sale; it
+        is UNPAGED, because a dropdown that stops at page one silently hides buyers; and it carries
+        identity and location only, never the payment instruments `procurement.vendor.finance.read`
+        guards.
+
+
+        It is one bounded query, never a paged full walk. A register larger than the cap sets
+        `truncated: true` rather than silently offering a partial list.
+      responses:
+        "200":
+          description: The active register, name-ordered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcurementVendorOptions"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /procurement/vendor-catalog:
     get:
       tags:
@@ -12970,6 +13003,32 @@ components:
           description: >-
             False means retired: still rendered on a vendor that carries it, never offered for a
             new row.
+    ProcurementVendorOption:
+      type: object
+      description: One selectable counterparty. Identity and location only -- never payment instruments.
+      required: [vendor_id, business_name, record_type, city, state]
+      properties:
+        vendor_id: { type: string, format: uuid }
+        business_name: { type: string }
+        record_type:
+          type: string
+          description: What the register calls this counterparty (Sheep Agent, Manure Agent, ...).
+        city: { type: string, description: Empty when the register carries no city for this vendor. }
+        state: { type: string }
+    ProcurementVendorOptions:
+      type: object
+      required: [vendors, truncated]
+      properties:
+        vendors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcurementVendorOption"
+        truncated:
+          type: boolean
+          description: >-
+            True when the active register holds more vendors than one bounded read returns, so the
+            picker can send the person to the Vendors page to search rather than imply a buyer they
+            cannot find does not exist.
     ProcurementVendorCatalog:
       type: object
       required: [record_types, breeds, states, cities, statuses, feeds]
@@ -13516,6 +13575,15 @@ components:
         source_purchase_id: { type: integer, nullable: true }
         buyer_name: { type: string }
         buyer_place: { type: string, nullable: true }
+        buyer_vendor_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            The procurement vendor register row this sale was made to, as an OPAQUE reference --
+            deliberately not a foreign key, mirroring goat_sale_allocations.sales_deal_id. Null on
+            the imported sheet history, which predates the register. buyer_name stays the snapshot
+            of what the buyer was called at the time of sale.
         product_type: { type: string, enum: [Sheep, Goat, Manure] }
         breed: { type: string }
         animal_count:
@@ -13557,7 +13625,7 @@ components:
         Record-sale body. Farm and product type are closed vocabularies validated server-side and
         rejected -- never silently defaulted -- when unrecognised. The recorded deal always lands
         with status `Deal Closed`.
-      required: [sale_date, farm, product_type, breed, buyer_name, sales_value]
+      required: [sale_date, farm, product_type, breed, buyer_name, buyer_vendor_id, sales_value]
       properties:
         sale_date: { type: string, format: date }
         farm: { type: string, enum: [CBE, CPT] }
@@ -13565,6 +13633,13 @@ components:
         breed: { type: string, maxLength: 160 }
         buyer_name: { type: string, maxLength: 160 }
         buyer_place: { type: string, maxLength: 160 }
+        buyer_vendor_id:
+          type: string
+          format: uuid
+          description: >-
+            REQUIRED. The vendor register row being sold to -- the farm does not sell to a name
+            typed into a box. Rejected when absent or not a uuid; only the shape is checked
+            server-side, because the sales module reads no procurement table.
         animal_count: { type: number, minimum: 0, nullable: true }
         male_count: { type: number, minimum: 0, nullable: true }
         female_count: { type: number, minimum: 0, nullable: true }

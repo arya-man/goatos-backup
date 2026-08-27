@@ -218,3 +218,21 @@ func vendorStatusLabel(status string) string {
 		return status
 	}
 }
+
+// vendorOptionPayload is one selectable counterparty for a "who is this for" dropdown. It carries
+// identity and location only -- never the payment instruments VendorFinanceRead guards, so this
+// picklist can never become a side channel around that permission split.
+type vendorOptionPayload struct {
+	VendorID     string `json:"vendor_id"`
+	BusinessName string `json:"business_name"`
+	RecordType   string `json:"record_type"`
+	City         string `json:"city"`
+	State        string `json:"state"`
+}
+
+type vendorOptionsPayload struct {
+	Vendors []vendorOptionPayload `json:"vendors"`
+	// Truncated says the ACTIVE register is larger than one bounded read, so a picker can tell the
+	// person to search the Vendors page rather than imply a missing buyer does not exist.
+	Truncated bool `json:"truncated"`
+}

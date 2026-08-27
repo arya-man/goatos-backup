@@ -369,6 +369,54 @@ func (r *Repository) ListVendorCatalog(ctx context.Context, tenantID string, act
 	return entries, nil
 }
 
+// ListVendorOptions returns the ACTIVE register as a bounded picklist.
+//
+// ACTIVE ONLY, and that is the point of the separate read rather than a flag on ListVendors: this
+// answers "who may we trade with", so an inactive, negotiating or banned counterparty must not be
+// offerable as the buyer of a new sale. A vendor deactivated after a sale was recorded keeps that
+// sale intact -- the deal stores the id it was handed and the buyer name it was sold under.
+//
+// It selects five columns and never the payment instruments, so a caller holding VendorRead
+// without VendorFinanceRead gets the same rows as anyone else and the picklist can never become a
+// side channel around that split.
+//
+// LIMIT is MaxVendorOptions+1 so a register that has outgrown the cap is DETECTED rather than
+// silently truncated: the extra row is dropped and Truncated is reported to the caller.
+func (r *Repository) ListVendorOptions(ctx context.Context, tenantID string) (domain.VendorOptions, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT vendor_id::text, business_name, record_type,
+		       coalesce(btrim(city), ''), coalesce(btrim(state), '')
+		FROM public.procurement_vendors
+		WHERE tenant_id = $1 AND status = $2
+		ORDER BY lower(business_name), vendor_id
+		LIMIT $3`,
+		tenantID, domain.VendorStatusActive, domain.MaxVendorOptions+1)
+	if err != nil {
+		return domain.VendorOptions{}, fmt.Errorf("list vendor options: %w", err)
+	}
+	defer rows.Close()
+
+	out := domain.VendorOptions{Vendors: make([]domain.VendorOption, 0, 128)}
+	for rows.Next() {
+		var o domain.VendorOption
+		if err := rows.Scan(&o.VendorID, &o.BusinessName, &o.RecordType, &o.City, &o.State); err != nil {
+			return domain.VendorOptions{}, fmt.Errorf("list vendor options scan: %w", err)
+		}
+		out.Vendors = append(out.Vendors, o)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.VendorOptions{}, fmt.Errorf("list vendor options rows: %w", err)
+	}
+	if len(out.Vendors) > domain.MaxVendorOptions {
+		out.Vendors = out.Vendors[:domain.MaxVendorOptions]
+		out.Truncated = true
+	}
+	return out, nil
+}
+
 // UpdateVendorStatus changes only the trading status.
 func (r *Repository) UpdateVendorStatus(ctx context.Context, tenantID, vendorID, status string, rowVersion int64, actorID string) (domain.Vendor, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)

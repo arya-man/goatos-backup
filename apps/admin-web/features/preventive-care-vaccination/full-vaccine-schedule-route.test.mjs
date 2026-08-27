@@ -4,7 +4,9 @@ import test from "node:test";
 
 const source = readFileSync(new URL("./full-vaccine-schedule.tsx", import.meta.url), "utf8");
 const moveDrawerSource = readFileSync(new URL("./full-vaccine-schedule-move-drawer.tsx", import.meta.url), "utf8");
-const themedDatePickerSource = readFileSync(new URL("./themed-date-picker.tsx", import.meta.url), "utf8");
+// The themed picker is a SHARED component now (moved 2026-08-27): Sales uses the same control,
+// bounded by `max` instead of `min`. Same file, same guarantees, one directory up.
+const themedDatePickerSource = readFileSync(new URL("../../components/themed-date-picker.tsx", import.meta.url), "utf8");
 const operationsSource = readFileSync(new URL("./operations.tsx", import.meta.url), "utf8");
 const shedBoardSource = readFileSync(new URL("../vaccination-sheds/shed-board.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../../app/mesha-theme.css", import.meta.url), "utf8");
