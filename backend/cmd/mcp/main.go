@@ -72,6 +72,7 @@ type config struct {
 	MCPPath         string
 	PublicURL       string
 	TenantID        string
+	DefaultParkID   string
 	UpstreamBaseURL string
 	UpstreamAskURL  string
 	UpstreamTimeout time.Duration
@@ -107,6 +108,7 @@ func configFromEnv() (config, error) {
 		MCPPath:         envOr("MESHA_MCP_PATH", defaultMCPPath),
 		PublicURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("MESHA_MCP_PUBLIC_URL")), "/"),
 		TenantID:        strings.TrimSpace(os.Getenv("MESHA_MCP_TENANT_ID")),
+		DefaultParkID:   firstNonEmpty(os.Getenv("MESHA_MCP_DEFAULT_PARK_ID"), os.Getenv("GOATOS_E2E_PARK_ID")),
 		UpstreamBaseURL: upstreamBaseURL(base, ask),
 		UpstreamAskURL:  ask,
 		UpstreamTimeout: timeout,
@@ -1282,7 +1284,135 @@ func (s *server) askGoatOS(ctx context.Context, r *http.Request, raw json.RawMes
 		payload, _ := json.Marshal(toolArgs)
 		return s.getVaccinationToday(ctx, r, payload)
 	}
+	if route, ok := s.naturalLanguageReadRoute(question); ok {
+		payload, _ := json.Marshal(route.Args)
+		if route.Special == "health_today" {
+			return s.getHealthToday(ctx, r, payload)
+		}
+		if def, found := apiReadToolByName(route.Tool); found {
+			return s.getAPIReadTool(ctx, r, payload, def)
+		}
+		return nil, -32603, "natural_language_route_not_configured"
+	}
 	return s.proxyAskGoatOS(ctx, r, authz, email, question, strings.TrimSpace(args.ConversationID))
+}
+
+type naturalLanguageRoute struct {
+	Tool    string
+	Special string
+	Args    apiReadArgs
+}
+
+func (s *server) naturalLanguageReadRoute(question string) (naturalLanguageRoute, bool) {
+	if unsafeMutationOrTenantBypassIntent(question) {
+		return naturalLanguageRoute{}, false
+	}
+	q := normalizeIntentText(question)
+	args := apiReadArgs{
+		Date:         businessDateToday(),
+		BusinessDate: businessDateToday(),
+		TargetDate:   businessDateToday(),
+		FeedingDate:  businessDateToday(),
+		Limit:        20,
+	}
+	if farm := farmFromQuestion(q); farm != "" {
+		args.Farm = farm
+	}
+	if sex := sexFromQuestion(q); sex != "" {
+		args.Sex = sex
+	}
+	defaultPark := strings.TrimSpace(s.cfg.DefaultParkID)
+	if defaultPark != "" && (strings.Contains(q, "this park") || strings.Contains(q, "active animal count in park") || strings.Contains(q, "feed today")) {
+		args.ParkID = defaultPark
+	}
+
+	switch {
+	case containsAny(q, "sales deal", "sale deal", "deals ledger", "latst sales deals", "latest sales deals"):
+		args.Limit = 10
+		return naturalLanguageRoute{Tool: "get_sales_deals", Args: args}, true
+	case containsAny(q, "sales", "sale numbers", "sale number", "revnue", "revenue", "animals sold", "manure sold", "price per kg"):
+		return naturalLanguageRoute{Tool: "get_sales_overview", Args: args}, true
+	case containsAny(q, "demograpics", "demographics", "weight mix", "breed stage"):
+		return naturalLanguageRoute{Tool: "get_weighing_weight_demographics", Args: args}, true
+	case containsAny(q, "pending weighing proof", "weighing proof", "review overdue", "proces state", "process state"):
+		return naturalLanguageRoute{Tool: "get_weighing_process_state", Args: args}, true
+	case containsAny(q, "shed are lagging", "sheds are lagging", "shed weights", "shed weight", "latest shed weights"):
+		return naturalLanguageRoute{Tool: "get_weighing_shed_weights", Args: args}, true
+	case containsAny(q, "weighng", "weighing", "weight gain", "daily gain", "avg wt", "average weight", "total weight", "over 30", "over 35"):
+		return naturalLanguageRoute{Tool: "get_weighing_growth_adg", Args: args}, true
+	case containsAny(q, "milk feedng", "milk feeding", "milk task"):
+		args.Limit = 20
+		return naturalLanguageRoute{Tool: "get_milk_feeding_today", Args: args}, true
+	case containsAny(q, "helth today", "health today", "adult and kid", "adult kid"):
+		args.Limit = 20
+		return naturalLanguageRoute{Special: "health_today", Args: args}, true
+	case containsAny(q, "feed today", "qty gaps", "quantity gaps", "blocked feed"):
+		args.Limit = 50
+		return naturalLanguageRoute{Tool: "get_feed_today", Args: args}, true
+	case containsAny(q, "active animal count", "count in park", "animal count", "counts split"):
+		args.LifecycleStatus = "alive"
+		return naturalLanguageRoute{Tool: "get_counts_summary", Args: args}, true
+	case containsAny(q, "pending verification", "verification backlog", "proof videos", "waiting"):
+		args.Status = "pending"
+		return naturalLanguageRoute{Tool: "get_verification_backlog", Args: args}, true
+	case containsAny(q, "procuremnet", "procurement", "pipeline loads", "warmup transit", "accepted rejected"):
+		return naturalLanguageRoute{Tool: "get_procurement_pipeline", Args: args}, true
+	case containsAny(q, "workfrce", "workforce", "coverage gaps", "uncovered sheds", "backup manager"):
+		return naturalLanguageRoute{Tool: "get_workforce_coverage", Args: args}, true
+	default:
+		return naturalLanguageRoute{}, false
+	}
+}
+
+func unsafeMutationOrTenantBypassIntent(question string) bool {
+	q := normalizeIntentText(question)
+	for _, safeNegation := range []string{
+		"dont create", "don't create", "do not create",
+		"dont record", "don't record", "do not record",
+		"dont update", "don't update", "do not update",
+		"dont delete", "don't delete", "do not delete",
+	} {
+		q = strings.ReplaceAll(q, safeNegation, "")
+	}
+	return containsAny(q,
+		"record a", "create", "delete", "update", "fake sale", "ignore tenant", "all tenants",
+		"secret db", "raw sql", "bypass", "mutate",
+	)
+}
+
+func normalizeIntentText(value string) string {
+	return strings.Join(strings.Fields(strings.ToLower(value)), " ")
+}
+
+func containsAny(value string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func farmFromQuestion(q string) string {
+	switch {
+	case strings.Contains(q, "cbe"):
+		return "CBE"
+	case strings.Contains(q, "cpt"):
+		return "CPT"
+	default:
+		return ""
+	}
+}
+
+func sexFromQuestion(q string) string {
+	switch {
+	case strings.Contains(q, "female"):
+		return "female"
+	case strings.Contains(q, "male"):
+		return "male"
+	default:
+		return ""
+	}
 }
 
 func vaccinationScheduleQuestion(question string) bool {
@@ -1435,7 +1565,7 @@ func (s *server) getAPIReadTool(ctx context.Context, r *http.Request, raw json.R
 		s.log.Warn("goatos_mcp_api_read_failed", slog.String("tool", def.Name), slog.String("source", def.Source), slog.Any("error", err))
 		return nil, -32603, def.Name + "_unreachable"
 	}
-	return structuredTextToolResult(summarizeAPIRead(def, payload), map[string]any{
+	return structuredTextToolResult(summarizeAPIRead(def, q, payload), map[string]any{
 		"tool":   def.Name,
 		"source": def.Source,
 		"query":  queryObject(q),
@@ -1966,10 +2096,17 @@ func queryObject(q url.Values) map[string]any {
 	return out
 }
 
-func summarizeAPIRead(def apiReadTool, payload any) string {
+func summarizeAPIRead(def apiReadTool, query url.Values, payload any) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n", def.Description)
 	fmt.Fprintf(&b, "\nSource: %s\n", def.Source)
+	if filters := queryObject(query); len(filters) > 0 {
+		parts := make([]string, 0, len(filters))
+		for key, value := range filters {
+			parts = append(parts, fmt.Sprintf("%s=%v", key, value))
+		}
+		fmt.Fprintf(&b, "Applied filters: %s\n", strings.Join(parts, ", "))
+	}
 	keys := topLevelKeys(payload)
 	if len(keys) > 0 {
 		fmt.Fprintf(&b, "Returned keys: %s\n", strings.Join(keys, ", "))
