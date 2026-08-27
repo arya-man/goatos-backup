@@ -64,7 +64,6 @@ function safeContinueHref(value: string | undefined): string {
 
 function isAllowedDashboardHost(hostname: string): boolean {
   return (
-    hostname === "stg.dashboard.mesha.sg" ||
     hostname === "dashboard.mesha.sg" ||
     hostname === "localhost" ||
     hostname === "127.0.0.1"

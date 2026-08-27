@@ -184,24 +184,24 @@ variable "admin_web_image_tag" {
 }
 
 variable "canonical_dashboard_host" {
-  description = "Canonical staging dashboard hostname."
+  description = "Canonical public dashboard hostname for the current production-facing rollout backed by goatos-stg."
   type        = string
-  default     = "stg.dashboard.mesha.sg"
+  default     = "dashboard.mesha.sg"
 
   validation {
-    condition     = var.canonical_dashboard_host == "stg.dashboard.mesha.sg"
-    error_message = "canonical_dashboard_host must remain stg.dashboard.mesha.sg."
+    condition     = var.canonical_dashboard_host == "dashboard.mesha.sg"
+    error_message = "canonical_dashboard_host must remain dashboard.mesha.sg for the production-facing rollout."
   }
 }
 
 variable "api_base_url" {
-  description = "Current public goatos-stg API base URL used by admin-web SSR."
+  description = "Public API base URL used by admin-web SSR for the current production-facing rollout backed by goatos-stg."
   type        = string
-  default     = "https://goatos-api-stg-awtrpmn4za-el.a.run.app"
+  default     = "https://api.goatos.mesha.sg/"
 
   validation {
-    condition     = var.api_base_url == "https://goatos-api-stg-awtrpmn4za-el.a.run.app"
-    error_message = "api_base_url must remain the current goatos-stg Cloud Run API URL until the custom API host is introduced."
+    condition     = var.api_base_url == "https://api.goatos.mesha.sg/"
+    error_message = "api_base_url must remain https://api.goatos.mesha.sg/ for the production-facing rollout."
   }
 }
 

@@ -207,7 +207,7 @@ func (cfg config) bumpAndroidReleaseVersionOnce(ctx context.Context, pat, trigge
 	}
 
 	var update githubUpdateRequest
-	update.Message = fmt.Sprintf("chore(android): bump STG release to %s (%d)", next.Name, next.Code)
+	update.Message = fmt.Sprintf("chore(android): bump GoatOS release to %s (%d)", next.Name, next.Code)
 	update.Content = base64.StdEncoding.EncodeToString([]byte(updated))
 	update.SHA = current.SHA
 	update.Branch = "main"
@@ -417,7 +417,7 @@ func (cfg config) startDeployAsync(responseURL string, deploySTG, mobileDistribu
 			})
 			return
 		}
-		log.Printf("bumped Android STG release to %s (%d)", next.Name, next.Code)
+		log.Printf("bumped Android release to %s (%d)", next.Name, next.Code)
 		sourceCommitSHA = next.CommitSHA
 	}
 
@@ -448,7 +448,7 @@ func deployQueuedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistri
 			"type": "section",
 			"text": map[string]string{
 				"type": "mrkdwn",
-				"text": fmt.Sprintf("*%s request received* by %s\nSTG deploy: `%t`\nMobile distribution: `%t`\n\nStarting active-deploy checks now.", actionLabel, triggeredBy, deploySTG, mobileDistribution),
+				"text": fmt.Sprintf("*%s request received* by %s\nBackend/web deploy: `%t`\nMobile distribution: `%t`\n\nStarting active-deploy checks now.", actionLabel, triggeredBy, deploySTG, mobileDistribution),
 			},
 		},
 	}
@@ -460,7 +460,7 @@ func deployAcceptedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDist
 			"type": "section",
 			"text": map[string]string{
 				"type": "mrkdwn",
-				"text": fmt.Sprintf("*%s request received* by %s\nSTG deploy: `%t`\nMobile distribution: `%t`\n\nChecking whether another deploy is already active.", actionLabel, triggeredBy, deploySTG, mobileDistribution),
+				"text": fmt.Sprintf("*%s request received* by %s\nBackend/web deploy: `%t`\nMobile distribution: `%t`\n\nChecking whether another deploy is already active.", actionLabel, triggeredBy, deploySTG, mobileDistribution),
 			},
 		},
 	}
@@ -524,7 +524,7 @@ func deployStartedBlocks(triggeredBy, actionLabel string, deploySTG, mobileDistr
 			"type": "section",
 			"text": map[string]string{
 				"type": "mrkdwn",
-				"text": fmt.Sprintf("*%s in progress* by %s\nSTG deploy: `%t`\nMobile distribution: `%t`\n\nThe deploy buttons will return only after success or failure.\n%s", actionLabel, triggeredBy, deploySTG, mobileDistribution, links),
+				"text": fmt.Sprintf("*%s in progress* by %s\nBackend/web deploy: `%t`\nMobile distribution: `%t`\n\nThe deploy buttons will return only after success or failure.\n%s", actionLabel, triggeredBy, deploySTG, mobileDistribution, links),
 			},
 		},
 	}
@@ -667,9 +667,9 @@ func deployTerminalAttachments(status, triggeredBy, actionLabel, buildID string,
 func deployModeLabel(deploySTG, mobileDistribution bool) string {
 	switch {
 	case deploySTG && mobileDistribution:
-		return "STG + Android mobile"
+		return "Backend/web + Android mobile"
 	case deploySTG:
-		return "STG"
+		return "Backend/web"
 	case mobileDistribution:
 		return "Android mobile"
 	default:
@@ -681,13 +681,13 @@ func (cfg config) postDeployPanel(responseURL string) {
 	cfg.postSlackResponse(responseURL, map[string]any{
 		"response_type":    "in_channel",
 		"replace_original": false,
-		"text":             "Goat OS STG deploy",
+		"text":             "GoatOS deploy",
 		"blocks": []map[string]any{
 			{
 				"type": "section",
 				"text": map[string]string{
 					"type": "mrkdwn",
-					"text": "*Goat OS STG deploy*\nDeploy the current `main` branch to Google staging, or distribute only the Android STG build.",
+					"text": "*GoatOS deploy*\nDeploy the current `main` branch to the existing production-facing services, or distribute only the Android release.",
 				},
 			},
 			{
@@ -718,7 +718,7 @@ func (cfg config) postDeployPanel(responseURL string) {
 				"elements": []map[string]any{
 					{
 						"type":      "button",
-						"text":      map[string]string{"type": "plain_text", "text": "Deploy main to STG"},
+						"text":      map[string]string{"type": "plain_text", "text": "Deploy backend/web"},
 						"style":     "primary",
 						"action_id": "deploy_goatos_stg_main",
 						"value":     "main",
@@ -832,9 +832,9 @@ func buildMode(build cloudBuildListBuild) string {
 	deployMobile := build.Substitutions["_DEPLOY_MOBILE"] == "true"
 	switch {
 	case deploySTG && deployMobile:
-		return "STG + Android mobile"
+		return "Backend/web + Android mobile"
 	case deploySTG:
-		return "STG"
+		return "Backend/web"
 	case deployMobile:
 		return "Android mobile"
 	default:
@@ -883,7 +883,7 @@ func (cfg config) consoleProject() string {
 func (payload slackActionPayload) deployMode() (deploySTG, mobileDistribution bool, actionLabel string, err error) {
 	switch payload.Actions[0].ActionID {
 	case "deploy_goatos_stg_main":
-		return true, payload.hasSelectedOption("mobile_distribution"), "STG deploy", nil
+		return true, payload.hasSelectedOption("mobile_distribution"), "Backend/web deploy", nil
 	case "deploy_goatos_mobile_only":
 		return false, true, "Android mobile distribution", nil
 	default:

@@ -7,6 +7,10 @@ REGION="${REGION:-asia-south1}"
 SLACK_WEBHOOK_SECRET="${SLACK_WEBHOOK_SECRET:-goatos-stg-deploy-slack-webhook-url}"
 CONSOLE_AUTHUSER="${CONSOLE_AUTHUSER:-ravi@mesha.sg}"
 DEPLOY_MOBILE="${DEPLOY_MOBILE:-false}"
+PUBLIC_DASHBOARD_HOST="${PUBLIC_DASHBOARD_HOST:-dashboard.mesha.sg}"
+PUBLIC_API_HOST="${PUBLIC_API_HOST:-api.goatos.mesha.sg}"
+EXPECTED_LB_IP="${EXPECTED_LB_IP:-8.233.143.24}"
+URL_MAP_NAME="${URL_MAP_NAME:-goatos-stg-dashboard-map}"
 
 if repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
   :
@@ -52,7 +56,7 @@ deploy_url = f"https://console.cloud.google.com/deploy/delivery-pipelines/{regio
 payload = {
     "attachments": [{
         "color": color,
-        "title": f"Goat OS STG deploy {status.lower()}",
+        "title": f"GoatOS deploy {status.lower()}",
         "text": text,
         "fields": [
             {"title": "Commit", "value": sha, "short": True},
@@ -72,7 +76,7 @@ if include_panel == "1":
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "*Goat OS STG deploy*\nDeploy the current `main` branch to Google staging, or distribute only the Android STG build.",
+                "text": "*GoatOS deploy*\nDeploy the current `main` branch to the existing production-facing services, or distribute only the Android release.",
             },
         },
         {
@@ -96,7 +100,7 @@ if include_panel == "1":
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "Deploy main to STG"},
+                    "text": {"type": "plain_text", "text": "Deploy backend/web"},
                     "style": "primary",
                     "action_id": "deploy_goatos_stg_main",
                     "value": "main",
@@ -144,6 +148,69 @@ already_deployed() {
   [[ "$api_tag" == "$commit_sha" && "$admin_tag" == "$commit_sha" && "$bridge_tag" == "$commit_sha" ]]
 }
 
+require_public_host_ready() {
+  local host="$1"
+  local expected_ip="$2"
+  local resolved
+  resolved="$(dig +short "$host" A | sed -n '1p')"
+  [[ "$resolved" == "$expected_ip" ]] || {
+    echo "ERROR: $host must resolve to $expected_ip before deploy; got ${resolved:-no A record}" >&2
+    return 1
+  }
+}
+
+require_managed_cert_ready() {
+  local host="$1"
+  local certs
+  certs="$(
+    gcloud compute ssl-certificates list \
+      --project="$PROJECT_ID" \
+      --global \
+      --filter="managed.domains:$host AND managed.status=ACTIVE" \
+      --format='value(name)' 2>/dev/null
+  )"
+  [[ -n "$certs" ]] || {
+    echo "ERROR: no ACTIVE Google-managed SSL certificate covers $host in $PROJECT_ID" >&2
+    return 1
+  }
+}
+
+require_url_map_host_rule() {
+  local host="$1"
+  local backend_suffix="$2"
+  gcloud compute url-maps describe "$URL_MAP_NAME" \
+    --project="$PROJECT_ID" \
+    --global \
+    --format=json |
+    python3 - "$host" "$backend_suffix" <<'PY'
+import json
+import sys
+
+host, backend_suffix = sys.argv[1:]
+doc = json.load(sys.stdin)
+matchers = {item.get("name"): item for item in doc.get("pathMatchers", [])}
+for rule in doc.get("hostRules", []):
+    if host not in rule.get("hosts", []):
+        continue
+    matcher = matchers.get(rule.get("pathMatcher"), {})
+    service = matcher.get("defaultService", "")
+    if service.endswith(backend_suffix):
+        sys.exit(0)
+    print(f"ERROR: {host} routes to {service or 'no default service'}, want suffix {backend_suffix}", file=sys.stderr)
+    sys.exit(1)
+print(f"ERROR: {host} has no host rule in URL map", file=sys.stderr)
+sys.exit(1)
+PY
+}
+
+require_public_ingress_ready() {
+  require_public_host_ready "$PUBLIC_DASHBOARD_HOST" "$EXPECTED_LB_IP"
+  require_public_host_ready "$PUBLIC_API_HOST" "$EXPECTED_LB_IP"
+  require_managed_cert_ready "$PUBLIC_DASHBOARD_HOST"
+  require_managed_cert_ready "$PUBLIC_API_HOST"
+  require_url_map_host_rule "$PUBLIC_API_HOST" "/goatos-api-stg-backend"
+}
+
 deploy_herd_signals_mqtt_bridge() {
   local backend_image="asia-south1-docker.pkg.dev/${PROJECT_ID}/goatos/backend:${commit_sha}"
   local service="goatos-herd-signals-mqtt-bridge-stg"
@@ -177,15 +244,17 @@ deploy_herd_signals_mqtt_bridge() {
 on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
-    notify_slack "FAILED" "Cloud Build failed before STG rollout completed."
+    notify_slack "FAILED" "Cloud Build failed before backend/web rollout completed."
     post_deploy_panel
   fi
 }
 
 trap on_exit EXIT
 
+require_public_ingress_ready
+
 if already_deployed; then
-  notify_slack "SUCCEEDED" 'STG is already running the latest `main`; no new release was created.'
+  notify_slack "SUCCEEDED" 'Backend/web is already running the latest `main`; no new release was created.'
   if [[ "$DEPLOY_MOBILE" != "true" ]]; then
     post_deploy_panel
   fi
@@ -201,15 +270,15 @@ export RELEASE_ID="$release_id"
   printf 'BUILD_ID=%q\n' "$build_id"
   printf 'TRIGGERED_BY=%q\n' "$triggered_by"
 } >"$deploy_metadata_file"
-notify_slack "STARTED" "Building images and creating Cloud Deploy release for STG."
+notify_slack "STARTED" "Building images and creating Cloud Deploy release for backend/web."
 
 tools/deploy/stg-clouddeploy-release.sh
 deploy_herd_signals_mqtt_bridge
 
 if [[ "$DEPLOY_MOBILE" == "true" ]]; then
-  notify_slack "SUCCEEDED" "STG rollout succeeded and live images were verified. Android mobile distribution will start next."
+  notify_slack "SUCCEEDED" "Backend/web rollout succeeded and live images were verified. Android mobile distribution will start next."
 else
-  notify_slack "SUCCEEDED" "STG rollout succeeded and live images were verified." 1
+  notify_slack "SUCCEEDED" "Backend/web rollout succeeded and live images were verified." 1
 fi
 trap - EXIT
 

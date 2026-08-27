@@ -1,5 +1,24 @@
 # Goat OS Workspace Agent Context
 
+## GCP Billing Console Landing Rule
+
+When investigating Google Cloud billing for Goat OS, always land directly on
+the working billing reports page for the Mesha account:
+
+```text
+https://console.cloud.google.com/billing/01FEDE-96BCB3-76D992/reports?authuser=2&organizationId=563962826703&project=goatos-stg
+```
+
+Use the `ravi@mesha.sg` Google account. Do not use the personal Gmail accounts
+for billing reports; they land on the Google Cloud "You need additional access"
+error and are missing permissions such as `billing.resourceCosts.get`.
+
+For the 2026-08-26 billing investigation, the reports page showed August
+forecasted cost of about `₹34,382.31`, mostly driven by Cloud Run
+(`₹17,869.22` for 1-25 Aug), then Cloud SQL (`₹4,954.30`) and BigQuery
+(`₹2,152.09`). Always read the report table before guessing from the overview
+balance.
+
 ## Ravi Laptop Default: OCI DB, Not Local Docker Postgres
 
 On Ravi's laptop, default local Goat OS backend/admin-web development to the OCI
@@ -10,15 +29,24 @@ Database: postgres://postgres:${REMOTE_POSTGRES_PASSWORD}@127.0.0.1:15432/goatos
 Tunnel:   127.0.0.1:15432 -> OCI VM 127.0.0.1:5432
 ```
 
-Do not start Colima, Docker Desktop, `goatos-local-current`, or any other local
-Postgres container just because older local-stack docs mention `5433`. Before
-starting Docker/Colima for Goat OS, first check whether the OCI tunnel on
-`15432` is active and whether the task can use it. Use local Docker Postgres
+Current OCI dev VM connection details, credentials, and recovery metadata must
+live outside git. Resolve them from the operator's local environment or Google
+Secret Manager; do not commit account names, public IPs, laptop home paths, SSH
+keys, or Postgres passwords.
+
+Do not install or start Colima, Docker Desktop, Docker CLI, Lima, `goatos-local-current`,
+or any other local Postgres container just because older local-stack docs mention
+`5433` or a CI gate asks for Docker. Before any Goat OS work that appears to need
+Docker/Colima on Ravi's laptop, first check whether the OCI tunnel on `15432` is
+active and whether the task can use OCI instead. For `make land-main`,
+`validate-sqlc-plans`, query-plan proof, or any other disposable Postgres proof,
+use an OCI-hosted throwaway DB/container and clean it after the landing attempt;
+do not install Docker/Colima locally as the workaround. Use local Docker Postgres
 only when the maintainer explicitly asks for a disposable/local Docker DB, a
-Docker-specific integration test, or an isolated mutation test that must not
-touch OCI/staging-like data. If a stale `goatos-local-current` container or
-Colima VM is running while the active dev stack uses OCI, stop it instead of
-treating it as canonical.
+Docker-specific integration test, or an isolated mutation test that must not touch
+OCI/staging-like data. If a stale `goatos-local-current` container or Colima VM is
+running while the active dev stack uses OCI, stop it instead of treating it as
+canonical.
 
 ## Legacy Local Stack Canonical Ports
 
@@ -42,15 +70,23 @@ Do not infer the local DB from a previous temp worktree, a random Docker port,
 or a stale shell variable. If a temp stack is unavoidable, clearly label it as
 throwaway and do not call it "the local DB".
 
-**HARD RULE - Weights/admin-web fixes require Chrome proof after the final
-edit.** For any change that touches `apps/admin-web` Weights UI, Weights page
-copy, Weights charts, generated API contracts used by Weights, or backend
-read-model data consumed by `/weighing/weights`, do not say the fix is done and
-do not push until Chrome has been reloaded on the exact target URL after the
-last code edit. Static tests, typecheck, and backend API checks are not enough.
-Verify that Chrome is not on `ERR_CONNECTION_REFUSED`, not showing backend-down
-copy, and not showing the React "Something went wrong" fallback; for chip/label
-changes, verify the actual rendered row labels and chips in Chrome.
+**HARD RULE - UI fixes require real-surface proof after the final edit.** Claude
+and Codex must not call a UI fix done from code/tests alone. For any
+`apps/admin-web` browser-visible change, reload Chrome on the exact target URL
+after the last code edit and verify the changed UI is actually rendered there.
+For any Android/operator-mobile change, open the app on the physical phone or
+emulator target required by the task and verify the changed screen there.
+Static tests, typecheck, backend API checks, and screenshots from before the
+last edit are not enough.
+
+For any change that touches `apps/admin-web` Weights UI, Weights page copy,
+Weights charts, generated API contracts used by Weights, or backend read-model
+data consumed by `/weighing/weights`, verify the local Chrome page is not on
+`ERR_CONNECTION_REFUSED`, not showing backend-down copy, and not showing the
+React "Something went wrong" fallback. For chip/label/calendar changes, verify
+the actual rendered row labels, chips, calendar markers, and tooltip/info text
+in Chrome. If Chrome/phone verification is blocked, say it is blocked; do not
+present the UI fix as verified.
 
 When the user says "my local DB" or "local frontend/backend", treat that as:
 
@@ -392,6 +428,25 @@ Only for what the graph cannot see:
 - Uncommitted/unstaged code
 - Any `callers_of = 0` result that seems wrong — verify with grep
 
+## Production-Facing Environment Decision
+
+Current operator-facing production cleanup uses the existing `goatos-stg`
+Google/Firebase project internally. Do not infer from the project id that public
+surfaces should keep staging names. Public app, browser, and operator-facing
+surfaces must use production names:
+
+- Android package: `sg.mesha.goatos`
+- Dashboard: `https://dashboard.mesha.sg`
+- API: `https://api.goatos.mesha.sg/` unless the maintainer explicitly chooses a
+  different prod API host in the same request
+- Firebase Auth issuer/audience may still be `goatos-stg` while the existing
+  Firebase project is reused. This is internal auth plumbing, not public naming.
+
+When editing docs, skills, release notes, app config, or deploy guidance for the
+current live operator path, describe it as production-facing even if the backing
+GCP/Firebase project id is `goatos-stg`. Keep historical incident/runbook facts
+unchanged only when they are explicitly about the old staging environment.
+
 ## STG Deployment Contract
 
 For Goat OS, STG deploy is NOT GitHub Actions and NOT PR-driven.
@@ -401,6 +456,14 @@ GitHub Actions is billing-blocked and must not be used for deployment
 Do not create main→stg PRs as a deploy mechanism.
 Do not force-push a `stg` branch and wait for CI.
 Do not infer CI deployment from branch names.
+
+If STG shows Google Frontend `429 Rate exceeded` after a paid/restored Google
+bill, do not guess or redeploy app code first. Read and follow
+`docs/runbooks/stg-cloud-run-billing-recovery.md`: verify `ravi@mesha.sg`,
+`goatos-stg`, `billingEnabled: true`, Cloud Run service readiness in
+`asia-south1`, and finish with both terminal curls and live Chrome verification.
+The 2026-08-26 maintainer baseline for `goatos-api-stg` is min-instances `2`
+and max-instances `2`.
 
 Authoritative STG deploy path:
 1. Read `docs/runbooks/stg-deploy.md` (short contract) →
@@ -424,10 +487,10 @@ linked from that build. Do not infer status from local shell output or branch
 names.
 
 If a user asks to "publish Firebase", "upload to Firebase", "Firebase App
-Distribution", "release Android STG", "push the APK", "internal test", "Play
+Distribution", "release Android", "push the APK", "internal test", "Play
 internal testing", or includes an Android APK/AAB as part of a STG deploy, the
 Android release is not complete after Firebase App Distribution alone. Follow
-`docs/mobile/stg-signed-release.md` and publish the employee/internal release to
+`docs/mobile/production-facing-release.md` and publish the employee/internal release to
 all required channels: Firebase App Distribution, Google Play Internal Testing,
 and the stable operator URL `https://mesha.sg/app.apk`. That URL redirects to
 `gs://goatos-stg-public-downloads/operator/latest/app.apk`; do not copy APKs
@@ -445,13 +508,14 @@ Do not ask whether to use GitHub Actions, PR merge, or force-push `stg` unless
 the user explicitly asks to change deployment architecture. The machine-readable
 form of this contract lives at `context/deploy-contract.json`.
 
-## Mandatory Android STG APK Source Traceability
+## Mandatory Android APK Source Traceability
 
-Every Android STG APK uploaded to Firebase App Distribution must be traceable to
+Every Android APK uploaded to Firebase App Distribution must be traceable to
 the exact source revision that produced it.
 
-- Use only `:app:appDistributionUploadStgRelease` for Firebase App Distribution
-  Android STG uploads. Do not upload ad-hoc APK files manually from the Firebase
+- Use only `:app:appDistributionUploadProdRelease` for the active
+  production-facing Firebase App Distribution Android uploads. Do not upload
+  ad-hoc APK files manually from the Firebase
   console, `firebase appdistribution:distribute`, or any other path unless the
   maintainer explicitly asks for a one-off rescue build and the release notes
   still record the source label.
@@ -1877,11 +1941,13 @@ Organization boundaries:
   `goatos-prod` projects.
 - Do not use Heva projects/orgs, Slice projects/orgs, or `hevaplatform` for
   Goat OS work.
-- Current active Goat OS agent/tooling project is `goatos-stg`. Do not create,
-  update, read, grant IAM on, or store agent/tooling secrets in `goatos-dev`
-  unless the user explicitly says `goatos-dev` in the same request. For Context7,
-  Gemini/Graphify, Claude/Codex bootstrap, and local agent docs, `goatos-stg`
-  is mandatory.
+- Current active Goat OS agent/tooling and Firebase project is still
+  `goatos-stg`, but it backs the current production-facing cleanup path. Do not
+  create, update, read, grant IAM on, or store agent/tooling secrets in
+  `goatos-dev` unless the user explicitly says `goatos-dev` in the same request.
+  For Context7, Gemini/Graphify, Claude/Codex bootstrap, and local agent docs,
+  `goatos-stg` is mandatory. Public URLs/app package/release labels must use
+  production-facing names, not staging names.
 - Do not modify or replace the legacy `goatos-sheets` project while creating
   Goat OS projects.
 - Before any cloud/GitHub command that creates, updates, deletes, grants IAM,
