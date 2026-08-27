@@ -170,16 +170,18 @@ require_managed_cert_ready() {
 require_url_map_host_rule() {
   local host="$1"
   local backend_suffix="$2"
-  gcloud compute url-maps describe "$URL_MAP_NAME" \
+  local url_map_json
+  url_map_json="$(gcloud compute url-maps describe "$URL_MAP_NAME" \
     --project="$PROJECT_ID" \
     --global \
-    --format=json |
-    python3 - "$host" "$backend_suffix" <<'PY'
+    --format=json)"
+  URL_MAP_JSON="$url_map_json" python3 - "$host" "$backend_suffix" <<'PY'
 import json
+import os
 import sys
 
 host, backend_suffix = sys.argv[1:]
-doc = json.load(sys.stdin)
+doc = json.loads(os.environ["URL_MAP_JSON"])
 matchers = {item.get("name"): item for item in doc.get("pathMatchers", [])}
 for rule in doc.get("hostRules", []):
     if host not in rule.get("hosts", []):
