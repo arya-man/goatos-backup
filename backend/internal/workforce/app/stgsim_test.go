@@ -71,7 +71,15 @@ func TestSTGCutoverSimulation(t *testing.T) {
 			}
 			scope.held = held
 		}
-		now := moduleKeySet(modulesForScope(scope, dept, "en", false, ticked))
+		// The ticks ARE the offer (maintainer decision 2026-08-28) -- except for a standalone
+		// verifier, whose modules come from her verify DUTIES and whose offer the service
+		// deliberately leaves alone. Mirror that here or the sim invents a loss the product
+		// does not have.
+		offer := ticked
+		if offer == nil {
+			offer = dept
+		}
+		now := moduleKeySet(modulesForScope(scope, offer, "en", ticked != nil, ticked))
 
 		for k := range old {
 			if _, ok := now[k]; !ok {
@@ -82,7 +90,9 @@ func TestSTGCutoverSimulation(t *testing.T) {
 
 		for k := range now {
 			if _, ok := old[k]; !ok {
-				t.Errorf("STG %s (%s) GAINS phone module %q", name, roleStr, k)
+				// Expected since the ticks became authoritative; the maintainer approved the
+				// measured list. A LOSS is still a failure.
+				t.Logf("STG %s (%s) gains %q", name, roleStr, k)
 				gains++
 			}
 		}

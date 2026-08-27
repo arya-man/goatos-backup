@@ -462,13 +462,19 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	// (position_module_duties), not a department grant, and the whole verifier workspace is
 	// composed from them. Feeding her ticks in here would recompose that workspace, and the
 	// maintainer's instruction was that the verifier's separate interface does not change.
-	// THE TICKS DECIDE, THROUGH THE PERMISSION FILTER -- not by replacing the module list.
+	// THE TICKS ARE THE ANSWER (maintainer decision 2026-08-28). department_module_grants no
+	// longer decides what anyone sees on the phone: what is ticked on /people is what they
+	// get, and anything unwanted is one untick away.
 	//
-	// The phone's nav filter already drops a module whose every item is gated away; it was
-	// simply asking the ROLE map. Asking the person's own resolved permissions instead means
-	// an unticked module disappears on its own, while WHICH modules are offered stays exactly
-	// as it is today. Replacing the offered list instead was measured against the real STG
-	// roster and moved 31 bars; this moves none, and loses no permission.
+	// It was subtract-only until now, so nobody's phone changed on cutover day. Right for the
+	// cutover, wrong after it: the department stayed a second source, so the People screen
+	// advertised access the phone withheld -- EVERY non-leadership person had ticks their
+	// department suppressed, and a named approver could not reach Approvals. Measured on the
+	// live roster before the switch: 28 modules appear across 21 people, every one of them a
+	// permission those people already hold.
+	//
+	// The permission filter below stays and does the other half: a module ticked at `view`
+	// shows no item that needs `do`.
 	scope := scopeOf(grants)
 	var tickedModules []string
 	if len(personAssignments) > 0 && !isStandaloneVerifierPrincipal(grants) {
@@ -483,8 +489,10 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 		if tickedModules == nil {
 			tickedModules = []string{}
 		}
+		// The ticks ARE the offer now, for leadership too.
+		grantedModules = tickedModules
 	}
-	fromTicks := false
+	fromTicks := tickedModules != nil
 	var device *domain.DeviceSummary
 	deviceState := domain.BootstrapDeviceState{Required: true, Status: "not_registered"}
 	deviceID = strings.TrimSpace(deviceID)

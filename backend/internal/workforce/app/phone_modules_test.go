@@ -147,9 +147,11 @@ func TestEveryPhoneModuleExistsInTheCapabilityCatalog(t *testing.T) {
 	}
 }
 
-// TestNoRoleLosesAPhoneModuleWhenTheBarReadsTicks is the parity proof for the cutover, and
-// the one that matters most: this feature is already in use, so nobody may open the app the
-// morning after and find a module gone.
+// TestNoRoleLosesAPhoneModuleWhenTheBarReadsTicks is the parity proof that matters most:
+// this feature is already in use, so nobody may open the app the morning after and find a
+// module GONE. Gains are a different matter -- since 2026-08-28 the ticks are authoritative,
+// so a module the department used to suppress is expected to appear, and the maintainer
+// approved the measured list when that switch was taken.
 //
 // It composes each registered role's bar BOTH ways -- the retired path (department grants for
 // field staff, the curated per-role list for leadership) and the new one (the person's own
@@ -205,16 +207,21 @@ func TestNoRoleLosesAPhoneModuleWhenTheBarReadsTicks(t *testing.T) {
 			}
 			scope.held = held
 		}
-		now := moduleKeySet(modulesForScope(scope, departmentBarFor(roles), "en", false, ticked))
+		// The ticks ARE the offer now (maintainer decision 2026-08-28).
+		now := moduleKeySet(modulesForScope(scope, ticked, "en", fromTicks, ticked))
 
 		for key := range old {
 			if _, kept := now[key]; !kept {
 				t.Errorf("%s LOSES phone module %q when the bar reads ticks", role, key)
 			}
 		}
+		// A GAIN is now expected, not a defect: the ticks are authoritative, so a module the
+		// department used to suppress appears. It is logged rather than asserted -- the
+		// maintainer approved the measured list (28 modules across 21 people on the live
+		// roster) when the switch was taken. What must never happen is a LOSS, above.
 		for key := range now {
 			if _, had := old[key]; !had {
-				t.Errorf("%s GAINS phone module %q it does not have today", role, key)
+				t.Logf("%s gains phone module %q (department no longer suppresses it)", role, key)
 			}
 		}
 	}
