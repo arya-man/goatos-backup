@@ -181,8 +181,9 @@ var pendingModuleProfiles = map[string]pendingModuleProfile{
 		leadershipScreen:     "weighing_overview",
 		// Both leadership-facing weighing pushes are about PROOF, and "/weighing" is the
 		// operator's own work list -- a Growth Director who tapped one landed on an empty
-		// My Work with no route to the video. The leadership proof gallery is the surface that
-		// answers what these two pushes announce. (The bucket-level deep link the lifecycle
+		// My Work with no route to the video. The proof gallery that used to answer these
+		// pushes was retired from mobile (2026-08-28), so they land on the weighing alerts
+		// feed, which lists the same lifecycle facts. (The bucket-level deep link the lifecycle
 		// consumer emits is not available here: this payload carries the shed LOCATION id, never
 		// the campaign/bucket identity that names a weighing task.)
 		leadershipTarget: weighingEvidenceTarget,

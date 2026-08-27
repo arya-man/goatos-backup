@@ -325,8 +325,6 @@ class WeighingPlanWizardEditHydrationTest {
 
         override suspend fun appendLeadershipShed(campaignId: String, campaignShedId: String): AppResult<Int> = AppResult.Ok(0)
 
-        override suspend fun appendLeadershipVideos(): AppResult<Int> = AppResult.Ok(0)
-
         override suspend fun appendPlannerParkBuckets(
             periodStartDate: String,
             parkId: String,
@@ -493,11 +491,6 @@ class WeighingPlanWizardEditHydrationTest {
             reset: Boolean,
         ): AppResult<Int> = AppResult.Ok(0)
 
-        override fun observeLeadershipVideos(windowSize: Int): Flow<List<WeighingLeadershipShed>> =
-            MutableStateFlow(emptyList())
-
-        override suspend fun refreshLeadershipVideos(reset: Boolean): AppResult<Int> = AppResult.Ok(0)
-
         override suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?> =
             AppResult.Ok(null)
 
@@ -568,18 +561,5 @@ class WeighingPlanWizardEditHydrationTest {
 
         override suspend fun closeCampaign(campaignId: String, reason: String): AppResult<Unit> =
             AppResult.Ok(Unit)
-
-        override suspend fun fetchWeightHistory(
-            parkId: String?,
-            campaignShedId: String?,
-        ): AppResult<sg.mesha.goatos.core.network.WeightHistoryResponseDto> =
-            AppResult.Err("not configured in this fake")
-
-        override suspend fun fetchGrowthSummary(
-            parkId: String?,
-            from: String?,
-            to: String?,
-        ): AppResult<sg.mesha.goatos.core.network.GrowthSummaryDto> =
-            AppResult.Err("not configured in this fake")
     }
 }

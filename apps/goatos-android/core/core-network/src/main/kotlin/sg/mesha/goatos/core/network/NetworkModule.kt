@@ -146,7 +146,6 @@ import sg.mesha.goatos.core.network.dto.WeighingPlannerParkBucketsResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationAlertPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAlertPageResponseDto
-import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto
@@ -348,12 +347,6 @@ interface AppApiService {
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int,
     ): WeighingLeadershipShedVideosResponseDto
-
-    @GET("app/weighing/leadership/sheds")
-    suspend fun listWeighingLeadershipSheds(
-        @Query("cursor") cursor: String?,
-        @Query("limit") limit: Int,
-    ): WeighingLeadershipShedPageResponseDto
 
     @GET("app/vaccination/alerts")
     suspend fun listVaccinationAlerts(
@@ -1012,20 +1005,6 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto
-
-    @GET("app/weighing/weight-history")
-    suspend fun getWeightHistory(
-        @Query("park_id") parkId: String?,
-        @Query("campaign_shed_id") campaignShedId: String?,
-    ): WeightHistoryResponseDto
-
-    // park_id omitted = every park the caller may see.
-    @GET("app/weighing/leadership/growth")
-    suspend fun getWeighingGrowth(
-        @Query("park_id") parkId: String?,
-        @Query("from") from: String?,
-        @Query("to") to: String?,
-    ): GrowthSummaryDto
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic.
@@ -1204,11 +1183,6 @@ class RetrofitAppApi(
         limit: Int,
     ): WeighingLeadershipShedVideosResponseDto =
         service.getWeighingLeadershipShedVideos(campaignId, campaignShedId, cursor, limit)
-
-    override suspend fun listWeighingLeadershipSheds(
-        cursor: String?,
-        limit: Int,
-    ): WeighingLeadershipShedPageResponseDto = service.listWeighingLeadershipSheds(cursor, limit)
 
     override suspend fun listVaccinationAlerts(
         cursor: String?,
@@ -1829,12 +1803,6 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto = service.rejectCountsApproval(requestId, idempotencyKey, request)
-
-    override suspend fun getWeightHistory(parkId: String?, campaignShedId: String?): WeightHistoryResponseDto =
-        service.getWeightHistory(parkId, campaignShedId)
-
-    override suspend fun getWeighingGrowth(parkId: String?, from: String?, to: String?): GrowthSummaryDto =
-        service.getWeighingGrowth(parkId, from, to)
 }
 
 /**

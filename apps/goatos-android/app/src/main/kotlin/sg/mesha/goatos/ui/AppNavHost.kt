@@ -138,10 +138,7 @@ import sg.mesha.goatos.feature.weighing.WeighingOperatorsScreen
 import sg.mesha.goatos.feature.weighing.plan.WeighingPlanWizardScreen
 import sg.mesha.goatos.feature.weighing.WeighingScreen
 import sg.mesha.goatos.feature.weighing.WeighingTaskDetailScreen
-import sg.mesha.goatos.feature.weighing.WeighingGrowthScreen
 import sg.mesha.goatos.feature.weighing.WeighingTasksScreen
-import sg.mesha.goatos.feature.weighing.WeightHistoryChartScreen
-import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosScreen
 import sg.mesha.goatos.feature.weighing.leadership.WeighingShedDetailScreen
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.availableModules
@@ -199,10 +196,7 @@ import sg.mesha.goatos.viewmodel.VerifyDetailViewModel
 import sg.mesha.goatos.viewmodel.VerifyQueueViewModel
 import sg.mesha.goatos.viewmodel.VaccinationLeadershipVideosViewModel
 import sg.mesha.goatos.viewmodel.WeighingPlanWizardViewModel
-import sg.mesha.goatos.viewmodel.WeighingGrowthViewModel
 import sg.mesha.goatos.viewmodel.WeighingViewModel
-import sg.mesha.goatos.viewmodel.WeightHistoryChartViewModel
-import sg.mesha.goatos.viewmodel.WeighingLeadershipVideosViewModel
 import sg.mesha.goatos.viewmodel.WeighingShedDetailViewModel
 
 // Route ids. The backend nav item hrefs map onto these; unknown hrefs fall through
@@ -239,18 +233,11 @@ object Routes {
     const val WEIGHING_SHED = "/weighing/shed"
     /** Read-only oversight of weighing work assigned to someone else. Carries no scan action. */
     const val WEIGHING_OPERATORS = "/weighing/operators"
-    const val WEIGHING_VIDEOS = "/weighing/videos"
-    /**
-     * Leadership-only weight history: one bar series per RFID tag (or per shed for a lump-sum
-     * weighing) across the weigh days that actually happened.
-     *
-     * Read-only and SEPARATE from [WEIGHING_VIDEOS]: that tab reviews proof clips, this one reads
-     * the numbers those clips back. Gated on WeighingMonitor by the backend nav registry, so an
-     * operator never receives the tab.
-     */
-    const val WEIGHING_WEIGHTS = "/weighing/weights"
-    /** Leadership growth (ADG) summary. Weighing data only — never herd or vaccination data. */
-    const val WEIGHING_GROWTH = "/weighing/growth"
+    // The Videos (/weighing/videos), Weights (/weighing/weights) and Growth (/weighing/growth)
+    // pages were RETIRED from mobile (maintainer ruling 2026-08-28): weighing on the phone keeps
+    // only the work surfaces plus Alerts. The Weights/Growth read-outs live on admin-web, and
+    // evidence review lives in the verifier/leadership surfaces. A push still naming a retired
+    // target falls back to the recipient's own module landing via pushTargetRoute().
     /**
      * The weighing module's OWN lifecycle alerts feed: work assigned, a shed submitted for
      * verification, a proof sent back for rework, a shed reopened, work closed.
@@ -1653,51 +1640,6 @@ fun AppNavHost(
                 onBack = { navController.popBackStack() },
                 onRecordRowVisible = vm::onRecordRowVisible,
                 onReopen = vm::reopen,
-            )
-        }
-
-        composable(Routes.WEIGHING_GROWTH) {
-            val vm: WeighingGrowthViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            WeighingGrowthScreen(
-                state = state.copy(
-                    title = stringResource(sg.mesha.goatos.feature.weighing.R.string.weighing_growth_title),
-                    eyebrow = stringResource(sg.mesha.goatos.feature.weighing.R.string.weighing_eyebrow),
-                    scopeLabel = state.parkOptions.firstOrNull { it.selected }?.label
-                        ?: stringResource(sg.mesha.goatos.feature.weighing.R.string.weighing_growth_scope_all),
-                ),
-                onRefresh = vm::refresh,
-                onSelectPark = vm::onSelectPark,
-                // The losing-weight count drills to the per-animal weight surface. It is a real
-                // destination, not a dead tap: leaving a tappable tile that goes nowhere is the
-                // same silent dead end the analytics work exists to eliminate.
-                // Expands the list in place: the animals are already in the payload, so a
-                // navigation away from the summary would lose the context they belong to.
-                onOpenLosing = vm::onToggleLosing,
-            )
-        }
-
-        composable(Routes.WEIGHING_WEIGHTS) {
-            val vm: WeightHistoryChartViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            WeightHistoryChartScreen(
-                state = state,
-                onSelectKind = vm::onSelectKind,
-                onSelectPark = vm::onSelectPark,
-                onSelectShed = vm::onSelectShed,
-                onSearch = vm::onSearch,
-                onRefresh = vm::refresh,
-            )
-        }
-
-        composable(Routes.WEIGHING_VIDEOS) {
-            val vm: WeighingLeadershipVideosViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            WeighingLeadershipVideosScreen(
-                state = state,
-                onShedVisible = vm::onShedVisible,
-                onRefresh = vm::refresh,
-                onPlayback = vm::onPlayback,
             )
         }
 
@@ -3532,9 +3474,6 @@ private val pushTargetDestinations: Set<String> = supportedRootDestinations + se
     Routes.WEIGHING_TASK_NEW,
     Routes.WEIGHING_SHED,
     Routes.WEIGHING_OPERATORS,
-    Routes.WEIGHING_VIDEOS,
-    Routes.WEIGHING_WEIGHTS,
-    Routes.WEIGHING_GROWTH,
     Routes.WEIGHING_SCAN,
 )
 

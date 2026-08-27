@@ -147,7 +147,6 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "tasks", labelKey: "nav.tasks", href: "/weighing/tasks", shared_key: "", priority: 1, requiredPermission: permissions.WeighingPlan},                         //nav-composition:ignore: registry entry
 			{key: "weighing", labelKey: "nav.my_work", href: "/weighing", shared_key: "", priority: 2, requiredPermission: permissions.WeighingExecute},                       //nav-composition:ignore: registry entry
 			{key: "operators", labelKey: "nav.operators", href: "/weighing/operators", shared_key: "", priority: 3, requiredPermission: permissions.WeighingOverseeOperators}, //nav-composition:ignore: registry entry
-			{key: "videos", labelKey: "nav.videos", href: "/weighing/videos", shared_key: "", priority: 4, requiredPermission: permissions.WeighingMonitor},                   //nav-composition:ignore: registry entry
 			// Weighing's OWN alerts feed. This is NOT /alerts -- that is the vaccination
 			// process-integrity feed, whose upstream needs ObligationRead+VaccinationRead and
 			// whose label reads "Vaccination alerts" in all four languages. Carried in the
@@ -164,15 +163,16 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// It also fixes the degenerate single-tab bar: an operator holding only
 			// WeighingExecute previously got [My work] alone, a switcher with nothing to
 			// switch to.
-			// Weights and Growth are the PLANNER's read-outs, so they gate on WeighingPlan
-			// (CEO-only, see RoleGrowthDirector's own "NOT WeighingPlan" note), not on
-			// WeighingMonitor. Monitor is held by the Growth Director too, which put seven
-			// tabs in that role's bottom bar -- My work, Operators, Videos, Weights, Growth,
-			// Alerts, You -- for two destinations they do not own (maintainer ruling
-			// 2026-08-05). The Growth Director keeps My work / Operators / Videos / Alerts.
-			{key: "weights", labelKey: "nav.weights", href: "/weighing/weights", shared_key: "", priority: 5, requiredPermission: permissions.WeighingPlan}, //nav-composition:ignore: registry entry
-			{key: "growth", labelKey: "nav.growth", href: "/weighing/growth", shared_key: "", priority: 6, requiredPermission: permissions.WeighingPlan},    //nav-composition:ignore: registry entry
-			{key: "weighing_alerts", labelKey: "nav.alerts", href: "/weighing/alerts", shared_key: "", priority: 7},                                         //nav-composition:ignore: registry entry
+			// Weights, Growth, and Videos are RETIRED from the mobile weighing bar
+			// (maintainer ruling 2026-08-28): mobile weighing keeps only the work
+			// surfaces -- Tasks (planner), My work (operator), Operators (oversight) --
+			// plus Alerts. The Weights/Growth read-outs stay admin-web-only
+			// (/weighing/weights, /weighing/growth in adminui), and evidence review
+			// lives in the verifier/leadership surfaces; the Android screens remain
+			// routable for push deep links but get no tab. This supersedes the
+			// 2026-08-05 ruling's tab list (My work / Operators / Videos / Alerts for
+			// the Growth Director -- now My work / Operators / Alerts).
+			{key: "weighing_alerts", labelKey: "nav.alerts", href: "/weighing/alerts", shared_key: "", priority: 7}, //nav-composition:ignore: registry entry
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
 		reviewContributions: []moduleNavContribution{
@@ -1367,8 +1367,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.my_work":          "My work",
 		"nav.tasks":            "Tasks",
 		"nav.operators":        "Operators",
-		"nav.weights":          "Weights",
-		"nav.growth":           "Growth",
 
 		"module.vaccination":    "Vaccination",
 		"module.weighing":       "Weighing",
@@ -1417,8 +1415,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.my_work":          "मेरा काम",
 		"nav.tasks":            "कार्य",
 		"nav.operators":        "ऑपरेटर",
-		"nav.weights":          "वज़न",
-		"nav.growth":           "वृद्धि",
 
 		"module.vaccination":    "टीकाकरण",
 		"module.weighing":       "वजन",
@@ -1467,8 +1463,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.my_work":          "ನನ್ನ ಕೆಲಸ",
 		"nav.tasks":            "ಕಾರ್ಯಗಳು",
 		"nav.operators":        "ಆಪರೇಟರ್‌ಗಳು",
-		"nav.weights":          "ತೂಕ",
-		"nav.growth":           "ಬೆಳವಣಿಗೆ",
 
 		"module.vaccination":    "ಲಸಿಕೆ",
 		"module.weighing":       "ತೂಕ",
@@ -1517,8 +1511,6 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.my_work":          "నా పని",
 		"nav.tasks":            "పనులు",
 		"nav.operators":        "ఆపరేటర్లు",
-		"nav.weights":          "బరువులు",
-		"nav.growth":           "పెరుగుదల",
 
 		"module.vaccination":    "టీకా",
 		"module.weighing":       "బరువు",

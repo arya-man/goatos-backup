@@ -922,6 +922,15 @@ func TestBootstrapNavComposition(t *testing.T) {
 		if !contains(hrefs(ceo), "/weighing/tasks") {
 			t.Fatalf("ceo weighing nav=%v want the planner list", hrefs(ceo))
 		}
+		// Maintainer ruling 2026-08-28: Videos, Weights and Growth are retired from the mobile
+		// weighing bar for EVERY principal. The CEO/planner bar is Tasks + Alerts (+You); the
+		// Weights/Growth read-outs stay admin-web-only and evidence review lives in the
+		// verifier/leadership surfaces.
+		for _, retired := range []string{"/weighing/videos", "/weighing/weights", "/weighing/growth"} {
+			if contains(hrefs(ceo), retired) {
+				t.Fatalf("ceo weighing nav=%v must not offer the retired mobile page %q", hrefs(ceo), retired)
+			}
+		}
 
 		// The growth director executes his own sheds and oversees other people's, but does not plan.
 		director := weighingModule([]domain.GrantSummary{grantWithRole(permissions.RoleGrowthDirector)})
@@ -934,6 +943,12 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 		if contains(got, "/weighing/tasks") {
 			t.Fatalf("growth director weighing nav=%v must not offer the planner list", got)
+		}
+		// Same 2026-08-28 retirement for the Growth Director: My work / Operators / Alerts only.
+		for _, retired := range []string{"/weighing/videos", "/weighing/weights", "/weighing/growth"} {
+			if contains(got, retired) {
+				t.Fatalf("growth director weighing nav=%v must not offer the retired mobile page %q", got, retired)
+			}
 		}
 	})
 
