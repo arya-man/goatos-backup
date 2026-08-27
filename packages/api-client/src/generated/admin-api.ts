@@ -2062,6 +2062,15 @@ export interface components {
             offered_mobile: string[];
             granted_web: string[];
             granted_mobile: string[];
+            /** @description The module's individually tickable admin-web screens, in sidebar order. EMPTY means the module has no admin-web page of its own -- it is phone-only, or reached from inside another screen. */
+            pages: components["schemas"]["AccessPageOption"][];
+            /** @description The screens this person keeps. Web only -- the phone composes its own navigation and page ticks never reach it. Always explicit; the backend expands a stored empty list (which means every page) before sending. */
+            granted_pages_web: string[];
+        };
+        /** @description One tickable admin-web screen inside a module. The label is the SIDEBAR label, so the tick reads as the thing the person will actually see. */
+        AccessPageOption: {
+            page_key: string;
+            label: string;
         };
         AccessParkOption: {
             /** Format: uuid */
@@ -2100,6 +2109,8 @@ export interface components {
             module_key: string;
             web: string[];
             mobile: string[];
+            /** @description Narrows the WEB grant to specific screens of this module. Sent for every rendered row, wholesale like the modules list. A granted module that HAS screens must tick at least one; sending none is refused rather than silently resolved to all of them. */
+            pages?: string[];
         };
         /** @description Replaces access WHOLESALE. The editor sends every module row it rendered, so an unticked module arrives as an empty list rather than a missing key -- a patch shape cannot tell "leave alone" from "remove". */
         SavePersonAccessRequest: {

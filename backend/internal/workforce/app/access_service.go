@@ -137,12 +137,20 @@ func (s *AccessService) DesignationDefaults(ctx context.Context, code string) (d
 	for _, a := range assignments {
 		row, seen := byModule[a.Module]
 		if !seen {
-			row = &domain.AccessModuleWrite{ModuleKey: a.Module, Web: []string{}, Mobile: []string{}}
+			row = &domain.AccessModuleWrite{ModuleKey: a.Module, Web: []string{}, Mobile: []string{}, Pages: []string{}}
 			byModule[a.Module] = row
 			order = append(order, a.Module)
 		}
 		if a.Surface == permissions.SurfaceWeb {
 			row.Web = append(row.Web, a.Capabilities...)
+			if len(a.Pages) > 0 {
+				row.Pages = append(row.Pages, a.Pages...)
+			} else {
+				// A stored default with no page list means the whole module, and the
+				// editor renders explicit ticks -- so expand it here rather than send an
+				// empty list the screen would draw as "nothing selected".
+				row.Pages = append(row.Pages, permissions.PageKeysForModule(a.Module)...)
+			}
 		} else {
 			row.Mobile = append(row.Mobile, a.Capabilities...)
 		}
@@ -193,11 +201,66 @@ func validatedAssignments(rows []domain.AccessModuleWrite) ([]permissions.Module
 				// grants nothing. No row is needed here.
 				continue
 			}
-			out = append(out, permissions.ModuleAssignment{
+			assignment := permissions.ModuleAssignment{
 				Module:       module,
 				Surface:      pair.surface,
 				Capabilities: levels,
-			})
+			}
+			if pair.surface == permissions.SurfaceWeb {
+				// Pages narrow the WEB grant only -- the phone builds its own navigation
+				// and a page tick never reaches it.
+				pages, err := validatedPages(def, row.Pages)
+				if err != nil {
+					return nil, err
+				}
+				assignment.Pages = pages
+			}
+			out = append(out, assignment)
+		}
+	}
+	return out, nil
+}
+
+// validatedPages checks the page ticks against the module's own catalog.
+//
+// It REJECTS a page belonging to another module or to no module, for the same
+// reason validatedAssignments rejects an unknown capability: a dropped tick reads
+// on screen as granted while granting nothing.
+//
+// An empty result is returned as an EMPTY LIST, never nil, and means "every page
+// of this module" at read time. A module that HAS pages and is granted with none
+// ticked is refused instead: it would silently resolve to every page, which is the
+// opposite of what the admin just did on screen.
+func validatedPages(def permissions.ModuleCapability, pages []string) ([]string, error) {
+	catalog := permissions.PagesForModule(def.Key)
+	if len(catalog) == 0 {
+		// A module with no admin-web screen of its own. Ticks here would name nothing.
+		return []string{}, nil
+	}
+	known := make(map[string]struct{}, len(catalog))
+	for _, p := range catalog {
+		known[p.Key] = struct{}{}
+	}
+	chosen := make(map[string]struct{}, len(pages))
+	for _, key := range pages {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, ok := known[key]; !ok {
+			return nil, fmt.Errorf("%w: %q is not a screen inside %s", ErrInvalidAccessRequest, key, def.Label)
+		}
+		chosen[key] = struct{}{}
+	}
+	if len(chosen) == 0 {
+		return nil, fmt.Errorf("%w: %s needs at least one screen ticked, or no access at all", ErrInvalidAccessRequest, def.Label)
+	}
+	// Sidebar order, not request order: the stored list is diffed and rendered, and a
+	// set that reorders between saves reads as a change nobody made.
+	out := make([]string, 0, len(chosen))
+	for _, p := range catalog {
+		if _, ok := chosen[p.Key]; ok {
+			out = append(out, p.Key)
 		}
 	}
 	return out, nil
@@ -244,20 +307,36 @@ func surfaceLabel(surface string) string {
 // already is.
 func moduleRows(assignments []permissions.ModuleAssignment) []domain.AccessModuleRow {
 	granted := map[string][]string{}
+	// Page ticks are resolved through the SAME function the bootstrap narrows with, so
+	// the editor cannot show a set of ticks the sidebar would then disagree with -- and
+	// an empty stored list expands to every page here, which is why the screen never
+	// opens with a held module showing no pages.
+	pageAccess := permissions.PageAccessForAssignments(assignments)
 	for _, a := range assignments {
 		granted[a.Module+"|"+a.Surface] = a.Capabilities
 	}
 	catalog := permissions.ModuleCapabilities()
 	out := make([]domain.AccessModuleRow, 0, len(catalog))
 	for _, def := range catalog {
+		pages := permissions.PagesForModule(def.Key)
+		options := make([]domain.AccessPageOption, 0, len(pages))
+		heldPages := make([]string, 0, len(pages))
+		for _, page := range pages {
+			options = append(options, domain.AccessPageOption{PageKey: page.Key, Label: page.Label})
+			if _, ok := pageAccess.Pages[page.Key]; ok {
+				heldPages = append(heldPages, page.Key)
+			}
+		}
 		out = append(out, domain.AccessModuleRow{
-			ModuleKey:     def.Key,
-			Label:         def.Label,
-			Blurb:         def.Blurb,
-			OfferedWeb:    offeredLevels(def, permissions.SurfaceWeb),
-			OfferedMobile: offeredLevels(def, permissions.SurfaceMobile),
-			GrantedWeb:    orEmpty(granted[def.Key+"|"+permissions.SurfaceWeb]),
-			GrantedMobile: orEmpty(granted[def.Key+"|"+permissions.SurfaceMobile]),
+			ModuleKey:       def.Key,
+			Label:           def.Label,
+			Blurb:           def.Blurb,
+			OfferedWeb:      offeredLevels(def, permissions.SurfaceWeb),
+			OfferedMobile:   offeredLevels(def, permissions.SurfaceMobile),
+			GrantedWeb:      orEmpty(granted[def.Key+"|"+permissions.SurfaceWeb]),
+			GrantedMobile:   orEmpty(granted[def.Key+"|"+permissions.SurfaceMobile]),
+			Pages:           options,
+			GrantedPagesWeb: heldPages,
 		})
 	}
 	return out

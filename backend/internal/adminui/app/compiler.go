@@ -68,19 +68,32 @@ type cacheEntry struct {
 
 func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) domain.BootstrapResponse {
 	now := s.now()
+	// The person's own page ticks are resolved BEFORE the cache is consulted, and their
+	// fingerprint is part of the key.
+	//
+	// This is not an optimisation -- it is what makes the screen usable. The key is built
+	// from tenant, actor, roles and grants, none of which move when an admin edits access,
+	// so a saved change would have sat behind the 60-second TTL: the admin ticks a box,
+	// tells the person to reload, and nothing happens for a minute. That never mattered
+	// while a role change was a deploy; it matters now that access is an edit.
+	//
+	// The resolved value is carried into compile() rather than read again, so this costs
+	// ONE small indexed read per bootstrap, not two.
+	access, assigned, accessErr := s.personPageAccessFor(ctx, input)
+	fingerprint := pageAccessFingerprint(access, assigned)
 	revisionKey := ""
 	if revisions, ok := s.loadFamilyRevisions(ctx, input.TenantID); ok {
-		revisionKey = s.cacheKey(input, ReferenceFamilies{RevisionInputs: revisions}, nil)
+		revisionKey = s.cacheKey(input, ReferenceFamilies{RevisionInputs: revisions}, nil) + "::" + fingerprint
 		if cached, ok := s.cached(revisionKey, now); ok {
 			return cached
 		}
 	}
 	families, familyErr := s.loadFamilies(ctx, input.TenantID)
-	key := s.cacheKey(input, families, familyErr)
+	key := s.cacheKey(input, families, familyErr) + "::" + fingerprint
 	if cached, ok := s.cached(key, now); ok {
 		return cached
 	}
-	resp := s.compile(ctx, input, families, familyErr)
+	resp := s.compile(ctx, input, families, familyErr, access, assigned, accessErr)
 	expiresAt := now.Add(s.cacheTTL)
 	s.storeCache(key, resp, now, expiresAt)
 	if revisionKey != "" && familyErr == nil {
@@ -104,6 +117,10 @@ func (s *Service) cacheKey(input BootstrapInput, families ReferenceFamilies, fam
 	}
 	return strings.Join([]string{
 		strings.TrimSpace(input.TenantID),
+		// The ACTOR is part of the key: two people carrying identical roles can now be
+		// ticked for different pages, so a role-keyed cache would serve one of them the
+		// other's sidebar (per-person access, maintainer decision 2026-08-27).
+		strings.TrimSpace(input.ActorID),
 		strings.Join(roles, ","),
 		strings.Join(grantParts, ","),
 		strings.Join(revisionParts, ","),
@@ -166,7 +183,37 @@ func (s *Service) evictCacheEntryLocked() {
 	}
 }
 
-func (s *Service) compile(ctx context.Context, input BootstrapInput, families ReferenceFamilies, familyErr error) domain.BootstrapResponse {
+// pageAccessFingerprint identifies one principal's resolved page ticks for the cache key.
+//
+// An UNASSIGNED principal (no stored rows) gets a distinct constant rather than the empty
+// set's hash: "not narrowed at all" and "narrowed to nothing" compile to different
+// contracts, and sharing a key between them would serve one of them the other's sidebar.
+func pageAccessFingerprint(access permissions.PageAccess, assigned bool) string {
+	if !assigned {
+		return "pages:none"
+	}
+	parts := make([]string, 0, len(access.Pages)+len(access.Modules))
+	for key := range access.Pages {
+		parts = append(parts, "p:"+key)
+	}
+	for key := range access.Modules {
+		parts = append(parts, "m:"+key)
+	}
+	// Sorted: Go's map iteration order would give the same access set a different
+	// fingerprint on every request, which is a cache that never hits.
+	sort.Strings(parts)
+	return "pages:" + hashString(strings.Join(parts, ","))
+}
+
+func (s *Service) compile(
+	ctx context.Context,
+	input BootstrapInput,
+	families ReferenceFamilies,
+	familyErr error,
+	access permissions.PageAccess,
+	pageAccessAssigned bool,
+	pageAccessErr error,
+) domain.BootstrapResponse {
 	families.UIConfig = applicableConfigEntries(families.UIConfig)
 	resp := baseBootstrap()
 	resp = compileRequestContext(resp, input, families)
@@ -176,10 +223,15 @@ func (s *Service) compile(ctx context.Context, input BootstrapInput, families Re
 	// It runs before familyHashes so the contract revision reflects what is actually served.
 	if isVerifierLensPrincipal(input) {
 		resp = applyVerifierLens(resp, s.verifierNavModules(ctx, input))
-	} else if isProcurementDirectorLensPrincipal(input) {
-		// The procurement-director Procurement + Feed workspace (maintainer decision
-		// 2026-08-21) — same narrowing layer as the verifier lens above.
-		resp = applyProcurementDirectorLens(resp)
+	} else if pageAccessAssigned {
+		// Per-person page narrowing (maintainer decision 2026-08-27). This REPLACES the
+		// hand-coded procurement-director lens: "only Procurement and Feed, and not Feed
+		// Config" is now that person's ticks on /people rather than a Go file.
+		resp = applyPersonPageLens(resp, access)
+	} else if pageAccessErr != nil {
+		// The read failed. The contract is served UNNARROWED -- a person must not be locked
+		// out of a product they are authorized for by a database blip -- and it SAYS so.
+		resp.DisplayRules = append(resp.DisplayRules, personPageAccessUnavailableRule(pageAccessErr))
 	}
 	hashes := familyHashes(resp, families, input, familyErr)
 	resp.FamilyHashes = hashes

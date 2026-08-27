@@ -875,7 +875,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// must be wired AFTER every RegisterCategory call — a module registered later would otherwise
 	// be missing from the verifier's evidence groups.
 	adminUIService.WithVerificationModules(verificationadminuibridge.New(verificationService)).
-		WithModuleDutyReader(workforceRepo)
+		WithModuleDutyReader(workforceRepo).
+		// PAGE-GRAIN ACCESS (maintainer decision 2026-08-27). The sidebar is narrowed to
+		// the pages this person is ticked for on /people, which is what retired the
+		// hand-coded procurement-director lens. A person with no stored rows is not
+		// narrowed at all.
+		WithPersonPageAccess(accessRepo)
 
 	// Leadership read-only assistant (CEO AI). Wired end-to-end: the Vertex
 	// Gemini planner (when MESHA_AI_PROVIDER=vertex + ADC available; else the

@@ -38,7 +38,8 @@ SELECT m.display_name,
          (SELECT jsonb_agg(jsonb_build_object(
                    'module', ma.module_key,
                    'surface', ma.surface,
-                   'capabilities', to_jsonb(ma.capabilities))
+                   'capabilities', to_jsonb(ma.capabilities),
+                   'pages', to_jsonb(ma.pages))
                  ORDER BY ma.module_key, ma.surface)
             FROM person_module_access ma
            WHERE ma.tenant_id = m.tenant_id
@@ -62,6 +63,7 @@ type moduleRowJSON struct {
 	Module       string   `json:"module"`
 	Surface      string   `json:"surface"`
 	Capabilities []string `json:"capabilities"`
+	Pages        []string `json:"pages"`
 }
 
 func (r *AccessRepository) LoadPersonAccess(ctx context.Context, tenantID, personID string) (ports.PersonAccessRecord, error) {
@@ -92,6 +94,7 @@ func (r *AccessRepository) LoadPersonAccess(ctx context.Context, tenantID, perso
 			Module:       row.Module,
 			Surface:      row.Surface,
 			Capabilities: row.Capabilities,
+			Pages:        row.Pages,
 		})
 	}
 	if err := json.Unmarshal(parksRaw, &rec.ParkIDs); err != nil {
@@ -136,19 +139,42 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 		}
 	}
 
-	// Reject an unknown or inactive park rather than dropping it: silently
-	// discarding a park the admin selected narrows someone's scope with no notice.
-	for _, parkID := range cmd.ParkIDs {
-		var ok bool
-		if err := tx.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM locations
-			   WHERE tenant_id = $1::uuid AND location_id = $2::uuid
-			     AND location_type = 'park' AND status = 'active')`,
-			cmd.TenantID, parkID).Scan(&ok); err != nil {
+	// Reject an unknown or inactive park rather than dropping it: silently discarding a
+	// park the admin selected narrows someone's scope with no notice.
+	//
+	// ONE round trip for the whole selection, not one per park. The column stays bare and
+	// the BIND ARRAY is cast (`location_id = ANY($2::uuid[])`, never `location_id::text =
+	// ANY(...)`), so the ordinary index on location_id is still usable. The error still
+	// names WHICH park was refused -- the admin has to know which pill to unpick -- so the
+	// valid ids come back and the missing one is found in Go.
+	if len(cmd.ParkIDs) > 0 {
+		rows, err := tx.Query(ctx,
+			`SELECT location_id::text FROM locations
+			  WHERE tenant_id = $1::uuid
+			    AND location_id = ANY($2::uuid[])
+			    AND location_type = 'park'
+			    AND status = 'active'`,
+			cmd.TenantID, cmd.ParkIDs)
+		if err != nil {
 			return ports.PersonAccessRecord{}, err
 		}
-		if !ok {
-			return ports.PersonAccessRecord{}, fmt.Errorf("%w: %s", ports.ErrUnknownPark, parkID)
+		valid := make(map[string]struct{}, len(cmd.ParkIDs))
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return ports.PersonAccessRecord{}, err
+			}
+			valid[id] = struct{}{}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return ports.PersonAccessRecord{}, err
+		}
+		for _, parkID := range cmd.ParkIDs {
+			if _, ok := valid[parkID]; !ok {
+				return ports.PersonAccessRecord{}, fmt.Errorf("%w: %s", ports.ErrUnknownPark, parkID)
+			}
 		}
 	}
 
@@ -193,10 +219,18 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 			if caps == nil {
 				caps = []string{}
 			}
+			// Pages are stored as sent, EMPTY INCLUDED: an empty list is read back as
+			// "every page of this module" (permissions.PageAccessForAssignments), which is
+			// what makes a page shipped tomorrow reach whoever already holds the module.
+			pages := a.Pages
+			if pages == nil {
+				pages = []string{}
+			}
 			rows = append(rows, map[string]any{
 				"module_key":   a.Module,
 				"surface":      a.Surface,
 				"capabilities": caps,
+				"pages":        pages,
 			})
 		}
 		payload, err := json.Marshal(rows)
@@ -204,11 +238,12 @@ func (r *AccessRepository) SavePersonAccess(ctx context.Context, cmd ports.SaveP
 			return ports.PersonAccessRecord{}, err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities, updated_at, updated_by)
+			`INSERT INTO person_module_access (tenant_id, workforce_member_id, surface, module_key, capabilities, pages, updated_at, updated_by)
 			 SELECT $1::uuid, $2::uuid, r.surface, r.module_key,
 			        ARRAY(SELECT jsonb_array_elements_text(r.capabilities)),
+			        ARRAY(SELECT jsonb_array_elements_text(r.pages)),
 			        now(), nullif($4, '')::uuid
-			   FROM jsonb_to_recordset($3::jsonb) AS r(module_key text, surface text, capabilities jsonb)`,
+			   FROM jsonb_to_recordset($3::jsonb) AS r(module_key text, surface text, capabilities jsonb, pages jsonb)`,
 			cmd.TenantID, cmd.PersonID, payload, cmd.ActorID); err != nil {
 			return ports.PersonAccessRecord{}, err
 		}
@@ -305,7 +340,7 @@ func (r *AccessRepository) ListDesignations(ctx context.Context) ([]ports.Access
 
 func (r *AccessRepository) DesignationDefaults(ctx context.Context, code string) ([]permissions.ModuleAssignment, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT module_key, surface, capabilities FROM designation_module_defaults
+		`SELECT module_key, surface, capabilities, pages FROM designation_module_defaults
 		  WHERE designation_code = $1 ORDER BY module_key, surface`, code)
 	if err != nil {
 		return nil, err
@@ -314,12 +349,52 @@ func (r *AccessRepository) DesignationDefaults(ctx context.Context, code string)
 	out := make([]permissions.ModuleAssignment, 0, 32)
 	for rows.Next() {
 		var a permissions.ModuleAssignment
-		if err := rows.Scan(&a.Module, &a.Surface, &a.Capabilities); err != nil {
+		if err := rows.Scan(&a.Module, &a.Surface, &a.Capabilities, &a.Pages); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// ResolvePageAccess is the ADMIN-WEB BOOTSTRAP read: which pages this person keeps.
+//
+// Separate from ResolvePermissions because they answer different questions and are asked
+// at different moments -- every authenticated request needs the permission set, while only
+// the bootstrap composes a sidebar. Reports assigned=false for a person with no rows, and
+// the caller then serves the unnarrowed contract (see adminui/app/person_page_lens.go): a
+// person the backfill has not reached must not be narrowed to nothing.
+func (r *AccessRepository) ResolvePageAccess(ctx context.Context, tenantID, userID string) (permissions.PageAccess, bool, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT ma.module_key, ma.surface, ma.capabilities, ma.pages
+		   FROM person_module_access ma
+		   JOIN workforce_members m
+		     ON m.tenant_id = ma.tenant_id
+		    AND m.workforce_member_id = ma.workforce_member_id
+		  WHERE ma.tenant_id = $1::uuid
+		    AND m.user_id = $2::uuid
+		    AND m.status = 'active'
+		    AND ma.surface = 'web'`,
+		tenantID, userID)
+	if err != nil {
+		return permissions.PageAccess{}, false, err
+	}
+	defer rows.Close()
+	assignments := make([]permissions.ModuleAssignment, 0, 24)
+	for rows.Next() {
+		var a permissions.ModuleAssignment
+		if err := rows.Scan(&a.Module, &a.Surface, &a.Capabilities, &a.Pages); err != nil {
+			return permissions.PageAccess{}, false, err
+		}
+		assignments = append(assignments, a)
+	}
+	if err := rows.Err(); err != nil {
+		return permissions.PageAccess{}, false, err
+	}
+	if len(assignments) == 0 {
+		return permissions.PageAccess{}, false, nil
+	}
+	return permissions.PageAccessForAssignments(assignments), true, nil
 }
 
 // ResolvePermissions is the REQUEST PATH read: one indexed lookup keyed on the

@@ -24,14 +24,18 @@ type Draft = {
   designationCode: string;
   scopeMode: "tenant" | "parks";
   parkIDs: string[];
-  /** module_key -> surface -> capability levels */
-  modules: Record<string, { web: string[]; mobile: string[] }>;
+  /** module_key -> surface -> capability levels, plus the web page ticks */
+  modules: Record<string, { web: string[]; mobile: string[]; pages: string[] }>;
 };
 
 function draftFrom(access: PersonAccess): Draft {
   const modules: Draft["modules"] = {};
   for (const row of access.modules) {
-    modules[row.module_key] = { web: [...row.granted_web], mobile: [...row.granted_mobile] };
+    modules[row.module_key] = {
+      web: [...row.granted_web],
+      mobile: [...row.granted_mobile],
+      pages: [...row.granted_pages_web],
+    };
   }
   return {
     designationCode: access.designation_code ?? "",
@@ -83,15 +87,31 @@ export function PersonAccessModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const setCapability = useCallback((moduleKey: string, surface: "web" | "mobile", level: string) => {
+  const setPage = useCallback((moduleKey: string, pageKey: string) => {
     setDraft((current) => {
-      const row = current.modules[moduleKey] ?? { web: [], mobile: [] };
+      const row = current.modules[moduleKey] ?? { web: [], mobile: [], pages: [] };
       return {
         ...current,
-        modules: { ...current.modules, [moduleKey]: { ...row, [surface]: toggle(row[surface], level) } },
+        modules: { ...current.modules, [moduleKey]: { ...row, pages: toggle(row.pages, pageKey) } },
       };
     });
   }, []);
+
+  const setCapability = useCallback((moduleKey: string, surface: "web" | "mobile", level: string) => {
+    setDraft((current) => {
+      const row = current.modules[moduleKey] ?? { web: [], mobile: [], pages: [] };
+      const next = { ...row, [surface]: toggle(row[surface], level) };
+      // Granting a module for the first time opens it on every screen it has. That is
+      // what the backend does with an empty stored list, and the alternative -- a
+      // module ticked with no screens -- is refused on save rather than silently
+      // widened, so the editor must never leave it in that state.
+      if (surface === "web" && next.web.length > 0 && next.pages.length === 0) {
+        const catalog = access.modules.find((m) => m.module_key === moduleKey);
+        next.pages = (catalog?.pages ?? []).map((page) => page.page_key);
+      }
+      return { ...current, modules: { ...current.modules, [moduleKey]: next } };
+    });
+  }, [access.modules]);
 
   const applyDesignation = useCallback(
     (code: string) => {
@@ -110,9 +130,13 @@ export function PersonAccessModal({
           // Every rendered module is reset first, so applying a designation is a
           // clean start rather than a merge over whatever happened to be ticked.
           const modules: Draft["modules"] = {};
-          for (const row of access.modules) modules[row.module_key] = { web: [], mobile: [] };
+          for (const row of access.modules) modules[row.module_key] = { web: [], mobile: [], pages: [] };
           for (const row of result.modules) {
-            modules[row.module_key] = { web: [...row.web], mobile: [...row.mobile] };
+            modules[row.module_key] = {
+              web: [...row.web],
+              mobile: [...row.mobile],
+              pages: [...(row.pages ?? [])],
+            };
           }
           return { ...current, modules };
         });
@@ -138,6 +162,7 @@ export function PersonAccessModal({
       module_key: row.module_key,
       web: draft.modules[row.module_key]?.web ?? [],
       mobile: draft.modules[row.module_key]?.mobile ?? [],
+      pages: draft.modules[row.module_key]?.pages ?? [],
     }));
     startTransition(async () => {
       const result = await savePersonAccessAction({
@@ -269,7 +294,7 @@ export function PersonAccessModal({
               </thead>
               <tbody>
                 {access.modules.map((row) => {
-                  const held = draft.modules[row.module_key] ?? { web: [], mobile: [] };
+                  const held = draft.modules[row.module_key] ?? { web: [], mobile: [], pages: [] };
                   const hasAny = held.web.length > 0 || held.mobile.length > 0;
                   return (
                     <tr key={row.module_key} className={hasAny ? "pa-has" : undefined}>
@@ -288,6 +313,11 @@ export function PersonAccessModal({
                             </td>
                           );
                         }
+                        // Page ticks belong to the WEB cell alone and only once the
+                        // module is granted: which screens someone keeps is a question
+                        // that only exists after they have the module at all.
+                        const showPages =
+                          surface === "web" && row.pages.length > 0 && held.web.length > 0;
                         return (
                           <td key={surface}>
                             <div className="pa-caps">
@@ -309,6 +339,25 @@ export function PersonAccessModal({
                                 );
                               })}
                             </div>
+                            {showPages ? (
+                              <div className="pa-pages" role="group" aria-label={t("access.pages.label")}>
+                                {row.pages.map((page) => {
+                                  const on = held.pages.includes(page.page_key);
+                                  return (
+                                    <button
+                                      key={page.page_key}
+                                      type="button"
+                                      className={`pa-page${on ? " on" : ""}`}
+                                      aria-pressed={on}
+                                      disabled={pending || !mayEdit}
+                                      onClick={() => setPage(row.module_key, page.page_key)}
+                                    >
+                                      {page.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
                           </td>
                         );
                       })}

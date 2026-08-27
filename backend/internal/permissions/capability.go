@@ -537,6 +537,11 @@ type ModuleAssignment struct {
 	// Capabilities are the levels held on this module/surface. Empty means no access -- the
 	// stored row is kept so "deliberately removed" stays distinguishable from "never set".
 	Capabilities []string
+	// Pages narrows this row to specific admin-web screens of the module (page-grain
+	// access, maintainer decision 2026-08-27). EMPTY MEANS EVERY PAGE, so a page shipped
+	// tomorrow reaches whoever already holds the module instead of nobody. Web-only: the
+	// phone builds its own navigation and ignores this field. See capability_pages.go.
+	Pages []string
 }
 
 // HasCapability reports whether the row carries a capability.
