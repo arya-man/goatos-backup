@@ -81,7 +81,7 @@ data class MilkFeedingUiState(
     val isInProgress: Boolean get() = capturedProofCount > 0 && canOpen
 }
 @Immutable data class MilkFeedingListUiState(
-    val subtitle: String = "", val dateLabel: String = "", val selectedDate: String = "", val chips: List<MilkPreparationChipUi> = emptyList(),
+    val subtitle: String = "", val dateLabel: String = "", val selectedDate: String = "", val isToday: Boolean = true, val chips: List<MilkPreparationChipUi> = emptyList(),
     val selectedFilter: String = "all", val cards: List<MilkFeedingCardUi> = emptyList(), val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null, val isOffline: Boolean = false, val emptyMessage: String? = null,
 )
@@ -90,6 +90,7 @@ sealed interface MilkFeedingListEvent {
     data class SelectFilter(val key: String) : MilkFeedingListEvent
     data class OpenTask(val taskId: String, val feedingDate: String = "") : MilkFeedingListEvent
     data class NavigateDate(val delta: Int) : MilkFeedingListEvent
+    data class SelectDate(val date: String) : MilkFeedingListEvent
     data object Back : MilkFeedingListEvent
 }
 
@@ -104,8 +105,11 @@ fun MilkFeedingListScreen(state: MilkFeedingListUiState, onEvent: (MilkFeedingLi
         SyncStatusIndicator(state.isRefreshing, state.lastSyncedAt, state.cards.isNotEmpty(), state.isOffline, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         MilkWorkDateBar(
             state.dateLabel,
+            selectedDate = state.selectedDate,
+            isToday = state.isToday,
             onPreviousDate = { onEvent(MilkFeedingListEvent.NavigateDate(-1)) },
             onNextDate = { onEvent(MilkFeedingListEvent.NavigateDate(1)) },
+            onSelectDate = { onEvent(MilkFeedingListEvent.SelectDate(it)) },
         )
         MilkStatusChips(state.chips, state.selectedFilter) { onEvent(MilkFeedingListEvent.SelectFilter(it)) }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
