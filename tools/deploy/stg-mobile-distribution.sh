@@ -211,8 +211,11 @@ install_android_sdk() {
     return 0
   fi
   mkdir -p "$ANDROID_HOME/cmdline-tools"
-  curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip" -o /workspace/android-commandlinetools.zip
-  unzip -q /workspace/android-commandlinetools.zip -d "$ANDROID_HOME/cmdline-tools"
+  local commandline_tools_zip
+  commandline_tools_zip="$ANDROID_HOME/cmdline-tools/android-commandlinetools.zip"
+  curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip" -o "$commandline_tools_zip"
+  unzip -q "$commandline_tools_zip" -d "$ANDROID_HOME/cmdline-tools"
+  rm -f "$commandline_tools_zip"
   mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
 }
 
