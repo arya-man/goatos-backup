@@ -259,18 +259,6 @@ object AnalyticsEvents {
     /** A weighing shed reopen could not be queued. */
     const val WEIGHING_SHED_DETAIL_REOPEN_FAILED = "weighing_shed_detail_reopen_failed"
 
-    /** Leadership opened the weighing leadership videos gallery. */
-    const val WEIGHING_LEADERSHIP_VIDEO_VIEWED = "weighing_leadership_video_viewed"
-
-    /** Leadership started playing one weighing proof video. */
-    const val WEIGHING_LEADERSHIP_VIDEO_PLAY_STARTED = "weighing_leadership_video_play_started"
-
-    /** Leadership ended a bounded playback session for one weighing proof video. */
-    const val WEIGHING_LEADERSHIP_VIDEO_WATCH_SUMMARY = "weighing_leadership_video_watch_summary"
-
-    /** Leadership video playback failed before a usable review could continue. */
-    const val WEIGHING_LEADERSHIP_VIDEO_PLAYBACK_ERROR = "weighing_leadership_video_playback_error"
-
     /** Leadership opened the vaccination verification videos gallery. */
     const val VACCINATION_LEADERSHIP_VIDEO_VIEWED = "vaccination_leadership_video_viewed"
 
@@ -282,18 +270,6 @@ object AnalyticsEvents {
 
     /** Leadership vaccination video playback failed before a usable review could continue. */
     const val VACCINATION_LEADERSHIP_VIDEO_PLAYBACK_ERROR = "vaccination_leadership_video_playback_error"
-
-    /** Leadership opened the weight history chart screen. */
-    const val WEIGHT_HISTORY_VIEWED = "weight_history_viewed"
-
-    /** A weight history read failed to refresh. */
-    const val WEIGHT_HISTORY_LOAD_FAILED = "weight_history_load_failed"
-
-    /** Leadership opened the weighing growth (ADG) summary screen. */
-    const val WEIGHING_GROWTH_VIEWED = "weighing_growth_viewed"
-
-    /** A weighing growth read failed to refresh. */
-    const val WEIGHING_GROWTH_LOAD_FAILED = "weighing_growth_load_failed"
 
     /** Verifier opened a proof item detail screen that can stream evidence media. */
     const val VERIFY_ITEM_OPENED = "verify_item_opened"

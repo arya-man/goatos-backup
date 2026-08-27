@@ -2760,8 +2760,6 @@ class WeighingViewModelTest {
 
         override suspend fun appendLeadershipShed(campaignId: String, campaignShedId: String): AppResult<Int> = AppResult.Ok(0)
 
-        override suspend fun appendLeadershipVideos(): AppResult<Int> = AppResult.Ok(0)
-
         override suspend fun appendPlannerParkBuckets(
             periodStartDate: String,
             parkId: String,
@@ -2876,11 +2874,6 @@ class WeighingViewModelTest {
             campaignShedId: String,
             reset: Boolean,
         ): AppResult<Int> = AppResult.Ok(0)
-
-        override fun observeLeadershipVideos(windowSize: Int): Flow<List<WeighingLeadershipShed>> =
-            MutableStateFlow(emptyList())
-
-        override suspend fun refreshLeadershipVideos(reset: Boolean): AppResult<Int> = AppResult.Ok(0)
 
         override fun observePlannerCatalog(
             periodStartDate: String,
@@ -3114,22 +3107,6 @@ class WeighingViewModelTest {
         ): AppResult<Unit> = AppResult.Ok(Unit)
 
         override suspend fun discardEditableIndividual(scopeKey: String, scannedIdentifier: String) {}
-
-        // The weight-history read is not exercised by these tests; the fake answers empty so the
-        // interface stays satisfied without inventing chart data these assertions would then
-        // silently depend on.
-        override suspend fun fetchGrowthSummary(
-            parkId: String?,
-            from: String?,
-            to: String?,
-        ): AppResult<sg.mesha.goatos.core.network.GrowthSummaryDto> =
-            AppResult.Ok(sg.mesha.goatos.core.network.GrowthSummaryDto())
-
-        override suspend fun fetchWeightHistory(
-            parkId: String?,
-            campaignShedId: String?,
-        ): AppResult<sg.mesha.goatos.core.network.WeightHistoryResponseDto> =
-            AppResult.Ok(sg.mesha.goatos.core.network.WeightHistoryResponseDto())
     }
 
     private companion object {

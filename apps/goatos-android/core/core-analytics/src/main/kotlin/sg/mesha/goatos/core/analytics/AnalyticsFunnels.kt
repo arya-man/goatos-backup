@@ -330,62 +330,6 @@ object AnalyticsFunnels {
         )
     }
 
-    // --- Leadership weighing video playback (WeighingLeadershipVideosViewModel) ----
-
-    fun trackWeighingLeadershipVideoPlayStarted(
-        analytics: AnalyticsPort,
-        proofId: String,
-        mimeType: String,
-        durationMs: Long,
-    ) {
-        safeTrack(
-            analytics,
-            AnalyticsEvents.WEIGHING_LEADERSHIP_VIDEO_PLAY_STARTED,
-            mapOf(
-                Params.PROOF_ID to proofId,
-                Params.MIME_TYPE to mimeType,
-                Params.DURATION_MS to durationMs.toString(),
-            ),
-        )
-    }
-
-    fun trackWeighingLeadershipVideoWatchSummary(
-        analytics: AnalyticsPort,
-        proofId: String,
-        mimeType: String,
-        watchTimeMs: Long,
-        durationMs: Long,
-        positionMs: Long,
-        percentWatched: Int,
-        seekCount: Int,
-        replayCount: Int,
-        bufferingTimeMs: Long,
-    ) {
-        safeTrack(
-            analytics,
-            AnalyticsEvents.WEIGHING_LEADERSHIP_VIDEO_WATCH_SUMMARY,
-            mapOf(
-                Params.PROOF_ID to proofId,
-                Params.MIME_TYPE to mimeType,
-                Params.WATCH_TIME_MS to watchTimeMs.toString(),
-                Params.DURATION_MS to durationMs.toString(),
-                Params.POSITION_MS to positionMs.toString(),
-                Params.PERCENT_WATCHED to percentWatched.toString(),
-                Params.SEEK_COUNT to seekCount.toString(),
-                Params.REPLAY_COUNT to replayCount.toString(),
-                Params.BUFFERING_TIME_MS to bufferingTimeMs.toString(),
-            ),
-        )
-    }
-
-    fun trackWeighingLeadershipVideoPlaybackError(analytics: AnalyticsPort, proofId: String, reason: String) {
-        safeTrack(
-            analytics,
-            AnalyticsEvents.WEIGHING_LEADERSHIP_VIDEO_PLAYBACK_ERROR,
-            mapOf(Params.PROOF_ID to proofId, Params.REASON to reason),
-        )
-    }
-
     fun trackVaccinationLeadershipVideoPlayStarted(
         analytics: AnalyticsPort,
         proofId: String,

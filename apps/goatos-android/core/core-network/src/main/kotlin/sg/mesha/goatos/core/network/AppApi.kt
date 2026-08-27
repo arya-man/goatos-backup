@@ -130,7 +130,6 @@ import sg.mesha.goatos.core.network.dto.WeighingPlannerParkBucketsResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationAlertPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAlertPageResponseDto
-import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
@@ -548,15 +547,7 @@ interface AppApi {
         limit: Int = WEIGHING_PAGE_SIZE,
     ): WeighingLeadershipShedVideosResponseDto
 
-    /**
-     * GET /app/weighing/leadership/sheds — ONE keyset page of shed buckets across tasks, each with
-     * its own context and its first page of evidence. The gallery's own read: building this page
-     * client-side meant one HTTP call per bucket (~1,500 on a 76-shed park) on every resume.
-     */
-    suspend fun listWeighingLeadershipSheds(
-        cursor: String? = null,
-        limit: Int = WEIGHING_PAGE_SIZE,
-    ): WeighingLeadershipShedPageResponseDto
+
 
     /**
      * GET /app/weighing/alerts — the weighing module's OWN lifecycle feed: work assigned, shed
@@ -664,8 +655,7 @@ interface AppApi {
      */
     suspend fun exportWeighingCampaignCsv(campaignId: String): ByteArray
 
-    /** Leadership growth (ADG). parkId null = every park the caller may see. */
-    suspend fun getWeighingGrowth(parkId: String?, from: String?, to: String?): GrowthSummaryDto
+
 
     /** POST /admin/tasks/{task_id}/verify — leadership verify action on a record task (C35-011).
      *  Idempotent via [idempotencyKey]. The outbox drains this like submitAppTask. */
@@ -1443,12 +1433,6 @@ interface AppApi {
         idempotencyKey: String,
         request: HealthCompleteRequestDto,
     ): HealthCompleteResponseDto
-    /**
-     * GET /app/weighing/weight-history — fetch weight history data for charting.
-     * [parkId]/[campaignShedId] narrow the result server-side (handler.go `GetWeightHistory`).
-     * Both null = every park/shed the caller may see, matching the unfiltered gallery view.
-     */
-    suspend fun getWeightHistory(parkId: String? = null, campaignShedId: String? = null): WeightHistoryResponseDto
 }
 
 /**
@@ -1649,11 +1633,6 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         limit: Int,
     ): WeighingLeadershipShedVideosResponseDto = WeighingLeadershipShedVideosResponseDto()
 
-    override suspend fun listWeighingLeadershipSheds(
-        cursor: String?,
-        limit: Int,
-    ): WeighingLeadershipShedPageResponseDto = WeighingLeadershipShedPageResponseDto()
-
     override suspend fun listWeighingAlerts(
         cursor: String?,
         limit: Int,
@@ -1722,9 +1701,6 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     ) = Unit
 
     override suspend fun exportWeighingCampaignCsv(campaignId: String): ByteArray = ByteArray(0)
-
-    override suspend fun getWeighingGrowth(parkId: String?, from: String?, to: String?): GrowthSummaryDto =
-        GrowthSummaryDto()
 
     override suspend fun verifyAppTask(
         taskId: String,
@@ -2162,15 +2138,6 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         healthSessionId = healthSessionId,
         status = "completed",
     )
-    override suspend fun getWeightHistory(parkId: String?, campaignShedId: String?): WeightHistoryResponseDto =
-        WeightHistoryResponseDto(
-            parks = emptyList(),
-            sheds = emptyList(),
-            series = emptyList(),
-            truncated = false,
-            capped_at = null,
-        )
-
 	    override suspend fun getPcCareWorklist(
 	        category: String,
 	        date: String,

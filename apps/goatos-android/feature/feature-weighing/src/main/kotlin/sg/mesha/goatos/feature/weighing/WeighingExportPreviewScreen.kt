@@ -381,7 +381,7 @@ private fun WeighingExportPreviewTable(state: WeighingExportPreviewUiState) {
 
 /** Search-by-shed-name field, styled like the rest of this screen's chips rather than a system
  *  text field -- there is no shared searchable-picker component exported from this module (see
- *  WeightHistoryChartScreen's FilterSelectorRow/SearchablePickerDialog for the sibling idiom this
+ *  the retired Weights page's FilterSelectorRow/SearchablePickerDialog for the sibling idiom this
  *  copies: a search box that narrows a long list instead of a chip row). A shed list is filtered
  *  in place here rather than behind a picker sheet because the LazyColumn IS the picker -- there is
  *  no second surface to open. */

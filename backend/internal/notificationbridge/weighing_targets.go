@@ -11,15 +11,17 @@ import "strings"
 // already knows exactly which task and which bucket it is about, so it can name it.
 //
 // The three shapes below are the ones the Android build actually hosts as push destinations
-// (Routes.WEIGHING_TASK / WEIGHING_SHED / WEIGHING_VIDEOS in pushTargetDestinations, parsed by
+// (Routes.WEIGHING_TASK / WEIGHING_SHED / WEIGHING_ALERTS in pushTargetDestinations, parsed by
 // pushTargetRoute); emitting anything else would fall through to the recipient's own landing and
 // reproduce the defect. Query-parameter names are the app's nav argument names -- `campaignId`
 // and `campaignShedId` -- and are the contract this file shares with it.
 const (
 	weighingModuleTarget = "/weighing"
-	// weighingEvidenceTarget is leadership's read-only proof gallery. Used when the push is about
-	// verification evidence but carries no campaign/bucket identity to drill into.
-	weighingEvidenceTarget = "/weighing/videos"
+	// weighingEvidenceTarget is where a proof-shaped push without campaign/bucket identity lands.
+	// It used to be the leadership proof gallery (/weighing/videos), which was retired from
+	// mobile on 2026-08-28; the module's own alerts feed is the surviving surface that lists
+	// what these pushes announce.
+	weighingEvidenceTarget = "/weighing/alerts"
 )
 
 // weighingTaskTarget deep-links ONE weighing task (one park on one weigh date), which is the unit

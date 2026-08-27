@@ -209,7 +209,6 @@ class WeighingRouteIdentityTest {
             "../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt",
             "../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingOperatorsScreen.kt",
             "../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingTaskDetailScreen.kt",
-            "../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/leadership/WeighingLeadershipVideosScreen.kt",
         )
 
         files.forEach { file ->
@@ -238,18 +237,6 @@ class WeighingRouteIdentityTest {
         val viewModel = Path.of("src/main/kotlin/sg/mesha/goatos/viewmodel/WeighingViewModel.kt").readText()
         assertTrue(viewModel.contains("assignmentIdentityKey()"))
         assertFalse(viewModel.contains("known = assignments.value.map { it.campaignShedId }.toSet()"))
-
-        val leadershipViewModel =
-            Path.of("src/main/kotlin/sg/mesha/goatos/viewmodel/WeighingLeadershipVideosViewModel.kt").readText()
-        assertTrue(
-            "leadership gallery keys must use the stable shedKey carried from Room/backend",
-            leadershipViewModel.contains("listOf(shedKey, category, periodLabel, status)"),
-        )
-        assertFalse(
-            "leadership gallery keys must not pad identity with row position",
-            leadershipViewModel.contains("leadershipVideosIdentityKey(index") ||
-                leadershipViewModel.contains("mapIndexed(::toUi)"),
-        )
     }
 
     @Test

@@ -44,7 +44,6 @@ import sg.mesha.goatos.core.network.dto.WeighingPlannerOperatorDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerParkDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerShedDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
-import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationDto
@@ -112,69 +111,6 @@ class WeighingRepositoryTest {
         val after = repository.observeScope(scopeKey, windowSize = 20).first()
         assertEquals(20, after.rosterWindow.size)
         assertEquals(listOf("TAG-5001"), after.individualDrafts.map { it.scannedIdentifier })
-    }
-
-    @Test
-    fun `leadership videos map individual animals and lump sum summaries`() = runTest {
-        // ONE request at BUCKET grain. The gallery used to build this page itself by expanding a
-        // task page and calling the single-bucket read once per bucket.
-        val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingLeadershipSheds(cursor: String?, limit: Int) =
-                WeighingLeadershipShedPageResponseDto(
-                    items = listOf(
-                        WeighingLeadershipShedVideosDto(
-                            campaignId = "campaign",
-                            campaignShedId = "individual",
-                            shedName = "Gandhi 1",
-                            weighingCategory = "individual_animal",
-                            status = "completed",
-                            periodLabel = "2026-07-27 - 2026-08-02",
-                            individual = listOf(
-                                WeighingObservationDto(
-                                    scannedIdentifier = "RFID-000123",
-                                    weightKg = 18.25,
-                                    acceptedAt = "2026-07-29T06:00:00Z",
-                                    media = listOf(WeighingProofMediaDto("proof-1", "https://proof/1")),
-                                ),
-                            ),
-                        ),
-                        WeighingLeadershipShedVideosDto(
-                            campaignId = "campaign",
-                            campaignShedId = "lump",
-                            shedName = "Castro 1",
-                            weighingCategory = "per_shed_partition",
-                            status = "completed",
-                            periodLabel = "2026-07-27 - 2026-08-02",
-                            lumpSum = WeighingObservationDto(
-                                weightKg = 250.0,
-                                averageWeightKg = 25.0,
-                                animalCount = 10,
-                                media = listOf(
-                                    WeighingProofMediaDto("proof-2", "https://proof/2"),
-                                    WeighingProofMediaDto("proof-3", "https://proof/3"),
-                                ),
-                            ),
-                        ),
-                    ),
-                )
-        }
-        val subject = DefaultWeighingRepository(
-            api = api,
-            rosterDao = db.weighingRosterDao(),
-            observationDao = db.weighingObservationDao(),
-            shedObservationDao = db.weighingShedObservationDao(),
-            database = db,
-        )
-
-        subject.refreshLeadershipVideos()
-        val items = subject.observeLeadershipVideos().first()
-
-        assertEquals("RFID-000123", items[0].animals.single().rfid)
-        assertEquals(18.25, items[0].animals.single().weightKg, 0.0)
-        assertEquals(10, items[1].animalCount)
-        assertEquals(250.0, items[1].totalWeightKg!!, 0.0)
-        assertEquals(25.0, items[1].averageWeightKg!!, 0.0)
-        assertEquals(2, items[1].videos.size)
     }
 
     // FREE-FLOW: the scope read has no expected-animal roster to hydrate -- `items` is permanently
@@ -809,58 +745,6 @@ class WeighingRepositoryTest {
         val repeatedCursorPage = (repository.listAssignments("cursor-stuck") as AppResult.Ok).value
         assertEquals(null, repeatedCursorPage.nextCursor)
         assertEquals(listOf(null, "cursor-stuck"), requested)
-    }
-
-    @Test
-    fun `leadership video pages follow the backend cursor across two distinct pages`() = runTest {
-        val requested = mutableListOf<String?>()
-        val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingLeadershipSheds(
-                cursor: String?,
-                limit: Int,
-            ): WeighingLeadershipShedPageResponseDto {
-                requested += cursor
-                val suffix = if (cursor == null) "p1" else "p2"
-                return WeighingLeadershipShedPageResponseDto(
-                    items = listOf(
-                        WeighingLeadershipShedVideosDto(
-                            campaignId = "campaign",
-                            campaignShedId = "shed-$suffix",
-                            shedName = "Gandhi $suffix",
-                            weighingCategory = "individual_animal",
-                            status = "completed",
-                            periodLabel = "2026-07-27 - 2026-08-02",
-                            individual = listOf(
-                                WeighingObservationDto(
-                                    scannedIdentifier = "RFID-shed-$suffix",
-                                    weightKg = 18.25,
-                                    acceptedAt = "2026-07-29T06:00:00Z",
-                                    media = listOf(WeighingProofMediaDto("proof-$suffix", "https://proof/$suffix")),
-                                ),
-                            ),
-                        ),
-                    ),
-                    nextCursor = if (cursor == null) "cursor-page-2" else null,
-                )
-            }
-        }
-        repository = DefaultWeighingRepository(
-            api = api,
-            rosterDao = db.weighingRosterDao(),
-            observationDao = db.weighingObservationDao(),
-            shedObservationDao = db.weighingShedObservationDao(),
-            database = db,
-        )
-
-        repository.refreshLeadershipVideos()
-        assertEquals(listOf("shed-p1"), repository.observeLeadershipVideos().first().map { it.campaignShedId })
-
-        repository.refreshLeadershipVideos(reset = false)
-        assertEquals(
-            listOf("shed-p1", "shed-p2"),
-            repository.observeLeadershipVideos().first().map { it.campaignShedId },
-        )
-        assertEquals(listOf(null, "cursor-page-2"), requested)
     }
 
     @Test

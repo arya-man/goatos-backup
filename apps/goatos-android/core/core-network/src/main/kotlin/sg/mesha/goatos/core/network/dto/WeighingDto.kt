@@ -454,21 +454,6 @@ data class WeighingLeadershipShedVideosDto(
     @SerialName("period_label") val periodLabel: String = "",
 )
 
-/**
- * One keyset page of shed buckets across tasks (`GET /app/weighing/leadership/sheds`) — the
- * leadership gallery read.
- *
- * Each item carries its own context AND its first page of evidence, so the gallery is ONE request.
- * It replaced a client fan-out that expanded a task page into every embedded bucket and then called
- * the single-bucket read once per bucket.
- */
-@Serializable
-data class WeighingLeadershipShedPageResponseDto(
-    @SerialName("items") val items: List<WeighingLeadershipShedVideosDto> = emptyList(),
-    @SerialName("next_cursor") val nextCursor: String? = null,
-    @SerialName("trace_id") val traceId: String? = null,
-)
-
 @Serializable
 data class WeighingLeadershipShedVideosResponseDto(
     @SerialName("shed") val shed: WeighingLeadershipShedVideosDto = WeighingLeadershipShedVideosDto(),

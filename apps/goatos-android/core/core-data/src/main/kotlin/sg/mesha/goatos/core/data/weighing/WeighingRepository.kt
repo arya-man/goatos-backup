@@ -6,8 +6,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.map
@@ -30,7 +28,6 @@ import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.appApiStatusCode
 import sg.mesha.goatos.core.network.userFacingMessage
-import sg.mesha.goatos.core.network.WeightHistoryResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAcceptedObservationDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
@@ -640,15 +637,6 @@ interface WeighingRepository {
     /** Appends the next page of records for a shed using the stored cursor. */
     suspend fun appendLeadershipShed(campaignId: String, campaignShedId: String): AppResult<Int>
 
-    /** The leadership videos gallery from Room, as a BOUNDED window of shed buckets. */
-    fun observeLeadershipVideos(windowSize: Int = WEIGHING_LEADERSHIP_PAGE_SIZE): Flow<List<WeighingLeadershipShed>>
-
-    /** Fetches ONE page of the videos gallery — one task page, then each of its buckets. */
-    suspend fun refreshLeadershipVideos(reset: Boolean = true): AppResult<Int>
-
-    /** Appends the next page of videos gallery using the stored cursor. */
-    suspend fun appendLeadershipVideos(): AppResult<Int>
-
     /**
      * The PARK-grain planner catalog from Room: EVERY park the planner may use on that date.
      *
@@ -770,19 +758,6 @@ interface WeighingRepository {
         campaignId: String,
         reason: String = "",
     ): AppResult<Unit>
-    /** [parkId]/[campaignShedId] narrow the query server-side (both null = the caller's full
-     *  authorized scope) — see `AppApi.getWeightHistory`. */
-    suspend fun fetchWeightHistory(
-        parkId: String? = null,
-        campaignShedId: String? = null,
-    ): AppResult<sg.mesha.goatos.core.network.WeightHistoryResponseDto>
-
-    /** Leadership growth (ADG). parkId null = every park the caller may see. */
-    suspend fun fetchGrowthSummary(
-        parkId: String?,
-        from: String?,
-        to: String?,
-    ): AppResult<sg.mesha.goatos.core.network.GrowthSummaryDto>
 }
 
 class DefaultWeighingRepository(
@@ -1346,133 +1321,6 @@ class DefaultWeighingRepository(
             }
             AppResult.Ok(response.individual.size)
         }.getOrElse { AppResult.Err(it.userFacingMessage("Could not fetch the next records for this shed.")) }
-    }
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    override fun observeLeadershipVideos(windowSize: Int): Flow<List<WeighingLeadershipShed>> {
-        val sheds = leadershipShedDao ?: return kotlinx.coroutines.flow.flowOf(emptyList())
-        val records = leadershipRecordDao ?: return kotlinx.coroutines.flow.flowOf(emptyList())
-        val bounded = windowSize.coerceIn(1, WEIGHING_LEADERSHIP_MAX_WINDOW)
-        return sheds.observeGalleryWindow(WEIGHING_VIDEOS_QUERY_KEY, bounded)
-            .flatMapLatest { rows ->
-                val shedKeys = rows.map { it.shedKey }
-                if (shedKeys.isEmpty()) {
-                    kotlinx.coroutines.flow.flowOf(emptyList())
-                } else {
-                    // The gallery renders an individual bucket's captured animals, so it needs the
-                    // SAME cached records the shed detail reads -- bounded PER SHED to one page,
-                    // never one unbounded read across the whole gallery page.
-                    records.observeWindowForSheds(shedKeys, WEIGHING_LEADERSHIP_PAGE_SIZE)
-                        .map { cached ->
-                            val byShed = cached.groupBy { it.shedKey }
-                            rows.map { it.toLeadershipShed(byShed[it.shedKey].orEmpty(), cacheJson) }
-                        }
-                }
-            }.flowOn(Dispatchers.Default)
-    }
-
-    override suspend fun refreshLeadershipVideos(reset: Boolean): AppResult<Int> = withContext(Dispatchers.IO) {
-        val client = api ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val db = database ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val sheds = leadershipShedDao ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val keys = galleryKeyDao ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val cursor = if (reset) null else keys.get(WEIGHING_VIDEOS_QUERY_KEY)?.takeIf { !it.endReached }
-            ?.nextCursor?.takeIf { it.isNotBlank() }
-            ?: return@withContext AppResult.Ok(0)
-        runCatching {
-            // ONE request for the whole page. This used to fetch a page of TASKS, expand every
-            // embedded bucket, and then call the single-bucket read once per bucket -- about 1,500
-            // sequential round trips on a 76-shed park, on every RefreshOnResume. A per-call limit
-            // bounds each response, not the number of calls; only a page at BUCKET grain does.
-            val response = client.listWeighingLeadershipSheds(
-                cursor = cursor,
-                limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
-            )
-            val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
-            val now = clock()
-            db.withTransaction {
-                val startIndex = if (reset) {
-                    // Clears MEMBERSHIP only: a bucket also opened on its own detail screen keeps
-                    // its cached context and its records.
-                    sheds.clearGallery(WEIGHING_VIDEOS_QUERY_KEY)
-                    0
-                } else {
-                    sheds.nextGallerySortIndex(WEIGHING_VIDEOS_QUERY_KEY)
-                }
-                response.items.forEachIndexed { index, dto ->
-                    writeLeadershipShedPage(
-                        shedKey = weighingShedKey(dto.campaignId, dto.campaignShedId),
-                        dto = dto,
-                        clearRecords = false,
-                        periodLabel = dto.periodLabel,
-                        galleryQueryKey = WEIGHING_VIDEOS_QUERY_KEY,
-                        gallerySortIndex = startIndex + index,
-                        keepDeeperRecords = true,
-                    )
-                }
-                keys.upsert(
-                    WeighingLeadershipGalleryRemoteKeyEntity(
-                        queryKey = WEIGHING_VIDEOS_QUERY_KEY,
-                        nextCursor = nextCursor,
-                        endReached = nextCursor.isNullOrBlank(),
-                        updatedAt = now,
-                    ),
-                )
-                if (reset) {
-                    // All three tables are bounded together. Pruning only the bucket rows left the
-                    // records of every evicted bucket behind forever -- the reads were bounded, the
-                    // writes were not.
-                    sheds.pruneOutsideNewest(WEIGHING_CACHED_SHEDS)
-                    leadershipRecordDao?.pruneOrphans()
-                    leadershipRecordKeyDao?.pruneOrphans()
-                }
-            }
-            AppResult.Ok(response.items.size)
-        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing videos.")) }
-    }
-
-    override suspend fun appendLeadershipVideos(): AppResult<Int> = withContext(Dispatchers.IO) {
-        val client = api ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val db = database ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val sheds = leadershipShedDao ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val keys = galleryKeyDao ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val cursor = keys.get(WEIGHING_VIDEOS_QUERY_KEY)?.nextCursor?.takeIf { it.isNotBlank() }
-            ?: return@withContext AppResult.Ok(0)
-        runCatching {
-            val response = client.listWeighingLeadershipSheds(
-                cursor = cursor,
-                limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
-            )
-            val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
-            val now = clock()
-            db.withTransaction {
-                val startIndex = sheds.nextGallerySortIndex(WEIGHING_VIDEOS_QUERY_KEY)
-                response.items.forEachIndexed { index, dto ->
-                    writeLeadershipShedPage(
-                        shedKey = weighingShedKey(dto.campaignId, dto.campaignShedId),
-                        dto = dto,
-                        clearRecords = false,
-                        periodLabel = dto.periodLabel,
-                        galleryQueryKey = WEIGHING_VIDEOS_QUERY_KEY,
-                        gallerySortIndex = startIndex + index,
-                        keepDeeperRecords = true,
-                    )
-                }
-                keys.upsert(
-                    WeighingLeadershipGalleryRemoteKeyEntity(
-                        queryKey = WEIGHING_VIDEOS_QUERY_KEY,
-                        nextCursor = nextCursor,
-                        endReached = nextCursor.isNullOrBlank(),
-                        updatedAt = now,
-                    ),
-                )
-                // Prune overflow without clearing the query since we're appending, not resetting
-                sheds.pruneOutsideNewest(WEIGHING_CACHED_SHEDS)
-                leadershipRecordDao?.pruneOrphans()
-                leadershipRecordKeyDao?.pruneOrphans()
-            }
-            AppResult.Ok(response.items.size)
-        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not fetch the next weighing videos.")) }
     }
 
     override fun observePlannerCatalog(periodStartDate: String): Flow<WeighingPlannerCatalogCache> {
@@ -2144,34 +1992,6 @@ class DefaultWeighingRepository(
             }
         }
 
-    override suspend fun fetchWeightHistory(
-        parkId: String?,
-        campaignShedId: String?,
-    ): AppResult<WeightHistoryResponseDto> =
-        withContext(Dispatchers.IO) {
-            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
-            try {
-                val response = service.getWeightHistory(parkId = parkId, campaignShedId = campaignShedId)
-                AppResult.Ok(response)
-            } catch (error: Throwable) {
-                AppResult.Err(error.userFacingMessage("Couldn't fetch weight history."), error)
-            }
-        }
-
-    override suspend fun fetchGrowthSummary(
-        parkId: String?,
-        from: String?,
-        to: String?,
-    ): AppResult<sg.mesha.goatos.core.network.GrowthSummaryDto> =
-        withContext(Dispatchers.IO) {
-            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
-            try {
-                AppResult.Ok(service.getWeighingGrowth(parkId, from, to))
-            } catch (error: Throwable) {
-                AppResult.Err(error.userFacingMessage("Couldn't fetch growth."), error)
-            }
-        }
-
     override suspend fun recordIndividual(capture: IndividualWeighingCapture): AppResult<IndividualWeighingDraft> =
         withContext(Dispatchers.IO) {
             if (capture.weightKg <= 0.0) return@withContext AppResult.Err("Weight must be greater than 0 kg.")
@@ -2635,9 +2455,6 @@ private const val WEIGHING_CACHED_TRANSITION_SCOPES = 50
  * the read, it is NOT a page size, and there is no park cursor behind it.
  */
 private const val WEIGHING_MAX_PLANNER_PARKS = 100
-
-/** The one query key the leadership videos gallery pages under. */
-private const val WEIGHING_VIDEOS_QUERY_KEY = "weighing-videos"
 
 /** Two filters are two independent keyset streams and must never interleave in one cache scope. */
 private fun taskListQueryKey(scope: String, parkId: String?): String =
