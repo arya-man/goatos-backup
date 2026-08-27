@@ -1,5 +1,19 @@
 # Goat OS Workspace Agent Context
 
+## PR Review + Land Main Rule
+
+When the maintainer asks to review a GitHub PR and land main, the task is not
+done after pushing the certified commit to `origin/main`. After local CI passes
+and `make land-main` lands the commit, also resolve the GitHub PR itself:
+
+1. Verify the PR head branch and `origin/main` both point at the landed SHA, or
+   merge the PR through GitHub if it is still mergeable and not already landed.
+2. If the PR branch is stale but the exact PR content is already in `main`,
+   update the PR head branch to the landed SHA so GitHub closes the PR as
+   resolved.
+3. Report the PR state separately from the main SHA. If GitHub cannot mark it
+   "Merged" because the branch already equals `main`, say that explicitly.
+
 ## Ravi Laptop Default: OCI DB, Not Local Docker Postgres
 
 On Ravi's laptop, default local Goat OS backend/admin-web development to the OCI
