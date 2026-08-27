@@ -608,7 +608,10 @@ func candidateModuleKeysFrom(grants []domain.GrantSummary, grantedModules []stri
 		}
 		return normalized
 	}
-	if !isLeadershipPrincipal(grants) {
+	// fromTicks: the person's own rows ARE the offer, for leadership too (maintainer decision
+	// 2026-08-28). Neither the department nor the curated leadership drawer decides what
+	// anyone sees any more.
+	if fromTicks || !isLeadershipPrincipal(grants) {
 		return grantedModules
 	}
 	return leadershipModuleKeys(grants)
