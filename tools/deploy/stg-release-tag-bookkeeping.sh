@@ -26,7 +26,7 @@ else
 fi
 if [[ -z "$commit_sha" ]]; then
   echo "release-tag-bookkeeping: COMMIT_SHA is required when running outside a Git worktree; skipping"
-  notify_reason="STG deploy succeeded, but release-tag bookkeeping did not receive COMMIT_SHA. STG remains deployed; deploy status is green."
+  notify_reason="Backend/web deploy succeeded, but release-tag bookkeeping did not receive COMMIT_SHA. Backend/web remains deployed; deploy status is green."
 fi
 release_id="${RELEASE_ID:-}"
 build_id="${BUILD_ID:-local}"
@@ -129,8 +129,8 @@ if [[ -z "${notify_reason:-}" && -n "$pat" ]] && (
   echo "release-tag-bookkeeping: release tag recorded for $commit_sha"
   notify_slack_final \
     "#2EB67D" \
-    "Goat OS STG release bookkeeping completed" \
-    "Release tag bookkeeping completed for the verified STG rollout."
+    "GoatOS release bookkeeping completed" \
+    "Release tag bookkeeping completed for the verified backend/web rollout."
   if [[ "$DEPLOY_MOBILE" != "true" ]]; then
     post_deploy_panel
   fi
@@ -141,11 +141,11 @@ echo "release-tag-bookkeeping: dirty status in deploy workspace, if any:"
 git status --porcelain --untracked-files=all 2>/dev/null || true
 echo "release-tag-bookkeeping: dirty status in clean tag checkout, if any:"
 git -C "$tag_checkout" status --porcelain --untracked-files=all 2>/dev/null || true
-echo "release-tag-bookkeeping: ${notify_reason:-release tag failed after verified STG rollout; STG remains deployed.}"
+echo "release-tag-bookkeeping: ${notify_reason:-release tag failed after verified backend/web rollout; backend/web remains deployed.}"
 notify_slack_final \
   "#ECB22E" \
-  "Goat OS STG release bookkeeping warning" \
-  "${notify_reason:-Release-tag bookkeeping failed after verified STG rollout. STG remains deployed; deploy status is green.}"
+  "GoatOS release bookkeeping warning" \
+  "${notify_reason:-Release-tag bookkeeping failed after verified backend/web rollout. Backend/web remains deployed; deploy status is green.}"
 if [[ "$DEPLOY_MOBILE" != "true" ]]; then
   post_deploy_panel
 fi

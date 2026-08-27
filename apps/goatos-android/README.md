@@ -46,7 +46,23 @@ cd apps/goatos-android
 
 `local.properties` (git-ignored) must point at the SDK: `sdk.dir=/path/to/Android/sdk`.
 
-## Staging Firebase Upload
+## Production-Facing Firebase Setup
+
+The production-facing Android app package is `sg.mesha.goatos`, with:
+
+```text
+API_BASE_URL=https://api.goatos.mesha.sg/
+AUTH_ACTION_CONTINUE_URL=https://dashboard.mesha.sg/login
+```
+
+For the current cleanup path, add package `sg.mesha.goatos` to the existing
+`goatos-stg` Firebase project and download that app's `google-services.json` to
+`app/src/prod/google-services.json`. Public package names, URLs, release notes,
+and app-version text must not include `stg`; the Firebase project id may remain
+`goatos-stg` internally for Auth/FCM until a separate production Firebase project
+is created.
+
+## Legacy Staging Firebase Upload
 
 Do not guess or ask for the Android staging release placeholders in chat. The
 stg signing material is intentionally outside Git and must be restored from the

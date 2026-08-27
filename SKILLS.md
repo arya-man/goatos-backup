@@ -21,6 +21,17 @@ Claude discovers the same skill through a symlink:
 
 Do not hand-maintain two copies. `.agents/skills/goatos-build/` is the source.
 
+STG billing recovery / Cloud Run 429:
+
+```text
+docs/runbooks/stg-cloud-run-billing-recovery.md
+```
+
+Load this before touching code when STG shows Google Frontend `429 Rate
+exceeded` after a paid/restored bill. The required closeout is Cloud Billing
+verification, Cloud Run readiness in `asia-south1`, `goatos-api-stg`
+min/max `2/2`, terminal curls, and live Chrome verification.
+
 ## Code Review Skill
 
 Use the Goat OS code-review skill to **review or audit** a change (diff, branch,
@@ -321,6 +332,20 @@ cannot close while verification is pending, and if it will not close the answer
 is to resolve the verification, never to add a path around the gate. See
 `AGENTS.md` → "Weighing vocabulary" and
 `context/repo-audits/weighing-implementation-do-not-reopen-ledger.md` → D-5.
+
+## Production-Facing Naming
+
+The current public/operator-facing Goat OS path reuses the existing
+`goatos-stg` Google/Firebase project internally. Agents must not expose staging
+names in public app config, release labels, dashboard URLs, API URLs, or operator
+instructions unless the request is explicitly about historical staging. Use:
+
+- Android package `sg.mesha.goatos`
+- Dashboard `https://dashboard.mesha.sg`
+- API `https://api.goatos.mesha.sg/`
+
+Firebase Auth issuer/audience can remain `goatos-stg` while that existing
+Firebase project is reused; that is internal plumbing.
 
 ## STG Deploy Routing
 

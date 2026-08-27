@@ -14,9 +14,9 @@ google-services.json is missing.` The files below are force-committed
 |---|---|---|---|
 | `stg` | `app/src/stg/google-services.json` | **Real staging config** for package `sg.mesha.goatos.stg` | `goatos-stg` |
 | `dev` | `app/src/dev/google-services.json` | **Placeholder** — schema-valid, fake ids (force-committed so `assembleDevDebug` / `android-dev-run` works) | not confirmed |
-| `prod` | `app/src/prod/google-services.json` | Not created — prod is never compiled by CI or `android-dev-run` | not confirmed |
+| `prod` | `app/src/prod/google-services.json` | **Real production-facing config** for package `sg.mesha.goatos`; Firebase/GCP project id still remains `goatos-stg` for this reused-project path | `goatos-stg` |
 
-## stg: real Firebase config
+## stg: historical staging flavor config
 
 `app/src/stg/google-services.json` is the real, non-secret Firebase Android client config for
 the `goatos-stg` project and package `sg.mesha.goatos.stg`. It must match the Firebase Android
@@ -34,6 +34,13 @@ Dashboard/Auth continue URL = https://stg.dashboard.mesha.sg/login
 external managed HTTPS load balancer IP. The load balancer routes that host to `goatos-api-stg`;
 `stg.dashboard.mesha.sg` remains the admin web host.
 
+The production-facing release path does not use those public staging hosts. Its `prod` flavor uses:
+
+```text
+BuildConfig.API_BASE_URL = https://api.goatos.mesha.sg/
+Dashboard/Auth continue URL = https://dashboard.mesha.sg/login
+```
+
 ## dev / prod — placeholders, not invented project ids
 
 No Firebase Android app was found registered for `dev` or `prod` anywhere in this repo (no
@@ -48,15 +55,18 @@ Gradle plugin can process it without failing the build) but with obviously-fake 
 (`000000000000`, `goatos-placeholder`). It lets `dev` assemble cleanly today (`make
 android-dev-run` → `:app:assembleDevDebug`) — `BuildConfig.TELEMETRY_ENABLED` is `false` for
 `dev` by default (see `app/build.gradle.kts`), so the app never depends on these fake
-credentials actually working. `prod` has no placeholder committed — nothing in CI or the dev
-scripts compiles the `prod` flavor today, so `app/src/prod/google-services.json` is left for
-whoever actually wires a real `goatos-prod` Firebase project to create together with that work.
+credentials actually working. For the current production-facing cleanup path, `prod` is the real
+public app package (`sg.mesha.goatos`) added to the existing `goatos-stg` Firebase project. Keep
+`app/src/prod/google-services.json` provisioned from Firebase and force-add it when committing,
+because the generated file path is gitignored. That keeps the public app package and URLs free of
+`stg`; Firebase Auth still uses `goatos-stg` issuer/audience internally.
 
 **Before turning `TELEMETRY_ENABLED` on for `dev`, or building `prod`:**
-1. Confirm (or create) the matching Firebase project in the `vgoats.com` GCP organization —
-   Goat OS is Mesha/VGoats-owned, never Heva/Slice (see workspace org-boundary rules).
+1. Confirm the Firebase project in the `vgoats.com` GCP organization — Goat OS is
+   Mesha/VGoats-owned, never Heva/Slice (see workspace org-boundary rules).
 2. Register an Android app in that Firebase project with package name `sg.mesha.goatos.dev`
-   (dev) or `sg.mesha.goatos` (prod).
+   (dev) or `sg.mesha.goatos` (prod). For the current path, prod can be added to the existing
+   `goatos-stg` Firebase project.
 3. Download the real `google-services.json` from the Firebase console and REPLACE the
    placeholder file at the matching path (`git add -f` again, since the path is gitignored) —
    do not hand-edit the placeholder's fake values.

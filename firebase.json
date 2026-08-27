@@ -2,7 +2,7 @@
   "auth": {
     "providers": {
       "googleSignIn": {
-        "oAuthBrandDisplayName": "Goat OS Dev",
+        "oAuthBrandDisplayName": "GoatOS",
         "supportEmail": "ravi@mesha.sg"
       }
     }

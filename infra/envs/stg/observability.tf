@@ -387,7 +387,7 @@ resource "google_cloud_run_v2_service_iam_member" "grafana_operator_invoker" {
 #
 # SECURITY NOTE: This service runs with INGRESS_TRAFFIC_ALL + allUsers run.invoker,
 # making the faro.receiver RUM endpoint publicly accessible. Mitigations:
-#   1. faro.receiver CORS is restricted to https://stg.dashboard.mesha.sg in
+#   1. faro.receiver CORS is restricted to https://dashboard.mesha.sg in
 #      alloy-config.alloy to reject browsers outside that origin.
 #   2. Cloud Armor rate limiting (required future work) at the Cloud Run LB level
 #      to defend against flooding attacks. See docs/observability/INFRA.md.

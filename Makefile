@@ -1169,7 +1169,7 @@ verify-stg-9-person-login:
 # passwords for 4 leadership + 4 field users + Jyothi, while leaving Google SSO
 # linked for leadership users.
 GOATOS_STG_FIREBASE_PROJECT ?= goatos-stg
-GOATOS_STG_AUTH_CONTINUE_URL ?= https://stg.dashboard.mesha.sg/login
+GOATOS_STG_AUTH_CONTINUE_URL ?= https://dashboard.mesha.sg/login
 seed-stg-firebase-password-users:
 	@if [ "$${GOATOS_ENV:-}" != "stg" ]; then \
 		echo "seed-stg-firebase-password-users: GOATOS_ENV must be stg"; \

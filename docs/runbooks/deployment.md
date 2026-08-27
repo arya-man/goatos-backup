@@ -8,6 +8,24 @@ the correct organization.
 
 Read the org boundary first: `docs/runbooks/google-cloud-environments.md`.
 
+## Current production-facing naming decision
+
+The current public/operator-facing cleanup reuses the existing `goatos-stg`
+Google/Firebase project internally, but public surfaces must use production
+names:
+
+```text
+Android package: sg.mesha.goatos
+Dashboard:       https://dashboard.mesha.sg
+API:             https://api.goatos.mesha.sg/
+Firebase Auth:   goatos-stg issuer/audience internally while this project is reused
+```
+
+Do not call the public app, dashboard, release notes, APK filenames, or API URLs
+`stg` unless the section is explicitly describing legacy staging operations.
+Historical staging runbook sections remain valid for old deployment mechanics
+and internal project references.
+
 ## Org / project guardrail (run before ANY cloud command)
 
 Goat OS cloud work targets the Mesha/VGoats organization only.
@@ -122,11 +140,12 @@ Detailed runbook:      docs/runbooks/cloud-deploy-staging.md
 Default trigger:       Slack #goatos-stg-deploy -> Cloud Build goatos-stg-deploy-main
 ```
 
-Staging releases are the unit of change. A release carries the backend,
-migration, and admin-web images for one commit. Cloud Deploy runs the migration
-job first, then updates API, backend worker jobs, and admin-web, then verifies
-image skew and smokes `/livez`, `/readyz`, and
-`https://stg.dashboard.mesha.sg/login`.
+Staging-backed releases are the unit of change while `goatos-stg` remains the
+internal project. A release carries the backend, migration, and admin-web images
+for one commit. Cloud Deploy runs the migration job first, then updates API,
+backend worker jobs, and admin-web, then verifies image skew and smokes
+`/livez`, `/readyz`, `https://api.goatos.mesha.sg/app/bootstrap`, and
+`https://dashboard.mesha.sg/login`.
 
 Do not update staging Cloud Run services or jobs directly from GitHub Actions
 or a local shell except as documented break-glass. Direct updates are how staging
@@ -149,39 +168,39 @@ Terminal success, failure, and release-bookkeeping warning cards include the
 next deploy controls directly, so the bottom-most relevant deploy message is
 always the one to use next.
 
-The panel has two actions. `Deploy main to STG` runs Cloud Deploy, optionally
-followed by Android when the mobile checkbox is selected. `Distribute Android
-only` skips Cloud Deploy and publishes the Android STG release only. The bot
-allows only one active deployment at a time: Android-only, STG-only, and
-STG+mobile all block each other while Cloud Build is queued or working. During
-that time, clicking the panel replaces it with an "already running" status card
-and Cloud Build / Cloud Deploy links; the deploy buttons return only after the
-running build posts success or failure.
+The panel has two actions. `Deploy backend/web` runs the existing Cloud Deploy
+pipeline, optionally followed by Android when the mobile checkbox is selected.
+`Distribute Android only` skips Cloud Deploy and publishes the GoatOS Android
+release only. The bot allows only one active deployment at a time: Android-only,
+backend/web-only, and backend/web+mobile all block each other while Cloud Build
+is queued or working. During that time, clicking the panel replaces it with an
+"already running" status card and Cloud Build / Cloud Deploy links; the deploy
+buttons return only after the running build posts success or failure.
 
-For an STG+mobile run, Slack must show the stages in this order:
+For a backend/web+mobile run, Slack must show the stages in this order:
 
 ```text
-STG deploy started
-STG deploy succeeded
-STG release bookkeeping completed or warning
-Android STG distribution started
-Android STG distribution succeeded or failed
+Backend/web deploy started
+Backend/web deploy succeeded
+Release bookkeeping completed or warning
+Android distribution started
+Android distribution succeeded or failed
 Deploy button ready
 ```
 
-Do not treat the combined deploy as fully complete until both the STG rollout
-and Android distribution have terminal cards. The Android terminal card must
+Do not treat the combined deploy as fully complete until both the backend/web
+rollout and Android distribution have terminal cards. The Android terminal card must
 state whether Firebase App Distribution, Google Play Internal Testing, and
-`https://mesha.sg/app.apk` all completed. If Android fails after STG succeeds,
-the status is `STG: SUCCESS` and `Android mobile: FAILED`; do not say the
+`https://mesha.sg/app.apk` all completed. If Android fails after backend/web succeeds,
+the status is `Backend/web: SUCCESS` and `Android mobile: FAILED`; do not say the
 Firebase/Play/app.apk channels completed.
 
-STG release-tag bookkeeping is intentionally separate from deploy status. A
+Release-tag bookkeeping is intentionally separate from deploy status. A
 deploy is successful only after Cloud Deploy rollout succeeds and live service
 and job images match the commit. The later `stg-release-tag-bookkeeping` Cloud
 Build step records the release tag from a clean checkout of the verified commit
 using Secret Manager secret `goatos-github-pat`. It may post a yellow Slack
-warning if tagging fails, but it must not turn a verified STG deploy into a red
+warning if tagging fails, but it must not turn a verified backend/web deploy into a red
 failure.
 
 Cloud Build builds/pushes backend, migration, and admin-web images, then
@@ -189,24 +208,24 @@ creates a Cloud Deploy release. Cloud Deploy owns all Cloud Run mutations.
 Never push a local branch, `HEAD`, `main`, or refspec directly to remote `stg`;
 local/agent hooks block it, and the `stg` branch is not deployment authority.
 
-If the staging deploy includes publishing an Android employee build, follow
-`docs/mobile/stg-signed-release.md` as an additional release gate. Firebase App
-Distribution alone is not complete: publish Google Play Internal Testing from
-the same source/version identity and mirror the exact Firebase APK bytes to
+If the deploy includes publishing an Android employee build, follow
+`docs/mobile/production-facing-release.md` as the active release gate. Firebase
+App Distribution alone is not complete: publish Google Play Internal Testing
+from the same source/version identity and mirror the exact Firebase APK bytes to
 `gs://goatos-stg-public-downloads/operator/latest/app.apk`, which backs
 `https://mesha.sg/app.apk`. Do not rebuild or redeploy the Mesha marketing
 website to update the APK.
 
 The Slack deploy card has an `Also distribute Android mobile` checkbox for this
-case. Leaving it unchecked deploys only the staging backend/web Cloud Run
-surfaces. Checking it runs the staging deploy first and then treats mobile as an
+case. Leaving it unchecked deploys only the backend/web Cloud Run surfaces.
+Checking it runs the backend/web deploy first and then treats mobile as an
 all-or-nothing release: Firebase App Distribution upload, Google Play Internal
-Testing upload to package `sg.mesha.goatos.stg`, and the `mesha.sg/app.apk`
+Testing upload to package `sg.mesha.goatos`, and the `mesha.sg/app.apk`
 Storage mirror must all pass or the Cloud Build is failed and Slack reports the
 mobile distribution as failed.
 
-Each user-visible STG Android release must advance the Android `versionName`
-and `versionCode`, for example `0.1.20-stg (21)` → `0.1.21-stg (22)`. Slack
+Each user-visible Android release must advance the Android `versionName`
+and `versionCode`, for example `0.1.20 (21)` -> `0.1.21 (22)`. Slack
 mobile deploy clicks bump the checked-in defaults in
 `apps/goatos-android/app/build.gradle.kts` on `main` before starting Cloud
 Build, so every click publishes a new human-readable Firebase version. Manual
@@ -261,23 +280,19 @@ that preserves Goat OS app auth rather than replacing the user's app bearer toke
 
 ## Dashboard hostnames and DNS
 
-Planned public dashboard hostnames:
+Current public dashboard hostname target:
 
 ```text
-dev.dashboard.mesha.sg -> goatos-dev
-stg.dashboard.mesha.sg -> goatos-stg
-dashboard.mesha.sg     -> goatos-prod
+dashboard.mesha.sg -> goatos-stg-backed production-facing dashboard
 ```
 
-Planned public API hostnames:
+Current public API hostname target:
 
 ```text
-dev API: local/laptop or dev API host, depending on the test being run
-stg-api.dashboard.mesha.sg -> goatos-api-stg
-prod API host -> goatos-api-prod (create later, after prod is live)
+api.goatos.mesha.sg -> goatos-api-stg-backed production-facing API
 ```
 
-Current live dashboard hostnames:
+Legacy/internal dashboard hostnames:
 
 ```text
 URL:         https://dev.dashboard.mesha.sg/
@@ -289,7 +304,7 @@ LB IP:       8.232.140.161
 Certificate: goatos-nonprod-dashboard-cert, ACTIVE for dev.dashboard.mesha.sg
 Backend:     goatos-admin-web-dev through serverless NEG goatos-admin-web-dev-neg
 
-URL:         https://stg.dashboard.mesha.sg/
+URL:         https://stg.dashboard.mesha.sg/ (legacy compatibility only)
 Project:     goatos-stg
 Cloudflare:  mesha.sg zone, Manju@flokx.io Cloudflare account
 DNS record:  A stg.dashboard -> 8.233.143.24, DNS-only
@@ -299,10 +314,10 @@ Certificate: goatos-stg-dashboard-cert, ACTIVE for stg.dashboard.mesha.sg
 Backend:     goatos-admin-web-stg through serverless NEG goatos-admin-web-stg-neg
 ```
 
-Current live staging API hostname:
+Legacy/internal staging API hostname:
 
 ```text
-URL:         https://stg-api.dashboard.mesha.sg/
+URL:         https://stg-api.dashboard.mesha.sg/ (legacy compatibility only)
 Project:     goatos-stg
 Cloudflare:  mesha.sg zone, Manju@flokx.io Cloudflare account
 DNS record:  A stg-api.dashboard -> 8.233.143.24, DNS-only
@@ -311,12 +326,13 @@ LB IP:       8.233.143.24
 Certificate: goatos-stg-api-cert
 Backend:     goatos-api-stg through serverless NEG goatos-api-stg-neg
 URL map:     goatos-stg-dashboard-map host rule stg-api.dashboard.mesha.sg -> goatos-api-stg-backend
-Android stg: BuildConfig.API_BASE_URL=https://stg-api.dashboard.mesha.sg/
+Android legacy stg: BuildConfig.API_BASE_URL=https://stg-api.dashboard.mesha.sg/
 ```
 
-Dev and staging are separate Google projects and separate load balancers.
-Production must use a separate prod IP/LB and must not reuse the dev/stg
-non-prod IPs.
+The current public cleanup intentionally reuses the `goatos-stg` project and
+load balancer while moving user-facing names to production-facing hosts. A later
+true prod migration may introduce separate prod infrastructure, but that is not
+this rollout.
 
 Cloudflare records for Google-managed certificates should start as DNS-only
 while Google provisions or renews the certificate. Do not orange-cloud/proxy the
@@ -335,19 +351,21 @@ Custom-host auth has two independent allowlists:
 ```text
 Firebase/Auth Platform authorized domains:
 - dev.dashboard.mesha.sg
-- stg.dashboard.mesha.sg
+- dashboard.mesha.sg
+- stg.dashboard.mesha.sg (legacy compatibility)
 - localhost
 
 Google OAuth web client authorized JavaScript origins:
 - https://dev.dashboard.mesha.sg
-- https://stg.dashboard.mesha.sg
+- https://dashboard.mesha.sg
+- https://stg.dashboard.mesha.sg (legacy compatibility)
 - http://localhost:3000
 - http://localhost:3300
 - http://localhost:3311
 
 Google Auth Platform Branding:
 - App name: Mesha
-- App name: Goat OS Staging (`goatos-stg`)
+- App name: GoatOS (`goatos-stg` backing project)
 - `goatos-stg` audience: External, In production. Goat OS backend/Firebase
   grants remain the access boundary; do not rely on Google's test-user list for
   staging access control.
@@ -441,7 +459,7 @@ canonical redirect is a user-friendly fallback, not the primary exposure model.
 For staging, the normal release path is now:
 
 ```text
-press Deploy main to STG in #goatos-stg-deploy
+press Deploy backend/web in #goatos-stg-deploy
 watch the Cloud Build link posted by Slack
 open the linked Cloud Deploy rollout if the deploy step fails
 if Android was checked, inspect the mobile step for Firebase/Play/app.apk status
