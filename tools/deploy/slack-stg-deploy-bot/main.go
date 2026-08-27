@@ -342,7 +342,7 @@ func (cfg config) handleSlackAction(w http.ResponseWriter, r *http.Request) {
 	if len(cfg.AllowedUsers) > 0 && !cfg.AllowedUsers[payload.User.ID] {
 		writeSlackJSON(w, map[string]any{
 			"response_type": "ephemeral",
-			"text":          "You are not allowed to deploy Goat OS staging.",
+			"text":          "You are not allowed to deploy GoatOS.",
 		})
 		return
 	}
