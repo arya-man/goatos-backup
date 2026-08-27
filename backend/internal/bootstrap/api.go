@@ -1019,6 +1019,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
+	// PER-PERSON ACCESS (maintainer decision 2026-08-24). From here a request's
+	// permissions come from the person's own stored module rows; the route rules are
+	// unchanged. A person with no rows yet still authorizes from their role, logged
+	// each time -- see the middleware for why that bridge exists and when it goes.
+	authz.SetPersonAccessSource(accessRepo)
 
 	protectedMux := http.NewServeMux()
 	protectedMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {

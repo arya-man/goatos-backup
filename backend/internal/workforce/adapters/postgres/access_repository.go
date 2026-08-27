@@ -13,7 +13,7 @@ import (
 )
 
 // AccessRepository owns person_access / person_module_access / person_park_scope
-// and the designation catalog (migration 000200).
+// and the designation catalog (migration 000215).
 type AccessRepository struct {
 	pool *pgxpool.Pool
 }
