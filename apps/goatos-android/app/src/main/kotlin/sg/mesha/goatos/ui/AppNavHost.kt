@@ -3052,19 +3052,24 @@ fun AppNavHost(
                 },
             ),
         ) {
+            val monitor = it.arguments?.getString(Routes.PC_TASK_MONITOR_ARG) == "1" ||
+                pcCareTaskRouteUsesMonitorMode(canExecutePcCare, canPlanPcCare)
             val vm: PcCareTaskViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             // Hardware reader capture only while this capture screen is active.
-            DisposableEffect(vm) {
-                vm.setCaptureActive(true)
-                onDispose { vm.setCaptureActive(false) }
+            DisposableEffect(vm, monitor) {
+                if (!monitor) vm.setCaptureActive(true)
+                onDispose { if (!monitor) vm.setCaptureActive(false) }
             }
-            CaptureAccessGate {
-                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
-                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
+            val content: @Composable () -> Unit = {
+                if (!monitor) {
+                    BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                    BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
+                }
                 PcCareTaskScreen(
                     state = state,
                     onEvent = { event ->
+                        if (monitor && !pcCareMonitorEventAllowed(event)) return@PcCareTaskScreen
                         when (event) {
                             sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back -> navController.popBackStack()
                             sg.mesha.goatos.feature.pccare.PcCareTaskEvent.ReconnectReader ->
@@ -3090,6 +3095,11 @@ fun AppNavHost(
                     },
                 )
             }
+            if (monitor) {
+                content()
+            } else {
+                CaptureAccessGate { content() }
+            }
         }
 
         // The roster drill (L2 under the task): ONE animal's video cards. Entering records the
@@ -3110,19 +3120,28 @@ fun AppNavHost(
                 },
             ),
         ) {
+            val monitor = pcCareTaskRouteUsesMonitorMode(canExecutePcCare, canPlanPcCare)
             val vm: PcCareTaskViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            CaptureAccessGate {
-                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+            val content: @Composable () -> Unit = {
+                if (!monitor) {
+                    BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                }
                 sg.mesha.goatos.feature.pccare.PcCareAnimalScreen(
                     state = state,
                     onEvent = { event ->
+                        if (monitor && !pcCareMonitorEventAllowed(event)) return@PcCareAnimalScreen
                         when (event) {
                             sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back -> navController.popBackStack()
                             else -> vm.onEvent(event)
                         }
                     },
                 )
+            }
+            if (monitor) {
+                content()
+            } else {
+                CaptureAccessGate { content() }
             }
         }
 
@@ -3581,7 +3600,7 @@ private fun NavGraphBuilder.pcCareCategoryComposable(
     showDateBar: Boolean = true,
 ) {
     composable(route) { entry ->
-        if (canExecutePcCare) {
+        if (pcCareShowsExecutorFace(canExecutePcCare, canPlanPcCare)) {
             // Executor face: the scan worklist for tasks assigned to this person.
             val vm: PcCareWorklistViewModel = hiltViewModel()
             LaunchedEffect(vm) { vm.bind(category, title, moduleLabel = moduleLabel, showDateBar = showDateBar) }
@@ -3666,6 +3685,18 @@ private fun NavGraphBuilder.pcCareCategoryComposable(
         }
     }
 }
+
+internal fun pcCareShowsExecutorFace(canExecutePcCare: Boolean, canPlanPcCare: Boolean): Boolean =
+    canExecutePcCare && !canPlanPcCare
+
+internal fun pcCareTaskRouteUsesMonitorMode(canExecutePcCare: Boolean, canPlanPcCare: Boolean): Boolean =
+    !pcCareShowsExecutorFace(canExecutePcCare, canPlanPcCare)
+
+internal fun pcCareMonitorEventAllowed(
+    event: sg.mesha.goatos.feature.pccare.PcCareTaskEvent,
+): Boolean =
+    event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back ||
+        event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Refresh
 
 private fun appVersionLabel(): String = "Version ${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})"
 
