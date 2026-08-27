@@ -87,11 +87,31 @@ func personPageAccessUnavailableRule(err error) domain.DisplayRule {
 // is an advertisement for work the person is not part of, and the ticks now say precisely
 // who is; disabling is still what compileNavItems does for someone the backfill has not
 // reached, whose access is still role-derived.
+// enableTickedLeaf clears the role-path RBAC disable from a leaf the person's own ticks kept.
+//
+// compileNavItems greys a leaf by asking grantsAuthorize -- the ROLE path. That is the layer
+// this rewrite replaced, and for a page-ticked principal the two can disagree: a persona sweep
+// found a manager whose per-person access grants protocol.read (a recorded benign gain of the
+// backfill) while the role behind it does not, so Vaccination plan was ticked, shown, and
+// rendered dead.
+//
+// Re-enabling is safe rather than a widening, and it is worth being precise about why: a page
+// only survives the tick when PageAccessForAssignments has already checked the SCREEN's own
+// permissions against what this person's capabilities produce (pageIsOpenable). The tick IS
+// that authorization decision, taken from the same catalog. The route behind the leaf is
+// independently gated on the same permissions, so a leaf that somehow slipped through would
+// meet a 403 rather than data.
+func enableTickedLeaf(item domain.NavigationItem) domain.NavigationItem {
+	item.Enabled = true
+	item.DisabledReason = ""
+	return item
+}
+
 func applyPersonPageLens(resp domain.BootstrapResponse, access permissions.PageAccess) domain.BootstrapResponse {
 	primary := make([]domain.NavigationItem, 0, len(resp.Navigation.Primary))
 	for _, item := range resp.Navigation.Primary {
 		if access.Allows(item.ID, item.Href) {
-			primary = append(primary, item)
+			primary = append(primary, enableTickedLeaf(item))
 		}
 	}
 	resp.Navigation.Primary = primary
@@ -101,7 +121,7 @@ func applyPersonPageLens(resp domain.BootstrapResponse, access permissions.PageA
 		leaves := make([]domain.NavigationItem, 0, len(group.Leaves))
 		for _, leaf := range group.Leaves {
 			if access.Allows(leaf.ID, leaf.Href) {
-				leaves = append(leaves, leaf)
+				leaves = append(leaves, enableTickedLeaf(leaf))
 			}
 		}
 		if len(leaves) == 0 {

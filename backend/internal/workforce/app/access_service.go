@@ -171,6 +171,23 @@ func (s *AccessService) DesignationDefaults(ctx context.Context, code string) (d
 // resolver's fail-closed behaviour protects against at read time, surfaced here
 // as an error the admin can see instead of an access gap they discover later.
 func validatedAssignments(rows []domain.AccessModuleWrite) ([]permissions.ModuleAssignment, error) {
+	// Everything this save grants, across every module and surface. A screen's authority can
+	// come from a DIFFERENT module than the one it is grouped under -- Feed SOP sits under
+	// Feed and needs sop.read from Protocols & SOPs -- so page validation is done against
+	// the whole picture rather than one row at a time.
+	whole := make([]permissions.ModuleAssignment, 0, len(rows)*2)
+	for _, row := range rows {
+		module := strings.TrimSpace(row.ModuleKey)
+		if _, ok := permissions.LookupModuleCapability(module); !ok {
+			continue
+		}
+		whole = append(whole,
+			permissions.ModuleAssignment{Module: module, Surface: permissions.SurfaceWeb, Capabilities: row.Web},
+			permissions.ModuleAssignment{Module: module, Surface: permissions.SurfaceMobile, Capabilities: row.Mobile},
+		)
+	}
+	elsewhere := permissions.PermissionsForAssignments(whole)
+
 	out := make([]permissions.ModuleAssignment, 0, len(rows)*2)
 	seen := map[string]struct{}{}
 	for _, row := range rows {
@@ -208,8 +225,10 @@ func validatedAssignments(rows []domain.AccessModuleWrite) ([]permissions.Module
 			}
 			if pair.surface == permissions.SurfaceWeb {
 				// Pages narrow the WEB grant only -- the phone builds its own navigation
-				// and a page tick never reaches it.
-				pages, err := validatedPages(def, row.Pages)
+				// and a page tick never reaches it. Validated against the screens this
+				// person can actually open, which depends on their OTHER modules too:
+				// every SOP screen needs sop.read, and that lives in Protocols & SOPs.
+				pages, err := validatedPages(def, levels, row.Pages, elsewhere)
 				if err != nil {
 					return nil, err
 				}
@@ -231,15 +250,32 @@ func validatedAssignments(rows []domain.AccessModuleWrite) ([]permissions.Module
 // of this module" at read time. A module that HAS pages and is granted with none
 // ticked is refused instead: it would silently resolve to every page, which is the
 // opposite of what the admin just did on screen.
-func validatedPages(def permissions.ModuleCapability, pages []string) ([]string, error) {
-	catalog := permissions.PagesForModule(def.Key)
-	if len(catalog) == 0 {
+func validatedPages(def permissions.ModuleCapability, levels []string, pages []string, held []string) ([]string, error) {
+	all := permissions.PagesForModule(def.Key)
+	if len(all) == 0 {
 		// A module with no admin-web screen of its own. Ticks here would name nothing.
 		return []string{}, nil
 	}
+	// Only the screens THESE capabilities open are tickable. A module granted at a level
+	// that opens none of its screens stores an empty list, and that is a real answer rather
+	// than an omission -- Health at `view` is a genuine grant that simply does not reach
+	// Health Config. Refusing it would make the editor's own payload un-saveable, which is
+	// exactly what an exhaustive persona sweep caught: the read returned a state the write
+	// rejected, so round-tripping a manager's access 400'd.
+	catalog := permissions.OpenablePagesForModuleWithHeld(def.Key, levels, held)
+	if len(catalog) == 0 && len(pages) == 0 {
+		return []string{}, nil
+	}
+	// NOT an early return when ticks WERE sent: a tick this capability cannot open must be
+	// refused with a reason, never accepted and dropped. A dropped tick reads on screen as
+	// granted while granting nothing, which is the failure this whole model removes.
 	known := make(map[string]struct{}, len(catalog))
 	for _, p := range catalog {
 		known[p.Key] = struct{}{}
+	}
+	inModule := make(map[string]string, len(all))
+	for _, p := range all {
+		inModule[p.Key] = p.Label
 	}
 	chosen := make(map[string]struct{}, len(pages))
 	for _, key := range pages {
@@ -247,12 +283,22 @@ func validatedPages(def permissions.ModuleCapability, pages []string) ([]string,
 		if key == "" {
 			continue
 		}
-		if _, ok := known[key]; !ok {
-			return nil, fmt.Errorf("%w: %q is not a screen inside %s", ErrInvalidAccessRequest, key, def.Label)
+		if _, ok := known[key]; ok {
+			chosen[key] = struct{}{}
+			continue
 		}
-		chosen[key] = struct{}{}
+		if label, sameModule := inModule[key]; sameModule {
+			// The screen exists here but this capability does not open it. Say which tick
+			// is short and what it needs, rather than dropping it -- a dropped tick reads
+			// on screen as granted while granting nothing.
+			return nil, fmt.Errorf("%w: %s needs more than the capabilities ticked for %s", ErrInvalidAccessRequest, label, def.Label)
+		}
+		return nil, fmt.Errorf("%w: %q is not a screen inside %s", ErrInvalidAccessRequest, key, def.Label)
 	}
 	if len(chosen) == 0 {
+		if len(catalog) == 0 {
+			return []string{}, nil
+		}
 		return nil, fmt.Errorf("%w: %s needs at least one screen ticked, or no access at all", ErrInvalidAccessRequest, def.Label)
 	}
 	// Sidebar order, not request order: the stored list is diffed and rendered, and a
@@ -312,13 +358,19 @@ func moduleRows(assignments []permissions.ModuleAssignment) []domain.AccessModul
 	// an empty stored list expands to every page here, which is why the screen never
 	// opens with a held module showing no pages.
 	pageAccess := permissions.PageAccessForAssignments(assignments)
+	wholeSet := permissions.PermissionsForAssignments(assignments)
 	for _, a := range assignments {
 		granted[a.Module+"|"+a.Surface] = a.Capabilities
 	}
 	catalog := permissions.ModuleCapabilities()
 	out := make([]domain.AccessModuleRow, 0, len(catalog))
 	for _, def := range catalog {
-		pages := permissions.PagesForModule(def.Key)
+		// The screens THIS person's capabilities open, not every screen the module has: a
+		// tick the save would refuse must never be offered.
+		// The screens THIS person can open, not every screen the module has: a tick the save
+		// would refuse must never be offered. Their OTHER modules count -- every SOP screen
+		// needs sop.read, which lives in Protocols & SOPs.
+		pages := permissions.OpenablePagesForModuleWithHeld(def.Key, granted[def.Key+"|"+permissions.SurfaceWeb], wholeSet)
 		options := make([]domain.AccessPageOption, 0, len(pages))
 		heldPages := make([]string, 0, len(pages))
 		for _, page := range pages {

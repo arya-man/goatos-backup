@@ -89,17 +89,46 @@ func NarrowForRetiredLenses(roles []string, assignments []ModuleAssignment) []Mo
 func FillDefaultPages(in []ModuleAssignment) []ModuleAssignment {
 	out := make([]ModuleAssignment, len(in))
 	copy(out, in)
+	// Only screens this person can actually OPEN are stamped. A stored tick for a screen
+	// their capabilities do not reach resolves to nothing at read time and would be refused
+	// on the next save, so writing one leaves a row the editor cannot round-trip.
+	held := PermissionsForAssignments(in)
 	for i := range out {
-		if out[i].Surface != SurfaceWeb || len(out[i].Pages) > 0 {
+		if out[i].Surface != SurfaceWeb {
 			continue
 		}
-		pages := PageKeysForModule(out[i].Module)
-		if len(pages) == 0 {
-			// A module with no sidebar leaf of its own (herd_register, toxin, pc_care,
-			// config, locations, verification_policy). Nothing to tick.
+		openable := OpenablePagesForModuleWithHeld(out[i].Module, out[i].Capabilities, held)
+		if len(openable) == 0 {
+			// Either a module with no sidebar leaf of its own (herd_register, toxin,
+			// pc_care, config, locations, verification_policy), or one held at a level that
+			// opens none of its screens. Nothing to tick, and that is a real answer.
+			out[i].Pages = nil
 			continue
 		}
-		out[i].Pages = pages
+		allowed := make(map[string]struct{}, len(openable))
+		order := make([]string, 0, len(openable))
+		for _, p := range openable {
+			allowed[p.Key] = struct{}{}
+			order = append(order, p.Key)
+		}
+		if len(out[i].Pages) == 0 {
+			out[i].Pages = order
+			continue
+		}
+		// A list set by the retired-lens narrowing is PRUNED to what is openable, not taken
+		// on trust. The lens named Feed SOP for the Procurement Director, and that screen
+		// 403s on its own data for him -- carrying the name forward would have stored a tick
+		// that renders a dead leaf and that the next save refuses.
+		kept := make([]string, 0, len(out[i].Pages))
+		for _, key := range order {
+			for _, want := range out[i].Pages {
+				if want == key {
+					kept = append(kept, key)
+					break
+				}
+			}
+		}
+		out[i].Pages = kept
 	}
 	for i := range out {
 		sort.Strings(out[i].Pages)

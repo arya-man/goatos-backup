@@ -1608,8 +1608,32 @@ func permissionsForNav(id string) []string {
 		// supplier prices and payment state. Gating on ProcurementRead would put it in every
 		// operator's and park head's sidebar -- the same leak VendorRead exists to avoid.
 		return []string{permissions.FeedPurchaseRead}
-	case "counts-herd", "counts-breakdown":
+	case "counts-herd":
+		// The Herd Register really is goat data. Its leaf is withheld from the sidebar today
+		// (maintainer decision 2026-08-20) but the route stays reachable.
 		return []string{permissions.GoatRead}
+	// These leaves had NO gate, so they rendered for anyone whose sidebar carried the group
+	// and then 403'd on their own data -- a dead screen. An exhaustive persona sweep found
+	// nine of them across four real people. Each gate below is the permission that leaf's
+	// OWN data route already requires (permissions/routes.go), so the leaf is offered
+	// exactly when it can be opened.
+	case "counts-herd-analytics", "milk-preparation", "counts-breakdown":
+		// counts.read, which is what these three screens' own data routes require. Counts
+		// Breakdown was gated on goat.read while /counts/breakdown checks counts.read, so it
+		// rendered for three real people and 403'd when they opened it. Counts is a
+		// deliberately OFF feature held back by exactly counts.read, so this also stops the
+		// leaf advertising a module that is switched off.
+		return []string{permissions.CountsRead}
+	case "counts-sops", "milk-sops", "feed-sops", "weighing-sops":
+		return []string{permissions.SOPRead}
+	case "feed-config":
+		return []string{permissions.FeedConfigRead}
+	case "feed-analytics":
+		return []string{permissions.FeedDirectionRead}
+	case "vaccination-live-tracker":
+		return []string{permissions.LocationsRead, permissions.ObligationRead, permissions.VaccinationRead}
+	case "herd-signals":
+		return []string{permissions.HerdSignalsRead}
 	case "weighing-weights":
 		// The MONITOR capability, matching /app/weighing/shed-weights. Weights is an
 		// oversight read-out, not a planning surface, so it must not gate on
