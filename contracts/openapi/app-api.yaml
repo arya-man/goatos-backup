@@ -9027,14 +9027,16 @@ paths:
       tags:
         - Counts
       operationId: getMilkPreparation
-      summary: Get today's per-shed milk preparation direction from the canonical live herd.
+      summary: Get one business day's per-shed milk preparation direction from the canonical live herd.
       description: >-
         Returns one bounded page at physical park x shed x milk cohort grain for K1, K2 and K3,
         plus a whole-scope summary invariant to limit/offset. Quantities are exact integer
-        millilitres. This is a current live-herd direction only: it accepts no historical date and
-        therefore never presents today's animal locations as a past plan. K0 colostrum and ICU or
-        other clinical feeding are excluded until an approved quantity rule exists; they are not
-        represented as zero.
+        millilitres. preparation_date selects the business day (IST); absent means today. A past
+        day replays that day's completion/verification overlay and K3 weaning window against the
+        CURRENT herd placement, so it answers "was that day's preparation submitted?" and clients
+        must render past days read-only rather than as a faithful historical head count. K0
+        colostrum and ICU or other clinical feeding are excluded until an approved quantity rule
+        exists; they are not represented as zero.
       parameters:
         - name: park_id
           in: query
@@ -9043,6 +9045,13 @@ paths:
             type: string
             format: uuid
           description: Optional park scope from the admin top bar.
+        - name: preparation_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Business day (YYYY-MM-DD, IST) to render; absent means today.
         - name: limit
           in: query
           required: false
@@ -9080,12 +9089,13 @@ paths:
       tags:
         - Counts
       operationId: getAppCountsMilkPreparation
-      summary: Get today's operator Milk Preparation farm worklist and direction.
+      summary: Get one business day's operator Milk Preparation farm worklist and direction.
       description: >-
-        Operator-authorized form of the current-day Milk Preparation read. farm_tasks is the
-        bounded actionable farm_day worklist; items remains the paged internal milk-cohort
-        direction. Summary and farm_tasks cover the whole selected scope and never depend on the
-        requested item page.
+        Operator-authorized form of the Milk Preparation read. preparation_date selects the
+        business day (IST); absent means today, and past days are read-only review of that day's
+        submission state. farm_tasks is the bounded actionable farm_day worklist; items remains
+        the paged internal milk-cohort direction. Summary and farm_tasks cover the whole selected
+        scope and never depend on the requested item page.
       parameters:
         - name: park_id
           in: query
@@ -9093,6 +9103,13 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: preparation_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Business day (YYYY-MM-DD, IST) to render; absent means today.
         - name: limit
           in: query
           required: false

@@ -880,6 +880,7 @@ interface AppApiService {
 
     @GET("app/counts/milk-preparation")
     suspend fun getMilkPreparation(
+        @Query("preparation_date") preparationDate: String?,
         @Query("park_id") parkId: String?,
         @Query("limit") limit: Int,
         @Query("offset") offset: Int,
@@ -1718,8 +1719,8 @@ class RetrofitAppApi(
     override suspend fun getMilkFeedingTasks(feedingDate: String, parkId: String?, sessionNo: Int?, limit: Int, offset: Int): MilkFeedingPageDto = service.getMilkFeedingTasks(feedingDate, parkId, sessionNo, limit, offset)
     override suspend fun submitMilkFeedingTask(taskId: String, idempotencyKey: String, request: MilkFeedingSubmitRequestDto): MilkFeedingSubmitResponseDto = service.submitMilkFeedingTask(taskId, idempotencyKey, request)
 
-    override suspend fun getMilkPreparation(parkId: String?, limit: Int, offset: Int): MilkPreparationPageDto =
-        service.getMilkPreparation(parkId, limit, offset)
+    override suspend fun getMilkPreparation(preparationDate: String?, parkId: String?, limit: Int, offset: Int): MilkPreparationPageDto =
+        service.getMilkPreparation(preparationDate, parkId, limit, offset)
 
     override suspend fun getFeedTransportTasks(
         businessDate: String,

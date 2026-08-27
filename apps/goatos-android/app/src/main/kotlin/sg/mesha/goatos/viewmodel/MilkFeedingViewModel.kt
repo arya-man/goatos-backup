@@ -137,6 +137,7 @@ class MilkFeedingListViewModel @Inject constructor(
             ) { resource, refresh, selected, capturedByTask, locallySubmitted ->
                 buildMilkFeedingListUi(resource.data, selected, capturedByTask, selectedDate = dateStr, locallySubmitted = locallySubmitted).copy(
                     selectedDate = dateStr,
+                    isToday = dateStr == LocalDate.now(MILK_FEEDING_IST).toString(),
                     isRefreshing = refresh.first,
                     lastSyncedAt = resource.lastSyncedAt,
                     isOffline = refresh.second || resource.error?.isConnectivityFailure() == true,
@@ -154,6 +155,7 @@ class MilkFeedingListViewModel @Inject constructor(
             MilkFeedingListEvent.Refresh -> refresh()
             is MilkFeedingListEvent.SelectFilter -> selectedFilter.value = event.key
             is MilkFeedingListEvent.NavigateDate -> navigateDate(event.delta)
+            is MilkFeedingListEvent.SelectDate -> selectDate(event.date)
             is MilkFeedingListEvent.OpenTask, MilkFeedingListEvent.Back -> Unit
         }
     }
@@ -161,9 +163,17 @@ class MilkFeedingListViewModel @Inject constructor(
     /** Business dates are capped at today IST, mirroring WorkflowListViewModel.selectDate — future
      *  days have no feeding tasks by definition. */
     private fun navigateDate(delta: Int) {
-        val currentDate = LocalDate.parse(feedingDate.value)
+        applyDate(LocalDate.parse(feedingDate.value).plusDays(delta.toLong()))
+    }
+
+    /** Calendar jump from the date bar's picker; same today cap as the chevrons. */
+    private fun selectDate(dateIso: String) {
+        val requested = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: return
+        applyDate(requested)
+    }
+
+    private fun applyDate(requested: LocalDate) {
         val today = LocalDate.now(MILK_FEEDING_IST)
-        val requested = currentDate.plusDays(delta.toLong())
         val capped = if (requested.isAfter(today)) today else requested
         if (capped.toString() == feedingDate.value) return
         feedingDate.value = capped.toString()
