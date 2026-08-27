@@ -398,7 +398,7 @@ func (s *server) completeLogin(w http.ResponseWriter, r *http.Request) {
 	signIn, claims, err := s.signInWithFirebase(r.Context(), strings.TrimSpace(r.Form.Get("email")), r.Form.Get("password"))
 	if err != nil {
 		s.log.Warn("goatos_mcp_login_failed", slog.Any("error", err))
-		s.renderLogin(w, r, "Login failed. Check the Goat OS staging email and password.")
+		s.renderLogin(w, r, "Login failed. Check the GoatOS email and password.")
 		return
 	}
 	email := normalizedEmail(claims.Email)
