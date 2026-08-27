@@ -161,18 +161,29 @@ require_public_host_ready() {
 
 require_managed_cert_ready() {
   local host="$1"
-  local certs
-  certs="$(
-    gcloud compute ssl-certificates list \
-      --project="$PROJECT_ID" \
-      --global \
-      --filter="managed.domains:$host AND managed.status=ACTIVE" \
-      --format='value(name)' 2>/dev/null
-  )"
-  [[ -n "$certs" ]] || {
-    echo "ERROR: no ACTIVE Google-managed SSL certificate covers $host in $PROJECT_ID" >&2
-    return 1
-  }
+  gcloud compute ssl-certificates describe goatos-prod-facing-cert \
+    --project="$PROJECT_ID" \
+    --global \
+    --format=json |
+    python3 - "$host" <<'PY'
+import json
+import sys
+
+host = sys.argv[1]
+doc = json.load(sys.stdin)
+managed = doc.get("managed", {})
+status = managed.get("status")
+domain_status = managed.get("domainStatus", {}).get(host)
+domains = set(managed.get("domains", []))
+if status == "ACTIVE" and domain_status == "ACTIVE" and host in domains:
+    sys.exit(0)
+print(
+    f"ERROR: goatos-prod-facing-cert is not ACTIVE for {host} "
+    f"(status={status or 'unknown'}, domainStatus={domain_status or 'missing'})",
+    file=sys.stderr,
+)
+sys.exit(1)
+PY
 }
 
 require_url_map_host_rule() {
