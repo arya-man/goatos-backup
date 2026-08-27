@@ -333,6 +333,20 @@ is to resolve the verification, never to add a path around the gate. See
 `AGENTS.md` → "Weighing vocabulary" and
 `context/repo-audits/weighing-implementation-do-not-reopen-ledger.md` → D-5.
 
+## Production-Facing Naming
+
+The current public/operator-facing Goat OS path reuses the existing
+`goatos-stg` Google/Firebase project internally. Agents must not expose staging
+names in public app config, release labels, dashboard URLs, API URLs, or operator
+instructions unless the request is explicitly about historical staging. Use:
+
+- Android package `sg.mesha.goatos`
+- Dashboard `https://dashboard.mesha.sg`
+- API `https://api.goatos.mesha.sg/`
+
+Firebase Auth issuer/audience can remain `goatos-stg` while that existing
+Firebase project is reused; that is internal plumbing.
+
 ## STG Deploy Routing
 
 When the user says "deploy STG", "push to STG", "promote STG", "ship to

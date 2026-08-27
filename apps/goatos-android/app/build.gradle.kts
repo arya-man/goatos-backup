@@ -218,6 +218,19 @@ android {
                 (project.findProperty("goatosTelemetryEnabled") as String?) ?: "false",
             )
             buildConfigField("String", "OTLP_ENDPOINT", "\"\"")
+            firebaseAppDistribution {
+                appId = (project.findProperty("goatosProdFirebaseAppId") as String?)
+                    ?: System.getenv("FIREBASE_APP_ID")
+                    ?: "1:514832198871:android:2b3a80736ff2e8d9f19492"
+                artifactType = "APK"
+                groups = (project.findProperty("fadGroups") as String?) ?: "goatos-testers"
+                System.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { serviceCredentialsFile = it }
+                (project.findProperty("fadTesters") as String?)?.let { testers = it }
+                releaseNotes = (project.findProperty("fadReleaseNotes") as String?)
+                    ?: "GoatOS (Mesha) release build\n$sourceLabel"
+            }
         }
     }
 

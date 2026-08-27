@@ -172,7 +172,11 @@ async function loadFirebaseConfig(): Promise<FirebaseClientRuntimeConfig> {
 }
 
 function passwordResetActionCodeSettings(): ActionCodeSettings {
-  const origin = typeof window === "undefined" ? "https://stg.dashboard.mesha.sg" : window.location.origin;
+  const browserOrigin = typeof window === "undefined" ? null : window.location.origin;
+  const origin =
+    browserOrigin === "https://stg.dashboard.mesha.sg" || browserOrigin === null
+      ? "https://dashboard.mesha.sg"
+      : browserOrigin;
   return {
     url: new URL(LOGIN_PATH, origin).toString(),
     handleCodeInApp: false,
