@@ -117,7 +117,7 @@ class FailureReportingOutboxTelemetryReporter(
     }
 
     private fun shouldRecordNonFatal(event: OutboxTelemetryEvent): Boolean {
-        if (event.failureClass in EXPECTED_TRANSPORT_FAILURES) return false
+        if (event.failureClass.isExpectedTransportFailure()) return false
         val key = "${event.opType} ${event.terminalReason} ${event.failureClass}"
         val now = nowMs()
         val previous = lastNonFatalMs[key]
@@ -134,11 +134,25 @@ class FailureReportingOutboxTelemetryReporter(
 
         const val NON_FATAL_THROTTLE_MS: Long = 60_000
 
+        private fun String?.isExpectedTransportFailure(): Boolean {
+            val name = this ?: return false
+            if (name in EXPECTED_TRANSPORT_FAILURES) return true
+            return name.endsWith("IOException") ||
+                name.endsWith("SocketException") ||
+                name.endsWith("HttpException") ||
+                name.endsWith("ProtocolException")
+        }
+
         private val EXPECTED_TRANSPORT_FAILURES = setOf(
             "ConnectException",
+            "EOFException",
             "HttpException",
             "IOException",
+            "InterruptedIOException",
             "NoRouteToHostException",
+            "ProtocolException",
+            "SSLException",
+            "SSLHandshakeException",
             "SocketException",
             "SocketTimeoutException",
             "UnknownHostException",
