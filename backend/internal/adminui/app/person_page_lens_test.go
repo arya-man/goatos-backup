@@ -60,8 +60,11 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 	want := []string{
 		"/procurement/source-entry",
 		"/procurement/vendors",
-		"/procurement/sales",
 		"/procurement/feed-purchases",
+		// Sales moved to its own top-level vertical at /sales (maintainer decision
+		// 2026-08-27, landed on main while this branch was open), so it now sorts after
+		// the Procurement group rather than inside it.
+		"/sales",
 		"/feed/analytics",
 	}
 	got := leafHrefs(resp)
@@ -84,7 +87,7 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 		}
 	}
 	// And what he keeps must still carry its contract, or the sidebar links to a 404.
-	for _, kept := range []string{"/feed/analytics", "/procurement/sales"} {
+	for _, kept := range []string{"/feed/analytics", "/sales"} {
 		found := false
 		for _, page := range resp.Pages {
 			if page.Href == kept {
