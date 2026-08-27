@@ -1599,7 +1599,7 @@ func permissionsForNav(id string) []string {
 		// they work; the register carries negotiated prices, contact numbers and banking
 		// instruments. Gating the leaf on ProcurementRead would put it in every operator's sidebar.
 		return []string{permissions.VendorRead}
-	case "procurement-sales":
+	case "sales-board":
 		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
 		// and realized prices -- the selling side, not the intake screens operators work.
 		return []string{permissions.SalesRead}

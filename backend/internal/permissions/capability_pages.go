@@ -80,7 +80,7 @@ var modulePages = []ModulePage{
 
 	{Key: "procurement-source-entry", Module: "procurement", Label: "Source Entry", Href: "/procurement/source-entry", Permissions: []string{ProcurementRead}},
 	{Key: "procurement-vendors", Module: "vendors", Label: "Vendors", Href: "/procurement/vendors", Permissions: []string{VendorRead}},
-	{Key: "procurement-sales", Module: "sales", Label: "Sales", Href: "/procurement/sales", Permissions: []string{SalesRead}},
+	{Key: "sales-board", Module: "sales", Label: "Sales", Href: "/sales", Permissions: []string{SalesRead}},
 	{Key: "procurement-feed-purchases", Module: "feed_purchases", Label: "Feed Purchases", Href: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseRead}},
 
 	{Key: "counts-herd-analytics", Module: "counts", Label: "Herd Analytics", Href: "/counts/analytics", Permissions: []string{CountsRead}},
@@ -124,7 +124,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/verify":                     "verification",
 	"/procurement/source-entry":   "procurement",
 	"/procurement/vendors":        "vendors",
-	"/procurement/sales":          "sales",
+	"/sales":                      "sales",
 	"/procurement/feed-purchases": "feed_purchases",
 	"/counts":                     "counts",
 	"/counts/herd":                "herd_register",
