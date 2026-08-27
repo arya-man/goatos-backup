@@ -230,7 +230,13 @@ func (s *PeopleService) CreatePerson(ctx context.Context, tenantID, actorID, ide
 
 	accountStatus := "created"
 	if ensured.Existed {
+		// Distinguish "already had their own password" (convention password does
+		// NOT apply) from "Google-SSO-only account that just gained the
+		// convention password" — the admin-facing copy differs.
 		accountStatus = "existing"
+		if ensured.PasswordSet {
+			accountStatus = "existing_password_added"
+		}
 	}
 	return &domain.PersonResponse{
 		Person:  person,

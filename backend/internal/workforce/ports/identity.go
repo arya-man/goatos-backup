@@ -16,10 +16,16 @@ type EnsuredUser struct {
 	// UID is the identity provider's user id (Firebase Auth UID). The backend's
 	// internal user_id is derived from it via platformauth.StableSubjectID.
 	UID string
-	// Existed is true when the email already had an account. The caller must NOT
-	// treat the supplied password as that account's password in this case — an
-	// existing account's password is never reset by this flow.
+	// Existed is true when the email already had an account. An existing
+	// account's chosen password is never reset by this flow; whether the
+	// supplied convention password now works is reported by PasswordSet.
 	Existed bool
+	// PasswordSet is true when the supplied password was installed on an
+	// EXISTING account that had no password provider at all (an account born
+	// from a Google sign-in before onboarding ran). It is false for a fresh
+	// account (the password is set by construction) and for an existing
+	// account that already had its own password (which is left untouched).
+	PasswordSet bool
 }
 
 // IdentityProvider ensures a login account exists for an email address.

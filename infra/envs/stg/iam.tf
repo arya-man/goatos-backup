@@ -29,6 +29,26 @@ resource "google_project_iam_member" "kernel_worker_fcm_sender" {
   member  = "serviceAccount:${google_service_account.runtime["kernel_worker"].email}"
 }
 
+resource "google_project_iam_custom_role" "identity_account_minter" {
+  role_id     = "goatosIdentityAccountMinterStaging"
+  title       = "Goat OS staging identity account minter"
+  description = "Allows the API's Add Person flow to look up, create, and mark-verified Firebase Auth email/password users via Identity Toolkit."
+  permissions = [
+    "firebaseauth.users.get",
+    "firebaseauth.users.create",
+    "firebaseauth.users.update",
+  ]
+}
+
+# The workforce Add Person flow mints the person's Firebase email/password
+# login server-side (backend/internal/platform/firebaseidentity). Without this
+# binding every create fails 502 identity_unavailable before any DB write.
+resource "google_project_iam_member" "api_identity_account_minter" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.identity_account_minter.name
+  member  = "serviceAccount:${google_service_account.runtime["api"].email}"
+}
+
 resource "google_project_iam_member" "api_vertex_user" {
   project = var.project_id
   role    = "roles/aiplatform.user"

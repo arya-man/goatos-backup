@@ -5282,6 +5282,7 @@ components:
           enum:
             - created
             - existing
+            - existing_password_added
     PersonResponse:
       type: object
       additionalProperties: false

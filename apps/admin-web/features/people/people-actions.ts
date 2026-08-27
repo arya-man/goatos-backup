@@ -52,10 +52,18 @@ export async function createPersonAction(formData: FormData): Promise<void> {
     );
   }
   revalidatePath(PEOPLE_PATH);
+  // Three honest outcomes: fresh login (convention password), Google-SSO
+  // account that just gained the convention password, or an account with its
+  // own password that the flow deliberately left untouched.
+  const accountStatus = result.data.login.account_status;
   actionRedirect(
     formData,
     "success",
-    result.data.login.account_status === "existing" ? "action.person_created_existing" : "action.person_created",
+    accountStatus === "existing"
+      ? "action.person_created_existing"
+      : accountStatus === "existing_password_added"
+        ? "action.person_created_password_added"
+        : "action.person_created",
   );
 }
 

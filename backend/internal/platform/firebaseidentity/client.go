@@ -112,14 +112,25 @@ func (c *Client) EnsureEmailUser(ctx context.Context, email, displayName, passwo
 		return ports.EnsuredUser{}, err
 	}
 	if existing != nil {
-		// Existing account: never reset its password, only repair the
+		// Existing account: never RESET a password someone chose. But an account
+		// with NO password provider at all — born from a Google sign-in before
+		// onboarding ran — would leave the promised convention password
+		// nonexistent while the UI implies it works, so the password is ADDED
+		// there (Google sign-in keeps working alongside it). Also repair the
 		// email-verified flag if a manual creation left it false.
+		passwordSet := false
+		if password != "" && !existing.hasPasswordProvider() {
+			if err := c.setPassword(ctx, existing.LocalID, password); err != nil {
+				return ports.EnsuredUser{}, err
+			}
+			passwordSet = true
+		}
 		if !existing.EmailVerified {
 			if err := c.setEmailVerified(ctx, existing.LocalID); err != nil {
 				return ports.EnsuredUser{}, err
 			}
 		}
-		return ports.EnsuredUser{UID: existing.LocalID, Existed: true}, nil
+		return ports.EnsuredUser{UID: existing.LocalID, Existed: true, PasswordSet: passwordSet}, nil
 	}
 
 	uid, err := c.signUp(ctx, email, displayName, password)
@@ -133,8 +144,23 @@ func (c *Client) EnsureEmailUser(ctx context.Context, email, displayName, passwo
 }
 
 type lookupUser struct {
-	LocalID       string `json:"localId"`
-	EmailVerified bool   `json:"emailVerified"`
+	LocalID          string `json:"localId"`
+	EmailVerified    bool   `json:"emailVerified"`
+	ProviderUserInfo []struct {
+		ProviderID string `json:"providerId"`
+	} `json:"providerUserInfo"`
+}
+
+// hasPasswordProvider reports whether the account can sign in with
+// email+password at all. A Google-SSO-created account has only a "google.com"
+// provider entry until a password is installed.
+func (u lookupUser) hasPasswordProvider() bool {
+	for _, p := range u.ProviderUserInfo {
+		if p.ProviderID == "password" {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) lookupByEmail(ctx context.Context, email string) (*lookupUser, error) {
@@ -167,6 +193,18 @@ func (c *Client) signUp(ctx context.Context, email, displayName, password string
 		return "", fmt.Errorf("%w: sign-up returned no user id", ports.ErrIdentityUnavailable)
 	}
 	return resp.LocalID, nil
+}
+
+// setPassword installs a password on an existing account that has none. It is
+// never called for an account that already has a password provider.
+func (c *Client) setPassword(ctx context.Context, uid, password string) error {
+	var resp struct {
+		LocalID string `json:"localId"`
+	}
+	return c.post(ctx, "/accounts:update", map[string]any{
+		"localId":  uid,
+		"password": password,
+	}, &resp)
 }
 
 func (c *Client) setEmailVerified(ctx context.Context, uid string) error {
