@@ -54,7 +54,7 @@ The rollout task must keep this order:
    the backend image, including the analytics rollup.
 8. Update goatos-admin-web-stg to the admin-web image.
 9. Verify API/admin/migration/kernel-worker/manual-job image skew is zero.
-10. Smoke /livez, /readyz, and https://stg.dashboard.mesha.sg/login.
+10. Smoke /livez, /readyz, and https://dashboard.mesha.sg/login.
 ```
 
 Do not move migration after service deploy. The rollout fails before migration
@@ -107,17 +107,20 @@ waits for Cloud Deploy rollout/image verification.
 The card has two deploy buttons:
 
 - `Deploy main to STG`: if the `Also distribute Android mobile` checkbox is
-  unchecked, only the STG backend/web deploy runs. If checked, Cloud Build runs
-  mobile only after the STG deploy step succeeds.
-- `Distribute Android only`: skips the STG Cloud Deploy step and runs only the
-  Android STG distribution flow from current `main`.
+  unchecked, only the backend/web deploy runs in the reused `goatos-stg`
+  project. If checked, Cloud Build runs the production-facing mobile release
+  only after the backend/web deploy step succeeds.
+- `Distribute Android only`: skips the Cloud Deploy step and runs only the
+  Android production-facing distribution flow from current `main`.
 
-Mobile means all three channels, as one release: Firebase App Distribution,
-Google Play Internal Testing package `sg.mesha.goatos.stg`, and
-`https://mesha.sg/app.apk`. Any failure in those channels fails the Cloud Build
-and posts a Slack failure alert. The bot allows only one active deployment at a
-time: while any STG, STG+mobile, or Android-only build is queued or working, new
-button clicks replace the panel with an "already running" status card and links
+Mobile means all configured channels, as one production-facing release: Firebase
+App Distribution for Firebase app
+`1:514832198871:android:2b3a80736ff2e8d9f19492`, Google Play package
+`sg.mesha.goatos`, and `https://mesha.sg/app.apk`. Any failure in those
+channels fails the Cloud Build and posts a Slack failure alert. The bot allows
+only one active deployment at a time: while any backend/web, backend/web+mobile,
+or Android-only build is queued or working, new button clicks replace the panel
+with an "already running" status card and links
 to Cloud Build / Cloud Deploy instead of starting another build.
 
 To inspect progress or failure, open the Cloud Build link posted by Slack. The

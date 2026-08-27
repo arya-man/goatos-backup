@@ -134,13 +134,13 @@ admin APIs, refuses to run if the active project differs from `--project`, never
 prints the generated temporary password, marks approved seed emails verified so
 Goat OS JWKS email verification passes, and sends Firebase password-reset
 emails so every user chooses their own password. Use `--dry-run` first when
-reviewing a new environment. Add `--continue-url http://localhost:3300/login`
-for local testing or `--continue-url https://stg.dashboard.mesha.sg/login` once
-the staging custom domain is live.
+reviewing a new environment. Add `--continue-url http://localhost:3300/login` for local testing or
+`--continue-url https://dashboard.mesha.sg/login` for the current
+production-facing dashboard host.
 
 ### Password-reset email host and spam handling
 
-Firebase/Auth Platform does not automatically use `stg.dashboard.mesha.sg` in
+Firebase/Auth Platform does not automatically use `dashboard.mesha.sg` in
 password-reset emails just because that host is an authorized domain. Authorized
 domains allow the host to participate in auth flows; the email action link is
 controlled separately by the Firebase Auth email template. If the template is
@@ -150,10 +150,11 @@ left at its default, reset emails use the project handler:
 https://goatos-stg.firebaseapp.com/__/auth/action
 ```
 
-For `goatos-stg`, the desired dashboard-host action handler is:
+For the reused `goatos-stg` Firebase/Auth project, the current
+production-facing dashboard-host action handler is:
 
 ```text
-https://stg.dashboard.mesha.sg/__/auth/action
+https://dashboard.mesha.sg/__/auth/action
 ```
 
 The admin-web route at `/__/auth/action` verifies the Firebase `oobCode` and
@@ -163,7 +164,7 @@ completes password reset on the dashboard host. Keep the URL path exactly as
 dashboard `continueUrl`; for seed-script reset emails, include:
 
 ```bash
---continue-url https://stg.dashboard.mesha.sg/login
+--continue-url https://dashboard.mesha.sg/login
 ```
 
 Deliverability is separate from the visible action-link host. To stop Gmail from
@@ -237,7 +238,7 @@ boundary:
    The important behavior is:
 
    ```text
-   Firebase reset request continue URL: https://stg.dashboard.mesha.sg/login
+   Firebase reset request continue URL: https://dashboard.mesha.sg/login
    Public handler route:                 /auth/action
    Firebase-compatible rewrite:          /__/auth/action -> /auth/action
    Proxy bypass:                         /__/auth/action and /auth/action stay public
@@ -286,10 +287,10 @@ boundary:
 
    ```bash
    curl -sS -o /dev/null -w '%{http_code} %{url_effective}\n' \
-     'https://stg.dashboard.mesha.sg/__/auth/action?mode=resetPassword&oobCode=dummy'
+     'https://dashboard.mesha.sg/__/auth/action?mode=resetPassword&oobCode=dummy'
 
    curl -sS -o /dev/null -w '%{http_code} %{url_effective}\n' \
-     'https://stg.dashboard.mesha.sg/auth/action?mode=resetPassword&oobCode=dummy'
+     'https://dashboard.mesha.sg/auth/action?mode=resetPassword&oobCode=dummy'
 
    gcloud run services describe goatos-admin-web-stg \
      --region=asia-south1 \
@@ -321,13 +322,17 @@ boundary:
    Platform Admin API and Firebase Console:
 
    ```text
-   attempted target: https://stg.dashboard.mesha.sg/__/auth/action
+   attempted target: https://dashboard.mesha.sg/__/auth/action
    API result:       EMAIL_TEMPLATE_UPDATE_NOT_ALLOWED
    Console result:   "An error occurred when updating action URL"
    ```
 
-9. Configured the Firebase Auth custom sender domain for staging and added the
-   Firebase-provided DNS in Cloudflare:
+9. Historical note: the Firebase Auth custom sender domain was previously
+   attempted on the staging dashboard host. Do not reuse this for new public
+   GoatOS work; the current target host is `dashboard.mesha.sg`. As of the
+   production-facing conversion, Firebase still reports this old custom-domain
+   block internally and rejects API updates with `EMAIL_TEMPLATE_UPDATE_NOT_ALLOWED`,
+   so cleanup must happen through an approved Firebase/Auth console path.
 
    ```text
    custom sender domain: stg.dashboard.mesha.sg
@@ -345,11 +350,11 @@ boundary:
           mail-stg-dashboard-mesha-sg.dkim2._domainkey.firebasemail.com.
    ```
 
-   Keep both DKIM `CNAME` records **DNS-only**. Do not continue past the
-   Cloudflare proxy warning for DKIM records.
+   If the old DNS records are still present, keep DKIM `CNAME` records
+   **DNS-only** until Firebase/Auth confirms the sender domain has been moved or
+   disabled. Do not continue past the Cloudflare proxy warning for DKIM records.
 
-10. Waited for authoritative and public DNS to show the full record set, then
-    applied the custom domain in Firebase:
+10. Historical verification for the old sender domain used:
 
     ```bash
     for resolver in piotr.ns.cloudflare.com 1.1.1.1 8.8.8.8 9.9.9.9; do
@@ -359,7 +364,7 @@ boundary:
     done
     ```
 
-    Verified config result:
+    The historical config result was:
 
     ```text
     Firebase custom email domain: stg.dashboard.mesha.sg
@@ -376,7 +381,7 @@ boundary:
     generated link path: /__/auth/action
     ```
 
-    Also tested `linkDomain: stg.dashboard.mesha.sg`; Firebase rejected it:
+    Also tested a staging `linkDomain`; Firebase rejected it:
 
     ```text
     INVALID_HOSTING_LINK_DOMAIN
@@ -630,7 +635,7 @@ client as an authorized JavaScript origin because Google Identity Services runs
 in the browser.
 For `goatos-stg`, the Google Auth Platform web client is
 `514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com`,
-with origins for `https://stg.dashboard.mesha.sg`, the raw stg Cloud Run hosts,
+with origins for `https://dashboard.mesha.sg`, the raw stg Cloud Run hosts,
 and local ports `3000`, `3300`, and `3311`. The Identity Platform Google
 provider must use the same client ID and secret. The `goatos-stg` OAuth app is
 External / In production so approved dashboard users do not need separate
