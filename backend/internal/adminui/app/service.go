@@ -20,6 +20,9 @@ type Service struct {
 	// moduleDutyReader filters the verifier's modules by assigned duties. Optional; when nil or
 	// erroring, the lens fails SAFE by showing no modules. Injected via WithModuleDutyReader.
 	moduleDutyReader ModuleDutyReader
+	// personPageAccess narrows the compiled contract to the pages a person is ticked for
+	// (per-person access, maintainer decision 2026-08-27). Optional; see person_page_lens.go.
+	personPageAccess PersonPageAccessSource
 	mu               sync.Mutex
 	cache            map[string]cacheEntry
 	cacheTTL         time.Duration
@@ -5316,17 +5319,21 @@ func pageSpecificCopy(id string) map[string]string {
 			// The per-person ACCESS editor (maintainer decision 2026-08-24). Module and
 			// capability names are NOT here: those come from the access endpoint's own
 			// payload, beside the permissions they describe. This is the screen's chrome.
-			"access.open":               "Access",
-			"access.open_hint":          "What this person can see and do",
-			"access.title":              "Access",
-			"access.designation":        "Start from",
-			"access.designation.none":   "Set by hand",
-			"access.designation.hint":   "Pre-fills the ticks below. You can change any of them afterwards.",
-			"access.scope":              "Covers",
-			"access.scope.tenant":       "Every park",
-			"access.column.module":      "Module",
-			"access.column.web":         "Web console",
-			"access.column.mobile":      "Phone",
+			"access.open":             "Access",
+			"access.open_hint":        "What this person can see and do",
+			"access.title":            "Access",
+			"access.designation":      "Start from",
+			"access.designation.none": "Set by hand",
+			"access.designation.hint": "Pre-fills the ticks below. You can change any of them afterwards.",
+			"access.scope":            "Covers",
+			"access.scope.tenant":     "Every park",
+			"access.column.module":    "Module",
+			"access.column.web":       "Web console",
+			"access.column.mobile":    "Phone",
+			// Page ticks. The label names SCREENS rather than pages, because "page" is
+			// a web word and this list is read by someone deciding what a colleague
+			// opens on a Monday morning.
+			"access.pages.label":        "Screens they can open",
 			"access.unavailable.web":    "Not on the web console",
 			"access.unavailable.mobile": "Not on the phone",
 			"access.summary.none":       "No modules yet",

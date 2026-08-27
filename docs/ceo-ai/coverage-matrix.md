@@ -1384,3 +1384,31 @@ remains backend infrastructure only.
 | func:IngestPackets, func:ListLive, func:GetTagActivity, func:ListGateways, func:GetInsights, func:ListActivityWindows, func:GetTimeline, func:BindTagMapping, func:ReplaceTagMapping, func:UnmapTagMapping, func:RecordGatewayHeartbeat, func:GetBaselineDeltas, func:GetBatteryHistory, func:GetGatewayTagStats, func:GetGatewayWindowStats, func:GetInsightsData, func:ExportCSV, func:NewService, func:WithThresholds, func:NewRepository, func:UpsertGateway, func:GetGatewaysByTenant, func:GetTagLatest, func:ListTagsLatest, func:GetGoatIdentifier, func:ResolveTagMapping, func:GetGoatsByIDs, func:ResolveTagsBatch, func:GetShedLocations, func:ListFarmActivity, func:ListTagsLatestPage, func:GetTagActivityScope, func:NewHandler, func:Register, func:Write, func:MotionDelta, func:IsGapDelta, func:MovementStateFromDelta, func:SignalStateFromRSSI, func:BatteryStateFromVoltage, func:BatteryTrendFromHistory, func:BatteryStateWithTrend, func:PatternStateFromHistory, func:Baseline75, func:SelectBucketTier, func:IsSupportedBucketSeconds, func:NormalizeTagIdentifier, func:DefaultThresholds, func:IsHoneyCombAdvertisement, func:DecodeHoneyCombPacket, func:RecordHerdSignalsPartitionMaintenanceRun | EXCLUDED | Backend ingest, storage, and internal telemetry functions (service, handlers, repositories, domain helpers, HTTP wiring). Operate on radio primitives (packet ingestion, motion bucketing, battery trending, signal state calculation) with no business domain or leadership outcome attached. When leadership aggregates are built (e.g. animal activity score, herd movement alerts), those become coverage rows and may delegate to these internals via governance layer. |
 | /herd-signals/* (all HTTP routes) | EXCLUDED | Backend operator/admin routes for tag mapping, gateway registration, and insights rendering. No leadership read API or aggregate; operational support only. |
 | protocol_rule_dimensions.procurement_purpose | EXCLUDED | Compiled vaccination execution-index column added by migration 000210. It narrows generation prefiltering for purpose-specific procurement rules, defaults to `all` for existing dimensions, and exposes no leadership read API, aggregate, Cube metric, `ceo_ai.*` view, or MCP Toolbox tool. |
+
+## Per-person module and page access: excluded access-control surfaces (2026-08-24, 2026-08-27)
+
+The People/HRMS rewrite replaced role-derived access with per-person assignment
+(migrations `000215` and `000216`). Every surface below is ACCESS CONTROL: who
+may open which module and which screen. None of it is a business fact about the
+farm — it describes the product's own permission model, not animals, work, feed,
+proof or money — so none of it belongs in a leadership answer.
+
+The distinction that keeps this an exclusion rather than an oversight: leadership
+questions about PEOPLE ("who verified this", "how many operators worked today")
+are answered from the roster, verification and task surfaces already covered
+elsewhere in this matrix. What a colleague's sidebar contains is an
+administrative setting, and an assistant that reported it would be describing
+configuration rather than the farm. If a leadership question about access ever
+arrives ("who can approve a shifting request?"), it becomes a coverage row over a
+read API composed for that question, not a raw read of these tables.
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| person_access | EXCLUDED | Access-control header: a person's scope mode and the designation their access started from. No business fact; no leadership read API, Cube metric, `ceo_ai.*` view or MCP Toolbox tool. |
+| person_module_access | EXCLUDED | Access-control assignment: which modules, capabilities and admin-web screens a person holds per surface. Permission model, not farm data. |
+| person_park_scope | EXCLUDED | Access-control scope: which parks a `parks`-scoped person covers. The park facts leadership asks about are covered by the locations surfaces already in this matrix. |
+| designation_catalog | EXCLUDED | Static catalog of job titles offered by the access editor. HR designation as REPORTED for a person is already carried by the covered workforce roster surfaces; this table only pre-fills ticks. |
+| designation_module_defaults | EXCLUDED | What picking a designation pre-fills in the access editor. Configuration for a form, never a record of anyone's access. |
+| func:ModuleCapabilities, func:LookupModuleCapability, func:ModuleSupportsSurface, func:LevelOffered, func:HasCapability, func:PermissionsForAssignments, func:PermissionsForAssignmentsWithBaseline, func:SeparationRisks, func:AssignmentsForRole, func:AssignmentsForRoles, func:AuthorizePermissionSet, func:SetPersonAccessSource | EXCLUDED | The capability catalog and the request-path resolver that turns a person's stored rows into a permission set. Authorization internals; they decide whether a leadership read is allowed, and are never its subject. |
+| func:ModulePages, func:PagesForModule, func:ModuleOwningRoute, func:Allows, func:PageAccessForAssignments, func:PageKeysForModule, func:NarrowForRetiredLenses, func:FillDefaultPages, func:WithPersonPageAccess | EXCLUDED | Page-grain narrowing of the admin-web sidebar (maintainer decision 2026-08-27, `docs/decisions/per-person-page-access.md`). Composes navigation for one principal; no business aggregate. |
+| func:NewAccessService, func:GetPersonAccess, func:NewAccessHandler, func:RegisterAccess, func:GetAccess, func:SaveAccess, func:DesignationDefaults, func:NewAccessRepository, func:LoadPersonAccess, func:SavePersonAccess, func:ListParks, func:ListDesignations, func:ResolvePermissions, func:ResolvePageAccess | EXCLUDED | Read/write path of the access editor itself (service, HTTP handler, repository). Admin configuration screen; not a leadership read. |

@@ -84,4 +84,10 @@ type PersonAccessRepository interface {
 	// request path. Kept on this interface rather than in a second repository so
 	// the write and the read that enforces it cannot drift apart.
 	ResolvePermissions(ctx context.Context, tenantID, userID string) ([]string, error)
+
+	// ResolvePageAccess reads which admin-web pages a principal keeps, for the
+	// bootstrap's sidebar composition. Reports false when the person has no stored
+	// rows, and the caller then serves the unnarrowed contract -- see
+	// adminui/app/person_page_lens.go.
+	ResolvePageAccess(ctx context.Context, tenantID, userID string) (permissions.PageAccess, bool, error)
 }

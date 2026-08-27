@@ -1,5 +1,17 @@
 -- +goose Up
 --
+-- seed-fixture-guard:ignore: access-control tables, no vaccination seed-data
+-- contract. Every table below is CREATE TABLE and brand new, and the only
+-- vaccination-relevant token in this file is `REFERENCES workforce_members` --
+-- a foreign key to the roster, not a change to it. These tables are seeded by
+-- `backend/cmd/backfill-person-access` from the retired role map, never from
+-- the vaccination source CSVs, so the fixture manifest, the two source-CSV
+-- validators and the vaccination seed-date runbook have nothing to say about
+-- them and touching them would be the ritual companion the guard's own header
+-- warns against. The seed coupling that DOES apply -- AGENTS.md "couple
+-- migrations to initial seed setup" -- is satisfied in the same change by that
+-- backfill command and by docs/runbooks/current-active-rbac-roles.md.
+--
 -- PER-PERSON MODULE ACCESS (People/HRMS rewrite, maintainer decision 2026-08-24).
 --
 -- Access stops being DERIVED and becomes ASSIGNED. Until now a person carried a

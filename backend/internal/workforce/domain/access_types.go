@@ -37,6 +37,25 @@ type AccessModuleRow struct {
 	// GrantedWeb/GrantedMobile are what this person holds today.
 	GrantedWeb    []string `json:"granted_web"`
 	GrantedMobile []string `json:"granted_mobile"`
+	// Pages are the module's individually tickable admin-web screens (page-grain
+	// access, maintainer decision 2026-08-27), in sidebar order. EMPTY means the
+	// module has no admin-web page of its own -- it is phone-only, or reached from
+	// inside another screen -- and the editor renders no page list at all.
+	Pages []AccessPageOption `json:"pages"`
+	// GrantedPagesWeb are the pages this person keeps. It is meaningful ONLY on the
+	// web surface: the phone composes its own navigation and is untouched by page
+	// ticks. An empty list on a module the person HOLDS means every page (see
+	// permissions.PageAccessForAssignments), which is what makes a page shipped
+	// tomorrow reach them rather than nobody -- the backend expands it before
+	// sending, so the editor always renders explicit ticks.
+	GrantedPagesWeb []string `json:"granted_pages_web"`
+}
+
+// AccessPageOption is one tickable admin-web screen inside a module. The label is
+// the SIDEBAR label, so the tick reads as the thing the person will actually see.
+type AccessPageOption struct {
+	PageKey string `json:"page_key"`
+	Label   string `json:"label"`
 }
 
 // AccessParkOption is a selectable park.
@@ -94,6 +113,10 @@ type AccessModuleWrite struct {
 	ModuleKey string   `json:"module_key"`
 	Web       []string `json:"web"`
 	Mobile    []string `json:"mobile"`
+	// Pages narrows the WEB grant to specific screens of this module. The editor
+	// sends every page it rendered, for the same wholesale reason the modules list
+	// does: a missing key could not be told apart from a deliberate removal.
+	Pages []string `json:"pages"`
 }
 
 // SavePersonAccessRequest replaces a person's access wholesale.

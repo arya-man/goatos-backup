@@ -35,6 +35,16 @@ export async function savePersonAccessAction({
   personId: string;
   body: SavePersonAccessRequest;
 }): Promise<SaveAccessResult> {
+  // The optimistic-concurrency fence, checked HERE and not only server-side: a body
+  // that reached this action without the version the editor loaded with would be a
+  // blind overwrite of whatever another admin saved in the meantime, and on an access
+  // screen a lost update is invisible until someone cannot do their job.
+  if (!Number.isInteger(body.row_version) || body.row_version < 0) {
+    return {
+      ok: false,
+      message: "Reload the page to see the current settings, then try again.",
+    };
+  }
   const result = await saveWorkforcePersonAccess(personId, body);
   if (!result.ok) {
     return {

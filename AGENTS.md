@@ -1554,6 +1554,59 @@ a hand-copied subset would not fail loudly -- it would silently never settle the
 missing. Declaring a category inline in `bootstrap/api.go` is blocked by
 `TestBootstrapDeclaresNoCategoryOfItsOwn`.
 
+Confirmed PAGE-GRAIN ACCESS rule (maintainer decision 2026-08-27, SUPERSEDING the MECHANISM
+-- and only the mechanism -- of the 2026-08-21 procurement-director workspace decision, whose
+OUTCOME is preserved byte for byte): **a person's admin-web sidebar is exactly the pages ticked
+for them on /people.** One layer, editable by a human.
+
+Until now TWO layers decided it and they disagreed. PERMISSIONS said what someone may do; a
+LENS -- hand-written Go keyed on a ROLE -- then deleted nav leaves and page contracts regardless.
+The Procurement Director HOLDS `feed_config.read/write`, `operators.*`, `roster.*` and
+`verification.act` through the `feed_director` role he also wears, and saw none of it, because
+`procurement_director_lens.go` kept only the Procurement and Feed groups and hid `/feed/config`.
+Both layers were right about their own question; together they meant the People access editor
+(which reads permissions) advertised modules he could not reach, and every future "this person
+should not see that page" was a commit.
+
+`adminui/app/procurement_director_lens.go` is DELETED. Its narrowing was written onto that
+person's OWN rows by the backfill, once, as data (`NarrowForRetiredLenses`).
+
+**THE VERIFIER LENS STAYS** (maintainer instruction, same day) and is not the same kind of
+thing: it does not subtract from the ordinary console, it composes a DIFFERENT workspace -- a
+queue, its own registry-built modules, its own landing. Retiring it would delete a product
+surface rather than a narrowing. It is still checked FIRST, so a verifier is never page-narrowed.
+
+**THE PHONE DOES NOT CHANGE.** Android composes its bar from the mobile module registry; a page
+tick is web-only and never reaches it. Operator access is untouched.
+
+Four properties, each load-bearing:
+
+1. **AN EMPTY PAGE LIST MEANS EVERY PAGE OF THAT MODULE.** This is what makes a page shipped
+   tomorrow reach whoever already holds the module, instead of silently reaching nobody until
+   someone re-ticks thirty people. Narrowing is opt-in: you have to say "not that one".
+2. **THE CATALOG IS ASSERTED AGAINST THE REAL NAVIGATION.** `permissions.ModulePages` carries
+   every nav leaf; `TestEveryNavLeafIsATickablePage` fails if a leaf ships without a row (it
+   would be unwithholdable) and `TestEveryPageContractRouteIsOwnedByAModule` fails if a page
+   contract's route belongs to no module (it could never be narrowed). Adding a screen without
+   a catalog row is a build failure, not a silent hole.
+3. **FAIL OPEN ON ABSENCE AND ON ERROR.** A person with no stored rows is NOT narrowed -- they
+   are still on the retired role path, and narrowing them to nothing would lock out anyone the
+   backfill has not reached. A source error is logged and the full contract served. The sidebar
+   is a convenience; every route behind it is independently permission-gated, and the 403 is the
+   lockout.
+4. **TWO REFUSALS ON THE WRITE PATH.** A page key from another module is REJECTED (a dropped
+   tick reads as granted while granting nothing). A granted module with screens and NONE ticked
+   is REJECTED -- it would resolve to every page by property 1, the opposite of what the admin
+   just did on screen.
+
+Resolution is `permissions.PageAccessForAssignments`, read by BOTH the bootstrap narrowing and
+the access editor, so the ticks the screen shows are the ticks the sidebar obeys. Schema:
+migration `000216_person_page_access.sql`. Canonical prose:
+`docs/decisions/per-person-page-access.md`. Pinned by
+`TestRetiredProcurementDirectorLensIsReproducedByTicks` (the holder's two stacked roles produce
+exactly the six leaves his live bootstrap served on 2026-08-27, and no page contract for
+`/feed/config`, `/people`, `/verify` or `/`) and `TestCeoIsNeverNarrowed`.
+
 Confirmed verifier admin-web workspace rule (maintainer decision 2026-08-03): the
 verifier-only workspace, previously mobile-only, also runs on admin-web with the SAME
 five evidence modules as mobile — Vaccination, Weighing, Counts, Feed, Health. `verifier`
