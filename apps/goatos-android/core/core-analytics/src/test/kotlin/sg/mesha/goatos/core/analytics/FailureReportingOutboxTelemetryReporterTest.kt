@@ -134,12 +134,12 @@ class FailureReportingOutboxTelemetryReporterTest {
     }
 
     @Test
-    fun `an exhausted write is loud - non-fatal plus analytics`() {
+    fun `an exhausted transport failure is counted without opening a Crashlytics issue`() {
         reporter().onOutboxWrite(
             event(
                 OutboxWritePhase.TERMINAL,
                 attempt = 5,
-                failureClass = "IOException",
+                failureClass = "HttpException",
                 terminalReason = OutboxTerminalReason.ATTEMPTS_EXHAUSTED,
             ),
         )
@@ -147,6 +147,19 @@ class FailureReportingOutboxTelemetryReporterTest {
         val (name, props) = analytics.events.single()
         assertEquals(AnalyticsEvents.SYNC_WRITE_DEAD, name)
         assertEquals(OutboxTerminalReason.ATTEMPTS_EXHAUSTED, props[AnalyticsEvents.Params.REASON])
+        assertTrue(crash.exceptions.isEmpty())
+    }
+
+    @Test
+    fun `an exhausted client defect is loud - non-fatal plus analytics`() {
+        reporter().onOutboxWrite(
+            event(
+                OutboxWritePhase.TERMINAL,
+                attempt = 5,
+                failureClass = "IllegalStateException",
+                terminalReason = OutboxTerminalReason.ATTEMPTS_EXHAUSTED,
+            ),
+        )
 
         val (throwable, message) = crash.exceptions.single()
         assertTrue(throwable is FailureReportingOutboxTelemetryReporter.DeadQueuedWrite)
@@ -154,7 +167,25 @@ class FailureReportingOutboxTelemetryReporterTest {
     }
 
     @Test
-    fun `a conflict-dead write is loud too and names the reason`() {
+    fun `a conflict-dead transport failure is counted without opening a Crashlytics issue`() {
+        reporter().onOutboxWrite(
+            event(
+                OutboxWritePhase.TERMINAL,
+                attempt = 1,
+                failureClass = "HttpException",
+                terminalReason = OutboxTerminalReason.CONFLICT,
+            ),
+        )
+
+        assertEquals(
+            OutboxTerminalReason.CONFLICT,
+            analytics.events.single().second[AnalyticsEvents.Params.REASON],
+        )
+        assertTrue(crash.exceptions.isEmpty())
+    }
+
+    @Test
+    fun `a conflict-dead client defect is loud`() {
         reporter().onOutboxWrite(
             event(
                 OutboxWritePhase.TERMINAL,
@@ -168,21 +199,25 @@ class FailureReportingOutboxTelemetryReporterTest {
             OutboxTerminalReason.CONFLICT,
             analytics.events.single().second[AnalyticsEvents.Params.REASON],
         )
-        assertEquals(1, crash.exceptions.size)
+        val (throwable, message) = crash.exceptions.single()
+        assertTrue(throwable is FailureReportingOutboxTelemetryReporter.DeadQueuedWrite)
+        assertTrue(message!!.contains("failure=NonRetryableSyncException"))
     }
 
     @Test
-    fun `a storm of identical deaths is throttled to one non-fatal per minute`() {
+    fun `a storm of identical exhausted deaths is throttled to one non-fatal per minute`() {
         val reporter = reporter()
         val dead = event(
             OutboxWritePhase.TERMINAL,
             attempt = 5,
-            failureClass = "IOException",
+            failureClass = "IllegalStateException",
             terminalReason = OutboxTerminalReason.ATTEMPTS_EXHAUSTED,
         )
         repeat(20) { reporter.onOutboxWrite(dead) }
 
         assertEquals("the count is the signal — every death still emits an event", 20, analytics.events.size)
+        assertEquals("every death remains visible in logcat", 20, logs.size)
+        assertEquals("every death remains a Crashlytics breadcrumb", 20, crash.breadcrumbs.size)
         assertEquals("but only one non-fatal", 1, crash.exceptions.size)
 
         now += FailureReportingOutboxTelemetryReporter.NON_FATAL_THROTTLE_MS
@@ -191,17 +226,19 @@ class FailureReportingOutboxTelemetryReporterTest {
     }
 
     @Test
-    fun `a different op type is its own throttle bucket`() {
+    fun `a different op type is still counted separately in telemetry`() {
         val reporter = reporter()
         val dead = event(
             OutboxWritePhase.TERMINAL,
             attempt = 5,
-            failureClass = "IOException",
+            failureClass = "IllegalStateException",
             terminalReason = OutboxTerminalReason.ATTEMPTS_EXHAUSTED,
         )
         reporter.onOutboxWrite(dead)
         reporter.onOutboxWrite(dead.copy(opType = "PROOF_UPLOAD"))
 
+        assertEquals(2, analytics.events.size)
+        assertTrue(logs.any { it.contains("op=PROOF_UPLOAD") })
         assertEquals(2, crash.exceptions.size)
     }
 
@@ -213,7 +250,13 @@ class FailureReportingOutboxTelemetryReporterTest {
             override fun setUserId(id: String?) {}
         }
         FailureReportingOutboxTelemetryReporter(crash, exploding, { now }, { logs += it })
-            .onOutboxWrite(event(OutboxWritePhase.TERMINAL, terminalReason = OutboxTerminalReason.CONFLICT))
+            .onOutboxWrite(
+                event(
+                    OutboxWritePhase.TERMINAL,
+                    failureClass = "HttpException",
+                    terminalReason = OutboxTerminalReason.CONFLICT,
+                ),
+            )
 
         assertEquals("the logcat line still landed before the throw", 1, logs.size)
     }

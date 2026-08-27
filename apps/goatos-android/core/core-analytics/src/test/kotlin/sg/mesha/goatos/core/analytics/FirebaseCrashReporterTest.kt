@@ -1,7 +1,9 @@
 package sg.mesha.goatos.core.analytics
 
 import java.io.FileNotFoundException
+import java.net.SocketException
 import java.net.UnknownHostException
+import kotlin.coroutines.cancellation.CancellationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -35,6 +37,13 @@ class FirebaseCrashReporterTest {
     }
 
     @Test
+    fun `connection reset is treated as connectivity noise`() {
+        val error = SocketException("Connection reset")
+
+        assertTrue(error.hasNetworkConnectivityCause())
+    }
+
+    @Test
     fun `wrapped connectivity exceptions are not mirrored as Crashlytics non-fatals`() {
         val error = RuntimeException("page load failed", UnknownHostException("Network unreachable"))
 
@@ -56,6 +65,20 @@ class FirebaseCrashReporterTest {
     }
 
     @Test
+    fun `coroutine cancellations are not mirrored as Crashlytics non-fatals`() {
+        val error = CancellationException("Job was cancelled")
+
+        assertTrue(error.shouldSkipCrashlyticsNonFatal())
+    }
+
+    @Test
+    fun `raw retrofit http exceptions are not mirrored as duplicate Crashlytics non-fatals`() {
+        val error = retrofit2.HttpException("HTTP 429")
+
+        assertTrue(error.shouldSkipCrashlyticsNonFatal())
+    }
+
+    @Test
     fun `recordException keeps breadcrumb but skips non-fatal for network connectivity`() {
         val sink = RecordingCrashlyticsSink()
         val reporter = FirebaseCrashReporter(sink)
@@ -64,6 +87,30 @@ class FirebaseCrashReporterTest {
         reporter.recordException(error, "feed direction page load failed")
 
         assertEquals(listOf("feed direction page load failed"), sink.logs)
+        assertTrue(sink.nonFatals.isEmpty())
+    }
+
+    @Test
+    fun `recordException keeps breadcrumb but skips non-fatal for coroutine cancellation`() {
+        val sink = RecordingCrashlyticsSink()
+        val reporter = FirebaseCrashReporter(sink)
+        val error = CancellationException("Job was cancelled")
+
+        reporter.recordException(error, "verify queue refresh failed")
+
+        assertEquals(listOf("verify queue refresh failed"), sink.logs)
+        assertTrue(sink.nonFatals.isEmpty())
+    }
+
+    @Test
+    fun `recordException keeps breadcrumb but skips non-fatal for raw retrofit http exception`() {
+        val sink = RecordingCrashlyticsSink()
+        val reporter = FirebaseCrashReporter(sink)
+        val error = retrofit2.HttpException("HTTP 429")
+
+        reporter.recordException(error, "feed packing page load failed")
+
+        assertEquals(listOf("feed packing page load failed"), sink.logs)
         assertTrue(sink.nonFatals.isEmpty())
     }
 

@@ -2507,10 +2507,10 @@ class WeighingViewModel @Inject constructor(
      * only UI was the word "uploading". Diagnosis needed the server log and manual DB forensics.
      *
      * A proof row that is still non-terminal but already carries a `lastError` IS a retry — that
-     * is the signal that was invisible. Emitting it (once per DISTINCT failure, keyed by proof id
-     * + message, so a Room re-emission of the same state does not inflate the funnel) plus a
-     * Crashlytics non-fatal on the terminal FAILED state gives enough context to diagnose from a
-     * dashboard: which lane (shed vs per-animal), which campaign shed, which attempt, what cause.
+     * is the signal that was invisible. Emitting it once per DISTINCT failure, keyed by proof id
+     * + message, so a Room re-emission of the same state does not inflate the funnel, gives enough
+     * context to diagnose from a dashboard: which lane (shed vs per-animal), which campaign shed,
+     * which attempt, what cause.
      *
      * Goat identifiers are livestock data and are safe to carry; no token or credential is ever
      * put in props, and the reason string is truncated like every other reason field here.
@@ -2534,10 +2534,7 @@ class WeighingViewModel @Inject constructor(
                 put(AnalyticsEvents.Params.REASON, reason.take(MAX_ANALYTICS_REASON_CHARS))
             }
             if (terminal) {
-                crashReporter.recordException(
-                    IllegalStateException(reason),
-                    "weighing proof upload failed",
-                )
+                crashReporter.log("weighing proof upload failed: ${reason.take(MAX_ANALYTICS_REASON_CHARS)}")
                 analytics.track(AnalyticsEvents.WEIGHING_PROOF_UPLOAD_FAILED, props)
             } else {
                 analytics.track(AnalyticsEvents.WEIGHING_PROOF_UPLOAD_RETRY, props)
@@ -3118,7 +3115,7 @@ class WeighingViewModel @Inject constructor(
                 .maxByOrNull { it.capturedAtMs }
                 ?: autoProofs.value[row.animalId]
             val proofStatus = when {
-                proof == null && !draft?.proofCaptureId.isNullOrBlank() && draft?.syncedToBackend == true ->
+                proof == null && draft != null && !draft.proofCaptureId.isNullOrBlank() && draft.syncedToBackend ->
                     sg.mesha.goatos.feature.scan.ProofUploadStatus.SYNCED
                 else -> when (proof?.syncStatus) {
                 CaptureSyncStatus.SYNCED -> sg.mesha.goatos.feature.scan.ProofUploadStatus.SYNCED

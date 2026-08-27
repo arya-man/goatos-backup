@@ -210,8 +210,7 @@ object AnalyticsEvents {
     const val WEIGHING_PROOF_UPLOAD_RETRY = "weighing_proof_upload_retry"
 
     /** A weighing proof video's upload reached its terminal FAILED state, so the capture can
-     *  never be submitted until the video is recorded again. Always paired with a Crashlytics
-     *  non-fatal — this is the state that silently disables Submit. */
+     *  never be submitted until the video is recorded again. */
     const val WEIGHING_PROOF_UPLOAD_FAILED = "weighing_proof_upload_failed"
 
     /** Leadership opened the weighing plan wizard to create or edit a weighing task. */
@@ -308,8 +307,7 @@ object AnalyticsEvents {
 
     /** [VERIFY_VIDEO_PLAY_INTENT] fired but no [VERIFY_VIDEO_PLAY_STARTED] /
      *  onIsPlayingChanged(false-to-true after a pause tap) callback landed within the watchdog
-     *  window — a dead play/pause control. Always paired with a [CrashReporter.recordException]
-     *  non-fatal carrying the same context. */
+     *  window — a dead play/pause control. */
     const val VERIFY_VIDEO_PLAY_DEAD = "verify_video_play_dead"
 
     /** Verifier started playing one proof video. */
