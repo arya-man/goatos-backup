@@ -649,6 +649,118 @@ func TestAskRoutesNaturalVaccinationScheduleQuestionToTypedScheduleTool(t *testi
 	}
 }
 
+func TestAskRoutesMessySalesQuestionToTypedReadTool(t *testing.T) {
+	var seenPath, seenFarm string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		seenFarm = r.URL.Query().Get("farm")
+		if r.URL.Path != "/sales/overview" {
+			t.Fatalf("ask_goatos sales router called %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"summary": map[string]any{"revenue": 4115172, "animals_sold": 373}})
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamBaseURL: upstream.URL,
+		UpstreamAskURL:  upstream.URL + "/ceo-ai/ask",
+		MCPPath:         "/mcp",
+		AllowedEmails:   mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:   staticTokenVerifier{claims: platformauth.Claims{Email: "aryaman@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"x","method":"tools/call","params":{"name":"ask_goatos","arguments":{"question":"for CBE frm only wat are sales revenue and animls sold?"}}}`))
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if seenPath != "/sales/overview" || seenFarm != "CBE" {
+		t.Fatalf("path=%s farm=%s", seenPath, seenFarm)
+	}
+	for _, want := range []string{"Applied filters: farm=CBE", "4115172"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("missing %q in body=%s", want, rec.Body.String())
+		}
+	}
+}
+
+func TestAskRoutesNegatedSalesDealMutationToReadOnlyLedger(t *testing.T) {
+	var seenPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		if r.URL.Path != "/sales/deals" {
+			t.Fatalf("ask_goatos sales deals router called %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("limit") != "10" {
+			t.Fatalf("query=%s", r.URL.RawQuery)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"deals": []map[string]any{{"buyer_name": "Keethiraj", "status": "closed"}}})
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamBaseURL: upstream.URL,
+		UpstreamAskURL:  upstream.URL + "/ceo-ai/ask",
+		MCPPath:         "/mcp",
+		AllowedEmails:   mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:   staticTokenVerifier{claims: platformauth.Claims{Email: "aryaman@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"x","method":"tools/call","params":{"name":"ask_goatos","arguments":{"question":"show latst sales deals, dont create anything just read"}}}`))
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if seenPath != "/sales/deals" {
+		t.Fatalf("path=%s", seenPath)
+	}
+	if !strings.Contains(rec.Body.String(), "Keethiraj") || !strings.Contains(rec.Body.String(), "read-only") {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+}
+
+func TestAskRoutesMessyMaleWeighingQuestionWithFilterInAnswer(t *testing.T) {
+	var seenPath, seenSex string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		seenSex = r.URL.Query().Get("sex")
+		if r.URL.Path != "/weighing/leadership/growth" {
+			t.Fatalf("ask_goatos weighing router called %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"headline": map[string]any{"average_adg_g_per_day": 197}})
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamBaseURL: upstream.URL,
+		UpstreamAskURL:  upstream.URL + "/ceo-ai/ask",
+		MCPPath:         "/mcp",
+		AllowedEmails:   mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:   staticTokenVerifier{claims: platformauth.Claims{Email: "aryaman@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"x","method":"tools/call","params":{"name":"ask_goatos","arguments":{"question":"male only weight gain numbers pls any spelling ok"}}}`))
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if seenPath != "/weighing/leadership/growth" || seenSex != "male" {
+		t.Fatalf("path=%s sex=%s", seenPath, seenSex)
+	}
+	if !strings.Contains(rec.Body.String(), "Applied filters:") || !strings.Contains(rec.Body.String(), "sex=male") {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+}
+
 func TestVaccinationTodayCallsLiveTrackerAndReturnsStructuredContent(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer user-token" {

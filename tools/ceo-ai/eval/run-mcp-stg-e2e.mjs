@@ -164,24 +164,27 @@ async function runAnswerScenario(s) {
     const sources = {};
     for (const source of s.sources) sources[source.name] = await apiGet(source.path, stringifyQuery(source.query || {}));
     const expectedFacts = s.facts(sources).filter((fact) => fact.value !== undefined && fact.value !== null && fact.value !== "");
-    const tool = s.tool || toolForSource(s.sources[0]);
-    const args = s.args || s.sources[0]?.query || {};
+    const tool = s.tool || "ask_goatos";
+    const args = s.args || { question: s.question };
     const answer = await rpc("tools/call", { name: tool, arguments: args });
     const structured = answer.structuredContent || {};
     const text = `${answerText(answer)}\n${JSON.stringify(stripVolatile(structured.data || {}))}`;
+    row.tool = tool;
+    row.expected_facts = [];
+    row.required_terms = [];
+    row.forbidden_terms = [];
+    row.answer = text;
     const factResults = expectedFacts.map((fact) => judgeFact(text, fact));
-    const termResults = (s.mustMention || []).map((term) => ({ term, passed: containsLoose(`${s.question}\n${text}`, term) }));
+    const termResults = (s.mustMention || []).map((term) => ({ term, passed: containsLoose(text, term) }));
     const forbiddenResults = (s.mustNotMention || []).map((term) => ({ term, passed: !containsLoose(text, term) }));
     assert.ok(factResults.length > 0 || termResults.length > 0 || forbiddenResults.length > 0, "scenario has no judge assertions");
     for (const result of factResults) assert.equal(result.passed, true, `missing fact ${result.label}: expected ${result.expected}`);
     for (const result of termResults) assert.equal(result.passed, true, `missing required term ${result.term}`);
     for (const result of forbiddenResults) assert.equal(result.passed, true, `forbidden term present ${result.term}`);
     row.passed = true;
-    row.tool = tool;
     row.expected_facts = factResults;
     row.required_terms = termResults;
     row.forbidden_terms = forbiddenResults;
-    row.answer = text;
   } catch (error) {
     row.error = error.message;
   }
