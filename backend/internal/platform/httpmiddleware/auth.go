@@ -66,7 +66,15 @@ type AuthMiddleware struct {
 // map. Optional: when it is nil, or reports no rows for this person, authorization
 // falls back to the role path unchanged.
 type PersonAccessSource interface {
-	ResolvePermissions(ctx context.Context, tenantID, userID string) ([]string, error)
+	// ResolvePermissions returns the person's permissions and whether per-person access is
+	// PROVISIONED on this deployment at all.
+	//
+	// provisioned=false means the access tables do not exist yet -- the window between the
+	// code rolling out and its migration running -- and the caller takes the role path. It
+	// is a separate return rather than an error because the two are handled OPPOSITELY: an
+	// error fails CLOSED, since falling back to the role path would hand back exactly the
+	// authority a person's ticks were used to remove.
+	ResolvePermissions(ctx context.Context, tenantID, userID string) (perms []string, provisioned bool, err error)
 }
 
 // SetPersonAccessSource wires the per-person resolver. Called at composition time.
@@ -177,34 +185,15 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		// time so the gap is visible rather than silent, and it is removed once creating a
 		// person writes access rows. An AdminOnly route is never decidable from a permission
 		// set (see AuthorizePermissionSet) and always takes the role path.
-		authorized := permissions.AuthorizeRoute(route, roles)
-		source := "role"
-		if a.personAccess != nil {
-			held, err := a.personAccess.ResolvePermissions(ctx, tenantID, userID)
-			switch {
-			case err != nil:
-				// Fail to the role path rather than locking the farm out on a read error,
-				// and log loudly: a resolver that is erroring is an incident.
-				a.log.ErrorContext(ctx, "person_access_lookup_failed",
-					slog.String("request_id", RequestIDFromContext(ctx)),
-					slog.String("trace_id", TraceIDFromContext(ctx)),
-					slog.String("actor_id", userID),
-					slog.String("route", route.OperationID),
-					slog.String("error", err.Error()),
-				)
-			case len(held) == 0:
-				a.log.WarnContext(ctx, "person_access_missing_falling_back_to_role",
-					slog.String("actor_id", userID),
-					slog.String("tenant_id", tenantID),
-					slog.String("route", route.OperationID),
-				)
-			default:
-				if allowed, decidable := permissions.AuthorizePermissionSet(route, held); decidable {
-					authorized = allowed
-					source = "person"
-				}
-			}
-		}
+		//
+		// A READ ERROR FAILS CLOSED, and that asymmetry is the rule rather than caution.
+		// Falling back to the role path on error would hand back exactly the authority a
+		// person'"'"'s ticks were used to REMOVE -- fail-open on the one path this model
+		// exists to control, triggered by nothing more than a database blip. The single
+		// exception is the deploy window before the migration has run, which Postgres names
+		// precisely (undefined table) and which the repository reports as
+		// ErrPersonAccessNotProvisioned; failing closed there would 403 the whole farm.
+		authorized, source := a.decide(ctx, route, roles, tenantID, userID)
 		if !authorized {
 			// required_* travel with the denial: `roles:""` alone says the caller
 			// held nothing, but not what the route WANTED — and that missing half
@@ -742,4 +731,59 @@ func AuthorizedParkIDsForCapability(grants []permissions.ActiveGrant, capability
 	ids := permissions.ScopeIDsForPermission(grants, capability, "park")
 	sort.Strings(ids)
 	return ids
+}
+
+// decide resolves whether this principal may take this route.
+//
+// Extracted so the fail-closed rule below is unit-testable: it is the one place a database
+// blip could hand back authority a person's ticks removed, and that is not a property to
+// leave to an integration test.
+func (a *AuthMiddleware) decide(ctx context.Context, route permissions.Route, roles []string, tenantID, userID string) (bool, string) {
+	return decideAuthorization(ctx, a.personAccess, route, roles, tenantID, userID, a.log)
+}
+
+func decideAuthorization(ctx context.Context, src PersonAccessSource, route permissions.Route, roles []string, tenantID, userID string, logs ...*slog.Logger) (bool, string) {
+	log := slog.Default()
+	if len(logs) > 0 && logs[0] != nil {
+		log = logs[0]
+	}
+	authorized := permissions.AuthorizeRoute(route, roles)
+	source := "role"
+	if src != nil {
+		held, provisioned, err := src.ResolvePermissions(ctx, tenantID, userID)
+		switch {
+		case err == nil && !provisioned:
+			// The tables are not there yet. Same answer as "this person has no rows":
+			// take the role path, and say so.
+			log.WarnContext(ctx, "person_access_not_provisioned_falling_back_to_role",
+				slog.String("actor_id", userID),
+				slog.String("tenant_id", tenantID),
+				slog.String("route", route.OperationID),
+			)
+		case err != nil:
+			// FAIL CLOSED. Anything else -- a timeout, a dropped connection, a broken
+			// query -- must not restore authority the ticks removed.
+			log.ErrorContext(ctx, "person_access_lookup_failed",
+				slog.String("request_id", RequestIDFromContext(ctx)),
+				slog.String("trace_id", TraceIDFromContext(ctx)),
+				slog.String("actor_id", userID),
+				slog.String("route", route.OperationID),
+				slog.String("error", err.Error()),
+			)
+			authorized = false
+			source = "person_unavailable"
+		case len(held) == 0:
+			log.WarnContext(ctx, "person_access_missing_falling_back_to_role",
+				slog.String("actor_id", userID),
+				slog.String("tenant_id", tenantID),
+				slog.String("route", route.OperationID),
+			)
+		default:
+			if allowed, decidable := permissions.AuthorizePermissionSet(route, held); decidable {
+				authorized = allowed
+				source = "person"
+			}
+		}
+	}
+	return authorized, source
 }

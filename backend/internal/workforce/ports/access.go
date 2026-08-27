@@ -83,7 +83,12 @@ type PersonAccessRepository interface {
 	// ResolvePermissions reads the flat permission set for a principal, for the
 	// request path. Kept on this interface rather than in a second repository so
 	// the write and the read that enforces it cannot drift apart.
-	ResolvePermissions(ctx context.Context, tenantID, userID string) ([]string, error)
+	// provisioned=false means the access tables do not exist on this deployment yet --
+	// the window between the code rolling out and its migration running. The caller then
+	// takes the role path. It is a separate return rather than an error because an ERROR
+	// fails closed: falling back to the role path on a read failure would hand back
+	// exactly the authority a person's ticks were used to remove.
+	ResolvePermissions(ctx context.Context, tenantID, userID string) (perms []string, provisioned bool, err error)
 
 	// ResolvePageAccess reads which admin-web pages a principal keeps, for the
 	// bootstrap's sidebar composition. Reports false when the person has no stored

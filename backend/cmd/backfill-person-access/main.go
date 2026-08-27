@@ -28,7 +28,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vgoats/goatos/backend/internal/permissions"
-	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 )
 
 func main() {
@@ -319,17 +318,16 @@ func shapePerson(p person) ([]permissions.ModuleAssignment, string) {
 	// decision 2026-08-27). FillDefaultPages then stamps the full page list on every web row
 	// that was not narrowed, so the editor opens showing what the person can actually reach
 	// rather than an empty grid.
-	// The phone bar this person has TODAY, frozen into their ticks so the cutover changes
-	// nothing. Leadership never had a department-composed bar -- theirs is the curated
-	// per-role drawer -- so the two sources are different questions and only one applies.
-	bar := workforceapp.LeadershipPhoneModules(p.roles)
-	if len(bar) == 0 {
-		bar = p.deptModules
-	}
+	// Everything this person's roles grant, with the retired admin-web lens applied as ticks.
+	//
+	// The phone rows are NOT trimmed to their department. An earlier version did, to keep the
+	// bar identical, and a cutover simulation against the real STG roster showed what it cost:
+	// 177 permissions removed across 20 operators, `goat.read` among them -- the read a scan
+	// lookup depends on. The bar is still offered from the department; what the ticks decide
+	// is whether an offered module has anything this person may open. So the rows carry the
+	// permissions, unchanged, and nobody loses an action.
 	assignments := permissions.FillDefaultPages(
-		permissions.NarrowForRetiredLenses(p.roles,
-			permissions.NarrowMobileToDepartmentBar(p.roles, bar,
-				permissions.AssignmentsForRoles(p.roles))),
+		permissions.NarrowForRetiredLenses(p.roles, permissions.AssignmentsForRoles(p.roles)),
 	)
 	scopeMode := "parks"
 	if p.tenantWide {

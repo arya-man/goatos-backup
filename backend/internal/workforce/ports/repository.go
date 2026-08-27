@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
@@ -142,12 +143,10 @@ type Repository interface {
 	// when the user has no active member row or the department has no grants.
 	ListGrantedModuleKeys(ctx context.Context, tenantID, userID string) ([]string, error)
 
-	// ListPersonMobileModuleKeys resolves the modules a person is ticked for on the
-	// PHONE (per-person access, maintainer decision 2026-08-27). Reports an empty
-	// slice for someone with no stored rows, and the caller then falls back to the
-	// department grants above -- a person the backfill has not reached must not lose
-	// their bar.
-	ListPersonMobileModuleKeys(ctx context.Context, tenantID, userID string) ([]string, error)
+	// ListPersonAssignments reads all of this person's stored access rows, both surfaces,
+	// so the phone's nav filter can ask what they may actually do instead of asking the
+	// retired role map.
+	ListPersonAssignments(ctx context.Context, tenantID, userID string) ([]permissions.ModuleAssignment, error)
 	ListDevices(ctx context.Context, tenantID, operatorID string) ([]domain.DeviceSummary, error)
 	RevokeDevice(ctx context.Context, cmd RevokeDeviceCommand) (domain.DeviceSummary, error)
 	ListSourceCandidates(ctx context.Context, params ListSourceCandidatesParams) ([]domain.SourceCandidate, error)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"strings"
 	"time"
 
@@ -408,14 +409,6 @@ ORDER BY wmc.status, wc.capability_code, wmc.created_at DESC`), tenantID, operat
 	return scanCapabilities(rows)
 }
 
-// ListPersonMobileModuleKeys reads the modules this person is ticked for on the phone.
-//
-// One indexed lookup on the person's own rows, the same shape the admin-web bootstrap uses
-// for its page narrowing. A row carrying NO capability is "deliberately removed" and is
-// excluded here, so unticking every capability on a module takes it off the bar.
-//
-// Empty means "no stored rows" to the caller, which falls back to department_module_grants.
-// That fallback is what keeps a person the backfill has not reached from losing their phone.
 func (r *Repository) ListPersonMobileModuleKeys(ctx context.Context, tenantID, userID string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -450,6 +443,40 @@ ORDER BY module_key`, tenantID, userID)
 // department: user -> workforce_members.department_id -> department_module_grants.
 // Served by department_module_grants_tenant_department_active_idx (mig 000002); every
 // /app/bootstrap call runs this, so it must stay an indexed two-key lookup.
+// ListPersonAssignments reads ALL of this person's stored access rows, both surfaces.
+//
+// Both surfaces, because permissions union across them: the phone's nav filter asks what
+// this person may DO, and a capability held on the web is still held. The caller picks the
+// mobile keys out separately for the one question that is surface-specific.
+func (r *Repository) ListPersonAssignments(ctx context.Context, tenantID, userID string) ([]permissions.ModuleAssignment, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT ma.module_key, ma.surface, ma.capabilities
+FROM public.person_module_access ma
+JOIN public.workforce_members wm
+  ON wm.tenant_id = ma.tenant_id
+ AND wm.workforce_member_id = ma.workforce_member_id
+WHERE ma.tenant_id = $1::uuid
+  AND wm.user_id = $2::uuid
+  AND wm.status = 'active'
+  AND cardinality(ma.capabilities) > 0
+ORDER BY ma.module_key, ma.surface`, tenantID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]permissions.ModuleAssignment, 0, 24)
+	for rows.Next() {
+		var a permissions.ModuleAssignment
+		if err := rows.Scan(&a.Module, &a.Surface, &a.Capabilities); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) ListGrantedModuleKeys(ctx context.Context, tenantID, userID string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()

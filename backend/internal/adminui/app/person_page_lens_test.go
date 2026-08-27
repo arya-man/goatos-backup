@@ -51,12 +51,13 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 	access := accessFor(permissions.RoleProcurementDirector, permissions.RoleFeedDirector)
 	resp := applyPersonPageLens(compileForTest(), access)
 
-	// The lens left him six leaves. FIVE survive, and the missing one is a FIX rather than a
-	// regression: an exhaustive persona sweep showed Feed SOP 403s on its own data
-	// (/admin/sops needs sop.read, which nothing he holds produces), so the lens was
-	// advertising a screen that had never opened for him. Under the tick model a screen is
-	// offered only when it can be used, so the dead leaf is gone. Granting it for real is
-	// one tick -- Protocols & SOPs at View -- and is a maintainer decision, not a code change.
+	// All six leaves the lens left him, Feed SOP included -- and that one now WORKS.
+	//
+	// It had become a dead leaf: /admin/sops needs sop.read, and dropping his
+	// non-Procurement web modules took it away. A cutover simulation against the real STG
+	// roster caught the permission loss, and the fix restores the modules that own no
+	// sidebar page at all (Protocols & SOPs, Herd Register, Parks & Sheds). They add nothing
+	// visible, they carry reads he has always held, and Feed SOP opens instead of 403ing.
 	want := []string{
 		"/procurement/source-entry",
 		"/procurement/vendors",
@@ -66,6 +67,7 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 		// the Procurement group rather than inside it.
 		"/sales",
 		"/feed/analytics",
+		"/feed/sops",
 	}
 	got := leafHrefs(resp)
 	if len(got) != len(want) {
