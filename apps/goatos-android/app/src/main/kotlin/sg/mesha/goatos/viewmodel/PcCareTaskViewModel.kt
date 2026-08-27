@@ -1116,7 +1116,7 @@ class PcCareTaskViewModel @Inject constructor(
             inventoryRequirements = detail?.inventoryRequirements.orEmpty().map {
                 PcCareInventoryRequirementUi(
                     vaccineLabel = it.vaccineLabel,
-                    requiredDosesLabel = "${it.requiredDoses} doses",
+                    requiredDosesLabel = if (it.requiredDoses == 1) "1 dose" else "${it.requiredDoses} doses",
                 )
             },
             taskProofSlot = if (taskProofMode) {

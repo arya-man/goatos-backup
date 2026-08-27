@@ -196,7 +196,7 @@ internal fun PcCareTaskDto.toCardUi(locallySubmittedForReview: Set<String>): PcC
         inventoryRequirements = inventoryRequirements.map {
             PcCareInventoryRequirementUi(
                 vaccineLabel = it.vaccineLabel,
-                requiredDosesLabel = "${it.requiredDoses} doses",
+                requiredDosesLabel = if (it.requiredDoses == 1) "1 dose" else "${it.requiredDoses} doses",
             )
         },
         reworkReason = if (effectiveStatus == PC_CARE_STATUS_REWORK) reworkReason else "",
