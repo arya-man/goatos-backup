@@ -157,7 +157,7 @@ steps:
       - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
       - TRIGGERED_BY=${_TRIGGERED_BY}
-      - GOOGLE_PLAY_PACKAGE=sg.mesha.goatos.stg
+      - GOOGLE_PLAY_PACKAGE=sg.mesha.goatos
     args:
       - -ceu
       - |

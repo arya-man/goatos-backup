@@ -219,7 +219,6 @@ install_android_sdk() {
   mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
 }
 
-[[ -n "$FIREBASE_APP_ID" ]] || { echo "FIREBASE_APP_ID must be set to the Firebase Android app id for package sg.mesha.goatos." >&2; exit 1; }
 [[ "$GOOGLE_PLAY_PACKAGE" == "sg.mesha.goatos" ]] || { echo "GOOGLE_PLAY_PACKAGE must be sg.mesha.goatos for production-facing distribution." >&2; exit 1; }
 test -f apps/goatos-android/app/src/prod/google-services.json || {
   echo "Missing apps/goatos-android/app/src/prod/google-services.json. Add Firebase Android app sg.mesha.goatos to project goatos-stg and download the config first." >&2
@@ -231,6 +230,7 @@ jq -er '.client[] | select(.client_info.android_client_info.package_name == "sg.
   exit 1
 }
 json_firebase_app_id="$(sed -n '1p' /tmp/goatos-prod-firebase-app-id.txt)"
+FIREBASE_APP_ID="${FIREBASE_APP_ID:-$json_firebase_app_id}"
 [[ "$json_firebase_app_id" == "$FIREBASE_APP_ID" ]] || {
   echo "FIREBASE_APP_ID does not match app/src/prod/google-services.json: got $FIREBASE_APP_ID, want $json_firebase_app_id" >&2
   exit 1
