@@ -129,6 +129,19 @@ var protectedRoutes = []Route{
 	{OperationID: "listWorkforcePeople", Method: "GET", Pattern: "/admin/workforce/people", Permissions: []string{OperatorsRead}},
 	{OperationID: "createWorkforcePerson", Method: "POST", Pattern: "/admin/workforce/people", Permissions: []string{OperatorsWrite}},
 
+	// The per-person access editor (maintainer decision 2026-08-24). READING it is
+	// OperatorsRead, the same as the directory row it opens from. WRITING it is
+	// OperatorsManageCapability -- deliberately NOT OperatorsWrite, which creates a
+	// person: adding a colleague and deciding what every colleague may do are
+	// different authorities, and this one can grant every other permission in the
+	// catalog, including itself.
+	{OperationID: "getWorkforcePersonAccess", Method: "GET", Pattern: "/admin/workforce/people/{person_id}/access", Permissions: []string{OperatorsRead}},
+	{OperationID: "saveWorkforcePersonAccess", Method: "PUT", Pattern: "/admin/workforce/people/{person_id}/access", Permissions: []string{OperatorsManageCapability}},
+	// The designation defaults an editor applies before saving. Gated on the WRITE
+	// permission, not the read: it is only useful to someone about to change access,
+	// and it describes what a grant would contain.
+	{OperationID: "getDesignationDefaults", Method: "GET", Pattern: "/admin/workforce/designations/{code}/defaults", Permissions: []string{OperatorsManageCapability}},
+
 	{OperationID: "appMe", Method: "GET", Pattern: "/app/me", Permissions: []string{AppBootstrap}},
 	{OperationID: "appBootstrap", Method: "GET", Pattern: "/app/bootstrap", Permissions: []string{AppBootstrap}},
 	{OperationID: "adminWebBootstrap", Method: "GET", Pattern: "/admin-web/bootstrap", Permissions: []string{AdminWebBootstrap}},
@@ -820,6 +833,48 @@ func AuthorizeRoute(route Route, roles []string) bool {
 		return false
 	}
 	return true
+}
+
+// AuthorizePermissionSet is AuthorizeRoute against a principal's RESOLVED permission
+// set rather than their roles. It is the per-person half of the 2026-08-24 access
+// rewrite: the ~95 route rules are unchanged, and only the SOURCE of the answer moved
+// from a hardcoded role map to the person's own stored module rows.
+//
+// AdminOnly is deliberately NOT expressible here. That flag short-circuits to a
+// product-ADMIN ROLE check and ignores the permission lists entirely, so a permission
+// set cannot answer it; the caller must keep using the role path for those routes.
+// Returning false instead would silently 403 every admin-only route.
+func AuthorizePermissionSet(route Route, held []string) (allowed bool, decidable bool) {
+	if route.AdminOnly {
+		return false, false
+	}
+	if len(route.Permissions) == 0 && len(route.AnyPermissions) == 0 {
+		return false, true
+	}
+	set := make(map[string]struct{}, len(held))
+	for _, p := range held {
+		set[p] = struct{}{}
+	}
+	// Permissions is ANDed, AnyPermissions is ORed -- the same shape AuthorizeRoute
+	// applies, so the two paths cannot disagree about what a route wants.
+	for _, required := range route.Permissions {
+		if _, ok := set[required]; !ok {
+			return false, true
+		}
+	}
+	if len(route.AnyPermissions) > 0 {
+		any := false
+		for _, candidate := range route.AnyPermissions {
+			if _, ok := set[candidate]; ok {
+				any = true
+				break
+			}
+		}
+		if !any {
+			return false, true
+		}
+	}
+	return true, true
 }
 
 func ProtectedRoutes() []Route {

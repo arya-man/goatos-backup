@@ -438,6 +438,53 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
+	// PER-PERSON PHONE MODULES (maintainer decision 2026-08-27). The ticks decide the bar,
+	// the same way they decide the web sidebar.
+	//
+	// Until this, the two halves of a phone module came from DIFFERENT places: the
+	// permissions from the person's own rows, the BAR from department_module_grants. Removing
+	// a module on the phone therefore took the ability away in 0.02s and left the icon in
+	// place -- for ever. Not on a refresh, and not on a log out and log in, because nothing
+	// was stale: the server kept answering "yes, he has it" from a source the tick never
+	// touched. The operator tapped a module he still saw and the work failed.
+	personAssignments, err := s.repo.ListPersonAssignments(ctx, tenantID, actorID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	personModules := make([]string, 0, len(personAssignments))
+	for _, a := range personAssignments {
+		if a.Surface == permissions.SurfaceMobile {
+			personModules = append(personModules, a.Module)
+		}
+	}
+	personPermissions := permissions.PermissionsForAssignmentsWithBaseline(personAssignments)
+	// A STANDALONE VERIFIER IS EXEMPT. Her modules are the features her verify DUTIES name
+	// (position_module_duties), not a department grant, and the whole verifier workspace is
+	// composed from them. Feeding her ticks in here would recompose that workspace, and the
+	// maintainer's instruction was that the verifier's separate interface does not change.
+	// THE TICKS DECIDE, THROUGH THE PERMISSION FILTER -- not by replacing the module list.
+	//
+	// The phone's nav filter already drops a module whose every item is gated away; it was
+	// simply asking the ROLE map. Asking the person's own resolved permissions instead means
+	// an unticked module disappears on its own, while WHICH modules are offered stays exactly
+	// as it is today. Replacing the offered list instead was measured against the real STG
+	// roster and moved 31 bars; this moves none, and loses no permission.
+	scope := scopeOf(grants)
+	var tickedModules []string
+	if len(personAssignments) > 0 && !isStandaloneVerifierPrincipal(grants) {
+		held := make(map[string]struct{}, 64)
+		for _, p := range personPermissions {
+			held[p] = struct{}{}
+		}
+		scope.held = held
+		// nil means "no stored rows"; an empty non-nil slice means "ticked for nothing",
+		// and those are different answers.
+		tickedModules = personModules
+		if tickedModules == nil {
+			tickedModules = []string{}
+		}
+	}
+	fromTicks := false
 	var device *domain.DeviceSummary
 	deviceState := domain.BootstrapDeviceState{Required: true, Status: "not_registered"}
 	deviceID = strings.TrimSpace(deviceID)
@@ -464,9 +511,9 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 		}
 	}
 	now := s.now().UTC()
-	bootstrapModules := modulesFor(grants, grantedModules, localeTag)
+	bootstrapModules := modulesForScope(scope, grantedModules, localeTag, fromTicks, tickedModules)
 	navChrome := navChromeFor(grants, bootstrapModules)
-	visibleNav := visibleNavigationFor(grants, grantedModules, localeTag)
+	visibleNav := visibleNavigationForTicks(scope, grantedModules, localeTag, tickedModules)
 	visibleNav, bootstrapModules = applyProfileEntryPlacement(navChrome, visibleNav, bootstrapModules)
 	return &domain.BootstrapResponse{
 		Actor:                  domain.BootstrapActor{ActorID: actorID, TenantID: tenantID},
@@ -481,11 +528,11 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"proof_capture":               hasCapability(caps, "media.video_capture"),
 			"animal_id_scan":              hasCapability(caps, "animal_id.scan"),
 			"protocol_adherence_card":     canViewProtocolAdherenceCard(grants),
-			"vaccination_execute":         canExecuteVaccination(grants, grantedModules),
-			"weighing_execute":            canExecuteWeighing(grants, grantedModules),
-			"weighing_oversee_operators":  canOverseeWeighingOperators(grants, grantedModules),
-			"pc_care_execute":             canExecutePCCare(grants, grantedModules),
-			"pc_care_plan":                canPlanPCCare(grants, grantedModules),
+			"vaccination_execute":         canExecuteVaccinationFrom(grants, grantedModules, fromTicks),
+			"weighing_execute":            canExecuteWeighingFrom(grants, grantedModules, fromTicks),
+			"weighing_oversee_operators":  canOverseeWeighingOperatorsFrom(grants, grantedModules, fromTicks),
+			"pc_care_execute":             canExecutePCCareFrom(grants, grantedModules, fromTicks),
+			"pc_care_plan":                canPlanPCCareFrom(grants, grantedModules, fromTicks),
 			"verification_video_controls": canUseVerificationVideoControls(grants),
 		},
 		VisibleNavigation:       visibleNav,

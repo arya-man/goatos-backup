@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
@@ -141,6 +142,11 @@ type Repository interface {
 	// workforce member's department (department_module_grants). Returns an empty slice
 	// when the user has no active member row or the department has no grants.
 	ListGrantedModuleKeys(ctx context.Context, tenantID, userID string) ([]string, error)
+
+	// ListPersonAssignments reads all of this person's stored access rows, both surfaces,
+	// so the phone's nav filter can ask what they may actually do instead of asking the
+	// retired role map.
+	ListPersonAssignments(ctx context.Context, tenantID, userID string) ([]permissions.ModuleAssignment, error)
 	ListDevices(ctx context.Context, tenantID, operatorID string) ([]domain.DeviceSummary, error)
 	RevokeDevice(ctx context.Context, cmd RevokeDeviceCommand) (domain.DeviceSummary, error)
 	ListSourceCandidates(ctx context.Context, params ListSourceCandidatesParams) ([]domain.SourceCandidate, error)

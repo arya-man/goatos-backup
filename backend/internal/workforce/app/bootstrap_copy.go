@@ -413,6 +413,19 @@ var soonModuleKeys = []string{"breeding"}
 // Otherwise, they see the union of their granted modules' nav contributions,
 // deduped by shared_key and ordered by priority.
 func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapNavigationItem {
+	return visibleNavigationForFrom(grants, grantedModules, localeTag, false)
+}
+
+func visibleNavigationForTicks(scope navScope, grantedModules []string, localeTag string, ticked []string) []domain.BootstrapNavigationItem {
+	return visibleNavigationForScope(scope, grantedModules, localeTag, false, ticked)
+}
+
+func visibleNavigationForFrom(grants []domain.GrantSummary, grantedModules []string, localeTag string, fromTicks bool) []domain.BootstrapNavigationItem {
+	return visibleNavigationForScope(scopeOf(grants), grantedModules, localeTag, fromTicks, nil)
+}
+
+func visibleNavigationForScope(scope navScope, grantedModules []string, localeTag string, fromTicks bool, ticked []string) []domain.BootstrapNavigationItem {
+	grants := scope.grants
 	// A standalone verifier shows the active module's bottom bar -- the first feature from
 	// verifierFeatureKeys, same resolution modulesFor uses for the drawer, so
 	// visible_navigation always equals modules[0].NavItems. Built via
@@ -431,12 +444,16 @@ func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string,
 	// Leadership principals default to their curated module set. There is no synthetic
 	// leadership/overview screen; preventive-care leaders land on the shared
 	// Vaccination module, while CEO gets Vaccination plus org-level modules.
-	if isLeadershipPrincipal(grants) {
-		keys := leadershipModuleKeys(grants)
+	//
+	// When the keys ARE the person's ticks they decide here too. The drawer and the bottom
+	// bar must never disagree: a module unticked out of the drawer while the bar still lands
+	// on it is the same "you can see what you cannot use" defect, one screen over.
+	if !fromTicks && isLeadershipPrincipal(grants) {
+		keys := narrowOfferToTicks(leadershipModuleKeys(grants), ticked)
 		if len(keys) == 0 {
 			return []domain.BootstrapNavigationItem{}
 		}
-		return composeNavigationFromModules([]string{keys[0]}, grants, localeTag)
+		return composeNavigationFromModulesScope([]string{keys[0]}, scope, localeTag)
 	}
 
 	// Non-leadership operators get the bar of their ACTIVE module. The bar is
@@ -444,16 +461,58 @@ func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string,
 	// an unusable 6+ tab bar as modules are added. The client switches the active module
 	// via the drawer and renders that module's items from BootstrapResponse.Modules;
 	// VisibleNavigation carries the default (first available) module's bar.
-	active := activeModuleKey(grants, grantedModules)
+	active := activeModuleKey(grants, narrowOfferToTicks(grantedModules, ticked))
 	if active == "" {
 		return []domain.BootstrapNavigationItem{}
 	}
-	return composeNavigationFromModules([]string{active}, grants, localeTag)
+	return composeNavigationFromModulesScope([]string{active}, scope, localeTag)
 }
 
 // grantsHavePermission reports whether ANY of the principal's active grant roles holds
 // the permission. Mirrors how routePermissions is evaluated, so a nav item and its route
 // agree on who may reach it.
+// navScope is who the principal is, for nav composition.
+//
+// `held` is the person's RESOLVED permission set -- what their ticks actually grant. When it
+// is nil the role map answers, which is the pre-cutover behaviour and the fallback for
+// anyone the backfill has not reached.
+//
+// This is the seam that makes a tick move the phone. The nav filter used to ask the ROLE map
+// whether a module's items were permitted, so unticking a module removed the ability in
+// 0.02s and left the icon on the bar for ever. Asking the person's own permissions instead
+// means the existing filter does the work: a module whose every item is gated away is
+// already dropped, so an unticked module disappears without changing WHICH modules are
+// offered -- no operator gains a module, and nobody loses a permission.
+type navScope struct {
+	grants []domain.GrantSummary
+	held   map[string]struct{}
+}
+
+func scopeOf(grants []domain.GrantSummary) navScope { return navScope{grants: grants} }
+
+func (s navScope) has(permission string) bool {
+	if permission == "" {
+		return true
+	}
+	if s.held != nil {
+		_, ok := s.held[permission]
+		return ok
+	}
+	return grantsHavePermission(s.grants, permission)
+}
+
+func (s navScope) hasAny(required []string) bool {
+	if len(required) == 0 {
+		return true
+	}
+	for _, permission := range required {
+		if s.has(permission) {
+			return true
+		}
+	}
+	return false
+}
+
 func grantsHavePermission(grants []domain.GrantSummary, permission string) bool {
 	if permission == "" {
 		return true
@@ -481,19 +540,24 @@ func grantsHaveAnyPermission(grants []domain.GrantSummary, required []string) bo
 // permittedContributions returns the module's nav items this principal may actually
 // reach. A module whose every item is gated away is not renderable for them.
 func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) []moduleNavContribution {
+	return permittedContributionsIn(def, scopeOf(grants))
+}
+
+func permittedContributionsIn(def moduleDefinition, scope navScope) []moduleNavContribution {
+	grants := scope.grants
 	contributions := def.contributions
 	if usesVerificationReviewLens(grants) {
 		contributions = def.reviewContributions
 	}
 	out := make([]moduleNavContribution, 0, len(contributions))
 	for _, contrib := range contributions {
-		if !grantsHavePermission(grants, contrib.requiredPermission) {
+		if !scope.has(contrib.requiredPermission) {
 			continue
 		}
-		if !grantsHaveAnyPermission(grants, contrib.requiredAnyPermission) {
+		if !scope.hasAny(contrib.requiredAnyPermission) {
 			continue
 		}
-		if contrib.excludedPermission != "" && grantsHavePermission(grants, contrib.excludedPermission) {
+		if contrib.excludedPermission != "" && scope.has(contrib.excludedPermission) {
 			continue
 		}
 		if contrib.hrefIfRole != "" && hasRole(grants, contrib.hrefRole) {
@@ -519,6 +583,20 @@ func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) 
 //     "weighing", etc.), and modulesFor will compose per-feature verification modules for each.
 //   - Single-module verifier (0-1 verify duties): return ["verification"] for the generic module.
 func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) []string {
+	return candidateModuleKeysFrom(grants, grantedModules, false)
+}
+
+// candidateModuleKeysFrom is the same resolution with one extra fact: whether the keys it was
+// handed are the person's OWN TICKS rather than a department grant.
+//
+// When they are, they ARE the answer, for leadership too. That is the whole point of the
+// per-person model, and leadership is exactly where it was still missing: the branch below
+// returns a curated per-ROLE list and never looks at the keys, so a CEO or a director kept
+// every module on their phone no matter what was unticked -- the same defect the operator had,
+// one layer over, and equally invisible to a re-login.
+//
+// A standalone verifier stays exempt: her modules are the features her verify DUTIES name.
+func candidateModuleKeysFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) []string {
 	if isStandaloneVerifierPrincipal(grants) {
 		// Every standalone verifier is scoped to the feature(s) their verify duties name,
 		// or -- for a coarse department-level "verification" grant / no duties at all --
@@ -534,6 +612,38 @@ func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) 
 		return grantedModules
 	}
 	return leadershipModuleKeys(grants)
+}
+
+// narrowOfferToTicks intersects the modules a principal is OFFERED with the modules they are
+// ticked for. It can only ever remove.
+//
+// Both halves are load-bearing, and each alone is wrong:
+//
+//   - Replacing the offer with the ticks WIDENS it. The role mapping is a superset by
+//     construction, so against the real STG roster that put Health on twenty operators'
+//     phones and moved 31 bars in total.
+//   - Leaving the offer alone and relying on the permission filter cannot reliably REMOVE.
+//     Permissions are shared between modules -- untick Vaccination and task.execute is still
+//     granted by Preventive Care -- so the module keeps a permitted item and stays.
+//
+// Intersecting does both: an unticked module leaves the bar, and a module the person was
+// never offered cannot arrive. `ticked` nil means this person has no stored rows, and
+// nothing is narrowed.
+func narrowOfferToTicks(offered, ticked []string) []string {
+	if ticked == nil {
+		return offered
+	}
+	keep := make(map[string]struct{}, len(ticked))
+	for _, k := range ticked {
+		keep[k] = struct{}{}
+	}
+	out := make([]string, 0, len(offered))
+	for _, k := range offered {
+		if _, ok := keep[k]; ok {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 // usesVerificationReviewLens selects the cross-module evidence workspace by authority,
@@ -716,11 +826,19 @@ func canViewProtocolAdherenceCard(grants []domain.GrantSummary) bool {
 }
 
 func canExecuteVaccination(grants []domain.GrantSummary, grantedModules []string) bool {
-	return hasPermission(grants, permissions.TaskExecute) && canUseModule(grants, grantedModules, "vaccination")
+	return canExecuteVaccinationFrom(grants, grantedModules, false)
+}
+
+func canExecuteVaccinationFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.TaskExecute) && canUseModuleFrom(grants, grantedModules, "vaccination", fromTicks)
 }
 
 func canExecuteWeighing(grants []domain.GrantSummary, grantedModules []string) bool {
-	return hasPermission(grants, permissions.WeighingExecute) && canUseModule(grants, grantedModules, "weighing")
+	return canExecuteWeighingFrom(grants, grantedModules, false)
+}
+
+func canExecuteWeighingFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.WeighingExecute) && canUseModuleFrom(grants, grantedModules, "weighing", fromTicks)
 }
 
 // canOverseeWeighingOperators gates the read-only Operators surface -- weighing shed tasks
@@ -728,7 +846,11 @@ func canExecuteWeighing(grants []domain.GrantSummary, grantedModules []string) b
 // surface from a role name; the write path still requires the caller to be the shed's assignee,
 // so this flag widens what is visible and never what is recordable.
 func canOverseeWeighingOperators(grants []domain.GrantSummary, grantedModules []string) bool {
-	return hasPermission(grants, permissions.WeighingOverseeOperators) && canUseModule(grants, grantedModules, "weighing")
+	return canOverseeWeighingOperatorsFrom(grants, grantedModules, false)
+}
+
+func canOverseeWeighingOperatorsFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.WeighingOverseeOperators) && canUseModuleFrom(grants, grantedModules, "weighing", fromTicks)
 }
 
 func canUseVerificationVideoControls(grants []domain.GrantSummary) bool {
@@ -738,17 +860,29 @@ func canUseVerificationVideoControls(grants []domain.GrantSummary) bool {
 // canExecutePCCare mirrors canExecuteWeighing: it decides which face the four PC Care category
 // tabs show. TRUE renders the operator scan worklist; FALSE renders the read-only monitor list.
 func canExecutePCCare(grants []domain.GrantSummary, grantedModules []string) bool {
-	return hasPermission(grants, permissions.PCCareExecute) && canUseModule(grants, grantedModules, "pc_care")
+	return canExecutePCCareFrom(grants, grantedModules, false)
+}
+
+func canExecutePCCareFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.PCCareExecute) && canUseModuleFrom(grants, grantedModules, "pc_care", fromTicks)
 }
 
 // canPlanPCCare gates the "Plan a care task" wizard entry on the monitor list (CEO-only via
 // pc_care.plan, the weighing.plan precedent). The write path is still gated server-side.
 func canPlanPCCare(grants []domain.GrantSummary, grantedModules []string) bool {
-	return hasPermission(grants, permissions.PCCarePlan) && canUseModule(grants, grantedModules, "pc_care")
+	return canPlanPCCareFrom(grants, grantedModules, false)
+}
+
+func canPlanPCCareFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.PCCarePlan) && canUseModuleFrom(grants, grantedModules, "pc_care", fromTicks)
 }
 
 func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {
-	for _, key := range candidateModuleKeys(grants, grantedModules) {
+	return canUseModuleFrom(grants, grantedModules, module, false)
+}
+
+func canUseModuleFrom(grants []domain.GrantSummary, grantedModules []string, module string, fromTicks bool) bool {
+	for _, key := range candidateModuleKeysFrom(grants, grantedModules, fromTicks) {
 		if key == module {
 			return true
 		}
@@ -1007,6 +1141,15 @@ func verificationModuleForFeature(featureKey string, grants []domain.GrantSummar
 // composed synthetically (verificationModuleForFeature) rather than looked up in the registry.
 // For a single-module verifier, the generic "verification" module from the registry is used.
 func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapModule {
+	return modulesForFrom(grants, grantedModules, localeTag, false)
+}
+
+func modulesForFrom(grants []domain.GrantSummary, grantedModules []string, localeTag string, fromTicks bool) []domain.BootstrapModule {
+	return modulesForScope(scopeOf(grants), grantedModules, localeTag, fromTicks, nil)
+}
+
+func modulesForScope(scope navScope, grantedModules []string, localeTag string, fromTicks bool, ticked []string) []domain.BootstrapModule {
+	grants := scope.grants
 	// Standalone verifier: ALWAYS compose per-feature verification modules (one drawer
 	// entry per feature, each with its own [Verify, Alerts, You] bar) rather than looking
 	// up registry modules. This applies uniformly regardless of how many verify duties the
@@ -1036,7 +1179,7 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 		return out
 	}
 
-	keys := candidateModuleKeys(grants, grantedModules)
+	keys := narrowOfferToTicks(candidateModuleKeysFrom(grants, grantedModules, fromTicks), ticked)
 
 	// Standard path: look up modules in the registry (for operators and leadership).
 	available := make([]moduleDefinition, 0, len(keys))
@@ -1046,7 +1189,7 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 		if !ok || def.status != moduleStatusAvailable || seen[def.key] {
 			continue
 		}
-		if len(permittedContributions(def, grants)) == 0 {
+		if len(permittedContributionsIn(def, scope)) == 0 {
 			continue
 		}
 		seen[def.key] = true
@@ -1063,7 +1206,7 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 
 	out := make([]domain.BootstrapModule, 0, len(available)+len(soonModuleKeys))
 	for _, def := range available {
-		items := composeNavigationFromModules([]string{def.key}, grants, localeTag)
+		items := composeNavigationFromModulesScope([]string{def.key}, scope, localeTag)
 		// Land on the first page this principal may actually open. The declared
 		// landingHref can be gated away (an Operator holds Counts but not the census
 		// page at /counts), and landing them on a route that 403s would be a
@@ -1124,6 +1267,10 @@ func navItemsContainHref(items []domain.BootstrapNavigationItem, href string) bo
 // deduping by shared_key and ordering by priority, and dropping items whose
 // requiredPermission this principal does not hold.
 func composeNavigationFromModules(modules []string, grants []domain.GrantSummary, localeTag string) []domain.BootstrapNavigationItem {
+	return composeNavigationFromModulesScope(modules, scopeOf(grants), localeTag)
+}
+
+func composeNavigationFromModulesScope(modules []string, scope navScope, localeTag string) []domain.BootstrapNavigationItem {
 	// Collect all contributions, tracking which shared_key we've seen
 	collected := make([]moduleNavContribution, 0)
 	seenSharedKey := make(map[string]bool)
@@ -1134,7 +1281,7 @@ func composeNavigationFromModules(modules []string, grants []domain.GrantSummary
 		if !ok {
 			continue
 		}
-		for _, contrib := range permittedContributions(def, grants) {
+		for _, contrib := range permittedContributionsIn(def, scope) {
 			if contrib.shared_key != "" {
 				// Shared item: keep the first module's version; skip duplicates
 				if !seenSharedKey[contrib.shared_key] {

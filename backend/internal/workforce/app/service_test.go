@@ -1071,8 +1071,14 @@ type fakeRepo struct {
 	grants         []domain.GrantSummary
 	caps           []domain.CapabilityAssignment
 	grantedModules []string
-	device         domain.DeviceSummary
-	deviceErr      error
+	// personMobileModules are the phone modules the person is TICKED for. Empty means no
+	// stored rows, and the service then falls back to grantedModules above.
+	personMobileModules []string
+	// personAssignments are the person's stored access rows. The nav filter resolves what
+	// they may do from these instead of from the retired role map.
+	personAssignments []permissions.ModuleAssignment
+	device            domain.DeviceSummary
+	deviceErr         error
 
 	// registerDeviceResult/registerDeviceErr let tests control what the reactivation self-heal
 	// path (reactivateRecoverableDevice -> repo.RegisterDevice) observes. registerDeviceCalls
@@ -1096,6 +1102,10 @@ func (f *fakeRepo) ListActiveGrantsForActor(context.Context, string, string) ([]
 
 func (f *fakeRepo) ListCapabilities(context.Context, string, string) ([]domain.CapabilityAssignment, error) {
 	return f.caps, nil
+}
+
+func (f *fakeRepo) ListPersonAssignments(context.Context, string, string) ([]permissions.ModuleAssignment, error) {
+	return f.personAssignments, nil
 }
 
 func (f *fakeRepo) ListGrantedModuleKeys(context.Context, string, string) ([]string, error) {

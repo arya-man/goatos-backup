@@ -93,13 +93,16 @@ class MilkPreparationListViewModel @Inject constructor(
                     MilkPreparationListUiState(
                         selectedFilter = selected,
                         dateLabel = milkPreparationDateLabel(dateStr),
+                        selectedDate = dateStr,
+                        isToday = dateStr == LocalDate.now(MILK_IST).toString(),
                         isRefreshing = sync.isRefreshing,
                         isOffline = sync.isOffline,
                         emptyMessage = if (sync.isOffline) "Couldn't load Milk Preparation. It will appear once you're back online." else null,
                     )
                 } else {
-                    buildMilkPreparationListUi(page, selected, capturedByEntity, draftDate = dateStr).copy(
+                    buildMilkPreparationListUi(page, selected, capturedByEntity, draftDate = dateStr, locallySubmitted = locallySubmitted).copy(
                         selectedDate = dateStr,
+                        isToday = dateStr == LocalDate.now(MILK_IST).toString(),
                         isRefreshing = sync.isRefreshing,
                         isOffline = sync.isOffline,
                         lastSyncedAt = resource.lastSyncedAt,
@@ -120,6 +123,7 @@ class MilkPreparationListViewModel @Inject constructor(
             MilkPreparationListEvent.Refresh -> refresh()
             is MilkPreparationListEvent.SelectFilter -> selectedFilter.value = event.key
             is MilkPreparationListEvent.NavigateDate -> navigateDate(event.delta)
+            is MilkPreparationListEvent.SelectDate -> selectDate(event.date)
             is MilkPreparationListEvent.OpenFarm, MilkPreparationListEvent.Back -> Unit
         }
     }
@@ -127,9 +131,17 @@ class MilkPreparationListViewModel @Inject constructor(
     /** Business dates are capped at today IST, mirroring WorkflowListViewModel.selectDate — future
      *  days have no preparation tasks by definition. */
     private fun navigateDate(delta: Int) {
-        val currentDate = LocalDate.parse(selectedDate.value)
+        applyDate(LocalDate.parse(selectedDate.value).plusDays(delta.toLong()))
+    }
+
+    /** Calendar jump from the date bar's picker; same today cap as the chevrons. */
+    private fun selectDate(dateIso: String) {
+        val requested = runCatching { LocalDate.parse(dateIso) }.getOrNull() ?: return
+        applyDate(requested)
+    }
+
+    private fun applyDate(requested: LocalDate) {
         val today = LocalDate.now(MILK_IST)
-        val requested = currentDate.plusDays(delta.toLong())
         val capped = if (requested.isAfter(today)) today else requested
         if (capped.toString() == selectedDate.value) return
         selectedDate.value = capped.toString()
@@ -159,6 +171,7 @@ internal fun buildMilkPreparationListUi(
     draftDate: String = "",
     locallySubmitted: Set<String> = emptySet(),
 ): MilkPreparationListUiState {
+    val selectedIsToday = draftDate.isBlank() || draftDate == LocalDate.now(MILK_IST).toString()
     val allCards = page?.farmTasks.orEmpty()
         .map { task ->
             // MUST be the same key the detail screen writes its draft under
@@ -171,6 +184,7 @@ internal fun buildMilkPreparationListUi(
                 locallySubmitted.contains(
                     task.submittedGrainKey(draftDate),
                 ),
+                canOpen = selectedIsToday,
             )
         }
         .sortedBy { it.parkLabel }
@@ -209,6 +223,7 @@ private fun milkPreparationCard(
     task: MilkPreparationFarmTaskDto,
     capturedProofCount: Int,
     isLocallySubmittedForReview: Boolean = false,
+    canOpen: Boolean = true,
 ): MilkPreparationCardUi {
     // A submit still in the outbox leaves verificationStatus at "not_submitted", so the card read
     // "To prepare" for work already sent (254.mp4 class). Milk Preparation is FARM-DAY grain.
@@ -251,6 +266,7 @@ private fun milkPreparationCard(
         },
         reworkReason = task.reworkReason,
         bucket = bucket,
+        canOpen = canOpen,
         detailLabel = "${task.cohortCount} cohorts · ${task.headCount} animals",
         capturedProofCount = capturedProofCount,
     )
@@ -315,6 +331,7 @@ class MilkPreparationViewModel @Inject constructor(
         val page = resource.data
         val task = page?.farmTasks?.firstOrNull { it.parkId == parkId }
         val backendSubmitted = task?.verificationStatus == "pending_verification" || task?.verificationStatus == "completed"
+        val isToday = preparationDate == LocalDate.now(MILK_IST).toString()
         MilkPreparationUiState(
             preparationDate = page?.preparationDate ?: preparationDate,
             feedingDate = page?.feedingDate.orEmpty(),
@@ -347,6 +364,7 @@ class MilkPreparationViewModel @Inject constructor(
             isRefreshing = syncState.isRefreshing,
             isOffline = syncState.isOffline,
             lastSyncedAt = resource.lastSyncedAt,
+            isToday = isToday,
         )
     }.stateIn(
         viewModelScope,
@@ -383,7 +401,7 @@ class MilkPreparationViewModel @Inject constructor(
                 draft.update { if (event.shift == "morning") it.copy(morningMilkCollected = event.value) else it.copy(eveningMilkCollected = event.value) }
             }
             is MilkPreparationEvent.SetStepAnswer -> {
-                if (state.value.steps.firstOrNull { it.code == event.stepCode }?.enabled != true) return
+                if (!state.value.isEditable || state.value.steps.firstOrNull { it.code == event.stepCode }?.enabled != true) return
                 draft.update { current -> current.copy(steps = current.steps.map { if (it.code == event.stepCode) it.copy(answer = event.value) else it }) }
             }
             MilkPreparationEvent.Submit -> submit()
@@ -652,7 +670,7 @@ class MilkPreparationViewModel @Inject constructor(
 
     private fun submit() {
         val current = state.value
-        if (!current.canSubmit) return
+        if (!current.isToday || !current.canSubmit) return
         // Prevent double-submit: if one is already queued/in-flight/succeeded, don't submit again
         if (submitOutboxItemId.value != null) return
         val proofItems = current.steps.associate { it.code to captureDraft.proofs[it.code].orEmpty() }
@@ -800,4 +818,3 @@ internal fun sequenceMilkPreparationSteps(
         sequenced
     }
 }
-

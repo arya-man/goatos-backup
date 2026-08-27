@@ -1,9 +1,12 @@
 package main
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/notificationbridge"
+	"github.com/vgoats/goatos/backend/internal/verificationcatalog"
 )
 
 // TestSeedFixtureVaccinationOwnerPositionsMapToVaccinationDuties pins module +
@@ -161,5 +164,37 @@ func TestDeriveDutiesSkipsVerifierSeatWithoutMarkingItUnmapped(t *testing.T) {
 	}
 	if len(duties) != 1 {
 		t.Fatalf("derived %d duties, want only the operator's", len(duties))
+	}
+}
+
+// TestVerifierDutyModulesCoverEveryRegisteredVerificationModule pins the 2026-08-27 milk
+// fix: the mobile verifier's per-feature [Verify, Alerts] bar is composed from these duty
+// rows (workforce verifierFeatureKeys), so a verification category registered in
+// verificationcatalog with no verify duty row is a queue the web lens shows and the phone
+// never composes a tab for — 11 pending milk videos were invisible on the phone this way.
+// Mutation test: deleting the verificationcatalog union in verifierDutyModules turns this
+// red (milk has, deliberately, no notification profile).
+func TestVerifierDutyModulesCoverEveryRegisteredVerificationModule(t *testing.T) {
+	modules := verifierDutyModules()
+	normalized := map[string]bool{}
+	for _, m := range modules {
+		key := strings.ReplaceAll(strings.TrimPrefix(m, "pc."), ".", "_")
+		if normalized[key] {
+			t.Errorf("module %q appears under two spellings; the union must dedupe on the normalized key", m)
+		}
+		normalized[key] = true
+	}
+	for _, def := range verificationcatalog.All() {
+		key := strings.ReplaceAll(strings.TrimPrefix(def.NavigationModule, "pc."), ".", "_")
+		if !normalized[key] {
+			t.Errorf("registered verification module %q has no verify duty module; its queue would be web-only", def.NavigationModule)
+		}
+	}
+	// The notification spellings must survive verbatim: ResolveModuleDutyRecipients joins on
+	// them exactly, so "vaccination" beside a dropped "pc.vaccination" would silence pushes.
+	for _, m := range notificationbridge.PendingNotificationDutyModules() {
+		if !slices.Contains(modules, m) {
+			t.Errorf("notified module %q missing from verifierDutyModules; its push would resolve to zero devices", m)
+		}
 	}
 }
