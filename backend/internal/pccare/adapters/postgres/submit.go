@@ -47,16 +47,17 @@ func (r *Repository) SubmitTask(ctx context.Context, p ports.SubmitTaskParams) (
 	}()
 
 	var (
-		category, parkID, shedID, partitionLabel, status, workState, plannedDate string
-		rowVersion                                                               int32
+		category, parkID, shedID, partitionLabel, vaccineLabel, status, workState, plannedDate string
+		rowVersion                                                                             int32
 	)
 	err = tx.QueryRow(ctx, `
-SELECT category, park_id::text, shed_id::text, coalesce(partition_label, ''), status, work_state,
+SELECT category, park_id::text, coalesce(shed_id::text, ''), coalesce(partition_label, ''),
+       coalesce(vaccine_label, ''), status, work_state,
        planned_business_date::text, row_version
 FROM pc_care_tasks
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid
 FOR UPDATE`, p.TenantID, p.TaskID).Scan(
-		&category, &parkID, &shedID, &partitionLabel, &status, &workState, &plannedDate, &rowVersion)
+		&category, &parkID, &shedID, &partitionLabel, &vaccineLabel, &status, &workState, &plannedDate, &rowVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.SubmitTaskResult{}, ports.ErrNotFound
 	}
@@ -65,15 +66,20 @@ FOR UPDATE`, p.TenantID, p.TaskID).Scan(
 	}
 
 	// The shed's display NAME for the verifier's subject label — carried on EVERY return path
-	// (the feed packing declared-but-never-populated lesson).
-	shedLocation, err := oploc.ResolveShedLocation(ctx, tx.QueryRow(ctx, oploc.ShedScopedLocationSQL, p.TenantID, shedID))
-	if err != nil {
-		return ports.SubmitTaskResult{}, fmt.Errorf("pccare: resolve submit shed location: %w", err)
+	// (the feed packing declared-but-never-populated lesson). A per-vaccine stock task has no
+	// shed; its verifier subject is the vaccine label instead.
+	var shedLocation oploc.OperationalLocation
+	if shedID != "" {
+		shedLocation, err = oploc.ResolveShedLocation(ctx, tx.QueryRow(ctx, oploc.ShedScopedLocationSQL, p.TenantID, shedID))
+		if err != nil {
+			return ports.SubmitTaskResult{}, fmt.Errorf("pccare: resolve submit shed location: %w", err)
+		}
 	}
 
 	base := ports.SubmitTaskResult{
 		TaskID: p.TaskID, Category: category, ParkID: parkID, ShedID: shedID,
 		ShedName: shedLocation.ShedName, PartitionLabel: partitionLabel,
+		VaccineLabel:        vaccineLabel,
 		PlannedBusinessDate: plannedDate,
 	}
 
@@ -197,6 +203,11 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, p.TenantID, p.TaskID); err !
 	if actorType == "" {
 		actorType = "operator"
 	}
+	// A per-vaccine stock task has no shed; its audit scope is the park.
+	submitScopeType, submitScopeID := "shed", shedID
+	if shedID == "" {
+		submitScopeType, submitScopeID = "park", parkID
+	}
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
 		TenantID:     p.TenantID,
 		ActorID:      p.ActorID,
@@ -204,13 +215,14 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, p.TenantID, p.TaskID); err !
 		Action:       pcCarePendingAction,
 		ResourceType: pcCareTaskResourceType,
 		ResourceID:   p.TaskID,
-		ScopeType:    "shed",
-		ScopeID:      shedID,
+		ScopeType:    submitScopeType,
+		ScopeID:      submitScopeID,
 		AfterState: map[string]any{
 			"category":              category,
 			"park_id":               parkID,
 			"shed_id":               shedID,
 			"partition_label":       partitionLabel,
+			"vaccine_label":         vaccineLabel,
 			"planned_business_date": plannedDate,
 			"status":                domain.StatusPendingVerification,
 			"animal_count":          animalCount,
@@ -232,6 +244,7 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid`, p.TenantID, p.TaskID); err !
 		ShedID:              shedID,
 		ShedName:            shedLocation.ShedName,
 		PartitionLabel:      partitionLabel,
+		VaccineLabel:        vaccineLabel,
 		PlannedBusinessDate: plannedDate,
 		MediaRefs:           mediaRefs,
 		AnimalCount:         int32(animalCount),
@@ -264,6 +277,7 @@ type pendingVerificationOutbox struct {
 	ShedID              string
 	ShedName            string
 	PartitionLabel      string
+	VaccineLabel        string
 	PlannedBusinessDate string
 	MediaRefs           []ports.LabeledRef
 	AnimalCount         int32
@@ -290,6 +304,7 @@ func insertPendingVerificationOutbox(ctx context.Context, tx pgx.Tx, o pendingVe
 		"shed_id":               o.ShedID,
 		"shed_name":             o.ShedName,
 		"partition_label":       o.PartitionLabel,
+		"vaccine_label":         o.VaccineLabel,
 		"planned_business_date": o.PlannedBusinessDate,
 		"media_refs":            media,
 		"animal_count":          o.AnimalCount,

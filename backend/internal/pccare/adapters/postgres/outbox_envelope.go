@@ -45,6 +45,13 @@ func (e pcCareEventEnvelope) build() map[string]any {
 		actor = map[string]any{"actor_type": "human", "actor_id": e.ActorID}
 	}
 
+	// A per-vaccine stock task has no shed; its location subject is the park's fridge, so the
+	// subject falls back to the park id (the envelope schema requires a non-empty subject_id).
+	subjectID := e.ShedID
+	if subjectID == "" {
+		subjectID = e.ParkID
+	}
+
 	scope := map[string]any{"tenant_id": e.TenantID}
 	if e.ParkID != "" {
 		scope["park_id"] = e.ParkID
@@ -66,7 +73,7 @@ func (e pcCareEventEnvelope) build() map[string]any {
 		"idempotency_key": e.IdempotencyKey,
 		"actor":           actor,
 		"subject_type":    "location",
-		"subject_id":      e.ShedID,
+		"subject_id":      subjectID,
 		// The task's proof videos live on the verification item that approved it; the event
 		// itself carries none. An empty array is the honest value and is REQUIRED by the schema.
 		"evidence_refs":    []any{},

@@ -15903,12 +15903,28 @@ components:
         category: { $ref: "#/components/schemas/PCCareCategory" }
         park_id: { type: string, format: uuid }
         park_label: { type: string }
-        shed_id: { type: string, format: uuid }
+        shed_id:
+          type: string
+          description: >-
+            Shed UUID for shed-scoped categories. EMPTY for per-vaccine inventory_vaccine
+            stock tasks - fridge stock has no shed (maintainer decision 2026-08-27).
         shed_label: { type: string }
         partition_label: { type: string }
+        vaccine_label:
+          type: string
+          description: >-
+            The vaccine a per-vaccine inventory_vaccine task covers ("FMD", "ET+TT").
+            Absent for shed-scoped categories.
+        task_label:
+          type: string
+          description: >-
+            Backend-owned card headline, rendered verbatim - the pen display for shed-scoped
+            tasks, the vaccine label for per-vaccine stock tasks.
         operational_location_display:
           type: string
-          description: Backend-composed pen display ("Castro - 2"), rendered verbatim.
+          description: >-
+            Backend-composed pen display ("Castro - 2"), rendered verbatim. Empty for
+            per-vaccine stock tasks, which have no operational location.
         planned_business_date: { type: string, format: date }
         due_business_date: { type: string, format: date }
         work_state: { type: string, enum: [scheduled, delayed, completed, closed, canceled] }
@@ -15952,6 +15968,7 @@ components:
         - shed_id
         - shed_label
         - operational_location_display
+        - task_label
         - planned_business_date
         - due_business_date
         - work_state

@@ -55,7 +55,7 @@ func (r *Repository) ApplyVerifiedTask(ctx context.Context, p ports.ApplyVerifie
 		status, category, parkID, shedID, plannedDate string
 	)
 	err = tx.QueryRow(ctx, `
-SELECT status, category, park_id::text, shed_id::text, planned_business_date::text
+SELECT status, category, park_id::text, coalesce(shed_id::text, ''), planned_business_date::text
 FROM pc_care_tasks
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid
 FOR UPDATE`, p.TenantID, p.TaskID).Scan(&status, &category, &parkID, &shedID, &plannedDate)
@@ -120,8 +120,8 @@ WHERE tenant_id = $1::uuid AND task_id = $2::uuid AND status = 'pending_verifica
 		Action:       pcCareCompletedAction,
 		ResourceType: pcCareTaskResourceType,
 		ResourceID:   p.TaskID,
-		ScopeType:    "shed",
-		ScopeID:      shedID,
+		ScopeType:    verdictScopeType(shedID),
+		ScopeID:      verdictScopeID(shedID, parkID),
 		AfterState: map[string]any{
 			"category": category,
 			"park_id":  parkID,
@@ -228,4 +228,20 @@ ON CONFLICT DO NOTHING`,
 		return fmt.Errorf("pccare: insert outbox: %w", err)
 	}
 	return nil
+}
+
+// verdictScopeType returns the audit scope for a verdict write: shed-scoped tasks audit at the
+// shed; per-vaccine stock tasks (no shed) audit at the park.
+func verdictScopeType(shedID string) string {
+	if shedID == "" {
+		return "park"
+	}
+	return "shed"
+}
+
+func verdictScopeID(shedID, parkID string) string {
+	if shedID == "" {
+		return parkID
+	}
+	return shedID
 }

@@ -66,6 +66,9 @@ type TaskRow struct {
 	ShedID              string
 	ShedName            string
 	PartitionLabel      string
+	// VaccineLabel is set only on per-vaccine inventory_vaccine tasks ("FMD", "ET+TT");
+	// those tasks have no shed (maintainer decision 2026-08-27).
+	VaccineLabel        string
 	PlannedBusinessDate string
 	DueBusinessDate     string
 	WorkState           string
@@ -206,6 +209,8 @@ type SubmitTaskResult struct {
 	ShedID              string
 	ShedName            string
 	PartitionLabel      string
+	// VaccineLabel travels on per-vaccine inventory_vaccine submits (no shed).
+	VaccineLabel        string
 	PlannedBusinessDate string
 	// MediaRefs are every animal's slot videos with their verifier-facing labels, in scan
 	// order then slot order — the ONE verification item's media set.

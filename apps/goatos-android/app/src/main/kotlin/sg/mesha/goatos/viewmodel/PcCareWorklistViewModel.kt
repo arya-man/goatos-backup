@@ -188,7 +188,7 @@ internal fun PcCareTaskDto.toCardUi(locallySubmittedForReview: Set<String>): PcC
         statusTone = tone,
         // Backend-composed pen display, verbatim; degrade to the bare shed label only when the
         // backend sent no composed display at all.
-        locationDisplay = operationalLocationDisplay.ifBlank { shedLabel },
+        locationDisplay = taskLabel.ifBlank { operationalLocationDisplay.ifBlank { shedLabel } },
         parkLabel = parkLabel,
         dueDateLabel = dueBusinessDate,
         assigneeLine = assigneeNames.joinToString(", "),

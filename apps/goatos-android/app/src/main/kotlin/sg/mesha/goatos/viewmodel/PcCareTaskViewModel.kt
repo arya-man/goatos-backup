@@ -514,7 +514,7 @@ class PcCareTaskViewModel @Inject constructor(
                         proofCaptureSource.captureVideo(
                             ProofCaptureContext(
                                 title = slotDto.label,
-                                primaryTag = detail.operationalLocationDisplay.ifBlank { detail.shedLabel },
+                                primaryTag = detail.taskLabel.ifBlank { detail.operationalLocationDisplay.ifBlank { detail.shedLabel } },
                                 workLabel = slotDto.description.ifBlank { "Show vaccine stock in the fridge" },
                                 prompt = ProofCapturePrompt.INVENTORY_VACCINE_STOCK,
                                 headerTitle = categoryTitle.ifBlank { null },
@@ -595,7 +595,7 @@ class PcCareTaskViewModel @Inject constructor(
                             subjectId = taskId,
                             localUri = captured.localUri,
                             mimeType = captured.mimeType,
-                            caption = "${slotDto.label} · ${detail.operationalLocationDisplay.ifBlank { detail.shedLabel }}",
+                            caption = "${slotDto.label} · ${detail.taskLabel.ifBlank { detail.operationalLocationDisplay.ifBlank { detail.shedLabel } }}",
                             scopeType = "task",
                             scopeId = taskId,
                             capturedStartMs = captured.startedAtMs,
@@ -1098,7 +1098,7 @@ class PcCareTaskViewModel @Inject constructor(
         return PcCareTaskUiState(
             focusAnimal = focusAnimal,
             title = categoryTitle.ifBlank { detail?.category.orEmpty() },
-            locationDisplay = detail?.let { it.operationalLocationDisplay.ifBlank { it.shedLabel } }.orEmpty(),
+            locationDisplay = detail?.let { d -> d.taskLabel.ifBlank { d.operationalLocationDisplay.ifBlank { d.shedLabel } } }.orEmpty(),
             parkLabel = detail?.parkLabel.orEmpty(),
             dateLabel = detail?.plannedBusinessDate.orEmpty(),
             assigneeLine = detail?.assigneeNames.orEmpty().joinToString(", "),

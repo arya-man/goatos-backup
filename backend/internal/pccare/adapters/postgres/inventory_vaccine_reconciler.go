@@ -14,6 +14,7 @@ type ReconcileInventoryVaccineTasksResult struct {
 	TasksCreated          int64
 	AssigneesInserted     int64
 	RequirementsUpserted  int64
+	LegacyShedTasksClosed int64
 	DirectorAssigneeCount int
 }
 
@@ -21,6 +22,17 @@ type ReconcileInventoryVaccineTasksResult struct {
 // vaccination drive dates. The source is vaccination_drive_assignments, the same durable drive plan
 // used by operator vaccination screens, so direct DB edits are picked up by the kernel's periodic
 // pass without depending on Pub/Sub events.
+//
+// GRAIN (maintainer decision 2026-08-27): one task per (park, vaccine, task date), NEVER per shed.
+// Stock lives in the park's fridge, so the director's question is "are there N doses of FMD for
+// everything scheduled that day?" — which sheds those doses are for is irrelevant to the fridge.
+// Doses are counted at the obligation grain (count(DISTINCT obligation_id)) summed across every
+// shed of that park's drives on the target date, so one animal is one dose no matter how the
+// drive is split across pens.
+//
+// Cutover: any still-open legacy per-shed inventory task (shed_id IS NOT NULL) is canceled on
+// every pass; the per-vaccine tasks replace them. Canceling repeatedly is a no-op because the
+// predicate only matches open rows.
 func (r *Repository) ReconcileInventoryVaccineTasks(ctx context.Context, tenantID string, asOf time.Time) (ReconcileInventoryVaccineTasksResult, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
@@ -30,8 +42,14 @@ func (r *Repository) ReconcileInventoryVaccineTasks(ctx context.Context, tenantI
 	latestVaccinationDate := taskDay.AddDate(0, 0, 7).Format("2006-01-02")
 
 	var result ReconcileInventoryVaccineTasksResult
-	err := r.pool.QueryRow(ctx, ` -- scale-guard:ignore: bounded kernel reconciliation for one tenant and 7-day vaccination assignment window, not request-path fanout
--- projection-review: membership=vaccination_drive_assignments; group_key=(tenant_id, park_id, shed_id, normalized partition_label, task_date, vaccine_label) so each stock task/requirement line is idempotent; join_cardinality=drive assignments and obligation instances are collapsed by GROUP BY before writes, director assignees are inserted through bounded active pc_director users, and stale tasks are semi-joined by NOT EXISTS so no branch multiplies task rows; pagination=none because this is a scheduled/kernel reconciliation over a fixed seven-day window, not a request page; scope=tenant_id plus drive park/shed/partition/date predicates
+	// projection-review: producer unique columns = vaccination_drive_assignments (tenant_id,
+	// assignment_id) joined to obligation_instances (tenant_id, batch_id, obligation_id); consumer
+	// group columns = (tenant_id, park_id, lower(btrim(vaccine_label)), task_date). Multiplicity:
+	// one obligation can appear under several assignments of the same batch and date (the
+	// vaccine_rule_ids split), so the dose count is count(DISTINCT obligation_id) — never
+	// count(*). There is no ratio; the single count and the task key range over the same
+	// (park, vaccine, date) key set.
+	err := r.pool.QueryRow(ctx, `
 WITH directors AS (
   SELECT array_agg(m.user_id ORDER BY m.display_name, m.user_id) AS user_ids,
          min(m.user_id::text) AS created_by,
@@ -42,102 +60,14 @@ WITH directors AS (
     AND m.user_id IS NOT NULL
     AND m.primary_role_hint = 'pc_director'
 ),
-source_tasks AS (
+-- One row per (park, vaccine, task_date): the doses needed across EVERY shed of that park's
+-- drives on the target date. The vaccine label resolution mirrors the operator screens'
+-- protocol_rule_dimensions-first fallback chain.
+source_requirements AS (
   SELECT
     v.tenant_id,
     v.park_id,
-    v.shed_id,
-    nullif(v.partition_label, 'whole') AS partition_label,
-    (v.planned_date - 7) AS task_date
-  FROM vaccination_drive_assignments v
-  JOIN obligation_batches b
-    ON b.tenant_id = v.tenant_id
-   AND b.batch_id = v.batch_id
-  WHERE v.tenant_id = $1::uuid
-    AND v.planned_date > $2::date
-    AND v.planned_date <= $3::date
-    AND v.shed_id IS NOT NULL
-    AND v.animal_count > 0
-    AND b.status IN ('planned', 'in_progress')
-  GROUP BY v.tenant_id, v.park_id, v.shed_id, nullif(v.partition_label, 'whole'), (v.planned_date - 7)
-),
-candidate_tasks AS (
-  SELECT s.*, (SELECT created_by FROM directors) AS created_by
-  FROM source_tasks s
-  WHERE (SELECT n FROM directors) > 0
-),
-inserted_tasks AS (
-  INSERT INTO pc_care_tasks (
-    tenant_id, category, park_id, shed_id, partition_label,
-    planned_business_date, due_business_date, idempotency_key, created_by
-  )
-  SELECT
-    tenant_id,
-    $4,
-    park_id,
-    shed_id,
-    partition_label,
-    task_date,
-    task_date,
-    'kernel:inventory-vaccine:' || tenant_id::text || ':' || park_id::text || ':' || shed_id::text || ':' ||
-      coalesce(partition_label, 'whole') || ':' || task_date::text,
-    created_by::uuid
-  FROM candidate_tasks
-  ON CONFLICT (tenant_id, category, park_id, shed_id, partition_key, planned_business_date)
-    WHERE work_state <> 'canceled'
-  DO NOTHING
-  RETURNING tenant_id, task_id, park_id, shed_id, coalesce(partition_label, '') AS partition_label, planned_business_date AS task_date
-),
-live_tasks AS (
-  SELECT tenant_id, task_id, park_id, shed_id, partition_label, task_date
-  FROM inserted_tasks
-  UNION
-  SELECT t.tenant_id, t.task_id, t.park_id, t.shed_id, coalesce(t.partition_label, '') AS partition_label, t.planned_business_date AS task_date
-  FROM pc_care_tasks t
-  JOIN source_tasks c
-    ON c.tenant_id = t.tenant_id
-   AND c.park_id = t.park_id
-   AND c.shed_id = t.shed_id
-   AND coalesce(c.partition_label, '') = coalesce(t.partition_label, '')
-   AND c.task_date = t.planned_business_date
-  WHERE t.category = $4
-    AND t.work_state <> 'canceled'
-),
-stale_inventory_tasks AS (
-  SELECT t.tenant_id, t.task_id
-  FROM pc_care_tasks t
-  WHERE t.tenant_id = $1::uuid
-    AND t.category = $4
-    AND t.planned_business_date <= $2::date
-    AND t.work_state IN ('scheduled', 'delayed')
-    AND t.status = 'open'
-    AND NOT EXISTS (
-      SELECT 1
-      FROM vaccination_drive_assignments v
-      JOIN obligation_batches b
-        ON b.tenant_id = v.tenant_id
-       AND b.batch_id = v.batch_id
-      WHERE v.tenant_id = t.tenant_id
-        AND v.park_id = t.park_id
-        AND v.shed_id = t.shed_id
-        AND coalesce(nullif(v.partition_label, 'whole'), '') = coalesce(t.partition_label, '')
-        AND v.planned_date = (t.planned_business_date + 7)
-        AND v.animal_count > 0
-        AND b.status IN ('planned', 'in_progress')
-    )
-),
-inserted_assignees AS (
-  INSERT INTO pc_care_task_assignees (tenant_id, task_id, operator_user_id)
-  SELECT lt.tenant_id, lt.task_id, unnest((SELECT user_ids FROM directors))
-  FROM live_tasks lt
-  ON CONFLICT DO NOTHING
-  RETURNING 1
-),
-requirement_source AS (
-  -- projection-review: membership=requirement_source; group_key=(tenant_id, task_id, vaccine_label) so one-to-many assignment members collapse into a single requirement row per stock task and vaccine; join_cardinality=obligation_instances are filtered by the assignment's vaccine_rule_ids and optional assignment_members exact match before COUNT(DISTINCT obligation_id), while protocol_rule_dimensions is limited to one row per rule; pagination=none because reconciliation is a bounded kernel job over the generated live task set, with ListTasks pagination covered separately; scope=tenant_id plus task_date, park_id, shed_id, partition_label, batch status, obligation status, and exact member constraints
-  SELECT
-    lt.tenant_id,
-    lt.task_id,
+    (v.planned_date - 7) AS task_date,
     COALESCE(
       CASE upper(nullif(prd.vaccine_code, ''))
         WHEN 'ET_TT' THEN 'ET+TT'
@@ -155,13 +85,7 @@ requirement_source AS (
     ) AS vaccine_label,
     count(DISTINCT oi.obligation_id)::int AS required_doses,
     array_agg(DISTINCT v.batch_id ORDER BY v.batch_id) AS source_batch_ids
-  FROM live_tasks lt
-  JOIN vaccination_drive_assignments v
-    ON v.tenant_id = lt.tenant_id
-   AND v.park_id = lt.park_id
-   AND v.shed_id = lt.shed_id
-   AND coalesce(nullif(v.partition_label, 'whole'), '') = lt.partition_label
-   AND v.planned_date = (lt.task_date + 7)
+  FROM vaccination_drive_assignments v
   JOIN obligation_batches b
     ON b.tenant_id = v.tenant_id
    AND b.batch_id = v.batch_id
@@ -188,7 +112,11 @@ requirement_source AS (
     ORDER BY prd.vaccine_type, prd.vaccine_code
     LIMIT 1
   ) prd ON true
-  WHERE b.status IN ('planned', 'in_progress')
+  WHERE v.tenant_id = $1::uuid
+    AND v.planned_date > $2::date
+    AND v.planned_date <= $3::date
+    AND v.animal_count > 0
+    AND b.status IN ('planned', 'in_progress')
     AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
     AND (
       NOT EXISTS (
@@ -199,7 +127,99 @@ requirement_source AS (
       )
       OR vdam.obligation_id IS NOT NULL
     )
-  GROUP BY lt.tenant_id, lt.task_id, vaccine_label
+  GROUP BY v.tenant_id, v.park_id, (v.planned_date - 7), 4
+),
+source_tasks AS (
+  SELECT tenant_id, park_id, task_date, vaccine_label,
+         (SELECT created_by FROM directors) AS created_by
+  FROM source_requirements
+  WHERE required_doses > 0
+    AND (SELECT n FROM directors) > 0
+),
+inserted_tasks AS (
+  INSERT INTO pc_care_tasks (
+    tenant_id, category, park_id, vaccine_label,
+    planned_business_date, due_business_date, idempotency_key, created_by
+  )
+  SELECT
+    tenant_id,
+    $4,
+    park_id,
+    vaccine_label,
+    task_date,
+    task_date,
+    'kernel:inventory-vaccine:' || tenant_id::text || ':' || park_id::text || ':vaccine:' ||
+      lower(btrim(vaccine_label)) || ':' || task_date::text,
+    created_by::uuid
+  FROM source_tasks
+  ON CONFLICT (tenant_id, category, park_id, lower(btrim(vaccine_label)), planned_business_date)
+    WHERE work_state <> 'canceled' AND vaccine_label IS NOT NULL
+  DO NOTHING
+  RETURNING tenant_id, task_id, park_id, vaccine_label, planned_business_date AS task_date
+),
+live_tasks AS (
+  SELECT tenant_id, task_id, park_id, vaccine_label, task_date
+  FROM inserted_tasks
+  UNION
+  SELECT t.tenant_id, t.task_id, t.park_id, t.vaccine_label, t.planned_business_date AS task_date
+  FROM pc_care_tasks t
+  JOIN (SELECT DISTINCT tenant_id, park_id, task_date, vaccine_label FROM source_requirements) c
+    ON c.tenant_id = t.tenant_id
+   AND c.park_id = t.park_id
+   AND lower(btrim(c.vaccine_label)) = lower(btrim(t.vaccine_label))
+   AND c.task_date = t.planned_business_date
+  WHERE t.category = $4
+    AND t.vaccine_label IS NOT NULL
+    AND t.work_state <> 'canceled'
+),
+-- A per-vaccine task whose drive evaporated (moved, canceled, completed) before its day is done.
+stale_inventory_tasks AS (
+  SELECT t.tenant_id, t.task_id
+  FROM pc_care_tasks t
+  WHERE t.tenant_id = $1::uuid
+    AND t.category = $4
+    AND t.vaccine_label IS NOT NULL
+    AND t.planned_business_date <= $2::date
+    AND t.work_state IN ('scheduled', 'delayed')
+    AND t.status = 'open'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM source_requirements sr
+      WHERE sr.tenant_id = t.tenant_id
+        AND sr.park_id = t.park_id
+        AND lower(btrim(sr.vaccine_label)) = lower(btrim(t.vaccine_label))
+        AND sr.task_date = t.planned_business_date
+        AND sr.required_doses > 0
+    )
+),
+-- Cutover: the per-shed grain is retired. Any still-open legacy per-shed stock task is
+-- canceled; its planned work reappears on the per-vaccine tasks above. Submitted/completed
+-- legacy rows keep their history untouched.
+legacy_shed_tasks AS (
+  SELECT t.tenant_id, t.task_id
+  FROM pc_care_tasks t
+  WHERE t.tenant_id = $1::uuid
+    AND t.category = $4
+    AND t.shed_id IS NOT NULL
+    AND t.work_state IN ('scheduled', 'delayed')
+    AND t.status = 'open'
+),
+inserted_assignees AS (
+  INSERT INTO pc_care_task_assignees (tenant_id, task_id, operator_user_id)
+  SELECT lt.tenant_id, lt.task_id, unnest((SELECT user_ids FROM directors))
+  FROM live_tasks lt
+  ON CONFLICT DO NOTHING
+  RETURNING 1
+),
+requirement_source AS (
+  SELECT lt.tenant_id, lt.task_id, sr.vaccine_label, sr.required_doses, sr.source_batch_ids
+  FROM live_tasks lt
+  JOIN source_requirements sr
+    ON sr.tenant_id = lt.tenant_id
+   AND sr.park_id = lt.park_id
+   AND lower(btrim(sr.vaccine_label)) = lower(btrim(lt.vaccine_label))
+   AND sr.task_date = lt.task_date
+  WHERE sr.required_doses > 0
 ),
 upserted_requirements AS (
   INSERT INTO pc_care_task_inventory_requirements (
@@ -239,23 +259,15 @@ canceled_stale_tasks AS (
     AND t.task_id = stale.task_id
   RETURNING t.tenant_id, t.task_id
 ),
-canceled_empty_inventory_tasks AS (
+canceled_legacy_shed_tasks AS (
   UPDATE pc_care_tasks t
   SET work_state = 'canceled',
       terminal_at = now(),
       updated_at = now(),
       row_version = row_version + 1
-  FROM live_tasks lt
-  WHERE t.tenant_id = lt.tenant_id
-    AND t.task_id = lt.task_id
-    AND t.work_state IN ('scheduled', 'delayed')
-    AND t.status = 'open'
-    AND NOT EXISTS (
-      SELECT 1
-      FROM requirement_source rs
-      WHERE rs.tenant_id = lt.tenant_id
-        AND rs.task_id = lt.task_id
-    )
+  FROM legacy_shed_tasks legacy
+  WHERE t.tenant_id = legacy.tenant_id
+    AND t.task_id = legacy.task_id
   RETURNING t.tenant_id, t.task_id
 ),
 deleted_canceled_requirements AS (
@@ -263,7 +275,7 @@ deleted_canceled_requirements AS (
   USING (
     SELECT tenant_id, task_id FROM canceled_stale_tasks
     UNION
-    SELECT tenant_id, task_id FROM canceled_empty_inventory_tasks
+    SELECT tenant_id, task_id FROM canceled_legacy_shed_tasks
   ) canceled
   WHERE r.tenant_id = canceled.tenant_id
     AND r.task_id = canceled.task_id
@@ -273,11 +285,13 @@ SELECT
   (SELECT count(*) FROM inserted_tasks)::bigint,
   (SELECT count(*) FROM inserted_assignees)::bigint,
   (SELECT count(*) FROM upserted_requirements)::bigint,
+  (SELECT count(*) FROM canceled_legacy_shed_tasks)::bigint,
   coalesce((SELECT n FROM directors), 0)::int`,
 		tenantID, asOfDate, latestVaccinationDate, domain.CategoryInventoryVaccine).Scan(
 		&result.TasksCreated,
 		&result.AssigneesInserted,
 		&result.RequirementsUpserted,
+		&result.LegacyShedTasksClosed,
 		&result.DirectorAssigneeCount,
 	)
 	if err != nil {

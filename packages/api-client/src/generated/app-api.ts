@@ -6754,11 +6754,15 @@ export interface components {
             /** Format: uuid */
             park_id: string;
             park_label: string;
-            /** Format: uuid */
+            /** @description Shed UUID for shed-scoped categories. EMPTY for per-vaccine inventory_vaccine stock tasks - fridge stock has no shed (maintainer decision 2026-08-27). */
             shed_id: string;
             shed_label: string;
             partition_label?: string;
-            /** @description Backend-composed pen display ("Castro - 2"), rendered verbatim. */
+            /** @description The vaccine a per-vaccine inventory_vaccine task covers ("FMD", "ET+TT"). Absent for shed-scoped categories. */
+            vaccine_label?: string;
+            /** @description Backend-owned card headline, rendered verbatim - the pen display for shed-scoped tasks, the vaccine label for per-vaccine stock tasks. */
+            task_label: string;
+            /** @description Backend-composed pen display ("Castro - 2"), rendered verbatim. Empty for per-vaccine stock tasks, which have no operational location. */
             operational_location_display: string;
             /** Format: date */
             planned_business_date: string;

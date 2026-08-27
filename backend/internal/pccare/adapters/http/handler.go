@@ -90,11 +90,19 @@ type taskDTO struct {
 	Category       string `json:"category"`
 	ParkID         string `json:"park_id"`
 	ParkLabel      string `json:"park_label"`
+	// ShedID/ShedLabel are empty for per-vaccine inventory_vaccine tasks — fridge stock has no
+	// shed (maintainer decision 2026-08-27).
 	ShedID         string `json:"shed_id"`
 	ShedLabel      string `json:"shed_label"`
 	PartitionLabel string `json:"partition_label,omitempty"`
+	// VaccineLabel names the vaccine a per-vaccine inventory_vaccine task covers ("FMD").
+	VaccineLabel string `json:"vaccine_label,omitempty"`
+	// TaskLabel is the backend-owned card headline, rendered verbatim: the pen display for
+	// shed-scoped tasks, the vaccine label for per-vaccine stock tasks.
+	TaskLabel string `json:"task_label"`
 	// OperationalLocationDisplay is the backend-composed "Castro - 2" (oploc.Display) — the
 	// Operational Location convention's mandatory display half; clients render it verbatim.
+	// Empty for per-vaccine stock tasks, which have no operational location.
 	OperationalLocationDisplay string     `json:"operational_location_display"`
 	PlannedBusinessDate        string     `json:"planned_business_date"`
 	DueBusinessDate            string     `json:"due_business_date"`
@@ -168,17 +176,24 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 			CapturedAt:     &capturedAt,
 		})
 	}
+	locationDisplay := oploc.OperationalLocation{
+		ShedName: t.ShedName, PartitionLabel: t.PartitionLabel,
+	}.Display()
+	taskLabel := locationDisplay
+	if taskLabel == "" {
+		taskLabel = t.VaccineLabel
+	}
 	return taskDTO{
-		TaskID:         t.TaskID,
-		Category:       t.Category,
-		ParkID:         t.ParkID,
-		ParkLabel:      t.ParkName,
-		ShedID:         t.ShedID,
-		ShedLabel:      t.ShedName,
-		PartitionLabel: t.PartitionLabel,
-		OperationalLocationDisplay: oploc.OperationalLocation{
-			ShedName: t.ShedName, PartitionLabel: t.PartitionLabel,
-		}.Display(),
+		TaskID:                     t.TaskID,
+		Category:                   t.Category,
+		ParkID:                     t.ParkID,
+		ParkLabel:                  t.ParkName,
+		ShedID:                     t.ShedID,
+		ShedLabel:                  t.ShedName,
+		PartitionLabel:             t.PartitionLabel,
+		VaccineLabel:               t.VaccineLabel,
+		TaskLabel:                  taskLabel,
+		OperationalLocationDisplay: locationDisplay,
 		PlannedBusinessDate:   t.PlannedBusinessDate,
 		DueBusinessDate:       t.DueBusinessDate,
 		WorkState:             t.WorkState,
