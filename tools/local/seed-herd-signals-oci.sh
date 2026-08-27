@@ -19,7 +19,7 @@
 #   bash tools/local/seed-herd-signals-oci.sh [--csv PATH] [--facts-only] [--replay-only]
 #
 # Prerequisites:
-#   1. /Users/ravi/mesha/tools/local/oci-goatos-a1-dev.sh tunnel
+#   1. $HOME/mesha/tools/local/oci-goatos-a1-dev.sh tunnel
 #   2. DATABASE_URL exported, or the local OCI env file present (auto-sourced).
 #
 # Full runbook: docs/runbooks/herd-signals-oci-seed.md
@@ -28,12 +28,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-ENV_FILE="${GOATOS_OCI_ENV_FILE:-/Users/ravi/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env}"
+ENV_FILE="${GOATOS_OCI_ENV_FILE:-${GOATOS_OCI_DB_ENV:-$HOME/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env}}"
 SEED_SQL="${SCRIPT_DIR}/seed-herd-signals-oci.sql"
 
 TENANT_ID="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 GATEWAY_ID="${GOATOS_HERD_SIGNALS_GATEWAY_ID:-honeycomm-gateway-001}"
-CSV_PATH="${GOATOS_HERD_SIGNALS_CAPTURE_CSV:-/Users/ravi/mesha/local-data/honeycomm-gateway-capture/decoded_ear_tags.csv}"
+CSV_PATH="${GOATOS_HERD_SIGNALS_CAPTURE_CSV:-$HOME/mesha/local-data/honeycomm-gateway-capture/decoded_ear_tags.csv}"
 
 # Only this host:port is an acceptable target. The OCI Postgres is bound to the
 # VM's loopback and is only reachable through the SSH tunnel, so a correct run
@@ -108,7 +108,7 @@ fi
 [ -f "$CSV_PATH" ] || die "capture CSV not found: $CSV_PATH"
 
 nc -z "$ALLOWED_HOST" "$ALLOWED_PORT" 2>/dev/null \
-  || die "SSH tunnel is not listening on ${ALLOWED_HOST}:${ALLOWED_PORT}. Start it with: /Users/ravi/mesha/tools/local/oci-goatos-a1-dev.sh tunnel"
+  || die "SSH tunnel is not listening on ${ALLOWED_HOST}:${ALLOWED_PORT}. Start it with: \$HOME/mesha/tools/local/oci-goatos-a1-dev.sh tunnel"
 
 psql "$DATABASE_URL" -qAt -c "SELECT 1" >/dev/null 2>&1 || die "cannot connect to the database"
 log "tunnel and connection verified"

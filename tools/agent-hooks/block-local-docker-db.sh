@@ -53,8 +53,8 @@ refuse() {
   echo "is already running, already migrated, and already holds the real captured dataset." >&2
   echo >&2
   echo "Use OCI instead:" >&2
-  echo "  tunnel:  /Users/ravi/mesha/tools/local/oci-goatos-a1-dev.sh tunnel   (127.0.0.1:15432)" >&2
-  echo "  creds:   source /Users/ravi/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env" >&2
+  echo "  tunnel:  \$HOME/mesha/tools/local/oci-goatos-a1-dev.sh tunnel   (127.0.0.1:15432)" >&2
+  echo "  creds:   source \"\${GOATOS_OCI_DB_ENV:-\$HOME/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env}\"" >&2
   echo >&2
   echo "If a local Docker DB is genuinely required (Docker-specific behaviour, or a disposable" >&2
   echo "mutation database), ask the maintainer and re-run with GOATOS_ALLOW_LOCAL_DOCKER_DB=1." >&2

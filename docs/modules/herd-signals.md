@@ -413,9 +413,9 @@ and no screen labels its own contents as generated.
 
 ---
 
-## 11. Test database: Ravi's OCI dev Postgres clone
+## 11. Test database: Maintainer OCI dev Postgres clone
 
-Herd Signals local feature testing runs against **Ravi's personal OCI
+Herd Signals local feature testing runs against a **maintainer OCI
 Compute VM PostgreSQL instance** — a template-copy clone of a `goatos-stg`
 database snapshot, running on Oracle Cloud, reached over an SSH tunnel. It is
 **never production**, and it is **never** the local `:5433`
@@ -426,13 +426,13 @@ DB testing does not require a laptop Docker/Colima stack.
 **Connection path:**
 
 1. Open the SSH tunnel from the maintainer's laptop:
-   `/Users/ravi/mesha/tools/local/oci-goatos-a1-dev.sh tunnel`
+   `$HOME/mesha/tools/local/oci-goatos-a1-dev.sh tunnel`
    This forwards local `127.0.0.1:15432` to the OCI VM's
    `127.0.0.1:5432` (Postgres running in a rootful Podman container on the
    VM, not exposed publicly).
 2. Source the local-only credentials env file (never copied into this repo,
    `chmod 600`, maintainer's machine only):
-   `/Users/ravi/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env`
+   `${GOATOS_OCI_DB_ENV:-$HOME/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env}`
 3. The resulting `DATABASE_URL` is:
    `postgres://postgres:${REMOTE_POSTGRES_PASSWORD}@127.0.0.1:15432/goatos?sslmode=disable`
 
@@ -440,10 +440,10 @@ DB testing does not require a laptop Docker/Colima stack.
 
 ```bash
 # 1. tunnel (separate terminal, stays open)
-/Users/ravi/mesha/tools/local/oci-goatos-a1-dev.sh tunnel
+$HOME/mesha/tools/local/oci-goatos-a1-dev.sh tunnel
 
 # 2. credentials
-source /Users/ravi/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env
+source "${GOATOS_OCI_DB_ENV:-$HOME/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env}"
 
 # 3. seed (from the goatos worktree) — the .sh wrapper runs the .sql body
 #    and refuses to run against anything but the OCI tunnel target
@@ -660,4 +660,3 @@ Until that is answered in writing, treat the gateway as having **no reliable
 offline storage**. If the answer turns out to be yes, the reconnect-delta model
 above stays correct for the periods it does not cover — a buffer with a bound
 still produces gaps once the bound is exceeded.
-

@@ -32,7 +32,7 @@
 job_group() {
   case "$1" in
     android)             echo gradle ;;   # Gradle daemon/lock contention
-    backend|query-plans) echo docker ;;   # Docker + Postgres contention
+    backend|query-plans) echo postgres ;; # Postgres/admin-DSN/runtime contention
     *)                   echo none   ;;   # common, admin-web: freely parallel
   esac
 }

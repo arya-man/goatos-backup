@@ -134,13 +134,13 @@ been ingesting for that long.
 ## Local / OCI verification
 
 Against the OCI dev database
-(`source /Users/ravi/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env`,
-tunnel via `/Users/ravi/mesha/tools/local/oci-goatos-a1-dev.sh tunnel`):
+(`source "${GOATOS_OCI_DB_ENV:-$HOME/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env}"`,
+tunnel via `$HOME/mesha/tools/local/oci-goatos-a1-dev.sh tunnel`):
 
 ```bash
 cd backend
 # DATABASE_URL must already be exported (e.g. `set -a; source
-# /Users/ravi/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env; set +a` -- a plain,
+# ${GOATOS_OCI_DB_ENV:-$HOME/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env}; set +a` -- a plain,
 # non-exported `source` will NOT put it in the child process env).
 go run ./cmd/herd-signals-partition-maintenance -days-ahead=14 -retention-days=14
 # or use the Makefile target, which passes the same flags:
