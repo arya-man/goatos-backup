@@ -169,14 +169,14 @@ func (r *Repository) CancelTask(ctx context.Context, tenantID, taskID, actorID, 
 		}
 	}()
 
-	var shedID string
+	var shedID, parkID string
 	err = tx.QueryRow(ctx, `
 UPDATE pc_care_tasks
 SET work_state = 'canceled', terminal_at = now(), updated_at = now(), row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND task_id = $2::uuid
   AND work_state IN ('scheduled', 'delayed')
   AND status IN ('open', 'rework')
-RETURNING shed_id::text`, tenantID, taskID).Scan(&shedID)
+RETURNING coalesce(shed_id::text, ''), park_id::text`, tenantID, taskID).Scan(&shedID, &parkID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Already canceled/terminal/submitted: accepted stale cancel, no side effects.
 		if commitErr := tx.Commit(ctx); commitErr != nil {
@@ -188,6 +188,11 @@ RETURNING shed_id::text`, tenantID, taskID).Scan(&shedID)
 	if err != nil {
 		return fmt.Errorf("pccare: cancel task: %w", err)
 	}
+	// A per-vaccine stock task has no shed; its audit scope is the park.
+	scopeType, scopeID := "shed", shedID
+	if shedID == "" {
+		scopeType, scopeID = "park", parkID
+	}
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
 		TenantID:     tenantID,
 		ActorID:      actorID,
@@ -195,8 +200,8 @@ RETURNING shed_id::text`, tenantID, taskID).Scan(&shedID)
 		Action:       pcCareCanceledAction,
 		ResourceType: pcCareTaskResourceType,
 		ResourceID:   taskID,
-		ScopeType:    "shed",
-		ScopeID:      shedID,
+		ScopeType:    scopeType,
+		ScopeID:      scopeID,
 		AfterState:   map[string]any{"work_state": domain.WorkStateCanceled},
 		Metadata:     map[string]any{"source": "pc-care-planner"},
 		TraceID:      traceID,
@@ -217,9 +222,10 @@ const taskSelectColumns = `
   t.category,
   t.park_id::text,
   park.name,
-  t.shed_id::text,
-  shed.name,
+  coalesce(t.shed_id::text, ''),
+  coalesce(shed.name, ''),
   coalesce(t.partition_label, ''),
+  coalesce(t.vaccine_label, ''),
   t.planned_business_date::text,
   t.due_business_date::text,
   t.work_state,
@@ -241,7 +247,7 @@ const taskSelectColumns = `
 const taskFromJoins = `
 FROM pc_care_tasks t
 JOIN locations park ON park.tenant_id = t.tenant_id AND park.location_id = t.park_id
-JOIN locations shed ON shed.tenant_id = t.tenant_id AND shed.location_id = t.shed_id
+LEFT JOIN locations shed ON shed.tenant_id = t.tenant_id AND shed.location_id = t.shed_id
 LEFT JOIN LATERAL (
   SELECT array_agg(a.operator_user_id::text ORDER BY m.display_name, a.operator_user_id) AS user_ids,
          array_agg(coalesce(m.display_name, '') ORDER BY m.display_name, a.operator_user_id) AS names
@@ -294,7 +300,7 @@ func scanTaskRow(row pgx.Row) (ports.TaskRow, error) {
 	var taskProofsJSON []byte
 	if err := row.Scan(
 		&t.TaskID, &t.Category, &t.ParkID, &t.ParkName, &t.ShedID, &t.ShedName,
-		&t.PartitionLabel, &t.PlannedBusinessDate, &t.DueBusinessDate,
+		&t.PartitionLabel, &t.VaccineLabel, &t.PlannedBusinessDate, &t.DueBusinessDate,
 		&t.WorkState, &t.Status, &t.ReworkReason, &t.RowVersion,
 		&t.SubmittedBy, &submittedAt, &t.AssigneeUserIDs, &t.AssigneeNames, &t.AnimalCount,
 		&requirementsJSON, &taskProofsJSON,
@@ -408,10 +414,10 @@ func (r *Repository) ListTasks(ctx context.Context, q ports.ListTasksQuery) (por
 	          AND mine.operator_user_id = nullif($7::text, '')::uuid))
 	  AND (
 	        $9::text = ''
-	        OR (park.name, shed.name, t.partition_key, t.category, t.task_id)
+	        OR (park.name, coalesce(shed.name, coalesce(t.vaccine_label, '')), t.partition_key, t.category, t.task_id)
 	           > ($9::text, $10::text, $11::text, $12::text, nullif($13::text, '')::uuid)
 	      )
-	ORDER BY park.name, shed.name, t.partition_key, t.category, t.task_id
+	ORDER BY park.name, coalesce(shed.name, coalesce(t.vaccine_label, '')), t.partition_key, t.category, t.task_id
 	LIMIT $8`
 	rows, err := r.pool.Query(ctx, "SELECT"+taskSelectColumns+taskFromJoins+listTasksPageSQL,
 		q.TenantID, q.DueBusinessDate, q.TenantWide, q.AuthorizedParkIDs,
@@ -456,9 +462,13 @@ type taskCursor struct {
 }
 
 func encodeTaskCursor(t ports.TaskRow) string {
+	sortShed := t.ShedName
+	if sortShed == "" {
+		sortShed = t.VaccineLabel
+	}
 	raw, err := json.Marshal(taskCursor{
 		ParkName:     t.ParkName,
-		ShedName:     t.ShedName,
+		ShedName:     sortShed,
 		PartitionKey: domain.PartitionMatchKey(t.PartitionLabel),
 		Category:     t.Category,
 		TaskID:       t.TaskID,

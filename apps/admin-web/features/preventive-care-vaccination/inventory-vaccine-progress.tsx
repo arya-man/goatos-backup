@@ -57,7 +57,9 @@ function visibleInventoryRows(tasks: PCCareTask[], asOf: string) {
     .sort((a, b) => {
       const aDelayed = a.work_state === "delayed" ? 0 : 1;
       const bDelayed = b.work_state === "delayed" ? 0 : 1;
-      return aDelayed - bDelayed || a.due_business_date.localeCompare(b.due_business_date) || a.shed_label.localeCompare(b.shed_label);
+      const aLabel = a.task_label || a.operational_location_display || a.shed_label;
+      const bLabel = b.task_label || b.operational_location_display || b.shed_label;
+      return aDelayed - bDelayed || a.due_business_date.localeCompare(b.due_business_date) || aLabel.localeCompare(bLabel);
     });
 }
 
@@ -159,7 +161,7 @@ function InventoryProgressContent({
                     <td>{task.park_label}</td>
                     <td>
                       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                        <span>{task.operational_location_display || task.shed_label}</span>
+                        <span>{task.task_label || task.operational_location_display || task.shed_label}</span>
                         {task.partition_label ? <span className="small muted">{task.partition_label}</span> : null}
                       </div>
                     </td>

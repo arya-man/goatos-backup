@@ -46,6 +46,7 @@ type pcCarePendingVerificationPayload struct {
 	ShedID              string `json:"shed_id"`
 	ShedName            string `json:"shed_name"`
 	PartitionLabel      string `json:"partition_label"`
+	VaccineLabel        string `json:"vaccine_label"`
 	PlannedBusinessDate string `json:"planned_business_date"`
 	MediaRefs           []struct {
 		ProofRef string `json:"proof_ref"`
@@ -110,6 +111,7 @@ func (h *PCCarePendingVerificationHandler) HandleEvent(ctx context.Context, e ev
 		ShedID:              strings.TrimSpace(p.ShedID),
 		ShedName:            strings.TrimSpace(p.ShedName),
 		PartitionLabel:      strings.TrimSpace(p.PartitionLabel),
+		VaccineLabel:        strings.TrimSpace(p.VaccineLabel),
 		PlannedBusinessDate: strings.TrimSpace(p.PlannedBusinessDate),
 		MediaRefs:           refs,
 		AnimalCount:         p.AnimalCount,

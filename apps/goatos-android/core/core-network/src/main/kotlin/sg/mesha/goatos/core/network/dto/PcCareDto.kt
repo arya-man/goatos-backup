@@ -36,6 +36,10 @@ data class PcCareTaskDto(
     @SerialName("partition_label") val partitionLabel: String = "",
     /** Backend-composed pen display ("Castro - 2") — rendered VERBATIM, never re-derived. */
     @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
+    // Backend-owned card headline: the pen display for shed tasks, the vaccine name for
+    // per-vaccine stock tasks. Rendered verbatim; falls back to the location fields on old servers.
+    @SerialName("task_label") val taskLabel: String = "",
+    @SerialName("vaccine_label") val vaccineLabel: String = "",
     @SerialName("planned_business_date") val plannedBusinessDate: String,
     @SerialName("due_business_date") val dueBusinessDate: String,
     /** Kernel dimension: scheduled | delayed | completed | closed | canceled. */

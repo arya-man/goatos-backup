@@ -34,6 +34,7 @@ type VerificationEnqueueRequest struct {
 	ShedID              string
 	ShedName            string
 	PartitionLabel      string
+	VaccineLabel        string
 	PlannedBusinessDate string
 	MediaRefs           []ports.LabeledRef
 	AnimalCount         int32

@@ -66,9 +66,13 @@ var _ pccareapp.VerificationEnqueuer = (*Enqueuer)(nil)
 func (e *Enqueuer) EnqueuePCCareVerification(ctx context.Context, in pccareapp.VerificationEnqueueRequest) error {
 	category := pccaredomain.VerificationCategoryFor(in.Category)
 
-	// Subject: "Deworming · Castro - 2". Degrades rather than composing a dangling separator.
+	// Subject: "Deworming · Castro - 2" — or, for a per-vaccine stock task (no shed),
+	// "Vaccine Inventory · FMD". Degrades rather than composing a dangling separator.
 	loc := oploc.OperationalLocation{ShedName: in.ShedName, PartitionLabel: in.PartitionLabel}
 	locDisplay := loc.Display()
+	if locDisplay == "" {
+		locDisplay = strings.TrimSpace(in.VaccineLabel)
+	}
 	baseLabel := pccaredomain.CategoryLabel(in.Category)
 	var label *string
 	switch {
@@ -117,6 +121,9 @@ func (e *Enqueuer) EnqueuePCCareVerification(ctx context.Context, in pccareapp.V
 func contextRows(in pccareapp.VerificationEnqueueRequest) []verificationdomain.ContextRow {
 	rows := make([]verificationdomain.ContextRow, 0, 3)
 	rows = append(rows, verificationdomain.ContextRow{Label: "Work", Value: pccaredomain.CategoryLabel(in.Category)})
+	if strings.TrimSpace(in.VaccineLabel) != "" {
+		rows = append(rows, verificationdomain.ContextRow{Label: "Vaccine", Value: strings.TrimSpace(in.VaccineLabel)})
+	}
 	if in.AnimalCount > 0 {
 		rows = append(rows, verificationdomain.ContextRow{Label: "Animals in this task", Value: strconv.Itoa(int(in.AnimalCount))})
 	}
