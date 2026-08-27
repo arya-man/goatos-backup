@@ -6,8 +6,8 @@ PROJECT_NUMBER="${PROJECT_NUMBER:-514832198871}"
 REGION="${REGION:-asia-south1}"
 PLAY_QUOTA_PROJECT="${PLAY_QUOTA_PROJECT:-$PROJECT_ID}"
 SLACK_WEBHOOK_SECRET="${SLACK_WEBHOOK_SECRET:-goatos-stg-deploy-slack-webhook-url}"
-GOOGLE_PLAY_PACKAGE="${GOOGLE_PLAY_PACKAGE:-sg.mesha.goatos.stg}"
-FIREBASE_APP_ID="${FIREBASE_APP_ID:-1:514832198871:android:0cb898377ba4f7f7f19492}"
+GOOGLE_PLAY_PACKAGE="${GOOGLE_PLAY_PACKAGE:-sg.mesha.goatos}"
+FIREBASE_APP_ID="${FIREBASE_APP_ID:-}"
 CONSOLE_AUTHUSER="${CONSOLE_AUTHUSER:-ravi@mesha.sg}"
 ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-/workspace/android-sdk}"
 ANDROID_HOME="$ANDROID_SDK_ROOT"
@@ -57,7 +57,7 @@ apk_url = "https://mesha.sg/app.apk"
 payload = {
     "attachments": [{
         "color": color,
-        "title": f"Goat OS Android STG distribution {status.lower()}",
+        "title": f"GoatOS Android distribution {status.lower()}",
         "text": text,
         "fields": [
             {"title": "Commit", "value": sha, "short": True},
@@ -78,7 +78,7 @@ if include_panel == "1":
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "*Goat OS STG deploy*\nDeploy the current `main` branch to Google staging, or distribute only the Android STG build.",
+                "text": "*GoatOS deploy*\nDeploy the current `main` branch to the existing production-facing services, or distribute only the Android build.",
             },
         },
         {
@@ -102,7 +102,7 @@ if include_panel == "1":
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "Deploy main to STG"},
+                    "text": {"type": "plain_text", "text": "Deploy backend/web"},
                     "style": "primary",
                     "action_id": "deploy_goatos_stg_main",
                     "value": "main",
@@ -189,7 +189,7 @@ on_exit() {
   local rc=$?
   if [[ "$rc" -ne 0 ]]; then
     local prefix="Android mobile distribution failed."
-    [[ "${DEPLOY_STG:-false}" == "true" ]] && prefix="STG rollout succeeded. Android mobile distribution failed."
+    [[ "${DEPLOY_STG:-false}" == "true" ]] && prefix="Backend/web rollout succeeded. Android mobile distribution failed."
 
     if [[ "$firebase_uploaded" == "true" && "$apk_mirrored" != "true" ]]; then
       notify_slack "FAILED" "${prefix} Firebase App Distribution uploaded, but mesha.sg/app.apk did not update."
@@ -216,7 +216,24 @@ install_android_sdk() {
   mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
 }
 
-notify_slack "STARTED" "STG backend/web deploy finished; building signed Android STG release."
+[[ -n "$FIREBASE_APP_ID" ]] || { echo "FIREBASE_APP_ID must be set to the Firebase Android app id for package sg.mesha.goatos." >&2; exit 1; }
+[[ "$GOOGLE_PLAY_PACKAGE" == "sg.mesha.goatos" ]] || { echo "GOOGLE_PLAY_PACKAGE must be sg.mesha.goatos for production-facing distribution." >&2; exit 1; }
+test -f apps/goatos-android/app/src/prod/google-services.json || {
+  echo "Missing apps/goatos-android/app/src/prod/google-services.json. Add Firebase Android app sg.mesha.goatos to project goatos-stg and download the config first." >&2
+  exit 1
+}
+jq -er '.client[] | select(.client_info.android_client_info.package_name == "sg.mesha.goatos") | .client_info.mobilesdk_app_id' \
+  apps/goatos-android/app/src/prod/google-services.json >/tmp/goatos-prod-firebase-app-id.txt || {
+  echo "apps/goatos-android/app/src/prod/google-services.json must contain Android package sg.mesha.goatos." >&2
+  exit 1
+}
+json_firebase_app_id="$(sed -n '1p' /tmp/goatos-prod-firebase-app-id.txt)"
+[[ "$json_firebase_app_id" == "$FIREBASE_APP_ID" ]] || {
+  echo "FIREBASE_APP_ID does not match app/src/prod/google-services.json: got $FIREBASE_APP_ID, want $json_firebase_app_id" >&2
+  exit 1
+}
+
+notify_slack "STARTED" "Backend/web deploy finished; building signed GoatOS Android release."
 
 install_android_sdk
 yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
@@ -230,20 +247,20 @@ DEPLOY_VERSION_NAME="${GOATOS_ANDROID_VERSION_NAME:-}"
 
 cd apps/goatos-android
 common_gradle_args=(
-  -x lintVitalStgRelease \
+  -x lintVitalProdRelease \
   -x lintVitalAnalyzeRelease \
-  -x lintVitalAnalyzeStgRelease \
+  -x lintVitalAnalyzeProdRelease \
   --no-configuration-cache \
   -PallowDirtyFirebaseDistribution=true
 )
 apk_gradle_args=(
-  :app:assembleStgRelease \
-  :app:appDistributionUploadStgRelease \
+  :app:assembleProdRelease \
+  :app:appDistributionUploadProdRelease \
   "${common_gradle_args[@]}" \
-  -PfadReleaseNotes="Goat OS (Mesha) STG release from main ${commit_sha}"
+  -PfadReleaseNotes="GoatOS (Mesha) release from main ${commit_sha}"
 )
 bundle_gradle_args=(
-  :app:bundleStgRelease \
+  :app:bundleProdRelease \
   "${common_gradle_args[@]}"
 )
 if [[ -n "$DEPLOY_VERSION_CODE" ]]; then
@@ -259,8 +276,8 @@ firebase_uploaded=true
 ./gradlew "${bundle_gradle_args[@]}"
 
 cd "$repo_root"
-APK="apps/goatos-android/app/build/outputs/apk/stg/release/app-stg-release.apk"
-AAB="apps/goatos-android/app/build/outputs/bundle/stgRelease/app-stg-release.aab"
+APK="apps/goatos-android/app/build/outputs/apk/prod/release/app-prod-release.apk"
+AAB="apps/goatos-android/app/build/outputs/bundle/prodRelease/app-prod-release.aab"
 test -f "$APK"
 test -f "$AAB"
 
@@ -314,7 +331,7 @@ if play_access_token="$(play_access_token)" &&
       if [[ "$play_version_code" == "$ANDROID_VERSION_CODE" ]]; then
         jq -n --arg vc "$ANDROID_VERSION_CODE" '{
           releases: [{
-            name: ("Goat OS STG " + $vc),
+            name: ("GoatOS " + $vc),
             status: "completed",
             versionCodes: [$vc]
           }]

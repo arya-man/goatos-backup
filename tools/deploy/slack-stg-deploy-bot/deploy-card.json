@@ -1,11 +1,11 @@
 {
-  "text": "Goat OS STG deploy",
+  "text": "GoatOS deploy",
   "blocks": [
     {
       "type": "section",
       "text": {
         "type": "mrkdwn",
-        "text": "*Goat OS STG deploy*\nDeploy the current `main` branch to Google staging, or distribute only the Android STG build."
+        "text": "*GoatOS deploy*\nDeploy the current `main` branch to the existing production-facing services, or distribute only the Android release."
       }
     },
     {
@@ -38,7 +38,7 @@
           "type": "button",
           "text": {
             "type": "plain_text",
-            "text": "Deploy main to STG"
+            "text": "Deploy backend/web"
           },
           "style": "primary",
           "action_id": "deploy_goatos_stg_main",

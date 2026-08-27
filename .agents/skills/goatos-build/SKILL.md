@@ -396,6 +396,13 @@ one product; this skill is the navigation layer.
 ## Must
 
 - Read wide, write narrow.
+- Treat the current public/operator-facing Goat OS path as production-facing
+  even though it reuses the existing `goatos-stg` Google/Firebase project
+  internally. Public app config, release labels, dashboard URLs, API URLs, and
+  operator instructions should use `sg.mesha.goatos`,
+  `https://dashboard.mesha.sg`, and `https://api.goatos.mesha.sg/` unless the
+  user explicitly asks about historical staging. Firebase Auth issuer/audience
+  may still be `goatos-stg` while that existing Firebase project is reused.
 - **Promote staging only through manual Cloud Deploy.** Never create or wait for
   a `main -> stg` PR or GitHub Actions deployment. Never push any local ref to
   remote `stg`. Deploy only from a clean, approved `origin/main` SHA through

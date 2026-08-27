@@ -13,8 +13,10 @@ HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT="${HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACC
 ADMIN_WEB_SERVICE="${ADMIN_WEB_SERVICE:-goatos-admin-web-stg}"
 MIGRATE_JOB="${MIGRATE_JOB:-goatos-stg-migrate}"
 VACCINATION_SCHEDULE_PROJECTOR_JOB="${VACCINATION_SCHEDULE_PROJECTOR_JOB:-goatos-stg-vaccination-schedule-projector}"
-STG_API_URL="${STG_API_URL:-https://goatos-api-stg-awtrpmn4za-el.a.run.app}"
-STG_DASHBOARD_URL="${STG_DASHBOARD_URL:-https://stg.dashboard.mesha.sg}"
+STG_API_URL="${STG_API_URL:-https://api.goatos.mesha.sg}"
+STG_DASHBOARD_URL="${STG_DASHBOARD_URL:-https://dashboard.mesha.sg}"
+GOATOS_CANONICAL_DASHBOARD_HOST="${GOATOS_CANONICAL_DASHBOARD_HOST:-dashboard.mesha.sg}"
+GOATOS_API_BASE_URL="${GOATOS_API_BASE_URL:-https://api.goatos.mesha.sg/}"
 
 COMMIT_SHA="${CLOUD_DEPLOY_customTarget_commitSha:-}"
 BACKEND_IMAGE="${CLOUD_DEPLOY_customTarget_backendImage:-}"
@@ -461,6 +463,7 @@ deploy() {
     --max=4 \
     --min-instances=1 \
     --max-instances=4 \
+    --update-env-vars="GOATOS_CANONICAL_DASHBOARD_HOST=${GOATOS_CANONICAL_DASHBOARD_HOST},GOATOS_API_BASE_URL=${GOATOS_API_BASE_URL}" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
 

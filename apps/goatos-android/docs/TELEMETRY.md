@@ -179,12 +179,12 @@ paths, signed URLs, or Firebase tokens.
 |---|---|---|---|
 | `stg` | `goatos-stg` | **Confirmed** — committed in `app/src/stg/google-services.json`, `app/src/stg/res/values/firebase.xml`, and `app/build.gradle.kts`'s `firebaseAppDistribution { appId = "1:514832198871:android:0cb898377ba4f7f7f19492" }` | `true` |
 | `dev` | **not confirmed** | No Firebase config of any kind existed in this repo for `dev` before this change | `false` |
-| `prod` | **not confirmed** | No Firebase config of any kind existed in this repo for `prod` before this change | `false` |
+| `prod` | `goatos-stg` | **Confirmed production-facing package** — `sg.mesha.goatos` is registered in the existing Firebase project and `app/src/prod/google-services.json` is provisioned from Firebase | `false` by default; enable deliberately for release telemetry |
 
-`app/src/stg/google-services.json` is the real staging Firebase Android client config for
+`app/src/stg/google-services.json` is the historical staging Firebase Android client config for
 `sg.mesha.goatos.stg`. `app/src/dev/google-services.json` is a schema-valid placeholder with
-obviously-fake ids; prod remains unwired until the real prod Firebase project/app exists. Full
-detail + setup steps:
+obviously-fake ids. `app/src/prod/google-services.json` is the production-facing package config
+for `sg.mesha.goatos` inside the reused `goatos-stg` Firebase project. Full detail + setup steps:
 `app/src/google-services-README.md`.
 
 The `OBSERVABILITY_DESIGN.md` §2.5 convention ("Firebase project is per env flavor... each
@@ -196,10 +196,9 @@ steps).
 
 ## 5. India region (asia-south1)
 
-- `stg`'s mobile API host is `https://stg-api.dashboard.mesha.sg/`, backed by
-  `goatos-api-stg` in `asia-south1` (Mumbai). Do not point the stg release APK at
-  `https://stg.dashboard.mesha.sg/` because that is the admin web/dashboard host. Do not use the
-  raw Cloud Run URL for distribution builds once the API load-balancer host is live.
+- The production-facing mobile API host is `https://api.goatos.mesha.sg/`, backed by
+  `goatos-api-stg` in `asia-south1` (Mumbai) for the reused-project path. Do not point release
+  APKs at dashboard HTML hosts or raw Cloud Run URLs once the API load-balancer host is live.
   Per `OBSERVABILITY_DESIGN.md` (header: "First target env: **stg** (`goatos-stg`,
   `asia-south1`)"), the OTel Collector Cloud Run service MUST also be provisioned in
   `asia-south1` — when it is deployed, `BuildConfig.OTLP_ENDPOINT` for `stg` should point at an
