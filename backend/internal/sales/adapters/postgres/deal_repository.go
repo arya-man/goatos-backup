@@ -25,7 +25,7 @@ const idemScopeDealCreate = "sales.deal.create"
 const dealColumns = `
 	d.id, d.tenant_id, d.sale_date, d.farm,
 	d.source_sales_id, d.source_purchase_id, d.source_row_no,
-	d.buyer_name, d.buyer_place, d.product_type, d.breed,
+	d.buyer_name, d.buyer_place, d.buyer_vendor_id, d.product_type, d.breed,
 	d.animal_count, d.male_count, d.female_count, d.total_weight_kg,
 	d.advance_amount, d.sales_value, d.status, d.feedback, d.comments,
 	d.created_at, d.updated_at`
@@ -45,7 +45,7 @@ func scanDeal(row pgx.Row) (domain.Deal, error) {
 	err := row.Scan(
 		&d.DealID, &d.TenantID, &saleDate, &d.Farm,
 		&srcSales, &srcPur, &srcRow,
-		&d.BuyerName, &d.BuyerPlace, &d.ProductType, &d.Breed,
+		&d.BuyerName, &d.BuyerPlace, &d.BuyerVendorID, &d.ProductType, &d.Breed,
 		&d.AnimalCount, &d.MaleCount, &d.FemaleCount, &d.TotalWeightKg,
 		&d.AdvanceAmount, &salesValue, &d.Status, &d.Feedback, &d.Comments,
 		&createdAt, &updatedAt,
@@ -160,7 +160,7 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 	// same key but ANY different field is a different request and must be refused, not recorded.
 	fingerprint := requestFingerprint(
 		write.SaleDate, write.Farm, write.ProductType, write.Breed,
-		write.BuyerName, write.BuyerPlace,
+		write.BuyerName, write.BuyerPlace, write.BuyerVendorID,
 		fpFloat(write.AnimalCount), fpFloat(write.MaleCount), fpFloat(write.FemaleCount),
 		fpFloat(write.TotalWeightKg), fmt.Sprintf("%.4f", write.SalesValue), fpFloat(write.AdvanceAmount),
 		write.Comments,
@@ -177,19 +177,24 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 		return r.getDeal(ctx, tenantID, reservation.resultID)
 	}
 
+	// buyer_vendor_id goes through nullif(btrim(...)) like the other optional text, NOT a bare
+	// $6::uuid: an empty string is not a uuid and Postgres rejects it outright (22P02), so a blank
+	// would 500 instead of storing the NULL the column exists to hold for pre-register history.
+	// The "every app-recorded sale names a vendor" rule is enforced in domain.DealWrite.Validate,
+	// which is where a refusal can name the field and reach the operator.
 	var dealID string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO public.sales_deals (
-			tenant_id, sale_date, farm, buyer_name, buyer_place,
+			tenant_id, sale_date, farm, buyer_name, buyer_place, buyer_vendor_id,
 			product_type, breed, animal_count, male_count, female_count,
 			total_weight_kg, advance_amount, sales_value, comments
 		) VALUES (
-			$1, $2::date, $3, $4, nullif(btrim($5), ''),
-			$6, $7, $8, $9, $10,
-			$11, $12, $13, nullif(btrim($14), '')
+			$1, $2::date, $3, $4, nullif(btrim($5), ''), nullif(btrim($6), '')::uuid,
+			$7, $8, $9, $10, $11,
+			$12, $13, $14, nullif(btrim($15), '')
 		)
 		RETURNING id::text`,
-		tenantID, write.SaleDate, write.Farm, write.BuyerName, write.BuyerPlace,
+		tenantID, write.SaleDate, write.Farm, write.BuyerName, write.BuyerPlace, write.BuyerVendorID,
 		write.ProductType, write.Breed, write.AnimalCount, write.MaleCount, write.FemaleCount,
 		write.TotalWeightKg, write.AdvanceAmount, write.SalesValue, write.Comments,
 	).Scan(&dealID)

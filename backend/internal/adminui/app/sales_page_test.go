@@ -4,12 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/vgoats/goatos/backend/internal/adminui/domain"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 )
 
-// TestSalesPageContractAndNavigation pins the sales page's published contract: the nav leaf under
-// Procurement, the breadcrumb, the deals table shape, and the backend-owned copy the client
-// renders verbatim.
+// TestSalesPageContractAndNavigation pins the sales page's published contract: its OWN top-level
+// nav group (Sales split out of Procurement, maintainer decision 2026-08-27), the breadcrumb, the
+// deals table shape, and the backend-owned copy the client renders verbatim.
 func TestSalesPageContractAndNavigation(t *testing.T) {
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 		TenantID: "00000000-0000-4000-8000-000000000001",
@@ -17,7 +18,7 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	})
 
 	page := pageByRouteID(t, resp.Pages, "sales")
-	if page.Href != "/procurement/sales" || page.PathPattern != "/procurement/sales" {
+	if page.Href != "/sales" || page.PathPattern != "/sales" {
 		t.Fatalf("sales page href/pattern = %q/%q", page.Href, page.PathPattern)
 	}
 	if page.SurfaceKind != "module-surface" {
@@ -57,6 +58,11 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		"evidence.audit.within_0_3", "evidence.audit.within_1", "evidence.audit.over_1",
 		"action.record_sale.label", "field.sale_date", "field.farm", "field.product_type",
 		"field.breed", "field.buyer_name", "field.total_weight_kg", "field.sales_value",
+		// The vendor select's copy: a REQUIRED field whose dead-end needs an exit, so the
+		// placeholder, the "add them on Vendors" hint, the register-empty replacement and the
+		// unreadable-register error are all backend-owned rather than composed in the client.
+		"field.vendor", "select.vendor.placeholder", "hint.vendor", "hint.vendor_empty",
+		"action.open_vendors", "hint.vendor_prefill", "error.vendors_unavailable",
 		"action.sale_recorded", "action.sale_record_failed",
 		"empty.deals", "error.load", "disabled.write",
 	} {
@@ -85,34 +91,51 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		}
 	}
 
-	// Nav: the Sales leaf lives in the Procurement group and points at the page.
-	foundLeaf := false
-	for _, group := range resp.Navigation.Groups {
+	// Nav: Sales is its OWN top-level group, and Procurement no longer carries it. Both halves are
+	// asserted -- a leaf left behind in Procurement would make the module appear twice, which is
+	// the failure a "does the new group exist" check alone would pass.
+	var salesGroup *domain.NavigationGroup
+	for i, group := range resp.Navigation.Groups {
+		if group.ID == "sales" {
+			salesGroup = &resp.Navigation.Groups[i]
+		}
 		if group.ID != "procurement" {
 			continue
 		}
 		for _, leaf := range group.Leaves {
-			if leaf.ID == "procurement-sales" {
-				foundLeaf = true
-				if leaf.Href != "/procurement/sales" {
-					t.Fatalf("sales leaf href = %q", leaf.Href)
-				}
+			if leaf.Href == "/sales" || leaf.ID == "procurement-sales" {
+				t.Fatalf("Sales must no longer be a Procurement leaf, found %+v", leaf)
 			}
 		}
 	}
-	if !foundLeaf {
-		t.Fatal("procurement-sales leaf missing from the Procurement nav group")
+	if salesGroup == nil {
+		t.Fatal("Sales nav group missing: Sales is its own vertical")
+	}
+	// The icon token must be one admin-web's iconByToken map knows, or the group silently renders
+	// the Control Tower icon -- the defect `milk` and `wheat` each shipped with.
+	if salesGroup.Icon != "banknote" {
+		t.Fatalf("sales group icon = %q, want banknote", salesGroup.Icon)
+	}
+	if len(salesGroup.Leaves) != 1 || salesGroup.Leaves[0].Href != "/sales" {
+		t.Fatalf("sales group leaves = %+v", salesGroup.Leaves)
 	}
 
-	// Breadcrumb rule.
+	// Breadcrumb rule, and the crumb copy: the page names itself, not the desk it used to sit
+	// under.
 	foundLabel := false
 	for _, rule := range resp.RouteLabels {
-		if rule.Pattern == "/procurement/sales" && rule.Label == "Sales" && rule.Match == "exact" {
+		if rule.Pattern == "/sales" && rule.Label == "Sales" && rule.Match == "exact" {
 			foundLabel = true
+		}
+		if rule.Pattern == "/procurement/sales" {
+			t.Fatal("stale /procurement/sales route label survived the split")
 		}
 	}
 	if !foundLabel {
-		t.Fatal("route label for /procurement/sales missing")
+		t.Fatal("route label for /sales missing")
+	}
+	if page.Copy["crumb"] != "Sales" {
+		t.Fatalf("sales crumb = %q, want Sales", page.Copy["crumb"])
 	}
 }
 

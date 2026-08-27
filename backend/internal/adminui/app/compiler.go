@@ -854,7 +854,7 @@ func compileHealthConfigControls(controls []domain.Control, input BootstrapInput
 	return controls
 }
 
-// compileSalesControls splits /procurement/sales by authority: SalesRead reaches the board and
+// compileSalesControls splits /sales by authority: SalesRead reaches the board and
 // reads the ledger; only SalesWrite may record a sale.
 //
 // The control is declared for every principal who reaches the page and DISABLED with a reason for

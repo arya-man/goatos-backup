@@ -23,6 +23,15 @@ func bootstrapWithGrants(s *Service, roles ...string) domain.BootstrapResponse {
 	return s.Bootstrap(context.Background(), BootstrapInput{TenantID: lensTenantID, Grants: grants})
 }
 
+// lensKeptPath mirrors the workspace's kept namespaces. "/sales" is matched EXACTLY or with a
+// trailing slash, never as a bare prefix, so a future "/sales-something" route cannot slip in on a
+// string match the way a HasPrefix check would let it.
+func lensKeptPath(path string) bool {
+	return strings.HasPrefix(path, "/procurement") ||
+		strings.HasPrefix(path, "/feed") ||
+		path == "/sales" || strings.HasPrefix(path, "/sales/")
+}
+
 func assertProcurementFeedWorkspace(t *testing.T, resp domain.BootstrapResponse) {
 	t.Helper()
 	if len(resp.Navigation.Primary) != 0 {
@@ -35,8 +44,11 @@ func assertProcurementFeedWorkspace(t *testing.T, resp domain.BootstrapResponse)
 			t.Errorf("group %q must be DefaultOpen in a two-group sidebar", group.ID)
 		}
 	}
-	if len(gotGroups) != 2 || gotGroups[0] != "procurement" || gotGroups[1] != "feed" {
-		t.Fatalf("lens must keep exactly the procurement and feed groups in canonical order; got %v", gotGroups)
+	// Sales joined this list on 2026-08-27 when it split out of the Procurement group. It is the
+	// same content this workspace always carried -- the leaf moved out of Procurement into its own
+	// vertical -- and this principal is the one non-founder holder of sales.read / sales.write.
+	if len(gotGroups) != 3 || gotGroups[0] != "procurement" || gotGroups[1] != "sales" || gotGroups[2] != "feed" {
+		t.Fatalf("lens must keep exactly the procurement, sales and feed groups in canonical order; got %v", gotGroups)
 	}
 	// Feed Config is withheld from this workspace (maintainer decision 2026-08-21): no sidebar
 	// leaf, and no page contract, so a typed /feed/config URL fails closed.
@@ -56,7 +68,7 @@ func assertProcurementFeedWorkspace(t *testing.T, resp domain.BootstrapResponse)
 		if i := strings.IndexAny(path, "?#"); i >= 0 {
 			path = path[:i]
 		}
-		if !strings.HasPrefix(path, "/procurement") && !strings.HasPrefix(path, "/feed") {
+		if !lensKeptPath(path) {
 			t.Errorf("page %q (%s) escaped the lens; a typed URL to it would render", page.RouteID, page.Href)
 		}
 		if page.RouteID == "feed-config" || path == "/feed/config" {
@@ -72,7 +84,7 @@ func assertProcurementFeedWorkspace(t *testing.T, resp domain.BootstrapResponse)
 		}
 	}
 	for _, rule := range resp.RouteLabels {
-		if !strings.HasPrefix(rule.Pattern, "/procurement") && !strings.HasPrefix(rule.Pattern, "/feed") {
+		if !lensKeptPath(rule.Pattern) {
 			t.Errorf("route label %q escaped the lens", rule.Pattern)
 		}
 		if strings.HasPrefix(rule.Pattern, "/feed/config") {

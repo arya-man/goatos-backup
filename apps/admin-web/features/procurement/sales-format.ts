@@ -1,7 +1,7 @@
 // Pure presentation helpers for the sales board. No copy lives here — every visible LABEL comes
 // from the backend page contract; these only format backend NUMBERS and build ?farm= links.
 
-const SALES_PATH = "/procurement/sales";
+const SALES_PATH = "/sales";
 
 /** Indian-grouped rupee figure: 1234567 -> "₹12,34,567". Whole rupees by default. */
 export function inr(value: number, fractionDigits = 0): string {

@@ -318,7 +318,7 @@ func init() {
 			if vertical == VerticalFeed && (tier == TierHead || tier == TierDirector) {
 				set[FeedDirectionRead] = struct{}{}
 			}
-			// The sales vertical's own module (/procurement/sales). Scoped to VerticalSales so
+			// The sales vertical's own module (/sales). Scoped to VerticalSales so
 			// the one-module-one-director split holds: no other vertical's tiers gain a sales
 			// read. Director/Head/Manager run the desk and record sales; the Assistant Manager
 			// tier reads the board but does not write the ledger.

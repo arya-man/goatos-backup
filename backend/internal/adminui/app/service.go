@@ -137,12 +137,31 @@ func navigation() domain.NavigationContract {
 				Leaves: []domain.NavigationItem{
 					navLeaf("procurement-source-entry", "Source Entry", "/procurement/source-entry", nil),
 					navLeaf("procurement-vendors", "Vendors", "/procurement/vendors", nil),
-					navLeaf("procurement-sales", "Sales", "/procurement/sales", nil),
 					// Feed Purchases — the BUYING side of the feed chain. It sits in Procurement,
 					// not under Feed, because migration 000174 recorded that purchase entry
 					// belongs to this vertical; /feed/analytics keeps the stock cards these loads
 					// feed.
 					navLeaf("procurement-feed-purchases", "Feed Purchases", "/procurement/feed-purchases", nil),
+				},
+			},
+			// Sales is its OWN VERTICAL, split out of Procurement (maintainer decision 2026-08-27),
+			// the same regrouping Milk got out of Counts. Procurement is the BUYING desk -- source
+			// entry, the vendor register, feed purchases -- and selling is not one of its
+			// workflows: it has its own permissions (sales.read / sales.write, deliberately not a
+			// reuse of ProcurementRead or VendorRead per permissions.go), its own tables
+			// (000173_sales_ledger.sql) and its own backend module.
+			//
+			// Unlike the Milk split, the ROUTE MOVED TOO: /procurement/sales -> /sales. Sales is
+			// no longer inside Procurement in any sense, so a URL that says it would be the last
+			// place still claiming otherwise.
+			//
+			// It sits directly after Procurement because buying and selling are read together.
+			// The `banknote` icon must stay registered in admin-web's iconByToken map or the group
+			// silently renders the Control Tower icon.
+			{
+				ID: "sales", Label: "Sales", Icon: "banknote", DefaultOpen: false,
+				Leaves: []domain.NavigationItem{
+					navLeaf("sales-board", "Sales", "/sales", nil),
 				},
 			},
 			{
@@ -301,8 +320,8 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/procurement/source-entry/loads/{load_id}", Label: "Source load", Match: "pattern"},
 		{Pattern: "/procurement/source-entry", Label: "Source Entry", Match: "exact"},
 		{Pattern: "/procurement/vendors", Label: "Vendors", Match: "exact"},
-		{Pattern: "/procurement/sales", Label: "Sales", Match: "exact"},
 		{Pattern: "/procurement/feed-purchases", Label: "Feed Purchases", Match: "exact"},
+		{Pattern: "/sales", Label: "Sales", Match: "exact"},
 		{Pattern: "/counts/sops", Label: "Herd Operations SOP", Match: "exact"},
 		{Pattern: "/counts/herd", Label: "Herd Register", Match: "exact"},
 		{Pattern: "/counts/breakdown", Label: "Counts Breakdown", Match: "exact"},
@@ -488,7 +507,7 @@ func pages() []domain.PageContract {
 		// ledger is server-paged; the buyer board rides on GET /sales/overview and is paged in the
 		// renderer, so its contract declares the page size and no row click -- there is no buyer
 		// record to open, and a declared row click the page cannot honour would be a contract lie.
-		page("sales", "/procurement/sales", "/procurement/sales", "Sales", "Animal and manure sales across CBE and CPT — revenue, buyers, demand pipeline and weight evidence.", "module-surface",
+		page("sales", "/sales", "/sales", "Sales", "Animal and manure sales across CBE and CPT — revenue, buyers, demand pipeline and weight evidence.", "module-surface",
 			[]domain.TableContract{
 				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
 				withoutRowClick(tableP("sales-buyers", "Buyers", "/sales/overview", []string{"buyer_name", "buyer_place", "product_types", "deals", "animals", "revenue", "share_pct"}, "", []int{10, 25, 50})),
@@ -2664,7 +2683,9 @@ func pageSpecificCopy(id string) map[string]string {
 		// rule it must not hardcode a label, an empty state or a disabled reason of its own. Farm
 		// language only.
 		return map[string]string{
-			"crumb": "Procurement",
+			// Sales is its own vertical now, not a Procurement leaf (maintainer decision
+			// 2026-08-27), so the crumb names itself rather than the desk it used to sit under.
+			"crumb": "Sales",
 
 			// Section headings.
 			"section.headline.title":    "Sales at a glance",
@@ -2814,34 +2835,55 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.clear": "Clear filters",
 
 			// Record-sale drawer.
-			"action.record_sale.label":  "Record sale",
-			"drawer.record_sale.title":  "Record a sale",
-			"drawer.detail.title":       "Sale details",
-			"field.sale_date":           "Sale date",
-			"field.farm":                "Farm",
-			"field.product_type":        "Product",
-			"field.breed":               "Breed",
-			"field.buyer_name":          "Buyer name",
-			"field.buyer_place":         "Buyer place",
-			"field.animal_count":        "Animals",
-			"field.male_count":          "Males",
-			"field.female_count":        "Females",
-			"field.total_weight_kg":     "Total weight (kg)",
-			"field.sales_value":         "Sale value",
-			"field.advance_amount":      "Advance received",
-			"field.comments":            "Comments",
-			"required.hint":             "Sale date, farm, product, breed, buyer name and sale value are required.",
-			"action.save":               "Save",
-			"action.saving":             "Saving...",
-			"action.cancel":             "Cancel",
-			"action.close":              "Close",
-			"action.next_page":          "Next",
-			"action.prev_page":          "Back",
-			"pager.page":                "Page",
-			"pager.of":                  "of",
-			"action.sale_recorded":      "Sale recorded.",
-			"action.sale_record_failed": "Could not record this sale. Check the fields and try again.",
-			"action.error_form":         "Could not complete that action.",
+			"action.record_sale.label": "Record sale",
+			"drawer.record_sale.title": "Record a sale",
+			"drawer.detail.title":      "Sale details",
+			"field.sale_date":          "Sale date",
+			"field.farm":               "Farm",
+			"field.product_type":       "Product",
+			"field.breed":              "Breed",
+			"field.vendor":             "Vendor",
+			"field.buyer_name":         "Buyer name",
+			"field.buyer_place":        "Buyer place",
+			"field.animal_count":       "Animals",
+			"field.male_count":         "Males",
+			"field.female_count":       "Females",
+			"field.total_weight_kg":    "Total weight (kg)",
+			"field.sales_value":        "Sale value",
+			"field.advance_amount":     "Advance received",
+			"field.comments":           "Comments",
+			"required.hint":            "Sale date, farm, product, breed, vendor, buyer name and sale value are required.",
+			// The vendor select's own copy. Farm language, and it must name WHERE to go: a
+			// required select the person cannot fill is a dead end without it.
+			"select.vendor.placeholder": "Choose the vendor",
+			// The register runs to a few hundred names, which is more than anyone scrolls. Typing
+			// two characters narrows the list; below two it stays whole, so a stray keystroke does
+			// not blank the dropdown.
+			"search.vendor.placeholder": "Search vendors — type 2 letters to narrow",
+			"hint.vendor_no_match":      "No vendor matches that search. Clear it, or add them on the Vendors page.",
+			"action.clear_search":       "Clear",
+			"hint.vendor":               "Every sale is made to a vendor. Not on this list? Add them on the Vendors page, then come back.",
+			"hint.vendor_empty":         "No vendors are on the register yet. Add the buyer on the Vendors page first, then record the sale.",
+			"action.open_vendors":       "Go to Vendors",
+			"hint.vendor_prefill":       "Buyer name and place are filled in from the vendor. Change them if this sale was made under a different name.",
+			"error.vendors_unavailable": "The vendor register could not be read, so a sale cannot be recorded right now. Refresh to try again.",
+			// The shared date control's copy. Backend-owned like every other label: the picker is a
+			// rendering component and composes none of its own words.
+			"date.sale_date.placeholder": "Pick the sale date",
+			"date.prev_month":            "Previous month",
+			"date.next_month":            "Next month",
+			"date.invalid_sale_date":     "Pick the day the sale happened. It cannot be later than {date}.",
+			"action.save":                "Save",
+			"action.saving":              "Saving...",
+			"action.cancel":              "Cancel",
+			"action.close":               "Close",
+			"action.next_page":           "Next",
+			"action.prev_page":           "Back",
+			"pager.page":                 "Page",
+			"pager.of":                   "of",
+			"action.sale_recorded":       "Sale recorded.",
+			"action.sale_record_failed":  "Could not record this sale. Check the fields and try again.",
+			"action.error_form":          "Could not complete that action.",
 
 			// Pipeline and evidence entry (the retired Sales DB sheet's job, now done in the app).
 			"action.record_pipeline.label":  "Add record",

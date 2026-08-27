@@ -21,7 +21,7 @@ import {
   type SaleCandidateListResponse,
 } from "@/lib/api/server";
 
-const SALES_PATH = "/procurement/sales";
+const SALES_PATH = "/sales";
 
 /** A failed call carries the backend's own message, so the drawer never invents copy for an error. */
 export type SaleAllocationActionResult<T> = { ok: true; data: T } | { ok: false; message: string };

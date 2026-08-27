@@ -236,6 +236,12 @@ var protectedRoutes = []Route{
 	{OperationID: "updateProcurementVendor", Method: "PUT", Pattern: "/procurement/vendors/{vendor_id}", Permissions: []string{VendorWrite}},
 	{OperationID: "updateProcurementVendorStatus", Method: "POST", Pattern: "/procurement/vendors/{vendor_id}/status", Permissions: []string{VendorWrite}},
 	{OperationID: "listProcurementVendorCatalog", Method: "GET", Pattern: "/procurement/vendor-catalog", Permissions: []string{VendorRead}},
+	// The ACTIVE register as a bounded picklist, for any screen that must name a counterparty --
+	// today Sales, which maps every deal to a vendor. Gated on VendorRead, NOT on SalesRead: it is
+	// a procurement read whichever screen asks for it, and every role holding SalesWrite today
+	// already holds VendorRead (procurement_director, ceo_internal). A future sales-only role must
+	// be granted VendorRead or it will be unable to record a sale at all.
+	{OperationID: "listProcurementVendorOptions", Method: "GET", Pattern: "/procurement/vendor-options", Permissions: []string{VendorRead}},
 
 	// FEED PURCHASES (/procurement/feed-purchases on admin-web). Gated on the dedicated
 	// FeedPurchaseRead/FeedPurchaseWrite rather than ProcurementRead: the ledger carries supplier
@@ -258,7 +264,7 @@ var protectedRoutes = []Route{
 	{OperationID: "listToxinReview", Method: "GET", Pattern: "/toxin/review", Permissions: []string{ToxinVerdict}},
 	{OperationID: "recordToxinVerdict", Method: "POST", Pattern: "/toxin/tasks/{task_id}/verdict", Permissions: []string{ToxinVerdict}},
 
-	// SALES (/procurement/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
+	// SALES (/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
 	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --
 	// see SalesRead's doc comment.
 	{OperationID: "listSalesOverview", Method: "GET", Pattern: "/sales/overview", Permissions: []string{SalesRead}},

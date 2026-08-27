@@ -93,7 +93,7 @@ function buildRoutes(goatId, procurementLoadId) {
     { name: "vaccination-execution", path: "/vaccination?scope_mode=company#execution" },
     { name: "vaccination-live-tracker", path: "/vaccination/live-tracker?scope_mode=company" },
     { name: "procurement-source-entry", path: "/procurement/source-entry?scope_mode=company" },
-    { name: "procurement-sales", path: "/procurement/sales?scope_mode=company" },
+    { name: "sales", path: "/sales?scope_mode=company" },
     { name: "vaccination-plan", path: "/vaccination/plan?scope_mode=company" },
     { name: "counts-sops", path: "/counts/sops?scope_mode=company" },
     { name: "counts-sops-builder", path: "/counts/sops?compose=1&scope_mode=company" },

@@ -27,17 +27,24 @@ import (
 // Source Entry for this workspace.
 
 // procurementDirectorLensGroupIDs are the canonical navigation() group IDs this workspace keeps.
-// These are the two module groups the maintainer named; both IDs are pinned by
+// These are the module groups the maintainer named, plus Sales, which was a Procurement leaf when
+// that decision was made and became its own group on 2026-08-27. All three IDs are pinned by
 // TestProcurementDirectorLensKeepsOnlyProcurementAndFeed.
 var procurementDirectorLensGroupIDs = map[string]struct{}{
 	"procurement": {},
 	"feed":        {},
+	// Sales was a leaf INSIDE the Procurement group when this workspace was decided, so this
+	// principal has always had it -- he is the one non-founder holder of SalesRead/SalesWrite
+	// (permissions.RoleProcurementDirector). Splitting Sales into its own vertical
+	// (maintainer decision 2026-08-27) is a nav regrouping, not a withdrawal of authority, so the
+	// group is kept here and the workspace he sees is unchanged in content.
+	"sales": {},
 }
 
 // procurementDirectorLensRoutePrefixes are the route namespaces of the kept modules. Pages and
 // route labels are filtered by path prefix rather than an enumerated route_id list so a new
 // /procurement/* or /feed/* page ships into this workspace automatically.
-var procurementDirectorLensRoutePrefixes = []string{"/procurement", "/feed"}
+var procurementDirectorLensRoutePrefixes = []string{"/procurement", "/feed", "/sales"}
 
 // procurementDirectorLensHiddenRoutes are routes inside the kept modules that this workspace
 // still withholds (maintainer decision 2026-08-21, second half: "hide the Feed Config page for

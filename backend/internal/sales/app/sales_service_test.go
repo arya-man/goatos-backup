@@ -201,6 +201,9 @@ func TestCreateDealNormalizesValidatesAndRequiresAKey(t *testing.T) {
 	write := domain.DealWrite{
 		SaleDate: "2026-08-17", Farm: "CBE", ProductType: "Goat", Breed: "  Sojat ",
 		BuyerName: "  Irshad   Bhai ", SalesValue: 90000,
+		// Every app-recorded sale names its buyer from the vendor register. Padded here so the
+		// same case proves Normalize trims it before Validate checks its shape.
+		BuyerVendorID: " 3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34 ",
 	}
 
 	// No idempotency key: refused before validation, zero repo calls.
@@ -216,6 +219,19 @@ func TestCreateDealNormalizesValidatesAndRequiresAKey(t *testing.T) {
 	}
 	if repo.createdWrite.BuyerName != "Irshad Bhai" || repo.createdWrite.Breed != "Sojat" {
 		t.Fatalf("write must be normalized before storage: %+v", repo.createdWrite)
+	}
+	if repo.createdWrite.BuyerVendorID != "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34" {
+		t.Fatalf("vendor id must be trimmed before storage: %q", repo.createdWrite.BuyerVendorID)
+	}
+
+	// A sale with no vendor never reaches the repo: the farm does not sell to nobody.
+	noVendor := write
+	noVendor.BuyerVendorID = ""
+	if _, err := s.CreateDeal(context.Background(), tenant, noVendor, "actor", "key-vendor"); err == nil {
+		t.Fatal("a sale with no vendor must be rejected")
+	}
+	if repo.createCalls != 1 {
+		t.Fatalf("vendorless write reached the repo: %d calls", repo.createCalls)
 	}
 	if repo.createdKey != "key-1" {
 		t.Fatalf("key must be trimmed: %q", repo.createdKey)

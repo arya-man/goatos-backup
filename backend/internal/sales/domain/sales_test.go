@@ -13,7 +13,8 @@ func validWrite() DealWrite {
 	return DealWrite{
 		SaleDate: "2026-08-17", Farm: FarmCBE, ProductType: ProductSheep, Breed: "Anantapur",
 		BuyerName: "Tanveer", BuyerPlace: "Madur",
-		AnimalCount: fp(23), TotalWeightKg: fp(600), SalesValue: 201500,
+		BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
+		AnimalCount:   fp(23), TotalWeightKg: fp(600), SalesValue: 201500,
 	}
 }
 
@@ -36,6 +37,12 @@ func TestDealWriteValidateRejectsEachBrokenField(t *testing.T) {
 		{"unknown product type", func(w *DealWrite) { w.ProductType = "Cattle" }, "product_type"},
 		{"blank breed", func(w *DealWrite) { w.Breed = "   " }, "breed"},
 		{"blank buyer", func(w *DealWrite) { w.BuyerName = "  " }, "buyer_name"},
+		// Every sale names a vendor (maintainer decision 2026-08-27). Absent is refused rather
+		// than recorded against nobody, and a non-uuid is refused rather than stored as a
+		// dangling reference the Sales page could never resolve back to a register row.
+		{"missing vendor", func(w *DealWrite) { w.BuyerVendorID = "" }, "buyer_vendor_id"},
+		{"whitespace-only vendor", func(w *DealWrite) { w.BuyerVendorID = "   " }, "buyer_vendor_id"},
+		{"vendor that is not a register id", func(w *DealWrite) { w.BuyerVendorID = "Tanveer" }, "buyer_vendor_id"},
 		{"zero sale value", func(w *DealWrite) { w.SalesValue = 0 }, "sales_value"},
 		{"negative sale value", func(w *DealWrite) { w.SalesValue = -5 }, "sales_value"},
 		{"negative weight", func(w *DealWrite) { w.TotalWeightKg = fp(-1) }, "total_weight_kg"},

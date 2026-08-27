@@ -1,7 +1,21 @@
 "use client";
 
+// The app's ONE date field.
+//
+// A native date input renders the browser's own control and the OS calendar popover: different
+// chrome from every other field on the page, and a locale-driven day/month/year order that
+// contradicts the DD-MM-YYYY rule the rest of the app renders through fmtDate. Two existing tests
+// already ban the native input for exactly that reason -- and they ban it by scanning THIS file for
+// the attribute, so do not name it here either. This is the component they expect instead.
+//
+// It moved here from features/preventive-care-vaccination on 2026-08-27, unchanged in behaviour
+// but no longer min-only: it now takes an optional `max` so a field bounded in the OTHER direction
+// (a sale date, which may be in the past but never in the future) can use the same control rather
+// than fall back to a native input.
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+
+import { fmtDate } from "@/lib/format";
 
 function parseDateKey(value?: string): Date {
   const [year, month, day] = (value ?? "").split("-").map((part) => Number.parseInt(part, 10));
@@ -43,21 +57,30 @@ export function ThemedDatePicker({
   name,
   label,
   min,
+  max,
   previousMonthLabel,
   nextMonthLabel,
-  invalidFutureDateText,
+  invalidDateText,
   required,
 }: {
   name: string;
   label: string;
+  /** Earliest selectable day (YYYY-MM-DD). Omit to allow any past date. */
   min?: string;
+  /** Latest selectable day (YYYY-MM-DD). Omit to allow any future date. */
+  max?: string;
   previousMonthLabel: string;
   nextMonthLabel: string;
-  invalidFutureDateText: string;
+  /** Backend-owned refusal copy. "{date}" is replaced with the bound that was crossed. */
+  invalidDateText: string;
   required?: boolean;
 }) {
   const minDate = useMemo(() => parseDateKey(min), [min]);
-  const minKey = dateKey(minDate);
+  // parseDateKey falls back to TODAY for an absent value, so the bounds are read off the raw props
+  // rather than off minDate -- otherwise a field with no `min` would silently disable every past
+  // day, which is the entire range a sale date needs.
+  const minKey = min ? dateKey(minDate) : "";
+  const maxKey = max ?? "";
   const [selected, setSelected] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [cursor, setCursor] = useState<Date>(() => parseDateKey(min));
@@ -90,17 +113,19 @@ export function ThemedDatePicker({
     const form = detailsRef.current?.closest("form");
     if (!form || !required) return undefined;
     function onSubmit(event: SubmitEvent): void {
-      if (selected && selected >= minKey) {
+      const belowMin = minKey !== "" && selected < minKey;
+      const aboveMax = maxKey !== "" && selected > maxKey;
+      if (selected && !belowMin && !aboveMax) {
         setError("");
         return;
       }
       event.preventDefault();
-      setError(invalidFutureDateText.replace("{date}", minKey));
+      setError(invalidDateText.replace("{date}", fmtDate(belowMin ? minKey : maxKey) || ""));
       if (detailsRef.current) detailsRef.current.open = true;
     }
     form.addEventListener("submit", onSubmit);
     return () => form.removeEventListener("submit", onSubmit);
-  }, [invalidFutureDateText, minKey, required, selected]);
+  }, [invalidDateText, maxKey, minKey, required, selected]);
 
   function selectDate(key: string): void {
     setSelected(key);
@@ -111,7 +136,9 @@ export function ThemedDatePicker({
   return (
     <details ref={detailsRef} className="move-date-picker">
       <summary className="move-date-button">
-        <span>{selected || label}</span>
+        {/* DD-MM-YYYY like every other visible date in the app; the ISO key stays on the hidden
+            input, which is what the form actually submits. */}
+        <span>{selected ? fmtDate(selected) : label}</span>
         <CalendarDays className="ic" aria-hidden="true" />
       </summary>
       <input type="hidden" name={name} value={selected} />
@@ -134,7 +161,7 @@ export function ThemedDatePicker({
             if (!sameMonth(day, cursor)) {
               return <span key={key} className="move-date-spacer" aria-hidden="true" />;
             }
-            const disabled = key < minKey;
+            const disabled = (minKey !== "" && key < minKey) || (maxKey !== "" && key > maxKey);
             return (
               <button
                 key={key}

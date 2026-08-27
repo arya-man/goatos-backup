@@ -1307,6 +1307,30 @@ export async function listProcurementVendors(params: {
   );
 }
 
+export type ProcurementVendorOptions = AppApiComponents["schemas"]["ProcurementVendorOptions"];
+export type ProcurementVendorOption = AppApiComponents["schemas"]["ProcurementVendorOption"];
+
+/**
+ * The ACTIVE vendor register as a bounded picklist, for a screen that must name a counterparty.
+ *
+ * Read by the Sales page so the record-sale drawer can map every deal to a vendor. It is a SINGLE
+ * bounded request, deliberately not a paged walk of `listProcurementVendors` -- draining an
+ * endpoint cursor-by-cursor from SSR is the exact pattern `make admin-web-request-reads-guard`
+ * bans. When `truncated` comes back true the register has outgrown one read and the picker must
+ * say so rather than present a partial list of buyers as complete.
+ *
+ * Gated on `procurement.vendor.read`, so the caller needs it in addition to `sales.write`. Every
+ * role that can record a sale today holds both.
+ */
+export async function listProcurementVendorOptions(): Promise<ApiResult<ProcurementVendorOptions>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ProcurementVendorOptions>("/procurement/vendor-options", { cache: "no-store" }),
+  );
+}
+
 /** The business-managed dropdown vocabularies behind the register's filters and form. */
 export async function listProcurementVendorCatalog(): Promise<ApiResult<ProcurementVendorCatalog>> {
   const config = await getServerConfig();
