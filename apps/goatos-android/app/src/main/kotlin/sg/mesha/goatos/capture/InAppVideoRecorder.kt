@@ -167,6 +167,7 @@ fun InAppVideoRecorderOverlay(
                 if (event is VideoRecordEvent.Finalize) {
                     isRecording = false
                     activeRecording = null
+                    if (torchEnabled) applyTorch(false)
                     if (cancelled) {
                         file.delete()
                         onCameraEvent("cancelled")

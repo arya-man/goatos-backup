@@ -66,6 +66,18 @@ class ProofTorchAutoOnTest {
         }
     }
 
+    @Test
+    fun `the recorder turns the torch off when the clip finalizes`() {
+        val text = recorderSource()
+
+        assertTrue(
+            "Once the clip finalizes, the torch must be switched off before the recorder enters " +
+                "validation or error UI. Auto-on makes this the default path; leaving it on would " +
+                "strand the operator in an error screen with the light still burning.",
+            TORCH_OFF_ON_FINALIZE.containsMatchIn(text),
+        )
+    }
+
     /** Walks up from the test's working directory so the test is independent of the Gradle CWD. */
     private fun recorderSource(): String {
         var dir: File? = File("").absoluteFile
@@ -85,6 +97,11 @@ class ProofTorchAutoOnTest {
         /** `isRecording = true` … then the auto-on, tolerating the comment lines between them. */
         val AUTO_ON_AT_RECORD_START = Regex(
             """isRecording\s*=\s*true[\s\S]{0,400}?applyTorch\(true\)""",
+        )
+
+        /** `VideoRecordEvent.Finalize` must clear recording state and then switch off the torch. */
+        val TORCH_OFF_ON_FINALIZE = Regex(
+            """event\s+is\s+VideoRecordEvent\.Finalize[\s\S]{0,300}?activeRecording\s*=\s*null[\s\S]{0,120}?applyTorch\(false\)""",
         )
 
         /** The body of `fun applyTorch(...)`, up to the closing brace at its own indent. */
