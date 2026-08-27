@@ -38,7 +38,7 @@ the fix belongs in the ingest service, not here.
 1. **SSH tunnel to the OCI VM** (the seed refuses to run without it):
 
    ```bash
-   /Users/ravi/mesha/tools/local/oci-goatos-a1-dev.sh tunnel
+   $HOME/mesha/tools/local/oci-goatos-a1-dev.sh tunnel
    ```
 
    This listens on `127.0.0.1:15432`.
@@ -47,7 +47,7 @@ the fix belongs in the ingest service, not here.
    let the wrapper source the local env file:
 
    ```bash
-   source /Users/ravi/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env
+   source "${GOATOS_OCI_DB_ENV:-$HOME/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env}"
    ```
 
    That file is machine-local and `chmod 600`. Never copy it into the repo.
@@ -65,13 +65,13 @@ the fix belongs in the ingest service, not here.
    `herd_signal_packets_dedup_uidx` must be present.
 
 4. **The capture CSV** at
-   `/Users/ravi/mesha/local-data/honeycomm-gateway-capture/decoded_ear_tags.csv`.
+   `${GOATOS_HERD_SIGNALS_CAPTURE_CSV:-$HOME/mesha/local-data/honeycomm-gateway-capture/decoded_ear_tags.csv}`.
    The gateway is still appending to this file. See "Freezing the capture" below.
 
 ## Running it
 
 ```bash
-cd /Users/ravi/goatos-work/herd-signals
+cd "$HOME/goatos-work/herd-signals"
 bash tools/local/seed-herd-signals-oci.sh
 ```
 
@@ -124,12 +124,12 @@ afternoon). Anything that compares two runs must use a frozen copy — on a
 persistent path, never `/tmp`, which macOS purges:
 
 ```bash
-mkdir -p /Users/ravi/goatos-work/herd-signals-proof
-cp /Users/ravi/mesha/local-data/honeycomm-gateway-capture/decoded_ear_tags.csv \
-   /Users/ravi/goatos-work/herd-signals-proof/decoded_ear_tags.frozen.csv
+mkdir -p "$HOME/goatos-work/herd-signals-proof"
+cp "${GOATOS_HERD_SIGNALS_CAPTURE_CSV:-$HOME/mesha/local-data/honeycomm-gateway-capture/decoded_ear_tags.csv}" \
+   "$HOME/goatos-work/herd-signals-proof/decoded_ear_tags.frozen.csv"
 
 bash tools/local/seed-herd-signals-oci.sh --facts-only \
-  --csv /Users/ravi/goatos-work/herd-signals-proof/decoded_ear_tags.frozen.csv
+  --csv "$HOME/goatos-work/herd-signals-proof/decoded_ear_tags.frozen.csv"
 ```
 
 Run it twice; the counts below must be identical both times.
@@ -190,7 +190,7 @@ covers the rebuild path only and does not restate the retention decision.
 `127.0.0.1:15432/goatos`, or unset it and let the wrapper source the env file.
 
 **`SSH tunnel is not listening`** — run
-`/Users/ravi/mesha/tools/local/oci-goatos-a1-dev.sh tunnel`.
+`$HOME/mesha/tools/local/oci-goatos-a1-dev.sh tunnel`.
 
 **`SAFETY: suspected non-OCI connection from ...`** — the server saw a client
 address that is neither loopback nor Tailscale `10.88/16`. You are not on the

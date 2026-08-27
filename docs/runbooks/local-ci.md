@@ -14,6 +14,7 @@ make ci-local JOB=guardrails  # compatibility: common + backend + mobile static 
 make ci-local JOB=admin-web
 make ci-local JOB=android
 GOATOS_RUN_POSTGRES_TESTS=1 make ci-local  # deliberate DB/Docker integration run
+GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" make validate-sqlc-plans  # SQL plans via OCI tunnel
 ```
 
 Hosted workflows, if later enabled, invoke these same targets. They are a mirror,
@@ -102,9 +103,12 @@ origin/main shared FE/BE contract, canonical DB pin, LaunchAgent tool PATH,
 atomic child cleanup, live main-drift watchdog, and the isolated E2E boundary.
 Backend owns kernel/E2E/scale static guards and Go package/unit tests. Postgres
 containers, DB-backed Go tests, the Docker E2E chain, sqlc schema regeneration,
-SQL plans, migration replay, and live latency are skipped by default. They run
-only with `GOATOS_RUN_POSTGRES_TESTS=1` locally or the hosted workflow's manual
-`run_postgres_tests` input. `MODE=all` does not imply Postgres. Admin-web owns its request-read guard, dependency install,
+migration replay, and live latency are skipped by default. They run only with
+`GOATOS_RUN_POSTGRES_TESTS=1` locally or the hosted workflow's manual
+`run_postgres_tests` input. Required SQL query-plan validation is separate:
+open the OCI tunnel and run `make validate-sqlc-plans` with
+`GOATOS_SQLC_PLAN_ADMIN_DSN` set to the tunnel DSN. `MODE=all` does not imply
+Postgres. Admin-web owns its request-read guard, dependency install,
 lint, tests, typecheck, fidelity gates, and production build. Android owns its
 mobile/offline/telemetry/memory/Room guards plus staging release compile and unit
 suite under JDK 21.

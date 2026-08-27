@@ -20,6 +20,7 @@
 #   tools/ci/run-local-ci.sh query-plans # one required DB-plan job (no push receipt)
 #   tools/ci/run-local-ci.sh guardrails  # compatibility: common + backend + mobile static guards
 #   GOATOS_RUN_POSTGRES_TESTS=1 tools/ci/run-local-ci.sh  # explicit DB/Docker opt-in
+#   GOATOS_SQLC_PLAN_ADMIN_DSN=... tools/ci/run-local-ci.sh query-plans
 #   GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh android  # faster developer loop; no landing receipt
 set -uo pipefail
 
@@ -599,8 +600,58 @@ run_query_plans() {
   current_job="query-plans"
   # Required for every backend diff. This deliberately stays outside the broad Postgres/E2E opt-in:
   # index regressions in production queries must fail ordinary PR, push, and local landing CI.
+  prepare_query_plan_database
   step "required PostgreSQL query plans" make validate-sqlc-plans
   return 0
+}
+
+prepare_query_plan_database() {
+  if [ -n "${GOATOS_SQLC_PLAN_ADMIN_DSN:-}" ]; then
+    echo "── ci-local: query-plans using GOATOS_SQLC_PLAN_ADMIN_DSN"
+    return 0
+  fi
+
+  # The maintainer OCI dev Postgres clone is the sanctioned heavy-DB path for machines
+  # without a local Docker/Colima stack. The sourced file is local-only and
+  # gitignored; when present it exports DATABASE_URL through the SSH tunnel.
+  local env_file
+  for env_file in \
+    "${GOATOS_OCI_DB_ENV:-}" \
+    "${GOATOS_OCI_ENV_FILE:-}" \
+    "$HOME/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env"
+  do
+    if [ -n "$env_file" ] && [ -f "$env_file" ]; then
+      # shellcheck disable=SC1090
+      . "$env_file"
+      break
+    fi
+  done
+
+  case "${DATABASE_URL:-}" in
+    postgres://*@127.0.0.1:15432/*|postgresql://*@127.0.0.1:15432/*)
+      export GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL"
+      echo "── ci-local: query-plans using OCI tunnel DATABASE_URL as GOATOS_SQLC_PLAN_ADMIN_DSN"
+      return 0
+      ;;
+  esac
+
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    echo "── ci-local: query-plans using local Docker Postgres fallback"
+    return 0
+  fi
+
+  cat >&2 <<'EOF'
+query-plans requires PostgreSQL. Local Docker is unavailable or unreachable, so
+use the OCI dev Postgres tunnel instead:
+
+  $HOME/mesha/tools/local/oci-goatos-a1-dev.sh tunnel
+  source "${GOATOS_OCI_DB_ENV:-$HOME/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env}"
+  GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" tools/ci/run-local-ci.sh query-plans
+
+The query-plan script creates and drops its own scratch database from that admin
+DSN; it does not need laptop Docker when the OCI DSN is set.
+EOF
+  return 2
 }
 
 run_admin_web() {

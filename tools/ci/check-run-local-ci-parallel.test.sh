@@ -86,7 +86,7 @@ layer1() {
     dispatch_jobs common admin-web; exit "$fail"' >/dev/null 2>&1 \
     && ok "an all-green run stays GREEN" || bad "an all-green run reported RED"
 
-  # group exclusion: backend and query-plans (group `docker`) never overlap.
+  # group exclusion: backend and query-plans (group `postgres`) never overlap.
   local sched
   sched="$(bash -c '
     set -uo pipefail; . tools/ci/parallel-dispatch.sh
@@ -97,9 +97,9 @@ layer1() {
   bash -c '
     set -uo pipefail; . tools/ci/parallel-dispatch.sh
     declare -a RESULTS TIMINGS FAILED_JOBS; fail=0; screenshots_ran="skipped"
-    run_job() { case "$1" in backend|query-plans) [ -e "$rundir/docker.lock" ] && exit 9; : >"$rundir/docker.lock"; sleep 0.6; rm -f "$rundir/docker.lock" ;; esac; }
+    run_job() { case "$1" in backend|query-plans) [ -e "$rundir/postgres.lock" ] && exit 9; : >"$rundir/postgres.lock"; sleep 0.6; rm -f "$rundir/postgres.lock" ;; esac; }
     dispatch_jobs backend query-plans; exit "$fail"' >/dev/null 2>&1 \
-    && ok "docker-group jobs never overlap" || bad "backend and query-plans ran concurrently"
+    && ok "postgres-group jobs never overlap" || bad "backend and query-plans ran concurrently"
 }
 
 # ── layer 2: the real script never writes a receipt on a RED parallel run ──

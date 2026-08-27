@@ -54,12 +54,16 @@ To force every job:
 make ci-local MODE=all
 ```
 
-This still skips every Postgres/Docker database gate. Run those only when
-explicitly requested:
+This still skips Docker-backed DB/E2E gates. Run those only when explicitly
+requested:
 
 ```bash
 GOATOS_RUN_POSTGRES_TESTS=1 make ci-local
 ```
+
+Required SQL query-plan validation is separate from that Docker opt-in. Open the
+OCI tunnel and pass the tunnel DSN as `GOATOS_SQLC_PLAN_ADMIN_DSN` when running
+`make validate-sqlc-plans` or `make land-main`.
 
 ### Individual Jobs
 
