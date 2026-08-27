@@ -42,14 +42,8 @@ func (r *Repository) ReconcileInventoryVaccineTasks(ctx context.Context, tenantI
 	latestVaccinationDate := taskDay.AddDate(0, 0, 7).Format("2006-01-02")
 
 	var result ReconcileInventoryVaccineTasksResult
-	// projection-review: producer unique columns = vaccination_drive_assignments (tenant_id,
-	// assignment_id) joined to obligation_instances (tenant_id, batch_id, obligation_id); consumer
-	// group columns = (tenant_id, park_id, lower(btrim(vaccine_label)), task_date). Multiplicity:
-	// one obligation can appear under several assignments of the same batch and date (the
-	// vaccine_rule_ids split), so the dose count is count(DISTINCT obligation_id) — never
-	// count(*). There is no ratio; the single count and the task key range over the same
-	// (park, vaccine, date) key set.
-	err := r.pool.QueryRow(ctx, `
+	err := r.pool.QueryRow(ctx, ` // scale-guard:ignore: bounded kernel reconciliation over a seven-day window; materializes tasks/requirements for readers.
+-- projection-review: membership=vaccination_drive_assignments exact assignment or exact assignment_members when present; group_key=tenant_id + park_id + lower(btrim(vaccine_label)) + task_date; join_cardinality=protocol_rule_dimensions collapsed by LATERAL LIMIT 1 and obligations deduped by count(DISTINCT obligation_id); pagination=single bounded kernel reconciliation over as_of..as_of+7 before task listing; scope=park-level fridge stock tasks and legacy shed-scoped rows canceled during cutover.
 WITH directors AS (
   SELECT array_agg(m.user_id ORDER BY m.display_name, m.user_id) AS user_ids,
          min(m.user_id::text) AS created_by,

@@ -86,10 +86,10 @@ type slotDTO struct {
 }
 
 type taskDTO struct {
-	TaskID         string `json:"task_id"`
-	Category       string `json:"category"`
-	ParkID         string `json:"park_id"`
-	ParkLabel      string `json:"park_label"`
+	TaskID    string `json:"task_id"`
+	Category  string `json:"category"`
+	ParkID    string `json:"park_id"`
+	ParkLabel string `json:"park_label"`
 	// ShedID/ShedLabel are empty for per-vaccine inventory_vaccine tasks — fridge stock has no
 	// shed (maintainer decision 2026-08-27).
 	ShedID         string `json:"shed_id"`
@@ -194,20 +194,20 @@ func taskDTOFrom(t ports.TaskRow) taskDTO {
 		VaccineLabel:               t.VaccineLabel,
 		TaskLabel:                  taskLabel,
 		OperationalLocationDisplay: locationDisplay,
-		PlannedBusinessDate:   t.PlannedBusinessDate,
-		DueBusinessDate:       t.DueBusinessDate,
-		WorkState:             t.WorkState,
-		Status:                t.Status,
-		ReworkReason:          t.ReworkReason,
-		RowVersion:            t.RowVersion,
-		SubmittedAt:           t.SubmittedAt,
-		AssigneeUserIDs:       assigneeIDs,
-		AssigneeNames:         assigneeNames,
-		AnimalCount:           t.AnimalCount,
-		CaptureMode:           domain.CaptureModeForCategory(t.Category),
-		ExpectedSlots:         slotDTOs,
-		InventoryRequirements: requirements,
-		TaskProofs:            taskProofs,
+		PlannedBusinessDate:        t.PlannedBusinessDate,
+		DueBusinessDate:            t.DueBusinessDate,
+		WorkState:                  t.WorkState,
+		Status:                     t.Status,
+		ReworkReason:               t.ReworkReason,
+		RowVersion:                 t.RowVersion,
+		SubmittedAt:                t.SubmittedAt,
+		AssigneeUserIDs:            assigneeIDs,
+		AssigneeNames:              assigneeNames,
+		AnimalCount:                t.AnimalCount,
+		CaptureMode:                domain.CaptureModeForCategory(t.Category),
+		ExpectedSlots:              slotDTOs,
+		InventoryRequirements:      requirements,
+		TaskProofs:                 taskProofs,
 	}
 }
 

@@ -59,13 +59,13 @@ type CreateTaskParams struct {
 
 // TaskRow is one task as served to planner/monitor/worklist reads and echoed by writes.
 type TaskRow struct {
-	TaskID              string
-	Category            string
-	ParkID              string
-	ParkName            string
-	ShedID              string
-	ShedName            string
-	PartitionLabel      string
+	TaskID         string
+	Category       string
+	ParkID         string
+	ParkName       string
+	ShedID         string
+	ShedName       string
+	PartitionLabel string
 	// VaccineLabel is set only on per-vaccine inventory_vaccine tasks ("FMD", "ET+TT");
 	// those tasks have no shed (maintainer decision 2026-08-27).
 	VaccineLabel        string
@@ -204,11 +204,11 @@ type SubmitTaskResult struct {
 	// re-submit enqueues a fresh item while a retry collapses onto one.
 	RowVersion int32
 	// NewlyPending is true ONLY when the task entered pending_verification on THIS call.
-	NewlyPending        bool
-	ParkID              string
-	ShedID              string
-	ShedName            string
-	PartitionLabel      string
+	NewlyPending   bool
+	ParkID         string
+	ShedID         string
+	ShedName       string
+	PartitionLabel string
 	// VaccineLabel travels on per-vaccine inventory_vaccine submits (no shed).
 	VaccineLabel        string
 	PlannedBusinessDate string
