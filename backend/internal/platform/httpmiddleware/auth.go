@@ -58,6 +58,20 @@ type AuthMiddleware struct {
 	log              *slog.Logger
 	allowedEmails    authallow.EmailSet
 	dynamicEmails    authallow.DynamicEmailSource
+	personAccess     PersonAccessSource
+}
+
+// PersonAccessSource resolves a principal's permissions from their OWN stored module
+// access (per-person access, maintainer decision 2026-08-24) instead of from the role
+// map. Optional: when it is nil, or reports no rows for this person, authorization
+// falls back to the role path unchanged.
+type PersonAccessSource interface {
+	ResolvePermissions(ctx context.Context, tenantID, userID string) ([]string, error)
+}
+
+// SetPersonAccessSource wires the per-person resolver. Called at composition time.
+func (a *AuthMiddleware) SetPersonAccessSource(src PersonAccessSource) {
+	a.personAccess = src
 }
 
 func NewAuthMiddleware(cfg AuthConfig, verifier TokenVerifier, grants permissions.GrantSource, log *slog.Logger) (*AuthMiddleware, error) {
@@ -152,7 +166,46 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		}
 		ctx = WithAuthGrants(ctx, grants)
 		roles := routeRoles(route, grants, tenantID)
-		if !permissions.AuthorizeRoute(route, roles) {
+
+		// PER-PERSON ACCESS (maintainer decision 2026-08-24). When this person has their
+		// own stored module rows, those decide -- the route rules are unchanged and only
+		// the SOURCE of the permission set moved.
+		//
+		// The fallback is a MIGRATION BRIDGE, not a second access model: a person with no
+		// rows yet (created after the backfill, or never migrated) is still authorized from
+		// their role so nobody is locked out of their job mid-rollout. It is logged every
+		// time so the gap is visible rather than silent, and it is removed once creating a
+		// person writes access rows. An AdminOnly route is never decidable from a permission
+		// set (see AuthorizePermissionSet) and always takes the role path.
+		authorized := permissions.AuthorizeRoute(route, roles)
+		source := "role"
+		if a.personAccess != nil {
+			held, err := a.personAccess.ResolvePermissions(ctx, tenantID, userID)
+			switch {
+			case err != nil:
+				// Fail to the role path rather than locking the farm out on a read error,
+				// and log loudly: a resolver that is erroring is an incident.
+				a.log.ErrorContext(ctx, "person_access_lookup_failed",
+					slog.String("request_id", RequestIDFromContext(ctx)),
+					slog.String("trace_id", TraceIDFromContext(ctx)),
+					slog.String("actor_id", userID),
+					slog.String("route", route.OperationID),
+					slog.String("error", err.Error()),
+				)
+			case len(held) == 0:
+				a.log.WarnContext(ctx, "person_access_missing_falling_back_to_role",
+					slog.String("actor_id", userID),
+					slog.String("tenant_id", tenantID),
+					slog.String("route", route.OperationID),
+				)
+			default:
+				if allowed, decidable := permissions.AuthorizePermissionSet(route, held); decidable {
+					authorized = allowed
+					source = "person"
+				}
+			}
+		}
+		if !authorized {
 			// required_* travel with the denial: `roles:""` alone says the caller
 			// held nothing, but not what the route WANTED — and that missing half
 			// is what turns a 403 into an actionable grant/seeding fix instead of
@@ -162,6 +215,7 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 				slog.String("actor_id", userID),
 				slog.String("tenant_id", tenantID),
 				slog.String("roles", strings.Join(roles, ",")),
+				slog.String("decided_by", source),
 				slog.String("required_permissions", strings.Join(route.Permissions, ",")),
 				slog.String("required_any_permissions", strings.Join(route.AnyPermissions, ",")),
 				slog.Bool("required_admin_only", route.AdminOnly),

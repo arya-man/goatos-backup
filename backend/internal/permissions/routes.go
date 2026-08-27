@@ -835,6 +835,48 @@ func AuthorizeRoute(route Route, roles []string) bool {
 	return true
 }
 
+// AuthorizePermissionSet is AuthorizeRoute against a principal's RESOLVED permission
+// set rather than their roles. It is the per-person half of the 2026-08-24 access
+// rewrite: the ~95 route rules are unchanged, and only the SOURCE of the answer moved
+// from a hardcoded role map to the person's own stored module rows.
+//
+// AdminOnly is deliberately NOT expressible here. That flag short-circuits to a
+// product-ADMIN ROLE check and ignores the permission lists entirely, so a permission
+// set cannot answer it; the caller must keep using the role path for those routes.
+// Returning false instead would silently 403 every admin-only route.
+func AuthorizePermissionSet(route Route, held []string) (allowed bool, decidable bool) {
+	if route.AdminOnly {
+		return false, false
+	}
+	if len(route.Permissions) == 0 && len(route.AnyPermissions) == 0 {
+		return false, true
+	}
+	set := make(map[string]struct{}, len(held))
+	for _, p := range held {
+		set[p] = struct{}{}
+	}
+	// Permissions is ANDed, AnyPermissions is ORed -- the same shape AuthorizeRoute
+	// applies, so the two paths cannot disagree about what a route wants.
+	for _, required := range route.Permissions {
+		if _, ok := set[required]; !ok {
+			return false, true
+		}
+	}
+	if len(route.AnyPermissions) > 0 {
+		any := false
+		for _, candidate := range route.AnyPermissions {
+			if _, ok := set[candidate]; ok {
+				any = true
+				break
+			}
+		}
+		if !any {
+			return false, true
+		}
+	}
+	return true, true
+}
+
 func ProtectedRoutes() []Route {
 	out := make([]Route, len(protectedRoutes))
 	copy(out, protectedRoutes)
