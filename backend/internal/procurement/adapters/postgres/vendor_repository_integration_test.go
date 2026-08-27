@@ -418,3 +418,59 @@ func TestVendorOptionsPicklistIsActiveOnlyAndNameOrdered(t *testing.T) {
 		t.Fatalf("picklist row must carry its id and record type: %+v", anantapur)
 	}
 }
+
+// TestVendorCatalogOffersBuyerRecordTypes pins the 2026-08-27 maintainer decision that added the
+// buyer-side vendor categories.
+//
+// The register's 35 record types were imported from a legacy sheet describing only the SUPPLY side
+// -- everyone the farm buys FROM. Since 000193 made every buyer a vendor row, there was no honest
+// way to classify who the farm SELLS TO.
+//
+// The migration is asserted on a FRESH database on purpose. An earlier draft scoped the insert to
+// tenants that already held a record_type vocabulary, which reads sensibly and is silently wrong:
+// on a fresh database the vendor import has not run, so that vocabulary does not exist, the insert
+// matches nothing, and because the importer only upserts the fixture's own 35 values these five
+// would then never appear at all. This test fails on that draft.
+func TestVendorCatalogOffersBuyerRecordTypes(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	entries, err := repo.ListVendorCatalog(ctx, testTenant, true)
+	if err != nil {
+		t.Fatalf("ListVendorCatalog: %v", err)
+	}
+	got := map[string]domain.VendorCatalogEntry{}
+	for _, e := range entries {
+		if e.Kind == domain.CatalogKindRecordType {
+			got[e.Value] = e
+		}
+	}
+	for _, want := range []string{"Agent", "Butcher", "Company", "Farmer", "Slaughter House"} {
+		e, ok := got[want]
+		if !ok {
+			t.Errorf("record_type %q is not offered; the buyer categories must survive a fresh migrate with no vendor import", want)
+			continue
+		}
+		// Label mirrors the value: these are typed by hand, not imported, so there is no separate
+		// sheet spelling for the label to carry.
+		if e.Label != want {
+			t.Errorf("record_type %q label = %q, want %q", want, e.Label, want)
+		}
+		// A shared 100 keeps the five together AFTER the imported set, and survives the importer
+		// renumbering the fixture's values to their 0..34 indexes on every run.
+		if e.SortOrder != 100 {
+			t.Errorf("record_type %q sort_order = %d, want 100", want, e.SortOrder)
+		}
+	}
+	// Plural spellings must NOT be offered alongside the singular ones -- every other entry in the
+	// vocabulary is singular and a dropdown holding both reads as two different categories.
+	for _, banned := range []string{"Agents", "Butchers", "Farmers", "Companies"} {
+		if _, ok := got[banned]; ok {
+			t.Errorf("record_type %q is offered; the vocabulary is singular throughout", banned)
+		}
+	}
+}
