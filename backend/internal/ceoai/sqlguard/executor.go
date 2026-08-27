@@ -46,7 +46,7 @@ type PoolConfig struct {
 // environment (sourced from Secret Manager at deploy/local-fetch time).
 func PoolConfigFromEnv() PoolConfig {
 	return PoolConfig{
-		DatabaseURL:      os.Getenv("MESHA_CEO_READONLY_DATABASE_URL"),
+		DatabaseURL:      firstEnv("MESHA_CEO_READONLY_DATABASE_URL", "MESHA_CEO_READONLY_DB_URL", "MESHA_MCP_DB_DSN"),
 		MaxConns:         envInt32("MESHA_CEO_READONLY_MAX_CONNS", 4),
 		StatementTimeout: envDuration("MESHA_CEO_READONLY_STATEMENT_TIMEOUT", DefaultStatementTimeout),
 		ConnectTimeout:   envDuration("MESHA_CEO_READONLY_CONNECT_TIMEOUT", 5*time.Second),
@@ -85,7 +85,7 @@ type Executor struct {
 func NewExecutor(ctx context.Context, cfg PoolConfig) (*Executor, error) {
 	dsn := cfg.dsn()
 	if dsn == "" {
-		return nil, errors.New("sqlguard: read-only DB config missing (set MESHA_CEO_READONLY_DATABASE_URL or MESHA_MCP_DB_USER/MESHA_DATABASE_NAME)")
+		return nil, errors.New("sqlguard: read-only DB config missing (set MESHA_CEO_READONLY_DATABASE_URL, MESHA_CEO_READONLY_DB_URL, MESHA_MCP_DB_DSN, or MESHA_MCP_DB_USER/MESHA_DATABASE_NAME)")
 	}
 	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -254,10 +254,19 @@ func (e *Executor) execValidated(ctx context.Context, sql string) ([]Row, error)
 // --- env helpers (local to the package; no secret values) ---
 
 func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		return v
 	}
 	return def
+}
+
+func firstEnv(keys ...string) string {
+	for _, key := range keys {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func envInt32(key string, def int32) int32 {

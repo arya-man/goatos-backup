@@ -71,5 +71,27 @@
       "ist": true,
       "tiers_any_of": ["api", "sql"]
     }
+  },
+  {
+    "id": "sales-overview",
+    "class": "sales_overview",
+    "question": "What is our Sales revenue, animals sold, realized price per kg, and manure sold?",
+    "notes": "Answer from the Sales overview read API. Only Deal Closed rows feed closed-sales KPIs; buyer demand and evidence panels keep separate grains.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api"],
+      "external_mcp_tools_any_of": ["get_sales_overview", "GET /sales/overview"]
+    }
+  },
+  {
+    "id": "sales-deals",
+    "class": "sales_deals",
+    "question": "Show the latest Sales deals for CBE.",
+    "notes": "Deal-level reconciliation only. Do not mutate or record a sale.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api"],
+      "external_mcp_tools_any_of": ["get_sales_deals", "GET /sales/deals"]
+    }
   }
 ]

@@ -115,6 +115,11 @@ MESHA_MCP_TOOLBOX_URL=http://127.0.0.1:5001
 MESHA_MCP_TOOLSET=mesha_ceo_toolset
 ```
 
+The local launcher also accepts a full `MESHA_MCP_DB_DSN` and derives the split
+`MESHA_MCP_DB_*` fields from it. `tools/dev/fetch-ceo-ai-secrets.sh` writes both
+`MESHA_MCP_DB_DSN` and `MESHA_CEO_READONLY_DATABASE_URL` so Toolbox and the Go
+SQL guard use the same read-only database target.
+
 Fetch the read-only DB password from Secret Manager (example — adjust the
 secret name to the one provisioned for your environment):
 

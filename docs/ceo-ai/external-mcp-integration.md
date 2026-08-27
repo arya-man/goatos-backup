@@ -159,6 +159,8 @@ Current external typed tool catalog:
 | Proof/evidence backlog | `get_verification_backlog` | `GET /verification/queue` | Verification item grain. Pending verification is not completed work. |
 | Feed needed/blocked today | `get_feed_today` | `GET /feed-direction/preview` | Issued feed sheet grain. Blocked/null quantity is a config gap, not zero feed. |
 | Procurement source-entry pipeline | `get_procurement_pipeline` | `GET /procurement/source-entry/loads` | Load grain. Keep expected, received, accepted, rejected, and holding distinct. |
+| Sales overview KPIs and evidence | `get_sales_overview` | `GET /sales/overview` | Whole-filter Sales dashboard grain. Only `Deal Closed` rows feed closed-sales KPIs; demand pipeline and evidence panels keep separate grains. |
+| Sales ledger reconciliation | `get_sales_deals` | `GET /sales/deals` | Deal ledger grain. Read-only reconciliation only; never record or mutate sales. |
 | Herd/census counts | `get_counts_summary` | `GET /counts/breakdown` | Aggregate census grain. Keep lifecycle status explicit. |
 | Health work/cases | `get_health_today`, `get_health_work_items`, `get_milk_feeding_today` | `GET /app/health/work-items`, `GET /app/counts/milk-feeding/tasks` | Treatment-session plus kid milk-feeding task grain. Use `get_health_today` for broad questions so adult health, kids health, and kid milk-feeding work are all included. Open sick work is not a death event unless health state says so. |
 | Workforce/backup coverage | `get_workforce_coverage` | `GET /admin/roster/coverage` | Roster coverage grain. Use for uncovered/weakly covered sheds, roles, and backup-manager seats. Do not substitute Action Center obligations. |

@@ -46,7 +46,7 @@ func TestToolsList(t *testing.T) {
 		names[tool.Name] = true
 		requiredByTool[tool.Name] = tool.InputSchema.Required
 	}
-	for _, want := range []string{"ask_goatos", "get_vaccination_today", "get_action_center", "get_verification_backlog", "get_feed_today", "get_procurement_pipeline", "get_counts_summary", "get_health_today", "get_health_work_items", "get_milk_feeding_today", "get_workforce_coverage", "get_weighing_progress", "get_weighing_growth_adg", "get_weighing_shed_weights", "get_weighing_process_state", "get_weighing_weight_demographics", "list_goatos_capabilities", "goatos_mcp_health"} {
+	for _, want := range []string{"ask_goatos", "get_vaccination_today", "get_action_center", "get_verification_backlog", "get_feed_today", "get_procurement_pipeline", "get_sales_overview", "get_sales_deals", "get_counts_summary", "get_health_today", "get_health_work_items", "get_milk_feeding_today", "get_workforce_coverage", "get_weighing_progress", "get_weighing_growth_adg", "get_weighing_shed_weights", "get_weighing_process_state", "get_weighing_weight_demographics", "list_goatos_capabilities", "goatos_mcp_health"} {
 		if !names[want] {
 			t.Fatalf("missing tool %s in %+v", want, names)
 		}
@@ -67,6 +67,36 @@ func TestToolsList(t *testing.T) {
 				t.Fatalf("%s required=%v, missing %s", tool, requiredByTool[tool], item)
 			}
 		}
+	}
+}
+
+func TestTokenVerifierFromEnvSupportsLocalHS256Bearer(t *testing.T) {
+	t.Setenv("GOATOS_AUTH_MODE", "bearer")
+	t.Setenv("GOATOS_AUTH_ISSUER", "goatos-local")
+	t.Setenv("GOATOS_AUTH_AUDIENCE", "goatos-admin")
+	t.Setenv("GOATOS_AUTH_HS256_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("GOATOS_AUTH_MAX_TOKEN_TTL", "2h")
+
+	cfg := platformauth.Config{
+		Issuer:   "goatos-local",
+		Audience: "goatos-admin",
+		Secret:   []byte("0123456789abcdef0123456789abcdef"),
+		MaxTTL:   2 * time.Hour,
+	}
+	token, err := platformauth.MintHS256Token(cfg, "10000000-0000-4000-8000-000000000001", "20000000-0000-4000-8000-000000000001", time.Hour)
+	if err != nil {
+		t.Fatalf("MintHS256Token: %v", err)
+	}
+	verifier, err := tokenVerifierFromEnv()
+	if err != nil {
+		t.Fatalf("tokenVerifierFromEnv: %v", err)
+	}
+	claims, err := verifier.Verify(token)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if claims.Subject != "10000000-0000-4000-8000-000000000001" || claims.TenantID != "20000000-0000-4000-8000-000000000001" {
+		t.Fatalf("claims = %+v", claims)
 	}
 }
 
@@ -143,6 +173,28 @@ func TestAPIReadToolsCallCanonicalUpstreamPaths(t *testing.T) {
 			response: map[string]any{"loads": []map[string]any{{"load_id": "load-1"}}},
 		},
 		{
+			name:     "sales overview",
+			tool:     "get_sales_overview",
+			args:     `{"farm":"CBE"}`,
+			wantPath: "/sales/overview",
+			wantQuery: map[string]string{
+				"farm": "CBE",
+			},
+			response: map[string]any{"summary": map[string]any{"revenue": 7398979, "animals_sold": 544}},
+		},
+		{
+			name:     "sales deals",
+			tool:     "get_sales_deals",
+			args:     `{"farm":"CPT","limit":500,"offset":25}`,
+			wantPath: "/sales/deals",
+			wantQuery: map[string]string{
+				"farm":   "CPT",
+				"limit":  "100",
+				"offset": "25",
+			},
+			response: map[string]any{"deals": []map[string]any{{"deal_id": "deal-1"}}},
+		},
+		{
 			name:     "weighing progress",
 			tool:     "get_weighing_progress",
 			args:     `{"park_id":"10000000-0000-4000-8000-000000000001","limit":3}`,
@@ -156,12 +208,13 @@ func TestAPIReadToolsCallCanonicalUpstreamPaths(t *testing.T) {
 		{
 			name:     "weighing growth",
 			tool:     "get_weighing_growth_adg",
-			args:     `{"park_id":"10000000-0000-4000-8000-000000000001","from":"2026-08-01","to":"2026-08-15"}`,
+			args:     `{"park_id":"10000000-0000-4000-8000-000000000001","from":"2026-08-01","to":"2026-08-15","sex":"male"}`,
 			wantPath: "/weighing/leadership/growth",
 			wantQuery: map[string]string{
 				"park_id": "10000000-0000-4000-8000-000000000001",
 				"from":    "2026-08-01",
 				"to":      "2026-08-15",
+				"sex":     "male",
 			},
 			response: map[string]any{"summary": map[string]any{"average_daily_gain_g": 92}},
 		},
@@ -191,11 +244,12 @@ func TestAPIReadToolsCallCanonicalUpstreamPaths(t *testing.T) {
 		{
 			name:     "weighing demographics",
 			tool:     "get_weighing_weight_demographics",
-			args:     `{"from":"2026-08-01","to":"2026-08-15"}`,
+			args:     `{"from":"2026-08-01","to":"2026-08-15","sex":"female"}`,
 			wantPath: "/weighing/weight-demographics",
 			wantQuery: map[string]string{
 				"from": "2026-08-01",
 				"to":   "2026-08-15",
+				"sex":  "female",
 			},
 			response: map[string]any{"buckets": []map[string]any{{"breed": "Sirohi", "count": 12}}},
 		},
@@ -370,6 +424,64 @@ func TestAPIReadToolsRejectInvalidArgsBeforeUpstream(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, "park_id_required") {
 		t.Fatalf("body=%s", body)
+	}
+}
+
+func TestSalesReadToolRejectsUnknownFarmBeforeUpstream(t *testing.T) {
+	called := false
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamBaseURL: upstream.URL,
+		UpstreamAskURL:  upstream.URL + "/ceo-ai/ask",
+		MCPPath:         "/mcp",
+		AllowedEmails:   mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:   staticTokenVerifier{claims: platformauth.Claims{Email: "aryaman@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"api","method":"tools/call","params":{"name":"get_sales_overview","arguments":{"farm":"MYSORE"}}}`))
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if called {
+		t.Fatal("upstream should not be called for invalid sales farm")
+	}
+	if !strings.Contains(rec.Body.String(), "invalid_farm") {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+}
+
+func TestWeighingReadToolRejectsUnknownSexBeforeUpstream(t *testing.T) {
+	called := false
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	s := newServer(config{
+		UpstreamBaseURL: upstream.URL,
+		UpstreamAskURL:  upstream.URL + "/ceo-ai/ask",
+		MCPPath:         "/mcp",
+		AllowedEmails:   mustEmailSet(t, "aryaman@mesha.sg"),
+		TokenVerifier:   staticTokenVerifier{claims: platformauth.Claims{Email: "aryaman@mesha.sg", EmailVerified: boolPtr(true)}},
+	}, upstream.Client(), nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":"api","method":"tools/call","params":{"name":"get_weighing_growth_adg","arguments":{"sex":"mixed"}}}`))
+	req.Header.Set("Authorization", "Bearer user-token")
+	rec := httptest.NewRecorder()
+
+	s.handleMCP(rec, req)
+
+	if called {
+		t.Fatal("upstream should not be called for invalid weighing sex")
+	}
+	if !strings.Contains(rec.Body.String(), "invalid_sex") {
+		t.Fatalf("body=%s", rec.Body.String())
 	}
 }
 

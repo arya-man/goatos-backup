@@ -18,6 +18,7 @@ import (
 type AssistantClient struct {
 	URL     string
 	Bearer  string
+	Tenant  string
 	Timeout time.Duration
 	HTTP    *http.Client
 }
@@ -55,6 +56,9 @@ func (c AssistantClient) ask(ctx context.Context, question string) (*AssistantRe
 	req.Header.Set("X-Mesha-Eval", "1")
 	if c.Bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Bearer)
+	}
+	if c.Tenant != "" {
+		req.Header.Set("X-GoatOS-Tenant-ID", c.Tenant)
 	}
 	client := c.HTTP
 	if client == nil {

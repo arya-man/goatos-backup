@@ -1260,9 +1260,11 @@ demand pipelines and evidence panels behind those sales. The whole leadership
 read surface is TWO endpoints: `GET /sales/overview` (whole-filter aggregates:
 revenue, animals sold, realized price per kg, monthly series, price bands,
 buyer board, pipelines, weight audit, market benchmarks) and `GET /sales/deals`
-(the ledger rows). A Cube metric / `ceo_ai.*` view / MCP Toolbox tool mapping
-for official sales KPIs is FUTURE work; until it lands, the assistant answers
-sales questions through these read APIs or not at all.
+	(the ledger rows). External MCP clients must use the typed `get_sales_overview`
+	and `get_sales_deals` tools for sales KPI and ledger questions. A Cube metric /
+	`ceo_ai.*` view / MCP Toolbox tool mapping for official sales KPIs is FUTURE
+	work; until it lands, the assistant answers sales questions through these read
+	APIs or not at all.
 
 | Surface | Decision | Reason |
 | --- | --- | --- |
@@ -1272,8 +1274,8 @@ sales questions through these read APIs or not at all.
 | table:sales_sold_animal_tags | api (GET /sales/overview → tag_roster) | Per-animal tag evidence behind sold deals; sheet-era tag strings, deliberately never joined to goat_identifiers. |
 | table:sales_weight_audit | api (GET /sales/overview → weight_audit) | Video-vs-book weight evidence, served as disjoint gap buckets (≤0.3 kg / 0.3–1 kg / >1 kg) + max gap. |
 | table:sales_market_benchmarks | api (GET /sales/overview → market_benchmarks) | Comparable market per-kg quotes; `market_price_per_kg` parsed at import time. |
-| path:/sales/overview (GET /sales/overview) | api | The whole sales page in one read; whole-filter aggregates only, per the operational read-model contract. |
-| path:/sales/deals (GET /sales/deals, POST /sales/deals) | api (read) / EXCLUDED (write) | The GET is the ledger read; the POST records a sale (idempotent, audited) and is a WRITE, not a leadership read surface — leadership sees the result through the two reads above. |
+| path:/sales/overview (GET /sales/overview) | api + external MCP:get_sales_overview | The whole sales page in one read; whole-filter aggregates only, per the operational read-model contract. Golden eval question: `sales-overview` (`tools/ceo-ai/eval/golden/feed-shifting-procurement.json`). |
+| path:/sales/deals (GET /sales/deals, POST /sales/deals) | api (read) + external MCP:get_sales_deals / EXCLUDED (write) | The GET is the ledger read; the POST records a sale (idempotent, audited) and is a WRITE, not a leadership read surface — leadership sees the result through the two reads above. Golden eval question: `sales-deals` (`tools/ceo-ai/eval/golden/feed-shifting-procurement.json`). |
 | func:NewSalesService, func:GetOverview, func:ListDeals, func:CreateDeal, func:NewSalesHandler, func:NewRepository, func:Register, func:SalesHTTPError, func:BadRequest, func:NotFound, func:Conflict, func:Internal, func:Error | EXCLUDED | Service/handler/repository plumbing behind the two covered read APIs and the write; no independent read surface. |
 | func:BuildDealAggregates, func:BucketWeightGap, func:Animals, func:Month, func:PeriodFromCandidate, func:ClampDealPageSize, func:NormalizeFarmFilter, func:Normalize, func:Validate, func:IsFarm, func:IsProductType, func:IsLiveProduct, func:IsStatus | EXCLUDED | Pure domain rollup/validation helpers over rows the covered reads already serve; they derive no new fact and read no data themselves. |
 
