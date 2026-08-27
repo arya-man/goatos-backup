@@ -4,7 +4,7 @@
 // plumbing must stay behind shared app/core ports.
 
 import { execSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 const repo = resolve(import.meta.dirname, "../..");
@@ -81,6 +81,7 @@ function scanText(rel, text) {
 }
 
 function scanFile(rel) {
+  if (!existsSync(resolve(repo, rel))) return [];
   return scanText(rel, readFileSync(resolve(repo, rel), "utf8"));
 }
 
