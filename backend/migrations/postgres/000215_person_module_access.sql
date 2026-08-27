@@ -30,6 +30,21 @@
 -- is deliberately NOT reimplemented as SQL here -- a second implementation of a
 -- security-critical mapping is exactly how the two would disagree.
 
+-- Postgres does not allow a subquery inside a CHECK constraint, so "this array has
+-- no duplicates" needs an IMMUTABLE function. Kept generic and schema-qualified: it
+-- states a fact about an array and nothing about access, so a future table needing
+-- the same guarantee reuses it rather than writing a second copy.
+CREATE OR REPLACE FUNCTION public.goatos_text_array_is_distinct(vals text[])
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+  SELECT vals IS NULL
+      OR cardinality(vals) IS NULL
+      OR cardinality(vals) = cardinality(ARRAY(SELECT DISTINCT unnest(vals)));
+$$;
+
 -- The DESIGNATION CATALOG: a fixed, extendable list of job titles. Picking one
 -- pre-fills a new person's access; it never constrains it afterwards, which is
 -- the difference between this and the department inheritance it replaces.
@@ -148,11 +163,11 @@ CREATE TABLE IF NOT EXISTS public.person_module_access (
     CHECK (capabilities <@ ARRAY['view', 'do', 'oversee', 'configure']::text[]),
   -- No duplicates. A repeated element changes nothing about the resolved
   -- permissions but makes the stored row disagree with what the screen shows.
+  --
+  -- Via a function because Postgres FORBIDS a subquery in a CHECK constraint
+  -- (SQLSTATE 0A000), which is what the obvious `count(DISTINCT ...)` form needs.
   CONSTRAINT person_module_access_capabilities_distinct_check
-    CHECK (array_length(capabilities, 1) IS NULL
-           OR array_length(capabilities, 1) = (
-             SELECT count(DISTINCT c) FROM unnest(capabilities) AS c
-           ))
+    CHECK (public.goatos_text_array_is_distinct(capabilities))
 );
 
 -- The whole-person read: "what can this person do?" is one indexed lookup, and it
@@ -170,3 +185,4 @@ DROP TABLE IF EXISTS public.person_park_scope;
 DROP TABLE IF EXISTS public.person_access;
 DROP TABLE IF EXISTS public.designation_module_defaults;
 DROP TABLE IF EXISTS public.designation_catalog;
+DROP FUNCTION IF EXISTS public.goatos_text_array_is_distinct(text[]);
