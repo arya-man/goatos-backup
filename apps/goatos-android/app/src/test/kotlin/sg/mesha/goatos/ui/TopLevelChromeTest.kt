@@ -15,6 +15,7 @@ import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.core.model.nav.barItems
 import sg.mesha.goatos.core.model.nav.resolveModule
+import sg.mesha.goatos.feature.pccare.PcCareTaskEvent
 
 class TopLevelChromeTest {
     private val roots = listOf(
@@ -86,6 +87,34 @@ class TopLevelChromeTest {
             calendarTargetRoute("/vaccination/scan/shed-1", "2026-07-24"),
         )
         assertFalse(isTopLevelRoute(calendarTargetRoute(null), roots))
+    }
+
+    @Test
+    fun `pc care planner capability keeps category tabs in monitor mode`() {
+        assertTrue(pcCareShowsExecutorFace(canExecutePcCare = true, canPlanPcCare = false))
+        assertFalse(pcCareShowsExecutorFace(canExecutePcCare = false, canPlanPcCare = true))
+        assertFalse(pcCareShowsExecutorFace(canExecutePcCare = true, canPlanPcCare = true))
+    }
+
+    @Test
+    fun `pc care task route locks monitor mode unless user is execute only`() {
+        assertFalse(pcCareTaskRouteUsesMonitorMode(canExecutePcCare = true, canPlanPcCare = false))
+        assertTrue(pcCareTaskRouteUsesMonitorMode(canExecutePcCare = false, canPlanPcCare = true))
+        assertTrue(pcCareTaskRouteUsesMonitorMode(canExecutePcCare = true, canPlanPcCare = true))
+        assertTrue(pcCareTaskRouteUsesMonitorMode(canExecutePcCare = false, canPlanPcCare = false))
+    }
+
+    @Test
+    fun `pc care monitor route only allows read refresh and back events`() {
+        assertTrue(pcCareMonitorEventAllowed(PcCareTaskEvent.Back))
+        assertTrue(pcCareMonitorEventAllowed(PcCareTaskEvent.Refresh))
+
+        assertFalse(pcCareMonitorEventAllowed(PcCareTaskEvent.ReconnectReader))
+        assertFalse(pcCareMonitorEventAllowed(PcCareTaskEvent.RosterTapped("tag-1")))
+        assertFalse(pcCareMonitorEventAllowed(PcCareTaskEvent.RecordSlot("tag-1", "video")))
+        assertFalse(pcCareMonitorEventAllowed(PcCareTaskEvent.SubmitTypedScan))
+        assertFalse(pcCareMonitorEventAllowed(PcCareTaskEvent.Submit))
+        assertFalse(pcCareMonitorEventAllowed(PcCareTaskEvent.ConfirmSubmit))
     }
 
     // -----------------------------------------------------------------------
