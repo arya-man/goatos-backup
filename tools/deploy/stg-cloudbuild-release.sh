@@ -161,33 +161,10 @@ require_public_host_ready() {
 
 require_managed_cert_ready() {
   local host="$1"
-  gcloud compute ssl-certificates list \
-    --project="$PROJECT_ID" \
-    --global \
-    --format=json |
-    python3 - "$host" <<'PY'
-import json
-import sys
-
-host = sys.argv[1]
-docs = json.load(sys.stdin)
-doc = next((item for item in docs if item.get("name") == "goatos-prod-facing-cert"), None)
-if doc is None:
-    print("ERROR: goatos-prod-facing-cert was not visible in ssl-certificates list", file=sys.stderr)
-    sys.exit(1)
-managed = doc.get("managed", {})
-status = managed.get("status")
-domain_status = managed.get("domainStatus", {}).get(host)
-domains = set(managed.get("domains", []))
-if status == "ACTIVE" and domain_status == "ACTIVE" and host in domains:
-    sys.exit(0)
-print(
-    f"ERROR: goatos-prod-facing-cert is not ACTIVE for {host} "
-    f"(status={status or 'unknown'}, domainStatus={domain_status or 'missing'})",
-    file=sys.stderr,
-)
-sys.exit(1)
-PY
+  curl -sSIL --max-time 15 "https://${host}/" >/dev/null || {
+    echo "ERROR: https://${host}/ must complete a verified TLS handshake before deploy" >&2
+    return 1
+  }
 }
 
 require_url_map_host_rule() {
