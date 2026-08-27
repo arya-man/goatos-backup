@@ -147,8 +147,9 @@ export function SalesRecordDrawer({
   // them staring at an empty dropdown with no reason.
   const vendorsUnavailable = vendorOptions === null;
   const vendors = vendorOptions?.vendors ?? [];
+  const vendorsTruncated = vendorOptions?.truncated === true;
   const vendorsEmpty = !vendorsUnavailable && vendors.length === 0;
-  const canPickVendor = !vendorsUnavailable && !vendorsEmpty;
+  const canPickVendor = !vendorsUnavailable && !vendorsEmpty && !vendorsTruncated;
   const selectedVendor = vendors.find((vendor) => vendor.vendor_id === vendorId) ?? null;
 
   // A few hundred vendors is more than anyone scrolls, so typing narrows the list. TWO characters
@@ -302,6 +303,13 @@ export function SalesRecordDrawer({
                   // The register could not be READ. Say that, rather than render an empty dropdown
                   // that reads as "no vendors exist" and sends the person to add a duplicate.
                   <div className="note warn">{copy(pageContract, "error.vendors_unavailable")}</div>
+                ) : vendorsTruncated ? (
+                  <>
+                    <div className="note warn">{copy(pageContract, "hint.vendor_truncated")}</div>
+                    <Link href="/procurement/vendors" className="btn sm">
+                      {copy(pageContract, "action.open_vendors")}
+                    </Link>
+                  </>
                 ) : vendorsEmpty ? (
                   <>
                     <div className="note">{copy(pageContract, "hint.vendor_empty")}</div>
@@ -415,7 +423,14 @@ export function SalesRecordDrawer({
                 title={
                   canPickVendor
                     ? undefined
-                    : copy(pageContract, vendorsUnavailable ? "error.vendors_unavailable" : "hint.vendor_empty")
+                    : copy(
+                        pageContract,
+                        vendorsUnavailable
+                          ? "error.vendors_unavailable"
+                          : vendorsTruncated
+                            ? "hint.vendor_truncated"
+                            : "hint.vendor_empty",
+                      )
                 }
               >
                 {copy(pageContract, "action.save")}

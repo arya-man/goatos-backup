@@ -62,7 +62,7 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		// placeholder, the "add them on Vendors" hint, the register-empty replacement and the
 		// unreadable-register error are all backend-owned rather than composed in the client.
 		"field.vendor", "select.vendor.placeholder", "hint.vendor", "hint.vendor_empty",
-		"action.open_vendors", "hint.vendor_prefill", "error.vendors_unavailable",
+		"hint.vendor_truncated", "action.open_vendors", "hint.vendor_prefill", "error.vendors_unavailable",
 		"action.sale_recorded", "action.sale_record_failed",
 		"empty.deals", "error.load", "disabled.write",
 	} {
