@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -45,8 +46,13 @@ func loadGolden(dir string) ([]GoldenQuestion, error) {
 			return nil, fmt.Errorf("read %s: %w", e.Name(), err)
 		}
 		var batch []GoldenQuestion
-		if err := json.Unmarshal(raw, &batch); err != nil {
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&batch); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", e.Name(), err)
+		}
+		if dec.Decode(&struct{}{}) == nil {
+			return nil, fmt.Errorf("parse %s: trailing JSON value", e.Name())
 		}
 		qs = append(qs, batch...)
 	}
@@ -129,10 +135,12 @@ func validateQuestionCoherence(q GoldenQuestion) []string {
 	if q.Expect.Refusal && needsOracle {
 		errs = append(errs, fmt.Sprintf("%s: a refusal question must not also require a grounded number", q.ID))
 	}
-	// Every question must assert at least one scored property, otherwise it is
-	// dead weight that inflates the count without testing anything.
+	// Every question must assert at least one scored or routed coverage property,
+	// otherwise it is dead weight that inflates the count without testing
+	// anything.
 	if !q.Expect.Refusal && !q.Expect.Grounded && !q.Expect.SpeciesSplit &&
-		!q.Expect.AggregateFirst && !q.Expect.InjectionSafe && len(q.Expect.TiersAnyOf) == 0 {
+		!q.Expect.AggregateFirst && !q.Expect.InjectionSafe && len(q.Expect.TiersAnyOf) == 0 &&
+		len(q.Expect.ExternalMCPToolsAnyOf) == 0 {
 		errs = append(errs, fmt.Sprintf("%s: asserts no scored property", q.ID))
 	}
 	return errs

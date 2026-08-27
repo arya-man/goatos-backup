@@ -102,6 +102,8 @@ const adminWebDir = join(repoRoot, "apps/admin-web");
 const APP_TAB_URL = (tab) => `http://127.0.0.1:3318/herd-signals${tab === "live" ? "" : `?hs_tab=${tab}`}`;
 const MOCK_URL = "http://127.0.0.1:8917/herd-signals-mock.html";
 const VIEWPORT = { width: 1440, height: 900 };
+const APP_ORIGIN = "http://127.0.0.1:3318";
+const FIREBASE_ID_TOKEN_COOKIE = "goatos_firebase_id_token";
 
 // Divergences the app is DELIBERATELY allowed to have from the mock, for non-CSS reasons.
 // Each entry's `forbiddenInComponents` patterns must never match herd-signals component source —
@@ -592,6 +594,7 @@ async function runRenderedComparison() {
   try {
     const mockPage = await browser.newPage({ viewport: VIEWPORT });
     const appPage = await browser.newPage({ viewport: VIEWPORT });
+    await installAppAuthCookie(appPage);
 
     const tabsLoaded = new Set();
     const setupsDone = new Set(); // `${tab}:${setupKey}` -> already applied on this page load
@@ -841,6 +844,20 @@ if (mismatches.length) {
     console.error(`- [${m.tab}] ${m.label} — ${m.prop}: mock="${m.mock}" live="${m.app}"`);
     total += 1;
   }
+}
+
+async function installAppAuthCookie(page) {
+  const token = process.env.GOATOS_MOCK_CSS_FIREBASE_ID_TOKEN || process.env.GOATOS_BEARER_TOKEN || "";
+  if (!token) return;
+  await page.context().addCookies([
+    {
+      name: FIREBASE_ID_TOKEN_COOKIE,
+      value: token,
+      url: APP_ORIGIN,
+      httpOnly: true,
+      sameSite: "Lax",
+    },
+  ]);
 }
 
 if (banned.length) {

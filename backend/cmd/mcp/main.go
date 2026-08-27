@@ -163,6 +163,19 @@ func tokenVerifierFromEnv() (tokenVerifier, error) {
 			MaxTTL:      envDuration("GOATOS_AUTH_MAX_TOKEN_TTL", 0),
 			CacheTTL:    envDuration("GOATOS_AUTH_JWKS_CACHE_TTL", 0),
 		})
+	case "bearer", "hs256":
+		issuer := strings.TrimSpace(os.Getenv("GOATOS_AUTH_ISSUER"))
+		audience := strings.TrimSpace(os.Getenv("GOATOS_AUTH_AUDIENCE"))
+		secret := []byte(os.Getenv("GOATOS_AUTH_HS256_SECRET"))
+		if issuer == "" || audience == "" || len(secret) == 0 {
+			return nil, errors.New("GOATOS_AUTH_ISSUER, GOATOS_AUTH_AUDIENCE, and GOATOS_AUTH_HS256_SECRET are required for MCP HS256 bearer verification")
+		}
+		return platformauth.NewHS256Verifier(platformauth.Config{
+			Issuer:   issuer,
+			Audience: audience,
+			Secret:   secret,
+			MaxTTL:   envDuration("GOATOS_AUTH_MAX_TOKEN_TTL", 0),
+		})
 	default:
 		return nil, fmt.Errorf("unsupported GOATOS_AUTH_MODE for MCP: %q", mode)
 	}
@@ -748,7 +761,7 @@ func tools() []map[string]any {
 	out := []map[string]any{
 		{
 			"name":        "ask_goatos",
-			"description": "Ask the Goat OS leadership assistant a natural-language, read-only business question. Use this only when no specific Mesha MCP tool fits. Prefer typed tools for exact operations answers: vaccination, action center, verification, feed, procurement, and weighing.",
+			"description": "Ask the Goat OS leadership assistant a natural-language, read-only business question. Use this only when no specific Mesha MCP tool fits. Prefer typed tools for exact operations answers: vaccination, action center, verification, feed, procurement, sales, and weighing.",
 			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{
 				"type": "object",
@@ -829,7 +842,7 @@ func (s *server) callTool(ctx context.Context, r *http.Request, raw json.RawMess
 	case "get_health_today":
 		return s.getHealthToday(ctx, r, params.Arguments)
 	case "list_goatos_capabilities":
-		return textToolResult("Goat OS MCP exposes read-only leadership tools. Use typed tools for exact operational answers: get_vaccination_today, get_action_center, get_verification_backlog, get_feed_today, get_procurement_pipeline, get_counts_summary, get_health_today, get_health_work_items, get_milk_feeding_today, get_workforce_coverage, get_weighing_progress, get_weighing_growth_adg, get_weighing_shed_weights, get_weighing_process_state, and get_weighing_weight_demographics. Use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
+		return textToolResult("Goat OS MCP exposes read-only leadership tools. Use typed tools for exact operational answers: get_vaccination_today, get_action_center, get_verification_backlog, get_feed_today, get_procurement_pipeline, get_sales_overview, get_sales_deals, get_counts_summary, get_health_today, get_health_work_items, get_milk_feeding_today, get_workforce_coverage, get_weighing_progress, get_weighing_growth_adg, get_weighing_shed_weights, get_weighing_process_state, and get_weighing_weight_demographics. Use ask_goatos only as fallback for broader covered questions. Access is restricted to the configured CEO allowlist and the upstream Goat OS backend remains the authority for tenant scope, ceo_internal role, auditing, and safety."), 0, ""
 	case "goatos_mcp_health":
 		return textToolResult("Goat OS MCP is running. Upstream assistant endpoint: " + s.cfg.UpstreamAskURL), 0, ""
 	default:
@@ -989,6 +1002,36 @@ func apiReadTools() []apiReadTool {
 			},
 		},
 		{
+			Name:        "get_sales_overview",
+			Description: "Get the canonical Sales dashboard overview in one read: closed-deal revenue, animals sold, realized price per kg, manure sold, monthly charts, buyers, demand pipeline, tag evidence, weight audit, and market benchmarks. Only Deal Closed rows feed closed-sales KPIs; demand and evidence panels keep their own grains.",
+			Path:        "/sales/overview",
+			Source:      "GET /sales/overview",
+			Properties:  commonReadProperties("farm"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addSalesFarm(q, a.Farm); err != nil {
+					return nil, err
+				}
+				return q, nil
+			},
+		},
+		{
+			Name:        "get_sales_deals",
+			Description: "Get a bounded page of the Sales ledger. Use this for deal-level sales evidence and reconciliation. This is a read-only ledger page; it must not be used to record or mutate sales.",
+			Path:        "/sales/deals",
+			Source:      "GET /sales/deals",
+			Properties:  commonReadProperties("farm", "limit", "offset"),
+			BuildQuery: func(a apiReadArgs) (url.Values, error) {
+				q := url.Values{}
+				if err := addSalesFarm(q, a.Farm); err != nil {
+					return nil, err
+				}
+				addLimit(q, a.Limit, 100)
+				addOffset(q, a.Offset)
+				return q, nil
+			},
+		},
+		{
 			Name:        "get_counts_summary",
 			Description: "Get canonical herd/census counts grouped by park, shed, stage, breed, and sex. Use this for active animal counts, census splits, mortality/movement follow-up starts, and count breakdowns. Keep lifecycle status explicit.",
 			Path:        "/counts/breakdown",
@@ -1117,7 +1160,7 @@ func apiReadTools() []apiReadTool {
 			Description: "Get CEO-tier Average Daily Gain/growth across authorized parks or one park. Use this for 'are weights improving', growth trend, and park-level weight performance questions.",
 			Path:        "/weighing/leadership/growth",
 			Source:      "GET /weighing/leadership/growth",
-			Properties:  commonReadProperties("park_id", "from", "to"),
+			Properties:  commonReadProperties("park_id", "from", "to", "sex"),
 			BuildQuery: func(a apiReadArgs) (url.Values, error) {
 				q := url.Values{}
 				if err := addUUID(q, "park_id", a.ParkID); err != nil {
@@ -1127,6 +1170,9 @@ func apiReadTools() []apiReadTool {
 					return nil, err
 				}
 				if err := addDate(q, "to", a.To); err != nil {
+					return nil, err
+				}
+				if err := addEnum(q, "sex", a.Sex, "male", "female"); err != nil {
 					return nil, err
 				}
 				return q, nil
@@ -1137,7 +1183,7 @@ func apiReadTools() []apiReadTool {
 			Description: "Get CEO-tier shed weight rows and KPI rollup across authorized parks or one park. Use this for which sheds are lagging, latest shed weights, and weight coverage questions.",
 			Path:        "/weighing/shed-weights",
 			Source:      "GET /weighing/shed-weights",
-			Properties:  commonReadProperties("park_id", "from", "to"),
+			Properties:  commonReadProperties("park_id", "from", "to", "sex"),
 			BuildQuery: func(a apiReadArgs) (url.Values, error) {
 				q := url.Values{}
 				if err := addUUID(q, "park_id", a.ParkID); err != nil {
@@ -1147,6 +1193,9 @@ func apiReadTools() []apiReadTool {
 					return nil, err
 				}
 				if err := addDate(q, "to", a.To); err != nil {
+					return nil, err
+				}
+				if err := addEnum(q, "sex", a.Sex, "male", "female"); err != nil {
 					return nil, err
 				}
 				return q, nil
@@ -1163,6 +1212,11 @@ func apiReadTools() []apiReadTool {
 				if err := addUUID(q, "campaign_id", a.CampaignID); err != nil {
 					return nil, err
 				}
+				if strings.TrimSpace(a.From) == "" && strings.TrimSpace(a.To) == "" {
+					today := businessDateToday()
+					a.From = today
+					a.To = today
+				}
 				if err := addDate(q, "from", a.From); err != nil {
 					return nil, err
 				}
@@ -1177,7 +1231,7 @@ func apiReadTools() []apiReadTool {
 			Description: "Get CEO-tier breed/sex/stage weight demographics across authorized parks or one park. Use this for demographic weight mix and group comparison questions.",
 			Path:        "/weighing/weight-demographics",
 			Source:      "GET /weighing/weight-demographics",
-			Properties:  commonReadProperties("park_id", "from", "to"),
+			Properties:  commonReadProperties("park_id", "from", "to", "sex"),
 			BuildQuery: func(a apiReadArgs) (url.Values, error) {
 				q := url.Values{}
 				if err := addUUID(q, "park_id", a.ParkID); err != nil {
@@ -1187,6 +1241,9 @@ func apiReadTools() []apiReadTool {
 					return nil, err
 				}
 				if err := addDate(q, "to", a.To); err != nil {
+					return nil, err
+				}
+				if err := addEnum(q, "sex", a.Sex, "male", "female"); err != nil {
 					return nil, err
 				}
 				return q, nil
@@ -1284,6 +1341,7 @@ type apiReadArgs struct {
 	DueAfter         string `json:"due_after"`
 	DueBefore        string `json:"due_before"`
 	Workflow         string `json:"workflow"`
+	Farm             string `json:"farm"`
 	CampaignID       string `json:"campaign_id"`
 	ScopeType        string `json:"scope_type"`
 	ScopeID          string `json:"scope_id"`
@@ -1507,6 +1565,7 @@ func (s *server) getVaccinationToday(ctx context.Context, r *http.Request, raw j
 	}
 	summary := summarizeVaccinationToday(businessDate, drive, tracker, trackerAvailable)
 	return structuredTextToolResult(summary, map[string]any{
+		"tool":   "get_vaccination_today",
 		"source": "GET /vaccination/drive-assignments + GET /vaccination/live-tracker",
 		"data": map[string]any{
 			"schedule":                 drive,
@@ -1570,6 +1629,10 @@ func (a vaccinationTodayArgs) businessDateOrToday() string {
 	if date := strings.TrimSpace(a.BusinessDate); date != "" {
 		return date
 	}
+	return businessDateToday()
+}
+
+func businessDateToday() string {
 	return time.Now().In(time.FixedZone("IST", 5*60*60+30*60)).Format("2006-01-02")
 }
 
@@ -1766,6 +1829,20 @@ func addEnum(q url.Values, name, raw string, allowed ...string) error {
 	return fmt.Errorf("invalid_%s", name)
 }
 
+func addSalesFarm(q url.Values, raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "all" {
+		return nil
+	}
+	switch raw {
+	case "CBE", "CPT":
+		q.Set("farm", raw)
+		return nil
+	default:
+		return errors.New("invalid_farm")
+	}
+}
+
 func addStringMax(q url.Values, name, raw string, maxLen int) error {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -1907,6 +1984,10 @@ func summarizeAPIRead(def apiReadTool, payload any) string {
 	switch def.Name {
 	case "get_verification_backlog":
 		b.WriteString("\nJudge note: pending verification is evidence waiting for review; it is not completed work.\n")
+	case "get_sales_overview":
+		b.WriteString("\nJudge note: Sales overview KPIs count only Deal Closed rows; demand pipeline and evidence panels have their own grains and must not be summed into closed revenue or animals sold.\n")
+	case "get_sales_deals":
+		b.WriteString("\nJudge note: Sales deals are ledger rows for reconciliation; this MCP tool is read-only and must not record or mutate sales.\n")
 	case "get_feed_today":
 		b.WriteString("\nJudge note: blocked/null feed quantities are configuration gaps, not zero feed.\n")
 		b.WriteString("Judge note: this is planned/issued feed, not proof that feed actually happened; feed actuals/adherence are not covered by this MCP tool yet.\n")

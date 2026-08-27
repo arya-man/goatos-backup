@@ -43,6 +43,8 @@ const EXTERNAL_MCP_REQUIRED_TOOLS = [
   "get_verification_backlog",
   "get_feed_today",
   "get_procurement_pipeline",
+  "get_sales_overview",
+  "get_sales_deals",
   "get_counts_summary",
   "get_health_today",
   "get_health_work_items",
@@ -63,6 +65,8 @@ const GOLDEN_EXTERNAL_MCP_EXPECTATIONS = {
   feed_direction_today: ["get_feed_today", "GET /feed-direction/preview"],
   feed_blocked_config_gaps: ["get_feed_today", "GET /feed-direction/preview"],
   procurement_open_loads: ["get_procurement_pipeline", "GET /procurement/source-entry/loads"],
+  sales_overview: ["get_sales_overview", "GET /sales/overview"],
+  sales_deals: ["get_sales_deals", "GET /sales/deals"],
   action_center_queue: ["get_action_center", "GET /action-center/obligations"],
   weighing_progress: ["get_weighing_progress", "GET /weighing/campaigns"],
   weighing_process_state: ["get_weighing_process_state", "GET /weighing/process-state"],
@@ -131,6 +135,7 @@ function checkExternalMCPTools() {
 
 function checkGoldenExternalMCPMappings() {
   const problems = [];
+  const seenExpectedClasses = new Set();
   for (const f of readdirSync(GOLDEN_DIR)) {
     if (!f.endsWith(".json")) continue;
     const rel = `tools/ceo-ai/eval/golden/${f}`;
@@ -150,6 +155,7 @@ function checkGoldenExternalMCPMappings() {
       const expected = GOLDEN_EXTERNAL_MCP_EXPECTATIONS[klass];
       const actual = testCase?.expect?.external_mcp_tools_any_of;
       if (!expected) continue;
+      seenExpectedClasses.add(klass);
       if (!Array.isArray(actual)) {
         problems.push(`${rel}:${testCase.id || klass}: missing external_mcp_tools_any_of for ${klass}`);
         continue;
@@ -159,6 +165,11 @@ function checkGoldenExternalMCPMappings() {
           problems.push(`${rel}:${testCase.id || klass}: ${klass} must include ${item} in external_mcp_tools_any_of`);
         }
       }
+    }
+  }
+  for (const klass of Object.keys(GOLDEN_EXTERNAL_MCP_EXPECTATIONS).sort()) {
+    if (!seenExpectedClasses.has(klass)) {
+      problems.push(`tools/ceo-ai/eval/golden/*.json: missing golden question for required external MCP class ${klass}`);
     }
   }
   return problems;

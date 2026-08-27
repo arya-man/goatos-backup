@@ -90,8 +90,15 @@ try:
         except ValueError:
             return False
 
-    normal = dbname.lower() == "goatos" and any(is_local(host) and port == 5433 for host, port in zip(hosts, ports))
-    print("normal_app" if normal else "other")
+    db = dbname.lower()
+    normal = db == "goatos" and any(is_local(host) and port == 5433 for host, port in zip(hosts, ports))
+    oci_staging_clone = db == "goatos" and any(is_local(host) and port == 15432 for host, port in zip(hosts, ports))
+    if normal:
+        print("normal_app")
+    elif oci_staging_clone:
+        print("oci_staging_clone")
+    else:
+        print("other")
 except (TypeError, ValueError, IndexError, KeyError):
     invalid()
 '
@@ -114,6 +121,16 @@ MSG
 $label refuses to mutate the normal local app DB on 5433.
 There is no override for this. Use an isolated DB for destructive/proof/load
 runs, for example:
+  make dev-local-kernel-up
+  GOATOS_E2E_DATABASE_URL=postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable $label
+MSG
+    exit 2
+  fi
+  if [ "$classification" = "oci_staging_clone" ]; then
+    cat >&2 <<MSG
+$label refuses to mutate the OCI staging clone tunnel on 15432.
+Use it only for read-only parity/smoke checks. Destructive/proof/load runs must
+target an isolated database, for example:
   make dev-local-kernel-up
   GOATOS_E2E_DATABASE_URL=postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable $label
 MSG

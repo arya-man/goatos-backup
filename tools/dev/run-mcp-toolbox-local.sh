@@ -90,6 +90,65 @@ else
   log "Falling back to any MESHA_MCP_DB_* already exported in the environment."
 fi
 
+derive_db_parts_from_dsn() {
+  if [ -z "${MESHA_MCP_DB_DSN:-}" ]; then
+    return 0
+  fi
+  if [ -n "${MESHA_MCP_DB_PASSWORD:-}" ] && [ -n "${MESHA_MCP_DB_USER:-}" ]; then
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    log "WARNING: python3 not found; cannot derive MESHA_MCP_DB_* from MESHA_MCP_DB_DSN."
+    return 0
+  fi
+  local derived
+  if ! derived="$(MESHA_MCP_DB_DSN="$MESHA_MCP_DB_DSN" python3 - <<'PY'
+import os
+import shlex
+from urllib.parse import parse_qs, unquote, urlsplit
+
+raw = os.environ.get("MESHA_MCP_DB_DSN", "").strip()
+if not raw:
+    raise SystemExit(0)
+parts = {}
+if raw.lower().startswith(("postgres://", "postgresql://")):
+    parsed = urlsplit(raw)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    parts = {
+        "MESHA_MCP_DB_HOST": query.get("hostaddr", query.get("host", [parsed.hostname or ""]))[-1],
+        "MESHA_MCP_DB_PORT": query.get("port", [str(parsed.port or 5432)])[-1],
+        "MESHA_MCP_DB_NAME": query.get("dbname", [unquote(parsed.path.lstrip("/"))])[-1],
+        "MESHA_MCP_DB_USER": unquote(parsed.username or ""),
+        "MESHA_MCP_DB_PASSWORD": unquote(parsed.password or ""),
+    }
+else:
+    values = {}
+    for token in shlex.split(raw, posix=True):
+        if "=" not in token:
+            raise SystemExit("unsupported keyword DSN")
+        key, value = token.split("=", 1)
+        values[key.strip().lower()] = value
+    parts = {
+        "MESHA_MCP_DB_HOST": values.get("hostaddr", values.get("host", "")),
+        "MESHA_MCP_DB_PORT": values.get("port", "5432"),
+        "MESHA_MCP_DB_NAME": values.get("dbname", ""),
+        "MESHA_MCP_DB_USER": values.get("user", ""),
+        "MESHA_MCP_DB_PASSWORD": values.get("password", ""),
+    }
+for key, value in parts.items():
+    if value:
+        print(f"{key}={shlex.quote(value)}")
+PY
+)"; then
+    log "WARNING: MESHA_MCP_DB_DSN is set but could not be parsed into MESHA_MCP_DB_*."
+    return 0
+  fi
+  eval "$derived"
+  export MESHA_MCP_DB_HOST MESHA_MCP_DB_PORT MESHA_MCP_DB_NAME MESHA_MCP_DB_USER MESHA_MCP_DB_PASSWORD
+}
+
+derive_db_parts_from_dsn
+
 # Sensible local defaults so a laptop dev can run against goatos-local-current.
 export MESHA_MCP_DB_HOST="${MESHA_MCP_DB_HOST:-127.0.0.1}"
 export MESHA_MCP_DB_PORT="${MESHA_MCP_DB_PORT:-5433}"
