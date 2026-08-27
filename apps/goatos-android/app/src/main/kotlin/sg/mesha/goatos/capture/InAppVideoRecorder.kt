@@ -125,6 +125,20 @@ fun InAppVideoRecorderOverlay(
         onResult(result)
     }
 
+    // The torch is a camera CONTROL, not a rebind: switching it on or off never touches the
+    // recording in flight. One helper for both the auto-on at record start and the operator's
+    // toggle, so the light, the chip and the analytics event can never disagree.
+    fun applyTorch(next: Boolean) {
+        val camera = boundCamera ?: return
+        if (!camera.cameraInfo.hasFlashUnit()) return
+        runCatching { camera.cameraControl.enableTorch(next) }
+            .onSuccess {
+                torchEnabled = next
+                onCameraEvent(if (next) "torch_on" else "torch_off")
+            }
+            .onFailure { onCameraEvent("torch_failed") }
+    }
+
     fun startRecording() {
         val capture = videoCapture ?: return
         if (isRecording) return
@@ -170,6 +184,9 @@ fun InAppVideoRecorderOverlay(
             }
         isRecording = true
         onCameraEvent("recording_started")
+        // Sheds are dark and operators film at dusk, so the light comes on WITH the recording and
+        // the operator only ever has to turn it off. A phone with no flash unit simply stays dark.
+        if (!torchEnabled) applyTorch(true)
     }
 
     fun finishRecording() {
@@ -344,16 +361,7 @@ fun InAppVideoRecorderOverlay(
                 captureContext = captureContext,
                 torchEnabled = torchEnabled,
                 torchAvailable = boundCamera?.cameraInfo?.hasFlashUnit() == true,
-                onToggleTorch = {
-                    val camera = boundCamera ?: return@ProofCardHeader
-                    val next = !torchEnabled
-                    runCatching { camera.cameraControl.enableTorch(next) }
-                        .onSuccess {
-                            torchEnabled = next
-                            onCameraEvent(if (next) "torch_on" else "torch_off")
-                        }
-                        .onFailure { onCameraEvent("torch_failed") }
-                },
+                onToggleTorch = { applyTorch(!torchEnabled) },
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
