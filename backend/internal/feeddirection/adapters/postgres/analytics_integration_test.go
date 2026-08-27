@@ -1054,6 +1054,206 @@ VALUES ($1, $2, 'CBE', 'Mesha Kids Goat Concentrate', DATE '2026-08-18', 5, 'tes
 	})
 }
 
+// TestStockUhtDepletesFromMilkPreparationOnSubmit pins the 2026-08-27 maintainer
+// decision that UHT stock is read from the Milk Preparation workflow, which
+// already captures the litres, instead of a second hand-typed ledger entry.
+//
+// Three things are asserted together because each was a real failure mode:
+// SUBMIT is enough (a pending_verification preparation depletes exactly like a
+// completed one — holding stock behind review made every card lag the queue);
+// the workflow WINS over a ledger row for the same day rather than adding to it
+// (both sources carried 2026-08-25..27 on staging, and summing them would have
+// double-depleted); and a day the workflow does not cover still falls back to
+// the ledger, which is the only record before the module went live.
+func TestStockUhtDepletesFromMilkPreparationOnSubmit(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupIssueDB(t, ctx)
+
+	park := fdiPark
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status)
+VALUES ($1, $2, 'CBE', 'UHT Milk', 326, DATE '2026-08-07', 600, 63.64, 38184,
+        0, DATE '2026-08-18', 'Balamurugan Enterprises', 'Pending')`,
+		fdiTenant, park); err != nil {
+		t.Fatalf("insert UHT purchase: %v", err)
+	}
+
+	// prepare submits ONE farm-grain preparation: fed the day after it is made,
+	// exactly as milk_preparation_completions_date_check requires.
+	prepare := func(feedingDay, litres, status string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+WITH c AS (
+  INSERT INTO milk_preparation_completions
+      (tenant_id, park_id, preparation_date, feeding_date, status, current_attempt_no, submitted_by)
+  VALUES ($1, $2, $3::date - 1, $3::date, $4, 1, $1)
+  RETURNING completion_id, tenant_id
+)
+INSERT INTO milk_preparation_proof_attempts
+    (tenant_id, completion_id, attempt_no, goat_milk_used, proof_refs, submitted_by,
+     idempotency_key, request_fingerprint, answers)
+SELECT c.tenant_id, c.completion_id, 1, false,
+       jsonb_build_object('uht_milk_quantity', gen_random_uuid()::text,
+                          'citric_acid_mixing', gen_random_uuid()::text), $1,
+       'idem-' || $3, 'fp-' || $3,
+       jsonb_build_object('uht_milk_quantity_litres', $5::numeric)
+FROM c`, fdiTenant, park, feedingDay, status, litres); err != nil {
+			t.Fatalf("prepare %s: %v", feedingDay, err)
+		}
+	}
+	ledger := func(day, qty string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_external_consumption (tenant_id, park_id, farm_label, feed_item_label, feed_day, quantity_kg, batch_no, source_ref)
+VALUES ($1, $2, 'CBE', 'UHT Milk', $3::date, $4::numeric, 326, 'test')`,
+			fdiTenant, park, day, qty); err != nil {
+			t.Fatalf("ledger %s: %v", day, err)
+		}
+	}
+
+	// 08-19 predates the workflow: ledger only, and it must still deplete.
+	ledger("2026-08-19", "40.000")
+	// 08-20 is carried by BOTH, with DIFFERENT numbers. The workflow's 28 wins;
+	// a sum would deplete 128 and a ledger win would deplete 100.
+	ledger("2026-08-20", "100.000")
+	prepare("2026-08-20", "28.000", "pending_verification")
+	// 08-21 is workflow-only and still awaiting review -- submit is the trigger.
+	prepare("2026-08-21", "26.000", "pending_verification")
+	// 08-22 is in rework: the proof gets re-shot, the milk was still drunk.
+	prepare("2026-08-22", "30.000", "rework")
+
+	got, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+	if err != nil {
+		t.Fatalf("StockAnalytics: %v", err)
+	}
+	var uht *domain.StockItem
+	for i := range got.Items {
+		if got.Items[i].FeedItemLabel == "UHT Milk" {
+			uht = &got.Items[i]
+			break
+		}
+	}
+	if uht == nil {
+		t.Fatalf("no UHT Milk stock card in %d items", len(got.Items))
+	}
+	// 600 − (40 ledger + 28 + 26 + 30 workflow) = 476.0
+	if uht.BalanceKg != "476.0" {
+		t.Errorf("balance = %q, want 476.0 (ledger 40 for the pre-workflow day, then the workflow's 28/26/30 -- the 100 ledger row for 08-20 is superseded, never added)", uht.BalanceKg)
+	}
+	// Burn rate is the 3 most recent consumption days: (28+26+30)/3 = 28.0.
+	if uht.AvgDailyKg != "28.0" {
+		t.Errorf("avg daily = %q, want 28.0", uht.AvgDailyKg)
+	}
+
+	uhtBalance := func(t *testing.T, q domain.DirectedAnalyticsQuery) string {
+		t.Helper()
+		res, err := repo.StockAnalytics(ctx, fdiTenant, q)
+		if err != nil {
+			t.Fatalf("StockAnalytics: %v", err)
+		}
+		for i := range res.Items {
+			if res.Items[i].FeedItemLabel == "UHT Milk" {
+				return res.Items[i].BalanceKg
+			}
+		}
+		return ""
+	}
+
+	t.Run("ParkScopeExcludesAnotherParksPreparation", func(t *testing.T) {
+		// A preparation belongs to ONE farm's store. Scoped to a park that made
+		// none, the UHT card must disappear rather than deplete this park's
+		// balance with a neighbour's milk.
+		other := uuid.New()
+		if bal := uhtBalance(t, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{other}}); bal != "" {
+			t.Errorf("UHT card under a foreign park scope = %q, want no card", bal)
+		}
+		if bal := uhtBalance(t, domain.DirectedAnalyticsQuery{ParkIDs: []uuid.UUID{uuid.MustParse(park)}}); bal != "476.0" {
+			t.Errorf("UHT balance scoped to its own park = %q, want 476.0", bal)
+		}
+	})
+
+	t.Run("PageBoundaryWindowDoesNotMoveStock", func(t *testing.T) {
+		// Stock is a whole-ledger balance, never a page of it: narrowing the
+		// analytics window must not change what is in the store.
+		day := time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC)
+		narrow := domain.DirectedAnalyticsQuery{DateFrom: day, DateTo: day}
+		if bal := uhtBalance(t, narrow); bal != "476.0" {
+			t.Errorf("UHT balance under a one-day window = %q, want 476.0 (window pages rows, never the balance)", bal)
+		}
+	})
+
+	t.Run("StatusBucketsRetiredShedGrainNeverDoubleCounts", func(t *testing.T) {
+		// A retired preparation is the LEGACY shed-grain row. Live rows are
+		// farm-grain (milk_preparation_completions_active_farm_grain_check), so
+		// counting a retired sibling would add a park's sheds on top of its farm
+		// row and deplete the day twice.
+		if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id, display_order)
+VALUES ($2::uuid, $1::uuid, 'park', 'CBE-M', 'CBE', 'active', NULL, 1),
+       ($3::uuid, $1::uuid, 'shed', 'S-MILK', 'Castro', 'active', $2::uuid, 1)
+ON CONFLICT (location_id) DO NOTHING`, fdiTenant, park, fdiShedA); err != nil {
+			t.Fatalf("seed locations: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+WITH c AS (
+  INSERT INTO milk_preparation_completions
+      (tenant_id, park_id, shed_id, preparation_date, feeding_date, status, current_attempt_no, submitted_by)
+  VALUES ($1, $2, $3, DATE '2026-08-20', DATE '2026-08-21', 'retired', 1, $1)
+  RETURNING completion_id, tenant_id
+)
+INSERT INTO milk_preparation_proof_attempts
+    (tenant_id, completion_id, attempt_no, goat_milk_used, proof_refs, submitted_by,
+     idempotency_key, request_fingerprint, answers)
+SELECT c.tenant_id, c.completion_id, 1, false,
+       jsonb_build_object('uht_milk_quantity', gen_random_uuid()::text,
+                          'citric_acid_mixing', gen_random_uuid()::text), $1,
+       'idem-retired', 'fp-retired',
+       jsonb_build_object('uht_milk_quantity_litres', 99::numeric)
+FROM c`, fdiTenant, park, fdiShedA); err != nil {
+			t.Fatalf("insert retired shed-grain preparation: %v", err)
+		}
+		if bal := uhtBalance(t, domain.DirectedAnalyticsQuery{}); bal != "476.0" {
+			t.Errorf("balance after a retired shed-grain row = %q, want 476.0 (retired must not deplete)", bal)
+		}
+	})
+
+	t.Run("OneToManyProofAttemptsCountOnlyTheCurrentOne", func(t *testing.T) {
+		// A preparation gathers ONE attempt per rework round, so completion ->
+		// attempt is one-to-many. Only the CURRENT attempt carries the quantity
+		// that stands; joining them all would deplete a single day's milk once
+		// per re-shoot, which is the classic fan-out this grain has to refuse.
+		if _, err := pool.Exec(ctx, `
+INSERT INTO milk_preparation_proof_attempts
+    (tenant_id, completion_id, attempt_no, goat_milk_used, proof_refs, submitted_by,
+     idempotency_key, request_fingerprint, answers)
+SELECT c.tenant_id, c.completion_id, 2, false,
+       jsonb_build_object('uht_milk_quantity', gen_random_uuid()::text,
+                          'citric_acid_mixing', gen_random_uuid()::text), $1,
+       'idem-a2', 'fp-a2',
+       jsonb_build_object('uht_milk_quantity_litres', 24::numeric)
+FROM milk_preparation_completions c
+WHERE c.tenant_id = $1 AND c.park_id = $2 AND c.feeding_date = DATE '2026-08-21'
+  AND c.shed_id IS NULL`,
+			fdiTenant, park); err != nil {
+			t.Fatalf("insert second attempt: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+UPDATE milk_preparation_completions SET current_attempt_no = 2
+ WHERE tenant_id = $1 AND park_id = $2 AND feeding_date = DATE '2026-08-21'
+   AND shed_id IS NULL`,
+			fdiTenant, park); err != nil {
+			t.Fatalf("advance current attempt: %v", err)
+		}
+		// 600 − (40 + 28 + 24 + 30) = 478.0. Summing both attempts of 08-21
+		// would read 452.0; taking the superseded one would read 476.0.
+		if bal := uhtBalance(t, domain.DirectedAnalyticsQuery{}); bal != "478.0" {
+			t.Errorf("balance with two attempts on one day = %q, want 478.0 (current attempt only, never the sum)", bal)
+		}
+	})
+}
+
 // TestRecordExternalConsumptionUpsertsTheLedgerAndFeedsStock pins the feed
 // half of the milk-preparation → feed-stock seam (maintainer decision
 // 2026-08-22): the recorder resolves the park's farm label itself, lands on

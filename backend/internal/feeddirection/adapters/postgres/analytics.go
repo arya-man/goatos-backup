@@ -1087,7 +1087,7 @@ func (r *Repository) ExperimentAnalytics(ctx context.Context, tenantID string, q
 // Stock & expenditure
 // ---------------------------------------------------------------------------
 
-// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow), and feed_external_consumption at its (tenant, farm_label, feed_item_key, feed_day) natural key (sheet-tracked feeds GoatOS does not direct — UHT Milk); the two consumption sources pre-aggregate to the same (park_id, feed_item_key, feed_day) grain and the UNION ALL is re-grouped on that key, so a day contributes once; group_key=(farm_label, feed_item_key) on every side — purchases, depletion and the recent-day average all collapse to the farm-item before joining (the sheet side collapses to (park_id, feed_item_key) and one farm_label resolves to exactly one park), so the three sides meet strictly 1:1; join_cardinality=bought JOIN directed 1:1, LEFT JOIN recent 1:0..1, each pre-aggregated to one row per farm-item; pagination=none, a tenant's feed catalog across its farms is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
+// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, locked feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day, workflow), and feed_effective_external_consumption at (tenant, park_id, feed_item_key, feed_day) (feeds the ration grid does not direct — UHT Milk, resolved from the Milk Preparation workflow on submit, with the feed_external_consumption ledger as the fallback for days that workflow does not cover; migration 000216 guarantees at most one row per key, so the two sources cannot both contribute); the two consumption sources pre-aggregate to the same (park_id, feed_item_key, feed_day) grain and the UNION ALL is re-grouped on that key, so a day contributes once; group_key=(farm_label, feed_item_key) on every side — purchases, depletion and the recent-day average all collapse to the farm-item before joining (the sheet side collapses to (park_id, feed_item_key) and one farm_label resolves to exactly one park), so the three sides meet strictly 1:1; join_cardinality=bought JOIN directed 1:1, LEFT JOIN recent 1:0..1, each pre-aggregated to one row per farm-item; pagination=none, a tenant's feed catalog across its farms is a bounded card list; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets. Both workflows deplete stock — experiment feed leaves the same store.
 //
 // PER-FARM GRAIN (maintainer decision 2026-08-21): each farm keeps its own
 // physical feed store, so a tenant-wide balance/days-left is a number nobody's
@@ -1110,8 +1110,10 @@ WITH bought AS (
 ),
 locked_cells AS (
     -- Consumption from BOTH sources at one grain: locked-sheet directed kg,
-    -- plus the feed_external_consumption ledger for sheet-tracked feeds GoatOS
-    -- does not direct (UHT Milk; migration 000185). The outer GROUP BY
+    -- plus feed_effective_external_consumption for feeds the ration grid does
+    -- not direct (UHT Milk: the Milk Preparation operator's submitted litres,
+    -- read as kg 1:1, with the 000185 ledger as fallback; migration 000216).
+    -- That view is already one row per (tenant, park, item, day). The outer GROUP BY
     -- collapses the union so a feed appearing in both sources on one day sums
     -- once per (park, item, day) — total consumed, never a duplicate row.
     SELECT park_id, feed_item_key, feed_day, SUM(kg) AS kg
@@ -1126,7 +1128,7 @@ locked_cells AS (
         GROUP BY i.park_id, r.feed_item_key, i.feed_day
         UNION ALL
         SELECT x.park_id, x.feed_item_key, x.feed_day, SUM(x.quantity_kg) AS kg
-        FROM feed_external_consumption x
+        FROM feed_effective_external_consumption x
         WHERE x.tenant_id = $1
           AND x.park_id IS NOT NULL
           AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
@@ -1180,7 +1182,7 @@ ORDER BY days_left NULLS LAST, b.feed_item_label, b.farm_label`
 // only decorate the row with a balance and a rate.
 //
 // projection-review: membership=fed items at (park_id, feed_item_key) from
-// locked feed_direction_issue_rows UNION feed_external_consumption, collapsed
+// locked feed_direction_issue_rows UNION feed_effective_external_consumption, collapsed
 // to one row per (park_id, feed_item_key, feed_day) BEFORE ranking so a feed
 // carried by both sources on one day averages once; group_key=(park_id,
 // feed_item_key) on every side -- recent/first_day GROUP BY that pair, the
@@ -1215,7 +1217,7 @@ WITH fed_days AS (
         SELECT x.park_id, x.feed_item_key, x.feed_day,
                SUM(x.quantity_kg) AS kg,
                MAX(x.feed_item_label) AS feed_item_label
-        FROM feed_external_consumption x
+        FROM feed_effective_external_consumption x
         WHERE x.tenant_id = $1
           AND x.park_id IS NOT NULL
           AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
@@ -1332,7 +1334,7 @@ fed AS (
         GROUP BY i.park_id, r.feed_item_key, i.feed_day
         UNION ALL
         SELECT x.park_id, x.feed_item_key, x.feed_day, SUM(x.quantity_kg) AS kg
-        FROM feed_external_consumption x
+        FROM feed_effective_external_consumption x
         WHERE x.tenant_id = $1 AND x.park_id IS NOT NULL
         GROUP BY x.park_id, x.feed_item_key, x.feed_day
     ) both_sources
@@ -1421,7 +1423,7 @@ WITH day_item AS (
         GROUP BY i.feed_day, i.park_id, r.feed_item_key
         UNION ALL
         SELECT x.feed_day, x.park_id, x.feed_item_key, SUM(x.quantity_kg) AS kg
-        FROM feed_external_consumption x
+        FROM feed_effective_external_consumption x
         WHERE x.tenant_id = $1
           AND x.park_id IS NOT NULL
           AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
@@ -1468,7 +1470,7 @@ WITH day_item AS (
         GROUP BY i.feed_day, i.park_id, r.feed_item_key
         UNION ALL
         SELECT x.feed_day, x.park_id, x.feed_item_key, SUM(x.quantity_kg) AS kg
-        FROM feed_external_consumption x
+        FROM feed_effective_external_consumption x
         WHERE x.tenant_id = $1
           AND x.park_id IS NOT NULL
           AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR x.park_id = ANY ($2::uuid[]))
