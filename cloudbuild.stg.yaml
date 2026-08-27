@@ -118,7 +118,7 @@ steps:
           exit 0
         fi
         apt-get update
-        apt-get install -y --no-install-recommends ca-certificates curl git python3
+        apt-get install -y --no-install-recommends ca-certificates curl dnsutils git python3
         tools/deploy/stg-cloudbuild-release.sh
 
   - id: stg-release-tag-bookkeeping
