@@ -41,34 +41,41 @@ BuildConfig.API_BASE_URL = https://api.goatos.mesha.sg/
 Dashboard/Auth continue URL = https://dashboard.mesha.sg/login
 ```
 
-## dev / prod — placeholders, not invented project ids
+## dev placeholder and production-facing prod config
 
-No Firebase Android app was found registered for `dev` or `prod` anywhere in this repo (no
-`firebase.xml`-equivalent, no `firebaseAppDistribution` block, no committed app id). Per the
-observability design doc (`docs/observability/OBSERVABILITY_DESIGN.md` §2.5), the intended
-convention is **one Firebase project per env flavor** (`goatos-dev` / `goatos-stg` / `goatos-prod`),
-matching the `goatos-stg` example above — but `dev` and `prod` project existence is **NOT
-verified** in this pass, so this doc does not assert `goatos-dev` / `goatos-prod` as fact.
+Do not create a new Firebase/GCP project for the current production-facing
+GoatOS path. The approved path reuses the existing `goatos-stg` Firebase/GCP
+project internally and adds the public package as a separate Android app in
+that project:
+
+```text
+Firebase app id: 1:514832198871:android:2b3a80736ff2e8d9f19492
+Package:         sg.mesha.goatos
+Project id:      goatos-stg
+Public API:      https://api.goatos.mesha.sg/
+Public login:    https://dashboard.mesha.sg/login
+```
 
 `app/src/dev/google-services.json` is a placeholder: schema-valid (so the `google-services`
 Gradle plugin can process it without failing the build) but with obviously-fake ids
 (`000000000000`, `goatos-placeholder`). It lets `dev` assemble cleanly today (`make
 android-dev-run` → `:app:assembleDevDebug`) — `BuildConfig.TELEMETRY_ENABLED` is `false` for
 `dev` by default (see `app/build.gradle.kts`), so the app never depends on these fake
-credentials actually working. For the current production-facing cleanup path, `prod` is the real
-public app package (`sg.mesha.goatos`) added to the existing `goatos-stg` Firebase project. Keep
-`app/src/prod/google-services.json` provisioned from Firebase and force-add it when committing,
-because the generated file path is gitignored. That keeps the public app package and URLs free of
-`stg`; Firebase Auth still uses `goatos-stg` issuer/audience internally.
+credentials actually working. `app/src/prod/google-services.json` is the real
+public app package (`sg.mesha.goatos`) config downloaded from Firebase and
+force-added because the generated file path is gitignored. That keeps the public
+app package and URLs free of `stg`; Firebase Auth still uses `goatos-stg`
+issuer/audience internally.
 
-**Before turning `TELEMETRY_ENABLED` on for `dev`, or building `prod`:**
+**Before turning `TELEMETRY_ENABLED` on for `dev`, or refreshing `prod`:**
 1. Confirm the Firebase project in the `vgoats.com` GCP organization — Goat OS is
    Mesha/VGoats-owned, never Heva/Slice (see workspace org-boundary rules).
-2. Register an Android app in that Firebase project with package name `sg.mesha.goatos.dev`
-   (dev) or `sg.mesha.goatos` (prod). For the current path, prod can be added to the existing
-   `goatos-stg` Firebase project.
-3. Download the real `google-services.json` from the Firebase console and REPLACE the
-   placeholder file at the matching path (`git add -f` again, since the path is gitignored) —
-   do not hand-edit the placeholder's fake values.
+2. Register an Android app in that Firebase project with package name
+   `sg.mesha.goatos.dev` for dev. The current prod package `sg.mesha.goatos` is
+   already registered in `goatos-stg`; replace it only if the product later
+   moves to a separate Firebase project.
+3. Download the real `google-services.json` from the Firebase console and
+   replace the placeholder/dev file or refresh the prod file (`git add -f`
+   again, since the path is gitignored) — do not hand-edit generated values.
 4. Flip `TELEMETRY_ENABLED` for that flavor in `app/build.gradle.kts` (or pass
    `-PgoatosTelemetryEnabled=true`).

@@ -1,6 +1,11 @@
-# Staging Android signed release
+# Legacy staging Android signed release
 
-This runbook is for producing the **stg release** APK/AAB that points to:
+This runbook is retained only for emergency compatibility builds of the legacy
+staging Android package. Current public/operator-facing mobile work must use
+`docs/mobile/production-facing-release.md`, package `sg.mesha.goatos`, API
+`https://api.goatos.mesha.sg/`, and dashboard `https://dashboard.mesha.sg/`.
+
+The legacy staging APK/AAB points to:
 
 ```text
 API:     https://stg-api.dashboard.mesha.sg/
@@ -8,8 +13,8 @@ Package: sg.mesha.goatos.stg
 ```
 
 Do not commit keystores or passwords to Git. The staging upload key is scoped
-to the `stg` product flavor only; a future prod build must use separate prod
-signing secrets and the prod package.
+to the `stg` product flavor only; do not use it for public production-facing
+builds.
 
 ## Signing secret source of truth
 
@@ -132,11 +137,12 @@ Before running the upload, restore both:
 2. Firebase upload auth: GOOGLE_APPLICATION_CREDENTIALS, FIREBASE_TOKEN, or firebase login
 ```
 
-Firebase App Distribution uploads for Android STG must go through the Gradle
-upload task below. Do not manually distribute an APK through the Firebase
-console, `firebase appdistribution:distribute`, or any other upload path unless
-the maintainer explicitly asks for a one-off rescue build and the release notes
-still include the source label.
+Firebase App Distribution uploads for the legacy Android STG channel must go
+through the Gradle upload task below. Do not use this command for the current
+production-facing GoatOS app. Current public/operator-facing releases go through
+`tools/deploy/stg-mobile-distribution.sh`, which builds `ProdRelease` for
+`sg.mesha.goatos` while reusing the existing `goatos-stg` Firebase project
+internally.
 
 ```bash
 cd apps/goatos-android
@@ -394,8 +400,8 @@ Do not use a dirty upload to answer whether a production-like phone APK contains
 a feature. If `-PallowDirtyFirebaseDistribution=true` is used, mark the Firebase
 release notes as throwaway/debug and record the dirty source label.
 
-After upload, install the Firebase App Distribution build on the phone and
-verify:
+After a legacy upload, install the Firebase App Distribution build on the phone
+and verify the legacy compatibility channel only:
 
 1. Android package is `sg.mesha.goatos.stg`.
 2. App talks to `https://stg-api.dashboard.mesha.sg/`.
@@ -411,7 +417,7 @@ against the commit or tag that introduced the feature. If the source label is
 missing or cannot be verified, say that the phone APK cannot be proven from the
 available evidence; do not infer it from local `HEAD`, `origin/main`, or memory.
 
-## Stg signing is not prod signing
+## Legacy stg signing is not public release signing
 
 `assembleStgRelease` uses:
 
@@ -421,8 +427,10 @@ Secrets: android-stg-upload-*
 Firebase project/app: goatos-stg / sg.mesha.goatos.stg
 ```
 
-Prod must use its own package, Firebase app, Play/App Signing setup, and Secret
-Manager names, for example:
+Current production-facing builds use package `sg.mesha.goatos` and the Firebase
+Android app `1:514832198871:android:2b3a80736ff2e8d9f19492` in the reused
+`goatos-stg` project. Public release notes, app version wording, and operator
+links must not contain `stg`.
 
 ```text
 Package: sg.mesha.goatos

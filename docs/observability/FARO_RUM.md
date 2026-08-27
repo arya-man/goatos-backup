@@ -39,7 +39,7 @@ POST https://goatos-stg-grafana-alloy-*.run.app/faro/receiver?...
 Grafana Alloy (Cloud Run)
     ├─→ faro.receiver "admin_web_rum"
     │   ├─ Listens on 0.0.0.0:8080
-    │   ├─ CORS restricted to https://stg.dashboard.mesha.sg
+    │   ├─ CORS restricted to https://dashboard.mesha.sg
     │   └─ Parses Faro payload → OTLP traces
     │
     ├─→ otelcol.exporter.googlecloud "default"
@@ -60,7 +60,7 @@ Google Cloud Trace (goatos-stg project)
 
 ### Security
 
-1. **CORS**: Faro receiver only accepts POST from `https://stg.dashboard.mesha.sg`
+1. **CORS**: Faro receiver only accepts POST from `https://dashboard.mesha.sg`
 2. **Unauthenticated public endpoint**: Browsers must reach Alloy; Cloud Run allows unauthenticated access
 3. **Rate limiting**: Cloud Armor policy on Cloud Run service (future; currently Cloud Logging quotas apply)
 4. **No secrets**: Workload identity replaces API keys
@@ -124,7 +124,7 @@ gcloud run deploy goatos-admin-web-stg \
   --image=asia-south1-docker.pkg.dev/goatos-stg/goatos/admin-web:obs-<SHA>
 
 # 2c. Verify /login returns 200
-curl -s -o /dev/null -w "%{http_code}\n" https://stg.dashboard.mesha.sg/login
+curl -s -o /dev/null -w "%{http_code}\n" https://dashboard.mesha.sg/login
 # Expected: 200
 ```
 
@@ -133,7 +133,7 @@ curl -s -o /dev/null -w "%{http_code}\n" https://stg.dashboard.mesha.sg/login
 ```bash
 # 3a. Load admin-web a few times to trigger RUM events
 for i in {1..3}; do
-  curl -s https://stg.dashboard.mesha.sg/login > /dev/null
+  curl -s https://dashboard.mesha.sg/login > /dev/null
   echo "Request $i sent"
 done
 
@@ -178,7 +178,7 @@ gcloud run services update-traffic goatos-admin-web-stg \
   --to-revisions="${PREV_REVISION}=100"
 
 # Verify /login still works
-curl -s -o /dev/null -w "%{http_code}\n" https://stg.dashboard.mesha.sg/login
+curl -s -o /dev/null -w "%{http_code}\n" https://dashboard.mesha.sg/login
 ```
 
 ## Configuration
@@ -192,7 +192,7 @@ faro.receiver "admin_web_rum" {
   server {
     listen_address       = "0.0.0.0"
     listen_port          = 8080
-    cors_allowed_origins = ["https://stg.dashboard.mesha.sg"]
+    cors_allowed_origins = ["https://dashboard.mesha.sg"]
   }
   output {
     traces = [otelcol.exporter.googlecloud.default.input]
@@ -315,8 +315,8 @@ gcloud run services logs read goatos-stg-grafana-alloy \
 1. Check admin-web has Faro URL baked into the built JS bundle (the env var is inlined at
    Next.js build time, so it will NOT appear in the served HTML/response headers — grep the
    `_next/static/chunks/*.js` bundles instead):
-   `curl -s https://stg.dashboard.mesha.sg/login | grep -o '_next/static/chunks/[^"]*\.js'` then
-   `curl -s https://stg.dashboard.mesha.sg/<chunk-path> | grep -o 'https://goatos-stg-grafana-alloy[^"'"'"']*'`
+   `curl -s https://dashboard.mesha.sg/login | grep -o '_next/static/chunks/[^"]*\.js'` then
+   `curl -s https://dashboard.mesha.sg/<chunk-path> | grep -o 'https://goatos-stg-grafana-alloy[^"'"'"']*'`
    - If not present, admin-web needs rebuild with the URL
 2. Check browser console (DevTools): look for Faro initialization and POST requests to Alloy URL
 3. **Do not use "curl the Alloy URL root returns 200/HTML" as a health signal** — Alloy's own
@@ -331,7 +331,7 @@ gcloud run services logs read goatos-stg-grafana-alloy \
 **Symptom**: Browser console shows "CORS error" when Faro SDK tries to POST to Alloy
 
 **Fix**:
-1. Verify CORS origin in Alloy config: `cors_allowed_origins = ["https://stg.dashboard.mesha.sg"]`
+1. Verify CORS origin in Alloy config: `cors_allowed_origins = ["https://dashboard.mesha.sg"]`
 2. If domain has changed, update both Alloy config and admin-web Faro SDK initialization
 3. Redeploy Alloy
 
