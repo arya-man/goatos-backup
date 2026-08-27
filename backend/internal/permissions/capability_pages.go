@@ -17,10 +17,12 @@ import (
 //
 // Three properties, each load-bearing:
 //
-//  1. PAGES ARE WEB-ONLY. The phone composes its own navigation from the module registry
-//     and is deliberately untouched by this file (maintainer instruction 2026-08-27:
-//     "operator and phone nothing should change"). A page tick narrows the admin-web
-//     sidebar and page contracts; it never reaches Android.
+//  1. PAGES ARE WEB-ONLY -- but MODULES are not. A page tick narrows the admin-web sidebar
+//     and page contracts and never reaches Android. The phone reads the MODULE ticks
+//     (workforce/app.Bootstrap), because the alternative shipped a real defect: permissions
+//     came from the person's rows and the phone BAR came from department_module_grants, so
+//     removing a module took the ability away in 0.02s and left the icon in place for ever
+//     -- not on a refresh and not on a log out and log in, because nothing was stale.
 //
 //  2. AN EMPTY PAGE LIST MEANS EVERY PAGE OF THAT MODULE. This is what makes a NEW page
 //     ship to whoever already holds the module rather than silently to nobody. The
@@ -84,8 +86,8 @@ var modulePages = []ModulePage{
 	{Key: "counts-herd-analytics", Module: "counts", Label: "Herd Analytics", Href: "/counts/analytics", Permissions: []string{CountsRead}},
 	{Key: "counts-breakdown", Module: "counts", Label: "Counts Breakdown", Href: "/counts/breakdown", Permissions: []string{CountsRead}},
 	{Key: "counts-sops", Module: "counts", Label: "Herd Operations SOP", Href: "/counts/sops", Permissions: []string{SOPRead}},
-	{Key: "milk-preparation", Module: "counts", Label: "Milk Preparation", Href: "/counts/milk-preparation", Permissions: []string{CountsRead}},
-	{Key: "milk-sops", Module: "counts", Label: "Milk SOP", Href: "/milk/sops", Permissions: []string{SOPRead}},
+	{Key: "milk-preparation", Module: "milk", Label: "Milk Preparation", Href: "/counts/milk-preparation", Permissions: []string{CountsRead}},
+	{Key: "milk-sops", Module: "milk", Label: "Milk SOP", Href: "/milk/sops", Permissions: []string{SOPRead}},
 
 	{Key: "herd-signals", Module: "herd_signals", Label: "Live Monitor", Href: "/herd-signals", Permissions: []string{HerdSignalsRead}},
 
@@ -126,7 +128,8 @@ var moduleRoutePrefixes = map[string]string{
 	"/procurement/feed-purchases": "feed_purchases",
 	"/counts":                     "counts",
 	"/counts/herd":                "herd_register",
-	"/milk":                       "counts",
+	"/milk":                       "milk",
+	"/counts/milk-preparation":    "milk",
 	"/goats":                      "herd_register",
 	"/herd-signals":               "herd_signals",
 	"/weighing":                   "weighing",

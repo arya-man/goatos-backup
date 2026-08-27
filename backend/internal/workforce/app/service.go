@@ -438,6 +438,26 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
+	// PER-PERSON PHONE MODULES (maintainer decision 2026-08-27). The ticks decide the bar,
+	// the same way they decide the web sidebar.
+	//
+	// Until this, the two halves of a phone module came from DIFFERENT places: the
+	// permissions from the person's own rows, the BAR from department_module_grants. Removing
+	// a module on the phone therefore took the ability away in 0.02s and left the icon in
+	// place -- for ever. Not on a refresh, and not on a log out and log in, because nothing
+	// was stale: the server kept answering "yes, he has it" from a source the tick never
+	// touched. The operator tapped a module he still saw and the work failed.
+	personModules, err := s.repo.ListPersonMobileModuleKeys(ctx, tenantID, actorID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	// A STANDALONE VERIFIER IS EXEMPT. Her modules are the features her verify DUTIES name
+	// (position_module_duties), not a department grant, and the whole verifier workspace is
+	// composed from them. Feeding her ticks in here would recompose that workspace, and the
+	// maintainer's instruction was that the verifier's separate interface does not change.
+	if len(personModules) > 0 && !isStandaloneVerifierPrincipal(grants) {
+		grantedModules = personModules
+	}
 	var device *domain.DeviceSummary
 	deviceState := domain.BootstrapDeviceState{Required: true, Status: "not_registered"}
 	deviceID = strings.TrimSpace(deviceID)

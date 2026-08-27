@@ -199,6 +199,53 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// The birth / death / shifting approval queue. Its OWN module rather than a tab
+		// inside Herd Operations (maintainer decision 2026-08-05): approving is not
+		// capturing, and the audiences barely overlap -- the two named approvers hold no
+		// counts.write, and operators hold no approval authority.
+		//
+		// It carries ONLY the three approve permissions, matching the retired
+		// `counts_approver` role that is granted BY NAME to individuals: no bootstrap, no
+		// read, no write. The three travel together because they are one job -- deciding a
+		// raised birth, death or shifting -- and splitting them would let someone approve a
+		// death but not the shifting it implies.
+		Key:      "approvals",
+		Label:    "Approvals",
+		Blurb:    "Deciding the birth, death and shifting requests raised from the field.",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelOversee: {CountsApproveAccess, CountsApproveLifecycle, CountsApproveShifting},
+		},
+	},
+	{
+		// The kid-milk round: prepare the feed, then give it. Its OWN module rather than a
+		// level on Herd Operations (maintainer decision 2026-07-31, which split it out of
+		// Counts on the phone and gave it its own admin-web group): Counts owns the
+		// herd-register EVENTS -- birth, death, shifting -- while the milk round is a daily
+		// operational routine sharing neither their grain nor their read models.
+		//
+		// The permissions are deliberately the SAME ones the routes already require
+		// (counts.read for the admin-web read, counts.write for the phone capture): a drawer
+		// regrouping must not silently widen or narrow who may write.
+		Key:      "milk",
+		Label:    "Milk",
+		Blurb:    "The daily kid-milk round: preparing the feed and giving it.",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			// NO LevelView, deliberately, and the parity test is what forced it: counts.read
+			// is the permission holding the Counts feature OFF (ceo_internal alone holds it),
+			// so a `view` level carrying it would hand the whole Counts console to every
+			// operator and park head the moment they were given the milk round.
+			//
+			// LevelDo is the phone round -- /app/counts/milk-preparation requires exactly
+			// counts.write, and no read. LevelConfigure adds the admin-web read, which is the
+			// same tick that switches Counts on, so it sits at the top level for the same
+			// reason it does there.
+			LevelDo:        {CountsWrite},
+			LevelConfigure: {CountsRead, CountsWrite},
+		},
+	},
+	{
 		Key:      "aas_health",
 		Label:    "Health",
 		Blurb:    "Sick-goat reports, diagnosis and treatment courses.",

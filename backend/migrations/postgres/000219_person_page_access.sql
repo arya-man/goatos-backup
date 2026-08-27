@@ -2,7 +2,7 @@
 --
 -- PAGE-GRAIN ACCESS (People/HRMS rewrite, maintainer decision 2026-08-27).
 --
--- 000215 made access assignable per MODULE. A module tick cannot say "Feed
+-- 000218 made access assignable per MODULE. A module tick cannot say "Feed
 -- Analytics and Feed SOP, but not Feed Config" -- and that sentence is the actual
 -- job of the Procurement Director. It was therefore written as a hand-coded LENS
 -- over the compiled admin-web contract (adminui/app/procurement_director_lens.go,
@@ -37,7 +37,7 @@ ALTER TABLE public.designation_module_defaults
 
 -- No duplicates, same reason as capabilities in 000215: a repeated element
 -- changes nothing about what resolves but makes the stored row disagree with what
--- the screen shows. Reuses the IMMUTABLE helper that migration declared, because
+-- the screen shows. Reuses the IMMUTABLE helper 000218 declared, because
 -- Postgres refuses a subquery in a CHECK.
 ALTER TABLE public.person_module_access
   DROP CONSTRAINT IF EXISTS person_module_access_pages_distinct_check;

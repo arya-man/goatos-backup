@@ -141,6 +141,13 @@ type Repository interface {
 	// workforce member's department (department_module_grants). Returns an empty slice
 	// when the user has no active member row or the department has no grants.
 	ListGrantedModuleKeys(ctx context.Context, tenantID, userID string) ([]string, error)
+
+	// ListPersonMobileModuleKeys resolves the modules a person is ticked for on the
+	// PHONE (per-person access, maintainer decision 2026-08-27). Reports an empty
+	// slice for someone with no stored rows, and the caller then falls back to the
+	// department grants above -- a person the backfill has not reached must not lose
+	// their bar.
+	ListPersonMobileModuleKeys(ctx context.Context, tenantID, userID string) ([]string, error)
 	ListDevices(ctx context.Context, tenantID, operatorID string) ([]domain.DeviceSummary, error)
 	RevokeDevice(ctx context.Context, cmd RevokeDeviceCommand) (domain.DeviceSummary, error)
 	ListSourceCandidates(ctx context.Context, params ListSourceCandidatesParams) ([]domain.SourceCandidate, error)
