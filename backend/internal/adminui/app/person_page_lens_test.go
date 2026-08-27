@@ -51,13 +51,18 @@ func TestRetiredProcurementDirectorLensIsReproducedByTicks(t *testing.T) {
 	access := accessFor(permissions.RoleProcurementDirector, permissions.RoleFeedDirector)
 	resp := applyPersonPageLens(compileForTest(), access)
 
+	// The lens left him six leaves. FIVE survive, and the missing one is a FIX rather than a
+	// regression: an exhaustive persona sweep showed Feed SOP 403s on its own data
+	// (/admin/sops needs sop.read, which nothing he holds produces), so the lens was
+	// advertising a screen that had never opened for him. Under the tick model a screen is
+	// offered only when it can be used, so the dead leaf is gone. Granting it for real is
+	// one tick -- Protocols & SOPs at View -- and is a maintainer decision, not a code change.
 	want := []string{
 		"/procurement/source-entry",
 		"/procurement/vendors",
 		"/procurement/sales",
 		"/procurement/feed-purchases",
 		"/feed/analytics",
-		"/feed/sops",
 	}
 	got := leafHrefs(resp)
 	if len(got) != len(want) {
@@ -144,12 +149,24 @@ func TestUnassignedAndErroringPeopleAreNotNarrowed(t *testing.T) {
 
 // TestAModuleTickWithoutPageTicksKeepsEveryPage pins the property that makes a NEW page
 // reach the people who already hold its module: an empty page list means all of them.
-func TestAModuleTickWithoutPageTicksKeepsEveryPage(t *testing.T) {
+func TestAModuleTickWithoutPageTicksKeepsEveryPageItCanOpen(t *testing.T) {
+	// Feed at `view` opens Feed Analytics alone: Feed Config needs feed_config.read, and
+	// Feed SOP needs sop.read from another module. "Every page" means every page this
+	// person can actually open -- a screen that would 403 is never offered.
 	access := permissions.PageAccessForAssignments([]permissions.ModuleAssignment{
 		{Module: "feed_direction", Surface: permissions.SurfaceWeb, Capabilities: []string{permissions.LevelView}},
 	})
-	resp := applyPersonPageLens(compileForTest(), access)
-	got := leafHrefs(resp)
+	if got := leafHrefs(applyPersonPageLens(compileForTest(), access)); len(got) != 1 || got[0] != "/feed/analytics" {
+		t.Fatalf("sidebar is %v; want [/feed/analytics]", got)
+	}
+
+	// With the authority for all three -- Feed at `configure` plus Protocols & SOPs -- all
+	// three appear, and none of them is greyed.
+	access = permissions.PageAccessForAssignments([]permissions.ModuleAssignment{
+		{Module: "feed_direction", Surface: permissions.SurfaceWeb, Capabilities: []string{permissions.LevelConfigure}},
+		{Module: "config", Surface: permissions.SurfaceWeb, Capabilities: []string{permissions.LevelView}},
+	})
+	got := leafHrefs(applyPersonPageLens(compileForTest(), access))
 	want := []string{"/feed/config", "/feed/analytics", "/feed/sops"}
 	if len(got) != len(want) {
 		t.Fatalf("sidebar is %v; want %v", got, want)
@@ -168,15 +185,17 @@ func compileForTest() domain.BootstrapResponse {
 // access is EDITED -- so the stale entry kept serving the old sidebar until its TTL lapsed.
 // That was invisible while a role change meant a deploy. It is the normal case now.
 func TestASavedTickIsNotHiddenBehindTheContractCache(t *testing.T) {
+	// Held at `configure`, so Feed Config is genuinely openable and the tick is the only
+	// thing deciding whether it shows.
 	before := permissions.PageAccessForAssignments([]permissions.ModuleAssignment{{
 		Module: "feed_direction", Surface: permissions.SurfaceWeb,
-		Capabilities: []string{permissions.LevelView},
-		Pages:        []string{"feed-analytics", "feed-sops"},
+		Capabilities: []string{permissions.LevelConfigure},
+		Pages:        []string{"feed-analytics"},
 	}})
 	after := permissions.PageAccessForAssignments([]permissions.ModuleAssignment{{
 		Module: "feed_direction", Surface: permissions.SurfaceWeb,
-		Capabilities: []string{permissions.LevelView},
-		Pages:        []string{"feed-analytics", "feed-sops", "feed-config"},
+		Capabilities: []string{permissions.LevelConfigure},
+		Pages:        []string{"feed-analytics", "feed-config"},
 	}})
 
 	if pageAccessFingerprint(before, true) == pageAccessFingerprint(after, true) {

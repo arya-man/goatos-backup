@@ -1599,6 +1599,25 @@ Four properties, each load-bearing:
    is REJECTED -- it would resolve to every page by property 1, the opposite of what the admin
    just did on screen.
 
+**A SCREEN IS OFFERED ONLY WHEN IT CAN BE OPENED**, and this is the fifth property rather than
+a detail. Every page declares the permissions its own screen needs, and a screen the person
+cannot open is never ticked -- so it can never render greyed. The catalog and the navigation
+gate (`adminui/app.permissionsForNav`) are asserted IDENTICAL by
+`TestPageCatalogPermissionsMatchTheNavigationGate`; they are two layers and drift between them
+is what produced dead rows. Openability is computed from the person's WHOLE permission set,
+not the owning module: Feed SOP is grouped under Feed and needs `sop.read` from Protocols &
+SOPs, and checking only the owner hid it from the CEO. A module is where a screen is TICKED,
+never where its authority comes from. Note also that permissions union across SURFACES, so
+removing a module from web removes the SCREENS while the phone's own grant still carries the
+ability -- consistent, because a route does not know which surface called it.
+
+The live sweep that proves all of this is `tools/dev/audit-person-access.py` (930 checks over
+all 31 people, both surfaces). Its PASS 3 opens the DATA ROUTE behind every visible leaf and
+fails on a 403; that is what found NINE dead leaves for four real people, every one of them a
+pre-existing leaf with no navigation gate at all, plus Counts Breakdown gated on `goat.read`
+while `/counts/breakdown` checks `counts.read`. Run it after any change to the access model --
+it needs the local stack, so it is deliberately not in CI.
+
 Resolution is `permissions.PageAccessForAssignments`, read by BOTH the bootstrap narrowing and
 the access editor, so the ticks the screen shows are the ticks the sidebar obeys. Schema:
 migration `000216_person_page_access.sql`. Canonical prose:

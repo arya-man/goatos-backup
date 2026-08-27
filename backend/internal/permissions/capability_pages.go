@@ -46,6 +46,17 @@ type ModulePage struct {
 	Label string
 	// Href is the admin-web route. Used to filter the compiled nav/page contracts.
 	Href string
+	// Permissions are what the SCREEN itself needs, ANDed, matching the navigation
+	// contract's own RBAC gate (adminui/app.permissionsForNav, pinned identical by
+	// TestPageCatalogPermissionsMatchTheNavigationGate).
+	//
+	// A module tick is coarser than a screen. Health at `view` is a real grant, but Health
+	// Config needs health.config.read, and Feed at `view` does not open the ration grid.
+	// Without this the page was ticked, shown, and then rendered GREYED by that second RBAC
+	// pass -- a visible row nobody could ever open, which is precisely the "you should not
+	// even see it" case this model exists to remove. A page whose permissions the person's
+	// capabilities do not produce is never ticked, so it is never shown.
+	Permissions []string
 }
 
 // modulePages is the catalog, in sidebar order. Command lenses (Control Tower, Action
@@ -53,43 +64,43 @@ type ModulePage struct {
 // describes vaccination process gaps today, and giving them a module of their own would
 // have created a module nobody's backfilled role holds.
 var modulePages = []ModulePage{
-	{Key: "control-tower", Module: "vaccination", Label: "Control Tower", Href: "/"},
-	{Key: "action-center", Module: "vaccination", Label: "Action Center", Href: "/action-center"},
-	{Key: "protocol-adherence", Module: "vaccination", Label: "Protocol Adherence", Href: "/protocol-adherence"},
-	{Key: "workflows", Module: "vaccination", Label: "Workflows", Href: "/workflows"},
-	{Key: "calendar", Module: "calendar", Label: "Calendar", Href: "/calendar"},
-	{Key: "approvals", Module: "counts", Label: "Approvals", Href: "/approvals"},
-	{Key: "verification-actions", Module: "verification", Label: "Verify", Href: "/verify"},
+	{Key: "control-tower", Module: "vaccination", Label: "Control Tower", Href: "/", Permissions: []string{ObligationRead, VaccinationRead}},
+	{Key: "action-center", Module: "vaccination", Label: "Action Center", Href: "/action-center", Permissions: []string{ObligationRead, VaccinationRead}},
+	{Key: "protocol-adherence", Module: "vaccination", Label: "Protocol Adherence", Href: "/protocol-adherence", Permissions: []string{ObligationRead, VaccinationRead}},
+	{Key: "workflows", Module: "vaccination", Label: "Workflows", Href: "/workflows", Permissions: []string{ObligationRead, VaccinationRead}},
+	{Key: "calendar", Module: "calendar", Label: "Calendar", Href: "/calendar", Permissions: []string{CalendarRead, VaccinationRead, ObligationRead}},
+	{Key: "approvals", Module: "counts", Label: "Approvals", Href: "/approvals", Permissions: []string{CountsApproveAccess}},
+	{Key: "verification-actions", Module: "verification", Label: "Verify", Href: "/verify", Permissions: []string{VerificationReview}},
 
-	{Key: "preventive-care-vaccination", Module: "vaccination", Label: "Vaccination", Href: "/vaccination"},
-	{Key: "vaccination-live-tracker", Module: "vaccination", Label: "Live Drive Tracker", Href: "/vaccination/live-tracker"},
-	{Key: "vaccination-plan", Module: "vaccination", Label: "Vaccination plan", Href: "/vaccination/plan"},
+	{Key: "preventive-care-vaccination", Module: "vaccination", Label: "Vaccination", Href: "/vaccination", Permissions: []string{ObligationRead, VaccinationRead}},
+	{Key: "vaccination-live-tracker", Module: "vaccination", Label: "Live Drive Tracker", Href: "/vaccination/live-tracker", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{Key: "vaccination-plan", Module: "vaccination", Label: "Vaccination plan", Href: "/vaccination/plan", Permissions: []string{ProtocolRead}},
 
-	{Key: "procurement-source-entry", Module: "procurement", Label: "Source Entry", Href: "/procurement/source-entry"},
-	{Key: "procurement-vendors", Module: "vendors", Label: "Vendors", Href: "/procurement/vendors"},
-	{Key: "procurement-sales", Module: "sales", Label: "Sales", Href: "/procurement/sales"},
-	{Key: "procurement-feed-purchases", Module: "feed_purchases", Label: "Feed Purchases", Href: "/procurement/feed-purchases"},
+	{Key: "procurement-source-entry", Module: "procurement", Label: "Source Entry", Href: "/procurement/source-entry", Permissions: []string{ProcurementRead}},
+	{Key: "procurement-vendors", Module: "vendors", Label: "Vendors", Href: "/procurement/vendors", Permissions: []string{VendorRead}},
+	{Key: "procurement-sales", Module: "sales", Label: "Sales", Href: "/procurement/sales", Permissions: []string{SalesRead}},
+	{Key: "procurement-feed-purchases", Module: "feed_purchases", Label: "Feed Purchases", Href: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseRead}},
 
-	{Key: "counts-herd-analytics", Module: "counts", Label: "Herd Analytics", Href: "/counts/analytics"},
-	{Key: "counts-breakdown", Module: "counts", Label: "Counts Breakdown", Href: "/counts/breakdown"},
-	{Key: "counts-sops", Module: "counts", Label: "Herd Operations SOP", Href: "/counts/sops"},
-	{Key: "milk-preparation", Module: "counts", Label: "Milk Preparation", Href: "/counts/milk-preparation"},
-	{Key: "milk-sops", Module: "counts", Label: "Milk SOP", Href: "/milk/sops"},
+	{Key: "counts-herd-analytics", Module: "counts", Label: "Herd Analytics", Href: "/counts/analytics", Permissions: []string{CountsRead}},
+	{Key: "counts-breakdown", Module: "counts", Label: "Counts Breakdown", Href: "/counts/breakdown", Permissions: []string{CountsRead}},
+	{Key: "counts-sops", Module: "counts", Label: "Herd Operations SOP", Href: "/counts/sops", Permissions: []string{SOPRead}},
+	{Key: "milk-preparation", Module: "counts", Label: "Milk Preparation", Href: "/counts/milk-preparation", Permissions: []string{CountsRead}},
+	{Key: "milk-sops", Module: "counts", Label: "Milk SOP", Href: "/milk/sops", Permissions: []string{SOPRead}},
 
-	{Key: "herd-signals", Module: "herd_signals", Label: "Live Monitor", Href: "/herd-signals"},
+	{Key: "herd-signals", Module: "herd_signals", Label: "Live Monitor", Href: "/herd-signals", Permissions: []string{HerdSignalsRead}},
 
-	{Key: "weighing-weights", Module: "weighing", Label: "Weights", Href: "/weighing/weights"},
-	{Key: "weighing-sops", Module: "weighing", Label: "Weighing SOP", Href: "/weighing/sops"},
+	{Key: "weighing-weights", Module: "weighing", Label: "Weights", Href: "/weighing/weights", Permissions: []string{WeighingMonitor}},
+	{Key: "weighing-sops", Module: "weighing", Label: "Weighing SOP", Href: "/weighing/sops", Permissions: []string{SOPRead}},
 
-	{Key: "feed-config", Module: "feed_direction", Label: "Feed Config", Href: "/feed/config"},
-	{Key: "feed-analytics", Module: "feed_direction", Label: "Feed Analytics", Href: "/feed/analytics"},
-	{Key: "feed-sops", Module: "feed_direction", Label: "Feed SOP", Href: "/feed/sops"},
+	{Key: "feed-config", Module: "feed_direction", Label: "Feed Config", Href: "/feed/config", Permissions: []string{FeedConfigRead}},
+	{Key: "feed-analytics", Module: "feed_direction", Label: "Feed Analytics", Href: "/feed/analytics", Permissions: []string{FeedDirectionRead}},
+	{Key: "feed-sops", Module: "feed_direction", Label: "Feed SOP", Href: "/feed/sops", Permissions: []string{SOPRead}},
 
-	{Key: "health-config", Module: "aas_health", Label: "Health Config", Href: "/health/config"},
+	{Key: "health-config", Module: "aas_health", Label: "Health Config", Href: "/health/config", Permissions: []string{HealthConfigRead}},
 
-	{Key: "audit-log", Module: "operations", Label: "Audit Log", Href: "/operations/audit"},
-	{Key: "dlq-center", Module: "operations", Label: "DLQ Center", Href: "/operations/dlq"},
-	{Key: "people", Module: "people", Label: "People / HRMS", Href: "/people"},
+	{Key: "audit-log", Module: "operations", Label: "Audit Log", Href: "/operations/audit", Permissions: []string{OperatorsViewAudit}},
+	{Key: "dlq-center", Module: "operations", Label: "DLQ Center", Href: "/operations/dlq", Permissions: []string{OperatorsViewAudit}},
+	{Key: "people", Module: "people", Label: "People / HRMS", Href: "/people", Permissions: []string{OperatorsRead}},
 }
 
 // moduleRoutePrefixes says which module owns a ROUTE NAMESPACE, for the page contracts
@@ -256,6 +267,15 @@ func PageAccessForAssignments(assignments []ModuleAssignment) PageAccess {
 		Pages:   make(map[string]struct{}, len(modulePages)),
 		Modules: make(map[string]struct{}, len(moduleCapabilities)),
 	}
+	// A screen is openable from the person's WHOLE permission set, not from the module it is
+	// grouped under. The two are genuinely different: Feed SOP is grouped under Feed and
+	// needs sop.read, which lives in the Protocols & SOPs module. Checking only the owning
+	// module hid Feed SOP from the CEO, who plainly holds sop.read -- the module is where a
+	// screen is TICKED, not where its authority comes from.
+	granted := make(map[string]struct{}, 48)
+	for _, p := range PermissionsForAssignments(assignments) {
+		granted[p] = struct{}{}
+	}
 	for _, a := range assignments {
 		if a.Surface != SurfaceWeb {
 			continue
@@ -276,7 +296,9 @@ func PageAccessForAssignments(assignments []ModuleAssignment) PageAccess {
 		access.Modules[a.Module] = struct{}{}
 		if len(a.Pages) == 0 {
 			for _, p := range pagesByModule[a.Module] {
-				access.Pages[p.Key] = struct{}{}
+				if pageIsOpenable(p, granted) {
+					access.Pages[p.Key] = struct{}{}
+				}
 			}
 			continue
 		}
@@ -287,10 +309,67 @@ func PageAccessForAssignments(assignments []ModuleAssignment) PageAccess {
 				// closed here keeps a typo from widening access silently.
 				continue
 			}
+			if !pageIsOpenable(p, granted) {
+				continue
+			}
 			access.Pages[key] = struct{}{}
 		}
 	}
 	return access
+}
+
+// permissionsForModuleLevels is the permission set a person's capabilities on ONE module
+// produce. It reuses the same catalog the request path resolves through, so the screen the
+// editor offers and the screen the sidebar shows can never disagree.
+func permissionsForModuleLevels(moduleKey string, levels []string) map[string]struct{} {
+	out := make(map[string]struct{}, 16)
+	mod, ok := moduleCapabilityIndex[moduleKey]
+	if !ok {
+		return out
+	}
+	for _, level := range levels {
+		for _, perm := range mod.Levels[level] {
+			out[perm] = struct{}{}
+		}
+	}
+	return out
+}
+
+// pageIsOpenable reports whether a permission set opens a screen. The page's permissions
+// are ANDed, matching how the route layer and the navigation gate both read them.
+func pageIsOpenable(page ModulePage, granted map[string]struct{}) bool {
+	for _, required := range page.Permissions {
+		if _, ok := granted[required]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// OpenablePagesForModule is the module's screens that these capabilities can actually open,
+// in sidebar order. A module held at a level too low for any of its screens returns NONE,
+// which is a real answer: Health at `view` opens no Health Config, and offering the tick
+// would produce a row that renders and cannot be used.
+func OpenablePagesForModule(moduleKey string, levels []string) []ModulePage {
+	return OpenablePagesForModuleWithHeld(moduleKey, levels, nil)
+}
+
+// OpenablePagesForModuleWithHeld is the same question asked with the person's OTHER modules
+// in hand. `held` carries permissions they hold elsewhere -- sop.read from Protocols & SOPs
+// is the case that matters, since every module's SOP screen depends on it.
+func OpenablePagesForModuleWithHeld(moduleKey string, levels []string, held []string) []ModulePage {
+	granted := permissionsForModuleLevels(moduleKey, levels)
+	for _, p := range held {
+		granted[p] = struct{}{}
+	}
+	src := pagesByModule[moduleKey]
+	out := make([]ModulePage, 0, len(src))
+	for _, p := range src {
+		if pageIsOpenable(p, granted) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // PageKeysForModule is the "all pages" list used when a module is granted without
