@@ -35,6 +35,26 @@ func TestReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierar
 	testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t)
 }
 
+func TestReconcileInventoryVaccineTasksMultipleDimensions(t *testing.T) {
+	testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t)
+}
+
+func TestReconcileInventoryVaccineTasksPagination(t *testing.T) {
+	testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t)
+}
+
+func TestReconcileInventoryVaccineTasksScheduledDate(t *testing.T) {
+	testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t)
+}
+
+func TestReconcileInventoryVaccineTasksParkScope(t *testing.T) {
+	testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t)
+}
+
+func TestReconcileInventoryVaccineTasksEveryStatus(t *testing.T) {
+	testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t)
+}
+
 func testReconcileInventoryVaccineTasksOneToManyPageBoundaryDateShiftScopeHierarchyStatusMatrix(t *testing.T) {
 	ctx := context.Background()
 	repo, pool := setupPCCareDB(t, ctx)
