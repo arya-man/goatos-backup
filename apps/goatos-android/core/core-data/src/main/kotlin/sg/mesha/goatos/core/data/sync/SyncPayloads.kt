@@ -5,6 +5,7 @@ import sg.mesha.goatos.core.network.dto.MilkFeedingAnswersDto
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
@@ -464,3 +465,16 @@ data class MilkFeedingSubmitPayload(
 )
 
 @Serializable data class FeedTransportSubmitPayload(@SerialName("task_id") val taskId:String,@SerialName("proof_outbox_item_id") val proofOutboxItemId:String)
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.CLOCK_IN] /
+ * [sg.mesha.goatos.core.database.outbox.OutboxOpType.CLOCK_OUT] (module clock, maintainer
+ * decision 2026-08-27). The request carries the whole punch capture — device-clock tap time,
+ * location, integrity verdict, battery, network kind, offline flag — frozen at TAP time, so a
+ * drain hours later still reports what the device honestly knew when the person punched. The
+ * body's own `idempotency_key` equals the outbox row's stable day-scoped key.
+ */
+@Serializable
+data class ClockPunchPayload(
+    @SerialName("request") val request: ClockPunchRequestDto,
+)

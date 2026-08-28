@@ -5,6 +5,7 @@
 // server config, and the overlay must not navigate or trigger a page-level
 // load to read its own detail (the local-overlay contract in AGENTS.md).
 
+// server-action-read-only: GET-backed detail fetch; no mutation replay key required.
 import { getAdminClockEntry, type ClockEntryDetail } from "@/lib/api/server";
 
 export type LoadClockEntryResult = { ok: true; detail: ClockEntryDetail } | { ok: false; message: string };

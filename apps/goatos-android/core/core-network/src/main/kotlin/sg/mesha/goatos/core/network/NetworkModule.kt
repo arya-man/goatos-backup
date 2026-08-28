@@ -23,6 +23,11 @@ import retrofit2.http.PUT
 import retrofit2.http.Query
 import retrofit2.http.Streaming
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
+import sg.mesha.goatos.core.network.dto.ClockPersonDayResponseDto
+import sg.mesha.goatos.core.network.dto.ClockPresenceResponseDto
+import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
+import sg.mesha.goatos.core.network.dto.ClockPunchResponseDto
+import sg.mesha.goatos.core.network.dto.ClockStatusResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
@@ -1005,6 +1010,43 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto
+
+    // --- Clock In / Clock Out (docs/features/clock-in-out/plan.md) --------------------------
+    // The Idempotency-Key header mirrors the body's idempotency_key (the contract accepts both;
+    // body wins server-side) so the punch shares the same header convention every other outbox
+    // write here uses.
+
+    @POST("app/clock/in")
+    suspend fun recordClockIn(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto
+
+    @POST("app/clock/out")
+    suspend fun recordClockOut(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto
+
+    @GET("app/clock/status")
+    suspend fun getClockStatus(): ClockStatusResponseDto
+
+    @GET("app/clock/presence")
+    suspend fun listClockPresence(
+        @Query("date") date: String?,
+        @Query("park_id") parkId: String?,
+        @Query("designation") designation: String?,
+        @Query("bucket") bucket: String?,
+        @Query("q") q: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): ClockPresenceResponseDto
+
+    @GET("app/clock/presence/{workforce_member_id}")
+    suspend fun getClockPresencePerson(
+        @Path("workforce_member_id") workforceMemberId: String,
+        @Query("date") date: String?,
+    ): ClockPersonDayResponseDto
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic.
@@ -1803,6 +1845,34 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto = service.rejectCountsApproval(requestId, idempotencyKey, request)
+
+    override suspend fun recordClockIn(
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto = service.recordClockIn(idempotencyKey, request)
+
+    override suspend fun recordClockOut(
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto = service.recordClockOut(idempotencyKey, request)
+
+    override suspend fun getClockStatus(): ClockStatusResponseDto = service.getClockStatus()
+
+    override suspend fun listClockPresence(
+        date: String?,
+        parkId: String?,
+        designation: String?,
+        bucket: String?,
+        q: String?,
+        limit: Int?,
+        cursor: String?,
+    ): ClockPresenceResponseDto =
+        service.listClockPresence(date, parkId, designation, bucket, q, limit, cursor)
+
+    override suspend fun getClockPresencePerson(
+        workforceMemberId: String,
+        date: String?,
+    ): ClockPersonDayResponseDto = service.getClockPresencePerson(workforceMemberId, date)
 }
 
 /**

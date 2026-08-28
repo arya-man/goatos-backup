@@ -44,6 +44,7 @@ include(":core:core-testing")
 // --- feature (feature-* -> core-* only, never feature -> feature) ---
 include(":feature:feature-auth")
 include(":feature:feature-calendar")
+include(":feature:feature-clock")
 include(":feature:feature-counts")
 include(":feature:feature-feed")
 include(":feature:feature-health")

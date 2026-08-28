@@ -174,15 +174,15 @@ type ClockPresenceRow struct {
 
 // ClockPresenceResponse is GET /app/clock/presence (leadership Team page).
 type ClockPresenceResponse struct {
-	BusinessDate string               `json:"business_date"`
-	IsToday      bool                 `json:"is_today"`
-	Summary      ClockPresenceSummary `json:"summary"`
-	Rows         []ClockPresenceRow   `json:"rows"`
-	NextCursor   string               `json:"next_cursor"`
+	BusinessDate string                `json:"business_date"`
+	IsToday      bool                  `json:"is_today"`
+	Summary      ClockPresenceSummary  `json:"summary"`
+	Rows         []ClockPresenceRow    `json:"rows"`
+	NextCursor   string                `json:"next_cursor"`
 	Parks        []PeopleCatalogOption `json:"parks"`
 	Designations []PeopleCatalogOption `json:"designations"`
-	Copy         map[string]string    `json:"copy"`
-	TraceID      string               `json:"trace_id"`
+	Copy         map[string]string     `json:"copy"`
+	TraceID      string                `json:"trace_id"`
 }
 
 // ClockPersonDayResponse is the presence row drill-down: one person's selected
@@ -202,12 +202,12 @@ type ClockPersonDayResponse struct {
 // ClockEntriesListResponse is GET /admin/workforce/clock-entries — the
 // admin-web People/HRMS Clock In / Out tab.
 type ClockEntriesListResponse struct {
-	Summary    ClockPresenceSummary  `json:"summary"`
-	Items      []ClockEntry          `json:"items"`
-	NextCursor string                `json:"next_cursor"`
-	Parks      []PeopleCatalogOption `json:"parks"`
+	Summary      ClockPresenceSummary  `json:"summary"`
+	Items        []ClockEntry          `json:"items"`
+	NextCursor   string                `json:"next_cursor"`
+	Parks        []PeopleCatalogOption `json:"parks"`
 	Designations []PeopleCatalogOption `json:"designations"`
-	TraceID    string                `json:"trace_id"`
+	TraceID      string                `json:"trace_id"`
 }
 
 // ClockEntryDetailResponse is the admin drawer: the paired entry plus every

@@ -17,6 +17,8 @@ import sg.mesha.goatos.core.data.cache.CalendarScheduleDao
 import sg.mesha.goatos.core.data.cache.CalendarScheduleEntity
 import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.ClockBlobCacheDao
+import sg.mesha.goatos.core.data.cache.ClockBlobCacheEntity
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheEntity
 import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheDao
@@ -290,8 +292,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         ToxinTaskItemEntity::class,
         ToxinTaskRemoteKeyEntity::class,
         ToxinTaskDetailCacheEntity::class,
+        ClockBlobCacheEntity::class,
     ],
-    version = 50,
+    version = 51,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -391,6 +394,10 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // decision 2026-08-25): the paged aflatoxin test-task list rows + their per-scope remote keys
     // (the PC Care pair shape) and the task-detail JSON blob cache carrying the server-composed
     // 7-step state contract.
+    // v51 (see [MIGRATION_50_51]) adds `clock_blob_cache` — the Clock In / Clock Out module's
+    // JSON-blob-by-scope cache (module clock, maintainer decision 2026-08-27): the caller's own
+    // status (My Clock + the shell reminder banner), the leadership presence board's first page
+    // per filter, and person-day detail blobs, each offline-first from day one.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -470,4 +477,5 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun toxinTaskItemDao(): ToxinTaskItemDao
     abstract fun toxinTaskRemoteKeyDao(): ToxinTaskRemoteKeyDao
     abstract fun toxinTaskDetailCacheDao(): ToxinTaskDetailCacheDao
+    abstract fun clockBlobCacheDao(): ClockBlobCacheDao
 }

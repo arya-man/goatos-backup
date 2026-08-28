@@ -1,7 +1,7 @@
 -- +goose Up
 --
 -- seed-fixture-guard:ignore: operational/audit-class attendance tables, no
--- vaccination seed-data contract. Both tables are CREATE TABLE and brand new;
+-- vaccination seed-data contract. Both tables below are brand-new creations;
 -- the only roster token is `REFERENCES workforce_members` -- a foreign key to
 -- the roster, not a change to it. Nothing here is seeded: clock rows are born
 -- exclusively from live phone punches, so the seed-migration coupling rule

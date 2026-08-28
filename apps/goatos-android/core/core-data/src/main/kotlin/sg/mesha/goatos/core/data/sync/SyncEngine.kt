@@ -518,6 +518,8 @@ class SyncEngine(
         OutboxOpType.PC_CARE_TASK_SUBMIT -> dispatchPcCareTaskSubmit(item)
         OutboxOpType.TOXIN_STEP_COMPLETE -> dispatchToxinStepComplete(item)
         OutboxOpType.TOXIN_SUBMIT -> dispatchToxinSubmit(item)
+        OutboxOpType.CLOCK_IN -> dispatchClockPunch(item, clockIn = true)
+        OutboxOpType.CLOCK_OUT -> dispatchClockPunch(item, clockIn = false)
     }
 
     private suspend fun reconcileFeatureBeforeSuccess(item: OutboxEntity): Boolean {
@@ -900,6 +902,26 @@ class SyncEngine(
      * [recordFailure]'s `isTerminalAppApiError` check, so it is surfaced to the operator for
      * correction rather than silently retried against an unchanged payload.
      */
+    /**
+     * The clock punch (module clock, maintainer decision 2026-08-27). Same idempotent-replay
+     * contract as every other `dispatch*` here: the row's STORED day-scoped key
+     * (`clock:<business_date>:<in|out>`) rides both the Idempotency-Key header and the body, so a
+     * server-committed-but-client-unrecorded retry replays the original entry instead of punching
+     * twice. A 409 (`already_clocked_in` / `not_clocked_in` / `already_clocked_out`) and a 422
+     * `mock_location_detected` are definitive answers about an unchangeable day state — terminal
+     * by [recordFailure]'s `isTerminalAppApiError` check, surfaced with the server's own message,
+     * never retried against a payload that can never succeed.
+     */
+    private suspend fun dispatchClockPunch(item: OutboxEntity, clockIn: Boolean): String {
+        val payload = syncJson.decodeFromString<ClockPunchPayload>(item.payloadJson)
+        val response = if (clockIn) {
+            api.recordClockIn(item.idempotencyKey, payload.request)
+        } else {
+            api.recordClockOut(item.idempotencyKey, payload.request)
+        }
+        return syncJson.encodeToString(response)
+    }
+
     private suspend fun dispatchCountsShifting(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<CountsShiftingPayload>(item.payloadJson)
         val response = api.recordCountsShiftingEvent(item.idempotencyKey, payload.request)

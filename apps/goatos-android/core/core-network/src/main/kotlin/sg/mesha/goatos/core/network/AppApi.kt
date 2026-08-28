@@ -8,6 +8,12 @@ import sg.mesha.goatos.core.model.nav.NavModule
 import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
+import sg.mesha.goatos.core.network.dto.ClockPersonDayResponseDto
+import sg.mesha.goatos.core.network.dto.ClockPresenceResponseDto
+import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
+import sg.mesha.goatos.core.network.dto.ClockPunchResponseDto
+import sg.mesha.goatos.core.network.dto.ClockStatusResponseDto
+import sg.mesha.goatos.core.network.dto.ClockEntryDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
@@ -1433,6 +1439,48 @@ interface AppApi {
         idempotencyKey: String,
         request: HealthCompleteRequestDto,
     ): HealthCompleteResponseDto
+
+    /**
+     * POST /app/clock/in — the day's clock-in punch (docs/features/clock-in-out/plan.md).
+     * Drained through the offline-sync outbox with the STABLE day-scoped [idempotencyKey]
+     * (`clock:<business_date>:in`), so a server-committed-but-client-unrecorded retry replays
+     * the original entry instead of punching twice. A payload admitting a mock-provided fix or
+     * an installed mock-location app is refused 422 `mock_location_detected`; a second clock-in
+     * on the same IST business day is refused 409 `already_clocked_in`.
+     */
+    suspend fun recordClockIn(
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto
+
+    /** POST /app/clock/out — closes today's open entry; the backend stamps `worked_minutes`.
+     *  409 `not_clocked_in` / `already_clocked_out`; same mock gate as clock-in. */
+    suspend fun recordClockOut(
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto
+
+    /** GET /app/clock/status — today's state, recent days, ALL module copy, and the shell
+     *  reminder `banner_text` (empty = no banner). */
+    suspend fun getClockStatus(): ClockStatusResponseDto
+
+    /** GET /app/clock/presence — the leadership presence board: one row per ACTIVE workforce
+     *  member for the date, keyset-paginated (~20). Summary tiles are whole-filter aggregates. */
+    suspend fun listClockPresence(
+        date: String? = null,
+        parkId: String? = null,
+        designation: String? = null,
+        bucket: String? = null,
+        q: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): ClockPresenceResponseDto
+
+    /** GET /app/clock/presence/{workforce_member_id} — one person's day in full. */
+    suspend fun getClockPresencePerson(
+        workforceMemberId: String,
+        date: String? = null,
+    ): ClockPersonDayResponseDto
 }
 
 /**
@@ -2268,6 +2316,49 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         idempotencyKey: String,
         request: ToxinSubmitRequestDto,
     ): ToxinTaskDetailDto = getToxinTask(taskId).copy(status = "pending_review", statusChip = "Sent for review")
+
+    override suspend fun recordClockIn(
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto = ClockPunchResponseDto(entry = fakeClockEntry(status = "open"))
+
+    override suspend fun recordClockOut(
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto = ClockPunchResponseDto(entry = fakeClockEntry(status = "closed"))
+
+    override suspend fun getClockStatus(): ClockStatusResponseDto = ClockStatusResponseDto(
+        businessDate = "2026-08-28",
+        state = "not_clocked_in",
+    )
+
+    override suspend fun listClockPresence(
+        date: String?,
+        parkId: String?,
+        designation: String?,
+        bucket: String?,
+        q: String?,
+        limit: Int?,
+        cursor: String?,
+    ): ClockPresenceResponseDto = ClockPresenceResponseDto(businessDate = date ?: "2026-08-28")
+
+    override suspend fun getClockPresencePerson(
+        workforceMemberId: String,
+        date: String?,
+    ): ClockPersonDayResponseDto = ClockPersonDayResponseDto(
+        personName = "Fake Person",
+        businessDate = date ?: "2026-08-28",
+    )
+
+    private fun fakeClockEntry(status: String): ClockEntryDto = ClockEntryDto(
+        clockEntryId = "fake-entry",
+        workforceMemberId = "fake-member",
+        personName = "Fake Person",
+        businessDate = "2026-08-28",
+        status = status,
+        clockInAt = "2026-08-28T08:12:00+05:30",
+        clockInLabel = "08:12",
+    )
 }
 
 /**
