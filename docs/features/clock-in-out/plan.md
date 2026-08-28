@@ -1,8 +1,9 @@
-# Clock In / Clock Out — Implementation Plan (AWAITING MAINTAINER GREEN SIGNAL)
+# Clock In / Clock Out — Implementation Plan
 
-Status: **PLAN ONLY — nothing implemented.** Maintainer reads this, answers the
-open decisions at the bottom, and gives the green signal before any code is
-written.
+Status: **GREEN-SIGNALED 2026-08-28; IMPLEMENTATION IN PROGRESS** on
+`feat/clock-in-out` (worktree `wt-clock`). Backend core, page contract, and
+the admin-web tab are built and tested; see §11 for the implementation record
+and the two deviations decided during the build.
 
 Builds on top of PR #126 (`feat/hrms-per-person-access` — person × module ×
 surface × capability ticks) and the People/HRMS rewrite on
@@ -459,3 +460,50 @@ worker-tick rules).
 **Q5 — "SPR" reference.** The request mentions "combination of SPR in a
 different way" — please confirm what SPR refers to (separate PR? something
 else?) so nothing is missed.
+
+## 11. Implementation record (2026-08-28)
+
+Built on `feat/clock-in-out` per §8, with two recorded deviations:
+
+**Deviation 1 — punch routes ride `app.bootstrap`, not a `clock.self`
+permission.** Everyone clocks (D2), so a dedicated self-permission would have
+to be added to every one of the 47 role sets and the whole capability parity
+matrix for zero narrowing. The punch/status routes gate on AppBootstrap ("any
+authenticated app principal"), exactly like device registration. The
+assignable capability is the CROSS-PERSON read: `clock.presence.read`
+(ceo_internal + per-person ticks), catalog module `clock`, level Oversee.
+
+**Deviation 2 (consequence, not a choice) — every principal now has a
+drawer.** The baseline clock module makes even a single-module operator and a
+single-feature verifier a two-module principal, so per the locked 2026-08-03
+placement rule the drawer appears and "You" moves to its footer for everyone.
+The previously-minimal chrome cases are gone; the nav tests were updated to
+pin the new truth (service_test.go, bootstrap_copy_test.go,
+bootstrap_profile_entry_test.go, bootstrap_verify_route_test.go).
+
+Landed so far (each step green before the next):
+- Migration `000221_workforce_clock.sql` — events (append-only) + entries
+  (person x IST-day pairing read model, unique day key), gen_random_uuid PKs.
+- `workforce` clock domain/ports/postgres/app/http; one-transaction punch
+  write (idempotency reservation + snapshot replay, event insert, entry
+  open/close, self-healing auto-close of stale open days); presence/list
+  reads share ONE repository page (cross-surface parity by construction).
+- Routes + `clock.presence.read` + capability catalog + backfill row; module
+  registry entry with My Clock (ungated) and Team (ClockPresenceRead) pages,
+  reviewContributions so the standalone verifier keeps the module, baseline
+  offer exempt from tick narrowing.
+- Backend-owned copy in en/hi/kn/te (banner, refusals, sections, flags);
+  copy-parity test across locales.
+- OpenAPI (app + admin) + regenerated TS client.
+- Admin-web: `/people` Clock In / Out tab (summary tiles, date/park/
+  designation/bucket/search filters, keyset table, record drawer with both
+  punches + map link), "Clocked in" chip on All People, `view_clock` control.
+- Tests: service unit suite (mock refusal before any write, offline anchor,
+  refusal mapping, banner lifecycle, hours/flags, presence buckets, locale
+  parity) + Docker Postgres write-path proof (replay, refusals, pairing,
+  auto-close, presence/detail agreement). Guardrails green through the
+  backend/web surface (module-alerts pending entry recorded; coverage-matrix
+  scoped exclusion for the assistant with the named follow-up).
+
+In progress: the Android module (feature-clock, outbox punches, mock-location
+detection, reminder banner, Team presence board).
