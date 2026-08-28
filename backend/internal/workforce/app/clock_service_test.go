@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
@@ -299,4 +300,35 @@ func TestClockCopyCatalogsAgreeOnKeys(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestClockDrawerSitsOnTopButNeverStealsTheLandingBar pins the 2026-08-28
+// maintainer ask: Clock In / Out is the FIRST drawer row (priority 0), yet the
+// landing bar still belongs to the person's WORK module — attendance is one
+// tap away, not the opening screen. Both halves are load-bearing: dropping the
+// priority moves the row down, and letting the priority reach activeModuleKey
+// would open every operator's day on the punch screen.
+func TestClockDrawerSitsOnTopButNeverStealsTheLandingBar(t *testing.T) {
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
+
+	modules := modulesFor(grants, []string{"vaccination"}, "en")
+	if len(modules) < 2 || modules[0].Key != "clock" {
+		t.Fatalf("clock must be the first drawer row; got %+v", moduleKeysOf(modules))
+	}
+
+	if active := activeModuleKey(grants, []string{"vaccination", "clock"}); active != "vaccination" {
+		t.Fatalf("landing module = %q, want the work module (clock must not steal the bar)", active)
+	}
+	// The bar floor still holds: clock lands only when NO work module renders.
+	if active := activeModuleKey(grants, []string{"clock"}); active != "clock" {
+		t.Fatalf("landing module with no work module = %q, want clock (decision D2 bar floor)", active)
+	}
+}
+
+func moduleKeysOf(modules []domain.BootstrapModule) []string {
+	keys := make([]string, 0, len(modules))
+	for _, m := range modules {
+		keys = append(keys, m.Key)
+	}
+	return keys
 }
