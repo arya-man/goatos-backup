@@ -1472,6 +1472,58 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `enqueueProofUpload failure marks proof failed and emits enqueue-failed telemetry`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository(proofUploadFailure = "outbox unavailable")
+            val telemetryEvents = mutableListOf<Pair<String, Map<String, String>>>()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                reconcileOnStartup = false,
+                dispatchers = unconfinedDispatchers,
+                mediaProcessor = IdentityProofMediaProcessor(),
+                telemetry = ProofCaptureTelemetry { event, props -> telemetryEvents += event to props },
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = "task-enqueue-fails",
+                    fieldKey = "feed_distribution_video",
+                    subject = ProofSubject.SHED,
+                    localUri = "file://proof.mp4",
+                    mimeType = "video/mp4",
+                    caption = "Feed direction proof",
+                    scopeType = "task",
+                    scopeId = "task-enqueue-fails",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                    awaitUploadEnqueue = true,
+                ) as AppResult.Ok
+                ).value
+
+            val row = db.proofCaptureDao().findById(captured.id)
+            assertEquals(CaptureSyncStatus.FAILED.name, row?.syncStatus)
+            assertEquals("outbox unavailable", row?.lastError)
+            assertTrue(
+                "outbox enqueue failure must emit a durable forensic event",
+                telemetryEvents.any {
+                    it.first == "proof_upload_enqueue_failed" &&
+                        it.second["reason"] == "outbox unavailable"
+                },
+            )
+            assertEquals(
+                1,
+                db.proofCaptureDao().countStateEvents(captured.id, "upload_enqueue_failed"),
+            )
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `retryUpload re-invokes the processor and succeeds once it recovers`() = runTest {
         // P1 fix: the only path back from PROCESSING_FAILED_AWAITING_RETRY is an explicit operator
         // action. retryUpload() resets processingAttempted so prepareFinalArtifact re-runs the
