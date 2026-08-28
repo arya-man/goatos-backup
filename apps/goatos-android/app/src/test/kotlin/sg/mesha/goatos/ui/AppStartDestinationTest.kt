@@ -98,6 +98,58 @@ class AppStartDestinationTest {
         assertEquals(Routes.COUNTS_BIRTH, startDestinationFor(state))
     }
 
+    @Test
+    fun `clock-only principal cold starts on My Clock, not a bar-less calendar`() {
+        // E2E finding 2026-08-28: once the reminder banner cleared, a clock-only
+        // person landing on Calendar had NO route into the module at all.
+        val clockBar = listOf(NavItem("clock", "My Clock", Routes.CLOCK))
+        val state = NavState(
+            chrome = NavChrome.MINIMAL,
+            items = clockBar,
+            modules = listOf(
+                NavModule(
+                    key = "clock",
+                    label = "Clock In / Out",
+                    href = Routes.CLOCK,
+                    status = NavModuleStatus.AVAILABLE,
+                    navItems = clockBar,
+                ),
+            ),
+        )
+        assertEquals(Routes.CLOCK, startDestinationFor(state))
+    }
+
+    @Test
+    fun `drawer-top clock module never steals the landing from the active work bar`() {
+        // Clock sits FIRST in the drawer (maintainer ask 2026-08-28), but the served
+        // visible_navigation is the WORK module's bar and the day opens there.
+        val vaccinationBar = listOf(
+            NavItem("vaccination", "Drives", Routes.VACCINATION),
+            NavItem("alerts", "Alerts", Routes.VACCINATION_ALERTS),
+        )
+        val state = NavState(
+            chrome = NavChrome.EXPANDED,
+            items = vaccinationBar,
+            modules = listOf(
+                NavModule(
+                    key = "clock",
+                    label = "Clock In / Out",
+                    href = Routes.CLOCK,
+                    status = NavModuleStatus.AVAILABLE,
+                    navItems = listOf(NavItem("clock", "My Clock", Routes.CLOCK)),
+                ),
+                NavModule(
+                    key = "vaccination",
+                    label = "Vaccination",
+                    href = Routes.VACCINATION,
+                    status = NavModuleStatus.AVAILABLE,
+                    navItems = vaccinationBar,
+                ),
+            ),
+        )
+        assertEquals(Routes.VACCINATION, startDestinationFor(state))
+    }
+
     private fun navState(vararg items: NavItem) =
         NavState(chrome = NavChrome.MINIMAL, items = items.toList())
 }

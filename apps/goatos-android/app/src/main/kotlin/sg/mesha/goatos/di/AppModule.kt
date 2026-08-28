@@ -178,6 +178,7 @@ import sg.mesha.goatos.sync.AndroidForegroundSyncController
 import sg.mesha.goatos.analytics.BackendAnalyticsAdapter
 import sg.mesha.goatos.sync.SyncWorkScheduler
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.map
 
 /**
  * App-level DI wiring. The real Retrofit-backed [AppApi] hits the backend at
@@ -604,6 +605,7 @@ object AppModule {
     fun provideClockRepository(
         api: AppApi,
         database: GoatDatabase,
+        outboxDatabase: OutboxDatabase,
         syncRepository: SyncRepository,
         factsProvider: ClockPunchFactsProvider,
     ): ClockRepository = DefaultClockRepository(
@@ -611,6 +613,10 @@ object AppModule {
         dao = database.clockBlobCacheDao(),
         syncRepository = syncRepository,
         factsProvider = factsProvider,
+        activePunchGroups = { opType ->
+            outboxDatabase.outboxDao().observeActiveByOpType(opType)
+                .map { rows -> rows.mapTo(mutableSetOf()) { it.groupKey } }
+        },
     )
 
     @Provides

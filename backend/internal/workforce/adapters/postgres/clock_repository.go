@@ -45,7 +45,12 @@ func (r *Repository) RecordClockPunch(ctx context.Context, cmd ports.ClockPunchC
 	}
 	defer rollback(ctx, tx)
 
-	scope := "clock_" + cmd.EventType
+	// The scope carries the MEMBER: the phone's stable key is only day+direction
+	// (clock:<date>:in|out), and idempotency_keys namespaces by tenant+scope+key —
+	// without the member here, the SECOND person punching the same direction on
+	// the same day collided with the first (409 idempotency_conflict, found by
+	// the 2026-08-28 two-person UI E2E).
+	scope := "clock_" + cmd.EventType + ":" + cmd.WorkforceMemberID
 	fingerprint := requestFingerprint(
 		cmd.TenantID, cmd.WorkforceMemberID, cmd.EventType, cmd.BusinessDate,
 		cmd.CapturedAt.UTC().Format(time.RFC3339),

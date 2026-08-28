@@ -92,6 +92,19 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'Clock Test Member', 'active', 'operat
 		t.Fatalf("second clock_in: want ErrAlreadyClockedIn, got %v", err)
 	}
 
+	// TWO people share the phone's day-scoped client key (clock:<date>:in) —
+	// the reservation is member-scoped server-side, so the second person's
+	// punch must NOT collide with the first (2026-08-28 E2E regression).
+	if _, err := repo.RecordClockPunch(ctx, clockPunch(clockMember2, clockActor2, "clock_in", "in-1", dayOne, in.Add(2*time.Minute))); !errors.Is(err, nil) {
+		t.Fatalf("second member reusing the shared client key: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM workforce_clock_entries WHERE workforce_member_id=$1; `, clockMember2); err != nil {
+		t.Fatalf("reset member2 entries: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM workforce_clock_events WHERE workforce_member_id=$1`, clockMember2); err != nil {
+		t.Fatalf("reset member2 events: %v", err)
+	}
+
 	// Clock-out without a clock-in (other member) is refused.
 	if _, err := repo.RecordClockPunch(ctx, clockPunch(clockMember2, clockActor2, "clock_out", "out-x", dayOne, in.Add(9*time.Hour))); !errors.Is(err, ports.ErrNotClockedIn) {
 		t.Fatalf("clock_out without in: want ErrNotClockedIn, got %v", err)
