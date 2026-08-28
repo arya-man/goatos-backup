@@ -578,7 +578,7 @@ function DirectedTabs({
           aria-label={fa(pageContract, "chart.spend.title")}
         >
           {([
-            ["week", stock.spend.this_week],
+            ["week", stock.spend.last_7_days],
             ["month", stock.spend.this_month],
             ["quarter", stock.spend.three_months],
             ["year", stock.spend.this_year],
@@ -1191,7 +1191,6 @@ function StockCards({
                 <tr>
                   <th>{fa(pageContract, "stock.farms.col.item")}</th>
                   <th>{fa(pageContract, "stock.farms.col.farm")}</th>
-                  <th>{fa(pageContract, "stock.farms.col.first_purchase")}</th>
                   <th>{fa(pageContract, "stock.farms.col.directed_since")}</th>
                   <th>{fa(pageContract, "stock.farms.col.last_load")}</th>
                   <th>
@@ -1245,8 +1244,13 @@ function StockCards({
                   <tr key={`${row.feed_item_key}|${row.farm_label}`}>
                     <td>{row.feed_item_label}</td>
                     <td>{row.farm_label}</td>
-                    <td>{fmtDate(row.first_purchase_date)}</td>
-                    <td>{row.first_directed_day === "" ? fa(pageContract, "stock.never_directed") : fmtDate(row.first_directed_day)}</td>
+                    <td>
+                      {row.last_load_consumption_from !== ""
+                        ? fmtDate(row.last_load_consumption_from)
+                        : row.avg_daily_kg !== ""
+                          ? fa(pageContract, "stock.farms.load_pending")
+                          : fa(pageContract, "stock.never_directed")}
+                    </td>
                     <td>
                       <div className="feed-stock-load">
                         {[
