@@ -13,6 +13,8 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
+
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 // People/HRMS directory adapter: the cross-park member list behind
@@ -75,12 +77,20 @@ SELECT
   d.label,
   wm.created_at,
   wm.row_version,
+  ce.clock_in_at,
   COALESCE(proof.uploads, 0),
   COALESCE(proof.approved, 0),
   COALESCE(proof.rejected, 0),
   COALESCE(proof.pending, 0),
   COALESCE(proof.not_reviewed, 0)
 FROM workforce_members wm
+-- Today's clock-in (Clock In/Out module): 1:1 on the unique
+-- (tenant, member, business_date) key; IST date computed SQL-side so every
+-- caller of this shared SELECT keeps its parameter list unchanged.
+LEFT JOIN workforce_clock_entries ce
+  ON ce.tenant_id = wm.tenant_id
+ AND ce.workforce_member_id = wm.workforce_member_id
+ AND ce.business_date = (now() AT TIME ZONE 'Asia/Kolkata')::date
 LEFT JOIN locations l
   ON l.tenant_id = wm.tenant_id AND l.location_id = wm.primary_location_id
 LEFT JOIN departments d
@@ -107,8 +117,9 @@ func scanPeople(rows pgx.Rows) ([]domain.PersonSummary, error) {
 	items := []domain.PersonSummary{}
 	for rows.Next() {
 		var (
-			p         domain.PersonSummary
-			createdAt time.Time
+			p            domain.PersonSummary
+			createdAt    time.Time
+			clockInToday *time.Time
 		)
 		if err := rows.Scan(
 			&p.PersonID,
@@ -126,6 +137,7 @@ func scanPeople(rows pgx.Rows) ([]domain.PersonSummary, error) {
 			&p.DepartmentLabel,
 			&createdAt,
 			&p.RowVersion,
+			&clockInToday,
 			&p.ProofUploads,
 			&p.ProofApproved,
 			&p.ProofRejected,
@@ -135,6 +147,10 @@ func scanPeople(rows pgx.Rows) ([]domain.PersonSummary, error) {
 			return nil, err
 		}
 		p.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		if clockInToday != nil {
+			label := clockInToday.In(biztime.Location("")).Format("15:04")
+			p.ClockInTodayLabel = &label
+		}
 		if decided := p.ProofApproved + p.ProofRejected; decided > 0 {
 			pct := int((float64(p.ProofRejected)/float64(decided))*100 + 0.5)
 			p.ProofRejectionPct = &pct

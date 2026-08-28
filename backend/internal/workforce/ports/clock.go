@@ -121,6 +121,11 @@ type ClockEntryRow struct {
 	WorkedMinutes     *int
 	OfflinePunch      bool
 	LocationMissing   bool
+	// Clock-in punch enrichment for list rendering (1:1 join on
+	// clock_in_event_id); empty when the read did not join events.
+	Address     string
+	DeviceModel string
+	AppVersion  string
 }
 
 // ClockEventRow is the raw event row for detail reads.

@@ -32650,6 +32650,12 @@ components:
           description: Backend-owned hours truth; absent while open and forever on auto_closed.
         hours_label:
           type: string
+        location_label:
+          type: string
+          description: The clock-in punch's reverse-geocoded address.
+        device_label:
+          type: string
+          description: Device model · app version at clock-in.
         flags:
           type: array
           items:

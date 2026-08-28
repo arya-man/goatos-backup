@@ -238,24 +238,59 @@ func (s *ClockService) PersonDay(ctx context.Context, tenantID, workforceMemberI
 	return s.composePersonDay(detail, businessDate, localeTag, traceID), nil
 }
 
-// AdminEntries is the admin-web People/HRMS Clock In / Out tab list.
+// AdminEntries is the admin-web People/HRMS Clock In / Out tab list. It reads
+// the SAME repository page as the phone presence board, so the two surfaces
+// cannot disagree on a number (cross-surface parity by construction).
 func (s *ClockService) AdminEntries(ctx context.Context, tenantID string, params ports.ClockPresenceParams, localeTag, traceID string) (*domain.ClockEntriesListResponse, error) {
-	presence, err := s.Presence(ctx, tenantID, params, localeTag, traceID)
+	if strings.TrimSpace(params.BusinessDate) == "" {
+		params.BusinessDate = biztime.BusinessDate(time.Now())
+	} else if _, err := time.Parse("2006-01-02", params.BusinessDate); err != nil {
+		return nil, BadRequest("invalid_date", "date must be YYYY-MM-DD")
+	}
+	params.TenantID = tenantID
+	page, err := s.repo.ListClockPresence(ctx, params)
 	if err != nil {
+		if errors.Is(err, ports.ErrInvalidFilter) {
+			return nil, BadRequest("invalid_cursor", "cursor is not valid")
+		}
 		return nil, err
 	}
 	copyMap := clockCopyFor(localeTag)
-	items := make([]domain.ClockEntry, 0, len(presence.Rows))
-	for i, raw := range presence.Rows {
-		_ = i
-		items = append(items, presenceRowToEntry(raw, presence.BusinessDate, copyMap))
+	items := make([]domain.ClockEntry, 0, len(page.Rows))
+	for _, raw := range page.Rows {
+		designation := designationLabel(raw.RoleHint, raw.DesignationGrade, copyMap)
+		var parkLabel *string
+		if raw.ParkLabel != "" {
+			pl := raw.ParkLabel
+			parkLabel = &pl
+		}
+		if raw.Entry != nil {
+			entry := s.composeEntry(*raw.Entry, raw.PersonName, designation, raw.RoleHint, parkLabel, optionalString(raw.DepartmentLabel), copyMap)
+			items = append(items, entry)
+			continue
+		}
+		// Not clocked in: an honest roster row with no punch facts.
+		items = append(items, domain.ClockEntry{
+			WorkforceMemberID: raw.WorkforceMemberID,
+			PersonName:        raw.PersonName,
+			RoleHint:          raw.RoleHint,
+			Designation:       designation,
+			ParkLabel:         parkLabel,
+			DepartmentLabel:   optionalString(raw.DepartmentLabel),
+			BusinessDate:      params.BusinessDate,
+			Flags:             []domain.ClockFlag{},
+		})
+	}
+	catalog, err := s.people.PeopleCatalog(ctx, tenantID)
+	if err != nil {
+		return nil, err
 	}
 	return &domain.ClockEntriesListResponse{
-		Summary:      presence.Summary,
+		Summary:      page.Summary,
 		Items:        items,
-		NextCursor:   presence.NextCursor,
-		Parks:        presence.Parks,
-		Designations: presence.Designations,
+		NextCursor:   page.NextCursor,
+		Parks:        catalog.Parks,
+		Designations: clockDesignationOptions(),
 		TraceID:      traceID,
 	}, nil
 }
@@ -373,6 +408,14 @@ func (s *ClockService) composeEntry(row ports.ClockEntryRow, personName, designa
 		}
 		entry.HoursLabel = fmt.Sprintf(copyMap["hours.so_far"], hoursLabel(elapsed))
 	}
+	entry.LocationLabel = row.Address
+	if row.DeviceModel != "" && row.AppVersion != "" {
+		entry.DeviceLabel = row.DeviceModel + " · " + row.AppVersion
+	} else if row.DeviceModel != "" {
+		entry.DeviceLabel = row.DeviceModel
+	} else {
+		entry.DeviceLabel = row.AppVersion
+	}
 	if row.OfflinePunch {
 		entry.Flags = append(entry.Flags, domain.ClockFlag{Key: "offline", Label: copyMap["flag.offline"]})
 	}
@@ -382,48 +425,6 @@ func (s *ClockService) composeEntry(row ports.ClockEntryRow, personName, designa
 	if row.Status == "auto_closed" || (row.Status == "open" && row.BusinessDate < today) {
 		entry.Flags = append(entry.Flags, domain.ClockFlag{Key: "not_clocked_out", Label: copyMap["flag.not_clocked_out"]})
 	}
-	return entry
-}
-
-func presenceRowToEntry(row domain.ClockPresenceRow, businessDate string, copyMap map[string]string) domain.ClockEntry {
-	entry := domain.ClockEntry{
-		ClockEntryID:      row.ClockEntryID,
-		WorkforceMemberID: row.WorkforceMemberID,
-		PersonName:        row.PersonName,
-		Designation:       row.Designation,
-		ParkLabel:         row.ParkLabel,
-		BusinessDate:      businessDate,
-		WorkedMinutes:     row.WorkedMinutes,
-		Flags:             row.Flags,
-	}
-	switch row.Bucket {
-	case "working":
-		entry.Status = "open"
-	case "clocked_out":
-		entry.Status = "closed"
-	default:
-		entry.Status = ""
-	}
-	if row.ClockInAt != nil {
-		entry.ClockInAt = *row.ClockInAt
-		if t, err := time.Parse(time.RFC3339, *row.ClockInAt); err == nil {
-			entry.ClockInLabel = istClock(t)
-		}
-	}
-	if row.ClockOutAt != nil {
-		entry.ClockOutAt = row.ClockOutAt
-		if t, err := time.Parse(time.RFC3339, *row.ClockOutAt); err == nil {
-			label := istClock(t)
-			entry.ClockOutLabel = &label
-		}
-	}
-	if row.WorkedMinutes != nil {
-		entry.HoursLabel = hoursLabel(*row.WorkedMinutes)
-	}
-	if entry.Flags == nil {
-		entry.Flags = []domain.ClockFlag{}
-	}
-	_ = copyMap
 	return entry
 }
 

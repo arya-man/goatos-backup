@@ -107,8 +107,12 @@ type ClockEntry struct {
 	WorkedMinutes *int `json:"worked_minutes,omitempty"`
 	// HoursLabel is the rendered form ("9h 29m"), or the in-progress form for
 	// an open entry composed at read time ("3h 40m so far").
-	HoursLabel string      `json:"hours_label,omitempty"`
-	Flags      []ClockFlag `json:"flags"`
+	HoursLabel string `json:"hours_label,omitempty"`
+	// LocationLabel is the clock-in punch's reverse-geocoded address; empty
+	// when GPS was unavailable. DeviceLabel is "model · app version".
+	LocationLabel string      `json:"location_label,omitempty"`
+	DeviceLabel   string      `json:"device_label,omitempty"`
+	Flags         []ClockFlag `json:"flags"`
 }
 
 // ClockStatusResponse is GET /app/clock/status — the My Clock screen state and
