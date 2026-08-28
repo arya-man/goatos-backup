@@ -108,6 +108,15 @@ interface OutboxStore {
      *  (a concurrent transition already moved it on). */
     suspend fun reopenTerminalForRetry(id: String, payloadJson: String, fingerprint: String, now: Long): Boolean
 
+    /** Re-opens a FAILED proof upload row with the latest file-backed payload and ordering group. */
+    suspend fun reopenFailedProofUploadForRetry(
+        id: String,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+        now: Long,
+    ): Boolean
+
     /** Recovers rows stranded IN_FLIGHT by a prior crash/process-death mid-dispatch back to
      *  QUEUED. Returns the number reclaimed. Called at the top of every drain pass (safe under
      *  the drain mutex — no dispatch is concurrently in progress). */
@@ -170,6 +179,14 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
 
     override suspend fun reopenTerminalForRetry(id: String, payloadJson: String, fingerprint: String, now: Long): Boolean =
         dao.reopenTerminalForRetry(id, payloadJson, fingerprint, now) > 0
+
+    override suspend fun reopenFailedProofUploadForRetry(
+        id: String,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+        now: Long,
+    ): Boolean = dao.reopenFailedProofUploadForRetry(id, groupKey, payloadJson, fingerprint, now) > 0
 
     override suspend fun reclaimInFlight(now: Long): Int = dao.reclaimInFlight(now)
 

@@ -114,6 +114,11 @@ class MilkPreparationViewModelTest {
             survivingRows.size,
         )
         assertEquals("/proof/goat-milk-qty.mp4", survivingRows.first().localUri)
+        assertEquals(
+            "the visible proof gate must keep reflecting the durable old proof after a cancelled retake",
+            true,
+            viewModel.state.value.steps.single { it.code == "goat_milk_quantity" }.captured,
+        )
     }
 
     @Test
@@ -171,6 +176,11 @@ class MilkPreparationViewModelTest {
             survivingRows.size,
         )
         assertEquals("/proof/goat-milk-qty-1.mp4", survivingRows.first().localUri)
+        assertEquals(
+            "the visible proof gate must keep reflecting the durable old proof after a failed retake",
+            true,
+            viewModel.state.value.steps.single { it.code == "goat_milk_quantity" }.captured,
+        )
     }
 
     @Test
@@ -574,38 +584,49 @@ private class FakeMilkPreparationSyncRepository : SyncRepository {
 
 private class FakeMilkPreparationDraftRepository : CaptureDraftRepository {
     private val drafts = mutableMapOf<String, CaptureDraft>()
+    private val flows = mutableMapOf<String, MutableStateFlow<CaptureDraft>>()
 
     override suspend fun find(flowKey: String, entityId: String): CaptureDraft {
         return drafts.getOrPut(entityId) { CaptureDraft() }
     }
 
-    override fun observe(flowKey: String, entityId: String): Flow<CaptureDraft> = MutableStateFlow(drafts[entityId] ?: CaptureDraft())
+    override fun observe(flowKey: String, entityId: String): Flow<CaptureDraft> =
+        flowFor(entityId)
 
     override suspend fun putAnswers(flowKey: String, entityId: String, answers: Map<String, String>) {
         val current = find(flowKey, entityId)
-        drafts[entityId] = current.copy(answers = current.answers + answers)
+        update(entityId, current.copy(answers = current.answers + answers))
     }
 
     override suspend fun putProof(flowKey: String, entityId: String, step: String, outboxItemId: String, fingerprint: String?) {
         val current = find(flowKey, entityId)
-        drafts[entityId] = current.copy(proofs = current.proofs + (step to outboxItemId))
+        update(entityId, current.copy(proofs = current.proofs + (step to outboxItemId)))
     }
 
     override suspend fun putSubmit(flowKey: String, entityId: String, idempotencyKey: String?, outboxItemId: String?) {
         val current = find(flowKey, entityId)
-        drafts[entityId] = current.copy(submitIdempotencyKey = idempotencyKey, submitOutboxItemId = outboxItemId)
+        update(entityId, current.copy(submitIdempotencyKey = idempotencyKey, submitOutboxItemId = outboxItemId))
     }
 
     override suspend fun clearProof(flowKey: String, entityId: String, step: String) {
         val current = find(flowKey, entityId)
-        drafts[entityId] = current.copy(proofs = current.proofs - step)
+        update(entityId, current.copy(proofs = current.proofs - step))
     }
 
     override suspend fun clear(flowKey: String, entityId: String) {
         drafts.remove(entityId)
+        flows[entityId]?.value = CaptureDraft()
     }
 
     override fun observeProgress(flowKey: String, limit: Int): Flow<Map<String, Int>> = MutableStateFlow(emptyMap())
+
+    private fun flowFor(entityId: String): MutableStateFlow<CaptureDraft> =
+        flows.getOrPut(entityId) { MutableStateFlow(drafts[entityId] ?: CaptureDraft()) }
+
+    private fun update(entityId: String, draft: CaptureDraft) {
+        drafts[entityId] = draft
+        flowFor(entityId).value = draft
+    }
 }
 
 private class FakeMilkPreparationRepository(

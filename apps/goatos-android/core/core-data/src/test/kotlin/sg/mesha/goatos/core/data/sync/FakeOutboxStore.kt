@@ -197,6 +197,37 @@ class FakeOutboxStore : OutboxStore {
         return true
     }
 
+    override suspend fun reopenFailedProofUploadForRetry(
+        id: String,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+        now: Long,
+    ): Boolean {
+        val current = rows.value.firstOrNull { it.id == id } ?: return false
+        if (current.status != OutboxStatus.FAILED.name || current.opType != "PROOF_UPLOAD") return false
+        rows.update { list ->
+            list.map {
+                if (it.id == id) {
+                    it.copy(
+                        status = OutboxStatus.QUEUED.name,
+                        groupKey = groupKey,
+                        attemptCount = 0,
+                        conflict = false,
+                        lastError = null,
+                        nextAttemptAt = now,
+                        updatedAt = now,
+                        payloadJson = payloadJson,
+                        requestFingerprint = fingerprint,
+                    )
+                } else {
+                    it
+                }
+            }
+        }
+        return true
+    }
+
     override suspend fun reclaimInFlight(now: Long): Int {
         val stranded = rows.value.count { it.status == OutboxStatus.IN_FLIGHT.name }
         if (stranded > 0) {

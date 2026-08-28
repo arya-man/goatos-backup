@@ -733,13 +733,12 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     }
 
     /**
-     * Distribution slots are independent field work. Keeping every proof upload in the session's
-     * single FIFO group means one backed-off video can strand the other two slots as "waiting to
-     * upload", which violates the parallel slot contract. The final completion stays on [groupKey]
-     * and resolves each proof by outbox id, so it still waits for the required uploads without
-     * serializing the uploads themselves.
+     * Keep required proof uploads and the final completion in one FIFO group. A completion outbox
+     * row resolves proof refs by local outbox id; if it runs while a proof is merely pending, the
+     * sync engine treats that as a normal retryable failure and can burn through completion attempts
+     * before the video upload eventually succeeds.
      */
-    private fun proofUploadGroupKey(slot: ProofSlot): String = "$groupKey:${slot.analyticsKind()}"
+    private fun proofUploadGroupKey(slot: ProofSlot): String = groupKey
 
     private fun trackSubmitSources(
         result: String,
@@ -1290,8 +1289,8 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                 kind,
                 ACTION_CAPTURE_FAILED,
                 mapOf(
-                AnalyticsEvents.Params.KIND to kind,
-                AnalyticsEvents.Params.REASON to reason,
+                    AnalyticsEvents.Params.KIND to kind,
+                    AnalyticsEvents.Params.REASON to reason,
                 ),
             ),
         )

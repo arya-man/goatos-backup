@@ -1430,6 +1430,13 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
     override suspend fun markRetryReady(id: String, now: Long) = inner.markRetryReady(id, now)
     override suspend fun reopenTerminalForRetry(id: String, payloadJson: String, fingerprint: String, now: Long) =
         inner.reopenTerminalForRetry(id, payloadJson, fingerprint, now)
+    override suspend fun reopenFailedProofUploadForRetry(
+        id: String,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+        now: Long,
+    ) = inner.reopenFailedProofUploadForRetry(id, groupKey, payloadJson, fingerprint, now)
     override suspend fun reclaimInFlight(now: Long) = inner.reclaimInFlight(now)
     override suspend fun delete(id: String) = inner.delete(id)
 }

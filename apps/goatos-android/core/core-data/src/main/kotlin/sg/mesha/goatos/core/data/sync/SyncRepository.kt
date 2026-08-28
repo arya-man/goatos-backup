@@ -1569,6 +1569,34 @@ class DefaultSyncRepository(
         payloadJson: String,
         fingerprint: String,
     ): String {
+        if (
+            existing.opType == OutboxOpType.PROOF_UPLOAD.name &&
+            existing.status == OutboxStatus.FAILED.name
+        ) {
+            val reopened = store.reopenFailedProofUploadForRetry(
+                id = existing.id,
+                groupKey = groupKey,
+                payloadJson = payloadJson,
+                fingerprint = fingerprint,
+                now = clock(),
+            )
+            if (reopened) {
+                runCatching {
+                    telemetry.onOutboxWrite(
+                        OutboxTelemetryEvent(
+                            phase = OutboxWritePhase.ENQUEUED,
+                            opType = opType.name,
+                            itemId = existing.id,
+                            attempt = 0,
+                            maxAttempts = existing.maxAttempts,
+                        ),
+                    )
+                }
+                return existing.id
+            }
+            val refreshed = store.findById(existing.id) ?: existing
+            return reopenOrReplayExistingRowOnce(refreshed, opType, groupKey, payloadJson, fingerprint)
+        }
         if (!existing.isTerminalOutboxFailure()) {
             return existingReplayIdOrThrow(existing, opType, groupKey, payloadJson, fingerprint)
         }

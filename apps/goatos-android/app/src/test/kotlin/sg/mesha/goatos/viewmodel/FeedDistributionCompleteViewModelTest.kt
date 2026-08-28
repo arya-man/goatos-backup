@@ -306,7 +306,7 @@ class FeedDistributionCompleteViewModelTest {
     }
 
     @Test
-    fun `distribution proof uploads use independent outbox groups while completion keeps session group`() = runTest(dispatcher) {
+    fun `distribution proof uploads share completion outbox group so completion waits behind proofs`() = runTest(dispatcher) {
         val syncRepository = RecordingFeedDistributionSyncRepository()
         val proofCaptureRepository = FakeProofCaptureRepository()
         val viewModel = FeedDistributionCompleteViewModel(
@@ -345,15 +345,15 @@ class FeedDistributionCompleteViewModelTest {
         val sessionGroup = "feed-dist:2026-08-12:shed-1:part 3:1:normal"
         assertEquals(
             listOf(
-                "$sessionGroup:feed_weight_photo",
-                "$sessionGroup:feed_video",
-                "$sessionGroup:water_video",
+                sessionGroup,
+                sessionGroup,
+                sessionGroup,
             ),
             proofCaptureRepository.captureCalls.map { it.uploadGroupKey },
         )
         assertEquals(
-            "each slot must drain independently; one backed-off video must not hold the other slots",
-            3,
+            "completion must share the proof upload lane so it cannot close before a required proof drains",
+            1,
             proofCaptureRepository.captureCalls.map { it.uploadGroupKey }.distinct().size,
         )
 
