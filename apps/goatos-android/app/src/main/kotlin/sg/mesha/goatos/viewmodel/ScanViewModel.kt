@@ -788,8 +788,8 @@ class ScanViewModel @Inject constructor(
                             ),
                         )
                     } else {
-                        markRowDone(row, capturedAtMs, scanObligationIds)
                         recordRosterScan(row, tag, capturedAtMs, scannableSameGoatRows)
+                        markRowDone(row, capturedAtMs, scanObligationIds)
                     }
                 }
                 ScanStatus.DONE -> {
@@ -891,7 +891,7 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    private fun recordRosterScan(
+    private suspend fun recordRosterScan(
         row: RosterRow,
         tag: String,
         capturedAtMs: Long,
@@ -904,19 +904,17 @@ class ScanViewModel @Inject constructor(
             .filter { it.obligationId.isNotBlank() }
             .map { ScanSyncTarget(it.goatId, it.obligationId, it.obligationRowVersion) }
             .ifEmpty { listOf(ScanSyncTarget(row.goatId, row.obligationId, row.obligationRowVersion)) }
-        viewModelScope.launch {
-            rowsToSync.forEach { target ->
-                scanCaptureRepository.recordScan(
-                    taskId = selectedTaskId,
-                    fieldKey = ROSTER_SCAN_FIELD_KEY,
-                    tag = capturedTag,
-                    goatId = target.goatId.ifBlank { row.goatId },
-                    obligationId = target.obligationId.takeIf { it.isNotBlank() },
-                    obligationRowVersion = target.obligationRowVersion,
-                    capturedAtMs = capturedAtMs,
-                    partitionLabel = partitionLabel,
-                )
-            }
+        rowsToSync.forEach { target ->
+            scanCaptureRepository.recordScan(
+                taskId = selectedTaskId,
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = capturedTag,
+                goatId = target.goatId.ifBlank { row.goatId },
+                obligationId = target.obligationId.takeIf { it.isNotBlank() },
+                obligationRowVersion = target.obligationRowVersion,
+                capturedAtMs = capturedAtMs,
+                partitionLabel = partitionLabel,
+            )
         }
     }
 

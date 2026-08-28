@@ -307,7 +307,11 @@ class MilkFeedingViewModel @Inject constructor(
             submitting = local.submitting, queued = local.queued, message = local.message,
             available = task?.available ?: false, blockedReason = task?.blockedReason.orEmpty(),
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MilkFeedingUiState(taskId = taskId, feedingDate = feedingDate))
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        MilkFeedingUiState(taskId = taskId, feedingDate = feedingDate, available = false),
+    )
 
     init {
         analytics.track(
@@ -477,6 +481,23 @@ class MilkFeedingViewModel @Inject constructor(
         )
         draft.update { it.copy(proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = true) else row }) }
         val current = state.value
+        if (!current.hasLoadedIdentity()) {
+            analytics.track(
+                AnalyticsEvents.MILK_FEEDING_PROOF_CAPTURE_FAILURE,
+                mapOf(
+                    AnalyticsEvents.Params.ITEM_ID to taskId,
+                    AnalyticsEvents.Params.FIELD to code,
+                    AnalyticsEvents.Params.REASON to "task_identity_not_loaded",
+                ),
+            )
+            draft.update {
+                it.copy(
+                    message = "Task details are still loading. Try again.",
+                    proofs = it.proofs.map { row -> if (row.code == code) row.copy(capturing = false) else row },
+                )
+            }
+            return@launch
+        }
         val caption = proofOverlayContextLine(
             feature = "Milk feeding",
             parkLabel = current.parkLabel.ifBlank { current.parkId },
@@ -563,6 +584,17 @@ class MilkFeedingViewModel @Inject constructor(
 
     private fun submit() = viewModelScope.launch {
         val current = state.value
+        if (!current.hasLoadedIdentity()) {
+            analytics.track(
+                AnalyticsEvents.MILK_FEEDING_FAILURE,
+                mapOf(
+                    AnalyticsEvents.Params.ITEM_ID to taskId,
+                    AnalyticsEvents.Params.REASON to "task_identity_not_loaded",
+                ),
+            )
+            draft.update { it.copy(message = "Task details are still loading. Try again.") }
+            return@launch
+        }
         if (!current.canSubmit) return@launch
         // Prevent double-submit: if one is already queued/in-flight/succeeded, don't submit again
         if (submitOutboxItemId.value != null) return@launch
@@ -605,6 +637,9 @@ class MilkFeedingViewModel @Inject constructor(
     }
 
     internal fun groupKey() = "milk-feeding:${state.value.parkId}:$feedingDate:${state.value.sessionNo}"
+
+    private fun MilkFeedingUiState.hasLoadedIdentity(): Boolean =
+        taskId.isNotBlank() && parkId.isNotBlank() && sessionNo > 0
 
     /** Canonical slot grain for a milk-feeding proof capture. identity.taskId/fieldKey resolve to
      *  the SAME strings [groupKey] / the raw `"milk_feeding_$code"` literal already produced, so

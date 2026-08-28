@@ -102,6 +102,8 @@ import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.analytics.FailureReportingOutboxTelemetryReporter
 import sg.mesha.goatos.core.common.OutboxTelemetryReporter
@@ -139,7 +141,10 @@ import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
 import sg.mesha.goatos.core.data.sync.SyncRetryScheduler
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.weighing.DefaultWeighingRepository
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachOutcome
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachStatus
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
+import sg.mesha.goatos.core.data.weighing.WeighingProofAttachTelemetryReporter
 import sg.mesha.goatos.core.database.outbox.OutboxDao
 import sg.mesha.goatos.core.database.outbox.OutboxDatabase
 import sg.mesha.goatos.core.database.outbox.buildOutboxDatabase
@@ -597,6 +602,8 @@ object AppModule {
         database: GoatDatabase,
         syncRepository: SyncRepository,
         appScope: CoroutineScope,
+        analytics: AnalyticsPort,
+        crashReporter: CrashReporter,
     ): WeighingRepository = DefaultWeighingRepository(
         api = api,
         tenantId = BuildConfig.TENANT_ID,
@@ -606,6 +613,7 @@ object AppModule {
         database = database,
         syncRepository = syncRepository,
         appScope = appScope,
+        proofAttachTelemetry = weighingProofAttachTelemetryReporter(analytics, crashReporter),
     )
 
     // --- MOB-002 capture (docs/mobile/proof-capture-sync-and-e2e.md) -------------------
@@ -935,6 +943,54 @@ object AppModule {
         }
     }
 }
+
+private const val WEIGHING_PROOF_ATTACH_REASON_LIMIT = 96 // mobile-guard:ignore: analytics reason text cap, not a fetched page/list size
+
+private fun weighingProofAttachTelemetryReporter(
+    analytics: AnalyticsPort,
+    crashReporter: CrashReporter,
+): WeighingProofAttachTelemetryReporter =
+    WeighingProofAttachTelemetryReporter { outcome, source, recoveredByRfid ->
+        val props = weighingProofAttachTelemetryProps(outcome, source)
+        when (outcome.status) {
+            IndividualProofAttachStatus.ATTACHED,
+            IndividualProofAttachStatus.ALREADY_QUEUED -> if (recoveredByRfid) {
+                analytics.track(AnalyticsEventsWeighing.WEIGHING_ORPHAN_SYNCED_PROOF_RECOVERED, props)
+            }
+            IndividualProofAttachStatus.NO_OBSERVATION -> {
+                analytics.track(AnalyticsEventsWeighing.WEIGHING_PROOF_ATTACH_NO_OBSERVATION, props)
+            }
+            IndividualProofAttachStatus.ENQUEUE_FAILED -> {
+                analytics.track(AnalyticsEventsWeighing.WEIGHING_OBSERVATION_ENQUEUE_FAILED, props)
+                crashReporter.recordException(
+                    IllegalStateException("weighing observation enqueue failed"),
+                    "weighing observation enqueue failed",
+                )
+            }
+            IndividualProofAttachStatus.ALREADY_ACCEPTED -> Unit
+        }
+    }
+
+private fun weighingProofAttachTelemetryProps(
+    outcome: IndividualProofAttachOutcome,
+    source: String,
+): Map<String, String> =
+    buildMap {
+        put(AnalyticsEvents.Params.ITEM_ID, outcome.scopeKey)
+        put(AnalyticsEvents.Params.PROOF_ID, outcome.proofCaptureId)
+        put(AnalyticsEvents.Params.STATUS, outcome.status.name.lowercase())
+        put(AnalyticsEvents.Params.SOURCE, source)
+        put(AnalyticsEventsWeighing.Params.RFID, outcome.scannedIdentifier)
+        outcome.campaignId?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.CAMPAIGN_ID, it) }
+        outcome.campaignShedId?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.CAMPAIGN_SHED_ID, it) }
+        outcome.serverProofId?.takeIf(String::isNotBlank)?.let {
+            put(AnalyticsEventsWeighing.Params.SERVER_PROOF_ID, it)
+            put(AnalyticsEvents.Params.PROOF_STATE, "server_synced")
+        }
+        outcome.reason?.takeIf(String::isNotBlank)?.let {
+            put(AnalyticsEvents.Params.REASON, it.take(WEIGHING_PROOF_ATTACH_REASON_LIMIT))
+        }
+    }
 
 /**
  * Call-time-deferred [sg.mesha.goatos.core.data.PcCareRepository] handle that breaks the ONE

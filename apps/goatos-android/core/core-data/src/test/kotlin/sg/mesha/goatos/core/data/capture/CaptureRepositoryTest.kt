@@ -6,11 +6,16 @@ import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
@@ -81,6 +86,32 @@ class CaptureRepositoryTest {
             .build()
     }
 
+    private fun TestScope.closeDb(db: GoatDatabase) {
+        backgroundScope.coroutineContext.cancelChildren()
+        db.close()
+    }
+
+    private suspend fun awaitProofStatus(
+        dao: ProofCaptureDao,
+        proofId: String,
+        expectedStatus: String,
+    ): ProofCaptureEntity {
+        repeat(20) {
+            dao.findById(proofId)?.let { row ->
+                if (row.syncStatus == expectedStatus) return row
+            }
+            delay(10)
+        }
+        return dao.findById(proofId) ?: error("proof row missing: $proofId")
+    }
+
+    private suspend fun awaitEnqueueCallCount(sync: FakeSyncRepository, expectedCount: Int) {
+        repeat(20) {
+            if (sync.enqueueCalls.size >= expectedCount) return
+            delay(10)
+        }
+    }
+
     @Test
     fun `repeat scan of the same tag is deduped at the DB layer`() = runTest {
         val db = newDb()
@@ -100,7 +131,7 @@ class CaptureRepositoryTest {
             assertEquals("goat-1", sync.scanCalls[0].request.goatId)
             assertEquals("obl-1", sync.scanCalls[0].request.obligationId)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -125,7 +156,7 @@ class CaptureRepositoryTest {
                 sync.scanCalls.map { it.idempotencyKey },
             )
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -166,7 +197,7 @@ class CaptureRepositoryTest {
                 sync.scanCalls.single().idempotencyKey,
             )
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -253,7 +284,7 @@ class CaptureRepositoryTest {
             assertTrue(sync.scanCalls[0].idempotencyKey.contains(":partition:1:"))
             assertTrue(sync.scanCalls[1].idempotencyKey.contains(":partition:2:"))
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -323,7 +354,7 @@ class CaptureRepositoryTest {
             assertTrue(keyCycle1.endsWith(":ov1"))
             assertTrue(keyCycle2.endsWith(":ov2"))
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -362,7 +393,7 @@ class CaptureRepositoryTest {
             assertEquals(1, sync.scanCalls.size)
             assertTrue(sync.scanCalls[0].idempotencyKey.endsWith(":ov1"))
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -384,7 +415,7 @@ class CaptureRepositoryTest {
             assertEquals(1_000L, rows.single().capturedAtMs) // untouched — still the first write
             assertEquals(1, sync.scanCalls.size)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -436,7 +467,7 @@ class CaptureRepositoryTest {
             assertEquals("secondary", sync.attemptCalls[1].request.tagRole)
             assertEquals("goat_already_scanned", sync.attemptCalls[1].request.reason)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -497,7 +528,7 @@ class CaptureRepositoryTest {
             // Every capture queued a registration write through the SAME durable outbox path.
             assertEquals(6, sync.enqueueCalls.size)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -549,7 +580,7 @@ class CaptureRepositoryTest {
             assertTrue("generic shed cap must reject the 6th, not accept unlimited", sixth is AppResult.Err)
             assertEquals(5, repo.observeProofs("task-shed").first().size)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -605,8 +636,9 @@ class CaptureRepositoryTest {
 
             assertTrue("failed rows must not permanently burn the 5-video cap", replacement is AppResult.Ok)
             assertEquals(CaptureSyncStatus.PENDING, repo.observeProofs("task-failed-cap").first().first().syncStatus)
+            awaitEnqueueCallCount(sync, expectedCount = 6)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -652,7 +684,7 @@ class CaptureRepositoryTest {
             assertEquals(listOf(itemId), sync.retryCalls)
             assertEquals(CaptureSyncStatus.PENDING, repo.observeProofs("task-retry-proof").first().single().syncStatus)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -704,7 +736,7 @@ class CaptureRepositoryTest {
             assertEquals(CaptureSyncStatus.SYNCED, row.syncStatus)
             assertEquals("server-proof-123", row.serverProofId)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -762,7 +794,7 @@ class CaptureRepositoryTest {
             assertTrue("original proof file is retained for explicit row cleanup", originalFile.exists())
             assertTrue("processed proof file is retained for synced preview", processedFile.exists())
         } finally {
-            db.close()
+            closeDb(db)
             originalFile.delete()
             processedFile.delete()
         }
@@ -810,7 +842,7 @@ class CaptureRepositoryTest {
             assertEquals(null, row.serverProofId)
             assertEquals("Proof upload finished without a server proof id. Record this video again.", row.lastError)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -845,7 +877,7 @@ class CaptureRepositoryTest {
             assertEquals("outbox-0", row?.outboxItemId)
             assertEquals(CaptureSyncStatus.PENDING.name, row?.syncStatus)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -881,7 +913,7 @@ class CaptureRepositoryTest {
             assertEquals("outbox-0", row?.outboxItemId)
             assertEquals(CaptureSyncStatus.PENDING.name, row?.syncStatus)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -928,7 +960,7 @@ class CaptureRepositoryTest {
                 },
             )
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -989,7 +1021,7 @@ class CaptureRepositoryTest {
                 },
             )
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1041,8 +1073,9 @@ class CaptureRepositoryTest {
                         props["proof_id"] == "proof-live-processing"
                 },
             )
+            advanceUntilIdle()
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1094,8 +1127,9 @@ class CaptureRepositoryTest {
                         props["proof_id"] == "proof-live-processed-no-outbox-yet"
                 },
             )
+            advanceUntilIdle()
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1148,7 +1182,7 @@ class CaptureRepositoryTest {
             assertEquals("Vaccination · CPT · Castro 1 · ET+TT, PPR", sync.enqueueCalls.single().request.metadata["caption"]?.jsonPrimitive?.content)
             assertEquals("44444444-4444-4444-4444-444444444444", sync.enqueueCalls.single().request.subjectId)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1204,7 +1238,7 @@ class CaptureRepositoryTest {
             assertEquals(1, processor.requests.size)
             assertEquals(1, sync.enqueueCalls.size)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1259,7 +1293,7 @@ class CaptureRepositoryTest {
             assertEquals(1, db.proofCaptureDao().countStateEvents(entity.id, "gallery_save_completed"))
             assertEquals("file://processed-proof.mp4", sync.enqueueCalls.single().localFilePath)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1337,7 +1371,7 @@ class CaptureRepositoryTest {
             repo.reconcileRecoverableUploadsNow()
             assertEquals("Recovery must not enqueue the raw original", emptyList<String>(), sync.enqueueCalls)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1389,7 +1423,7 @@ class CaptureRepositoryTest {
                 db.proofCaptureDao().countStateEvents(captured.id, "upload_enqueue_failed"),
             )
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1465,7 +1499,7 @@ class CaptureRepositoryTest {
                 sync.enqueueCalls.single().request.metadata["upload_original"]?.jsonPrimitive?.content,
             )
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1502,7 +1536,7 @@ class CaptureRepositoryTest {
             assertEquals(CaptureSyncStatus.FAILED.name, row?.syncStatus)
             assertEquals("upload failed permanently", row?.lastError)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1556,7 +1590,7 @@ class CaptureRepositoryTest {
                 captureSource,
             )
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1609,7 +1643,7 @@ class CaptureRepositoryTest {
                 remaining.map { it.id },
             )
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1646,7 +1680,7 @@ class CaptureRepositoryTest {
             val ctk = (call.request.metadata["client_task_key"] as? JsonPrimitive)?.content
             assertEquals("recovery must reuse the persisted client task key", "ctk-original-not-derivable", ctk)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1695,7 +1729,7 @@ class CaptureRepositoryTest {
                 clientTaskKey,
             )
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1727,19 +1761,23 @@ class CaptureRepositoryTest {
 
             assertEquals("an existing outbox id must be followed, not re-enqueued", 0, sync.enqueueCalls.size)
 
-            sync.emit("outbox-existing", SyncItemStatus.IN_FLIGHT, resultJson = null)
+            var observed = repo.observeProofs("task-existing").first()
+            val observer = backgroundScope.launch {
+                repo.observeProofs("task-existing").collect { observed = it }
+            }
             advanceUntilIdle()
-            var row = repo.observeProofs("task-existing").first().single()
-            assertEquals(CaptureSyncStatus.IN_FLIGHT, row.syncStatus)
+            sync.emit("outbox-existing", SyncItemStatus.IN_FLIGHT, resultJson = null)
+            var row = awaitProofStatus(db.proofCaptureDao(), "proof-existing", CaptureSyncStatus.IN_FLIGHT.name)
+            assertEquals(CaptureSyncStatus.IN_FLIGHT.name, row.syncStatus)
 
             val response = ProofUploadResponseDto(proof = ProofReferenceDto(proofId = "server-proof-existing"))
             sync.emit("outbox-existing", SyncItemStatus.SUCCEEDED, resultJson = syncJson.encodeToString(response))
-            advanceUntilIdle()
-            row = repo.observeProofs("task-existing").first().single()
-            assertEquals(CaptureSyncStatus.SYNCED, row.syncStatus)
+            row = awaitProofStatus(db.proofCaptureDao(), "proof-existing", CaptureSyncStatus.SYNCED.name)
+            assertEquals(CaptureSyncStatus.SYNCED.name, row.syncStatus)
             assertEquals("server-proof-existing", row.serverProofId)
+            observer.cancel()
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1790,7 +1828,7 @@ class CaptureRepositoryTest {
             assertEquals(1, proofs.size)
             assertEquals(ProofSubject.SHED, proofs.single().proofSubject)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1842,7 +1880,7 @@ class CaptureRepositoryTest {
             assertEquals(outboxItemId, sync.cancelCalls[0])
             assertEquals("must NOT use the unconditional deleteOutboxItem", 0, sync.deleteOutboxCalls.size)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1895,7 +1933,7 @@ class CaptureRepositoryTest {
             // Verify: no deleteOutboxItem was called
             assertEquals("deleteOutboxItem must NOT be called for IN_FLIGHT", 0, sync.deleteOutboxCalls.size)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1940,7 +1978,7 @@ class CaptureRepositoryTest {
             assertTrue("must refuse while a retryable FAILED outbox row still references the file", result is AppResult.Err)
             assertEquals("proof row must NOT be deleted", captured.id, db.proofCaptureDao().findById(captured.id)?.id)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -1984,7 +2022,7 @@ class CaptureRepositoryTest {
             val rowAfter = db.proofCaptureDao().findById(captured.id)
             assertEquals("proof row must NOT be deleted on outbox failure", captured.id, rowAfter?.id)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -2026,7 +2064,7 @@ class CaptureRepositoryTest {
             val allRowsAfter = db.proofCaptureDao().listForTask(taskId, limit = Int.MAX_VALUE)
             assertEquals("all 11,000 rows must be deleted even though read is capped at 10,000", 0, allRowsAfter.size)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -2105,7 +2143,7 @@ class CaptureRepositoryTest {
             assertTrue("every target-task file must be deleted", targetFiles.none { it.exists() })
             assertTrue("other-task files must be preserved", otherFiles.all { it.exists() })
         } finally {
-            db.close()
+            closeDb(db)
             tempDir.deleteRecursively()
         }
     }
@@ -2170,7 +2208,7 @@ class CaptureRepositoryTest {
             assertEquals("retry must use scope_type=shed for shed proofs (F1a fix)", "shed", retryRequest.scopeType)
             assertEquals("retry must use scope_id=shed_id (F1a fix)", shedId, retryRequest.scopeId)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -2208,7 +2246,7 @@ class CaptureRepositoryTest {
             assertEquals("recovery must derive scope_type=shed from entity (F1a fix)", "shed", recoveryCall.request.scopeType)
             assertEquals("recovery must use the persisted subjectId as scope_id (F1a fix)", shedId, recoveryCall.request.scopeId)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -2282,7 +2320,7 @@ class CaptureRepositoryTest {
             assertTrue("changed-state reconcile must issue a write", spyDao.updateStatusCalls >= 1)
             assertEquals("row lastError reconciled to the outbox item", "network gave up", db.proofCaptureDao().findById(captured.id)!!.lastError)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -2366,7 +2404,7 @@ class CaptureRepositoryTest {
             assertEquals("target proof must reach SYNCED even when many items drop out", CaptureSyncStatus.SYNCED, row.syncStatus)
             assertEquals("server-proof-many-items", row.serverProofId)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -2399,7 +2437,7 @@ class CaptureRepositoryTest {
             assertEquals(listOf("server-proof-remove"), sync.deleteUploadedProofCalls)
             assertEquals(null, db.proofCaptureDao().findById("proof-synced-remove"))
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -2432,7 +2470,7 @@ class CaptureRepositoryTest {
             assertEquals(listOf("server-proof-keep"), sync.deleteUploadedProofCalls)
             assertEquals(entity, db.proofCaptureDao().findById("proof-synced-keep"))
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -2527,7 +2565,7 @@ class CaptureRepositoryTest {
             assertEquals("Proof subject is the goat", goatId, singleProof.subjectId)
             assertEquals("Proof references tag", tag, singleProof.rfidTag)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -2612,7 +2650,7 @@ class CaptureRepositoryTest {
             assertEquals("Remaining proof is the new one", secondId, remaining[0].id)
             assertEquals("New proof path is second (processed)", "file:///second.mp4.processed", remaining[0].localUri)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -2721,7 +2759,7 @@ class CaptureRepositoryTest {
             assertEquals("New proof path is the new capture (processed)", "file:///new-3.mp4.processed", afterReplace[0].localUri)
             assertTrue("New ID is different from both old IDs", newId != oldId1 && newId != oldId2)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -2801,7 +2839,7 @@ class CaptureRepositoryTest {
             assertEquals("Old proof survived failed replacement", firstId, remaining[0].id)
             assertEquals("Old proof path unchanged", "file:///first.mp4", remaining[0].localUri)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -2901,7 +2939,7 @@ class CaptureRepositoryTest {
             assertEquals("The most recent proof is active", thirdId, remaining[0].id)
             assertEquals("Newest proof path is third (processed)", "file:///third.mp4.processed", remaining[0].localUri)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -3012,7 +3050,7 @@ class CaptureRepositoryTest {
             assertTrue("Old B row still exists (not removed)", rowIds.contains(bFirstId))
             assertFalse("Old A row removed", rowIds.contains(aFirstId))
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -3132,7 +3170,7 @@ class CaptureRepositoryTest {
             assertEquals("X proof path is replace (processed)", "file:///x-replace.mp4.processed", rowsBySubject["goat-x"]?.localUri)
             assertEquals("Y proof path is replace (processed)", "file:///y-replace.mp4.processed", rowsBySubject["goat-y"]?.localUri)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -3286,7 +3324,7 @@ class CaptureRepositoryTest {
                 fourthCapture is AppResult.Ok,
             )
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -3377,7 +3415,7 @@ class CaptureRepositoryTest {
             val finalEnqueueCalls = sync.enqueueCalls.filter { it.idempotencyKey == expectedIdempotencyKey }
             assertEquals("Exactly one active outbox entry per proof", 1, finalEnqueueCalls.size)
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -3434,7 +3472,7 @@ class CaptureRepositoryTest {
                 jpeg.delete()
             }
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 
@@ -3540,7 +3578,7 @@ class CaptureRepositoryTest {
                 tempGarbageFile.delete()
             }
         } finally {
-            db.close()
+            closeDb(db)
         }
     }
 }

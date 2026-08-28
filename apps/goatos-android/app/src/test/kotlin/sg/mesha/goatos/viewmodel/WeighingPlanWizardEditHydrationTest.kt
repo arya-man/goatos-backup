@@ -21,6 +21,8 @@ import org.junit.Test
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachOutcome
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachStatus
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingDraft
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
@@ -522,7 +524,15 @@ class WeighingPlanWizardEditHydrationTest {
             scannedIdentifier: String,
             proofCaptureId: String,
             serverProofId: String?,
-        ) = Unit
+        ): AppResult<IndividualProofAttachOutcome> = AppResult.Ok(
+            IndividualProofAttachOutcome(
+                status = IndividualProofAttachStatus.NO_OBSERVATION,
+                scopeKey = scopeKey,
+                scannedIdentifier = scannedIdentifier,
+                proofCaptureId = proofCaptureId,
+                serverProofId = serverProofId,
+            ),
+        )
 
         override suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft> =
             AppResult.Err("not configured in this fake")

@@ -35,6 +35,7 @@ import sg.mesha.goatos.capture.ChannelBackedProofCaptureSource
 import sg.mesha.goatos.capture.FakeProofCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
@@ -47,6 +48,8 @@ import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncStatus
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachOutcome
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachStatus
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingDraft
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
@@ -590,6 +593,103 @@ class WeighingViewModelTest {
         val row = vm.state.value.visibleRows.single()
         assertNull(row.proofCaptureId)
         assertEquals(ProofUploadStatus.MISSING, row.proofUploadStatus)
+    }
+
+    @Test
+    fun `synced individual proof with shed caption attaches by rfid tag`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                listOf(rosterRow(animalId = TEST_TAG)),
+                listOf(
+                    IndividualWeighingDraft(
+                        observationId = "observation-$TEST_TAG",
+                        scannedIdentifier = TEST_TAG,
+                        weightKg = 25.0,
+                        capturedAtMs = 3_000,
+                        proofCaptureId = null,
+                        proofReady = false,
+                        readyToSubmit = false,
+                        syncedToBackend = false,
+                        idempotencyKey = "weighing:individual:$TEST_TAG",
+                    ),
+                ),
+                emptyList(),
+                1,
+            ),
+        )
+        val proofs = FakeProofCaptureRepository().also {
+            it.seedProofs(
+                proofRow(
+                    id = "proof-godel-part-1",
+                    caption = "Weighing . Coimbatore . Godel 2 - Part 1",
+                    subjectId = null,
+                    rfidTag = TEST_TAG,
+                    syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-proof-godel-part-1",
+                ),
+            )
+        }
+        val vm = weighingViewModel(repository, scoped = true, proofCaptureRepository = proofs, analytics = analytics)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(FakeWeighingRepository.AttachedIndividualProof(TEST_TAG, "proof-godel-part-1", "server-proof-godel-part-1")),
+            repository.attachedIndividualProofs.map { it.copy(scopeKey = "") },
+        )
+        assertEquals(ProofUploadStatus.SYNCED, vm.state.value.visibleRows.single().proofUploadStatus)
+        val recovered = analytics.events.single {
+            it.name == AnalyticsEventsWeighing.WEIGHING_ORPHAN_SYNCED_PROOF_RECOVERED
+        }
+        assertEquals(TEST_TAG, recovered.props[AnalyticsEventsWeighing.Params.RFID])
+        assertEquals("server-proof-godel-part-1", recovered.props[AnalyticsEventsWeighing.Params.SERVER_PROOF_ID])
+        assertEquals("attached", recovered.props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.STATUS])
+    }
+
+    @Test
+    fun `stale synced individual proof with matching rfid is not reused`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                listOf(rosterRow(animalId = TEST_TAG)),
+                listOf(
+                    IndividualWeighingDraft(
+                        observationId = "observation-rework-$TEST_TAG",
+                        scannedIdentifier = TEST_TAG,
+                        weightKg = 25.0,
+                        capturedAtMs = 3_600_000,
+                        proofCaptureId = null,
+                        proofReady = false,
+                        readyToSubmit = false,
+                        syncedToBackend = false,
+                        idempotencyKey = "weighing:individual:rework:$TEST_TAG",
+                    ),
+                ),
+                emptyList(),
+                1,
+            ),
+        )
+        val proofs = FakeProofCaptureRepository().also {
+            it.seedProofs(
+                proofRow(
+                    id = "proof-before-rework",
+                    caption = "Weighing . Coimbatore . Godel 2 - Part 1",
+                    subjectId = null,
+                    rfidTag = TEST_TAG,
+                    syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-proof-before-rework",
+                    capturedAtMs = 1_000,
+                    capturedStartMs = 1_000,
+                    capturedEndMs = 2_000,
+                ),
+            )
+        }
+        val vm = weighingViewModel(repository, scoped = true, proofCaptureRepository = proofs)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(emptyList<FakeWeighingRepository.AttachedIndividualProof>(), repository.attachedIndividualProofs)
+        assertEquals(ProofUploadStatus.MISSING, vm.state.value.visibleRows.single().proofUploadStatus)
     }
 
     @Test
@@ -1954,6 +2054,46 @@ class WeighingViewModelTest {
     }
 
     @Test
+    fun `server restored green weighing rows can submit without local scan history`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                rosterWindow = emptyList(),
+                individualDrafts = listOf(acceptedDraft(animalId = TEST_TAG, weightKg = 12.5)),
+                shedDrafts = emptyList(),
+                totalExpected = 1,
+            ),
+        )
+        val proofs = FakeProofCaptureRepository().also {
+            it.seedProofs(
+                proofRow(
+                    id = "proof-$TEST_TAG",
+                    syncStatus = CaptureSyncStatus.SYNCED,
+                    serverProofId = "server-proof-$TEST_TAG",
+                ),
+            )
+        }
+        val vm = weighingViewModel(
+            repository = repository,
+            scoped = true,
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            proofCaptureRepository = proofs,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.individualSubmitReady)
+
+        vm.submitIndividualScope {}
+        advanceUntilIdle()
+
+        assertTrue("server-restored ready rows should arm confirmation", vm.state.value.showSubmitConfirmation)
+        vm.confirmSubmitIndividualScope()
+        advanceUntilIdle()
+
+        assertEquals(listOf(TEST_TAG), repository.submitIndividualScopeCalls.single())
+    }
+
+    @Test
     fun `a rejected scope-level submit tracks a submit-failed event carrying the real reason`() = runTest(dispatcher) {
         val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
         val scans = FakeScanCaptureRepository()
@@ -2485,8 +2625,12 @@ class WeighingViewModelTest {
         proofSubject: ProofSubject = ProofSubject.GOAT,
         subjectId: String? = TEST_TAG,
         caption: String? = TEST_TAG,
+        rfidTag: String? = null,
         syncStatus: CaptureSyncStatus,
         serverProofId: String?,
+        capturedAtMs: Long = 1_000,
+        capturedStartMs: Long = 1_000,
+        capturedEndMs: Long = 2_000,
     ) = ProofCaptureRow(
         id = id,
         fieldKey = fieldKey,
@@ -2495,9 +2639,10 @@ class WeighingViewModelTest {
         localUri = "file://$id.mp4",
         mimeType = "video/mp4",
         caption = caption,
-        capturedAtMs = 1_000,
-        capturedStartMs = 1_000,
-        capturedEndMs = 2_000,
+        rfidTag = rfidTag,
+        capturedAtMs = capturedAtMs,
+        capturedStartMs = capturedStartMs,
+        capturedEndMs = capturedEndMs,
         capturedByPrincipalId = null,
         syncStatus = syncStatus,
         serverProofId = serverProofId,
@@ -3026,7 +3171,37 @@ class WeighingViewModelTest {
                 ?: AppResult.Err("not used")
         }
 
-        override suspend fun attachIndividualProof(scopeKey: String, scannedIdentifier: String, proofCaptureId: String, serverProofId: String?) {}
+        data class AttachedIndividualProof(
+            val scannedIdentifier: String,
+            val proofCaptureId: String,
+            val serverProofId: String?,
+            val scopeKey: String = "",
+        )
+
+        val attachedIndividualProofs = mutableListOf<AttachedIndividualProof>()
+
+        override suspend fun attachIndividualProof(
+            scopeKey: String,
+            scannedIdentifier: String,
+            proofCaptureId: String,
+            serverProofId: String?,
+        ): AppResult<IndividualProofAttachOutcome> {
+            attachedIndividualProofs += AttachedIndividualProof(
+                scannedIdentifier = scannedIdentifier,
+                proofCaptureId = proofCaptureId,
+                serverProofId = serverProofId,
+                scopeKey = scopeKey,
+            )
+            return AppResult.Ok(
+                IndividualProofAttachOutcome(
+                    status = IndividualProofAttachStatus.ATTACHED,
+                    scopeKey = scopeKey,
+                    scannedIdentifier = scannedIdentifier,
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                ),
+            )
+        }
 
         /** Calls this fake received for the per-shed-partition (lump-sum) submit path -- default
          *  success, matching [submitIndividualScopeCalls]'s shape for the RFID-scoped path. */

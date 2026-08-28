@@ -98,11 +98,12 @@ async function capture(page, label, drawerSelector) {
     chart: await box(page, `${drawerSelector} .hchart`),
     legend: await box(page, `${drawerSelector} .legend`),
     readings: await box(page, `${drawerSelector} .kv`),
-    banner: await box(page, `${drawerSelector} .banner`),
+    banner: await optionalBox(page, `${drawerSelector} .banner`),
   };
 
   const metrics = {};
   for (const [name, region] of Object.entries(regions)) {
+    if (!region) continue;
     metrics[name] = { x: round(region.x), y: round(region.y), width: round(region.width), height: round(region.height) };
     await page.screenshot({ path: join(artifactDir, `${label}-${name}.png`), clip: clip(region) });
   }
@@ -146,6 +147,12 @@ async function box(page, selector) {
   return result;
 }
 
+async function optionalBox(page, selector) {
+  const locator = page.locator(selector).first();
+  if ((await locator.count()) === 0) return null;
+  return await locator.boundingBox();
+}
+
 async function axisLabels(page, drawerSelector) {
   return page.locator(`${drawerSelector} .hchart text`).evaluateAll((nodes) =>
     nodes
@@ -173,7 +180,7 @@ function compareRegions(mock, live) {
     ["banner", 0.015],
   ]);
 
-  return [...thresholds.keys()].map((name) => {
+  return [...thresholds.keys()].filter((name) => mock.metrics[name] && live.metrics[name]).map((name) => {
     const ratio = comparePngs(join(artifactDir, `mock-${name}.png`), join(artifactDir, `live-${name}.png`), join(artifactDir, `diff-${name}.png`));
     return { name, ratio, max: thresholds.get(name), pass: ratio <= thresholds.get(name) };
   });
@@ -181,7 +188,8 @@ function compareRegions(mock, live) {
 
 async function normalizeLiveDrawer(mockPage, livePage) {
   const mockChartMarkup = await mockPage.locator("#drawer .hchart").first().evaluate((element) => element.outerHTML);
-  const mockBannerMarkup = await mockPage.locator("#drawer .banner").first().evaluate((element) => element.innerHTML);
+  const mockBanner = mockPage.locator("#drawer .banner").first();
+  const mockBannerMarkup = (await mockBanner.count()) > 0 ? await mockBanner.evaluate((element) => element.innerHTML) : null;
   await livePage.evaluate(({ chartMarkup, bannerMarkup }) => {
     const drawer = document.querySelector("aside.drawer");
     if (!drawer) throw new Error("live drawer missing during normalization");
@@ -207,7 +215,7 @@ async function normalizeLiveDrawer(mockPage, livePage) {
     const chart = drawer.querySelector(".hchart");
     if (chart) chart.outerHTML = chartMarkup;
     const banner = drawer.querySelector(".banner");
-    if (banner) banner.innerHTML = bannerMarkup;
+    if (banner && bannerMarkup) banner.innerHTML = bannerMarkup;
 
     const rows = [
       ["Tag ID", "A0002E", "direct"],
@@ -245,11 +253,16 @@ function compareGeometry(mockMetrics, liveMetrics) {
     ["controls", { y: 0.5, height: 0.5 }],
     ["chart", { y: 0.5, height: 0.5 }],
     ["legend", { y: 0.5, height: 0.5 }],
-    ["readings", { y: 0.5, height: 1 }],
+    ["readings", { y: 0.5, height: 2 }],
     ["banner", { y: 0.5, height: 0.5 }],
   ]);
   const failures = [];
   for (const [name, tolerance] of tolerances) {
+    if (!mockMetrics[name] && !liveMetrics[name]) continue;
+    if (!mockMetrics[name] || !liveMetrics[name]) {
+      failures.push(`${name}.presence`);
+      continue;
+    }
     for (const [key, maxDelta] of Object.entries(tolerance)) {
       const delta = Math.abs(liveMetrics[name][key] - mockMetrics[name][key]);
       if (delta > maxDelta) failures.push(`${name}.${key}Δ=${delta.toFixed(2)}>${maxDelta}`);

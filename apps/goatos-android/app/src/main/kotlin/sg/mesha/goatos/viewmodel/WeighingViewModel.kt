@@ -42,6 +42,8 @@ import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachOutcome
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachStatus
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
 import sg.mesha.goatos.core.data.weighing.WeighingCsvExportRow
 import sg.mesha.goatos.core.data.weighing.parseWeighingExportCsv
@@ -169,6 +171,9 @@ class WeighingViewModel @Inject constructor(
     // (<= 5 shed videos, or that shed's per-animal captures). They do NOT accumulate across a
     // shift; a new bucket gets a new ViewModel and new empty collections.
     private val reportedProofUploadTrouble = mutableSetOf<String>() // mobile-guard:ignore: per-scope ViewModel, dies with the bucket; <= one shed's captures
+
+    // mobile-guard:ignore: same per-scope lifetime and bound as reportedProofUploadTrouble above.
+    private val reportedIndividualProofAttachOutcomes = mutableSetOf<String>() // mobile-guard:ignore: per-scope ViewModel, dies with the bucket; <= one shed's captures
 
     // mobile-guard:ignore: same per-scope lifetime as reportedProofUploadTrouble above.
     private val proofUploadAttempts = mutableMapOf<String, Int>() // mobile-guard:ignore: per-scope ViewModel, dies with the bucket; <= one shed's captures
@@ -1826,11 +1831,25 @@ class WeighingViewModel @Inject constructor(
      * Returns null when the scope is not submittable.
      */
     private fun computeSubmittableIdentifiers(): List<String>? {
+        val snapshot = submitReadinessSnapshot()
+        return snapshot.submittedIdentifiers.takeIf { snapshot.ready }
+    }
+
+    private fun submitReadinessSnapshot(): SubmitReadinessSnapshot {
         val drafts = scopeState.value?.individualDrafts.orEmpty()
-        val scannedIdentifiers = scannedRows.value
+        val visibleRows = state.value.visibleRows
+        val localScannedRows = scannedRows.value
+        // A fresh install can hydrate already-captured weighing rows from the server without any
+        // local scan-capture rows. The UI renders those rows as ready from the weighing scope cache,
+        // so the submit gate must use the same source of truth instead of requiring local scan
+        // history that may not exist on this device.
+        val scannedIdentifiers = visibleRows
             .map { it.animalId }
+            .ifEmpty {
+                localScannedRows.map { it.animalId }
+            }
             .distinct()
-        val readyVisibleRows = state.value.visibleRows
+        val readyVisibleRows = visibleRows
             .filter { row ->
                 scannedIdentifiers.contains(row.animalId) &&
                     row.weightSaved &&
@@ -1858,7 +1877,14 @@ class WeighingViewModel @Inject constructor(
             submittedIdentifiers.size == scannedIdentifiers.size &&
             submittedIdentifiers.size == readyVisibleRows.size &&
             submittedIdentifiers.none { it !in scannedIdentifiers }
-        return submittedIdentifiers.takeIf { ready }
+        return SubmitReadinessSnapshot(
+            submittedIdentifiers = submittedIdentifiers,
+            ready = ready,
+            visibleRowCount = visibleRows.size,
+            scannedRowCount = localScannedRows.size,
+            readyVisibleRowCount = readyVisibleRows.size,
+            pairedDraftCount = pairedDrafts.size,
+        )
     }
 
     fun submitIndividualScope(onSubmitted: () -> Unit) {
@@ -1869,6 +1895,7 @@ class WeighingViewModel @Inject constructor(
             analytics.track(
                 AnalyticsEvents.SUBMIT_BLOCKED,
                 weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
+                    submitReadinessSnapshot().analyticsProps() +
                     (AnalyticsEvents.Params.REASON to "scope_incomplete"),
             )
             return
@@ -2057,18 +2084,33 @@ class WeighingViewModel @Inject constructor(
                         // Clear any previous conflict for this animal (re-capture after failure)
                         conflictedAnimalIds.value = conflictedAnimalIds.value - row.animalId
 
+                        val scannedIdentifier = row.primaryTag.ifBlank { row.animalId }
                         if (proof != null) {
-                            repository.attachIndividualProof(key, row.animalId, proof.id, proof.serverProofId)
+                            reportIndividualProofAttachOutcome(
+                                result = repository.attachIndividualProof(key, scannedIdentifier, proof.id, proof.serverProofId),
+                                proofCaptureId = proof.id,
+                                serverProofId = proof.serverProofId,
+                                scannedIdentifier = scannedIdentifier,
+                                source = "capture_save",
+                                recoveredByRfid = false,
+                            )
                         } else {
                             val restoredProofCaptureId = recorded.value.proofCaptureId
                             val restoredServerProofId = recorded.value.serverProofId
                             if (!restoredProofCaptureId.isNullOrBlank() && !restoredServerProofId.isNullOrBlank()) {
-                            repository.attachIndividualProof(
-                                key,
-                                row.animalId,
-                                restoredProofCaptureId,
-                                restoredServerProofId,
-                            )
+                                reportIndividualProofAttachOutcome(
+                                    result = repository.attachIndividualProof(
+                                        key,
+                                        scannedIdentifier,
+                                        restoredProofCaptureId,
+                                        restoredServerProofId,
+                                    ),
+                                    proofCaptureId = restoredProofCaptureId,
+                                    serverProofId = restoredServerProofId,
+                                    scannedIdentifier = scannedIdentifier,
+                                    source = "capture_save_restored_proof",
+                                    recoveredByRfid = false,
+                                )
                             }
                         }
                         // Do NOT show the success message yet - it's only queued locally. The outbox
@@ -2091,7 +2133,7 @@ class WeighingViewModel @Inject constructor(
                         scanCaptureRepository.markLocalScanSynced(
                             taskId = key,
                             fieldKey = WEIGHING_SCAN_FIELD_KEY,
-                            tag = row.animalId,
+                            tag = scannedIdentifier,
                         )
                         weightInput.value = ""
                         clearAnimalWeightInput(row.animalId)
@@ -2541,6 +2583,118 @@ class WeighingViewModel @Inject constructor(
             }
         }
     }
+
+    private fun reportIndividualProofAttachOutcome(
+        result: AppResult<IndividualProofAttachOutcome>,
+        proofCaptureId: String,
+        serverProofId: String?,
+        scannedIdentifier: String,
+        source: String,
+        recoveredByRfid: Boolean,
+    ) {
+        when (result) {
+            is AppResult.Ok -> reportIndividualProofAttachOutcome(
+                outcome = result.value,
+                proofCaptureId = proofCaptureId,
+                serverProofId = serverProofId,
+                scannedIdentifier = scannedIdentifier,
+                source = source,
+                recoveredByRfid = recoveredByRfid,
+            )
+            is AppResult.Err -> {
+                val props = individualProofAttachProps(
+                    status = IndividualProofAttachStatus.ENQUEUE_FAILED,
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                    scannedIdentifier = scannedIdentifier,
+                    source = source,
+                    reason = result.message,
+                )
+                if (reportedIndividualProofAttachOutcomes.add("attach_err|$proofCaptureId|$serverProofId|$scannedIdentifier|${result.message}")) {
+                    analytics.track(AnalyticsEventsWeighing.WEIGHING_OBSERVATION_ENQUEUE_FAILED, props)
+                    crashReporter.recordException(
+                        result.cause ?: IllegalStateException("weighing proof attach failed"),
+                        "weighing proof attach failed",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun reportIndividualProofAttachOutcome(
+        outcome: IndividualProofAttachOutcome,
+        proofCaptureId: String,
+        serverProofId: String?,
+        scannedIdentifier: String,
+        source: String,
+        recoveredByRfid: Boolean,
+    ) {
+        val effectiveProofCaptureId = outcome.proofCaptureId.ifBlank { proofCaptureId }
+        val effectiveServerProofId = outcome.serverProofId?.takeIf(String::isNotBlank) ?: serverProofId
+        val effectiveScannedIdentifier = outcome.scannedIdentifier.ifBlank { scannedIdentifier }
+        val props = individualProofAttachProps(
+            status = outcome.status,
+            proofCaptureId = effectiveProofCaptureId,
+            serverProofId = effectiveServerProofId,
+            scannedIdentifier = effectiveScannedIdentifier,
+            source = source,
+            reason = outcome.reason,
+        )
+
+        fun reportOnce(event: String, suffix: String, block: () -> Unit = {}) {
+            val signature = "$event|$effectiveProofCaptureId|$effectiveServerProofId|$effectiveScannedIdentifier|$suffix"
+            if (!reportedIndividualProofAttachOutcomes.add(signature)) return
+            analytics.track(event, props)
+            block()
+        }
+
+        when (outcome.status) {
+            IndividualProofAttachStatus.ATTACHED,
+            IndividualProofAttachStatus.ALREADY_QUEUED -> if (recoveredByRfid) {
+                reportOnce(
+                    AnalyticsEventsWeighing.WEIGHING_ORPHAN_SYNCED_PROOF_RECOVERED,
+                    outcome.status.name,
+                )
+            }
+            IndividualProofAttachStatus.NO_OBSERVATION -> reportOnce(
+                AnalyticsEventsWeighing.WEIGHING_PROOF_ATTACH_NO_OBSERVATION,
+                outcome.reason.orEmpty(),
+            )
+            IndividualProofAttachStatus.ENQUEUE_FAILED -> reportOnce(
+                AnalyticsEventsWeighing.WEIGHING_OBSERVATION_ENQUEUE_FAILED,
+                outcome.reason.orEmpty(),
+            ) {
+                crashReporter.recordException(
+                    IllegalStateException("weighing observation enqueue failed"),
+                    "weighing observation enqueue failed",
+                )
+            }
+            IndividualProofAttachStatus.ALREADY_ACCEPTED -> Unit
+        }
+    }
+
+    private fun individualProofAttachProps(
+        status: IndividualProofAttachStatus,
+        proofCaptureId: String,
+        serverProofId: String?,
+        scannedIdentifier: String,
+        source: String,
+        reason: String?,
+    ): Map<String, String> =
+        weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
+            buildMap {
+                put(AnalyticsEvents.Params.PROOF_ID, proofCaptureId)
+                put(AnalyticsEvents.Params.STATUS, status.name.lowercase())
+                put(AnalyticsEvents.Params.SOURCE, source)
+                put(AnalyticsEventsWeighing.Params.RFID, scannedIdentifier)
+                serverProofId?.takeIf(String::isNotBlank)?.let {
+                    put(AnalyticsEventsWeighing.Params.SERVER_PROOF_ID, it)
+                    put(AnalyticsEvents.Params.PROOF_STATE, "server_synced")
+                }
+                reason?.takeIf(String::isNotBlank)?.let {
+                    put(AnalyticsEvents.Params.REASON, it.take(MAX_ANALYTICS_REASON_CHARS))
+                }
+            }
 
     private fun weighingCaptureProps(captureCategory: String): Map<String, String> =
         buildMap {
@@ -3111,7 +3265,7 @@ class WeighingViewModel @Inject constructor(
             val draftProofId = draft?.proofCaptureId?.takeIf { it.isNotBlank() }
             val proof = proofs
                 .filter { it.fieldKey == INDIVIDUAL_PROOF_FIELD_KEY }
-                .filter { it.matchesAnimalProof(row.animalId, draftProofId) }
+                .filter { it.matchesAnimalProof(row.animalId, draftProofId, draft?.capturedAtMs) }
                 .maxByOrNull { it.capturedAtMs }
                 ?: autoProofs.value[row.animalId]
             val proofStatus = when {
@@ -3193,6 +3347,10 @@ class WeighingViewModel @Inject constructor(
         scope: WeighingScopeState?,
     ): List<ProofCaptureRow> {
         val activeIds = sessionProofIds.value.toMutableSet()
+        val openIndividualDrafts = scope?.individualDrafts.orEmpty()
+            .filterNot { it.syncedToBackend }
+            .filter { it.scannedIdentifier.isNotBlank() }
+            .associate { it.scannedIdentifier to it.capturedAtMs }
         scope?.individualDrafts.orEmpty()
             .mapNotNullTo(activeIds) { it.proofCaptureId?.takeIf(String::isNotBlank) }
         val hasOpenShedRound = scope?.shedDrafts.orEmpty().isNotEmpty()
@@ -3208,6 +3366,7 @@ class WeighingViewModel @Inject constructor(
             proof.syncStatus != CaptureSyncStatus.SYNCED ||
                 proof.id in activeIds ||
                 (hasOpenShedRound && proof.belongsToThisShedScope()) ||
+                proof.matchesOpenIndividualDraft(openIndividualDrafts) ||
                 proof.id == latestLocalShedProofId
         }
     }
@@ -3228,19 +3387,41 @@ class WeighingViewModel @Inject constructor(
             subjectId == expectedLocationId &&
             expectedLocationId.isNotBlank()
 
+    private fun ProofCaptureRow.matchesOpenIndividualDraft(openIndividualDrafts: Map<String, Long>): Boolean =
+        fieldKey == INDIVIDUAL_PROOF_FIELD_KEY &&
+            rfidTag?.let { tag ->
+                openIndividualDrafts[tag]?.let { draftCapturedAtMs ->
+                    isCompatibleWithWeighingDraft(draftCapturedAtMs)
+                }
+            } == true
+
     private suspend fun publishActiveProofs(scope: String, proofs: List<ProofCaptureRow>) {
-        val activeProofs = activeWeighingProofs(proofs, scopeState.value)
+        val scopeSnapshot = scopeState.value
+        val activeProofs = activeWeighingProofs(proofs, scopeSnapshot)
         reportProofUploadTrouble(activeProofs)
         observedProofs.value = activeProofs
         val shedProofIds = syncedShedProofIds(activeProofs)
+        val draftProofIds = scopeSnapshot?.individualDrafts.orEmpty()
+            .mapNotNull { it.proofCaptureId?.takeIf(String::isNotBlank) }
+            .toSet()
         activeProofs.forEach { proof ->
             val serverProofId = proof.serverProofId?.takeIf { it.isNotBlank() } ?: return@forEach
             when (proof.fieldKey) {
                 INDIVIDUAL_PROOF_FIELD_KEY -> {
-                    val animalId = proof.caption?.takeIf { it.isNotBlank() }
+                    val animalId = proof.rfidTag?.takeIf { it.isNotBlank() }
+                        ?: proof.caption?.takeIf { it.isNotBlank() }
                         ?: proof.subjectId?.takeIf { it.isNotBlank() }
                         ?: return@forEach
-                    repository.attachIndividualProof(scope, animalId, proof.id, serverProofId)
+                    reportIndividualProofAttachOutcome(
+                        result = repository.attachIndividualProof(scope, animalId, proof.id, serverProofId),
+                        proofCaptureId = proof.id,
+                        serverProofId = serverProofId,
+                        scannedIdentifier = animalId,
+                        source = "active_proof_publish",
+                        recoveredByRfid = proof.syncStatus == CaptureSyncStatus.SYNCED &&
+                            proof.rfidTag == animalId &&
+                            proof.id !in draftProofIds,
+                    )
                 }
                 SHED_PARTITION_PROOF_FIELD_KEY -> repository.attachShedPartitionProof(
                     scope,
@@ -3253,13 +3434,14 @@ class WeighingViewModel @Inject constructor(
     }
 
     private fun proofForAnimal(animalId: String): ProofCaptureRow? {
-        val draftProofId = scopeState.value?.individualDrafts
+        val draft = scopeState.value?.individualDrafts
             ?.firstOrNull { it.scannedIdentifier == animalId }
+        val draftProofId = draft
             ?.proofCaptureId
             ?.takeIf { it.isNotBlank() }
         return observedProofs.value
             .filter { it.fieldKey == INDIVIDUAL_PROOF_FIELD_KEY }
-            .filter { it.matchesAnimalProof(animalId, draftProofId) }
+            .filter { it.matchesAnimalProof(animalId, draftProofId, draft?.capturedAtMs) }
             .maxByOrNull { it.capturedAtMs }
             ?: autoProofs.value[animalId]
     }
@@ -3274,12 +3456,19 @@ class WeighingViewModel @Inject constructor(
     //
     // Ownership is the caption/subject match. Upload status is rendered separately (uploading /
     // synced / failed) and must not decide whether the proof is FOUND.
-    private fun ProofCaptureRow.matchesAnimalProof(animalId: String, draftProofId: String?): Boolean =
+    private fun ProofCaptureRow.matchesAnimalProof(animalId: String, draftProofId: String?, draftCapturedAtMs: Long?): Boolean =
         if (draftProofId != null) {
             id == draftProofId
+        } else if (syncStatus == CaptureSyncStatus.SYNCED) {
+            rfidTag == animalId &&
+                (draftCapturedAtMs == null || isCompatibleWithWeighingDraft(draftCapturedAtMs))
         } else {
             rfidTag == animalId || caption == animalId || caption?.endsWith(" · $animalId") == true || subjectId == animalId
         }
+
+    private fun ProofCaptureRow.isCompatibleWithWeighingDraft(draftCapturedAtMs: Long): Boolean =
+        capturedStartMs in
+            (draftCapturedAtMs - WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS)..(draftCapturedAtMs + WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS)
 
     private fun weighingIndividualProofCaption(row: WeighingRosterRowEntity): String =
         weighingIndividualProofTitle(row)
@@ -3584,6 +3773,7 @@ private data class WeighingWeek(
 // Room types (module boundary: feature-*/:app -> core-*, never straight to Room).
 private const val WEIGHING_ANIMAL_OBSERVATION_OP = "WEIGHING_ANIMAL_OBSERVATION"
 private const val WEIGHING_SCOPE_SUBMIT_OP = "WEIGHING_SCOPE_SUBMIT"
+private const val WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS = 30 * 60 * 1000L
 
 
 private const val WEIGHING_BUSINESS_ZONE = "Asia/Kolkata"
@@ -3836,6 +4026,23 @@ private fun String.isExpectedWeighingCaptureState(): Boolean =
     equals("missing_video", ignoreCase = true) ||
         equals("cancelled", ignoreCase = true) ||
         equals("capture_cancelled", ignoreCase = true)
+
+private data class SubmitReadinessSnapshot(
+    val submittedIdentifiers: List<String>,
+    val ready: Boolean,
+    val visibleRowCount: Int,
+    val scannedRowCount: Int,
+    val readyVisibleRowCount: Int,
+    val pairedDraftCount: Int,
+) {
+    fun analyticsProps(): Map<String, String> = mapOf(
+        AnalyticsEventsWeighing.Params.VISIBLE_ROW_COUNT to visibleRowCount.toString(),
+        AnalyticsEventsWeighing.Params.SCANNED_ROW_COUNT to scannedRowCount.toString(),
+        AnalyticsEventsWeighing.Params.READY_VISIBLE_ROW_COUNT to readyVisibleRowCount.toString(),
+        AnalyticsEventsWeighing.Params.PAIRED_DRAFT_COUNT to pairedDraftCount.toString(),
+        AnalyticsEventsWeighing.Params.SUBMIT_READY_IDENTIFIER_COUNT to submittedIdentifiers.size.toString(),
+    )
+}
 
 /** Reason CODES for ending a task. The backend owns the sentence that is recorded. */
 private const val CLOSE_REASON_ALL_ACCEPTED = "all_buckets_accepted"

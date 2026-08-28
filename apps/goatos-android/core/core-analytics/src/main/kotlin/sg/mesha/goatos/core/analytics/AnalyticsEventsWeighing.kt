@@ -77,10 +77,40 @@ object AnalyticsEventsWeighing {
      *  field in [WeighingViewModel] — never a bare "failed". */
     const val WEIGHING_SHED_VIDEO_ACTION_FAILED = "weighing_shed_video_action_failed"
 
+    /** A synced per-animal weighing proof had no draft proof id but was recovered by its RFID tag. */
+    const val WEIGHING_ORPHAN_SYNCED_PROOF_RECOVERED = "weighing_orphan_synced_proof_recovered"
+
+    /** A synced per-animal proof could not be attached because the local observation row was missing. */
+    const val WEIGHING_PROOF_ATTACH_NO_OBSERVATION = "weighing_proof_attach_no_observation"
+
+    /** A per-animal proof attached locally, but the durable observation outbox enqueue failed. */
+    const val WEIGHING_OBSERVATION_ENQUEUE_FAILED = "weighing_observation_enqueue_failed"
+
     object Params {
         /** Which wizard step an event refers to (`date`/`park`/`buckets`/`configure`/`review`),
          *  lowercase of the [WeighingWizardStep] enum name. */
         const val WIZARD_STEP = "wizard_step"
+
+        /** The scanned livestock RFID/tag associated with a per-animal weighing proof. */
+        const val RFID = "rfid"
+
+        /** Server proof_artifacts.proof_id, used to join app telemetry to backend proof rows. */
+        const val SERVER_PROOF_ID = "server_proof_id"
+
+        /** Count of rows currently visible in the operator's weighing scan screen. */
+        const val VISIBLE_ROW_COUNT = "visible_row_count"
+
+        /** Count of local scan-capture rows observed on this phone for the weighing scope. */
+        const val SCANNED_ROW_COUNT = "scanned_row_count"
+
+        /** Count of visible rows that already have saved weight and synced proof. */
+        const val READY_VISIBLE_ROW_COUNT = "ready_visible_row_count"
+
+        /** Count of ready server/cache drafts paired to identifiers considered for submit. */
+        const val PAIRED_DRAFT_COUNT = "paired_draft_count"
+
+        /** Count of identifiers the submit gate considers fully ready. */
+        const val SUBMIT_READY_IDENTIFIER_COUNT = "submit_ready_identifier_count"
     }
 
     /**
