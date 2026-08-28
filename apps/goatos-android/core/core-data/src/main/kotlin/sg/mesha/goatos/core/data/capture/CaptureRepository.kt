@@ -923,7 +923,22 @@ class DefaultProofCaptureRepository(
         telemetry.track(proofCaptureCompletedEvent, proofAnalyticsProps(entity))
         if (awaitUploadEnqueue) {
             enqueueRegistrationNow(entity, scopeType, scopeId, uploadGroupKey)
-            AppResult.Ok((dao.findById(id) ?: entity).toRow())
+            val latest = dao.findById(id) ?: entity
+            if (latest.outboxItemId.isNullOrBlank()) {
+                recordProofEvent(
+                    latest,
+                    "upload_driver_missing_after_capture",
+                    latest.processingState,
+                    latest.stateAttempt,
+                    errorClass = latest.lastErrorClass,
+                    retryable = true,
+                )
+                telemetry.track(
+                    proofUploadDriverMissingEvent,
+                    proofAnalyticsProps(latest) + ("reason" to "missing_outbox_item_after_capture"),
+                )
+            }
+            AppResult.Ok(latest.toRow())
         } else {
             enqueueRegistration(entity, scopeType, scopeId, uploadGroupKey)
             AppResult.Ok(entity.toRow())
@@ -1338,7 +1353,22 @@ class DefaultProofCaptureRepository(
                 dao.setOutboxItemId(uploadEntity.id, result.value)
                 followOutboxItem(uploadEntity.id, result.value)
             }
-            is AppResult.Err -> dao.updateStatus(uploadEntity.id, EntitySyncStatus.FAILED.name, null, result.message)
+            is AppResult.Err -> {
+                dao.updateStatus(uploadEntity.id, EntitySyncStatus.FAILED.name, null, result.message)
+                recordProofEvent(
+                    uploadEntity,
+                    "upload_enqueue_failed",
+                    EntitySyncStatus.FAILED.name,
+                    uploadEntity.stateAttempt,
+                    errorClass = result.cause?.let { it::class.java.simpleName.ifBlank { "Throwable" } },
+                    retryable = true,
+                )
+                telemetry.track(
+                    proofUploadEnqueueFailedEvent,
+                    proofAnalyticsProps(uploadEntity, proofUploadStatus = "failed") +
+                        mapOf("reason" to result.message),
+                )
+            }
         }
     }
 
@@ -1819,11 +1849,24 @@ class DefaultProofCaptureRepository(
             return fireSlotRetirementIfPending(entity.id) + retireSupersededRowIfAny(entity)
         }
         if (!entity.isRecoverableUploadState()) return emptySet()
+        val uploadGroupKey = entity.uploadGroupKey?.takeIf { it.isNotBlank() }
+        recordProofEvent(
+            entity,
+            stage = "missing_outbox_driver_during_recovery",
+            toState = entity.processingState,
+            attempt = entity.stateAttempt,
+            errorClass = "missing_outbox_driver_during_recovery",
+            retryable = true,
+        )
+        telemetry.track(
+            proofUploadDriverMissingEvent,
+            proofAnalyticsProps(entity) + ("reason" to "missing_outbox_driver_during_recovery"),
+        )
         dao.setOutboxItemId(entity.id, null)
         dao.updateStatus(entity.id, EntitySyncStatus.PENDING.name, null, null)
         val recovered = (dao.findById(entity.id) ?: entity.copy(outboxItemId = null, syncStatus = EntitySyncStatus.PENDING.name))
         val (scopeType, scopeId) = recoveryScope(recovered)
-        enqueueRegistrationNow(recovered, scopeType, scopeId)
+        enqueueRegistrationNow(recovered, scopeType, scopeId, uploadGroupKey = uploadGroupKey)
         return emptySet()
     }
 
@@ -1983,6 +2026,8 @@ private const val proofUploadRegisteredEvent = "proof_upload_registered"
 private const val proofUploadStartedEvent = "proof_upload_started"
 private const val proofUploadCompletedEvent = "proof_upload_completed"
 private const val proofUploadFailedEvent = "proof_upload_failed"
+private const val proofUploadEnqueueFailedEvent = "proof_upload_enqueue_failed"
+private const val proofUploadDriverMissingEvent = "proof_upload_driver_missing"
 
 private fun proofAnalyticsProps(
     entity: ProofCaptureEntity,

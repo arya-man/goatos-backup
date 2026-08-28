@@ -269,6 +269,24 @@ interface OutboxDao {
     )
     suspend fun reopenTerminalForRetry(id: String, payloadJson: String, fingerprint: String, now: Long): Int
 
+    /**
+     * Proof uploads are file-backed and user-replaceable: a retry/recovery may need to send the same
+     * proof idempotency key with a refreshed processed-file payload or ordering group. Keep this
+     * deliberately FAILED-only so queued/in-flight/succeeded rows cannot be mutated under a drain.
+     */
+    @Query(
+        "UPDATE outbox SET status = 'QUEUED', groupKey = :groupKey, attemptCount = 0, conflict = 0, " +
+            "lastError = NULL, nextAttemptAt = :now, updatedAt = :now, payloadJson = :payloadJson, " +
+            "requestFingerprint = :fingerprint WHERE id = :id AND status = 'FAILED' AND opType = 'PROOF_UPLOAD'",
+    )
+    suspend fun reopenFailedProofUploadForRetry(
+        id: String,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+        now: Long,
+    ): Int
+
     /** Recovers rows orphaned IN_FLIGHT by a process death / crash mid-dispatch back to QUEUED.
      *  Safe to run at the top of a drain pass: the drain mutex guarantees no other dispatch is
      *  in progress, so any IN_FLIGHT row is necessarily stranded, not actively being sent. */
