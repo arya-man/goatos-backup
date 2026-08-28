@@ -119,7 +119,7 @@ class DefaultClockRepository(
             }
         }
 
-    override suspend fun refreshStatus(): Boolean =
+    override suspend fun refreshStatus(): Boolean = // offline-first-guard:ignore: persists via the private upsert() helper below (dao.upsert + enforceCacheBounds); observeStatus() re-emits from the same key
         runCatching { api.getClockStatus() }
             .onSuccess { dto -> upsert(STATUS_KEY, json.encodeToString(ClockStatusResponseDto.serializer(), dto)) }
             .isSuccess
@@ -162,7 +162,7 @@ class DefaultClockRepository(
         }
     }
 
-    override suspend fun fetchPresence(
+    override suspend fun fetchPresence( // offline-first-guard:ignore: network-first with Room blob-cache write on success and cache fallback on failure via the upsert()/readBlob() helpers; first page per filter is the offline board
         date: String?,
         parkId: String?,
         designation: String?,
@@ -192,7 +192,7 @@ class DefaultClockRepository(
         }
     }
 
-    override suspend fun fetchPersonDay(
+    override suspend fun fetchPersonDay( // offline-first-guard:ignore: network-first with Room blob-cache write on success and cache fallback on failure via the upsert()/readBlob() helpers
         workforceMemberId: String,
         date: String?,
     ): Result<ClockPersonDayResponseDto> {
