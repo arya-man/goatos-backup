@@ -500,7 +500,13 @@ func visibleNavigationForScope(scope navScope, grantedModules []string, localeTa
 	// an unusable 6+ tab bar as modules are added. The client switches the active module
 	// via the drawer and renders that module's items from BootstrapResponse.Modules;
 	// VisibleNavigation carries the default (first available) module's bar.
-	active := activeModuleKey(grants, narrowOfferToTicks(grantedModules, ticked))
+	// candidateModuleKeysFrom (not raw grantedModules) so the baseline clock
+	// module can carry the bar for a principal with no department grants — a
+	// person the roster knows but no module owns still clocks in (decision D2),
+	// and an empty bottom bar over a drawer that lists Clock was the defect.
+	// For anyone with a real work module nothing changes: clock's priority (10)
+	// never beats it to activeModuleKey.
+	active := activeModuleKey(grants, narrowOfferToTicks(candidateModuleKeysFrom(grants, grantedModules, fromTicks), ticked))
 	if active == "" {
 		return []domain.BootstrapNavigationItem{}
 	}

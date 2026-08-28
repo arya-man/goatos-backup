@@ -488,14 +488,6 @@ class ClockTeamViewModel @Inject constructor(
                 key = key,
                 title = if (count != null) "$label · $count" else label,
                 rows = sectionRows.map { row ->
-                    val live = if (isToday && key == "working" && row.clockInAt.isNotBlank()) {
-                        elapsedLabel(row.clockInAt, now)
-                            .takeIf { it.isNotBlank() }
-                            ?.let { template(copy["hours.so_far"].orEmpty(), it) }
-                            .orEmpty()
-                    } else {
-                        ""
-                    }
                     ClockTeamRowUi(
                         listKey = "${row.workforceMemberId}:${dto?.businessDate.orEmpty()}",
                         memberId = row.workforceMemberId,
@@ -503,7 +495,12 @@ class ClockTeamViewModel @Inject constructor(
                         subtitle = listOf(row.designation, row.parkLabel)
                             .filter { it.isNotBlank() }
                             .joinToString(" · "),
-                        timeLine = listOf(row.timeLabel, live).filter { it.isNotBlank() }.joinToString(" · "),
+                        // Backend time_label VERBATIM (it already carries the elapsed
+                        // "so far" figure for a working row and is re-composed on every
+                        // refresh). Appending a client tick beside it duplicated the
+                        // elapsed on screen; the live per-second tick belongs to My
+                        // Clock's own entry, not this roster read.
+                        timeLine = row.timeLabel,
                         flags = row.flags.map { it.label },
                         bucket = row.bucket,
                     )
@@ -609,7 +606,11 @@ class ClockPersonDayViewModel @Inject constructor(
                                     line(
                                         "detail.network",
                                         listOfNotNull(
-                                            event.networkType.takeIf { it.isNotBlank() },
+                                            // Backend copy names the connection; the raw
+                                            // network_type token must never reach the screen
+                                            // (copy-firewall rule).
+                                            event.networkType.takeIf { it.isNotBlank() }
+                                                ?.let { copy["network.$it"] ?: copy["flag.offline"].takeIf { _ -> it != "online" } },
                                             event.batteryPct?.let { "$it%" },
                                         ).joinToString(" · "),
                                     )
