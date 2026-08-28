@@ -200,6 +200,7 @@ export async function PeopleBoard({
                   <th>{copy(pageContract, "column.designation")}</th>
                   <th>{copy(pageContract, "column.email")}</th>
                   <th>{copy(pageContract, "column.status")}</th>
+                  <th>{copy(pageContract, "clock.column.clock_in_today")}</th>
                   {/* Access opens its own overlay rather than the record drawer: it is a
                       different decision about the same person, and burying it inside the
                       record drawer hides the screen this rewrite exists to provide. */}
@@ -239,6 +240,17 @@ export async function PeopleBoard({
                       <td>
                         <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
                           <Tag tone={statusTone(person.status)}>{person.status}</Tag>
+                        </LocalOverlayLink>
+                      </td>
+                      <td>
+                        <LocalOverlayLink href={drawerHref} className="celllink" scroll={false}>
+                          {person.clock_in_today_label ? (
+                            <Tag tone="ok">
+                              {copy(pageContract, "clock.chip.clocked_in").replace("%s", person.clock_in_today_label)}
+                            </Tag>
+                          ) : (
+                            <Tag tone="mut">{copy(pageContract, "clock.chip.not_clocked_in")}</Tag>
+                          )}
                         </LocalOverlayLink>
                       </td>
                       <td>

@@ -1202,6 +1202,45 @@ export type SavePersonAccessRequest = AdminApiComponents["schemas"]["SavePersonA
 export type DesignationDefaults = AdminApiComponents["schemas"]["DesignationDefaultsResponse"];
 export type WorkforcePersonResponse = AdminApiComponents["schemas"]["PersonResponse"];
 
+// Clock In / Out (maintainer decisions 2026-08-27/28): the People/HRMS
+// attendance tab. Reads the same repository page as the phone presence board.
+export type ClockEntry = AdminApiComponents["schemas"]["ClockEntry"];
+export type ClockEntriesList = AdminApiComponents["schemas"]["ClockEntriesListResponse"];
+export type ClockEntryDetail = AdminApiComponents["schemas"]["ClockEntryDetailResponse"];
+export type ClockEventDetail = AdminApiComponents["schemas"]["ClockEventDetail"];
+
+/** One keyset page of clockings across the roster (GET /admin/workforce/clock-entries). */
+export async function listAdminClockEntries(
+  params: {
+    date?: string;
+    park_id?: string;
+    designation?: string;
+    bucket?: string;
+    q?: string;
+    limit?: number;
+    cursor?: string;
+  } = {},
+): Promise<ApiResult<ClockEntriesList>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ClockEntriesList>("/admin/workforce/clock-entries", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/** One clocking in full — both punches with location, device and integrity capture. */
+export async function getAdminClockEntry(clockEntryId: string): Promise<ApiResult<ClockEntryDetail>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/workforce/clock-entries/${encodeURIComponent(clockEntryId)}` as keyof AdminApiPaths & string;
+  return request(() => client.request<ClockEntryDetail>(path, { cache: "no-store" }));
+}
+
 /**
  * One keyset page of the staff directory (GET /admin/workforce/people). The response also carries
  * the parks/departments catalog the filters and the Add Person form render from — real DB rows,

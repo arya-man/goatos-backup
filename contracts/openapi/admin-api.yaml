@@ -4973,6 +4973,7 @@ components:
         - department_label
         - created_at
         - row_version
+        - clock_in_today_label
         - proof_uploads
         - proof_approved
         - proof_rejected
@@ -5061,6 +5062,14 @@ components:
         proof_rejection_pct:
           type:
             - integer
+            - "null"
+        clock_in_today_label:
+          description: >-
+            Today's clock-in time (IST "08:12") when this person has clocked in
+            today, null otherwise — the All People "Clocked in" chip. Backend
+            composed; render verbatim.
+          type:
+            - string
             - "null"
     PeopleCatalogOption:
       type: object
@@ -11249,6 +11258,12 @@ components:
           description: Backend-owned hours truth; absent while open and forever on auto_closed.
         hours_label:
           type: string
+        location_label:
+          type: string
+          description: The clock-in punch's reverse-geocoded address.
+        device_label:
+          type: string
+          description: Device model · app version at clock-in.
         flags:
           type: array
           items:

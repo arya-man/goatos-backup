@@ -13451,6 +13451,10 @@ export interface components {
             /** @description Backend-owned hours truth; absent while open and forever on auto_closed. */
             worked_minutes?: number;
             hours_label?: string;
+            /** @description The clock-in punch's reverse-geocoded address. */
+            location_label?: string;
+            /** @description Device model · app version at clock-in. */
+            device_label?: string;
             flags: components["schemas"]["ClockFlag"][];
         };
         ClockPunchResponse: {

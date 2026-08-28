@@ -275,6 +275,8 @@ LEFT JOIN workforce_clock_entries e
   ON e.tenant_id = wm.tenant_id
  AND e.workforce_member_id = wm.workforce_member_id
  AND e.business_date = $2::date
+LEFT JOIN workforce_clock_events ein
+  ON ein.tenant_id = e.tenant_id AND ein.clock_event_id = e.clock_in_event_id
 LEFT JOIN locations l
   ON l.tenant_id = wm.tenant_id AND l.location_id = wm.primary_location_id
 LEFT JOIN departments d
@@ -352,7 +354,10 @@ SELECT
   e.clock_out_at,
   e.worked_minutes,
   e.offline_punch,
-  e.location_missing
+  e.location_missing,
+  COALESCE(ein.address, ''),
+  COALESCE(ein.device_model, ''),
+  COALESCE(ein.app_version, '')
 `+clockPresenceWhere+`
   AND ($7 = '' OR (
         ($7 = 'flagged' AND `+clockFlaggedExpr+`)
@@ -378,10 +383,14 @@ LIMIT $10`,
 			worked    *int
 			offline   *bool
 			locMiss   *bool
+			address   string
+			deviceMdl string
+			appVer    string
 		)
 		if err := rows.Scan(&row.WorkforceMemberID, &row.PersonName, &row.RoleHint,
 			&row.DesignationGrade, &row.ParkID, &row.ParkLabel, &row.DepartmentLabel,
-			&entryID, &entryDate, &status, &inAt, &outAt, &worked, &offline, &locMiss); err != nil {
+			&entryID, &entryDate, &status, &inAt, &outAt, &worked, &offline, &locMiss,
+			&address, &deviceMdl, &appVer); err != nil {
 			return ports.ClockPresencePage{}, err
 		}
 		if entryID != nil && inAt != nil {
@@ -395,6 +404,9 @@ LIMIT $10`,
 				WorkedMinutes:     worked,
 				OfflinePunch:      offline != nil && *offline,
 				LocationMissing:   locMiss != nil && *locMiss,
+				Address:           address,
+				DeviceModel:       deviceMdl,
+				AppVersion:        appVer,
 			}
 		}
 		items = append(items, row)

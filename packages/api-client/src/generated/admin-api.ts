@@ -2072,6 +2072,8 @@ export interface components {
             /** @description Proofs settled by the randomization policy rather than by a person (maintainer decision 2026-08-26). Reported rather than hidden because it is the honest difference between "this operator's work was checked" and "this operator's work was accepted": at a 40% share most of a good operator's proofs land here, and that is a fact about the policy, not about him. proof_approved counts only VERIFIER approvals, and neither this nor proof_approved's excluded items appear on either side of proof_rejection_pct. */
             proof_not_reviewed: number;
             proof_rejection_pct: number | null;
+            /** @description Today's clock-in time (IST "08:12") when this person has clocked in today, null otherwise — the All People "Clocked in" chip. Backend composed; render verbatim. */
+            clock_in_today_label: string | null;
         };
         PeopleCatalogOption: {
             /** Format: uuid */
@@ -4245,6 +4247,10 @@ export interface components {
             /** @description Backend-owned hours truth; absent while open and forever on auto_closed. */
             worked_minutes?: number;
             hours_label?: string;
+            /** @description The clock-in punch's reverse-geocoded address. */
+            location_label?: string;
+            /** @description Device model · app version at clock-in. */
+            device_label?: string;
             flags: components["schemas"]["ClockFlag"][];
         };
         ClockPresenceSummary: {

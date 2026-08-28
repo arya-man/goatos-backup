@@ -749,8 +749,11 @@ func pages() []domain.PageContract {
 		// table contract is dropped (its panel had no importers).
 		page("people", "/people", "/people", "People / HRMS", "Everyone on the farm — park, department, designation, and login — with per-module staffing views", "authority-screen",
 			[]domain.TableContract{
-				tableP("people", "All People", "/admin/workforce/people", []string{"display_name", "park", "department", "designation", "email", "status"}, "person_id", []int{25, 50, 100}),
+				tableP("people", "All People", "/admin/workforce/people", []string{"display_name", "park", "department", "designation", "email", "status", "clock_in_today"}, "person_id", []int{25, 50, 100}),
 				table("positions", "Vaccination Operators", "/admin/roster/positions", []string{"person_display_name", "position_title", "center_label", "week_off", "vaccination_daily_animal_cap", "status"}, "position_id"),
+				// Clock In / Out tab (maintainer decisions 2026-08-27/28): one row
+				// per active person per selected IST day, not-clocked-in included.
+				table("clock-entries", "Clock In / Out", "/admin/workforce/clock-entries", []string{"person", "park", "designation", "clock_in", "clock_out", "hours", "location", "device", "flags"}, "clock_entry_id"),
 			}),
 		// SOP SPLIT (maintainer decision 2026-08-18): the /sops authority screen is retired;
 		// each remaining module owns its SOP page as a module-surface, sharing the
@@ -5295,26 +5298,76 @@ func pageSpecificCopy(id string) map[string]string {
 			// RANDOMIZATION (maintainer decision 2026-08-26): proofs the sampling policy settled
 			// without a person. Worded as a fact about the POLICY, never about the operator -- at a
 			// 40% share most of a good operator's proofs land here.
-			"stats.not_reviewed":          "Not selected for review",
-			"stats.rejection_rate":        "Rejection rate",
-			"stats.none":                  "No proof videos submitted yet.",
-			"stats.no_reviews":            "No reviews yet",
-			"action.deactivate":           "Deactivate",
-			"action.activate":             "Activate",
-			"action.confirm":              "Yes, continue",
-			"confirm.deactivate.title":    "Deactivate this person?",
-			"confirm.deactivate.body":     "They stay in the directory as inactive and can no longer be assigned work. Their sign-in access is removed separately.",
-			"confirm.activate.title":      "Activate this person?",
-			"confirm.activate.body":       "They return to the active directory and can be assigned work again.",
-			"action.person_deactivated":   "Person deactivated.",
-			"action.person_activated":     "Person activated.",
-			"action.person_status_failed": "Could not change this person's status. Reload and try again.",
-			"empty.people":                "No people match these filters.",
-			"empty.people.unset":          "No people yet. Add the first person to start the directory.",
-			"summary.count":               "people",
-			"error.load":                  "Could not load the staff directory. Refresh to try again.",
-			"disabled.write":              "Your current role can view people but not add them.",
-			"tab.disabled_reason":         "This staffing view is coming soon.",
+			"stats.not_reviewed":   "Not selected for review",
+			"stats.rejection_rate": "Rejection rate",
+			// Clock In / Out tab (maintainer decisions 2026-08-27/28). The chip
+			// templates keep composition backend-owned: the client substitutes
+			// the backend-composed time label into %s and nothing else.
+			"clock.tab.title":                     "Clock In / Out",
+			"clock.summary.working":               "Working now",
+			"clock.summary.worked":                "Worked",
+			"clock.summary.clocked_out":           "Clocked out",
+			"clock.summary.not_clocked_in":        "Not clocked in",
+			"clock.summary.flagged":               "Flagged",
+			"clock.column.person":                 "Person",
+			"clock.column.park":                   "Park",
+			"clock.column.designation":            "Designation",
+			"clock.column.clock_in":               "Clock in",
+			"clock.column.clock_out":              "Clock out",
+			"clock.column.hours":                  "Hours",
+			"clock.column.location":               "Location",
+			"clock.column.device":                 "Device",
+			"clock.column.flags":                  "Flags",
+			"clock.filter.date":                   "Date",
+			"clock.filter.bucket":                 "Status",
+			"clock.filter.bucket.all":             "All",
+			"clock.filter.bucket.working":         "Working now",
+			"clock.filter.bucket.clocked_out":     "Clocked out",
+			"clock.filter.bucket.not_clocked_in":  "Not clocked in",
+			"clock.filter.bucket.flagged":         "Flagged",
+			"clock.empty":                         "Nobody matches this filter.",
+			"clock.value.none":                    "—",
+			"clock.chip.clocked_in":               "In %s",
+			"clock.chip.not_clocked_in":           "Not clocked in",
+			"clock.column.clock_in_today":         "Clocked in",
+			"clock.drawer.title":                  "Clocking detail",
+			"clock.drawer.punches":                "Punches",
+			"clock.drawer.captured_at":            "Device time",
+			"clock.drawer.recorded_at":            "Server time",
+			"clock.drawer.skew":                   "Clock difference",
+			"clock.drawer.location":               "Location",
+			"clock.drawer.coordinates":            "Coordinates",
+			"clock.drawer.accuracy":               "GPS accuracy",
+			"clock.drawer.map_link":               "Open map",
+			"clock.drawer.device":                 "Device",
+			"clock.drawer.app_version":            "App version",
+			"clock.drawer.os":                     "Android version",
+			"clock.drawer.network":                "Connection",
+			"clock.drawer.network.online":         "Online",
+			"clock.drawer.network.offline_queued": "Recorded offline",
+			"clock.drawer.battery":                "Battery",
+			"clock.drawer.event.clock_in":         "Clock in",
+			"clock.drawer.event.clock_out":        "Clock out",
+			"clock.drawer.no_location":            "No location captured",
+			"clock.tab.locked":                    "Clock oversight is limited to leadership.",
+			"stats.none":                          "No proof videos submitted yet.",
+			"stats.no_reviews":                    "No reviews yet",
+			"action.deactivate":                   "Deactivate",
+			"action.activate":                     "Activate",
+			"action.confirm":                      "Yes, continue",
+			"confirm.deactivate.title":            "Deactivate this person?",
+			"confirm.deactivate.body":             "They stay in the directory as inactive and can no longer be assigned work. Their sign-in access is removed separately.",
+			"confirm.activate.title":              "Activate this person?",
+			"confirm.activate.body":               "They return to the active directory and can be assigned work again.",
+			"action.person_deactivated":           "Person deactivated.",
+			"action.person_activated":             "Person activated.",
+			"action.person_status_failed":         "Could not change this person's status. Reload and try again.",
+			"empty.people":                        "No people match these filters.",
+			"empty.people.unset":                  "No people yet. Add the first person to start the directory.",
+			"summary.count":                       "people",
+			"error.load":                          "Could not load the staff directory. Refresh to try again.",
+			"disabled.write":                      "Your current role can view people but not add them.",
+			"tab.disabled_reason":                 "This staffing view is coming soon.",
 
 			// The per-person ACCESS editor (maintainer decision 2026-08-24). Module and
 			// capability names are NOT here: those come from the access endpoint's own
@@ -5764,6 +5817,12 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				Options: []domain.Option{
 					option("all", "All People", "", ""),
 					option("vaccination", "Vaccination", "", ""),
+					// Clock In / Out (maintainer decisions 2026-08-27/28): the
+					// attendance view. The tab is ENABLED here for everyone the
+					// page admits; the per-principal gate is the view_clock
+					// control (clock.presence.read) compiled beside it — the
+					// renderer combines both, per role-scoped-UI rules.
+					option("clock", "Clock In / Out", "", ""),
 					soonTab("weighing", "Weighing"),
 					soonTab("feed", "Feed"),
 					soonTab("counts", "Herd Operations"),

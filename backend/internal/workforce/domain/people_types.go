@@ -25,6 +25,10 @@ type PersonSummary struct {
 	DepartmentLabel  *string `json:"department_label"`
 	CreatedAt        string  `json:"created_at"`
 	RowVersion       int     `json:"row_version"`
+	// ClockInTodayLabel is today's clock-in time (IST "08:12") when the person
+	// has clocked in today, nil otherwise — the All People "Clocked in" chip
+	// (docs/features/clock-in-out/plan.md). Backend-composed; render verbatim.
+	ClockInTodayLabel *string `json:"clock_in_today_label"`
 
 	// Proof-work statistics from the verification queue, at VERIFICATION ITEM
 	// grain: one item = one submitted proof set (a lump-sum submission's several

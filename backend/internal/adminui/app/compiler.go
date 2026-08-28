@@ -993,13 +993,31 @@ func compilePeopleControls(controls []domain.Control, input BootstrapInput, copy
 	if !allowed {
 		reason = controlCopy(copy, "disabled.access_write", "Your current role can view access but not change it.")
 	}
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "edit_access",
 		Label:          controlCopy(copy, "access.action.save", "Save access"),
 		Kind:           "primary_action",
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "PUT /admin/workforce/people/{person_id}/access",
+	})
+	// view_clock gates the Clock In / Out tab (maintainer decision 2026-08-28:
+	// clock.presence.read, leadership only). The tab option itself stays in the
+	// static group; the renderer enables it only when this control is enabled,
+	// and the backend routes refuse regardless — the control is the honest
+	// label, not the lock.
+	clockAllowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.ClockPresenceRead})
+	clockReason := ""
+	if !clockAllowed {
+		clockReason = controlCopy(copy, "clock.tab.locked", "Clock oversight is limited to leadership.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "view_clock",
+		Label:          controlCopy(copy, "clock.tab.title", "Clock In / Out"),
+		Kind:           "view",
+		Enabled:        clockAllowed,
+		DisabledReason: clockReason,
+		Action:         "GET /admin/workforce/clock-entries",
 	})
 }
 
