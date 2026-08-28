@@ -419,7 +419,11 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		labelKey:    "module.clock",
 		landingHref: "/clock", //nav-composition:ignore: registry entry
 		status:      moduleStatusAvailable,
-		priority:    10,
+		// TOP of the drawer (maintainer ask 2026-08-28): attendance is the
+		// first thing everyone does, so the row sits above every work module.
+		// activeModuleKey deliberately refuses to let this priority win the
+		// LANDING bar — a person with a real work module still lands there.
+		priority: 0,
 		contributions: []moduleNavContribution{
 			{key: "clock", labelKey: "nav.clock", href: "/clock", shared_key: "", priority: 1},                                                                   //nav-composition:ignore: registry entry
 			{key: "clock_team", labelKey: "nav.clock_team", href: "/clock/team", shared_key: "", priority: 2, requiredPermission: permissions.ClockPresenceRead}, //nav-composition:ignore: registry entry
@@ -967,9 +971,16 @@ func countAvailableModules(grants []domain.GrantSummary, modules []string) int {
 
 // activeModuleKey picks the default module for a principal: the lowest-priority
 // available module with at least one permitted item. Returns "" when none is renderable.
+//
+// The baseline clock module is EXCLUDED from that contest even though its drawer
+// priority is 0 (top row, maintainer ask 2026-08-28): the day still opens on the
+// person's WORK module — attendance is one tap away in the drawer, not the
+// landing screen. Clock wins only when no work module renders at all (the
+// department-less-person bar floor, decision D2).
 func activeModuleKey(grants []domain.GrantSummary, grantedModules []string) string {
 	best := ""
 	bestPriority := 0
+	clockRenderable := false
 	for _, key := range grantedModules {
 		def, ok := moduleNavRegistry[key]
 		if !ok || def.status != moduleStatusAvailable {
@@ -978,10 +989,17 @@ func activeModuleKey(grants []domain.GrantSummary, grantedModules []string) stri
 		if len(permittedContributions(def, grants)) == 0 {
 			continue
 		}
+		if def.key == clockModuleKey {
+			clockRenderable = true
+			continue
+		}
 		if best == "" || def.priority < bestPriority {
 			best = def.key
 			bestPriority = def.priority
 		}
+	}
+	if best == "" && clockRenderable {
+		return clockModuleKey
 	}
 	return best
 }
@@ -1232,8 +1250,11 @@ func modulesForScope(scope navScope, grantedModules []string, localeTag string, 
 			}
 		}
 		// Clock In / Out is the baseline attendance module for EVERY app
-		// principal (decision D2) — the standalone verifier clocks in too, so
-		// her drawer carries it alongside the per-feature verify modules.
+		// principal (decision D2) — the standalone verifier clocks in too. It
+		// stays LAST here even though its drawer priority is 0 for everyone
+		// else: the verifier surface serves visible_navigation ==
+		// modules[0].NavItems (her bar IS her first verify module), and
+		// prepending clock would break that served contract.
 		if def, ok := moduleNavRegistry[clockModuleKey]; ok {
 			items := composeNavigationFromModulesScope([]string{def.key}, scope, localeTag)
 			if len(items) > 0 {
