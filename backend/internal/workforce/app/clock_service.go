@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/localization"
@@ -54,6 +56,14 @@ func (s *ClockService) Punch(ctx context.Context, tenantID, actorID, eventType s
 		req.Location.Status = "unavailable"
 	default:
 		return nil, BadRequest("invalid_location_status", "unknown location status")
+	}
+	// A "captured" claim must carry coordinates. A tampered or buggy client
+	// could otherwise send status=captured with nil lat/lng and dodge the
+	// "No location" flag the honesty signal depends on (PR-131 review P1).
+	// Downgrade rather than refuse: an old client stays usable, the row is
+	// flagged, and the unproven address claim is dropped with the fix.
+	if req.Location.Status == "captured" && (req.Location.Latitude == nil || req.Location.Longitude == nil) {
+		req.Location = domain.ClockLocation{Status: "unavailable"}
 	}
 	if req.NetworkKind != "" && req.NetworkKind != "wifi" && req.NetworkKind != "cellular" {
 		req.NetworkKind = ""
@@ -181,14 +191,45 @@ func (s *ClockService) Status(ctx context.Context, tenantID, actorID, localeTag,
 	return resp, nil
 }
 
+// validatePresenceParams normalizes and validates the shared presence-page
+// filter set BEFORE any repository call (PR-131 review P2): a malformed
+// park_id would otherwise reach a $n::uuid cast and surface as a Postgres
+// error (500), an unknown bucket would render an empty page under a summary
+// describing a different filter, and an uncapped limit is an unbounded read.
+func validatePresenceParams(params *ports.ClockPresenceParams) error {
+	if strings.TrimSpace(params.BusinessDate) == "" {
+		params.BusinessDate = biztime.BusinessDate(time.Now())
+	} else if _, err := time.Parse("2006-01-02", params.BusinessDate); err != nil {
+		return BadRequest("invalid_date", "date must be YYYY-MM-DD")
+	}
+	if params.ParkID != "" {
+		if _, err := uuid.Parse(params.ParkID); err != nil {
+			return BadRequest("invalid_park", "park_id must be a UUID")
+		}
+	}
+	switch params.Bucket {
+	case "", "working", "clocked_out", "not_clocked_in", "flagged":
+	default:
+		return BadRequest("invalid_bucket", "bucket must be one of working, clocked_out, not_clocked_in, flagged")
+	}
+	if params.Limit < 0 {
+		params.Limit = 0
+	}
+	if params.Limit > maxPresencePageSize {
+		params.Limit = maxPresencePageSize
+	}
+	return nil
+}
+
+// maxPresencePageSize caps one presence/list page; keyset cursors page beyond it.
+const maxPresencePageSize = 100
+
 // Presence serves the leadership Team page. The admin-web clock tab reads the
 // SAME repository method through AdminEntries below — cross-surface parity by
 // construction, not by test alone.
 func (s *ClockService) Presence(ctx context.Context, tenantID string, params ports.ClockPresenceParams, localeTag, traceID string) (*domain.ClockPresenceResponse, error) {
-	if strings.TrimSpace(params.BusinessDate) == "" {
-		params.BusinessDate = biztime.BusinessDate(time.Now())
-	} else if _, err := time.Parse("2006-01-02", params.BusinessDate); err != nil {
-		return nil, BadRequest("invalid_date", "date must be YYYY-MM-DD")
+	if err := validatePresenceParams(&params); err != nil {
+		return nil, err
 	}
 	params.TenantID = tenantID
 	page, err := s.repo.ListClockPresence(ctx, params)
@@ -223,6 +264,9 @@ func (s *ClockService) Presence(ctx context.Context, tenantID string, params por
 
 // PersonDay is the presence drill-down: one person's day in full.
 func (s *ClockService) PersonDay(ctx context.Context, tenantID, workforceMemberID, businessDate, localeTag, traceID string) (*domain.ClockPersonDayResponse, error) {
+	if _, err := uuid.Parse(workforceMemberID); err != nil {
+		return nil, NotFound("person not found")
+	}
 	if strings.TrimSpace(businessDate) == "" {
 		businessDate = biztime.BusinessDate(time.Now())
 	} else if _, err := time.Parse("2006-01-02", businessDate); err != nil {
@@ -242,10 +286,8 @@ func (s *ClockService) PersonDay(ctx context.Context, tenantID, workforceMemberI
 // the SAME repository page as the phone presence board, so the two surfaces
 // cannot disagree on a number (cross-surface parity by construction).
 func (s *ClockService) AdminEntries(ctx context.Context, tenantID string, params ports.ClockPresenceParams, localeTag, traceID string) (*domain.ClockEntriesListResponse, error) {
-	if strings.TrimSpace(params.BusinessDate) == "" {
-		params.BusinessDate = biztime.BusinessDate(time.Now())
-	} else if _, err := time.Parse("2006-01-02", params.BusinessDate); err != nil {
-		return nil, BadRequest("invalid_date", "date must be YYYY-MM-DD")
+	if err := validatePresenceParams(&params); err != nil {
+		return nil, err
 	}
 	params.TenantID = tenantID
 	page, err := s.repo.ListClockPresence(ctx, params)
@@ -297,6 +339,9 @@ func (s *ClockService) AdminEntries(ctx context.Context, tenantID string, params
 
 // EntryDetail is the admin drawer: the paired entry plus every punch capture.
 func (s *ClockService) EntryDetail(ctx context.Context, tenantID, clockEntryID, localeTag, traceID string) (*domain.ClockEntryDetailResponse, error) {
+	if _, err := uuid.Parse(clockEntryID); err != nil {
+		return nil, NotFound("clock entry not found")
+	}
 	detail, err := s.repo.ClockEntryDetail(ctx, tenantID, clockEntryID)
 	if err != nil {
 		if errors.Is(err, ports.ErrNotFound) {

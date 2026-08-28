@@ -198,6 +198,75 @@ func TestStatusBannerShowsOnlyBeforeClockIn(t *testing.T) {
 	}
 }
 
+// PR-131 review P1: a "captured" claim WITHOUT coordinates is downgraded and
+// flagged — a tampered client must not dodge the "No location" honesty signal
+// by naming the status without the fix.
+func TestPunchDowngradesCapturedClaimWithoutCoordinates(t *testing.T) {
+	repo := &fakeClockRepo{punchEntry: ports.ClockEntryRow{
+		ClockEntryID: "e1", WorkforceMemberID: "member-1",
+		BusinessDate: biztime.BusinessDate(time.Now()), Status: "open", ClockInAt: time.Now(),
+	}}
+	svc := newClockServiceForTest(repo)
+	_, err := svc.Punch(context.Background(), "t1", "u1", "clock_in", domain.ClockPunchRequest{
+		IdempotencyKey: "k1",
+		Location:       domain.ClockLocation{Status: "captured", Address: "somewhere plausible"},
+	}, httpmiddleware.ClientInfo{}, "en", "trace")
+	if err != nil {
+		t.Fatalf("Punch() error=%v", err)
+	}
+	got := repo.lastPunch.Location
+	if got.Status != "unavailable" || got.Address != "" || got.Latitude != nil {
+		t.Fatalf("coordinate-less captured claim must downgrade to unavailable and drop the address; got %+v", got)
+	}
+	// A REAL capture with coordinates stays captured.
+	lat, lng := 12.65, 77.21
+	if _, err := svc.Punch(context.Background(), "t1", "u1", "clock_out", domain.ClockPunchRequest{
+		IdempotencyKey: "k2",
+		Location:       domain.ClockLocation{Status: "captured", Latitude: &lat, Longitude: &lng},
+	}, httpmiddleware.ClientInfo{}, "en", "trace"); err != nil {
+		t.Fatalf("Punch() error=%v", err)
+	}
+	if repo.lastPunch.Location.Status != "captured" {
+		t.Fatalf("a coordinate-carrying capture must stay captured; got %+v", repo.lastPunch.Location)
+	}
+}
+
+// PR-131 review P2: malformed presence filters must be 400s decided BEFORE the
+// repository — a bad park_id previously reached a $n::uuid cast and surfaced
+// as a Postgres error, and an unknown bucket rendered an empty page under a
+// summary describing a different filter. The limit is capped, never unbounded.
+func TestPresenceValidatesFiltersBeforeTheRepository(t *testing.T) {
+	svc := newClockServiceForTest(&fakeClockRepo{})
+
+	if _, err := svc.Presence(context.Background(), "t1", ports.ClockPresenceParams{ParkID: "not-a-uuid"}, "en", "trace"); err == nil {
+		t.Fatal("malformed park_id must be a 400, not a repository error")
+	} else if appErr, ok := err.(*Error); !ok || appErr.Code != "invalid_park" || appErr.HTTPStatus != 400 {
+		t.Fatalf("want 400 invalid_park, got %#v", err)
+	}
+
+	if _, err := svc.AdminEntries(context.Background(), "t1", ports.ClockPresenceParams{Bucket: "everyone"}, "en", "trace"); err == nil {
+		t.Fatal("unknown bucket must be a 400")
+	} else if appErr, ok := err.(*Error); !ok || appErr.Code != "invalid_bucket" {
+		t.Fatalf("want invalid_bucket, got %#v", err)
+	}
+
+	params := ports.ClockPresenceParams{Limit: 100000}
+	if err := validatePresenceParams(&params); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if params.Limit != maxPresencePageSize {
+		t.Fatalf("limit must cap at %d; got %d", maxPresencePageSize, params.Limit)
+	}
+
+	// Malformed path ids are 404s, never ::uuid cast errors.
+	if _, err := svc.PersonDay(context.Background(), "t1", "not-a-uuid", "", "en", "trace"); err == nil {
+		t.Fatal("malformed member id must 404")
+	}
+	if _, err := svc.EntryDetail(context.Background(), "t1", "not-a-uuid", "en", "trace"); err == nil {
+		t.Fatal("malformed entry id must 404")
+	}
+}
+
 // Hours truth stays backend-owned: a closed row renders its stored minutes,
 // and an auto-closed / stale-open day renders NO hours and the honest flag.
 func TestComposeEntryHoursAndFlags(t *testing.T) {
