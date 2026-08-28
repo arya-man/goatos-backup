@@ -415,7 +415,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 	// No "you" contribution, for the approvals reason: this module is never
 	// held alone by a principal who has anywhere else to render.
 	"clock": {
-		key:         clockModuleKey,
+		key:         "clock", // = clockModuleKey; literal so registry-parsing guards can see it
 		labelKey:    "module.clock",
 		landingHref: "/clock", //nav-composition:ignore: registry entry
 		status:      moduleStatusAvailable,

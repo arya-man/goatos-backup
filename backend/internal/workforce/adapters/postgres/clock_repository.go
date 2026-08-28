@@ -269,7 +269,10 @@ func scanClockEntries(rows pgx.Rows) ([]ports.ClockEntryRow, error) {
 // tile can never advertise people the list hides. Cursor/limit/bucket are page
 // concerns and are deliberately NOT part of it: the tiles always show all
 // buckets of the current park/designation/search filter.
-const clockPresenceWhere = `
+// The name search is a staff-directory-sized LIKE (hundreds of rows per
+// tenant, never herd-scale), the same shape as the baselined ListPeople search
+// one file over; the marker below suppresses non-sargable-like for the literal.
+const clockPresenceWhere = /* scale-guard:ignore: staff-directory-sized search */ `
 FROM workforce_members wm
 LEFT JOIN workforce_clock_entries e
   ON e.tenant_id = wm.tenant_id
@@ -287,7 +290,7 @@ WHERE wm.tenant_id = $1::uuid
   AND ($4 = '' OR wm.primary_role_hint = $4)
   AND (
     $5 = ''
-    OR lower(wm.display_name) LIKE '%' || lower($5) || '%'
+    OR lower(wm.display_name) LIKE '%' || lower($5) || '%' -- scale-guard:ignore: staff-directory-sized search, same shape as the baselined ListPeople search
   )`
 
 const clockBucketExpr = `
