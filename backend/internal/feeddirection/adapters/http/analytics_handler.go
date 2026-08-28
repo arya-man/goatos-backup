@@ -500,27 +500,26 @@ type expenditureDayDTO struct {
 }
 
 type spendSummaryDTO struct {
-	ThisWeek    string `json:"this_week"`
+	Last7Days   string `json:"last_7_days"`
 	ThisMonth   string `json:"this_month"`
 	ThreeMonths string `json:"three_months"`
 	ThisYear    string `json:"this_year"`
 }
 
 type stockFarmItemDTO struct {
-	FarmLabel          string `json:"farm_label"`
-	FeedItemLabel      string `json:"feed_item_label"`
-	FeedItemKey        string `json:"feed_item_key"`
-	FirstPurchaseDate  string `json:"first_purchase_date"`
-	FirstDirectedDay   string `json:"first_directed_day"`
-	AvgDailyKg         string `json:"avg_daily_kg"`
-	WeeklyRequiredKg   string `json:"weekly_required_kg"`
-	LastLoadBatchNo    int64  `json:"last_load_batch_no"`
-	LastLoadDate       string `json:"last_load_date"`
-	LastLoadQuantityKg string `json:"last_load_quantity_kg"`
-	LastLoadVendor     string `json:"last_load_vendor"`
-	LastLoadTotalCost  string `json:"last_load_total_cost"`
-	LastLoadPerKgCost  string `json:"last_load_per_kg_cost"`
-	LedgerStockKg      string `json:"ledger_stock_kg"`
+	FarmLabel               string `json:"farm_label"`
+	FeedItemLabel           string `json:"feed_item_label"`
+	FeedItemKey             string `json:"feed_item_key"`
+	LastLoadConsumptionFrom string `json:"last_load_consumption_from"`
+	AvgDailyKg              string `json:"avg_daily_kg"`
+	WeeklyRequiredKg        string `json:"weekly_required_kg"`
+	LastLoadBatchNo         int64  `json:"last_load_batch_no"`
+	LastLoadDate            string `json:"last_load_date"`
+	LastLoadQuantityKg      string `json:"last_load_quantity_kg"`
+	LastLoadVendor          string `json:"last_load_vendor"`
+	LastLoadTotalCost       string `json:"last_load_total_cost"`
+	LastLoadPerKgCost       string `json:"last_load_per_kg_cost"`
+	LedgerStockKg           string `json:"ledger_stock_kg"`
 }
 
 type stockForecastItemDTO struct {

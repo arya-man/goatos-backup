@@ -6262,18 +6262,13 @@ export interface components {
             latest_batch_no: number;
             low_stock: boolean;
         };
-        /** @description One (farm, Mesha concentrate) row of the Stock tab's per-farm purchase/consumption table. Covers the four in-house Mesha concentrate feeds only (maintainer decision 2026-08-21). Consumption figures come from LOCKED GoatOS feed sheets, so a bootstrapped item's first_directed_day is the ledger cutoff, not the sheet era before it. */
+        /** @description One (farm, Mesha concentrate) row of the Stock tab's per-farm purchase/consumption table. Covers the four in-house Mesha concentrate feeds only (maintainer decision 2026-08-21). Consumption figures come from LOCKED GoatOS feed sheets. */
         FeedAnalyticsStockFarmItem: {
             farm_label: string;
             feed_item_label: string;
             feed_item_key: string;
-            /**
-             * Format: date
-             * @description Earliest load's purchase date for this farm.
-             */
-            first_purchase_date: string;
-            /** @description First locked feed day the item was directed at this farm; empty when never directed. */
-            first_directed_day: string;
+            /** @description When the latest load actually started being consumed under first-in-first-out — the first locked feed day whose cumulative directed kg exceeds every earlier load's net kg, never before the load's own depletion date. Buying a load does not start consuming it; empty means the earlier stock is still being fed (or the item was never directed). */
+            last_load_consumption_from: string;
             /** @description Average directed kg over the farm's 3 most recent locked feed days for the item (same semantics as the stock card, scoped to the farm); empty when never directed. */
             avg_daily_kg: string;
             /** @description Seven times avg_daily_kg, showing the stock required for one week at the current farm/item consumption rate; empty when never directed. */
@@ -6299,8 +6294,8 @@ export interface components {
         };
         /** @description Rupee totals over the standing leadership periods, each ending yesterday and priced like the daily series (most recent load rate per item). "0" when nothing priced. */
         FeedAnalyticsSpendSummary: {
-            /** @description Monday of the current IST week through yesterday. */
-            this_week: string;
+            /** @description Rolling 7 IST days ending yesterday. */
+            last_7_days: string;
             /** @description The 1st of the current IST month through yesterday. */
             this_month: string;
             /** @description Rolling 92 days through yesterday. */

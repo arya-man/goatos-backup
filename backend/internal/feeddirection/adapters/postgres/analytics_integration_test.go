@@ -414,16 +414,26 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	insertPurchase("XYZ", "Mesha Kids Goat Concentrate", 5, "2026-08-01", "10.000", nil)
 
 	issuedAt := time.Date(2026, 8, 10, 9, 0, 0, 0, biztime.DefaultLocation())
-	persistDay := func(feedDay, fingerprint string, qty string) {
+	// One locked sheet per day carries BOTH Mesha items — a day is one issue per
+	// (tenant, park, feed_day, workflow), so a second persist of a locked day is
+	// refused (ErrAmendAfterLock); the previous two-persist fixture could never
+	// lock the same day twice and left this test permanently red.
+	persistDay := func(feedDay, fingerprint string, goatQty, sheepQty string) {
 		t.Helper()
-		cells := []domain.StoredCell{{
-			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
-			PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
-			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
-			HeadCount: 10, Workflow: domain.WorkflowNormal,
-			FeedItemLabel: "Mesha Kids Goat Concentrate", FeedItemKey: "mesha_kids_goat_concentrate",
-			QuantityKg: kg(qty), SessionTotalKg: qty,
-		}}
+		cell := func(label, key, qty string) domain.StoredCell {
+			return domain.StoredCell{
+				ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
+				PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
+				RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
+				HeadCount: 10, Workflow: domain.WorkflowNormal,
+				FeedItemLabel: label, FeedItemKey: key,
+				QuantityKg: kg(qty), SessionTotalKg: qty,
+			}
+		}
+		cells := []domain.StoredCell{
+			cell("Mesha Kids Goat Concentrate", "mesha_kids_goat_concentrate", goatQty),
+			cell("Mesha Kids Sheep Concentrate", "mesha_kids_sheep_concentrate", sheepQty),
+		}
 		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
 			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: feedDay, Workflow: domain.WorkflowNormal,
 			IssuedAt: issuedAt, Fingerprint: fingerprint,
@@ -439,43 +449,15 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 			t.Fatalf("lock %s = (%v, %v)", feedDay, lock.Outcome, err)
 		}
 	}
-	persistKidsSheepDay := func(feedDay, fingerprint string, qty string) {
-		t.Helper()
-		cells := []domain.StoredCell{{
-			ParkID: fdiPark, ParkLabel: "CBE", ShedID: fdiShedA, ShedLabel: "Castro",
-			PartitionLabel: "1", ShedTag: "Non-Pregnant", Breed: "Beetal",
-			RationGroup: "Beetal/Sirohi", SessionNo: 1, SessionLabel: "Morning",
-			HeadCount: 10, Workflow: domain.WorkflowNormal,
-			FeedItemLabel: "Mesha Kids Sheep Concentrate", FeedItemKey: "mesha_kids_sheep_concentrate",
-			QuantityKg: kg(qty), SessionTotalKg: qty,
-		}}
-		if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
-			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: feedDay, Workflow: domain.WorkflowNormal,
-			IssuedAt: issuedAt, Fingerprint: fingerprint,
-			IdempotencyKey: "issue:" + fdiTenant + ":" + fdiPark + ":" + feedDay + ":stockfarm-sheep",
-			GeneratedBy:    "test", Cells: cells,
-		}); err != nil {
-			t.Fatalf("persist %s: %v", feedDay, err)
-		}
-		if lock, err := repo.LockIssue(ctx, ports.LockIssueCommand{
-			TenantID: fdiTenant, ParkID: fdiPark, FeedDay: feedDay,
-			Workflow: domain.WorkflowNormal, LockedAt: issuedAt,
-		}); err != nil || lock.Outcome != "locked" {
-			t.Fatalf("lock %s = (%v, %v)", feedDay, lock.Outcome, err)
-		}
-	}
-	// Four locked days: 20, 22, 30, 32 kg. The burn-rate window is the 3 MOST
-	// RECENT locked days (matching the farm's legacy stock sheet, maintainer
-	// decision 2026-08-21), so avg = (22+30+32)/3 = 28.0 — the Aug 11 day falls
-	// OUT of the average while remaining the consumption-start date.
-	persistDay("2026-08-11", "fp-sf-1", "20.000")
-	persistDay("2026-08-12", "fp-sf-2", "22.000")
-	persistDay("2026-08-13", "fp-sf-3", "30.000")
-	persistDay("2026-08-14", "fp-sf-4", "32.000")
-	persistKidsSheepDay("2026-08-11", "fp-sf-sheep-1", "200.000")
-	persistKidsSheepDay("2026-08-12", "fp-sf-sheep-2", "200.000")
-	persistKidsSheepDay("2026-08-13", "fp-sf-sheep-3", "200.000")
-	persistKidsSheepDay("2026-08-14", "fp-sf-sheep-4", "200.000")
+	// Four locked days: 20, 22, 30, 32 kg for the goat item. The burn-rate
+	// window is the 3 MOST RECENT locked days (matching the farm's legacy stock
+	// sheet, maintainer decision 2026-08-21), so avg = (22+30+32)/3 = 28.0 — the
+	// Aug 11 day falls OUT of the average while remaining the consumption-start
+	// date. The sheep item burns 200 kg on each of the four days.
+	persistDay("2026-08-11", "fp-sf-1", "20.000", "200.000")
+	persistDay("2026-08-12", "fp-sf-2", "22.000", "200.000")
+	persistDay("2026-08-13", "fp-sf-3", "30.000", "200.000")
+	persistDay("2026-08-14", "fp-sf-4", "32.000", "200.000")
 	// An ISSUED (unlocked) earlier day must not move the consumption start.
 	if _, err := repo.PersistIssue(ctx, ports.PersistIssueCommand{
 		TenantID: fdiTenant, ParkID: fdiPark, FeedDay: "2026-08-10", Workflow: domain.WorkflowNormal,
@@ -512,18 +494,18 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	if sheep.FeedItemLabel != "Mesha Adult Concentrate Sheep" || sheep.FarmLabel != "CBE" {
 		t.Fatalf("row 0: %+v", sheep)
 	}
-	if sheep.FirstDirectedDay != "" || sheep.AvgDailyKg != "" {
-		t.Errorf("never-directed item must serve empty consumption fields, got %q / %q", sheep.FirstDirectedDay, sheep.AvgDailyKg)
+	if sheep.LastLoadConsumptionFrom != "" || sheep.AvgDailyKg != "" {
+		t.Errorf("never-directed item must serve empty consumption fields, got %q / %q", sheep.LastLoadConsumptionFrom, sheep.AvgDailyKg)
 	}
 	kids := got.FarmItems[1]
 	if kids.FeedItemLabel != "Mesha Kids Goat Concentrate" || kids.FarmLabel != "CBE" {
 		t.Fatalf("row 1: %+v", kids)
 	}
-	if kids.FirstPurchaseDate != "2026-06-20" {
-		t.Errorf("first purchase: want 2026-06-20, got %q", kids.FirstPurchaseDate)
-	}
-	if kids.FirstDirectedDay != "2026-08-11" {
-		t.Errorf("consumption from locked sheets only: want 2026-08-11, got %q", kids.FirstDirectedDay)
+	// FIFO: the latest load (batch 330) sits behind batch 298's 1550 kg, and only
+	// 104 kg has been directed — the previous stock is still being fed, so the
+	// latest load has NOT started. Buying a load never starts consuming it.
+	if kids.LastLoadConsumptionFrom != "" {
+		t.Errorf("latest load must not start while 1550 kg of earlier stock remains (104 kg directed): got %q", kids.LastLoadConsumptionFrom)
 	}
 	if kids.AvgDailyKg != "28.0" {
 		t.Errorf("avg over the 3 most recent locked days: want 28.0 ((22+30+32)/3, day 1 outside the window), got %q", kids.AvgDailyKg)
@@ -535,21 +517,26 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	if kids.LedgerStockKg != "2596.0" {
 		t.Errorf("ledger stock: want 2596.0, got %+v", kids)
 	}
-	kidsSheep := got.FarmItems[2]
+	orphan := got.FarmItems[2]
+	if orphan.FarmLabel != "XYZ" || orphan.LastLoadConsumptionFrom != "" {
+		t.Errorf("park-less farm must serve with empty consumption, got %+v", orphan)
+	}
+	kidsSheep := got.FarmItems[3]
 	if kidsSheep.FeedItemLabel != "Mesha Kids Sheep Concentrate" || kidsSheep.FarmLabel != "CBE" {
-		t.Fatalf("row 2: %+v", kidsSheep)
+		t.Fatalf("row 3: %+v", kidsSheep)
 	}
 	if kidsSheep.LedgerStockKg != "400.0" {
 		t.Errorf("ledger stock must remain the current purchase-ledger balance, got %+v", kidsSheep)
 	}
-	orphan := got.FarmItems[3]
-	if orphan.FarmLabel != "XYZ" || orphan.FirstDirectedDay != "" {
-		t.Errorf("park-less farm must serve with empty consumption, got %+v", orphan)
+	// A first-ever load has no earlier stock, so FIFO starts it on the first
+	// locked day on/after its depletion date.
+	if kidsSheep.LastLoadConsumptionFrom != "2026-08-11" {
+		t.Errorf("single-load item starts on the first locked day on/after depletion (2026-08-11), got %q", kidsSheep.LastLoadConsumptionFrom)
 	}
 
 	t.Run("FarmItemsOneToManyMultipleDimensionsLoadsStayOneRowPerFarmItemAgainstLedgerStock", func(t *testing.T) {
-		if kids.FirstPurchaseDate != "2026-06-20" || kids.LastLoadBatchNo != 330 {
-			t.Fatalf("multi-load row must preserve first purchase and latest load: %+v", kids)
+		if kids.LastLoadBatchNo != 330 {
+			t.Fatalf("multi-load row must collapse to the latest load: %+v", kids)
 		}
 		if kids.LastLoadQuantityKg != "1150.0" || kids.LedgerStockKg != "2596.0" {
 			t.Fatalf("ledger stock must keep all purchased stock while last load shows only the latest purchase: %+v", kids)
@@ -563,7 +550,7 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 	})
 
 	t.Run("FarmItemsParkScopeScopeHierarchyKeepsUnresolvedFarmBareAgainstLedgerStock", func(t *testing.T) {
-		if orphan.FarmLabel != "XYZ" || orphan.FeedItemKey != "mesha_kids_goat_concentrate" || orphan.FirstDirectedDay != "" {
+		if orphan.FarmLabel != "XYZ" || orphan.FeedItemKey != "mesha_kids_goat_concentrate" || orphan.LastLoadConsumptionFrom != "" {
 			t.Fatalf("park scope join must not borrow CBE directed rows for unresolved farms: %+v", orphan)
 		}
 	})
@@ -626,8 +613,60 @@ VALUES ($1, $2, $3, $4, $5, $6::date, $7::numeric, 41.5266, 1000, 0, DATE '2026-
 		if err != nil {
 			t.Fatalf("StockAnalytics narrow: %v", err)
 		}
-		if len(narrow.FarmItems) != 3 || narrow.FarmItems[1].FirstDirectedDay != "2026-08-11" {
+		if len(narrow.FarmItems) != 4 || narrow.FarmItems[3].LastLoadConsumptionFrom != "2026-08-11" {
 			t.Errorf("date window must not change the farm table: %+v", narrow.FarmItems)
+		}
+	})
+
+	// FIFO both ways: a new load stays un-started while earlier stock remains,
+	// and once the earlier stock is small enough to be crossed, the start day is
+	// the crossing day — but never before the load's own depletion date.
+	t.Run("ConsumptionFromStartsOnlyWhenEarlierStockRunsOut", func(t *testing.T) {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_purchases (tenant_id, park_id, farm_label, feed_item_label, batch_no,
+                            purchase_date, quantity_kg, per_kg_cost, total_cost,
+                            consumed_at_import_kg, depletes_from, vendor, payment_status)
+VALUES ($1, $2, 'CBE', 'Mesha Kids Goat Concentrate', 350,
+        DATE '2026-08-12', 500, 41.5266, 1000, 0, DATE '2026-08-13', 'Navaladi', 'Paid')`,
+			fdiTenant, park); err != nil {
+			t.Fatalf("insert newer load: %v", err)
+		}
+		after, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+		if err != nil {
+			t.Fatalf("StockAnalytics: %v", err)
+		}
+		row := after.FarmItems[1]
+		if row.LastLoadBatchNo != 350 {
+			t.Fatalf("newest purchase date must win last-load: %+v", row)
+		}
+		if row.LastLoadConsumptionFrom != "" {
+			t.Errorf("2700 kg of earlier stock remains, the new load must show not-started: got %q", row.LastLoadConsumptionFrom)
+		}
+
+		// Shrink the earlier stock to 40 kg (and drop the interim loads): the
+		// cumulative directed crosses 40 kg on 2026-08-12 (20+22), but the load
+		// only depletes from 2026-08-13 — the start day must be gated by the
+		// load's own arrival, not just the crossing.
+		if _, err := pool.Exec(ctx, `
+UPDATE feed_purchases SET quantity_kg = 40 WHERE tenant_id = $1 AND farm_label = 'CBE'
+  AND feed_item_key = 'mesha_kids_goat_concentrate' AND batch_no = 298`, fdiTenant); err != nil {
+			t.Fatalf("shrink first load: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `
+DELETE FROM feed_purchases WHERE tenant_id = $1 AND farm_label = 'CBE'
+  AND feed_item_key = 'mesha_kids_goat_concentrate' AND batch_no IN (330, 340)`, fdiTenant); err != nil {
+			t.Fatalf("drop interim loads: %v", err)
+		}
+		crossed, err := repo.StockAnalytics(ctx, fdiTenant, domain.DirectedAnalyticsQuery{})
+		if err != nil {
+			t.Fatalf("StockAnalytics: %v", err)
+		}
+		row = crossed.FarmItems[1]
+		if row.LastLoadBatchNo != 350 {
+			t.Fatalf("latest load must still be batch 350: %+v", row)
+		}
+		if row.LastLoadConsumptionFrom != "2026-08-13" {
+			t.Errorf("start = first locked day on/after the load's depletion date once earlier stock is crossed: want 2026-08-13, got %q", row.LastLoadConsumptionFrom)
 		}
 	})
 

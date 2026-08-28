@@ -14841,14 +14841,12 @@ components:
       description: >-
         One (farm, Mesha concentrate) row of the Stock tab's per-farm purchase/consumption table.
         Covers the four in-house Mesha concentrate feeds only (maintainer decision 2026-08-21).
-        Consumption figures come from LOCKED GoatOS feed sheets, so a bootstrapped item's
-        first_directed_day is the ledger cutoff, not the sheet era before it.
+        Consumption figures come from LOCKED GoatOS feed sheets.
       required:
         - farm_label
         - feed_item_label
         - feed_item_key
-        - first_purchase_date
-        - first_directed_day
+        - last_load_consumption_from
         - avg_daily_kg
         - weekly_required_kg
         - last_load_batch_no
@@ -14865,13 +14863,13 @@ components:
           type: string
         feed_item_key:
           type: string
-        first_purchase_date:
+        last_load_consumption_from:
           type: string
-          format: date
-          description: Earliest load's purchase date for this farm.
-        first_directed_day:
-          type: string
-          description: First locked feed day the item was directed at this farm; empty when never directed.
+          description: >-
+            When the latest load actually started being consumed under first-in-first-out — the
+            first locked feed day whose cumulative directed kg exceeds every earlier load's net kg,
+            never before the load's own depletion date. Buying a load does not start consuming it;
+            empty means the earlier stock is still being fed (or the item was never directed).
         avg_daily_kg:
           type: string
           description: >-
@@ -14916,11 +14914,11 @@ components:
       description: >-
         Rupee totals over the standing leadership periods, each ending yesterday and priced like
         the daily series (most recent load rate per item). "0" when nothing priced.
-      required: [this_week, this_month, three_months, this_year]
+      required: [last_7_days, this_month, three_months, this_year]
       properties:
-        this_week:
+        last_7_days:
           type: string
-          description: Monday of the current IST week through yesterday.
+          description: Rolling 7 IST days ending yesterday.
         this_month:
           type: string
           description: The 1st of the current IST month through yesterday.

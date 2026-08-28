@@ -1496,7 +1496,7 @@ priced AS (
     ) price ON price.per_kg IS NOT NULL
 )
 SELECT
-  COALESCE(round(SUM(spend) FILTER (WHERE feed_day >= date_trunc('week',  $3::date)::date), 0), 0)::text,
+  COALESCE(round(SUM(spend) FILTER (WHERE feed_day >= $3::date - 7), 0), 0)::text,
   COALESCE(round(SUM(spend) FILTER (WHERE feed_day >= date_trunc('month', $3::date)::date), 0), 0)::text,
   COALESCE(round(SUM(spend) FILTER (WHERE feed_day >= $3::date - 91), 0), 0)::text,
   COALESCE(round(SUM(spend), 0), 0)::text
@@ -1504,7 +1504,7 @@ FROM priced`
 
 // Per-farm Mesha-concentrate purchase/consumption table (Stock tab).
 //
-// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, filtered to the four MeshaConcentrateStockKeys; group_key=(farm_label, feed_item_key) on both purchase sides — loads GROUP BY that pair and last_load is DISTINCT ON the same pair so they meet exactly 1:1, while the directed side collapses locked issue-row cells to (park_id, feed_item_key) before joining and one farm_label resolves to exactly one park (the importer maps CBE/CPT to the tenant's park locations); join_cardinality=loads JOIN last_load 1:1, LEFT JOIN directed 1:0..1, no side left unaggregated; pagination=none — four items across a tenant's farms is a bounded table with no limit/offset input; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets.
+// projection-review: membership=feed_purchases at its (tenant, farm_label, feed_item_key, batch_no) natural key, filtered to the four MeshaConcentrateStockKeys; group_key=(farm_label, feed_item_key) on both purchase sides — loads GROUP BY that pair and last_load is DISTINCT ON the same pair so they meet exactly 1:1, while the directed side collapses locked issue-row cells to (park_id, feed_item_key) before joining and one farm_label resolves to exactly one park (the importer maps CBE/CPT to the tenant's park locations); load_consumption is a FIFO crossing: locked_cells is one row per (park, feed_item_key, feed_day), so the running SUM window per (farm_label, feed_item_key) sees each day once, and MIN(feed_day) over the crossing days collapses back to one row per pair; join_cardinality=loads JOIN last_load 1:1, LEFT JOIN directed 1:0..1, LEFT JOIN load_consumption 1:0..1, no side left unaggregated; pagination=none — four items across a tenant's farms is a bounded table with no limit/offset input; scope=tenant_id everywhere plus the caller's authorized park set on both purchases and sheets.
 //
 // scale-guard:ignore: 5k-50k-envelope — bounded four-item aggregate over the
 // small purchase ledger and locked sheets, canonical-indexed-SQL default.
@@ -1513,7 +1513,6 @@ WITH loads AS (
     SELECT farm_label, feed_item_key,
            MAX(feed_item_label) AS feed_item_label,
            MIN(park_id::text)   AS park_id_text,
-           MIN(purchase_date)   AS first_purchase,
            SUM(quantity_kg - consumed_at_import_kg) AS net_kg,
            MIN(depletes_from)    AS depletes_from
     FROM feed_purchases
@@ -1525,7 +1524,8 @@ WITH loads AS (
 last_load AS (
     SELECT DISTINCT ON (farm_label, feed_item_key)
            farm_label, feed_item_key,
-           batch_no, purchase_date, quantity_kg, vendor, total_cost, per_kg_cost
+           batch_no, purchase_date, quantity_kg, vendor, total_cost, per_kg_cost,
+           depletes_from, quantity_kg - consumed_at_import_kg AS net_kg
     FROM feed_purchases
     WHERE tenant_id = $1
       AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
@@ -1545,7 +1545,6 @@ locked_cells AS (
 ),
 directed AS (
     SELECT park_id, feed_item_key,
-           MIN(feed_day)                  AS first_directed_day,
            AVG(kg) FILTER (WHERE rn <= 3) AS recent_avg_kg
     FROM (
         SELECT park_id, feed_item_key, feed_day, kg,
@@ -1553,6 +1552,33 @@ directed AS (
         FROM locked_cells
     ) ranked
     GROUP BY park_id, feed_item_key
+),
+-- FIFO: a load is consumed only after every EARLIER load's stock is used up.
+-- The latest load's consumption therefore starts on the first locked feed day
+-- whose cumulative directed kg (since the ledger start) exceeds the net kg of
+-- all earlier loads — and never before the load's own depletion date. No
+-- crossing yet means the previous stock is still being fed: empty, not a date.
+load_consumption AS (
+    SELECT farm_label, feed_item_key, MIN(feed_day) AS consumption_from
+    FROM (
+        SELECT l.farm_label, l.feed_item_key, lc.feed_day,
+               ll.depletes_from                AS last_load_from,
+               l.net_kg - ll.net_kg            AS prior_net_kg,
+               SUM(lc.kg) OVER (PARTITION BY l.farm_label, l.feed_item_key
+                                ORDER BY lc.feed_day) AS cum_kg
+        FROM loads l
+        JOIN last_load ll
+          ON ll.farm_label = l.farm_label
+         AND ll.feed_item_key = l.feed_item_key
+        JOIN locked_cells lc
+          ON l.park_id_text IS NOT NULL
+         AND lc.park_id = l.park_id_text::uuid
+         AND lc.feed_item_key = l.feed_item_key
+         AND lc.feed_day >= l.depletes_from
+    ) fifo
+    WHERE cum_kg > prior_net_kg
+      AND feed_day >= last_load_from
+    GROUP BY farm_label, feed_item_key
 ),
 depletion AS (
     SELECT l.farm_label,
@@ -1577,16 +1603,17 @@ stock_balance AS (
 )
 -- projection-review: membership=feed_purchases at (tenant, farm_label, feed_item_key, batch_no)
 -- filtered to MeshaConcentrateStockKeys; group_key=(farm_label, feed_item_key) on every side,
--- loads GROUP BY that pair and last_load is DISTINCT ON the same pair; join_cardinality=loads
--- JOIN last_load 1:1, LEFT JOIN directed 1:0..1, LEFT JOIN stock_balance 1:0..1, no side left
--- unaggregated, and weekly_required_kg is a scalar multiple of the same recent_avg_kg rather than
--- a differently-grouped sum; pagination=none, four items across a tenant's farms is bounded with
--- no limit/offset input; scope=tenant_id everywhere plus the caller's authorized park set.
+-- loads GROUP BY that pair, last_load is DISTINCT ON the same pair, and load_consumption
+-- pre-aggregates its FIFO crossing days to MIN(feed_day) per pair; join_cardinality=loads
+-- JOIN last_load 1:1, LEFT JOIN directed 1:0..1, LEFT JOIN load_consumption 1:0..1, LEFT JOIN
+-- stock_balance 1:0..1, no side left unaggregated, and weekly_required_kg is a scalar multiple
+-- of the same recent_avg_kg rather than a differently-grouped sum; pagination=none, four items
+-- across a tenant's farms is bounded with no limit/offset input; scope=tenant_id everywhere
+-- plus the caller's authorized park set.
 SELECT l.farm_label,
        l.feed_item_label,
        l.feed_item_key,
-       l.first_purchase::text,
-       COALESCE(d.first_directed_day::text, '')      AS first_directed_day,
+       COALESCE(lcons.consumption_from::text, '')    AS last_load_consumption_from,
        COALESCE(round(d.recent_avg_kg, 1)::text, '') AS avg_daily_kg,
        COALESCE(round(d.recent_avg_kg * 7, 1)::text, '') AS weekly_required_kg,
        ll.batch_no,
@@ -1604,6 +1631,9 @@ LEFT JOIN directed d
   ON l.park_id_text IS NOT NULL
  AND d.park_id = l.park_id_text::uuid
  AND d.feed_item_key = l.feed_item_key
+LEFT JOIN load_consumption lcons
+  ON lcons.farm_label = l.farm_label
+ AND lcons.feed_item_key = l.feed_item_key
 LEFT JOIN stock_balance sb
   ON sb.farm_label = l.farm_label
  AND sb.feed_item_key = l.feed_item_key
@@ -1648,7 +1678,7 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 		var fi domain.StockFarmItem
 		if err := farmRows.Scan(
 			&fi.FarmLabel, &fi.FeedItemLabel, &fi.FeedItemKey,
-			&fi.FirstPurchaseDate, &fi.FirstDirectedDay, &fi.AvgDailyKg, &fi.WeeklyRequiredKg,
+			&fi.LastLoadConsumptionFrom, &fi.AvgDailyKg, &fi.WeeklyRequiredKg,
 			&fi.LastLoadBatchNo, &fi.LastLoadDate, &fi.LastLoadQuantityKg,
 			&fi.LastLoadVendor, &fi.LastLoadTotalCost, &fi.LastLoadPerKgCost,
 			&fi.LedgerStockKg,
@@ -1705,7 +1735,7 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 
 	today := biztime.BusinessDate(time.Now())
 	if err := r.pool.QueryRow(ctx, stockSpendSQL, tenantID, parkIDs, today).
-		Scan(&out.Spend.ThisWeek, &out.Spend.ThisMonth, &out.Spend.ThreeMonths, &out.Spend.ThisYear); err != nil {
+		Scan(&out.Spend.Last7Days, &out.Spend.ThisMonth, &out.Spend.ThreeMonths, &out.Spend.ThisYear); err != nil {
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics spend summary: %w", err)
 	}
 	return out, nil
