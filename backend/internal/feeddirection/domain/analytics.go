@@ -673,11 +673,13 @@ type StockFarmItem struct {
 	FarmLabel     string
 	FeedItemLabel string
 	FeedItemKey   string
-	// FirstPurchaseDate is the earliest load's purchase date for this farm.
-	FirstPurchaseDate string
-	// FirstDirectedDay is the first locked feed day the item was directed at
-	// this farm; empty when never directed.
-	FirstDirectedDay string
+	// LastLoadConsumptionFrom is when the LATEST load actually started being
+	// consumed under first-in-first-out: the first locked feed day whose
+	// cumulative directed kg since the ledger start exceeds every earlier
+	// load's net kg — and never before the load's own depletion date. Buying
+	// a load does not start consuming it; empty means the earlier stock is
+	// still being fed (or the item was never directed).
+	LastLoadConsumptionFrom string
 	// AvgDailyKg averages the farm's directed kg for the item over its 3 most
 	// recent locked feed days (same semantics as StockItem.AvgDailyKg, scoped
 	// to the farm); empty when never directed.
@@ -757,8 +759,9 @@ type ExpenditureDay struct {
 // YESTERDAY (today's sheet is still being executed) and is priced the same way
 // as the daily series. Rupee strings, "0" when nothing priced.
 type SpendSummary struct {
-	// ThisWeek is Monday of the current IST week through yesterday.
-	ThisWeek string
+	// Last7Days is the rolling 7 IST days ending yesterday (maintainer
+	// decision 2026-08-28, replacing the Monday-anchored current week).
+	Last7Days string
 	// ThisMonth is the 1st of the current IST month through yesterday.
 	ThisMonth string
 	// ThreeMonths is the rolling 92 days through yesterday.
