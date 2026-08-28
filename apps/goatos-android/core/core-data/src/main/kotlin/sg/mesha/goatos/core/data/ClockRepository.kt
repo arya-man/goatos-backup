@@ -1,7 +1,9 @@
 package sg.mesha.goatos.core.data
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.common.AppResult
@@ -99,6 +101,15 @@ interface ClockRepository {
 
     /** One person-day detail; network-first with blob-cache fallback. */
     suspend fun fetchPersonDay(workforceMemberId: String, date: String?): Result<ClockPersonDayResponseDto>
+
+    /**
+     * The punch still sitting on the outbox for TODAY, or null. Durable: read
+     * from the outbox table itself, so a queued punch survives process death
+     * and navigation — the screen must acknowledge it until it drains
+     * (E2E finding 2026-08-28: a queued punch was invisible and the button
+     * stayed tappable). Emits "clock_in" | "clock_out" | null.
+     */
+    fun observePendingPunch(): Flow<String?>
 }
 
 class DefaultClockRepository(
@@ -106,6 +117,12 @@ class DefaultClockRepository(
     private val dao: ClockBlobCacheDao,
     private val syncRepository: SyncRepository,
     private val factsProvider: ClockPunchFactsProvider,
+    /**
+     * Active (queued/retrying) outbox rows for one op type, as their groupKeys.
+     * Production wires OutboxDao.observeActiveByOpType (see AppModule); the
+     * default keeps unit fixtures free of the Room DAO surface.
+     */
+    private val activePunchGroups: (opType: String) -> Flow<Set<String>> = { flowOf(emptySet()) },
     private val json: Json = Json { ignoreUnknownKeys = true },
     /** Injectable device clock so key-stability tests can pin the tap instant. */
     private val now: () -> OffsetDateTime = { OffsetDateTime.now() },
@@ -200,6 +217,21 @@ class DefaultClockRepository(
         return runCatching { api.getClockPresencePerson(workforceMemberId, date) }
             .onSuccess { dto -> upsert(cacheKey, json.encodeToString(ClockPersonDayResponseDto.serializer(), dto)) }
             .recoverCatching { failure -> readBlob<ClockPersonDayResponseDto>(cacheKey) ?: throw failure }
+    }
+
+    override fun observePendingPunch(): Flow<String?> {
+        val today = { now().atZoneSameInstant(IST).toLocalDate().toString() }
+        return combine(
+            activePunchGroups("CLOCK_IN"),
+            activePunchGroups("CLOCK_OUT"),
+        ) { ins, outs ->
+            val group = clockPunchGroupKey(today())
+            when {
+                group in ins -> "clock_in"
+                group in outs -> "clock_out"
+                else -> null
+            }
+        }
     }
 
     private suspend fun upsert(cacheKey: String, blob: String) {

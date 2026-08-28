@@ -46,6 +46,9 @@ import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionRequestDto
 import java.security.MessageDigest
 import java.util.UUID
 
+/** enqueueClockPunch budget: rides out days of dead network at the server-capped backoff (decision D1). */
+private const val CLOCK_PUNCH_MAX_ATTEMPTS = 1000
+
 /**
  * ## Sync engine — public integration point
  *
@@ -1068,6 +1071,13 @@ class DefaultSyncRepository(
         groupKey = groupKey,
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(ClockPunchPayload(request = request)),
+        // A punch must SURVIVE a long outage (decision D1 — offline punches are
+        // the point of the module). The default 8-attempt budget killed a
+        // queued clock-in in minutes when the server was unreachable (E2E
+        // finding 2026-08-28); with the server-capped backoff this budget rides
+        // out days of dead network rather than minutes. Terminal 409/422
+        // conflicts still dead-letter immediately via isTerminalAppApiError.
+        maxAttempts = CLOCK_PUNCH_MAX_ATTEMPTS,
     )
 
     override suspend fun enqueueCountsBirth(
@@ -1485,10 +1495,11 @@ class DefaultSyncRepository(
         groupKey: String,
         idempotencyKey: String,
         payloadJson: String,
+        maxAttempts: Int = DEFAULT_MAX_ATTEMPTS,
     ): AppResult<String> = withContext(dispatchers.io) {
         try {
             val fingerprint = requestFingerprint(opType, groupKey, payloadJson)
-            val id = insertOrExistingRow(opType, groupKey, idempotencyKey, payloadJson, fingerprint)
+            val id = insertOrExistingRow(opType, groupKey, idempotencyKey, payloadJson, fingerprint, maxAttempts)
             triggerDrainAsync()
             // Background upload foreground service (MOB-002 §3): only for the op types that
             // carry proof/video-sized payloads worth a visible "uploading" notification — see
@@ -1519,6 +1530,7 @@ class DefaultSyncRepository(
         idempotencyKey: String,
         payloadJson: String,
         fingerprint: String,
+        maxAttempts: Int = DEFAULT_MAX_ATTEMPTS,
     ): String {
         store.findByIdempotencyKey(idempotencyKey)?.let {
             return reopenOrReplayExistingRow(it, opType, groupKey, payloadJson, fingerprint)
@@ -1536,7 +1548,7 @@ class DefaultSyncRepository(
                     requestFingerprint = fingerprint,
                     status = OutboxStatus.QUEUED.name,
                     attemptCount = 0,
-                    maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                    maxAttempts = maxAttempts,
                     conflict = false,
                     createdAt = now,
                     updatedAt = now,
@@ -1565,7 +1577,7 @@ class DefaultSyncRepository(
                     opType = opType.name,
                     itemId = id,
                     attempt = 0,
-                    maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                    maxAttempts = maxAttempts,
                 ),
             )
         }

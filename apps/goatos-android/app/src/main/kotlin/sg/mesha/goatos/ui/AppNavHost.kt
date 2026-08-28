@@ -3489,10 +3489,14 @@ private fun HealthListDestination(
  * guard keeps an unknown future root from failing startup with a 403.
  */
 internal fun startDestinationFor(navState: NavState): String {
-    navState.availableModules().firstOrNull()?.href
+    // The served visible_navigation IS the active module's bar — the day opens
+    // there. Preferring the DRAWER's first module here would open everyone on
+    // Clock In / Out now that attendance sits at the top of the drawer
+    // (maintainer ask 2026-08-28): the drawer is only the fallback for a
+    // principal whose bar composed empty of hosted roots (e.g. clock-only).
+    navState.items.firstOrNull { isRootDestination(it.href) }?.href?.let { return it }
+    return navState.availableModules().firstOrNull()?.href
         ?.takeIf { isRootDestination(it) }
-        ?.let { return it }
-    return navState.items.firstOrNull { isRootDestination(it.href) }?.href
         ?: Routes.CALENDAR
 }
 
@@ -3504,6 +3508,12 @@ private const val SUBMIT_SUCCESS_RETURN_DELAY_MS = 800L
 
 private val supportedRootDestinations = setOf(
 	Routes.CALENDAR,
+	// Clock In / Out bottom-bar destinations are L0 roots like every other
+	// module bar leaf — without this a clock-only principal's landing fell
+	// back to Calendar with NO route into the module once the reminder banner
+	// cleared (E2E finding 2026-08-28: the operator could never review hours).
+	Routes.CLOCK,
+	Routes.CLOCK_TEAM,
 	Routes.VACCINATION,
 	Routes.WEIGHING,
 	Routes.VERIFY,

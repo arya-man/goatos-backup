@@ -158,10 +158,15 @@ class ClockViewModel @Inject constructor(
         repo.observeStatus(),
         _isRefreshing,
         _refusal,
-        _punchInFlight,
+        // Durable pending signal from the outbox table OR the tap-local flag —
+        // a queued punch must stay visible across navigation and process death
+        // until it drains (E2E finding 2026-08-28).
+        combine(repo.observePendingPunch(), _punchInFlight) { queued, inFlight ->
+            queued ?: if (inFlight) "in_flight" else null
+        },
         tick,
-    ) { dto, refreshing, refusal, inFlight, now ->
-        composeState(dto, refreshing, refusal, inFlight, now)
+    ) { dto, refreshing, refusal, pending, now ->
+        composeState(dto, refreshing, refusal, pending, now)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ClockUiState())
 
     fun refresh() {
@@ -253,17 +258,31 @@ class ClockViewModel @Inject constructor(
         dto: ClockStatusResponseDto?,
         refreshing: Boolean,
         refusal: ClockRefusalUi?,
-        inFlight: Boolean,
+        pending: String?,
         now: OffsetDateTime,
     ): ClockUiState {
         val copy = dto?.copy.orEmpty()
         val stateKey = dto?.state.orEmpty()
         val entry = dto?.entry
-        val headline = when (stateKey) {
+        val inFlight = pending != null
+        val baseHeadline = when (stateKey) {
             "clocked_in" -> template(copy["state.clocked_in"].orEmpty(), entry?.clockInLabel.orEmpty())
+            // An auto-closed day has NO hours (never invented); trim the
+            // template's dangling separator rather than showing "· ".
             "clocked_out" -> template(copy["state.clocked_out"].orEmpty(), entry?.hoursLabel.orEmpty())
+                .trim().trimEnd('·').trim()
             else -> copy["state.not_clocked_in"].orEmpty()
         }
+        // A punch waiting on the outbox owns the headline until it drains: the
+        // operator saved a real action and must see it acknowledged. A cached
+        // payload from before the pending copy shipped falls back to the plain
+        // state headline (the button below is still disabled either way).
+        val pendingKey = when {
+            pending == "clock_out" || (pending != null && stateKey == "clocked_in") -> "state.clock_out_pending"
+            pending != null -> "state.clock_in_pending"
+            else -> null
+        }
+        val headline = pendingKey?.let { copy[it].orEmpty().ifBlank { baseHeadline } } ?: baseHeadline
         val elapsed = if (stateKey == "clocked_in" && entry != null) {
             template(copy["hours.so_far"].orEmpty(), elapsedLabel(entry.clockInAt, now))
         } else {
