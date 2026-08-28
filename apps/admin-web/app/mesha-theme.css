@@ -1005,17 +1005,16 @@
   .main table.feed-stock-table th{font-size:10px;letter-spacing:.08em;line-height:1.25}
   .main table.feed-stock-table th:nth-child(1),.main table.feed-stock-table td:nth-child(1){width:20%}
   .main table.feed-stock-table th:nth-child(2),.main table.feed-stock-table td:nth-child(2){width:5%}
-  .main table.feed-stock-table th:nth-child(3),.main table.feed-stock-table td:nth-child(3){width:8%}
-  .main table.feed-stock-table th:nth-child(4),.main table.feed-stock-table td:nth-child(4){width:9%}
-  .main table.feed-stock-table th:nth-child(5),.main table.feed-stock-table td:nth-child(5){width:28%}
-  .main table.feed-stock-table th:nth-child(6),.main table.feed-stock-table td:nth-child(6){width:7%}
+  .main table.feed-stock-table th:nth-child(3),.main table.feed-stock-table td:nth-child(3){width:13%}
+  .main table.feed-stock-table th:nth-child(4),.main table.feed-stock-table td:nth-child(4){width:30%}
+  .main table.feed-stock-table th:nth-child(5),.main table.feed-stock-table td:nth-child(5){width:8%}
+  .main table.feed-stock-table th:nth-child(6),.main table.feed-stock-table td:nth-child(6){width:8%}
   .main table.feed-stock-table th:nth-child(7),.main table.feed-stock-table td:nth-child(7){width:8%}
-  .main table.feed-stock-table th:nth-child(8),.main table.feed-stock-table td:nth-child(8){width:7%}
-  .main table.feed-stock-table th:nth-child(9),.main table.feed-stock-table td:nth-child(9){width:8%}
+  .main table.feed-stock-table th:nth-child(8),.main table.feed-stock-table td:nth-child(8){width:8%}
   .main table.feed-forecast-table td:nth-child(n+3),.main table.feed-forecast-table th:nth-child(n+3){text-align:right}
   .main table.feed-forecast-table tr.feed-forecast-total td{border-top:2px solid var(--line);text-align:right}
   .main table.feed-forecast-table tr.feed-forecast-total td:first-child{text-align:left}
-  .main table.feed-stock-table .feed-stock-load{white-space:normal;overflow:visible;text-overflow:clip}
+  .main table.feed-stock-table .feed-stock-load{white-space:nowrap;overflow:visible;text-overflow:clip}
   .main table.feed-stock-table .tag{max-width:100%;white-space:normal;line-height:1.25;justify-content:center;text-align:center}
   .main table.feed-stock-table .feed-stock-check-tag{display:inline-flex;align-items:center;gap:5px;min-width:0;padding:4px 8px;letter-spacing:0;white-space:nowrap}
   .main table.feed-stock-table .feed-stock-check-tag span{min-width:0;overflow-wrap:normal;word-break:normal}
