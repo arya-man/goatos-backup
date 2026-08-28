@@ -521,4 +521,3 @@ ORDER BY recorded_at`,
 	}
 	return items, rows.Err()
 }
-

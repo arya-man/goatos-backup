@@ -263,6 +263,24 @@ enum class OutboxOpType {
      * per-(task, outcome, photo row) idempotency key — never timestamp-suffixed.
      */
     TOXIN_SUBMIT,
+
+    /**
+     * Clock In / Clock Out punches (`POST /app/clock/in` / `/app/clock/out`, module clock,
+     * maintainer decision 2026-08-27 — docs/features/clock-in-out/plan.md). Adding an op type
+     * needs NO Room migration: [OutboxEntity.opType] is a plain TEXT column holding this enum's
+     * `name`.
+     *
+     * One in/out pair exists per IST business day, so the idempotency key is STABLE and
+     * day-scoped — `clock:<business_date>:<in|out>`, minted at tap time, never a timestamp — and
+     * the groupKey is `clock:<business_date>` so a day's in and out drain strictly in order and
+     * never concurrently. A 409 (`already_clocked_in` / `not_clocked_in` / `already_clocked_out`)
+     * is a definitive server answer about a day that already has that punch: terminal by
+     * `isTerminalAppApiError`, surfaced once, never retried. A 422 `mock_location_detected` is
+     * likewise terminal — the server independently refuses a payload admitting a mock fix or an
+     * installed fake-GPS app, and re-sending the same payload can never succeed.
+     */
+    CLOCK_IN,
+    CLOCK_OUT,
 }
 
 /**

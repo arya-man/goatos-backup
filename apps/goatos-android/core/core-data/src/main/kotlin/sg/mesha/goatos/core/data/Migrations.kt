@@ -1342,3 +1342,20 @@ val MIGRATION_49_50: Migration = object : Migration(49, 50) {
         )
     }
 }
+
+/**
+ * v51: the Clock In / Clock Out module's JSON-blob cache (module clock, maintainer decision
+ * 2026-08-27 — docs/features/clock-in-out/plan.md). ONE blob table keyed by scope — the caller's
+ * own status (`status`), the presence board's first page per filter (`presence:<filterKey>`),
+ * and person-day detail (`person:<memberId>:<date>`) — the [MIGRATION_49_50] detail-cache shape.
+ * Additive only; touches nothing existing.
+ */
+val MIGRATION_50_51: Migration = object : Migration(50, 51) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `clock_blob_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}

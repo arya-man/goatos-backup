@@ -370,7 +370,7 @@ const (
 	// user" permission — exactly like device registration.
 	ClockPresenceRead = "clock.presence.read"
 	RosterRead        = "roster.read"
-	RosterManage = "roster.manage"
+	RosterManage      = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
 	// (movement) event, a birth, or a death from the phone (/app/counts/*).
 	//
@@ -1126,7 +1126,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// Clock In / Out presence oversight (maintainer decision 2026-08-28):
 		// the CEO/CXO sees who is working; everyone else only punches.
 		ClockPresenceRead: {},
-		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
+		GoatRead:          {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
 		// The ONLY holder of the whole-pen cohort reclassification. See the constant's doc comment:
 		// it applies immediately, with no approval and no proof, and flips kid/adult for the whole
 		// pen. It is granted here and nowhere else.

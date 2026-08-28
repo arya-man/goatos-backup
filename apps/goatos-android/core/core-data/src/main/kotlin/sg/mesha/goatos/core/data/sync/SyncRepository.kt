@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
+import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
@@ -247,6 +248,20 @@ interface SyncRepository {
         idempotencyKey: String,
         request: CountsShiftingEventRequestDto,
     ): AppResult<String> = AppResult.Err("counts shifting sync is not configured")
+
+    /**
+     * Enqueues a clock punch (`POST /app/clock/in` / `/app/clock/out`, module clock — maintainer
+     * decision 2026-08-27). [idempotencyKey] is the STABLE day-scoped `clock:<business_date>:<in|out>`
+     * key minted at tap; [groupKey] is `clock:<business_date>` so a day's in and out drain in
+     * order and never concurrently. A 409 about a day that already holds that punch is terminal
+     * and never retried.
+     */
+    suspend fun enqueueClockPunch(
+        clockIn: Boolean,
+        groupKey: String,
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): AppResult<String> = AppResult.Err("clock punch sync is not configured")
 
     /**
      * Enqueues a birth write (`POST /app/counts/birth-events`). [groupKey] is the newborn's
@@ -1039,6 +1054,20 @@ class DefaultSyncRepository(
         groupKey = groupKey,
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(CountsShiftingPayload(request = request)),
+    )
+
+    override suspend fun enqueueClockPunch(
+        clockIn: Boolean,
+        groupKey: String,
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): AppResult<String> = enqueue(
+        // The op type selects the endpoint AND separates an in from an out in the request
+        // fingerprint, so the two can never be mistaken for a replay of each other.
+        opType = if (clockIn) OutboxOpType.CLOCK_IN else OutboxOpType.CLOCK_OUT,
+        groupKey = groupKey,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(ClockPunchPayload(request = request)),
     )
 
     override suspend fun enqueueCountsBirth(
