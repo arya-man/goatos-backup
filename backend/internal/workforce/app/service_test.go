@@ -684,23 +684,27 @@ func TestVisibleNavigationFor(t *testing.T) {
 		},
 		{
 			// No grants means no nav, not an implicit vaccination default.
-			name:    "operator with no module grants gets empty nav",
+			// Baseline clock (2026-08-28, decision D2): a person no module owns
+			// still clocks in, so the FLOOR of every bar is My Clock — never
+			// blank. Work modules are still earned by a department grant.
+			name:    "operator with no module grants gets the baseline clock bar",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: nil,
-			want:    []domain.BootstrapNavigationItem{},
+			want:    []domain.BootstrapNavigationItem{{Key: "clock", Label: "My Clock", Href: "/clock"}},
 		},
 		{
-			name:    "unknown module key contributes nothing",
+			name:    "unknown module key contributes nothing beyond the clock floor",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"not_a_real_module"},
-			want:    []domain.BootstrapNavigationItem{},
+			want:    []domain.BootstrapNavigationItem{{Key: "clock", Label: "My Clock", Href: "/clock"}},
 		},
 		{
-			// A "soon" module is a roadmap row, never a servable bar.
+			// A "soon" module is a roadmap row, never a servable bar; the
+			// baseline clock floor is what renders instead.
 			name:    "soon module is not servable",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"breeding"},
-			want:    []domain.BootstrapNavigationItem{},
+			want:    []domain.BootstrapNavigationItem{{Key: "clock", Label: "My Clock", Href: "/clock"}},
 		},
 	}
 	for _, tc := range tests {
@@ -1407,10 +1411,12 @@ func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 func TestVisibleNavigationIsEarnedByAModuleGrant(t *testing.T) {
 	grants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
 
-	// A module-less department composes an EMPTY bar. This is the intended outcome for departments
-	// (procurement, growth, infra, milk, sales) that hold no operational module -- not a defect.
-	if nav := visibleNavigationFor(grants, nil, "en"); len(nav) != 0 {
-		t.Fatalf("nav with no granted module=%v, want empty (a module-less department correctly gets a blank bar)", nav)
+	// A module-less department composes ONLY the baseline clock bar (2026-08-28,
+	// decision D2: everyone clocks in). No WORK module is invented for it — the
+	// P1-NAV rule stands for operational modules; attendance is the one floor.
+	nav0 := visibleNavigationFor(grants, nil, "en")
+	if len(nav0) != 1 || nav0[0].Key != "clock" {
+		t.Fatalf("nav with no granted module=%v, want exactly the baseline clock bar", nav0)
 	}
 
 	// A department that DOES hold a module (here Counts) composes that module's non-empty bottom bar.
