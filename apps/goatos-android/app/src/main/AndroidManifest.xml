@@ -49,6 +49,16 @@
         android:maxSdkVersion="30" />
     <!-- Mandatory proof-capture GPS stamp. Also satisfies pre-Android-12 Bluetooth scan location
          requirements for the RFID readiness path above. -->
+    <!-- Clock In/Out mock-location enforcement (maintainer decision 2026-08-27,
+         docs/features/clock-in-out/plan.md §4.2): the punch-time integrity scan lists installed
+         packages requesting android.permission.ACCESS_MOCK_LOCATION (the permission every
+         fake-GPS app must declare) so a punch from a phone carrying one is refused and the app
+         is named to the person. Acceptable for this app's internal distribution (Firebase App
+         Distribution + mesha.sg/app.apk + Play INTERNAL testing); recorded as a Play-policy
+         consideration if the app ever goes to open Play tracks. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />

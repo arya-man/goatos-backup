@@ -330,6 +330,7 @@ dependencies {
     implementation(project(":core:core-analytics"))
 
     implementation(project(":feature:feature-calendar"))
+    implementation(project(":feature:feature-clock"))
     implementation(project(":feature:feature-counts"))
     implementation(project(":feature:feature-feed"))
     implementation(project(":feature:feature-health"))

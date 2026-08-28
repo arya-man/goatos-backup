@@ -83,6 +83,8 @@ import sg.mesha.goatos.core.model.nav.barItems
 import sg.mesha.goatos.core.model.nav.resolveModule
 import sg.mesha.goatos.push.DevicePushStateViewModel
 import sg.mesha.goatos.push.PushNavigationViewModel
+import sg.mesha.goatos.core.ui.ClockReminderBanner
+import sg.mesha.goatos.viewmodel.ClockStatusViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.SyncStatusViewModel
 
@@ -202,6 +204,12 @@ fun GoatOsShell(navState: NavState) {
     // the on-demand sync sheet — both read the one live SyncRepository flow, no polling.
     val syncVm: SyncStatusViewModel = hiltViewModel()
     val showOffline by syncVm.showOfflineBanner.collectAsStateWithLifecycle()
+
+    // Shell-global not-clocked-in reminder (module clock, plan §4.3): observes the Room-cached
+    // clock status; visible only while the backend's banner_text is non-empty. A reminder, not a
+    // lock — the app stays fully usable.
+    val clockStatusVm: ClockStatusViewModel = hiltViewModel()
+    val clockBanner by clockStatusVm.banner.collectAsStateWithLifecycle()
     val syncStatus by syncVm.status.collectAsStateWithLifecycle()
     var showSyncSheet by remember { mutableStateOf(false) }
 
@@ -351,6 +359,17 @@ fun GoatOsShell(navState: NavState) {
             moduleVm.recordShellAction("sync_sheet_open", backStackEntry?.destination?.route)
             showSyncSheet = true
         })
+
+        // Not shown on the clock screen itself — the person is already where the tap would go.
+        if (backStackEntry?.destination?.route?.routeBase() != Routes.CLOCK) {
+            ClockReminderBanner(
+                state = clockBanner,
+                onTap = {
+                    clockStatusVm.onBannerTapped()
+                    navigate(Routes.CLOCK)
+                },
+            )
+        }
 
         // Mandatory role-based permission gate — NON-DISMISSIBLE dialog shown after bootstrap.
         // Blocks the app until all required permissions (based on role) are granted.

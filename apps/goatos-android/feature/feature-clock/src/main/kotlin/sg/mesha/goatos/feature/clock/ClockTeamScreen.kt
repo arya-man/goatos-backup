@@ -211,7 +211,7 @@ private fun DateChipStrip(dates: List<ClockDateChipUi>, onEvent: (ClockTeamEvent
             .padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        dates.forEach { chip ->
+        dates.forEach { chip -> // compose-guard:ignore: fixed 14-day date strip, never grows with park scale
             Text(
                 text = chip.label,
                 style = MeshaType.pill,
