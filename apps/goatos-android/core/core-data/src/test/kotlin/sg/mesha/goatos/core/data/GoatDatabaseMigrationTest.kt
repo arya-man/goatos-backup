@@ -249,6 +249,30 @@ class GoatDatabaseMigrationTest {
         db.close()
     }
 
+    @Test
+    fun `migration 50 to 51 creates the clock blob cache and preserves existing toxin rows`() {
+        helper.createDatabase(DB_NAME, 50).apply {
+            // A pre-upgrade Toxin row proves the additive migration touches nothing existing.
+            execSQL(
+                "INSERT INTO `toxin_task_items` " +
+                    "(`queryKey`, `grainKey`, `sortIndex`, `dtoJson`, `updatedAt`) " +
+                    "VALUES ('scope-1', 'task-1', 0, '{}', 1)",
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(DB_NAME, 51, true, MIGRATION_50_51)
+        db.query("SELECT COUNT(*) FROM `clock_blob_cache`").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        db.query("SELECT `dtoJson` FROM `toxin_task_items` WHERE `queryKey`='scope-1'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("{}", cursor.getString(0))
+        }
+        db.close()
+    }
+
     /** The real v1 (bootstrap-cache-only) schema, then the actual migration objects applied in order. */
     private fun buildV1ThenMigrate(): SupportSQLiteDatabase {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -316,6 +340,7 @@ class GoatDatabaseMigrationTest {
         MIGRATION_47_48.migrate(db)
         MIGRATION_48_49.migrate(db)
         MIGRATION_49_50.migrate(db)
+        MIGRATION_50_51.migrate(db)
         return db
     }
 
@@ -334,7 +359,7 @@ class GoatDatabaseMigrationTest {
 
     private companion object {
         const val DB_NAME = "goat-migration-test.db"
-        const val CURRENT_VERSION = 50
+        const val CURRENT_VERSION = 51
     }
 }
 

@@ -72,7 +72,7 @@ func (s *ClockService) Punch(ctx context.Context, tenantID, actorID, eventType s
 	if strings.TrimSpace(req.CapturedAt) != "" {
 		parsed, parseErr := time.Parse(time.RFC3339, req.CapturedAt)
 		if parseErr != nil {
-			return nil, BadRequest("invalid_captured_at", "captured_at must be RFC3339")
+			return nil, BadRequest("invalid_captured_at", "captured_at must be RFC3339: "+parseErr.Error())
 		}
 		capturedAt = parsed
 	}

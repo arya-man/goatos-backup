@@ -132,6 +132,26 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         // Step 7's reading submit, same shape: overlay "In review" at once, then the server's
         // returned detail (status chip, outcome label) reconciles the Room task rows directly.
         OutboxOpType.TOXIN_SUBMIT -> overlayDirectReconcileLifecycle()
+
+        // Clock punches (module clock, maintainer decision 2026-08-27): the punch button follows
+        // the EXACT outbox item (disabled while pending), success re-fetches the status blob via
+        // the POST_SUCCESS_REFRESH hook so the screen and shell banner flip to server truth, and
+        // a terminal 409/422 reloads server truth rather than surfacing a per-item error UI (an
+        // already_clocked_in conflict IS the server saying the day is already right).
+        OutboxOpType.CLOCK_IN -> lifecycle(
+            userImpact = OutboxUserImpact.USER_VISIBLE_MUTATION,
+            immediate = OutboxImmediateUiPolicy.EXACT_ITEM_STATUS,
+            success = OutboxSuccessPolicy.POST_SUCCESS_REFRESH,
+            terminalFailure = OutboxTerminalFailurePolicy.RELOAD_SERVER_TRUTH,
+            processDeath = OutboxProcessDeathPolicy.OUTBOX_REPLAY,
+        )
+        OutboxOpType.CLOCK_OUT -> lifecycle(
+            userImpact = OutboxUserImpact.USER_VISIBLE_MUTATION,
+            immediate = OutboxImmediateUiPolicy.EXACT_ITEM_STATUS,
+            success = OutboxSuccessPolicy.POST_SUCCESS_REFRESH,
+            terminalFailure = OutboxTerminalFailurePolicy.RELOAD_SERVER_TRUTH,
+            processDeath = OutboxProcessDeathPolicy.OUTBOX_REPLAY,
+        )
     }
 
 private fun exactItemLifecycle() = lifecycle(

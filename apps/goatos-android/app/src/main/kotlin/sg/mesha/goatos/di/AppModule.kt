@@ -77,6 +77,9 @@ import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheDao
 import sg.mesha.goatos.core.data.cache.FeedWastageMetaCacheDao
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheDao
 import sg.mesha.goatos.core.data.LogoutCoordinator
+import sg.mesha.goatos.core.data.ClockPunchFactsProvider
+import sg.mesha.goatos.core.data.ClockRepository
+import sg.mesha.goatos.core.data.DefaultClockRepository
 import sg.mesha.goatos.core.data.DefaultRosterRepository
 import sg.mesha.goatos.core.data.RoomScreenCacheStore
 import sg.mesha.goatos.core.data.RosterRepository
@@ -119,6 +122,7 @@ import sg.mesha.goatos.core.data.sync.MediaStoreGalleryProofSaver
 import sg.mesha.goatos.core.data.sync.OutboxStore
 import sg.mesha.goatos.core.data.sync.OutboxWiper
 import sg.mesha.goatos.core.data.sync.RoomOutboxStore
+import sg.mesha.goatos.core.data.sync.PostSuccessRefreshHook
 import sg.mesha.goatos.core.data.sync.SyncEngine
 import sg.mesha.goatos.core.data.sync.milkFeedingSubmitRefreshHook
 import sg.mesha.goatos.core.data.sync.milkPreparationSubmitRefreshHook
@@ -588,6 +592,27 @@ object AppModule {
         coverageDao: RosterCoverageCacheDao,
     ): RosterRepository = DefaultRosterRepository(api, timetableDao, coverageDao)
 
+    /** The clock module's Android-fact collector (location+mock verdict+battery+network). */
+    @Provides
+    @Singleton
+    fun provideClockPunchFactsProvider(
+        impl: sg.mesha.goatos.capture.AppClockPunchFactsProvider,
+    ): ClockPunchFactsProvider = impl
+
+    @Provides
+    @Singleton
+    fun provideClockRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        syncRepository: SyncRepository,
+        factsProvider: ClockPunchFactsProvider,
+    ): ClockRepository = DefaultClockRepository(
+        api = api,
+        dao = database.clockBlobCacheDao(),
+        syncRepository = syncRepository,
+        factsProvider = factsProvider,
+    )
+
     @Provides
     @Singleton
     fun provideVerificationRepository(
@@ -795,6 +820,9 @@ object AppModule {
         // enqueues its own outbox writes). The handle defers provider.get() to CALL time, after
         // the graph is fully built, so construction never recurses.
         pcCareRepositoryProvider: javax.inject.Provider<sg.mesha.goatos.core.data.PcCareRepository>,
+        // Provider for the same cycle reason as PC Care above: ClockRepository enqueues its own
+        // outbox punches through SyncRepository, so a direct dependency here would recurse.
+        clockRepositoryProvider: javax.inject.Provider<ClockRepository>,
         // Without this, toxinRepository defaults to null in the constructor and the
         // TOXIN_STEP_COMPLETE/TOXIN_SUBMIT reconciliation silently no-ops in production: every
         // step write would land on the server while the phone kept rendering the PREVIOUS step
@@ -850,6 +878,10 @@ object AppModule {
             // per-slot truth (proof ref, attribution) lands back in the Room rows screens observe.
             OutboxOpType.PC_CARE_SLOT_REGISTER to sg.mesha.goatos.core.data.sync.pcCareSlotRegisterRefreshHook(pcCareRepository),
             OutboxOpType.PC_CARE_TASK_PROOF_REGISTER to sg.mesha.goatos.core.data.sync.pcCareTaskProofRegisterRefreshHook(pcCareRepository),
+            // Clock: a drained punch re-fetches the status blob so the My Clock screen AND the
+            // shell reminder banner flip to server truth the moment the write lands (plan §4.3).
+            OutboxOpType.CLOCK_IN to PostSuccessRefreshHook { clockRepositoryProvider.get().refreshStatus() },
+            OutboxOpType.CLOCK_OUT to PostSuccessRefreshHook { clockRepositoryProvider.get().refreshStatus() },
         ),
         preSuccessRefreshHooks = mapOf(
             OutboxOpType.HEALTH_CASE_OPEN to healthCaseOpenRefreshHook(healthRepository),

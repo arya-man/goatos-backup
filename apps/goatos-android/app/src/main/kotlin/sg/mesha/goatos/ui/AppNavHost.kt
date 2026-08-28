@@ -82,6 +82,12 @@ import sg.mesha.goatos.feature.pccare.PcCarePlanWizardScreen
 import sg.mesha.goatos.feature.pccare.PcCareTaskScreen
 import sg.mesha.goatos.feature.pccare.PcCareWorklistEvent
 import sg.mesha.goatos.feature.pccare.PcCareWorklistScreen
+import sg.mesha.goatos.feature.clock.ClockEvent
+import sg.mesha.goatos.feature.clock.ClockPersonDayEvent
+import sg.mesha.goatos.feature.clock.ClockPersonDayScreen
+import sg.mesha.goatos.feature.clock.ClockScreen
+import sg.mesha.goatos.feature.clock.ClockTeamEvent
+import sg.mesha.goatos.feature.clock.ClockTeamScreen
 import sg.mesha.goatos.feature.toxin.ToxinTaskDetailEvent
 import sg.mesha.goatos.feature.toxin.ToxinTaskDetailScreen
 import sg.mesha.goatos.feature.toxin.ToxinTaskListEvent
@@ -179,6 +185,9 @@ import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
 import sg.mesha.goatos.viewmodel.PcCarePlanViewModel
 import sg.mesha.goatos.viewmodel.PcCareTaskViewModel
 import sg.mesha.goatos.viewmodel.PcCareWorklistViewModel
+import sg.mesha.goatos.viewmodel.ClockPersonDayViewModel
+import sg.mesha.goatos.viewmodel.ClockTeamViewModel
+import sg.mesha.goatos.viewmodel.ClockViewModel
 import sg.mesha.goatos.viewmodel.ToxinTaskDetailViewModel
 import sg.mesha.goatos.viewmodel.ToxinTaskListViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
@@ -449,6 +458,21 @@ object Routes {
     const val TOXIN_TASK = "/toxin/tasks/{$TOXIN_TASK_ID_ARG}"
 
     fun toxinTaskRoute(taskId: String): String = "/toxin/tasks/${Uri.encode(taskId)}"
+
+    // Clock module (backend module `clock`, maintainer decision 2026-08-27 —
+    // docs/features/clock-in-out/plan.md). TWO L0 roots whose hrefs match the backend-composed
+    // nav items VERBATIM (bootstrap_copy.go: {key:"clock", href:"/clock"} for everyone and
+    // {key:"clock_team", href:"/clock/team"} for leadership only); the person-day detail is a
+    // distinct hosted drill with Up/Back and NO root chrome, never a prefix reuse of an L0 route.
+    const val CLOCK = "/clock"
+    const val CLOCK_TEAM = "/clock/team"
+    const val CLOCK_PERSON_MEMBER_ARG = "memberId"
+    const val CLOCK_PERSON_DATE_ARG = "date"
+    const val CLOCK_PERSON = "/clock/team/person/{$CLOCK_PERSON_MEMBER_ARG}" +
+        "?$CLOCK_PERSON_DATE_ARG={$CLOCK_PERSON_DATE_ARG}"
+
+    fun clockPersonRoute(memberId: String, date: String): String =
+        "/clock/team/person/${Uri.encode(memberId)}?$CLOCK_PERSON_DATE_ARG=${Uri.encode(date)}"
 
     fun pcTaskRoute(taskId: String, category: String, title: String, monitor: Boolean = false): String =
         "/pc/task/${Uri.encode(taskId)}" +
@@ -2912,6 +2936,76 @@ fun AppNavHost(
                     },
                 )
             }
+        }
+
+        // --- Clock In / Clock Out (module clock, maintainer decision 2026-08-27) -----------
+        // TWO L0 bottom-bar roots (My Clock for everyone; Team for leadership, offered only when
+        // bootstrap composed the nav item) plus the hosted person-day drill. Module visibility is
+        // backend-composed — registering the routes is what makes the backend's nav items work.
+        composable(Routes.CLOCK) {
+            val vm: ClockViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            ClockScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        ClockEvent.Refresh -> vm.refresh()
+                        ClockEvent.Punch -> vm.punch()
+                        ClockEvent.CheckAgain -> vm.checkAgain()
+                    }
+                },
+            )
+        }
+
+        composable(Routes.CLOCK_TEAM) {
+            val vm: ClockTeamViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.open() }
+            val state by vm.state.collectAsStateWithLifecycle()
+            ClockTeamScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        ClockTeamEvent.Refresh -> vm.refresh()
+                        is ClockTeamEvent.SelectDate -> vm.selectDate(event.date)
+                        is ClockTeamEvent.SelectTile -> vm.selectTile(event.key)
+                        is ClockTeamEvent.QueryChanged -> vm.queryChanged(event.query)
+                        is ClockTeamEvent.SelectPark -> vm.selectPark(event.key)
+                        is ClockTeamEvent.SelectDesignation -> vm.selectDesignation(event.key)
+                        ClockTeamEvent.LoadMore -> vm.loadMore()
+                        is ClockTeamEvent.OpenPerson -> {
+                            val date = state.dates.firstOrNull { it.selected }?.date.orEmpty()
+                            navController.navigate(Routes.clockPersonRoute(event.memberId, date)) {
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                },
+            )
+        }
+
+        // The person-day drill (L1): both punches in full + recent days. Hosted destination with
+        // Up/Back and no root chrome (android-navigation-stack invariant).
+        composable(
+            route = Routes.CLOCK_PERSON,
+            arguments = listOf(
+                navArgument(Routes.CLOCK_PERSON_MEMBER_ARG) { type = NavType.StringType },
+                navArgument(Routes.CLOCK_PERSON_DATE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val vm: ClockPersonDayViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            ClockPersonDayScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        ClockPersonDayEvent.Refresh -> vm.refresh()
+                        ClockPersonDayEvent.Back -> navController.popBackStack()
+                    }
+                },
+            )
         }
 
         // --- PC Care (module pc_care, maintainer decision 2026-08-21) -----------------------

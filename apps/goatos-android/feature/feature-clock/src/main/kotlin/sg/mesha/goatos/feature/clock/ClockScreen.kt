@@ -74,6 +74,13 @@ data class ClockUiState(
     val emptyRecent: String = "",
     val recent: List<ClockRecentEntryUi> = emptyList(),
     val refusal: ClockRefusalUi? = null,
+    /** The backend `state` key (`not_clocked_in` | `clocked_in` | `clocked_out`); drives the
+     *  punch direction in the ViewModel, never rendered. */
+    val stateKey: String = "",
+    /** Backend `punch_refused_copy` template (%s = offending app labels); kept for re-formatting. */
+    val refusalTemplate: String = "",
+    /** Backend copy `check_again`. */
+    val checkAgainLabel: String = "",
 )
 
 sealed interface ClockEvent {
