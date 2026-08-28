@@ -148,6 +148,22 @@ var protectedRoutes = []Route{
 	{OperationID: "registerAppDevice", Method: "POST", Pattern: "/app/devices/register", Permissions: []string{AppBootstrap}},
 	{OperationID: "heartbeatAppDevice", Method: "POST", Pattern: "/app/devices/{device_id}/heartbeat", Permissions: []string{AppBootstrap}},
 	{OperationID: "deregisterAppDevice", Method: "POST", Pattern: "/app/devices/{device_id}/deregister", Permissions: []string{AppBootstrap}},
+	// Clock In / Out (docs/features/clock-in-out/plan.md). Punching and own
+	// status are for EVERY app principal (decision D2) — the AppBootstrap gate,
+	// exactly like device registration above. The mock-location refusal is a
+	// payload gate inside the service (422 mock_location_detected), not a
+	// permission.
+	{OperationID: "recordAppClockIn", Method: "POST", Pattern: "/app/clock/in", Permissions: []string{AppBootstrap}},
+	{OperationID: "recordAppClockOut", Method: "POST", Pattern: "/app/clock/out", Permissions: []string{AppBootstrap}},
+	{OperationID: "getAppClockStatus", Method: "GET", Pattern: "/app/clock/status", Permissions: []string{AppBootstrap}},
+	// Cross-person presence reads are leadership-only (ClockPresenceRead,
+	// maintainer decision 2026-08-28): the phone Team page and its drill-down,
+	// and the admin-web People/HRMS clock tab — one permission, both surfaces
+	// (role-scoped-UI-is-capability-gated rule).
+	{OperationID: "listAppClockPresence", Method: "GET", Pattern: "/app/clock/presence", Permissions: []string{ClockPresenceRead}},
+	{OperationID: "getAppClockPresencePerson", Method: "GET", Pattern: "/app/clock/presence/{workforce_member_id}", Permissions: []string{ClockPresenceRead}},
+	{OperationID: "listAdminClockEntries", Method: "GET", Pattern: "/admin/workforce/clock-entries", Permissions: []string{ClockPresenceRead}},
+	{OperationID: "getAdminClockEntry", Method: "GET", Pattern: "/admin/workforce/clock-entries/{clock_entry_id}", Permissions: []string{ClockPresenceRead}},
 	// Mobile live remote-config poll (docs/mobile/backend-driven-config.md): ETag/revision +
 	// cache_policy, presentation feature flags/owned-module registry, and bounded client runtime
 	// knobs. Same AppBootstrap "any authenticated app principal" gate as /app/bootstrap.

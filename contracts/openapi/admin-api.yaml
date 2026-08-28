@@ -3481,6 +3481,91 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /admin/workforce/clock-entries:
+    get:
+      tags:
+        - People
+      operationId: listAdminClockEntries
+      summary: The People/HRMS Clock In / Out tab — clockings across the roster.
+      description: >-
+        One row per ACTIVE workforce member for the selected date, including
+        people with no punch (they show as not clocked in). Summary tiles are
+        whole-filter aggregates. Reads the same repository page as the phone
+        presence board, so the two surfaces cannot disagree. Leadership only
+        (clock.presence.read).
+      parameters:
+        - name: date
+          in: query
+          description: IST business date (YYYY-MM-DD); absent means today.
+          schema:
+            type: string
+        - name: park_id
+          in: query
+          schema:
+            type: string
+        - name: designation
+          in: query
+          description: Role-hint filter (operator, park_head, ...).
+          schema:
+            type: string
+        - name: bucket
+          in: query
+          description: working | clocked_out | not_clocked_in | flagged.
+          schema:
+            type: string
+        - name: q
+          in: query
+          description: Person name search.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The clock-entries page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClockEntriesListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /admin/workforce/clock-entries/{clock_entry_id}:
+    get:
+      tags:
+        - People
+      operationId: getAdminClockEntry
+      summary: One clocking in full — both punches with location, device and integrity capture.
+      parameters:
+        - name: clock_entry_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The entry detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClockEntryDetailResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -11103,4 +11188,181 @@ components:
             - string
             - "null"
         status:
+          type: string
+    ClockFlag:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - label
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+    ClockEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - clock_entry_id
+        - workforce_member_id
+        - person_name
+        - business_date
+        - status
+        - clock_in_at
+        - clock_in_label
+        - flags
+      properties:
+        clock_entry_id:
+          type: string
+          description: Empty for a not-clocked-in roster row (no entry exists yet).
+        workforce_member_id:
+          type: string
+        person_name:
+          type: string
+        role_hint:
+          type: string
+        designation:
+          type: string
+        park_id:
+          type: string
+        park_label:
+          type: string
+        department_label:
+          type: string
+        business_date:
+          type: string
+        status:
+          type: string
+          description: open | closed | auto_closed; empty for a not-clocked-in row.
+        clock_in_at:
+          type: string
+        clock_in_label:
+          type: string
+          description: Backend-composed IST time label ("08:12").
+        clock_out_at:
+          type: string
+        clock_out_label:
+          type: string
+        worked_minutes:
+          type: integer
+          description: Backend-owned hours truth; absent while open and forever on auto_closed.
+        hours_label:
+          type: string
+        flags:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClockFlag"
+    ClockPresenceSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - working
+        - clocked_out
+        - not_clocked_in
+        - flagged
+      properties:
+        working:
+          type: integer
+        clocked_out:
+          type: integer
+        not_clocked_in:
+          type: integer
+        flagged:
+          type: integer
+          description: Counts flagged ENTRIES; overlaps the working/clocked_out buckets.
+    ClockEventDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - clock_event_id
+        - event_type
+        - business_date
+        - captured_at
+        - recorded_at
+        - location_status
+        - mock_location
+        - network_type
+      properties:
+        clock_event_id:
+          type: string
+        event_type:
+          type: string
+        business_date:
+          type: string
+        captured_at:
+          type: string
+        recorded_at:
+          type: string
+        clock_skew_ms:
+          type: integer
+        location_status:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        gps_accuracy_m:
+          type: number
+        address:
+          type: string
+        mock_location:
+          type: boolean
+        developer_options_enabled:
+          type: boolean
+        device_model:
+          type: string
+        app_version:
+          type: string
+        os_version:
+          type: string
+        network_type:
+          type: string
+          description: online | offline_queued.
+        battery_pct:
+          type: integer
+    ClockEntriesListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - summary
+        - items
+        - next_cursor
+        - parks
+        - designations
+        - trace_id
+      properties:
+        summary:
+          $ref: "#/components/schemas/ClockPresenceSummary"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClockEntry"
+        next_cursor:
+          type: string
+        parks:
+          type: array
+          items:
+            $ref: "#/components/schemas/PeopleCatalogOption"
+        designations:
+          type: array
+          items:
+            $ref: "#/components/schemas/PeopleCatalogOption"
+        trace_id:
+          type: string
+    ClockEntryDetailResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - entry
+        - events
+        - trace_id
+      properties:
+        entry:
+          $ref: "#/components/schemas/ClockEntry"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClockEventDetail"
+        trace_id:
           type: string

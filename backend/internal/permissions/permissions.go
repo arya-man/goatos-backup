@@ -357,7 +357,19 @@ const (
 	// work at all) and never to RoleToxinTester (the tester must not review their own
 	// test). TestToxinVerdictIsCEOOnly pins all three edges.
 	ToxinVerdict = "toxin.verdict"
-	RosterRead   = "roster.read"
+	// ClockPresenceRead gates the CROSS-PERSON attendance reads of the Clock
+	// In / Out module (docs/features/clock-in-out/plan.md): the phone Team
+	// presence board (GET /app/clock/presence*) and the admin-web People/HRMS
+	// clock tab (GET /admin/workforce/clock-entries*). Maintainer decision
+	// 2026-08-28: leadership/CXO-only — granted to RoleCEOInternal here and to
+	// named individuals via per-person ticks, never to a field job.
+	//
+	// PUNCHING is deliberately NOT behind this permission. Everyone with an
+	// app login clocks in (decision D2), so POST /app/clock/in|out and
+	// GET /app/clock/status ride AppBootstrap — the "any authenticated app
+	// user" permission — exactly like device registration.
+	ClockPresenceRead = "clock.presence.read"
+	RosterRead        = "roster.read"
 	RosterManage = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
 	// (movement) event, a birth, or a death from the phone (/app/counts/*).
@@ -1111,6 +1123,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		// also execute would be accepting their own test, which is the separation this
 		// module exists to keep. Pinned by TestToxinExecuteIsTesterOnlyAndNeverCEO.
 		ToxinRead: {}, ToxinVerdict: {},
+		// Clock In / Out presence oversight (maintainer decision 2026-08-28):
+		// the CEO/CXO sees who is working; everyone else only punches.
+		ClockPresenceRead: {},
 		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
 		// The ONLY holder of the whole-pen cohort reclassification. See the constant's doc comment:
 		// it applies immediately, with no approval and no proof, and flips kid/adult for the whole

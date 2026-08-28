@@ -11500,6 +11500,183 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/clock/in:
+    post:
+      tags:
+        - Clock
+      operationId: recordAppClockIn
+      summary: Clock in for today's IST business day.
+      description: >-
+        Records the day's clock-in with the punch capture (location, integrity,
+        battery, offline state). Device identity comes from the X-GoatOS-*
+        headers. A payload admitting a mock-provided fix or an installed
+        mock-location app is refused 422 mock_location_detected. One pair per
+        business day: a second clock-in is refused 409 already_clocked_in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClockPunchRequest"
+      responses:
+        "200":
+          description: The day entry this punch produced.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClockPunchResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/clock/out:
+    post:
+      tags:
+        - Clock
+      operationId: recordAppClockOut
+      summary: Clock out of today's IST business day.
+      description: >-
+        Closes today's open entry and stamps the backend-owned worked_minutes.
+        Refused 409 not_clocked_in when today has no open clock-in and 409
+        already_clocked_out when the day is already closed. The same
+        mock-location gate as clock-in applies.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClockPunchRequest"
+      responses:
+        "200":
+          description: The closed day entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClockPunchResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/clock/status:
+    get:
+      tags:
+        - Clock
+      operationId: getAppClockStatus
+      summary: Today's clock state, recent days, and the shell reminder banner.
+      responses:
+        "200":
+          description: The caller's clock state for today.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClockStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/clock/presence:
+    get:
+      tags:
+        - Clock
+      operationId: listAppClockPresence
+      summary: The leadership presence board — the whole roster's day.
+      description: >-
+        One row per ACTIVE workforce member for the selected date (LEFT JOIN to
+        that day's entry), so never-punched people appear under not_clocked_in.
+        Summary tiles are whole-filter aggregates, never page math. Leadership
+        only (clock.presence.read).
+      parameters:
+        - name: date
+          in: query
+          description: IST business date (YYYY-MM-DD); absent means today.
+          schema:
+            type: string
+        - name: park_id
+          in: query
+          schema:
+            type: string
+        - name: designation
+          in: query
+          description: Role-hint filter (operator, park_head, ...).
+          schema:
+            type: string
+        - name: bucket
+          in: query
+          description: working | clocked_out | not_clocked_in | flagged.
+          schema:
+            type: string
+        - name: q
+          in: query
+          description: Person name search.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The presence page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClockPresenceResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/clock/presence/{workforce_member_id}:
+    get:
+      tags:
+        - Clock
+      operationId: getAppClockPresencePerson
+      summary: One person's day in full — both punches, device, integrity, recent days.
+      parameters:
+        - name: workforce_member_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: date
+          in: query
+          description: IST business date (YYYY-MM-DD); absent means today.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The person-day detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClockPersonDayResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -32355,4 +32532,362 @@ components:
           description: >-
             The animal's active primary ear-tag/RFID identifier, when it has one. This is the label
             physically attached to the animal, so it is what an operator actually reads in a shed.
+          type: string
+    ClockLocation:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          description: captured | permission_missing | unavailable.
+        latitude:
+          type: number
+        longitude:
+          type: number
+        gps_accuracy_m:
+          type: number
+        address:
+          type: string
+    ClockIntegrity:
+      type: object
+      additionalProperties: false
+      required:
+        - mock_location
+      properties:
+        mock_location:
+          type: boolean
+        mock_provider_packages:
+          type: array
+          items:
+            type: string
+        developer_options_enabled:
+          type: boolean
+    ClockPunchRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - idempotency_key
+        - captured_at
+        - offline
+        - location
+        - integrity
+      properties:
+        idempotency_key:
+          type: string
+        captured_at:
+          type: string
+          description: Device clock at tap time (RFC3339).
+        offline:
+          type: boolean
+          description: True when captured without network and drained later.
+        location:
+          $ref: "#/components/schemas/ClockLocation"
+        integrity:
+          $ref: "#/components/schemas/ClockIntegrity"
+        battery_pct:
+          type: integer
+        network_kind:
+          type: string
+          description: wifi | cellular when online; informational.
+    ClockFlag:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - label
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+    ClockEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - clock_entry_id
+        - workforce_member_id
+        - person_name
+        - business_date
+        - status
+        - clock_in_at
+        - clock_in_label
+        - flags
+      properties:
+        clock_entry_id:
+          type: string
+        workforce_member_id:
+          type: string
+        person_name:
+          type: string
+        role_hint:
+          type: string
+        designation:
+          type: string
+        park_id:
+          type: string
+        park_label:
+          type: string
+        department_label:
+          type: string
+        business_date:
+          type: string
+        status:
+          type: string
+          description: open | closed | auto_closed; empty for a not-clocked-in row.
+        clock_in_at:
+          type: string
+        clock_in_label:
+          type: string
+          description: Backend-composed IST time label ("08:12").
+        clock_out_at:
+          type: string
+        clock_out_label:
+          type: string
+        worked_minutes:
+          type: integer
+          description: Backend-owned hours truth; absent while open and forever on auto_closed.
+        hours_label:
+          type: string
+        flags:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClockFlag"
+    ClockPunchResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - entry
+        - trace_id
+      properties:
+        entry:
+          $ref: "#/components/schemas/ClockEntry"
+        trace_id:
+          type: string
+    ClockStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - business_date
+        - state
+        - punch_refused_copy
+        - copy
+        - recent_entries
+        - trace_id
+      properties:
+        business_date:
+          type: string
+        state:
+          type: string
+          description: not_clocked_in | clocked_in | clocked_out.
+        entry:
+          $ref: "#/components/schemas/ClockEntry"
+        banner_text:
+          type: string
+          description: Backend-owned shell reminder; empty means no banner.
+        punch_refused_copy:
+          type: string
+          description: Farm-worded refusal template; %s is the app label list.
+        copy:
+          type: object
+          additionalProperties:
+            type: string
+        recent_entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClockEntry"
+        trace_id:
+          type: string
+    ClockPresenceSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - working
+        - clocked_out
+        - not_clocked_in
+        - flagged
+      properties:
+        working:
+          type: integer
+        clocked_out:
+          type: integer
+        not_clocked_in:
+          type: integer
+        flagged:
+          type: integer
+          description: Counts flagged ENTRIES; overlaps the working/clocked_out buckets.
+    ClockPresenceRow:
+      type: object
+      additionalProperties: false
+      required:
+        - workforce_member_id
+        - person_name
+        - bucket
+        - time_label
+        - flags
+      properties:
+        clock_entry_id:
+          type: string
+        workforce_member_id:
+          type: string
+        person_name:
+          type: string
+        designation:
+          type: string
+        park_label:
+          type: string
+        bucket:
+          type: string
+          description: working | clocked_out | not_clocked_in.
+        time_label:
+          type: string
+          description: Backend-composed row line; empty for not clocked in.
+        clock_in_at:
+          type: string
+        clock_out_at:
+          type: string
+        worked_minutes:
+          type: integer
+        flags:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClockFlag"
+    ClockFilterOption:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - code
+        - label
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        label:
+          type: string
+    ClockPresenceResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - business_date
+        - is_today
+        - summary
+        - rows
+        - next_cursor
+        - parks
+        - designations
+        - copy
+        - trace_id
+      properties:
+        business_date:
+          type: string
+        is_today:
+          type: boolean
+        summary:
+          $ref: "#/components/schemas/ClockPresenceSummary"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClockPresenceRow"
+        next_cursor:
+          type: string
+        parks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClockFilterOption"
+        designations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClockFilterOption"
+        copy:
+          type: object
+          additionalProperties:
+            type: string
+        trace_id:
+          type: string
+    ClockEventDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - clock_event_id
+        - event_type
+        - business_date
+        - captured_at
+        - recorded_at
+        - location_status
+        - mock_location
+        - network_type
+      properties:
+        clock_event_id:
+          type: string
+        event_type:
+          type: string
+        business_date:
+          type: string
+        captured_at:
+          type: string
+        recorded_at:
+          type: string
+        clock_skew_ms:
+          type: integer
+        location_status:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        gps_accuracy_m:
+          type: number
+        address:
+          type: string
+        mock_location:
+          type: boolean
+        developer_options_enabled:
+          type: boolean
+        device_model:
+          type: string
+        app_version:
+          type: string
+        os_version:
+          type: string
+        network_type:
+          type: string
+        battery_pct:
+          type: integer
+    ClockPersonDayResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - person_name
+        - business_date
+        - events
+        - recent_days
+        - copy
+        - trace_id
+      properties:
+        person_name:
+          type: string
+        designation:
+          type: string
+        park_label:
+          type: string
+        business_date:
+          type: string
+        entry:
+          $ref: "#/components/schemas/ClockEntry"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClockEventDetail"
+        recent_days:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClockEntry"
+        copy:
+          type: object
+          additionalProperties:
+            type: string
+        trace_id:
           type: string

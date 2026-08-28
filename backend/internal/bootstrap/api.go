@@ -492,6 +492,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	accessHandler := workforcehttp.NewAccessHandler(accessService, log)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	rosterHandler := workforcehttp.NewRosterHandler(rosterService, log)
+	// Clock In / Out (docs/features/clock-in-out/plan.md): punches + presence.
+	clockService := workforceapp.NewClockService(workforceRepo, workforceRepo, workforceRepo)
+	clockHandler := workforcehttp.NewClockHandler(clockService, log)
 	proofStorage, err := buildProofStorage()
 	if err != nil {
 		pool.Close()
@@ -1103,6 +1106,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workforcehttp.RegisterRoster(protectedMux, rosterHandler)
 	workforcehttp.RegisterPeople(protectedMux, peopleHandler)
 	workforcehttp.RegisterAccess(protectedMux, accessHandler)
+	workforcehttp.RegisterClock(protectedMux, clockHandler)
 	proofhttp.Register(protectedMux, proofHandler)
 	sophttp.Register(protectedMux, sopHandler)
 	protocolhttp.Register(protectedMux, protocolHandler)
