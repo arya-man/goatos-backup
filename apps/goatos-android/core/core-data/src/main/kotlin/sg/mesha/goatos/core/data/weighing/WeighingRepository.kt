@@ -404,6 +404,38 @@ data class IndividualWeighingCapture(
     val capturedAtMs: Long? = null,
 )
 
+enum class IndividualProofAttachStatus {
+    ATTACHED,
+    ALREADY_ACCEPTED,
+    ALREADY_QUEUED,
+    NO_OBSERVATION,
+    ENQUEUE_FAILED,
+}
+
+data class IndividualProofAttachOutcome(
+    val status: IndividualProofAttachStatus,
+    val scopeKey: String,
+    val scannedIdentifier: String,
+    val proofCaptureId: String,
+    val serverProofId: String?,
+    val campaignId: String? = null,
+    val campaignShedId: String? = null,
+    val idempotencyKey: String? = null,
+    val reason: String? = null,
+)
+
+fun interface WeighingProofAttachTelemetryReporter {
+    fun onIndividualProofAttach(
+        outcome: IndividualProofAttachOutcome,
+        source: String,
+        recoveredByRfid: Boolean,
+    )
+
+    companion object {
+        val Noop = WeighingProofAttachTelemetryReporter { _, _, _ -> }
+    }
+}
+
 data class ShedPartitionWeighingCapture(
     val tenantId: String,
     val campaignId: String,
@@ -730,7 +762,12 @@ interface WeighingRepository {
     suspend fun replaceRoster(scopeKey: String, rows: List<WeighingRosterRowEntity>)
     suspend fun matchTag(scopeKey: String, scannedTag: String): WeighingScanMatch
     suspend fun recordIndividual(capture: IndividualWeighingCapture): AppResult<IndividualWeighingDraft>
-    suspend fun attachIndividualProof(scopeKey: String, scannedIdentifier: String, proofCaptureId: String, serverProofId: String?)
+    suspend fun attachIndividualProof(
+        scopeKey: String,
+        scannedIdentifier: String,
+        proofCaptureId: String,
+        serverProofId: String?,
+    ): AppResult<IndividualProofAttachOutcome>
     suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft>
     suspend fun attachShedPartitionProof(
         scopeKey: String,
@@ -794,6 +831,7 @@ class DefaultWeighingRepository(
     private val database: GoatDatabase? = null,
     private val syncRepository: SyncRepository? = null,
     private val appScope: CoroutineScope? = null,
+    private val proofAttachTelemetry: WeighingProofAttachTelemetryReporter = WeighingProofAttachTelemetryReporter.Noop,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
 ) : WeighingRepository {
@@ -2244,7 +2282,17 @@ class DefaultWeighingRepository(
         proofCaptureId: String,
         serverProofId: String?,
     ) = withContext(Dispatchers.IO) {
-        val row = observationDao.findByScannedIdentifier(scopeKey, scannedIdentifier) ?: return@withContext
+        val row = observationDao.findByScannedIdentifier(scopeKey, scannedIdentifier)
+            ?: return@withContext AppResult.Ok(
+                IndividualProofAttachOutcome(
+                    status = IndividualProofAttachStatus.NO_OBSERVATION,
+                    scopeKey = scopeKey,
+                    scannedIdentifier = scannedIdentifier,
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                    reason = "missing_local_observation",
+                ),
+            )
         // SAME EVIDENCE, NOT A NEW ONE. Identity of a proof is the id the SERVER gave it, never
         // the id of the local capture file that produced it.
         //
@@ -2264,7 +2312,14 @@ class DefaultWeighingRepository(
         if (row.syncStatus == WeighingSyncStatus.ACCEPTED.name && !serverProofId.isNullOrBlank() &&
             row.serverProofId == serverProofId
         ) {
-            return@withContext
+            return@withContext AppResult.Ok(
+                row.proofAttachOutcome(
+                    status = IndividualProofAttachStatus.ALREADY_ACCEPTED,
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                    reason = "already_accepted",
+                ),
+            )
         }
         // REDELIVERY, NOT A REVISION. This method has two callers for the same row: the
         // capture screen attaches the proof as soon as the upload completes, and the
@@ -2299,7 +2354,14 @@ class DefaultWeighingRepository(
                 ?.value
                 ?.let { it.isActive || it.status == SyncItemStatus.SUCCEEDED } == true
         if (alreadyQueuedForThisProof) {
-            return@withContext
+            return@withContext AppResult.Ok(
+                row.proofAttachOutcome(
+                    status = IndividualProofAttachStatus.ALREADY_QUEUED,
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                    reason = "already_queued",
+                ),
+            )
         }
         val isProofRevision = !row.serverProofId.isNullOrBlank()
         val revisionIdempotencyKey = if (isProofRevision && !serverProofId.isNullOrBlank()) {
@@ -2319,7 +2381,13 @@ class DefaultWeighingRepository(
             },
         )
         if (!serverProofId.isNullOrBlank()) {
-            syncRepository?.enqueueWeighingAnimalObservation(
+            val sync = syncRepository ?: return@withContext row.revertProofToRetryableUpload(
+                proofCaptureId = proofCaptureId,
+                serverProofId = serverProofId,
+                idempotencyKey = revisionIdempotencyKey,
+                reason = "sync_repository_missing",
+            )
+            when (val enqueued = sync.enqueueWeighingAnimalObservation(
                 campaignId = row.campaignId,
                 groupKey = row.scopeKey,
                 idempotencyKey = revisionIdempotencyKey,
@@ -2330,9 +2398,76 @@ class DefaultWeighingRepository(
                     proofArtifactId = serverProofId,
                     actualLocationId = row.actualLocationId ?: row.expectedLocationId,
                 ),
+            )) {
+                is AppResult.Ok -> AppResult.Ok(
+                    row.proofAttachOutcome(
+                        status = IndividualProofAttachStatus.ATTACHED,
+                        proofCaptureId = proofCaptureId,
+                        serverProofId = serverProofId,
+                        idempotencyKey = revisionIdempotencyKey,
+                    ),
+                )
+                is AppResult.Err -> row.revertProofToRetryableUpload(
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                    idempotencyKey = revisionIdempotencyKey,
+                    reason = enqueued.message,
+                )
+            }
+        } else {
+            AppResult.Ok(
+                row.proofAttachOutcome(
+                    status = IndividualProofAttachStatus.ATTACHED,
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                    idempotencyKey = revisionIdempotencyKey,
+                ),
             )
         }
     }
+
+    private suspend fun WeighingObservationEntity.revertProofToRetryableUpload(
+        proofCaptureId: String,
+        serverProofId: String,
+        idempotencyKey: String,
+        reason: String,
+    ): AppResult<IndividualProofAttachOutcome> {
+        observationDao.attachProof(
+            observationId = observationId,
+            proofCaptureId = proofCaptureId,
+            serverProofId = null,
+            idempotencyKey = idempotencyKey,
+            syncStatus = WeighingSyncStatus.PROOF_UPLOADING.name,
+        )
+        return AppResult.Ok(
+            proofAttachOutcome(
+                status = IndividualProofAttachStatus.ENQUEUE_FAILED,
+                proofCaptureId = proofCaptureId,
+                serverProofId = serverProofId,
+                idempotencyKey = idempotencyKey,
+                reason = reason,
+            ),
+        )
+    }
+
+    private fun WeighingObservationEntity.proofAttachOutcome(
+        status: IndividualProofAttachStatus,
+        proofCaptureId: String,
+        serverProofId: String?,
+        idempotencyKey: String = this.idempotencyKey,
+        reason: String? = null,
+    ): IndividualProofAttachOutcome =
+        IndividualProofAttachOutcome(
+            status = status,
+            scopeKey = scopeKey,
+            scannedIdentifier = scannedIdentifier,
+            proofCaptureId = proofCaptureId,
+            serverProofId = serverProofId,
+            campaignId = campaignId,
+            campaignShedId = campaignShedId,
+            idempotencyKey = idempotencyKey,
+            reason = reason,
+        )
 
     override suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft> =
         withContext(Dispatchers.IO) {
@@ -2455,7 +2590,18 @@ class DefaultWeighingRepository(
                 scannedIdentifier = ready.scannedIdentifier,
                 proofCaptureId = ready.proofCaptureId,
                 serverProofId = ready.serverProofId,
-            )
+            ).reportIndividualProofAttach("ready_proof_reconcile", recoveredByRfid = false)
+        }
+        observationDao.listOrphanReadyProofs(
+            fieldKey = WEIGHING_INDIVIDUAL_PROOF_FIELD_KEY,
+            toleranceMs = WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS,
+        ).forEach { ready ->
+            attachIndividualProof(
+                scopeKey = ready.scopeKey,
+                scannedIdentifier = ready.scannedIdentifier,
+                proofCaptureId = ready.proofCaptureId,
+                serverProofId = ready.serverProofId,
+            ).reportIndividualProofAttach("orphan_ready_proof_reconcile", recoveredByRfid = true)
         }
         shedObservationDao.listReadyProofs().forEach { ready ->
             attachShedPartitionProof(
@@ -2480,7 +2626,22 @@ class DefaultWeighingRepository(
                         scannedIdentifier = ready.scannedIdentifier,
                         proofCaptureId = ready.proofCaptureId,
                         serverProofId = ready.serverProofId,
-                    )
+                    ).reportIndividualProofAttach("ready_proof_reconcile", recoveredByRfid = false)
+                }
+            }
+        }
+        scope.launch(Dispatchers.IO) {
+            observationDao.observeOrphanReadyProofs(
+                fieldKey = WEIGHING_INDIVIDUAL_PROOF_FIELD_KEY,
+                toleranceMs = WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS,
+            ).collect { readyRows ->
+                readyRows.forEach { ready ->
+                    attachIndividualProof(
+                        scopeKey = ready.scopeKey,
+                        scannedIdentifier = ready.scannedIdentifier,
+                        proofCaptureId = ready.proofCaptureId,
+                        serverProofId = ready.serverProofId,
+                    ).reportIndividualProofAttach("orphan_ready_proof_reconcile", recoveredByRfid = true)
                 }
             }
         }
@@ -2508,7 +2669,17 @@ class DefaultWeighingRepository(
         }
     }
 
+    private fun AppResult<IndividualProofAttachOutcome>.reportIndividualProofAttach(
+        source: String,
+        recoveredByRfid: Boolean,
+    ) {
+        val outcome = (this as? AppResult.Ok)?.value ?: return
+        proofAttachTelemetry.onIndividualProofAttach(outcome, source, recoveredByRfid)
+    }
+
     private companion object {
+        const val WEIGHING_INDIVIDUAL_PROOF_FIELD_KEY = "weighing_individual_video"
+        const val WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS = 30 * 60 * 1000L
     }
 }
 

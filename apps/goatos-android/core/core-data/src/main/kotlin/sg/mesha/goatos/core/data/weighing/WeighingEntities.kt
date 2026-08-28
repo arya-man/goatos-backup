@@ -129,6 +129,13 @@ data class WeighingIndividualReadyProofRow(
     val serverProofId: String,
 )
 
+data class WeighingOrphanIndividualReadyProofRow(
+    val scopeKey: String,
+    val scannedIdentifier: String,
+    val proofCaptureId: String,
+    val serverProofId: String,
+)
+
 data class WeighingShedReadyProofRow(
     val scopeKey: String,
     val proofCaptureId: String,
@@ -220,6 +227,54 @@ interface WeighingObservationDao {
             "ORDER BY o.capturedAtMs ASC LIMIT :limit",
     )
     suspend fun listReadyProofs(limit: Int = READY_PROOF_RECONCILE_LIMIT): List<WeighingIndividualReadyProofRow>
+
+    @Query(
+        "SELECT o.scopeKey AS scopeKey, o.scannedIdentifier AS scannedIdentifier, p.id AS proofCaptureId, " +
+            "p.serverProofId AS serverProofId FROM weighing_observation o " +
+            "JOIN proof_capture p ON p.taskId = o.scopeKey " +
+            "WHERE o.syncStatus != 'ACCEPTED' AND o.proofCaptureId IS NULL " +
+            "AND p.fieldKey = :fieldKey AND p.rfidTag = o.scannedIdentifier " +
+            "AND p.syncStatus = 'SYNCED' AND p.serverProofId IS NOT NULL AND p.serverProofId != '' " +
+            "AND p.capturedStartMs BETWEEN o.capturedAtMs - :toleranceMs AND o.capturedAtMs + :toleranceMs " +
+            "AND NOT EXISTS (" +
+            "SELECT 1 FROM proof_capture newer " +
+            "WHERE newer.taskId = p.taskId AND newer.partitionKey = p.partitionKey " +
+            "AND newer.fieldKey = p.fieldKey AND newer.rfidTag = p.rfidTag " +
+            "AND newer.syncStatus = 'SYNCED' AND newer.serverProofId IS NOT NULL AND newer.serverProofId != '' " +
+            "AND newer.capturedStartMs BETWEEN o.capturedAtMs - :toleranceMs AND o.capturedAtMs + :toleranceMs " +
+            "AND (newer.capturedStartMs > p.capturedStartMs OR " +
+            "(newer.capturedStartMs = p.capturedStartMs AND newer.id > p.id))" +
+            ") ORDER BY o.capturedAtMs ASC LIMIT :limit",
+    )
+    fun observeOrphanReadyProofs(
+        fieldKey: String,
+        toleranceMs: Long,
+        limit: Int = READY_PROOF_RECONCILE_LIMIT,
+    ): Flow<List<WeighingOrphanIndividualReadyProofRow>>
+
+    @Query(
+        "SELECT o.scopeKey AS scopeKey, o.scannedIdentifier AS scannedIdentifier, p.id AS proofCaptureId, " +
+            "p.serverProofId AS serverProofId FROM weighing_observation o " +
+            "JOIN proof_capture p ON p.taskId = o.scopeKey " +
+            "WHERE o.syncStatus != 'ACCEPTED' AND o.proofCaptureId IS NULL " +
+            "AND p.fieldKey = :fieldKey AND p.rfidTag = o.scannedIdentifier " +
+            "AND p.syncStatus = 'SYNCED' AND p.serverProofId IS NOT NULL AND p.serverProofId != '' " +
+            "AND p.capturedStartMs BETWEEN o.capturedAtMs - :toleranceMs AND o.capturedAtMs + :toleranceMs " +
+            "AND NOT EXISTS (" +
+            "SELECT 1 FROM proof_capture newer " +
+            "WHERE newer.taskId = p.taskId AND newer.partitionKey = p.partitionKey " +
+            "AND newer.fieldKey = p.fieldKey AND newer.rfidTag = p.rfidTag " +
+            "AND newer.syncStatus = 'SYNCED' AND newer.serverProofId IS NOT NULL AND newer.serverProofId != '' " +
+            "AND newer.capturedStartMs BETWEEN o.capturedAtMs - :toleranceMs AND o.capturedAtMs + :toleranceMs " +
+            "AND (newer.capturedStartMs > p.capturedStartMs OR " +
+            "(newer.capturedStartMs = p.capturedStartMs AND newer.id > p.id))" +
+            ") ORDER BY o.capturedAtMs ASC LIMIT :limit",
+    )
+    suspend fun listOrphanReadyProofs(
+        fieldKey: String,
+        toleranceMs: Long,
+        limit: Int = READY_PROOF_RECONCILE_LIMIT,
+    ): List<WeighingOrphanIndividualReadyProofRow>
 
     // Clearing verificationStatus/reworkReason is part of attaching a NEW proof, not a separate
     // concern. A sent-back animal keeps verificationStatus='rework' and the verifier's reason on

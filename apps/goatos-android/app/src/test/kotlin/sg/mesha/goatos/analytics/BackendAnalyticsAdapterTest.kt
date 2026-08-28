@@ -14,6 +14,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.network.AppAnalyticsEventRequestDto
 import sg.mesha.goatos.core.network.AppAnalyticsEventResponseDto
 import sg.mesha.goatos.core.network.AppApi
@@ -177,6 +178,9 @@ class BackendAnalyticsAdapterTest {
         assertTrue(allowlist.contains(AnalyticsEvents.WEIGHING_CAPTURE_FAILURE))
         assertTrue(allowlist.contains(AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_FAILURE))
         assertTrue(allowlist.contains(AnalyticsEvents.WEIGHING_PROOF_CAPTURE_FAILURE))
+        assertTrue(allowlist.contains(AnalyticsEventsWeighing.WEIGHING_ORPHAN_SYNCED_PROOF_RECOVERED))
+        assertTrue(allowlist.contains(AnalyticsEventsWeighing.WEIGHING_PROOF_ATTACH_NO_OBSERVATION))
+        assertTrue(allowlist.contains(AnalyticsEventsWeighing.WEIGHING_OBSERVATION_ENQUEUE_FAILED))
     }
 
     /** External review 2026-08-16: FEED_DISTRIBUTION_SUBMIT_SOURCES is the ONLY event carrying

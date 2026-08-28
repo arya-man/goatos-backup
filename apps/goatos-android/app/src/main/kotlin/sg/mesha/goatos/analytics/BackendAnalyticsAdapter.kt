@@ -6,6 +6,7 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.standardEventParams
 import sg.mesha.goatos.core.network.AppAnalyticsEventRequestDto
@@ -166,6 +167,9 @@ class BackendAnalyticsAdapter(
             AnalyticsEvents.WEIGHING_CAPTURE_FAILURE,
             AnalyticsEvents.WEIGHING_WEIGHT_CAPTURE_FAILURE,
             AnalyticsEvents.WEIGHING_PROOF_CAPTURE_FAILURE,
+            AnalyticsEventsWeighing.WEIGHING_ORPHAN_SYNCED_PROOF_RECOVERED,
+            AnalyticsEventsWeighing.WEIGHING_PROOF_ATTACH_NO_OBSERVATION,
+            AnalyticsEventsWeighing.WEIGHING_OBSERVATION_ENQUEUE_FAILED,
         )
 
         private const val TAG = "GoatAnalytics"

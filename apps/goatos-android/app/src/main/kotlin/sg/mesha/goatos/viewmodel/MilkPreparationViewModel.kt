@@ -431,7 +431,19 @@ class MilkPreparationViewModel @Inject constructor(
             // process-death regression test 2026-08-16).
             captureDraft.submitOutboxItemId?.let { submitOutboxItemId.value = it }
             submitOutboxItemId.value?.let(::observeOutboxItem)
+            observeProofChanges()
         }
+    }
+
+    private fun observeProofChanges() = viewModelScope.launch {
+        drafts.observe(CaptureFlow.MILK_PREPARATION, entityId)
+            .distinctUntilChanged { old, new -> old.proofs == new.proofs }
+            .collect { newCaptureDraft ->
+                captureDraft = newCaptureDraft
+                draft.update { current ->
+                    current.copy(steps = current.steps.map { it.copy(captured = newCaptureDraft.hasProof(it.code)) })
+                }
+            }
     }
 
     /**
@@ -474,26 +486,49 @@ class MilkPreparationViewModel @Inject constructor(
         val oldProofOutboxId = captureDraft.proofs[stepCode]
         viewModelScope.launch {
             proofKeys[stepCode]?.invalidate()
-            draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(captured = false) else row }) }
             val caption = proofOverlayContextLine(
                 feature = "Milk preparation",
                 parkLabel = current.parkLabel.ifBlank { parkId },
                 extraLabel = current.steps.firstOrNull { it.code == stepCode }?.label.orEmpty(),
             )
-            val video = capture.captureVideo(
-                ProofCaptureContext(
-                    title = caption,
-                    primaryTag = current.parkLabel.ifBlank { parkId },
-                    workLabel = current.steps.firstOrNull { it.code == stepCode }?.label.orEmpty(),
-                    prompt = ProofCapturePrompt.MILK_PREPARATION,
-                    headerTitle = current.steps.firstOrNull { it.code == stepCode }?.label.orEmpty(),
-                ),
-            )
+            draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = true) else row }) }
+            var captureThrew = false
+            val video = try {
+                capture.captureVideo(
+                    ProofCaptureContext(
+                        title = caption,
+                        primaryTag = current.parkLabel.ifBlank { parkId },
+                        workLabel = current.steps.firstOrNull { it.code == stepCode }?.label.orEmpty(),
+                        prompt = ProofCapturePrompt.MILK_PREPARATION,
+                        headerTitle = current.steps.firstOrNull { it.code == stepCode }?.label.orEmpty(),
+                    ),
+                )
+            } catch (error: Exception) {
+                captureThrew = true
+                analytics.track(
+                    AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE,
+                    mapOf(
+                        AnalyticsEvents.Params.PARK_ID to parkId,
+                        AnalyticsEvents.Params.FIELD to stepCode,
+                        AnalyticsEvents.Params.REASON to "camera_exception",
+                    ),
+                )
+                null
+            }
             if (video == null) {
+                if (!captureThrew) {
+                    analytics.track(
+                        AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.PARK_ID to parkId,
+                            AnalyticsEvents.Params.FIELD to stepCode,
+                            AnalyticsEvents.Params.REASON to "cancelled",
+                        ),
+                    )
+                }
                 draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = false) else row }) }
                 return@launch
             }
-            draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = true) else row }) }
             val slot = evidenceSlot(stepCode)
             when (val result = proofCaptureRepository.captureReplacingLatest(
                 slot = slot,
@@ -535,6 +570,14 @@ class MilkPreparationViewModel @Inject constructor(
                     oldProofOutboxId?.let { sync.deleteOutboxItem(it) }
                 }
                 is AppResult.Err -> {
+                    analytics.track(
+                        AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.PARK_ID to parkId,
+                            AnalyticsEvents.Params.FIELD to stepCode,
+                            AnalyticsEvents.Params.REASON to result.message,
+                        ),
+                    )
                     setCapturing(stepCode, false)
                     draft.update { it.copy(message = result.message) }
                     // On error, keep the old proof: don't remove it.
@@ -800,4 +843,3 @@ internal fun sequenceMilkPreparationSteps(
         sequenced
     }
 }
-

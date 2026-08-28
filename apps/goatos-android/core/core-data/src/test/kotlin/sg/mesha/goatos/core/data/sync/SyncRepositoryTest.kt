@@ -15,6 +15,7 @@ import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.dto.ScanCaptureDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
+import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationDecision
@@ -208,6 +209,52 @@ class SyncRepositoryTest {
         assertEquals("key-1", reopened.idempotencyKey) // SAME key — server-side replay stays idempotent
         assertTrue("the corrected payload must replace the stale one", reopened.payloadJson.contains("key-1-corrected"))
         assertEquals(SyncItemStatus.SUCCEEDED, repo.observeStatus().value.items.first().status)
+    }
+
+    @Test
+    fun `re-enqueuing a failed proof upload refreshes payload and group instead of conflicting`() = runBlocking {
+        val store = FakeOutboxStore()
+        val api = ScriptedAppApi()
+        val repo = repository(store = store, api = api, online = false)
+        val failedRow = OutboxEntity(
+            id = "proof-row-1",
+            opType = OutboxOpType.PROOF_UPLOAD.name,
+            groupKey = "feed-dist:old-slot-group",
+            idempotencyKey = "proof-upload:proof-1",
+            payloadJson = "{\"localFilePath\":\"/old/file.mp4\"}",
+            requestFingerprint = "stale-fingerprint",
+            status = OutboxStatus.FAILED.name,
+            attemptCount = 1,
+            maxAttempts = DEFAULT_MAX_ATTEMPTS,
+            conflict = false,
+            createdAt = 0L,
+            updatedAt = 0L,
+            nextAttemptAt = Long.MAX_VALUE,
+            lastError = "Idempotency key already belongs to a different queued write.",
+        )
+        store.insert(failedRow)
+
+        val result = repo.enqueueProofUpload(
+            groupKey = "feed-dist:shared-group",
+            idempotencyKey = "proof-upload:proof-1",
+            request = ProofUploadRequestDto(
+                proofType = "video",
+                mimeType = "video/mp4",
+                scopeType = "shed",
+                scopeId = "shed-1",
+                subjectType = "shed",
+                subjectId = "shed-1",
+            ),
+            localFilePath = "/new/file.mp4",
+            durationMs = 1200L,
+        )
+
+        assertTrue("failed proof re-enqueue must reuse the existing row, not surface a stale conflict", result is AppResult.Ok)
+        assertEquals("proof-row-1", (result as AppResult.Ok).value)
+        val reopened = store.snapshot().single()
+        assertEquals("feed-dist:shared-group", reopened.groupKey)
+        assertEquals(OutboxStatus.QUEUED.name, reopened.status)
+        assertTrue("new proof payload must replace stale local file path", reopened.payloadJson.contains("/new/file.mp4"))
     }
 
     // ---------------------------------------------------------------------------------------
