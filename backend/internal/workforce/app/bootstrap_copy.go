@@ -68,6 +68,13 @@ type moduleDefinition struct {
 const (
 	moduleStatusAvailable = "available"
 	moduleStatusSoon      = "soon"
+
+	// clockModuleKey is the Clock In / Out attendance module
+	// (docs/features/clock-in-out/plan.md). It is the BASELINE module: offered
+	// to EVERY app principal (maintainer decision D2 — everyone clocks in) and
+	// exempt from per-person tick narrowing, because mandatory attendance must
+	// not be revocable by an accidental untick.
+	clockModuleKey = "clock"
 )
 
 // moduleNavRegistry maps module IDs to their drawer identity and nav contributions.
@@ -393,6 +400,38 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                 //nav-composition:ignore: registry entry
 		},
 	},
+	// Clock In / Out (maintainer decisions 2026-08-27/28, docs/features/
+	// clock-in-out/plan.md): the attendance module. TWO pages split by
+	// capability, the PR-#126 page-grain shape:
+	//
+	//   - My Clock (/clock): punch in/out + own recent days. UNGATED inside
+	//     the module because the module itself is offered to every principal
+	//     (decision D2) and the punch routes ride AppBootstrap.
+	//   - Team (/clock/team): the leadership presence board — who is working
+	//     now, from when, with park/designation filters. Gated on
+	//     ClockPresenceRead (CXO-only via ceo_internal + per-person ticks), so
+	//     an operator never sees the page and the backing routes agree.
+	//
+	// No "you" contribution, for the approvals reason: this module is never
+	// held alone by a principal who has anywhere else to render.
+	"clock": {
+		key:         clockModuleKey,
+		labelKey:    "module.clock",
+		landingHref: "/clock", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		priority:    10,
+		contributions: []moduleNavContribution{
+			{key: "clock", labelKey: "nav.clock", href: "/clock", shared_key: "", priority: 1},                                                                   //nav-composition:ignore: registry entry
+			{key: "clock_team", labelKey: "nav.clock_team", href: "/clock/team", shared_key: "", priority: 2, requiredPermission: permissions.ClockPresenceRead}, //nav-composition:ignore: registry entry
+		},
+		// The standalone verifier's lens composes from reviewContributions, and
+		// she clocks in like everyone else (decision D2) — without this row her
+		// drawer would silently drop the module (the aas_health nameless-row
+		// defect class, one mechanism over).
+		reviewContributions: []moduleNavContribution{
+			{key: "clock", labelKey: "nav.clock", href: "/clock", shared_key: "", priority: 1}, //nav-composition:ignore: registry entry
+		},
+	},
 	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the
 	// client no longer needs its own hardcoded coming-soon list.
 	"breeding": {
@@ -609,9 +648,12 @@ func candidateModuleKeysFrom(grants []domain.GrantSummary, grantedModules []stri
 		return normalized
 	}
 	if !isLeadershipPrincipal(grants) {
-		return grantedModules
+		// Clock In / Out is offered to EVERY non-verifier principal regardless
+		// of department grants (decision D2: everyone clocks in). Appended
+		// rather than seeded so a department grant row is never required.
+		return appendMissing(append([]string(nil), grantedModules...), clockModuleKey)
 	}
-	return leadershipModuleKeys(grants)
+	return appendMissing(leadershipModuleKeys(grants), clockModuleKey)
 }
 
 // narrowOfferToTicks intersects the modules a principal is OFFERED with the modules they are
@@ -639,6 +681,13 @@ func narrowOfferToTicks(offered, ticked []string) []string {
 	}
 	out := make([]string, 0, len(offered))
 	for _, k := range offered {
+		// The clock module is BASELINE (decision D2): mandatory attendance is
+		// not tick-revocable, so the intersection never removes it. Ticks
+		// still govern its Team page via ClockPresenceRead.
+		if k == clockModuleKey {
+			out = append(out, k)
+			continue
+		}
 		if _, ok := keep[k]; ok {
 			out = append(out, k)
 		}
@@ -1176,6 +1225,21 @@ func modulesForScope(scope navScope, grantedModules []string, localeTag string, 
 				out = append(out, module)
 			}
 		}
+		// Clock In / Out is the baseline attendance module for EVERY app
+		// principal (decision D2) — the standalone verifier clocks in too, so
+		// her drawer carries it alongside the per-feature verify modules.
+		if def, ok := moduleNavRegistry[clockModuleKey]; ok {
+			items := composeNavigationFromModulesScope([]string{def.key}, scope, localeTag)
+			if len(items) > 0 {
+				out = append(out, domain.BootstrapModule{
+					Key:      def.key,
+					Label:    localizedBootstrapLabel(localeTag, def.labelKey),
+					Href:     def.landingHref,
+					Status:   def.status,
+					NavItems: items,
+				})
+			}
+		}
 		return out
 	}
 
@@ -1379,6 +1443,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.approvals":      "Approvals",
 		"module.toxin":          "Toxin",
 		"nav.toxin":             "Tests",
+		"module.clock":          "Clock In / Out",
+		"nav.clock":             "My Clock",
+		"nav.clock_team":        "Team",
 		"queue.assigned":        "Assigned work",
 		"queue.shifting":        "Shifting",
 		"queue.proof_review":    "Proof review",
@@ -1427,6 +1494,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.approvals":      "अनुमोदन",
 		"module.toxin":          "टॉक्सिन",
 		"nav.toxin":             "जाँच",
+		"module.clock":          "हाज़िरी",
+		"nav.clock":             "मेरी हाज़िरी",
+		"nav.clock_team":        "टीम",
 		"queue.assigned":        "सौंपा गया काम",
 		"queue.shifting":        "शिफ्टिंग",
 		"queue.proof_review":    "प्रूफ समीक्षा",
@@ -1475,6 +1545,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.approvals":      "ಅನುಮೋದನೆ",
 		"module.toxin":          "ಟಾಕ್ಸಿನ್",
 		"nav.toxin":             "ಪರೀಕ್ಷೆಗಳು",
+		"module.clock":          "ಹಾಜರಾತಿ",
+		"nav.clock":             "ನನ್ನ ಹಾಜರಾತಿ",
+		"nav.clock_team":        "ತಂಡ",
 		"queue.assigned":        "ನಿಯೋಜಿಸಿದ ಕೆಲಸ",
 		"queue.shifting":        "ಸ್ಥಳಾಂತರ",
 		"queue.proof_review":    "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
@@ -1523,6 +1596,9 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.approvals":      "ఆమోదం",
 		"module.toxin":          "టాక్సిన్",
 		"nav.toxin":             "పరీక్షలు",
+		"module.clock":          "హాజరు",
+		"nav.clock":             "నా హాజరు",
+		"nav.clock_team":        "బృందం",
 		"queue.assigned":        "కేటాయించిన పని",
 		"queue.shifting":        "షిఫ్టింగ్",
 		"queue.proof_review":    "ప్రూఫ్ సమీక్ష",

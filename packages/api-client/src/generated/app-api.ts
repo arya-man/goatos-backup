@@ -4500,6 +4500,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/clock/in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clock in for today's IST business day.
+         * @description Records the day's clock-in with the punch capture (location, integrity, battery, offline state). Device identity comes from the X-GoatOS-* headers. A payload admitting a mock-provided fix or an installed mock-location app is refused 422 mock_location_detected. One pair per business day: a second clock-in is refused 409 already_clocked_in.
+         */
+        post: operations["recordAppClockIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/clock/out": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clock out of today's IST business day.
+         * @description Closes today's open entry and stamps the backend-owned worked_minutes. Refused 409 not_clocked_in when today has no open clock-in and 409 already_clocked_out when the day is already closed. The same mock-location gate as clock-in applies.
+         */
+        post: operations["recordAppClockOut"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/clock/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Today's clock state, recent days, and the shell reminder banner. */
+        get: operations["getAppClockStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/clock/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The leadership presence board — the whole roster's day.
+         * @description One row per ACTIVE workforce member for the selected date (LEFT JOIN to that day's entry), so never-punched people appear under not_clocked_in. Summary tiles are whole-filter aggregates, never page math. Leadership only (clock.presence.read).
+         */
+        get: operations["listAppClockPresence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/clock/presence/{workforce_member_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One person's day in full — both punches, device, integrity, recent days. */
+        get: operations["getAppClockPresencePerson"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -13308,6 +13402,149 @@ export interface components {
             /** @description The animal's active primary ear-tag/RFID identifier, when it has one. This is the label physically attached to the animal, so it is what an operator actually reads in a shed. */
             tag?: string;
         };
+        ClockLocation: {
+            /** @description captured | permission_missing | unavailable. */
+            status: string;
+            latitude?: number;
+            longitude?: number;
+            gps_accuracy_m?: number;
+            address?: string;
+        };
+        ClockIntegrity: {
+            mock_location: boolean;
+            mock_provider_packages?: string[];
+            developer_options_enabled?: boolean;
+        };
+        ClockPunchRequest: {
+            idempotency_key: string;
+            /** @description Device clock at tap time (RFC3339). */
+            captured_at: string;
+            /** @description True when captured without network and drained later. */
+            offline: boolean;
+            location: components["schemas"]["ClockLocation"];
+            integrity: components["schemas"]["ClockIntegrity"];
+            battery_pct?: number;
+            /** @description wifi | cellular when online; informational. */
+            network_kind?: string;
+        };
+        ClockFlag: {
+            key: string;
+            label: string;
+        };
+        ClockEntry: {
+            clock_entry_id: string;
+            workforce_member_id: string;
+            person_name: string;
+            role_hint?: string;
+            designation?: string;
+            park_id?: string;
+            park_label?: string;
+            department_label?: string;
+            business_date: string;
+            /** @description open | closed | auto_closed; empty for a not-clocked-in row. */
+            status: string;
+            clock_in_at: string;
+            /** @description Backend-composed IST time label ("08:12"). */
+            clock_in_label: string;
+            clock_out_at?: string;
+            clock_out_label?: string;
+            /** @description Backend-owned hours truth; absent while open and forever on auto_closed. */
+            worked_minutes?: number;
+            hours_label?: string;
+            flags: components["schemas"]["ClockFlag"][];
+        };
+        ClockPunchResponse: {
+            entry: components["schemas"]["ClockEntry"];
+            trace_id: string;
+        };
+        ClockStatusResponse: {
+            business_date: string;
+            /** @description not_clocked_in | clocked_in | clocked_out. */
+            state: string;
+            entry?: components["schemas"]["ClockEntry"];
+            /** @description Backend-owned shell reminder; empty means no banner. */
+            banner_text?: string;
+            /** @description Farm-worded refusal template; %s is the app label list. */
+            punch_refused_copy: string;
+            copy: {
+                [key: string]: string;
+            };
+            recent_entries: components["schemas"]["ClockEntry"][];
+            trace_id: string;
+        };
+        ClockPresenceSummary: {
+            working: number;
+            clocked_out: number;
+            not_clocked_in: number;
+            /** @description Counts flagged ENTRIES; overlaps the working/clocked_out buckets. */
+            flagged: number;
+        };
+        ClockPresenceRow: {
+            clock_entry_id?: string;
+            workforce_member_id: string;
+            person_name: string;
+            designation?: string;
+            park_label?: string;
+            /** @description working | clocked_out | not_clocked_in. */
+            bucket: string;
+            /** @description Backend-composed row line; empty for not clocked in. */
+            time_label: string;
+            clock_in_at?: string;
+            clock_out_at?: string;
+            worked_minutes?: number;
+            flags: components["schemas"]["ClockFlag"][];
+        };
+        ClockFilterOption: {
+            id: string;
+            code: string;
+            label: string;
+        };
+        ClockPresenceResponse: {
+            business_date: string;
+            is_today: boolean;
+            summary: components["schemas"]["ClockPresenceSummary"];
+            rows: components["schemas"]["ClockPresenceRow"][];
+            next_cursor: string;
+            parks: components["schemas"]["ClockFilterOption"][];
+            designations: components["schemas"]["ClockFilterOption"][];
+            copy: {
+                [key: string]: string;
+            };
+            trace_id: string;
+        };
+        ClockEventDetail: {
+            clock_event_id: string;
+            event_type: string;
+            business_date: string;
+            captured_at: string;
+            recorded_at: string;
+            clock_skew_ms?: number;
+            location_status: string;
+            latitude?: number;
+            longitude?: number;
+            gps_accuracy_m?: number;
+            address?: string;
+            mock_location: boolean;
+            developer_options_enabled?: boolean;
+            device_model?: string;
+            app_version?: string;
+            os_version?: string;
+            network_type: string;
+            battery_pct?: number;
+        };
+        ClockPersonDayResponse: {
+            person_name: string;
+            designation?: string;
+            park_label?: string;
+            business_date: string;
+            entry?: components["schemas"]["ClockEntry"];
+            events: components["schemas"]["ClockEventDetail"][];
+            recent_days: components["schemas"]["ClockEntry"][];
+            copy: {
+                [key: string]: string;
+            };
+            trace_id: string;
+        };
     };
     responses: {
         /** @description Validation error. */
@@ -21536,6 +21773,151 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CeoMessageList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordAppClockIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClockPunchRequest"];
+            };
+        };
+        responses: {
+            /** @description The day entry this punch produced. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockPunchResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordAppClockOut: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClockPunchRequest"];
+            };
+        };
+        responses: {
+            /** @description The closed day entry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockPunchResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAppClockStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's clock state for today. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockStatusResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppClockPresence: {
+        parameters: {
+            query?: {
+                /** @description IST business date (YYYY-MM-DD); absent means today. */
+                date?: string;
+                park_id?: string;
+                /** @description Role-hint filter (operator, park_head, ...). */
+                designation?: string;
+                /** @description working | clocked_out | not_clocked_in | flagged. */
+                bucket?: string;
+                /** @description Person name search. */
+                q?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The presence page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockPresenceResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAppClockPresencePerson: {
+        parameters: {
+            query?: {
+                /** @description IST business date (YYYY-MM-DD); absent means today. */
+                date?: string;
+            };
+            header?: never;
+            path: {
+                workforce_member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The person-day detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockPersonDayResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];

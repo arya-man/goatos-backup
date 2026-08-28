@@ -467,6 +467,21 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// Clock In / Out attendance (maintainer decisions 2026-08-27/28,
+		// docs/features/clock-in-out/plan.md). PUNCHING is not here: everyone
+		// clocks in by decision D2, so the punch routes ride AppBootstrap and
+		// the module itself is a baseline offer no tick can remove. What IS
+		// assignable is the cross-person presence read: the phone Team page
+		// and the admin-web People/HRMS clock tab.
+		Key:      "clock",
+		Label:    "Clock In / Out",
+		Blurb:    "Who is at work: clock-ins, clock-outs and hours.",
+		Surfaces: []string{SurfaceWeb, SurfaceMobile},
+		Levels: map[string][]string{
+			LevelOversee: {ClockPresenceRead},
+		},
+	},
+	{
 		// The feed purchase ledger. DEDICATED permissions, never a reuse of ProcurementRead --
 		// operator and park_head hold that for the source-entry screens they work, and this
 		// ledger carries supplier prices and payment state (maintainer decision 2026-08-24).

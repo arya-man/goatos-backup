@@ -1654,6 +1654,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/workforce/clock-entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The People/HRMS Clock In / Out tab — clockings across the roster.
+         * @description One row per ACTIVE workforce member for the selected date, including people with no punch (they show as not clocked in). Summary tiles are whole-filter aggregates. Reads the same repository page as the phone presence board, so the two surfaces cannot disagree. Leadership only (clock.presence.read).
+         */
+        get: operations["listAdminClockEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/clock-entries/{clock_entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One clocking in full — both punches with location, device and integrity capture. */
+        get: operations["getAdminClockEntry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4182,6 +4219,74 @@ export interface components {
             source: "leave" | "week_off" | "escalation";
             escalation_state?: string | null;
             status: string;
+        };
+        ClockFlag: {
+            key: string;
+            label: string;
+        };
+        ClockEntry: {
+            /** @description Empty for a not-clocked-in roster row (no entry exists yet). */
+            clock_entry_id: string;
+            workforce_member_id: string;
+            person_name: string;
+            role_hint?: string;
+            designation?: string;
+            park_id?: string;
+            park_label?: string;
+            department_label?: string;
+            business_date: string;
+            /** @description open | closed | auto_closed; empty for a not-clocked-in row. */
+            status: string;
+            clock_in_at: string;
+            /** @description Backend-composed IST time label ("08:12"). */
+            clock_in_label: string;
+            clock_out_at?: string;
+            clock_out_label?: string;
+            /** @description Backend-owned hours truth; absent while open and forever on auto_closed. */
+            worked_minutes?: number;
+            hours_label?: string;
+            flags: components["schemas"]["ClockFlag"][];
+        };
+        ClockPresenceSummary: {
+            working: number;
+            clocked_out: number;
+            not_clocked_in: number;
+            /** @description Counts flagged ENTRIES; overlaps the working/clocked_out buckets. */
+            flagged: number;
+        };
+        ClockEventDetail: {
+            clock_event_id: string;
+            event_type: string;
+            business_date: string;
+            captured_at: string;
+            recorded_at: string;
+            clock_skew_ms?: number;
+            location_status: string;
+            latitude?: number;
+            longitude?: number;
+            gps_accuracy_m?: number;
+            address?: string;
+            mock_location: boolean;
+            developer_options_enabled?: boolean;
+            device_model?: string;
+            app_version?: string;
+            os_version?: string;
+            /** @description online | offline_queued. */
+            network_type: string;
+            battery_pct?: number;
+        };
+        ClockEntriesListResponse: {
+            summary: components["schemas"]["ClockPresenceSummary"];
+            items: components["schemas"]["ClockEntry"][];
+            next_cursor: string;
+            parks: components["schemas"]["PeopleCatalogOption"][];
+            designations: components["schemas"]["PeopleCatalogOption"][];
+            trace_id: string;
+        };
+        ClockEntryDetailResponse: {
+            entry: components["schemas"]["ClockEntry"];
+            events: components["schemas"]["ClockEventDetail"][];
+            trace_id: string;
         };
     };
     responses: {
@@ -7559,6 +7664,67 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listAdminClockEntries: {
+        parameters: {
+            query?: {
+                /** @description IST business date (YYYY-MM-DD); absent means today. */
+                date?: string;
+                park_id?: string;
+                /** @description Role-hint filter (operator, park_head, ...). */
+                designation?: string;
+                /** @description working | clocked_out | not_clocked_in | flagged. */
+                bucket?: string;
+                /** @description Person name search. */
+                q?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The clock-entries page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockEntriesListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAdminClockEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clock_entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The entry detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockEntryDetailResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
         };
     };
 }

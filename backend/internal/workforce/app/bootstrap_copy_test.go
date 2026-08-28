@@ -162,8 +162,8 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 				t.Fatalf("%s must NOT see %q; got %v", role, banned, keys)
 			}
 		}
-		if got := navChromeFor(grants, modules); got != domain.NavChromeMinimal {
-			t.Fatalf("%s chrome = %q, want minimal", role, got)
+		if got := navChromeFor(grants, modules); got != domain.NavChromeExpanded {
+			t.Fatalf("%s chrome = %q, want expanded (weighing + baseline clock)", role, got)
 		}
 	})
 
@@ -203,8 +203,8 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		if _, ok := keys["leadership"]; ok {
 			t.Fatalf("verifier must NOT see leadership; got %v", keys)
 		}
-		if len(modules) != 1 {
-			t.Fatalf("single-feature verifier should see 1 module; got %d: %v", len(modules), keys)
+		if len(modules) != 2 || modules[1].Key != "clock" {
+			t.Fatalf("single-feature verifier should see [verify module, clock]; got %d: %v", len(modules), keys)
 		}
 		verify := modules[0]
 		if verify.Key != "verify_vaccination" {
@@ -501,9 +501,10 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		modules := modulesFor(grants, grantedModules, en)
 		keys := moduleKeySet(modules)
 
-		// Should have two modules: one for each feature the verifier has a verify duty on
-		if len(modules) != 2 {
-			t.Fatalf("multi-module verifier should see 2 modules; got %d: %v", len(modules), keys)
+		// One module per verify duty, plus the baseline Clock module every
+		// principal carries (maintainer decision 2026-08-28).
+		if len(modules) != 3 || modules[2].Key != "clock" {
+			t.Fatalf("multi-module verifier should see [2 verify modules, clock]; got %d: %v", len(modules), keys)
 		}
 
 		// Check vaccination module
@@ -611,6 +612,11 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 			t.Fatalf("multi-module verifier served bar carries %d You items, want exactly 1 (a second feature must add a drawer row, never a second You); got %+v", youCount, nav)
 		}
 		for _, m := range modules {
+			// The baseline Clock module deliberately carries no You (the
+			// approvals precedent: it is never held alone).
+			if m.Key == "clock" {
+				continue
+			}
 			perModule := 0
 			for _, item := range m.NavItems {
 				if item.Key == "you" {
@@ -656,8 +662,8 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		if _, ok := keys["verification"]; ok {
 			t.Fatalf("single-module verifier must NOT see generic verification module; got %v", keys)
 		}
-		if len(modules) != 1 {
-			t.Fatalf("single-module verifier should have 1 module; got %d: %v", len(modules), keys)
+		if len(modules) != 2 || modules[1].Key != "clock" {
+			t.Fatalf("single-module verifier should have [verify module, clock]; got %d: %v", len(modules), keys)
 		}
 		if modules[0].Key != "verify_vaccination" {
 			t.Fatalf("single-module verifier module key = %q, want verify_vaccination", modules[0].Key)
@@ -696,7 +702,7 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		if _, ok := keys["verification"]; ok {
 			t.Fatalf("verifier with no duties must NOT see generic verification; got %v", keys)
 		}
-		wantKeys := map[string]bool{"verify_vaccination": true, "verify_weighing": true, "verify_counts": true, "verify_pc_care": true}
+		wantKeys := map[string]bool{"verify_vaccination": true, "verify_weighing": true, "verify_counts": true, "verify_pc_care": true, "clock": true}
 		if len(keys) != len(wantKeys) {
 			t.Fatalf("verifier with no duties should see one module per built feature; got %v", keys)
 		}
@@ -745,6 +751,11 @@ func TestBootstrapAlertsPerModule(t *testing.T) {
 	seenHrefs := make(map[string]string, len(modules))
 	seen := make(map[string]bool, len(modules))
 	for _, m := range modules {
+		// The baseline Clock module rides along for every principal
+		// (2026-08-28); it carries no verify/alerts tabs to assert here.
+		if m.Key == "clock" {
+			continue
+		}
 		seen[m.Key] = true
 		wantCategory, known := wantCategories[m.Key]
 		if !known {

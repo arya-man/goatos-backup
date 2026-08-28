@@ -218,6 +218,9 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		bothSurfaces("toxin", LevelView, LevelOversee),
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("verification_policy", SurfaceWeb, LevelConfigure)),
+		// Clock In / Out presence oversight (2026-08-28): the CEO/CXO sees who
+		// is at work on both surfaces; punching itself is baseline, not a tick.
+		bothSurfaces("clock", LevelOversee),
 		// The kid-milk round and the approval queue. Both are real modules the leadership
 		// drawer offered before the phone read these ticks, and the founder/builder
 		// visibility invariant says leadership holds every BUILT module -- so omitting them

@@ -235,9 +235,9 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 		// (the href's category still scopes it). This is a leadership/registry bar, so
 		// it legitimately KEEPS its "you" entry -- only the label went generic.
 		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
-		// One module -> minimal chrome, no drawer, so the bottom bar is the only route to /you
-		// and applyProfileEntryPlacement leaves the backend-composed entry on it.
-		{Key: "you", Label: "You", Href: "/you"},
+		// The baseline Clock module (maintainer decision 2026-08-28: everyone
+		// clocks in) gives every principal >=2 modules, so chrome is expanded
+		// and "You" lives in the drawer footer per the 2026-08-03 placement rule.
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, wantNav)
@@ -247,8 +247,8 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], wantNav[i])
 		}
 	}
-	if got.NavChrome != domain.NavChromeMinimal {
-		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
+	if got.NavChrome != domain.NavChromeExpanded {
+		t.Fatalf("NavChrome=%q want %q (vaccination + baseline clock)", got.NavChrome, domain.NavChromeExpanded)
 	}
 }
 
@@ -269,7 +269,6 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). The Hindi label went generic with it.
 		{Key: "alerts", Label: "अलर्ट", Href: "/vaccination/alerts"},
-		{Key: "you", Label: "आप", Href: "/you"},
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, wantNav)
@@ -428,7 +427,8 @@ func TestBootstrapSingleFeatureVerifierGetsFeatureScopedAlerts(t *testing.T) {
 			want := []domain.BootstrapNavigationItem{
 				{Key: "verify", Label: "Verify", Href: "/verify?module=" + tc.feature + "&category=" + tc.wantCategory},
 				{Key: "alerts", Label: wantAlertsLabel, Href: wantVerifierAlertsHref(tc.feature, tc.wantCategory)},
-				{Key: "you", Label: "You", Href: "/you"},
+				// You moved to the drawer: the baseline Clock module makes even a
+				// single-feature verifier a two-module principal (2026-08-28).
 			}
 			if len(got.VisibleNavigation) != len(want) {
 				t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
@@ -438,11 +438,11 @@ func TestBootstrapSingleFeatureVerifierGetsFeatureScopedAlerts(t *testing.T) {
 					t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], want[i])
 				}
 			}
-			if got.NavChrome != domain.NavChromeMinimal {
-				t.Fatalf("NavChrome=%q want %q (single feature -> no drawer)", got.NavChrome, domain.NavChromeMinimal)
+			if got.NavChrome != domain.NavChromeExpanded {
+				t.Fatalf("NavChrome=%q want %q (verify feature + baseline clock)", got.NavChrome, domain.NavChromeExpanded)
 			}
-			if len(got.Modules) != 1 || got.Modules[0].Key != tc.wantModule {
-				t.Fatalf("Modules=%#v want single %s module", got.Modules, tc.wantModule)
+			if len(got.Modules) != 2 || got.Modules[0].Key != tc.wantModule || got.Modules[1].Key != "clock" {
+				t.Fatalf("Modules=%#v want [%s clock]", got.Modules, tc.wantModule)
 			}
 			if prev, dup := seenCategories[tc.wantCategory]; dup {
 				t.Fatalf("features %q and %q share alerts category %q -- the generic label must not have collapsed the feature scoping", prev, tc.feature, tc.wantCategory)
@@ -475,9 +475,9 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 		// (the href's category still scopes it). This is a leadership/registry bar, so
 		// it legitimately KEEPS its "you" entry -- only the label went generic.
 		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
-		// One module -> minimal chrome, no drawer, so the bottom bar is the only route to /you
-		// and applyProfileEntryPlacement leaves the backend-composed entry on it.
-		{Key: "you", Label: "You", Href: "/you"},
+		// The baseline Clock module (maintainer decision 2026-08-28: everyone
+		// clocks in) gives every principal >=2 modules, so chrome is expanded
+		// and "You" lives in the drawer footer per the 2026-08-03 placement rule.
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, wantNav)
@@ -487,8 +487,8 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], wantNav[i])
 		}
 	}
-	if got.NavChrome != domain.NavChromeMinimal {
-		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
+	if got.NavChrome != domain.NavChromeExpanded {
+		t.Fatalf("NavChrome=%q want %q (vaccination + baseline clock)", got.NavChrome, domain.NavChromeExpanded)
 	}
 }
 
@@ -752,10 +752,10 @@ func TestNavChromeFor(t *testing.T) {
 			want:           domain.NavChromeExpanded,
 		},
 		{
-			name:           "operator minimal",
+			name:           "operator gets the drawer once baseline clock joins",
 			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			grantedModules: []string{"vaccination"},
-			want:           domain.NavChromeMinimal,
+			want:           domain.NavChromeExpanded,
 		},
 		{
 			// Operator drawer rollout ENABLED (maintainer decision 2026-07-27): an
@@ -787,10 +787,10 @@ func TestNavChromeFor(t *testing.T) {
 			want:   domain.NavChromeExpanded,
 		},
 		{
-			name:           "single-feature verifier minimal",
+			name:           "single-feature verifier gets the drawer once baseline clock joins",
 			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
 			grantedModules: []string{"vaccination"},
-			want:           domain.NavChromeMinimal,
+			want:           domain.NavChromeExpanded,
 		},
 	}
 	for _, tc := range tests {
@@ -813,10 +813,10 @@ func TestBootstrapNavComposition(t *testing.T) {
 	operatorGrants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
 	leadershipGrants := []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)}
 
-	t.Run("operator with single module gets minimal nav chrome", func(t *testing.T) {
+	t.Run("operator with single work module gets the drawer via baseline clock", func(t *testing.T) {
 		chrome := navChromeFor(operatorGrants, modulesFor(operatorGrants, []string{"vaccination"}, ""))
-		if chrome != domain.NavChromeMinimal {
-			t.Fatalf("navChromeFor(operator)=%q want %q (single module = minimal)", chrome, domain.NavChromeMinimal)
+		if chrome != domain.NavChromeExpanded {
+			t.Fatalf("navChromeFor(operator)=%q want %q (vaccination + baseline clock)", chrome, domain.NavChromeExpanded)
 		}
 	})
 
@@ -986,8 +986,8 @@ func TestBootstrapNavComposition(t *testing.T) {
 	t.Run("growth director gets weighing module only", func(t *testing.T) {
 		directorGrants := []domain.GrantSummary{grantWithRole(permissions.RoleGrowthDirector)}
 		modules := modulesFor(directorGrants, nil, "")
-		if chrome := navChromeFor(directorGrants, modules); chrome != domain.NavChromeMinimal {
-			t.Fatalf("growth director chrome=%q want minimal", chrome)
+		if chrome := navChromeFor(directorGrants, modules); chrome != domain.NavChromeExpanded {
+			t.Fatalf("growth director chrome=%q want expanded (weighing + baseline clock)", chrome)
 		}
 		keys := moduleKeySet(modules)
 		if keys["weighing"] != moduleStatusAvailable {
