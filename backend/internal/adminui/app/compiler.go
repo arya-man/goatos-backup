@@ -967,13 +967,33 @@ func compileFeedPurchaseControls(controls []domain.Control, input BootstrapInput
 	if !allowed {
 		reason = controlCopy(copy, "disabled.write", "Your current role can view feed purchases but not record them.")
 	}
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "record_feed_purchase",
 		Label:          controlCopy(copy, "action.record_feed_purchase.label", "Record purchase"),
 		Kind:           "primary_action",
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /procurement/feed-purchases",
+	})
+	// The payment writes share the same permission and therefore the same disabled reason: a
+	// principal who can record the load can record the money against it, and a read-only tier can
+	// do neither. Two controls rather than one because they are two different writes -- the drawer
+	// shows/hides each on its own control, never on a role string.
+	controls = upsertControl(controls, domain.Control{
+		ID:             "record_feed_purchase_payment",
+		Label:          controlCopy(copy, "action.record_feed_payment.label", "Add payment"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /procurement/feed-purchases/{purchase_id}/payments",
+	})
+	return upsertControl(controls, domain.Control{
+		ID:             "update_feed_purchase_payment_status",
+		Label:          controlCopy(copy, "action.update_payment_status.label", "Update status"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /procurement/feed-purchases/{purchase_id}/payment-status",
 	})
 }
 

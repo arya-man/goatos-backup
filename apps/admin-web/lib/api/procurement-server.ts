@@ -17,6 +17,8 @@ import type {
   FeedPurchase,
   FeedPurchaseOptions,
   FeedPurchasePage,
+  FeedPurchasePaymentWrite,
+  FeedPurchaseStatusWrite,
   FeedPurchaseWrite,
   SalesBenchmarkWrite,
   SalesBuyerLead,
@@ -309,6 +311,40 @@ export async function createFeedPurchase(
       method: "POST",
       cache: "no-store",
       headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function recordFeedPurchasePayment(
+  purchaseId: string,
+  body: FeedPurchasePaymentWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<FeedPurchase>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedPurchase>(`/procurement/feed-purchases/${encodeURIComponent(purchaseId)}/payments` as keyof AppApiPaths & string, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function setFeedPurchasePaymentStatus(
+  purchaseId: string,
+  body: FeedPurchaseStatusWrite,
+): Promise<ApiResult<FeedPurchase>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedPurchase>(`/procurement/feed-purchases/${encodeURIComponent(purchaseId)}/payment-status` as keyof AppApiPaths & string, {
+      method: "PUT",
+      cache: "no-store",
       body,
     }),
   );

@@ -47,6 +47,12 @@ func feedPurchaseFieldLabel(field string) string {
 		return "Payment status"
 	case "vendor":
 		return "Vendor"
+	case "paid_on":
+		return "Paid on"
+	case "amount_rupees":
+		return "Amount paid"
+	case "note":
+		return "Note"
 	default:
 		return "That field"
 	}

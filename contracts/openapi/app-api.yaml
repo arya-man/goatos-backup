@@ -6769,6 +6769,98 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /procurement/feed-purchases/{purchase_id}/payments:
+    post:
+      tags:
+        - Procurement
+      operationId: recordFeedPurchasePayment
+      summary: Record one instalment paid against a purchased feed load.
+      description: >-
+        The farm does not pay a load in one go: money is released in instalments, and each one is
+        recorded here as its own row. In the same transaction the load's running `payment_released`
+        total advances and its `payment_status` is re-derived from the landed cost -- `Paid` once
+        the released total covers `total_cost`, `Pending` otherwise, and unchanged while the landed
+        cost is not known. A partly-paid load stays `Pending` with money shown against it; there is
+        deliberately no third payment word.
+
+
+        The `Idempotency-Key` header is REQUIRED: an exact replay returns the load as it stands with
+        no new instalment, and the same key with different fields is rejected 409, so a retried
+        submit can never hand the vendor the same amount twice on the ledger. `paid_on` may not be
+        in the future (IST business day).
+      parameters:
+        - name: purchase_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedPurchasePaymentWrite"
+      responses:
+        "200":
+          description: The load after the instalment, with its full payment history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPurchase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/feed-purchases/{purchase_id}/payment-status:
+    put:
+      tags:
+        - Procurement
+      operationId: setFeedPurchasePaymentStatus
+      summary: Set a purchased load's payment status directly.
+      description: >-
+        The edit control for a payment state recorded wrong, or a load settled outside the
+        instalment ledger. The status vocabulary is closed (`Paid` / `Pending`); an unrecognised
+        word is rejected, never rewritten to a default. Naturally idempotent -- setting the status a
+        load already has changes nothing and audits nothing.
+      parameters:
+        - name: purchase_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedPurchaseStatusWrite"
+      responses:
+        "200":
+          description: The load after the status change, with its payment history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPurchase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /sales/overview:
     get:
       tags:
@@ -13394,6 +13486,7 @@ components:
         - quantity_kg
         - vendor
         - payment_status
+        - payments
         - entry_source
         - created_at
       properties:
@@ -13425,8 +13518,28 @@ components:
           nullable: true
           description: DERIVED from total_cost / quantity_kg, never entered, so it cannot drift from its own total.
         vendor: { type: string }
-        payment_released: { type: number, nullable: true }
+        payment_released:
+          type: number
+          nullable: true
+          description: >-
+            Money released to the vendor so far. For app-recorded instalments this is the running
+            total of `payments`, maintained in the same transaction as each instalment; sheet
+            history keeps whatever single figure the sheet carried, with no instalment rows.
         payment_status: { type: string, enum: [Paid, Pending] }
+        payment_balance:
+          type: number
+          nullable: true
+          description: >-
+            BACKEND-derived money still owed -- total_cost minus payment_released, floored at zero.
+            A load marked Paid reads 0 regardless of the released figure (sheet history often
+            carries Paid with no amount recorded). Null while the landed cost is unknown, because a
+            balance against an unknown total is a number nobody computed. Clients render this
+            figure and never derive their own.
+        payments:
+          type: array
+          description: Instalments recorded against this load, oldest first. Empty for sheet history.
+          items:
+            $ref: "#/components/schemas/FeedPurchasePayment"
         entry_source:
           type: string
           enum: [sheet_import, app]
@@ -13500,6 +13613,37 @@ components:
         total_cost: { type: number, minimum: 0, nullable: true }
         vendor: { type: string, maxLength: 160 }
         payment_released: { type: number, minimum: 0, nullable: true }
+        payment_status: { type: string, enum: [Paid, Pending] }
+    FeedPurchasePayment:
+      type: object
+      description: One instalment actually handed to the vendor for one purchased feed load.
+      required: [payment_id, paid_on, amount_rupees, note, created_at]
+      properties:
+        payment_id: { type: string, format: uuid }
+        paid_on:
+          type: string
+          format: date
+          description: The business date the money was handed over, never a timestamp.
+        amount_rupees: { type: number }
+        note:
+          type: string
+          description: Free-text context ("advance at loading", "balance after weighbridge"). May be empty.
+        created_at: { type: string, format: date-time }
+    FeedPurchasePaymentWrite:
+      type: object
+      description: Record-instalment body. Amount must be more than zero; paid_on may not be in the future.
+      required: [paid_on, amount_rupees]
+      properties:
+        paid_on: { type: string, format: date }
+        amount_rupees: { type: number, exclusiveMinimum: 0 }
+        note: { type: string, maxLength: 300 }
+    FeedPurchaseStatusWrite:
+      type: object
+      description: >-
+        Payment-status edit body. The vocabulary is closed; an unrecognised word is rejected,
+        never rewritten to a default.
+      required: [payment_status]
+      properties:
         payment_status: { type: string, enum: [Paid, Pending] }
     FeedPurchaseOptions:
       type: object

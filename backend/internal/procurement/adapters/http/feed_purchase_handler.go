@@ -22,6 +22,8 @@ type FeedPurchaseService interface {
 	ListFeedPurchases(ctx context.Context, tenantID string, q app.FeedPurchaseListQuery) (ports.FeedPurchasePage, error)
 	FeedPurchaseOptions(ctx context.Context, tenantID string) (ports.FeedPurchaseOptions, error)
 	CreateFeedPurchase(ctx context.Context, tenantID string, write domain.FeedPurchaseWrite, actorID, idempotencyKey string) (domain.FeedPurchase, error)
+	RecordFeedPurchasePayment(ctx context.Context, tenantID, purchaseID string, write domain.FeedPurchasePaymentWrite, actorID, idempotencyKey string) (domain.FeedPurchase, error)
+	SetFeedPurchasePaymentStatus(ctx context.Context, tenantID, purchaseID, status, actorID string) (domain.FeedPurchase, error)
 }
 
 // FeedPurchaseHandler serves /procurement/feed-purchases.
@@ -46,6 +48,8 @@ func RegisterFeedPurchases(mux *http.ServeMux, h *FeedPurchaseHandler) {
 	mux.HandleFunc("GET /procurement/feed-purchases", h.ListFeedPurchases)
 	mux.HandleFunc("POST /procurement/feed-purchases", h.CreateFeedPurchase)
 	mux.HandleFunc("GET /procurement/feed-purchase-options", h.FeedPurchaseOptions)
+	mux.HandleFunc("POST /procurement/feed-purchases/{purchase_id}/payments", h.RecordFeedPurchasePayment)
+	mux.HandleFunc("PUT /procurement/feed-purchases/{purchase_id}/payment-status", h.SetFeedPurchasePaymentStatus)
 }
 
 // maxFeedPurchaseRequestBytes caps a write body. The largest legitimate record-purchase payload is
@@ -120,6 +124,41 @@ func (h *FeedPurchaseHandler) CreateFeedPurchase(w http.ResponseWriter, r *http.
 	httpresponse.WriteJSON(w, http.StatusCreated, toFeedPurchasePayload(created))
 }
 
+// RecordFeedPurchasePayment serves POST /procurement/feed-purchases/{purchase_id}/payments.
+func (h *FeedPurchaseHandler) RecordFeedPurchasePayment(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		h.writeErr(w, r, app.BadRequest("missing_idempotency_key", "This payment could not be recorded safely. Try again."))
+		return
+	}
+	var body feedPurchasePaymentWritePayload
+	if !decodeFeedPurchaseBody(h, w, r, &body) {
+		return
+	}
+	updated, err := h.service.RecordFeedPurchasePayment(r.Context(), tenantID(r), r.PathValue("purchase_id"),
+		body.toDomain(), httpmiddleware.ActorIDFromContext(r.Context()), key)
+	if err != nil {
+		h.writeErr(w, r, app.FeedPurchaseHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toFeedPurchasePayload(updated))
+}
+
+// SetFeedPurchasePaymentStatus serves PUT /procurement/feed-purchases/{purchase_id}/payment-status.
+func (h *FeedPurchaseHandler) SetFeedPurchasePaymentStatus(w http.ResponseWriter, r *http.Request) {
+	var body feedPurchaseStatusWritePayload
+	if !decodeFeedPurchaseBody(h, w, r, &body) {
+		return
+	}
+	updated, err := h.service.SetFeedPurchasePaymentStatus(r.Context(), tenantID(r), r.PathValue("purchase_id"),
+		body.PaymentStatus, httpmiddleware.ActorIDFromContext(r.Context()))
+	if err != nil {
+		h.writeErr(w, r, app.FeedPurchaseHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toFeedPurchasePayload(updated))
+}
+
 // intParam parses an optional integer query parameter, rejecting a malformed one rather than
 // silently reading it as zero.
 func (h *FeedPurchaseHandler) intParam(w http.ResponseWriter, r *http.Request, raw, code, message string) (int, bool) {
@@ -140,6 +179,12 @@ func (h *FeedPurchaseHandler) intParam(w http.ResponseWriter, r *http.Request, r
 // DisallowUnknownFields is deliberate: a client sending "quantity_k" must be told, not silently
 // ignored into a zero required field. Same fail-loud rule the fixture loaders use.
 func (h *FeedPurchaseHandler) decode(w http.ResponseWriter, r *http.Request, dst *feedPurchaseWritePayload) bool {
+	return decodeFeedPurchaseBody(h, w, r, dst)
+}
+
+// decodeFeedPurchaseBody is decode's shape-generic form, shared by the purchase, instalment and
+// status writes so all three fail loud on an unknown field the same way.
+func decodeFeedPurchaseBody[T any](h *FeedPurchaseHandler, w http.ResponseWriter, r *http.Request, dst *T) bool {
 	dec := json.NewDecoder(io.LimitReader(r.Body, maxFeedPurchaseRequestBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
