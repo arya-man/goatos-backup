@@ -15,7 +15,7 @@ with the codebase because V1 config and kernel behavior depend on it.
 
 | Vaccine | Source class |
 |---|---|
-| ET+TT | bacteria killed |
+| Z1+Z3 | bacteria killed / toxoid |
 | PPR | virus live |
 | Goat Pox | virus live |
 | FMD | virus killed |
@@ -25,7 +25,7 @@ with the codebase because V1 config and kernel behavior depend on it.
 
 | Vaccine | Source class |
 |---|---|
-| ET+TT | bacteria killed |
+| Z1+Z3 | bacteria killed / toxoid |
 | PPR | virus live |
 | Blue Tongue | virus killed |
 | Sheep Pox | virus live |
@@ -43,15 +43,15 @@ every kid uses the approved standard schedule below.
 
 | Vaccine | Approved GoatOS timing | Revaccination | Priority |
 |---|---:|---:|---:|
-| ET+TT | 4 weeks and 7 weeks | 6 months | 1 |
+| Z1+Z3 | 4 weeks and 7 weeks | 6 months | 1 |
 | PPR | 16 weeks | 3 years | 2 |
 | Blue Tongue | 16 weeks and 20 weeks | 1 year | 4 |
 | Goat Pox | 16 weeks | 1 year | 3 |
-| Sheep Pox | 12 weeks | 1 year | 3 |
+| Sheep Pox | 16 weeks | 1 year | 3 |
 | FMD | 12 weeks | 9 months | 5 |
 | HS | 12 weeks | 1 year | 5 |
 
-Priority order (1 = highest): ET+TT → PPR → Goat Pox / Sheep Pox → Blue Tongue →
+Priority order (1 = highest): Z1+Z3 → PPR → Goat Pox / Sheep Pox → Blue Tongue →
 FMD / HS. The source now specifies every priority (earlier revisions left the
 non-core rows blank).
 
@@ -60,7 +60,7 @@ non-core rows blank).
 | Vaccine | Source course type | Dosage | Vial doses |
 |---|---|---:|---:|
 | PPR | Single | 1 ml | 100 |
-| ET+TT | Booster | 2 ml | 100 |
+| Z1+Z3 | Booster | 2 ml | 100 |
 | Blue Tongue | Booster | 2 ml | 100 |
 | Goat Pox | Single | 1 ml | 25 |
 | Sheep Pox | Single | 1 ml | 100 |
@@ -89,7 +89,7 @@ and schedule the remaining vaccines by the medical gap rules below.
 
 | Vaccine | Species scope | Class | Priority |
 |---|---|---|---:|
-| ET+TT | goat + sheep | killed bacterial / toxoid | 1 |
+| Z1+Z3 | goat + sheep | killed bacterial / toxoid | 1 |
 | PPR | goat + sheep | live viral | 2 |
 | Goat Pox | goat only | live viral | 3 |
 | Sheep Pox | sheep only | live viral | 3 |
@@ -117,12 +117,12 @@ the safe scheduling range is **earliest safe date through earliest safe date +
 
 | Vaccine/course | Minimum gap |
 |---|---:|
-| ET+TT dose 1 -> ET+TT dose 2 / booster | 21 days / 3 weeks |
+| Z1+Z3 dose 1 -> Z1+Z3 dose 2 / booster | 21 days / 3 weeks |
 | Blue Tongue kid dose 1 -> Blue Tongue kid dose 2 / booster | 28 days / 4 weeks |
-| ET+TT repeat/revaccination | Starts only after dose 2 / course completion; repeats every 182 days |
+| Z1+Z3 repeat/revaccination | Starts only after dose 2 / course completion; repeats every 182 days |
 
-The ET+TT 21-day booster rule applies to **adults and kids**. Do not treat adult
-ET+TT booster as optional, kid-only, or as the 182-day revaccination.
+The Z1+Z3 21-day booster rule applies to **adults and kids**. Do not treat adult
+Z1+Z3 booster as optional, kid-only, or as the 182-day revaccination.
 
 Adult entry_date is never a vaccination due-date anchor. Kids and young animals
 keep strict DOB/birth-age scheduling. Adults with accepted same-vaccine history
@@ -154,6 +154,40 @@ medical timestamp. Closure membership includes only active `recorded` and
 `accepted` completion attempts; retained `rejected` or `reversed` attempts are
 audit history and cannot block a successful retry.
 
+### Anchor Dates Are Baseline Vaccine Timelines
+
+When operations sets an anchor date for a vaccine, that date means "start or
+baseline this vaccine's timeline for this animal set from here." It is not just
+a one-day drive label and it is not permission to bypass vaccine safety rules.
+
+Use anchor dates when old/base vaccine history is missing, unreliable, or being
+replaced by an operational baseline. The anchor is the date the generation
+kernel must use for future dose logic, boosters, revaccination, and safe
+spacing. For example: "Z1+Z3 for all kids and adults on Oct 15" means all
+selected live animals get the Z1+Z3 timeline anchored on October 15; the next
+Z1+Z3 booster/revaccination work follows from that anchor.
+
+Agents and operators must not implement anchor requests by blindly inserting a
+single obligation or marking old missed rows as if they were the new baseline.
+The correct flow is:
+
+1. Resolve the live animal set from current herd scope, including park, shed,
+   partition, species, sex, stage, and actual RFID/tag identifiers.
+2. Clear or cancel obsolete missed work only when explicitly requested; this
+   does not by itself create the new anchor.
+3. Generate or replan through the vaccination kernel with the anchor date.
+4. Let the kernel evaluate existing accepted history and future scheduled work.
+5. Apply the live/live, live/killed, killed/live, killed/killed, booster-gap,
+   and max-two-vaccines-per-session rules.
+6. Keep the medically compatible highest-priority pair on the anchor date and
+   push overflow/lower-priority vaccines forward by the configured safe gaps.
+7. Verify and report the final schedule: what stayed on the anchor date, what
+   moved, why it moved, and the next booster/revaccination dates.
+
+`Z1+Z3` is the vaccine/program label. Do not split it into separate Z1, Z2, or
+Z3 animal stages unless the herd stage vocabulary explicitly defines such
+stages.
+
 ### Overflow Rule For 3+ Due Vaccines
 
 If more than two vaccines are due for the same animal:
@@ -172,15 +206,15 @@ Concrete example:
 
 | Current session date | Vaccines given now | Overflow vaccine | Earliest overflow date | Latest overflow date with buffer |
 |---|---|---|---:|---:|
-| 2026-07-22 | ET+TT + PPR | Blue Tongue | 2026-08-05 | 2026-08-12 |
-| 2026-07-22 | ET+TT + PPR | FMD | 2026-08-05 | 2026-08-12 |
+| 2026-07-22 | Z1+Z3 + PPR | Blue Tongue | 2026-08-05 | 2026-08-12 |
+| 2026-07-22 | Z1+Z3 + PPR | FMD | 2026-08-05 | 2026-08-12 |
 | 2026-07-22 | PPR | Goat Pox / Sheep Pox | 2026-08-19 | 2026-08-26 |
 
 Explicit invalid schedule:
 
 | Date | Vaccines |
 |---|---|
-| 2026-07-22 | ET+TT + PPR |
+| 2026-07-22 | Z1+Z3 + PPR |
 | 2026-07-23 | Blue Tongue |
 
 This is invalid because Blue Tongue becomes the next vaccine after a completed
@@ -193,15 +227,15 @@ third vaccine.
 The latest source doc includes the operating decisions below. These are part of
 the rule source and must stay aligned with Config presets and kernel behavior.
 
-> **Do not miss this ET+TT adult booster rule.** ET+TT is a two-dose course for
-> adults as well as kids. Adult ET+TT dose 2 / booster is due 21 days after
-> adult ET+TT dose 1, with the normal scheduling buffer applied by the planner.
-> Do not read the adult sheet's `ET+TT Booster` column as kid-only, optional, or
-> as the 182-day revaccination. The 182-day ET+TT repeat starts only after dose
-> 2/course completion.
+> **Do not miss this Z1+Z3 adult booster rule.** Z1+Z3 is a two-dose course for
+> adults as well as kids. Adult Z1+Z3 dose 2 / booster is due 21 days after
+> adult Z1+Z3 dose 1, with the normal scheduling buffer applied by the planner.
+> Do not read the adult sheet's `Z1+Z3 Booster` / legacy `ET+TT Booster` column
+> as kid-only, optional, or as the 182-day revaccination. The 182-day Z1+Z3
+> repeat starts only after dose 2/course completion.
 >
-> **Post-seed invariant:** if the DB contains accepted `et_tt_adult_w1`
-> completions but zero matching same-goat `et_tt_adult_w2` obligations or
+> **Post-seed invariant:** if the DB contains accepted legacy `et_tt_adult_w1`
+> completions but zero matching same-goat legacy `et_tt_adult_w2` obligations or
 > completions, the seed/generation output is invalid. Reporting only later
 > generated drive rows while adult dose 2 is missing is a blocker.
 
@@ -212,7 +246,7 @@ the rule source and must stay aligned with Config presets and kernel behavior.
 | Live-to-live gap: 4 weeks? | Yes. | Live vaccine spacing is a hard 28-day floor. |
 | Vaccinated at source then warm-up: 7 days from warm-up entry or source dose? | Seven days from warm-up entry. | Warm-up hold anchors to farm-entry date. |
 | After delivery: all missed doses in 2 weeks or by priority? | By priority and whatever is due; ideally mothers are fully vaccinated before delivery. | Post-delivery catch-up uses vaccine priority and should be rare because breeding/pregnancy vaccination is planned earlier. |
-| Sheep adults: Blue Tongue booster timing vs pox step? | ET+TT booster can be given after 3 weeks for both kid and adult courses. Blue Tongue kid booster remains 4 weeks. | ET+TT course rows keep a 21-day minimum gap; Blue Tongue kid course keeps 28 days. |
+| Sheep adults: Blue Tongue booster timing vs pox step? | Z1+Z3 booster can be given after 3 weeks for both kid and adult courses. Blue Tongue kid booster remains 4 weeks. | Z1+Z3 course rows keep a 21-day minimum gap; Blue Tongue kid course keeps 28 days. |
 | Untrusted procurement vaccine notes: full catch-up or trust with review? | Never trust vaccine outside our supervision; trust only our parks or procurement holding parks. | Procurement holding-park vaccination starts the GoatOS schedule there; third-party/vendor claims do not suppress scheduled work. |
 | Pregnancy month 1-5: what date starts the clock? | Rough known breeding date. | Pregnancy month calculation starts from breeding date when available. |
 | Mother vaccinated: how is it recorded? | Mother ID is known and mother vaccines are ensured before gestation month 4. | Dam link may be stored for lineage/audit, but kid scheduling must not branch on dam vaccination status. |
@@ -232,7 +266,7 @@ accepted completion for that dose:
   dose position. A completion for PPR under "PHC standard kid schedule" does not
   suppress an obligation for PPR under a different protocol rule (for example,
   "catch-up adult drive" or "procurement warm-up protocol"). A completion for
-  one ET+TT course position (dose 1) does not suppress the next ET+TT course
+  one Z1+Z3 course position (dose 1) does not suppress the next Z1+Z3 course
   position (dose 2) even if they are the same vaccine.
   The rule engine must match the protocol version, rule identity, or lineage key,
   not just the vaccine name. If a source-backed rule or admin-authored override
@@ -312,8 +346,8 @@ must use India/local operational dates:
   allowed same-day pair in the same session.
 - Killed followed by killed needs a 2-week gap.
 - Live followed by live needs a 4-week gap.
-- ET+TT dose 2 needs a 3-week gap after ET+TT dose 1 for both kid and adult
-  courses. ET+TT repeat/revaccination starts only after dose 2/course
+- Z1+Z3 dose 2 needs a 3-week gap after Z1+Z3 dose 1 for both kid and adult
+  courses. Z1+Z3 repeat/revaccination starts only after dose 2/course
   completion and repeats every 182 days.
 - Blue Tongue kid dose 2 keeps its 4-week gap after Blue Tongue dose 1.
 - Example: a live + killed pair can run on the same day when no other blocker
@@ -329,10 +363,27 @@ must use India/local operational dates:
   the number of distinct animals that can safely attend, not by obligation row
   count, vaccine count, or shed count. One goat with two vaccine rows must never
   beat a date that safely serves two goats.
+- The hard execution cap is **200 animals per operator-day** unless the current
+  capacity config says otherwise. The cap counts animals, not vaccine rows or
+  doses.
+- Fill the 200-animal operator-day with complete executable buckets first. A
+  bucket is normally a whole physical shed; where a shed has named partitions
+  under one parent, such as `Mandela 1 - Part 1` through `Mandela 1 - Part 8`,
+  treat those sibling partitions as a preferred same-parent group before mixing
+  them with unrelated sheds. Keep the common-parent partitions together when
+  they fit inside the cap and all medical windows are safe.
+- Do not split a whole shed or same-parent partition group just to squeeze
+  another shed into the day. If several complete sheds/partition groups total
+  180 animals and adding the next complete shed would make the operator-day
+  exceed 200, keep the 180-animal drive and carry the next shed/group to another
+  operator-day. Splitting is allowed only when the physical shed or same-parent
+  group itself exceeds the full cap or when the maintainer explicitly approves
+  a repair.
 - Shed count is not a batching constraint. A valid park drive may contain one
   shed or many sheds; shed names are display/proof detail only. Reject any
   planner/review/test that strands animals because the candidate date had "only
-  one shed" while more same-park animals could safely club inside the window.
+  one shed" while more same-park complete buckets could safely club inside the
+  window without breaking the cap or splitting rule.
 - GoatOS may hold a due shed/tag group for up to **7 calendar days** to combine
   it with another compatible same-park drive group, but only if every animal
   remains inside its medical safe window.
@@ -422,8 +473,8 @@ must use India/local operational dates:
 
 ### New-animal procurement schedule
 
-- Newly procured animals receive ET+TT + PPR first after the warm-up hold.
-- ET+TT dose 2 is due 3 weeks after that ET+TT dose 1 for both goats and
+- Newly procured animals receive Z1+Z3 + PPR first after the warm-up hold.
+- Z1+Z3 dose 2 is due 3 weeks after that Z1+Z3 dose 1 for both goats and
   sheep.
 - Goat Pox for goats or Sheep Pox for sheep remains due after 4 weeks because
   the 4-week wait honors the PPR/live-to-pox live→live spacing rule.
@@ -465,10 +516,10 @@ must use India/local operational dates:
 
 ### Adult drives and the production cycle
 
-- An adult goat needs drive intents with ET+TT dose 2 at 3 weeks and pox/live
+- An adult goat needs drive intents with Z1+Z3 dose 2 at 3 weeks and pox/live
   spacing at 4 weeks:
-  1. ET+TT; PPR
-  2. ET+TT dose 2
+  1. Z1+Z3; PPR
+  2. Z1+Z3 dose 2
   3. Goat Pox
   4. FMD + HS
 - Rough 8-month adult production cycle: gestation 5 months, milking 1 month,
@@ -498,7 +549,7 @@ must use India/local operational dates:
   physically handle adult goats and adult sheep on the same day, but GoatOS
   keeps separate adult goat and adult sheep execution groups because adult
   species vaccines differ: Goat Pox is goat-only; Sheep Pox and Blue Tongue are
-  sheep-only; ET+TT, PPR, FMD, and HS are shared only where the matrix allows.
+  sheep-only; Z1+Z3, PPR, FMD, and HS are shared only where the matrix allows.
 
 ## V1 Implementation Contract
 
@@ -533,7 +584,7 @@ The shared V1 policy must author:
   third-party source claims are not trusted;
 - same-day compatibility allowed flags;
 - live/killed spacing days;
-- ET+TT course booster minimum gap of 21 days for both kid and adult courses;
+- Z1+Z3 course booster minimum gap of 21 days for both kid and adult courses;
 - Blue Tongue kid booster minimum gap of 28 days;
 - first and second procurement waves.
 
@@ -542,7 +593,7 @@ The V1 kernel must enforce:
 - birth-age schedule rows from the standard mother/adult schedule;
 - trusted prior vaccination evidence suppression **scoped to supervised-lifecycle
   sources only** (our parks / procurement holding parks under SOP), so
-  pre-existing ET+TT/PPR/FMD records from those sources do not duplicate work;
+  pre-existing Z1+Z3/PPR/FMD records from those sources do not duplicate work;
   unverified third-party claims must not suppress work;
 - generation of the next missing source-schedule row when trusted prior evidence
   exists;
@@ -558,6 +609,9 @@ The V1 kernel must enforce:
 - post-breeding one-month vaccination hold from the breeding date;
 - park-level drive planning that maximizes safe doctor coverage while retaining
   per-shed/tag breakdowns;
+- the 200-animals-per-operator-day cap, packing complete sheds first and keeping
+  sibling partitions under the same parent shed together before mixing unrelated
+  sheds;
 - mixed-species kid drive groups (single shared group for compatible goat+sheep
   kids; adult groups stay species-specific inside the same park visit);
 - max 2 shots per animal per drive/doctor visit, with overflow scheduled by
@@ -577,15 +631,15 @@ narrowed by an admin after loading when the source rule needs a specific combo.
 
 | Species/rules row | Vaccine | Type | Pathogen | Course | Kid timing | Adult timing | Revaccination days | Dose | Vial | Priority |
 |---|---|---|---|---|---|---|---:|---:|---:|---:|
-| goat | ET+TT | killed | bacterial | booster | 28d, 49d | dose 1, dose 2 after 21d | 182 after dose 2 | 2 ml | 100 | 1 |
+| goat | Z1+Z3 | killed | bacterial/toxoid | booster | 28d, 49d | dose 1, dose 2 after 21d | 182 after dose 2 | 2 ml | 100 | 1 |
 | goat | PPR | live | viral | single | 112 | 112 | 1095 | 1 ml | 100 | 2 |
-| goat | Goat Pox | live | viral | single | 112 | 140 | 365 | 1 ml | 25 | 3 |
+| goat | Goat Pox | live | viral | single | 112 | 112 | 365 | 1 ml | 25 | 3 |
 | goat | FMD | killed | viral | single | 84 | 84 | 274 | 1 ml | 30 | 5 |
 | goat | HS | killed | bacterial | single | 84 | 84 | 365 | 2 ml | 100 | 5 |
-| sheep source | ET+TT | killed | bacterial | booster | 28d, 49d | dose 1, dose 2 after 21d | 182 after dose 2 | 2 ml | 100 | 1 |
+| sheep source | Z1+Z3 | killed | bacterial/toxoid | booster | 28d, 49d | dose 1, dose 2 after 21d | 182 after dose 2 | 2 ml | 100 | 1 |
 | sheep source | PPR | live | viral | single | 112 | 112 | 1095 | 1 ml | 100 | 2 |
 | sheep source | Blue Tongue | killed | viral | booster | 112, 140 | 112, 140 | 365 | 2 ml | 100 | 4 |
-| sheep source | Sheep Pox | live | viral | single | 84 | 84 | 365 | 1 ml | 100 | 3 |
+| sheep source | Sheep Pox | live | viral | single | 112 | 112 | 365 | 1 ml | 100 | 3 |
 | sheep source | FMD | killed | viral | single | 84 | 84 | 274 | 1 ml | 30 | 5 |
 | sheep source | HS | killed | bacterial | single | 84 | 84 | 365 | 2 ml | 100 | 5 |
 

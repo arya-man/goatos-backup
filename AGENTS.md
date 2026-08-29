@@ -33,6 +33,52 @@ forecasted cost of about `₹34,382.31`, mostly driven by Cloud Run
 (`₹2,152.09`). Always read the report table before guessing from the overview
 balance.
 
+## Vaccination Anchor Date Rule
+
+When the maintainer tells Codex, Claude, or any other agent to add a vaccination
+drive, anchor date, campaign date, baseline date, or "start from this date" for
+one or more vaccines, treat that date as a **vaccine timeline anchor**, not as a
+manual one-off obligation insert.
+
+Required behavior:
+
+1. Resolve the exact vaccine/program name the maintainer used. For example,
+   `Z1+Z3` is the vaccine/program label, not separate `Z1`, `Z2`, or `Z3`
+   management stages.
+2. Resolve the intended animal set from live herd scope: park, shed,
+   partition, species, sex, current stage, and explicit RFID/tag identifiers
+   where relevant. Report animal identifiers as actual RFID/tag values, not
+   internal goat ids.
+3. Clear, cancel, or supersede bad old obligations only when asked, and keep
+   that separate from the new anchor. Old missed rows are history; do not assume
+   deleting or canceling them will make the sweeper invent a new campaign.
+4. Create or configure the anchor through the vaccination generation/kernel path
+   so future boosters and revaccination are derived from the anchor date.
+   Do not blind-insert a single drive row unless the maintainer explicitly asks
+   for a one-off data repair and accepts the loss of future-rule semantics.
+5. Before claiming a date is scheduled, verify same-day and cross-vaccine
+   safety: live/live, live/killed, killed/live, killed/killed, maximum vaccines
+   per session, booster gaps, existing future obligations, and accepted vaccine
+   history. If another vaccine lands on the requested date, the backend/kernel
+   must either keep a medically compatible pair or push the lower-priority /
+   overflow work forward by the configured safe-gap rules.
+6. Respect operator-day packing: default cap is 200 animals per operator-day,
+   counted by animals, not doses. Fill with complete sheds first. For partitioned
+   sheds with a common parent, such as `Mandela 1 - Part 1` through
+   `Mandela 1 - Part 8`, keep sibling partitions together before mixing
+   unrelated sheds when they fit safely under the cap. If complete buckets total
+   180 and the next whole shed would exceed 200, keep 180 and carry the next
+   shed/group forward instead of splitting it.
+7. After generation, report what actually happened: animals scheduled on the
+   requested anchor date, animals pushed to another date, the reason for each
+   push, remaining missing work, and next booster/revaccination dates.
+
+For the current Goat OS vaccination rules, `Z1+Z3` is goat + sheep, killed,
+bacterial/toxoid, first course at 4 weeks with booster at 7 weeks, and
+revaccination every 6 months. If the maintainer says "all kids and adults Oct
+15", that means anchor all selected live animals on October 15 and let the
+kernel apply compatibility and future scheduling from there.
+
 ## Ravi Laptop Default: OCI DB, Not Local Docker Postgres
 
 On Ravi's laptop, default local Goat OS backend/admin-web development to the OCI
@@ -735,19 +781,19 @@ The private source/wiki may contain that branch, but GoatOS ignores it. Mothers
 are kept vaccinated operationally, and every kid uses the approved standard
 schedule in `docs/preventive-care-vaccination/vaccination-rules.md`.
 
-Confirmed Preventive Care (PC) ET+TT course rule: ET+TT is a two-dose course
+Confirmed Preventive Care (PC) Z1+Z3 course rule: Z1+Z3 is a two-dose course
 before the 182-day repeat. Dose 2 is due 21 days after dose 1 for both kid and
-adult courses. Imported/seeded ET+TT dose 1 must create the dose 2 obligation
+adult courses. Imported/seeded Z1+Z3 dose 1 must create the dose 2 obligation
 first; it must not jump straight to the 182-day repeat. The 182-day repeat
-starts only after accepted ET+TT dose 2/course completion. Blue Tongue kid dose
+starts only after accepted Z1+Z3 dose 2/course completion. Blue Tongue kid dose
 2 remains 28 days after dose 1; pox vaccines still obey the 28-day live-to-live
 spacing after PPR.
 
 Hard seed/generation guard: after real vaccination seeding, any accepted
-`et_tt_adult_w1` completion without a same-goat `et_tt_adult_w2` obligation or
+legacy `et_tt_adult_w1` completion without a same-goat legacy `et_tt_adult_w2` obligation or
 completion is a broken database, not a warning. Do not report future drives from
 `vaccination_drive_assignments` alone; first audit missing required obligations
-against `protocol_rules` and accepted history, especially adult ET+TT dose 2.
+against `protocol_rules` and accepted history, especially adult Z1+Z3 dose 2.
 
 Confirmed module ownership and weighing planning authority (maintainer decision
 2026-08-01): each operational module has ONE accountable director, and a module's
