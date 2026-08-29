@@ -193,6 +193,36 @@ locals {
         "api",
       ]
     }
+    herd_signals_mqtt_host = {
+      secret_id = "herd-signals-mqtt-host"
+      accessors = [
+        "herd_signals_mqtt_bridge",
+      ]
+    }
+    herd_signals_mqtt_port = {
+      secret_id = "herd-signals-mqtt-port"
+      accessors = [
+        "herd_signals_mqtt_bridge",
+      ]
+    }
+    herd_signals_mqtt_topic = {
+      secret_id = "herd-signals-mqtt-topic"
+      accessors = [
+        "herd_signals_mqtt_bridge",
+      ]
+    }
+    herd_signals_mqtt_client_id = {
+      secret_id = "herd-signals-mqtt-client-id"
+      accessors = [
+        "herd_signals_mqtt_bridge",
+      ]
+    }
+    herd_signals_mqtt_username = {
+      secret_id = "herd-signals-mqtt-username"
+      accessors = [
+        "herd_signals_mqtt_bridge",
+      ]
+    }
   }
 
   secret_accessor_bindings = merge([

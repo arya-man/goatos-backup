@@ -12,8 +12,7 @@ Companion docs: `herd-signals.md`, `herd-signals-gateway-payload.md`,
 ## 1. The topics
 
 Broker: local Mosquitto at `192.168.0.5:1883` (no TLS, no auth).
-Gateway: HoneyComm BLE gateway, client id `__REDACTED_HERD_SIGNALS_LOCAL_CLIENT_ID__`, MAC
-`f130d402dcb4`.
+Gateway: HoneyComm BLE gateway, local test client id, MAC `f130d402dcb4`.
 
 | Topic | Direction (from gateway's view) | Purpose |
 |---|---|---|

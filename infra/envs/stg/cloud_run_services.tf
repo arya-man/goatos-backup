@@ -586,13 +586,23 @@ resource "google_cloud_run_v2_service" "herd_signals_mqtt_bridge" {
       }
 
       env {
-        name  = "HERD_SIGNALS_MQTT_HOST"
-        value = "__REDACTED_HERD_SIGNALS_MQTT_HOST__"
+        name = "HERD_SIGNALS_MQTT_HOST"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["herd_signals_mqtt_host"].secret_id
+            version = "latest"
+          }
+        }
       }
 
       env {
-        name  = "HERD_SIGNALS_MQTT_PORT"
-        value = "8883"
+        name = "HERD_SIGNALS_MQTT_PORT"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["herd_signals_mqtt_port"].secret_id
+            version = "latest"
+          }
+        }
       }
 
       env {
@@ -601,18 +611,33 @@ resource "google_cloud_run_v2_service" "herd_signals_mqtt_bridge" {
       }
 
       env {
-        name  = "HERD_SIGNALS_MQTT_TOPIC"
-        value = "GwData"
+        name = "HERD_SIGNALS_MQTT_TOPIC"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["herd_signals_mqtt_topic"].secret_id
+            version = "latest"
+          }
+        }
       }
 
       env {
-        name  = "HERD_SIGNALS_MQTT_CLIENT_ID"
-        value = "herd-signals-mqtt-bridge-stg"
+        name = "HERD_SIGNALS_MQTT_CLIENT_ID"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["herd_signals_mqtt_client_id"].secret_id
+            version = "latest"
+          }
+        }
       }
 
       env {
-        name  = "HERD_SIGNALS_MQTT_USERNAME"
-        value = "__REDACTED_HERD_SIGNALS_MQTT_USERNAME__"
+        name = "HERD_SIGNALS_MQTT_USERNAME"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.container["herd_signals_mqtt_username"].secret_id
+            version = "latest"
+          }
+        }
       }
 
       env {

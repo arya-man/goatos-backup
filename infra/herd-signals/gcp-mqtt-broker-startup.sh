@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_ID="goatos-stg"
-MQTT_USER="__REDACTED_HERD_SIGNALS_MQTT_USERNAME__"
+USERNAME_SECRET="herd-signals-mqtt-username"
 PASSWORD_SECRET="herd-signals-mqtt-gateway-514060-password"
 CA_SECRET="herd-signals-mqtt-ca-crt"
 SERVER_CERT_SECRET="herd-signals-mqtt-server-crt"
@@ -21,6 +21,7 @@ chmod 0644 /etc/mosquitto/certs/ca.crt /etc/mosquitto/certs/server.crt
 chmod 0600 /etc/mosquitto/certs/server.key
 chown -R mosquitto:mosquitto /etc/mosquitto/certs
 
+MQTT_USER="$(gcloud secrets versions access latest --project="${PROJECT_ID}" --secret="${USERNAME_SECRET}")"
 gcloud secrets versions access latest --project="${PROJECT_ID}" --secret="${PASSWORD_SECRET}" > /root/mqtt-password.txt
 mosquitto_passwd -b -c /etc/mosquitto/passwd "${MQTT_USER}" "$(cat /root/mqtt-password.txt)"
 rm -f /root/mqtt-password.txt

@@ -33,7 +33,7 @@ protocol: MQTT
 TLS: off
 publish topic: GwData
 subscribe topic: SrvData
-client id: __REDACTED_HERD_SIGNALS_LOCAL_CLIENT_ID__
+client id: local test gateway id
 ```
 
 The gateway currently publishes live packets to local Mosquitto on topic
@@ -58,12 +58,13 @@ project: goatos-stg
 region: asia-south1
 zone: asia-south1-a
 instance: goatos-stg-herd-signals-mqtt-1
-static IP: __REDACTED_HERD_SIGNALS_MQTT_HOST__
 firewall: allow-herd-signals-mqtts-stg
 public port: 8883 only
 broker: Mosquitto
 TLS: enabled
-gateway username: __REDACTED_HERD_SIGNALS_MQTT_USERNAME__
+gateway host secret: herd-signals-mqtt-host
+gateway port secret: herd-signals-mqtt-port
+gateway username secret: herd-signals-mqtt-username
 gateway password secret: herd-signals-mqtt-gateway-514060-password
 CA secret: herd-signals-mqtt-ca-crt
 server cert secret: herd-signals-mqtt-server-crt
@@ -76,7 +77,7 @@ Verified on 2026-08-22:
 - Mosquitto is `active`.
 - VM is listening on `0.0.0.0:8883`.
 - Local TLS/auth publish to `GwData` succeeded using the staged CA and
-  `__REDACTED_HERD_SIGNALS_MQTT_USERNAME__` credentials.
+  Secret Manager-backed credentials.
 
 Bootstrap script:
 
@@ -93,8 +94,8 @@ Expected staging flow:
 ```text
 BLE tags
   -> HoneyComm gateway
-  -> MQTT over TLS to __REDACTED_HERD_SIGNALS_MQTT_HOST__:8883
-  -> topic GwData
+  -> MQTT over TLS to the host/port stored in Secret Manager
+  -> topic stored in Secret Manager
   -> Herd Signals bridge service
   -> goatos-stg PostgreSQL
   -> goatos-api-stg
@@ -115,7 +116,7 @@ Preferred bridge placement:
 ```text
 Cloud Run service: goatos-herd-signals-bridge-stg
 runtime: Go, same repository and deployment conventions as GoatOS backend
-input: MQTT subscription to GwData on __REDACTED_HERD_SIGNALS_MQTT_HOST__:8883
+input: MQTT subscription using the Secret Manager-backed staging MQTT config
 output: goatos-stg PostgreSQL writes through Herd Signals repository code
 ```
 
@@ -156,10 +157,11 @@ HTTP equivalent: POST /herd-signals/packets
 Bridge runtime config:
 
 ```text
-HERD_SIGNALS_MQTT_HOST=__REDACTED_HERD_SIGNALS_MQTT_HOST__
-HERD_SIGNALS_MQTT_PORT=8883
-HERD_SIGNALS_MQTT_TOPIC=GwData
-HERD_SIGNALS_MQTT_USERNAME=__REDACTED_HERD_SIGNALS_MQTT_USERNAME__
+HERD_SIGNALS_MQTT_HOST_SECRET=herd-signals-mqtt-host
+HERD_SIGNALS_MQTT_PORT_SECRET=herd-signals-mqtt-port
+HERD_SIGNALS_MQTT_TOPIC_SECRET=herd-signals-mqtt-topic
+HERD_SIGNALS_MQTT_CLIENT_ID_SECRET=herd-signals-mqtt-client-id
+HERD_SIGNALS_MQTT_USERNAME_SECRET=herd-signals-mqtt-username
 HERD_SIGNALS_MQTT_PASSWORD_SECRET=herd-signals-mqtt-gateway-514060-password
 HERD_SIGNALS_MQTT_CA_SECRET=herd-signals-mqtt-ca-crt
 HERD_SIGNALS_TENANT_ID=<tenant id used by stg.dashboard.mesha.sg>
@@ -218,7 +220,7 @@ service: goatos-herd-signals-bridge-stg
 mode: single subscriber process
 min instances: 1 during hardware validation
 max instances: 1 until MQTT duplicate handling is proven
-egress: outbound TCP/TLS to __REDACTED_HERD_SIGNALS_MQTT_HOST__:8883 and Cloud SQL/Postgres path used by the backend
+egress: outbound TCP/TLS to the Secret Manager-backed broker endpoint and Cloud SQL/Postgres path used by the backend
 ```
 
 Keep `max instances: 1` initially because MQTT shared-subscription semantics and
@@ -230,12 +232,12 @@ For staging, configure the physical gateway to:
 
 ```text
 protocol: MQTT
-host: __REDACTED_HERD_SIGNALS_MQTT_HOST__
-port: 8883
-publish topic: GwData
-subscribe topic: SrvData
-client id: __REDACTED_HERD_SIGNALS_MQTT_USERNAME__
-username: __REDACTED_HERD_SIGNALS_MQTT_USERNAME__
+host: from Secret Manager secret herd-signals-mqtt-host
+port: from Secret Manager secret herd-signals-mqtt-port
+publish topic: from Secret Manager secret herd-signals-mqtt-topic
+subscribe topic: from the paired broker-side service topic
+client id: from the rotated gateway credential set
+username: from Secret Manager secret herd-signals-mqtt-username
 password: from Secret Manager secret herd-signals-mqtt-gateway-514060-password
 QoS: 1 if the gateway accepts it; otherwise QoS 0
 SSL/TLS: enabled
@@ -278,12 +280,12 @@ The staging MQTT settings applied on 2026-08-23 were:
 
 ```text
 protocol: MQTT
-host: __REDACTED_HERD_SIGNALS_MQTT_HOST__
-port: 8883
-publish topic: GwData
-subscribe topic: SrvData
-client id: __REDACTED_HERD_SIGNALS_MQTT_USERNAME__
-username: __REDACTED_HERD_SIGNALS_MQTT_USERNAME__
+host: from Secret Manager secret herd-signals-mqtt-host
+port: from Secret Manager secret herd-signals-mqtt-port
+publish topic: from Secret Manager secret herd-signals-mqtt-topic
+subscribe topic: from the paired broker-side service topic
+client id: from the rotated gateway credential set
+username: from Secret Manager secret herd-signals-mqtt-username
 password: from Secret Manager secret herd-signals-mqtt-gateway-514060-password
 QoS: 1
 SSL/TLS: enabled
@@ -317,7 +319,7 @@ gcloud compute ssh goatos-stg-herd-signals-mqtt-1 \
 Expected connection evidence looks like:
 
 ```text
-New client connected ... as __REDACTED_HERD_SIGNALS_MQTT_USERNAME__ (... u'__REDACTED_HERD_SIGNALS_MQTT_USERNAME__')
+New client connected ... with the Secret Manager-backed gateway username
 ```
 
 Do not treat the dashboard's zero packet count as a gateway-configuration
