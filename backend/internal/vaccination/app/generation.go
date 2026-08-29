@@ -1541,7 +1541,7 @@ func (s *GenerationService) recentVaccineAdminsForPlans(ctx context.Context, ten
 func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, versionEligibility genEligibility, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, vaccineProf vaccineProfile, vaccineHistory []domain.RecentVaccineAdministration, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
 	historicalCatchUpMaterialized := false
 	path := schedulePathForGoat(g, policies.Procurement, asOf, vaccineHistory)
-	manualAnchors, err := s.manualVaccineAnchorsForBaseRules(ctx, tenantID, g.GoatID, rules, versionEligibility, vaccineProf)
+	manualAnchors, err := s.manualVaccineAnchorsForSeedRules(ctx, tenantID, g.GoatID, rules, versionEligibility, vaccineProf)
 	if err != nil {
 		return err
 	}
@@ -1719,7 +1719,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
 		}
-		if manualAnchorSuppressesBaseRule(rule) {
+		if manualAnchorSuppressesSeedRule(rule) {
 			if _, found := manualAnchors[vaccineAnchorLookupKey(ruleVaccine.Code)]; found {
 				res.SuppressedByTrustedHistory++
 				continue
@@ -2706,7 +2706,7 @@ func dueAt(versionID string, rule protodomain.Rule, g domain.EligibleGoat, asOf 
 	}
 }
 
-func (s *GenerationService) manualVaccineAnchorsForBaseRules(ctx context.Context, tenantID, goatID string, rules []protodomain.Rule, eligibility genEligibility, vaccineProf vaccineProfile) (map[string]obldomain.ObligationRef, error) {
+func (s *GenerationService) manualVaccineAnchorsForSeedRules(ctx context.Context, tenantID, goatID string, rules []protodomain.Rule, eligibility genEligibility, vaccineProf vaccineProfile) (map[string]obldomain.ObligationRef, error) {
 	reader, ok := s.obl.(ManualVaccineAnchorReader)
 	if !ok {
 		return nil, nil
@@ -2714,7 +2714,7 @@ func (s *GenerationService) manualVaccineAnchorsForBaseRules(ctx context.Context
 	codes := make([]string, 0, len(rules))
 	seen := map[string]bool{}
 	for _, rule := range rules {
-		if !manualAnchorSuppressesBaseRule(rule) {
+		if !manualAnchorSuppressesSeedRule(rule) {
 			continue
 		}
 		_, ruleVaccine, err := ruleGenerationContext(rule, eligibility, vaccineProf)
@@ -2745,9 +2745,9 @@ func (s *GenerationService) manualVaccineAnchorsForBaseRules(ctx context.Context
 	return normalized, nil
 }
 
-func manualAnchorSuppressesBaseRule(rule protodomain.Rule) bool {
+func manualAnchorSuppressesSeedRule(rule protodomain.Rule) bool {
 	switch strings.TrimSpace(rule.TriggerType) {
-	case "birth_age", "post_arrival", "calendar":
+	case "birth_age", "post_arrival", "calendar", "manual_campaign":
 		return true
 	default:
 		return false

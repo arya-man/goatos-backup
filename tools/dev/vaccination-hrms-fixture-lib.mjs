@@ -710,3 +710,6 @@ export function updateManifestHashes(directory, manifest) {
 // age_band (migration 000171 parity for fresh tenants). This fixture library still has no
 // stage-catalog input: committed HRMS/vaccination source bytes, hashes, rows, SOP proof grain,
 // operator capacity, and validation semantics are unchanged.
+// Coupling review 2026-08-29: manual vaccination anchors now suppress same-family manual_campaign
+// seed rows before the anchor. This library remains unchanged because the fixture source still
+// describes imported rows/dates, not runtime manual-anchor replay behavior.

@@ -870,3 +870,6 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // authored rule DSL at publish time and defaults existing dimensions to all. It is not a raw
 // HRMS/vaccination source column, date, roster field, SOP proof field, or validation input, so this
 // source validator remains unchanged.
+// Coupling review 2026-08-29: later manual anchors suppress generated manual_campaign seed rows for
+// the same vaccine family. This validator remains source-only: no raw fixture date, HRMS row, SOP
+// proof field, or hash validation changes.

@@ -4665,15 +4665,69 @@ func TestManualVaccineAnchorSuppressesBaseRuleGeneration(t *testing.T) {
 	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl)
 	res := domain.GenerateResult{}
 
+	opts := generationOptions{
+		campaignDueByGoat: map[string]time.Time{
+			campaignDueGoatKey("version-1", rule.RuleID, goat.GoatID): businessDayStart(asOf).AddDate(0, 0, 1),
+		},
+	}
 	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", []protodomain.Rule{rule}, nil, genEligibility{}, goat, asOf,
-		generationOptions{}, genVersionPolicies{}, vaccineProfile{}, nil, newTrustedEvidenceLookup(), &res); err != nil {
+		opts, genVersionPolicies{}, vaccineProfile{}, nil, newTrustedEvidenceLookup(), &res); err != nil {
 		t.Fatalf("generation failed: %v", err)
 	}
 	if len(obl.inserted) != 0 {
 		t.Fatalf("base rule generated despite manual anchor: %#v", obl.inserted)
 	}
 	if res.SuppressedByTrustedHistory != 1 {
-		t.Fatalf("suppressed count = %d, want 1", res.SuppressedByTrustedHistory)
+		t.Fatalf("suppressed count = %d, want 1; inserted=%#v result=%#v", res.SuppressedByTrustedHistory, obl.inserted, res)
+	}
+}
+
+func TestManualVaccineAnchorSuppressesManualCampaignCatchup(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
+	rule := protodomain.Rule{
+		RuleID:          "z1z3-adult-w1",
+		DoseCode:        "z1z3_adult_w1",
+		Sequence:        1,
+		TriggerType:     "manual_campaign",
+		OffsetDays:      7,
+		DueWindowDays:   7,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"Z1_Z3","type":"killed","pathogen_class":"bacterial"}}`),
+	}
+	goat := defaultPlacedGoat(domain.EligibleGoat{
+		GoatID:          "goat-1",
+		LifecycleStatus: "alive",
+		Species:         "goat",
+		Stage:           "adult",
+		ParkID:          "park-1",
+		ShedID:          "shed-1",
+	})
+	obl := &generationObligationFake{
+		manualAnchorsByGoatVaccine: map[string]obldomain.ObligationRef{
+			"goat-1|Z1_Z3": {
+				ObligationID: "anchor-1",
+				Status:       "scheduled",
+				DueAt:        time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl)
+	res := domain.GenerateResult{}
+
+	opts := generationOptions{
+		campaignDueByGoat: map[string]time.Time{
+			campaignDueGoatKey("version-1", rule.RuleID, goat.GoatID): businessDayStart(asOf).AddDate(0, 0, 1),
+		},
+	}
+	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", []protodomain.Rule{rule}, nil, genEligibility{}, goat, asOf,
+		opts, genVersionPolicies{}, vaccineProfile{}, nil, newTrustedEvidenceLookup(), &res); err != nil {
+		t.Fatalf("generation failed: %v", err)
+	}
+	if len(obl.inserted) != 0 {
+		t.Fatalf("manual campaign generated despite later manual anchor: %#v", obl.inserted)
+	}
+	if res.SuppressedByTrustedHistory != 1 {
+		t.Fatalf("suppressed count = %d, want 1; inserted=%#v result=%#v", res.SuppressedByTrustedHistory, obl.inserted, res)
 	}
 }
 
