@@ -1491,15 +1491,22 @@ fun AppNavHost(
         ) {
             val vm: HealthDetailViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            HealthDetailScreen(
-                state = state,
-                onBack = { navController.popBackStack() },
-                onComplete = vm::complete,
-                onRefresh = vm::refresh,
-                onRecordVideo = { vm.recordVideo() },
-                onReRecordVideo = { vm.recordVideo(replacing = true) },
-                onCloseCase = vm::closeCase,
-            )
+            // The mandatory treatment video: the permission gate requests camera/audio itself,
+            // and BindVideoCaptureSource is what makes ProofCaptureSource.captureVideo actually
+            // open the in-app recorder — without it the delegate is null and the record button
+            // is a silent no-op (found live on the 2026-08-29 Realme run).
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                HealthDetailScreen(
+                    state = state,
+                    onBack = { navController.popBackStack() },
+                    onComplete = vm::complete,
+                    onRefresh = vm::refresh,
+                    onRecordVideo = { vm.recordVideo() },
+                    onReRecordVideo = { vm.recordVideo(replacing = true) },
+                    onCloseCase = vm::closeCase,
+                )
+            }
         }
 
         // The planner's flat all-tasks list. A SEPARATE destination, not a mode of /weighing:
