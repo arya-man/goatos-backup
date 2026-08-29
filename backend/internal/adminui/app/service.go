@@ -5816,13 +5816,15 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				ID: "people_view_tabs",
 				Options: []domain.Option{
 					option("all", "All People", "", ""),
-					option("vaccination", "Vaccination", "", ""),
 					// Clock In / Out (maintainer decisions 2026-08-27/28): the
-					// attendance view. The tab is ENABLED here for everyone the
-					// page admits; the per-principal gate is the view_clock
-					// control (clock.presence.read) compiled beside it — the
-					// renderer combines both, per role-scoped-UI rules.
+					// attendance view, seated DIRECTLY beside All People
+					// (maintainer ask 2026-08-29 — attendance comes before the
+					// per-module staffing views). The tab is ENABLED here for
+					// everyone the page admits; the per-principal gate is the
+					// view_clock control (clock.presence.read) compiled beside
+					// it — the renderer combines both, per role-scoped-UI rules.
 					option("clock", "Clock In / Out", "", ""),
+					option("vaccination", "Vaccination", "", ""),
 					soonTab("weighing", "Weighing"),
 					soonTab("feed", "Feed"),
 					soonTab("counts", "Herd Operations"),
