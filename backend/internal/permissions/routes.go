@@ -34,15 +34,15 @@ var protectedRoutes = []Route{
 	{OperationID: "exitGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/exit", Permissions: []string{GoatWriteIdentity}},
 	// Sale allocation: tag real animals to a recorded sale and exit them as sold.
 	//
-	// The two WRITES carry GoatWriteIdentity because that is exactly what they do -- the
-	// confirm applies the same canonical exit as the single-goat route above, so it can
-	// hold no weaker permission than that route does. Reading the picker is the same
-	// authority as reading the herd.
-	{OperationID: "listSaleLocations", Method: "GET", Pattern: "/admin/goats/sale-locations", Permissions: []string{GoatRead}},
-	{OperationID: "listSaleCandidates", Method: "GET", Pattern: "/admin/goats/sale-candidates", Permissions: []string{GoatRead}},
-	{OperationID: "getSaleAllocation", Method: "GET", Pattern: "/admin/goats/sale-allocations/{sales_deal_id}", Permissions: []string{GoatRead}},
-	{OperationID: "previewSaleAllocation", Method: "POST", Pattern: "/admin/goats/sale-allocations/preview", Permissions: []string{GoatWriteIdentity}},
-	{OperationID: "confirmSaleAllocation", Method: "POST", Pattern: "/admin/goats/sale-allocations/confirm", Permissions: []string{GoatWriteIdentity}},
+	// These routes are reachable only from the Sales workspace, so they are gated by the
+	// sales permission pair instead of the broader GoatWriteIdentity module permission. That
+	// lets a procurement director map animals onto a sale without opening the rest of the
+	// goat identity module.
+	{OperationID: "listSaleLocations", Method: "GET", Pattern: "/admin/goats/sale-locations", Permissions: []string{SalesRead}},
+	{OperationID: "listSaleCandidates", Method: "GET", Pattern: "/admin/goats/sale-candidates", Permissions: []string{SalesRead}},
+	{OperationID: "getSaleAllocation", Method: "GET", Pattern: "/admin/goats/sale-allocations/{sales_deal_id}", Permissions: []string{SalesRead}},
+	{OperationID: "previewSaleAllocation", Method: "POST", Pattern: "/admin/goats/sale-allocations/preview", Permissions: []string{SalesWrite}},
+	{OperationID: "confirmSaleAllocation", Method: "POST", Pattern: "/admin/goats/sale-allocations/confirm", Permissions: []string{SalesWrite}},
 	{OperationID: "criticalDeathExitGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/critical-death-exit", Permissions: []string{GoatWriteHealth}},
 	{OperationID: "stageGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/stage", Permissions: []string{GoatWriteIdentity}},
 	// Whole-pen cohort reclassification. CEO-only, and the PREVIEW is gated identically to the
