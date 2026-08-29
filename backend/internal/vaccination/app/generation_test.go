@@ -3198,30 +3198,31 @@ func (g *generationGoatFake) RecentVaccineAdministrationsForGoats(_ context.Cont
 }
 
 type generationObligationFake struct {
-	reconcileByIdentity    map[string]obldomain.ObligationRef
-	reconciledIdentities   []string
-	carriedOverGoats       [][]string
-	carriedOverVersions    [][]string
-	carryOverCount         int
-	seen                   map[string]bool
-	keyIndex               map[string]int
-	inserted               []obldomain.NewObligation
-	deferredKeys           []string
-	deferReasons           []string
-	reopenedKeys           []string
-	realignedKeys          []string
-	canceledKeys           []string
-	canceledVersions       []string
-	canceledExceptVersions [][]string
-	cancelReasons          []string
-	cancelReasonsByKey     map[string]string // Track cancellation reason for each key
-	nearbyDrive            *time.Time
-	nearestBatchLookups    []nearestBatchLookup
-	failOnceAfterInserted  int
-	cancelOnFailure        context.CancelFunc
-	failErr                error
-	failed                 bool
-	recordedStatusEvents   []obldomain.NewStatusEvent
+	reconcileByIdentity        map[string]obldomain.ObligationRef
+	reconciledIdentities       []string
+	carriedOverGoats           [][]string
+	carriedOverVersions        [][]string
+	carryOverCount             int
+	seen                       map[string]bool
+	keyIndex                   map[string]int
+	inserted                   []obldomain.NewObligation
+	deferredKeys               []string
+	deferReasons               []string
+	reopenedKeys               []string
+	realignedKeys              []string
+	canceledKeys               []string
+	canceledVersions           []string
+	canceledExceptVersions     [][]string
+	cancelReasons              []string
+	cancelReasonsByKey         map[string]string // Track cancellation reason for each key
+	nearbyDrive                *time.Time
+	nearestBatchLookups        []nearestBatchLookup
+	failOnceAfterInserted      int
+	cancelOnFailure            context.CancelFunc
+	failErr                    error
+	failed                     bool
+	recordedStatusEvents       []obldomain.NewStatusEvent
+	manualAnchorsByGoatVaccine map[string]obldomain.ObligationRef
 }
 
 type nearestBatchLookup struct {
@@ -3390,6 +3391,22 @@ func (o *generationObligationFake) OpenObligationForRepeatCycle(_ context.Contex
 		}, true, nil
 	}
 	return obldomain.ObligationRef{}, false, nil
+}
+
+func (o *generationObligationFake) ManualVaccineAnchorsForGoat(_ context.Context, _, goatID string, vaccineCodes []string) (map[string]obldomain.ObligationRef, error) {
+	if o.manualAnchorsByGoatVaccine == nil {
+		return nil, nil
+	}
+	anchors := map[string]obldomain.ObligationRef{}
+	for _, vaccineCode := range vaccineCodes {
+		for _, candidate := range []string{vaccineCode, strings.ReplaceAll(vaccineCode, "+", "_")} {
+			ref, ok := o.manualAnchorsByGoatVaccine[goatID+"|"+candidate]
+			if ok {
+				anchors[candidate] = ref
+			}
+		}
+	}
+	return anchors, nil
 }
 
 func (o *generationObligationFake) GoatsWithVaccinationObligationsOutsideVersions(_ context.Context, _ string, goatIDs, _ []string) ([]string, error) {
@@ -4614,6 +4631,49 @@ func TestHeldGoatKeepsItsExistingRepeatCycleDeferredAfterPlanReplacement(t *test
 	}
 	if len(obl.inserted) != 2 {
 		t.Fatalf("rows = %d, want the canceled original and the one surviving cycle", len(obl.inserted))
+	}
+}
+
+func TestManualVaccineAnchorSuppressesBaseRuleGeneration(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
+	rule := protodomain.Rule{
+		RuleID:          "z1z3-kid-4w",
+		DoseCode:        "z1z3_primary",
+		Sequence:        1,
+		TriggerType:     "birth_age",
+		OffsetDays:      28,
+		DueWindowDays:   7,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"Z1_Z3","type":"killed","pathogen_class":"bacterial"}}`),
+	}
+	goat := defaultPlacedGoat(domain.EligibleGoat{
+		GoatID:          "goat-1",
+		LifecycleStatus: "alive",
+		DOB:             &dob,
+		Species:         "goat",
+	})
+	obl := &generationObligationFake{
+		manualAnchorsByGoatVaccine: map[string]obldomain.ObligationRef{
+			"goat-1|Z1_Z3": {
+				ObligationID: "anchor-1",
+				Status:       "scheduled",
+				DueAt:        time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl)
+	res := domain.GenerateResult{}
+
+	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", []protodomain.Rule{rule}, nil, genEligibility{}, goat, asOf,
+		generationOptions{}, genVersionPolicies{}, vaccineProfile{}, nil, newTrustedEvidenceLookup(), &res); err != nil {
+		t.Fatalf("generation failed: %v", err)
+	}
+	if len(obl.inserted) != 0 {
+		t.Fatalf("base rule generated despite manual anchor: %#v", obl.inserted)
+	}
+	if res.SuppressedByTrustedHistory != 1 {
+		t.Fatalf("suppressed count = %d, want 1", res.SuppressedByTrustedHistory)
 	}
 }
 

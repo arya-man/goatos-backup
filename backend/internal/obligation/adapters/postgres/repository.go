@@ -2360,6 +2360,84 @@ ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
 	return ref, true, nil
 }
 
+// ManualVaccineAnchorsForGoat returns open manual-campaign obligations for the
+// same animal and vaccine family. Vaccination generation treats this as the
+// animal's base date for that family, suppressing DOB/arrival/calendar rows that
+// would otherwise be regenerated before the anchor has been completed.
+func (r *Repository) ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, goatID string, vaccineCodes []string) (map[string]domain.ObligationRef, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	normalizedCodes := make([]string, 0, len(vaccineCodes)*2)
+	seenCodes := map[string]bool{}
+	for _, code := range vaccineCodes {
+		code = strings.TrimSpace(code)
+		if code == "" {
+			continue
+		}
+		for _, candidate := range []string{code, strings.ReplaceAll(code, "+", "_")} {
+			if candidate == "" || seenCodes[candidate] {
+				continue
+			}
+			seenCodes[candidate] = true
+			normalizedCodes = append(normalizedCodes, candidate)
+		}
+	}
+	if len(normalizedCodes) == 0 {
+		return nil, nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	goat, err := pgconv.UUID(goatID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: goat id: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT ON (d.vaccine_code)
+       d.vaccine_code,
+       oi.obligation_id::text,
+       oi.status,
+       oi.due_at,
+       oi.row_version,
+       oi.idempotency_key
+FROM obligation_instances oi
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.version_id = oi.protocol_version_id
+ AND pr.rule_id = oi.rule_id
+JOIN protocol_rule_dimensions d
+  ON d.tenant_id = oi.tenant_id
+ AND d.rule_id = oi.rule_id
+WHERE oi.tenant_id = $1
+  AND oi.target_type = 'goat'
+  AND oi.target_id = $2
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND pr.trigger_type = 'manual_campaign'
+  AND d.category = 'vaccination'
+  AND d.vaccine_code = ANY($3::text[])
+ORDER BY d.vaccine_code, oi.due_at ASC, oi.created_at ASC, oi.obligation_id ASC`, tenant, goat, normalizedCodes)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: find manual vaccine anchors: %w", err)
+	}
+	defer rows.Close()
+	anchors := map[string]domain.ObligationRef{}
+	for rows.Next() {
+		var (
+			code string
+			ref  domain.ObligationRef
+		)
+		if err := rows.Scan(&code, &ref.ObligationID, &ref.Status, &ref.DueAt, &ref.RowVersion, &ref.IdempotencyKey); err != nil {
+			return nil, fmt.Errorf("obligation: scan manual vaccine anchor: %w", err)
+		}
+		anchors[code] = ref
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: read manual vaccine anchors: %w", err)
+	}
+	return anchors, nil
+}
+
 // reconcileUnlabelledWork adopts an animal's pre-label work for this rule, or refuses to guess.
 //
 // Exactly one open row for this rule and sequence is unambiguous: it is the work this rule already

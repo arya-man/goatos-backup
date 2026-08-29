@@ -101,6 +101,16 @@ type ObligationWriter interface {
 	NextSuccessorSuffix(ctx context.Context, tenantID, baseKey string) (int, error)
 }
 
+// ManualVaccineAnchorReader is implemented by the production obligation store.
+// seed-fixture-guard:ignore: this is generation suppression for runtime manual anchors; it changes no seed source, fixture column, SOP DSL, or HRMS import contract.
+// A manual-campaign anchor is the starting point for that animal's vaccine family:
+// once it exists, DOB/arrival/calendar base rules for the same vaccine must not
+// recreate earlier work. Repeat rules still run from accepted history after the
+// anchored dose is verified.
+type ManualVaccineAnchorReader interface {
+	ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, goatID string, vaccineCodes []string) (map[string]obldomain.ObligationRef, error)
+}
+
 // GenerationRunRecorder persists operator-visible generation status. It is optional for unit
 // tests, but production wires it so publish-triggered generation is not only a log line.
 type GenerationRunRecorder interface {
@@ -1531,6 +1541,10 @@ func (s *GenerationService) recentVaccineAdminsForPlans(ctx context.Context, ten
 func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, versionEligibility genEligibility, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, vaccineProf vaccineProfile, vaccineHistory []domain.RecentVaccineAdministration, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
 	historicalCatchUpMaterialized := false
 	path := schedulePathForGoat(g, policies.Procurement, asOf, vaccineHistory)
+	manualAnchors, err := s.manualVaccineAnchorsForBaseRules(ctx, tenantID, g.GoatID, rules, versionEligibility, vaccineProf)
+	if err != nil {
+		return err
+	}
 	// BUG #2: track pending obligations generated in this pass to enforce cross-vaccine spacing among co-due vaccines.
 	// Sorted by rule sequence to ensure deterministic spacing order across replays.
 	var pending []pendingVaccine
@@ -1704,6 +1718,12 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
+		}
+		if manualAnchorSuppressesBaseRule(rule) {
+			if _, found := manualAnchors[vaccineAnchorLookupKey(ruleVaccine.Code)]; found {
+				res.SuppressedByTrustedHistory++
+				continue
+			}
 		}
 		supersededCampaignKey := ""
 		campaignKey := campaignDueGoatKey(versionID, rule.RuleID, g.GoatID)
@@ -2684,6 +2704,58 @@ func dueAt(versionID string, rule protodomain.Rule, g domain.EligibleGoat, asOf 
 	default: // after_previous_completion (SM-7)
 		return time.Time{}, false, false
 	}
+}
+
+func (s *GenerationService) manualVaccineAnchorsForBaseRules(ctx context.Context, tenantID, goatID string, rules []protodomain.Rule, eligibility genEligibility, vaccineProf vaccineProfile) (map[string]obldomain.ObligationRef, error) {
+	reader, ok := s.obl.(ManualVaccineAnchorReader)
+	if !ok {
+		return nil, nil
+	}
+	codes := make([]string, 0, len(rules))
+	seen := map[string]bool{}
+	for _, rule := range rules {
+		if !manualAnchorSuppressesBaseRule(rule) {
+			continue
+		}
+		_, ruleVaccine, err := ruleGenerationContext(rule, eligibility, vaccineProf)
+		if err != nil {
+			return nil, err
+		}
+		key := vaccineAnchorLookupKey(ruleVaccine.Code)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		codes = append(codes, ruleVaccine.Code)
+	}
+	if len(codes) == 0 {
+		return nil, nil
+	}
+	anchors, err := reader.ManualVaccineAnchorsForGoat(ctx, tenantID, goatID, codes)
+	if err != nil {
+		return nil, err
+	}
+	if len(anchors) == 0 {
+		return nil, nil
+	}
+	normalized := make(map[string]obldomain.ObligationRef, len(anchors))
+	for code, ref := range anchors {
+		normalized[vaccineAnchorLookupKey(code)] = ref
+	}
+	return normalized, nil
+}
+
+func manualAnchorSuppressesBaseRule(rule protodomain.Rule) bool {
+	switch strings.TrimSpace(rule.TriggerType) {
+	case "birth_age", "post_arrival", "calendar":
+		return true
+	default:
+		return false
+	}
+}
+
+func vaccineAnchorLookupKey(code string) string {
+	return strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(code), "+", "_"))
 }
 
 // dueAfterPreviousCompletion resolves an after_previous_completion (SM-1 revac)
