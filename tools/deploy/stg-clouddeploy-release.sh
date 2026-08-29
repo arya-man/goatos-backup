@@ -66,6 +66,18 @@ print(json.dumps(payload))
 PY
 }
 
+post_deploy_panel() {
+  local webhook
+  webhook="$(slack_webhook_url)"
+  [[ -n "$webhook" ]] || return 0
+  [[ -f tools/deploy/slack-stg-deploy-bot/deploy-card.json ]] || return 0
+
+  curl -fsS -X POST \
+    -H 'Content-Type: application/json' \
+    --data-binary @tools/deploy/slack-stg-deploy-bot/deploy-card.json \
+    "$webhook" >/dev/null || true
+}
+
 [[ "$PROJECT_ID" == "goatos-stg" ]] || die "PROJECT_ID must be goatos-stg, got $PROJECT_ID"
 [[ "$PROJECT_NUMBER" == "514832198871" ]] || die "PROJECT_NUMBER must be 514832198871, got $PROJECT_NUMBER"
 [[ "$REGION" == "asia-south1" ]] || die "REGION must be asia-south1, got $REGION"
@@ -257,6 +269,7 @@ if [[ "$WAIT_FOR_ROLLOUT" == "1" ]]; then
   wait_for_rollout
   verify_stg_images
   notify_slack_success
+  post_deploy_panel
 else
   echo "Rollout wait skipped by GOATOS_STG_RELEASE_WAIT=0; image parity not verified."
   die "STG deploy success requires verified rollout/image parity; rerun with GOATOS_STG_RELEASE_WAIT=1"
