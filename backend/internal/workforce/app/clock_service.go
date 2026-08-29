@@ -486,6 +486,7 @@ func (s *ClockService) composePresenceRow(raw ports.ClockPresenceRawRow, busines
 	}
 	entry := s.composeEntry(*entryRow, raw.PersonName, row.Designation, raw.RoleHint, row.ParkLabel, nil, copyMap)
 	row.ClockEntryID = entry.ClockEntryID
+	row.LocationLabel = entry.LocationLabel
 	row.Flags = entry.Flags
 	row.ClockInAt = &entry.ClockInAt
 	row.ClockOutAt = entry.ClockOutAt

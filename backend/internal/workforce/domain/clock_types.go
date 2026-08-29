@@ -165,7 +165,11 @@ type ClockPresenceRow struct {
 	Bucket string `json:"bucket"`
 	// TimeLabel is the backend-composed row line: "In 08:12 · 4h 05m so far",
 	// "08:02 – 17:31 · 9h 29m", or "" for not clocked in.
-	TimeLabel     string      `json:"time_label"`
+	TimeLabel string `json:"time_label"`
+	// LocationLabel is the clock-in punch's captured address ("" when the row
+	// pre-dates the location-mandatory rule). The park column is the person's
+	// ASSIGNED park from the roster; this is where they actually punched.
+	LocationLabel string      `json:"location_label,omitempty"`
 	ClockInAt     *string     `json:"clock_in_at,omitempty"`
 	ClockOutAt    *string     `json:"clock_out_at,omitempty"`
 	WorkedMinutes *int        `json:"worked_minutes,omitempty"`

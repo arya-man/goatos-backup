@@ -412,6 +412,29 @@ func TestClockDrawerSitsOnTopButNeverStealsTheLandingBar(t *testing.T) {
 	}
 }
 
+// The mobile Team presence board is DELIBERATELY HIDDEN (maintainer decision
+// 2026-08-29: "no need of this for some time"): even a CEO holding
+// clock.presence.read gets ONLY the My Clock item in the clock module's nav.
+// The screen/route/permission stay built; leadership uses admin-web /people →
+// Clock. Restoring it = re-adding the clock_team contribution row in
+// bootstrap_copy.go — and flipping this test.
+func TestClockTeamTabIsHiddenOnMobileForNow(t *testing.T) {
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)}
+	modules := modulesFor(grants, []string{"clock"}, "en")
+	for _, m := range modules {
+		if m.Key != "clock" {
+			continue
+		}
+		for _, item := range m.NavItems {
+			if item.Key == "clock_team" || item.Href == "/clock/team" {
+				t.Fatalf("mobile Team tab must stay hidden for now; got nav item %+v", item)
+			}
+		}
+		return
+	}
+	t.Fatalf("clock module missing from CEO bootstrap; got %+v", moduleKeysOf(modules))
+}
+
 func moduleKeysOf(modules []domain.BootstrapModule) []string {
 	keys := make([]string, 0, len(modules))
 	for _, m := range modules {

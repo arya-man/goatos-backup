@@ -124,6 +124,9 @@ data class ClockPresenceRowDto(
     @SerialName("bucket") val bucket: String,
     /** Backend-composed row line ("In 08:12", "08:02 – 17:31 · 9h 29m"), rendered VERBATIM. */
     @SerialName("time_label") val timeLabel: String = "",
+    /** The clock-in punch's captured address — where the person ACTUALLY punched (the park
+     *  column is their assigned park from the roster). "" for pre-location-rule rows. */
+    @SerialName("location_label") val locationLabel: String = "",
     @SerialName("clock_in_at") val clockInAt: String = "",
     @SerialName("clock_out_at") val clockOutAt: String = "",
     @SerialName("worked_minutes") val workedMinutes: Int? = null,

@@ -13493,6 +13493,8 @@ export interface components {
             bucket: string;
             /** @description Backend-composed row line; empty for not clocked in. */
             time_label: string;
+            /** @description The clock-in punch's captured address — where the person actually punched. The park column is their ASSIGNED park from the roster; empty for rows recorded before the location-mandatory rule. */
+            location_label?: string;
             clock_in_at?: string;
             clock_out_at?: string;
             worked_minutes?: number;
