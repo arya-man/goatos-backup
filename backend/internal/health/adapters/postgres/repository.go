@@ -80,7 +80,7 @@ FOR SHARE`, in.TenantID, in.GoatID).Scan(&lifecycle, &goatAgeBand, &parkID, &she
 	var existing domain.OpenCaseResult
 	var existingFingerprint string
 	err = tx.QueryRow(ctx, `
-SELECT hc.health_case_id::text, hc.duration_days, hc.request_fingerprint,
+SELECT hc.health_case_id::text, coalesce(hc.duration_days,0), hc.request_fingerprint,
        COALESCE((SELECT hs.health_session_id::text FROM health_treatment_sessions hs
                  WHERE hs.health_case_id=hc.health_case_id ORDER BY hs.due_at,hs.health_session_id LIMIT 1),''),
        (SELECT count(*) FROM health_treatment_sessions hs WHERE hs.health_case_id=hc.health_case_id)
@@ -223,6 +223,11 @@ FROM health_protocol_steps WHERE health_protocol_version_id=$1::uuid ORDER BY da
 	return p, rows.Err()
 }
 
+// duration_days is NULLABLE since the diagnosis engine (000223 exit-type model): only an
+// exit_type='F' course has a fixed day count; T (closes on a test), V (Director looks) and
+// Supportive (ongoing) courses carry NULL. Every scan into the int DTO coalesces to 0, which
+// clients render as an ongoing course. Found live on the 2026-08-29 phone run: a confirmed
+// wounds course 500'd this whole worklist.
 // projection-review: membership=health_treatment_sessions, unique on health_session_id, joined 1:1 to its owning health_cases row; group_key=health_session_id -- step_counts groups on exactly that key and is joined back 1:1, so a session with many steps stays ONE page row; join_cardinality=health_cases, goats and both locations lookups are 1:1 on their tenant-scoped primary keys and only label the row; step_counts is pre-aggregated to one row per health_session_id BEFORE it is joined, which is what stops the steps fan-out; pagination=keyset on (due_at, health_session_id) with LIMIT n+1, and the summary is a separate whole-filter aggregate, never a rollup of the returned page; scope=park/shed, applied from the caller's clamped filters on health_cases
 func (r *Repository) ListWorkItems(ctx context.Context, f domain.ListFilter) (domain.WorkItemPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -252,7 +257,7 @@ WITH page AS (
  FROM health_session_steps ss JOIN page p ON p.health_session_id=ss.health_session_id GROUP BY ss.health_session_id
 )
 SELECT p.health_session_id::text,p.health_case_id::text,p.goat_id::text,g.display_id,hc.disease_key,hc.disease_name,hc.age_band,
- p.day_no,hc.duration_days,p.business_date::text,p.session,p.due_at,p.effective_status,
+ p.day_no,coalesce(hc.duration_days,0),p.business_date::text,p.session,p.due_at,p.effective_status,
  coalesce(hc.park_id::text,''),coalesce(pl.name,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),
  coalesce(sc.step_count,0),coalesce(sc.medication_count,0),coalesce(sc.has_critical,false)
 FROM page p JOIN health_cases hc ON hc.health_case_id=p.health_case_id JOIN goats g ON g.goat_id=p.goat_id
@@ -382,7 +387,7 @@ func (r *Repository) GetWorkItem(ctx context.Context, tenantID, sessionID string
 	// string is composed in Go through the shared oploc.OperationalLocation.Display() primitive
 	// instead of a hand-rolled SQL CASE -- same output, evaluated once, and routed through the
 	// canonical composer per the operational-location convention.
-	err := r.pool.QueryRow(ctx, `SELECT hs.health_session_id::text,hc.health_case_id::text,hs.goat_id::text,g.display_id,hc.disease_key,hc.disease_name,hc.age_band,hs.day_no,hc.duration_days,hs.business_date::text,hs.session,hs.due_at,
+	err := r.pool.QueryRow(ctx, `SELECT hs.health_session_id::text,hc.health_case_id::text,hs.goat_id::text,g.display_id,hc.disease_key,hc.disease_name,hc.age_band,hs.day_no,coalesce(hc.duration_days,0),hs.business_date::text,hs.session,hs.due_at,
 CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELSE hs.status END,coalesce(hc.park_id::text,''),coalesce(pl.name,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),
 COALESCE(part.partition_label, '')
 FROM health_treatment_sessions hs JOIN health_cases hc ON hc.tenant_id=hs.tenant_id AND hc.health_case_id=hs.health_case_id JOIN goats g ON g.goat_id=hs.goat_id
