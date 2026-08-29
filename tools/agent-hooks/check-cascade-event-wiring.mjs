@@ -120,6 +120,12 @@ export function handlerTypesIn(source) {
 // (`h := pkg.NewX(dep)` ... `h.Register(bus)`).
 export function registersHandler(busSource, typeName) {
   const code = stripComments(busSource);
+  if (
+    /RegisterVerificationAppliers\s*\(/.test(code) &&
+    VERIFICATION_APPLIER_CONSTRUCTORS.includes(typeName)
+  ) {
+    return true;
+  }
   const chained = new RegExp(`New${typeName}\\s*\\([^;\\n]*\\)(?:\\s*\\.\\w+\\([^;\\n]*\\))*\\s*\\.Register\\s*\\(`);
   if (chained.test(code)) return true;
   const assigned = new RegExp(`(\\w+)\\s*:?=\\s*[\\w.]*New${typeName}\\s*\\(`).exec(code);
@@ -198,21 +204,73 @@ export const DOMAIN_BUS_BUILDERS = [
   "backend/cmd/outbox-relay/main.go",
 ];
 
-// The five verdict appliers, by constructor name. A builder satisfies the rule by calling the
+// The durable verifier-verdict appliers, by constructor name. A builder satisfies the rule by calling the
 // shared eventwiring.RegisterVerificationAppliers (preferred — one list, cannot drift) or by
-// registering all five explicitly.
+// registering all of them explicitly.
 export const VERIFICATION_APPLIER_CONSTRUCTORS = [
   "ShiftingVerificationHandler",
+  "MilkPreparationVerificationHandler",
   "FeedDistributionVerificationHandler",
   "FeedPackingVerificationHandler",
   "FeedTransportVerificationHandler",
+  "FeedWastageVerificationHandler",
+  "PCCareVerificationHandler",
   "VerificationVerdictHandler",
 ];
+
+export const REQUIRED_VERIFICATION_APPLIER_CALL_TOKENS = {
+  "backend/internal/bootstrap/api.go": ["feedDirectionRepo", "countsApprovalRepo", "countsRepo", "weighingRepo", "weighingVerificationBridge", "pcCareRepo"],
+  "backend/internal/kernelstages/bus.go": [
+    "feedDirectionRepo",
+    "countsApprovalRepo",
+    "countsMilkPreparationRepo",
+    "weighingRepo",
+    "weighingverificationbridge.New",
+    "pccarepg.NewRepository",
+  ],
+  "backend/internal/domainconsumer/wiring/bus.go": ["stores.feed", "stores.shifting", "stores.milkPreparation", "stores.weighing", "stores.weighingAck", "stores.pcCare"],
+  "backend/cmd/domain-event-consumer/main.go": [
+    "feedDirectionRepo",
+    "countsApprovalRepo",
+    "countsMilkPreparationRepo",
+    "weighingRepo",
+    "weighingverificationbridge.New",
+    "pccarepg.NewRepository",
+  ],
+  "backend/cmd/outbox-relay/main.go": [
+    "feedDirectionRepo",
+    "countsApprovalRepo",
+    "countsMilkPreparationRepo",
+    "weighingRepo",
+    "weighingVerificationBridge",
+    "pccarepg.NewRepository",
+  ],
+};
+
+function verificationApplierCallLine(source) {
+  const code = stripComments(source);
+  return code.split("\n").find((line) => /RegisterVerificationAppliers\s*\(/.test(line)) ?? "";
+}
 
 // findingsForBusBuilderSource reports appliers a builder neither delegates nor registers.
 export function findingsForBusBuilderSource(source, rel) {
   const code = stripComments(source);
-  if (/RegisterVerificationAppliers\s*\(/.test(code)) return [];
+  if (/RegisterVerificationAppliers\s*\(/.test(code)) {
+    const requiredTokens = REQUIRED_VERIFICATION_APPLIER_CALL_TOKENS[rel] ?? [];
+    const call = verificationApplierCallLine(source);
+    const missingTokens = requiredTokens.filter((token) => !call.includes(token));
+    if (missingTokens.length === 0) return [];
+    return [
+      {
+        rule: "bus-builder-verification-applier-helper-miswired",
+        rel,
+        line: null,
+        message:
+          `${rel} calls eventwiring.RegisterVerificationAppliers but the call is missing ${missingTokens.join(", ")}. ` +
+          "The shared helper is only safe when the composition root passes the feed store, milk-preparation store, weighing store, weighing ack bridge, and pc-care store it owns.",
+      },
+    ];
+  }
   const missing = VERIFICATION_APPLIER_CONSTRUCTORS.filter((type) => !registersHandler(source, type));
   if (missing.length === 0) return [];
   return [
@@ -432,6 +490,13 @@ func (h *OperatorConfigReplanHandler) Register(bus eventbus.Bus) { bus.Subscribe
   if (findingsForBusBuilderSource("\teventwiring.RegisterVerificationAppliers(bus, feed, shifting, weighing, log)\n", "x.go").length !== 0) {
     throw new Error("self-test: false positive on a builder that delegates to the shared registration");
   }
+  const miswiredSharedCall = findingsForBusBuilderSource(
+    "\teventwiring.RegisterVerificationAppliers(bus, nil, countsApprovalRepo, countsMilkPreparationRepo, weighingRepo, nil, nil, logger)\n",
+    "backend/cmd/domain-event-consumer/main.go",
+  );
+  if (!miswiredSharedCall.some((f) => f.rule === "bus-builder-verification-applier-helper-miswired")) {
+    throw new Error("self-test: a production builder with a miswired shared registration was not flagged");
+  }
   const explicitAll = VERIFICATION_APPLIER_CONSTRUCTORS.map((t) => `\tpkg.New${t}(r, log).Register(bus)\n`).join("");
   if (findingsForBusBuilderSource(explicitAll, "x.go").length !== 0) {
     throw new Error("self-test: false positive on a builder registering all five appliers explicitly");
@@ -520,7 +585,7 @@ WHERE tenant_id = $1::uuid
     throw new Error("self-test: false positive on a non-scheduling position column");
   }
 
-  console.log("cascade-event-wiring self-test: ok (5 rules, 20 adversarial fixtures)");
+  console.log("cascade-event-wiring self-test: ok (5 rules, 21 adversarial fixtures)");
 }
 
 function run() {
