@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -163,5 +164,90 @@ func TestNormalizeFeedFarmFilterRejectsAnUnknownFarm(t *testing.T) {
 	}
 	if _, ok := NormalizeFeedFarmFilter("HYD"); ok {
 		t.Fatal("an unknown farm must be rejected, never widened to the whole company")
+	}
+}
+
+func TestFeedPurchasePaymentWriteValidate(t *testing.T) {
+	good := FeedPurchasePaymentWrite{PaidOn: "2026-08-24", AmountRupees: 5000, Note: "advance at loading"}
+	if err := good.Normalize().Validate(pinnedToday); err != nil {
+		t.Fatalf("valid payment rejected: %v", err)
+	}
+	for _, tc := range []struct {
+		name  string
+		write FeedPurchasePaymentWrite
+		field string
+	}{
+		{"garbage date", FeedPurchasePaymentWrite{PaidOn: "yesterday", AmountRupees: 1}, "paid_on"},
+		{"future date", FeedPurchasePaymentWrite{PaidOn: "2026-08-25", AmountRupees: 1}, "paid_on"},
+		{"zero amount", FeedPurchasePaymentWrite{PaidOn: "2026-08-24", AmountRupees: 0}, "amount_rupees"},
+		{"negative amount", FeedPurchasePaymentWrite{PaidOn: "2026-08-24", AmountRupees: -5}, "amount_rupees"},
+		{"note too long", FeedPurchasePaymentWrite{PaidOn: "2026-08-24", AmountRupees: 1, Note: strings.Repeat("x", 301)}, "note"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.write.Normalize().Validate(pinnedToday)
+			var v ErrFeedPurchaseValidation
+			if !errors.As(err, &v) || v.Field != tc.field {
+				t.Fatalf("want validation error on %q, got %v", tc.field, err)
+			}
+		})
+	}
+}
+
+func TestDeriveFeedPaymentStatus(t *testing.T) {
+	total := 10000.0
+	if got := DeriveFeedPaymentStatus(&total, 10000, FeedPaymentPending); got != FeedPaymentPaid {
+		t.Fatalf("fully released should read Paid, got %q", got)
+	}
+	// The half-paisa tolerance: a numeric(14,2) rounding artefact must not hold a settled load open.
+	if got := DeriveFeedPaymentStatus(&total, 9999.996, FeedPaymentPending); got != FeedPaymentPaid {
+		t.Fatalf("rounding-artefact shortfall should read Paid, got %q", got)
+	}
+	if got := DeriveFeedPaymentStatus(&total, 4000, FeedPaymentPaid); got != FeedPaymentPending {
+		t.Fatalf("partly released should read Pending even if it was marked Paid, got %q", got)
+	}
+	// Unknown landed cost keeps whatever the load already says: money against an unknown total
+	// proves nothing either way.
+	if got := DeriveFeedPaymentStatus(nil, 4000, FeedPaymentPaid); got != FeedPaymentPaid {
+		t.Fatalf("unknown total must keep the current status, got %q", got)
+	}
+}
+
+func TestFeedPurchasePaymentBalance(t *testing.T) {
+	total, released := 10000.0, 4000.0
+	p := FeedPurchase{TotalCost: &total, PaymentReleased: &released, PaymentStatus: FeedPaymentPending}
+	if got := p.PaymentBalance(); got == nil || *got != 6000 {
+		t.Fatalf("balance = %v want 6000", got)
+	}
+	// A load marked Paid owes nothing even when no released figure was ever recorded -- the shape
+	// most sheet-history rows have. Deriving total-minus-nothing there would print a false
+	// remaining on a settled load.
+	paidNoFigure := FeedPurchase{TotalCost: &total, PaymentStatus: FeedPaymentPaid}
+	if got := paidNoFigure.PaymentBalance(); got == nil || *got != 0 {
+		t.Fatalf("Paid with no released figure: balance = %v want 0", got)
+	}
+	over := 12000.0
+	p.PaymentReleased = &over
+	if got := p.PaymentBalance(); got == nil || *got != 0 {
+		t.Fatalf("overpaid balance must floor at zero, got %v", got)
+	}
+	p.TotalCost = nil
+	if got := p.PaymentBalance(); got != nil {
+		t.Fatalf("unknown total must yield nil balance, got %v", got)
+	}
+	p = FeedPurchase{TotalCost: &total}
+	if got := p.PaymentBalance(); got == nil || *got != total {
+		t.Fatalf("nothing released: balance should equal the total, got %v", got)
+	}
+}
+
+func TestNormalizeFeedPaymentStatus(t *testing.T) {
+	for raw, want := range map[string]string{"paid": "Paid", " PENDING ": "Pending", "Paid": "Paid"} {
+		got, ok := NormalizeFeedPaymentStatus(raw)
+		if !ok || got != want {
+			t.Fatalf("NormalizeFeedPaymentStatus(%q) = %q,%v want %q", raw, got, ok, want)
+		}
+	}
+	if _, ok := NormalizeFeedPaymentStatus("Partial"); ok {
+		t.Fatal("a word outside the closed vocabulary must be rejected, never defaulted")
 	}
 }

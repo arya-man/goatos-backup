@@ -8,8 +8,8 @@ import { actionRedirect, optionalString, requiredString } from "@/lib/action-hel
 // NOTE: every actionKey below MUST start with "action." -- withActionFeedback silently rewrites
 // anything else to "action.error_form" -- and each key needs matching page-contract copy, because
 // actionFeedbackCopy throws on a missing key and takes the whole page down with it.
-import { createFeedPurchase } from "@/lib/api/procurement-server";
-import type { FeedPurchaseWrite } from "@/lib/api/procurement";
+import { createFeedPurchase, recordFeedPurchasePayment, setFeedPurchasePaymentStatus } from "@/lib/api/procurement-server";
+import type { FeedPurchaseStatusWrite, FeedPurchaseWrite } from "@/lib/api/procurement";
 
 const FEED_PURCHASES_PATH = "/procurement/feed-purchases";
 
@@ -63,4 +63,44 @@ export async function recordFeedPurchaseAction(formData: FormData): Promise<void
   revalidatePath(FEED_PURCHASES_PATH);
   revalidatePath("/feed/analytics");
   actionRedirect(formData, "success", "action.purchase_recorded");
+}
+
+/**
+ * Records one instalment paid against a load. The backend advances the running paid total and
+ * re-derives the payment status in the same transaction; this action only reports the outcome.
+ */
+export async function recordFeedPurchasePaymentAction(formData: FormData): Promise<void> {
+  const purchaseId = requiredString(formData, "feed_purchase_id");
+  const note = (formData.get("note")?.toString() ?? "").trim();
+  const result = await recordFeedPurchasePayment(
+    purchaseId,
+    {
+      paid_on: requiredString(formData, "paid_on"),
+      amount_rupees: Number(requiredString(formData, "amount_rupees")),
+      ...(note ? { note } : {}),
+    },
+    // Same contract as the record form: the drawer mints this once when rendered and posts it as a
+    // hidden field, so a double-submit or lost-response retry replays the SAME instalment instead
+    // of handing the vendor the money twice. The fallback covers only programmatic callers.
+    optionalString(formData, "idempotency_key") ?? randomUUID(),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.payment_record_failed");
+  }
+  revalidatePath(FEED_PURCHASES_PATH);
+  actionRedirect(formData, "success", "action.payment_recorded");
+}
+
+/** Sets a load's payment status directly — the edit control for a state recorded wrong. */
+export async function setFeedPurchasePaymentStatusAction(formData: FormData): Promise<void> {
+  const purchaseId = requiredString(formData, "feed_purchase_id");
+  // The backend validates against its closed vocabulary and REJECTS an unrecognised word; the
+  // cast only satisfies the generated client's literal union, it is not a trust boundary.
+  const status = requiredString(formData, "payment_status") as FeedPurchaseStatusWrite["payment_status"];
+  const result = await setFeedPurchasePaymentStatus(purchaseId, { payment_status: status });
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.payment_status_update_failed");
+  }
+  revalidatePath(FEED_PURCHASES_PATH);
+  actionRedirect(formData, "success", "action.payment_status_updated");
 }

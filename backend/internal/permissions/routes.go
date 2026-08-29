@@ -279,6 +279,10 @@ var protectedRoutes = []Route{
 	{OperationID: "listFeedPurchases", Method: "GET", Pattern: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseRead}},
 	{OperationID: "createFeedPurchase", Method: "POST", Pattern: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseWrite}},
 	{OperationID: "getFeedPurchaseOptions", Method: "GET", Pattern: "/procurement/feed-purchase-options", Permissions: []string{FeedPurchaseRead}},
+	// Instalment payments and the payment-status edit are money writes on the same ledger, so they
+	// carry the same write permission as recording the load itself.
+	{OperationID: "recordFeedPurchasePayment", Method: "POST", Pattern: "/procurement/feed-purchases/{purchase_id}/payments", Permissions: []string{FeedPurchaseWrite}},
+	{OperationID: "setFeedPurchasePaymentStatus", Method: "PUT", Pattern: "/procurement/feed-purchases/{purchase_id}/payment-status", Permissions: []string{FeedPurchaseWrite}},
 
 	// TOXIN (maintainer decision 2026-08-25): the aflatoxin strip-test module. The task
 	// list and detail are ToxinRead; the step work is ToxinExecute; the verdict routes are

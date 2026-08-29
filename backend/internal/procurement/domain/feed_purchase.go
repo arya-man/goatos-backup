@@ -108,6 +108,116 @@ type FeedPurchase struct {
 	RecordedBy  *string
 
 	CreatedAt string
+
+	// Payments are the instalments recorded against this load, oldest first. Sheet history has
+	// none: its payment_released figure predates the instalment ledger.
+	Payments []FeedPurchasePayment
+}
+
+// FeedPurchasePayment is one instalment actually handed to the vendor for one purchased load.
+type FeedPurchasePayment struct {
+	PaymentID      string
+	FeedPurchaseID string
+	PaidOn         string // YYYY-MM-DD business date
+	AmountRupees   float64
+	Note           string
+	CreatedAt      string
+}
+
+// PaymentBalance is the money still owed on this load: total cost minus what has been released.
+//
+// A load marked Paid owes NOTHING, whatever the released figure says: most sheet-history rows
+// carry "Paid" with no released amount recorded, and deriving total-minus-nothing there would
+// print a false "remaining" on a settled load. Otherwise nil when the landed cost is not known
+// yet -- a balance against an unknown total would be a number nobody computed. Never negative: an
+// overpayment reads as a zero balance, not as the vendor owing the farm through this ledger.
+func (p FeedPurchase) PaymentBalance() *float64 {
+	if p.PaymentStatus == FeedPaymentPaid {
+		zero := 0.0
+		return &zero
+	}
+	if p.TotalCost == nil {
+		return nil
+	}
+	released := 0.0
+	if p.PaymentReleased != nil {
+		released = *p.PaymentReleased
+	}
+	balance := *p.TotalCost - released
+	if balance < 0 {
+		balance = 0
+	}
+	return &balance
+}
+
+// maxFeedPurchasePaymentNote bounds the free-text note on one instalment.
+const maxFeedPurchasePaymentNote = 300
+
+// FeedPurchasePaymentWrite is the record-payment form: one instalment against one load.
+type FeedPurchasePaymentWrite struct {
+	PaidOn       string
+	AmountRupees float64
+	Note         string
+}
+
+// Normalize trims the write before validation, for the same reason FeedPurchaseWrite does.
+func (w FeedPurchasePaymentWrite) Normalize() FeedPurchasePaymentWrite {
+	out := w
+	out.PaidOn = strings.TrimSpace(w.PaidOn)
+	out.Note = strings.Join(strings.Fields(w.Note), " ")
+	return out
+}
+
+// Validate applies the instalment rules. today is the caller's IST business date: money cannot be
+// recorded as handed over on a day that has not happened.
+func (w FeedPurchasePaymentWrite) Validate(today time.Time) error {
+	paid, err := time.Parse("2006-01-02", w.PaidOn)
+	if err != nil {
+		return ErrFeedPurchaseValidation{Field: "paid_on", Reason: "must be a date"}
+	}
+	if paid.After(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)) {
+		return ErrFeedPurchaseValidation{Field: "paid_on", Reason: "cannot be in the future"}
+	}
+	if w.AmountRupees <= 0 {
+		return ErrFeedPurchaseValidation{Field: "amount_rupees", Reason: "must be more than zero"}
+	}
+	if len(w.Note) > maxFeedPurchasePaymentNote {
+		return ErrFeedPurchaseValidation{Field: "note", Reason: "is too long"}
+	}
+	return nil
+}
+
+// IsFeedPaymentStatus reports whether raw is one of the two payment words, exactly as stored.
+func IsFeedPaymentStatus(raw string) bool {
+	return raw == FeedPaymentPaid || raw == FeedPaymentPending
+}
+
+// NormalizeFeedPaymentStatus canonicalizes a payment word the same way FeedPurchaseWrite.Normalize
+// does ("paid"/"PAID" store as the sheet's "Paid"). ok is false for anything outside the closed
+// vocabulary, so the caller rejects rather than silently defaulting a money state.
+func NormalizeFeedPaymentStatus(raw string) (string, bool) {
+	trimmed := strings.TrimSpace(raw)
+	for _, known := range FeedPaymentStatuses {
+		if strings.EqualFold(trimmed, known) {
+			return known, true
+		}
+	}
+	return "", false
+}
+
+// DeriveFeedPaymentStatus resolves the status an instalment leaves the load in: Paid once the
+// released total covers the landed cost, Pending otherwise. When the landed cost is not known the
+// current status is kept -- money against an unknown total proves nothing either way.
+func DeriveFeedPaymentStatus(totalCost *float64, releasedTotal float64, current string) string {
+	if totalCost == nil {
+		return current
+	}
+	// A half-paisa tolerance: the numeric(14,2) column rounds to the paisa, and a status that flips
+	// on a rounding artefact would show a fully-paid load as Pending.
+	if releasedTotal >= *totalCost-0.005 {
+		return FeedPaymentPaid
+	}
+	return FeedPaymentPending
 }
 
 // FeedPurchaseWrite is the record-purchase form.

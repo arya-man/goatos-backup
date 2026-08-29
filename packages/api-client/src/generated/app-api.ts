@@ -2680,6 +2680,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/feed-purchases/{purchase_id}/payments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record one instalment paid against a purchased feed load.
+         * @description The farm does not pay a load in one go: money is released in instalments, and each one is recorded here as its own row. In the same transaction the load's running `payment_released` total advances and its `payment_status` is re-derived from the landed cost -- `Paid` once the released total covers `total_cost`, `Pending` otherwise, and unchanged while the landed cost is not known. A partly-paid load stays `Pending` with money shown against it; there is deliberately no third payment word.
+         *
+         *     The `Idempotency-Key` header is REQUIRED: an exact replay returns the load as it stands with no new instalment, and the same key with different fields is rejected 409, so a retried submit can never hand the vendor the same amount twice on the ledger. `paid_on` may not be in the future (IST business day).
+         */
+        post: operations["recordFeedPurchasePayment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/feed-purchases/{purchase_id}/payment-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a purchased load's payment status directly.
+         * @description The edit control for a payment state recorded wrong, or a load settled outside the instalment ledger. The status vocabulary is closed (`Paid` / `Pending`); an unrecognised word is rejected, never rewritten to a default. Naturally idempotent -- setting the status a load already has changes nothing and audits nothing.
+         */
+        put: operations["setFeedPurchasePaymentStatus"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/overview": {
         parameters: {
             query?: never;
@@ -5491,9 +5533,14 @@ export interface components {
             /** @description DERIVED from total_cost / quantity_kg, never entered, so it cannot drift from its own total. */
             per_kg_cost?: number | null;
             vendor: string;
+            /** @description Money released to the vendor so far. For app-recorded instalments this is the running total of `payments`, maintained in the same transaction as each instalment; sheet history keeps whatever single figure the sheet carried, with no instalment rows. */
             payment_released?: number | null;
             /** @enum {string} */
             payment_status: "Paid" | "Pending";
+            /** @description BACKEND-derived money still owed -- total_cost minus payment_released, floored at zero. A load marked Paid reads 0 regardless of the released figure (sheet history often carries Paid with no amount recorded). Null while the landed cost is unknown, because a balance against an unknown total is a number nobody computed. Clients render this figure and never derive their own. */
+            payment_balance?: number | null;
+            /** @description Instalments recorded against this load, oldest first. Empty for sheet history. */
+            payments: components["schemas"]["FeedPurchasePayment"][];
             /**
              * @description How the row arrived: bootstrapped sheet history, or recorded in the app. The ledger shows the difference rather than presenting history as something a person typed here.
              * @enum {string}
@@ -5541,6 +5588,33 @@ export interface components {
             total_cost?: number | null;
             vendor: string;
             payment_released?: number | null;
+            /** @enum {string} */
+            payment_status: "Paid" | "Pending";
+        };
+        /** @description One instalment actually handed to the vendor for one purchased feed load. */
+        FeedPurchasePayment: {
+            /** Format: uuid */
+            payment_id: string;
+            /**
+             * Format: date
+             * @description The business date the money was handed over, never a timestamp.
+             */
+            paid_on: string;
+            amount_rupees: number;
+            /** @description Free-text context ("advance at loading", "balance after weighbridge"). May be empty. */
+            note: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description Record-instalment body. Amount must be more than zero; paid_on may not be in the future. */
+        FeedPurchasePaymentWrite: {
+            /** Format: date */
+            paid_on: string;
+            amount_rupees: number;
+            note?: string;
+        };
+        /** @description Payment-status edit body. The vocabulary is closed; an unrecognised word is rejected, never rewritten to a default. */
+        FeedPurchaseStatusWrite: {
             /** @enum {string} */
             payment_status: "Paid" | "Pending";
         };
@@ -18498,6 +18572,71 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordFeedPurchasePayment: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                purchase_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedPurchasePaymentWrite"];
+            };
+        };
+        responses: {
+            /** @description The load after the instalment, with its full payment history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPurchase"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setFeedPurchasePaymentStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchase_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedPurchaseStatusWrite"];
+            };
+        };
+        responses: {
+            /** @description The load after the status change, with its payment history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPurchase"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

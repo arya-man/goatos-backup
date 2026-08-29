@@ -24,9 +24,38 @@ type feedPurchasePayload struct {
 	Vendor          string   `json:"vendor"`
 	PaymentReleased *float64 `json:"payment_released"`
 	PaymentStatus   string   `json:"payment_status"`
+	// PaymentBalance is BACKEND-derived (total minus released, floored at zero), so no surface
+	// computes its own money figure. Null while the landed cost is unknown.
+	PaymentBalance *float64                     `json:"payment_balance"`
+	Payments       []feedPurchasePaymentPayload `json:"payments"`
 
 	EntrySource string `json:"entry_source"`
 	CreatedAt   string `json:"created_at"`
+}
+
+// feedPurchasePaymentPayload is one instalment on the wire.
+type feedPurchasePaymentPayload struct {
+	PaymentID    string  `json:"payment_id"`
+	PaidOn       string  `json:"paid_on"`
+	AmountRupees float64 `json:"amount_rupees"`
+	Note         string  `json:"note"`
+	CreatedAt    string  `json:"created_at"`
+}
+
+// feedPurchasePaymentWritePayload is the record-instalment body.
+type feedPurchasePaymentWritePayload struct {
+	PaidOn       string  `json:"paid_on"`
+	AmountRupees float64 `json:"amount_rupees"`
+	Note         string  `json:"note"`
+}
+
+func (p feedPurchasePaymentWritePayload) toDomain() domain.FeedPurchasePaymentWrite {
+	return domain.FeedPurchasePaymentWrite{PaidOn: p.PaidOn, AmountRupees: p.AmountRupees, Note: p.Note}
+}
+
+// feedPurchaseStatusWritePayload is the payment-status edit body.
+type feedPurchaseStatusWritePayload struct {
+	PaymentStatus string `json:"payment_status"`
 }
 
 // feedPurchasePagePayload is one ledger page plus its whole-filter aggregates.
@@ -86,12 +115,22 @@ func (p feedPurchaseWritePayload) toDomain() domain.FeedPurchaseWrite {
 }
 
 func toFeedPurchasePayload(p domain.FeedPurchase) feedPurchasePayload {
+	// Empty slice, never nil: a JSON null where the client expects a list is a render crash, and
+	// "no instalments yet" is the normal state of sheet history.
+	payments := make([]feedPurchasePaymentPayload, 0, len(p.Payments))
+	for _, payment := range p.Payments {
+		payments = append(payments, feedPurchasePaymentPayload{
+			PaymentID: payment.PaymentID, PaidOn: payment.PaidOn,
+			AmountRupees: payment.AmountRupees, Note: payment.Note, CreatedAt: payment.CreatedAt,
+		})
+	}
 	return feedPurchasePayload{
 		FeedPurchaseID: p.FeedPurchaseID, PurchaseDate: p.PurchaseDate, Farm: p.FarmLabel,
 		FeedItem: p.FeedItemLabel, BatchNo: p.BatchNo, QuantityKg: p.QuantityKg,
 		FeedCost: p.FeedCost, TransportCost: p.TransportCost, LoadingCost: p.LoadingCost,
 		UnloadingCost: p.UnloadingCost, TotalCost: p.TotalCost, PerKgCost: p.PerKgCost,
 		Vendor: p.Vendor, PaymentReleased: p.PaymentReleased, PaymentStatus: p.PaymentStatus,
+		PaymentBalance: p.PaymentBalance(), Payments: payments,
 		EntrySource: p.EntrySource, CreatedAt: p.CreatedAt,
 	}
 }

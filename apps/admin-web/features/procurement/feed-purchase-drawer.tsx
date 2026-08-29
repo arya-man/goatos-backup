@@ -9,12 +9,16 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
-import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { controlEnabled, copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedPurchase, FeedPurchaseOptions } from "@/lib/api/procurement";
 import { fmtDate } from "@/lib/format";
 import { paymentStatusChip } from "./feed-purchase-format";
 import { inr, num } from "./sales-format";
-import { recordFeedPurchaseAction } from "./feed-purchase-actions";
+import {
+  recordFeedPurchaseAction,
+  recordFeedPurchasePaymentAction,
+  setFeedPurchasePaymentStatusAction,
+} from "./feed-purchase-actions";
 
 /** Reads the selected purchase from the address bar. "" means closed; "new" is the entry form. */
 function readPurchaseParam(): string {
@@ -44,6 +48,7 @@ export function FeedPurchaseDrawer({
   purchases,
   options,
   recordIdempotencyKey,
+  paymentIdempotencyKey,
   pageContract,
   listHref,
   canRecord,
@@ -54,6 +59,8 @@ export function FeedPurchaseDrawer({
   options: FeedPurchaseOptions | null;
   /** Stable key for the currently rendered record form. Reusing it makes retry/double-submit safe. */
   recordIdempotencyKey: string;
+  /** Stable key for the currently rendered add-payment form, for the same retry safety. */
+  paymentIdempotencyKey: string;
   pageContract: AdminUiPageContract;
   /** The list URL to restore on close (current farm/paging, without the purchase param). */
   listHref: string;
@@ -96,6 +103,15 @@ export function FeedPurchaseDrawer({
 
   const none = copy(pageContract, "value.none");
   const field = (key: string) => copy(pageContract, `field.${key}`);
+  // The payment writes are backend capabilities, never a role string: the same detail view serves
+  // the read-only Feed Director (no forms) and the procurement desk (both forms).
+  const canRecordPayment = controlEnabled(pageContract, "record_feed_purchase_payment", false);
+  const canEditStatus = controlEnabled(pageContract, "update_feed_purchase_payment_status", false);
+  // Where the payment actions return to: the SAME record, so the drawer reopens showing the new
+  // instalment rather than closing over the operator's work.
+  const detailHref = purchase
+    ? `${listHref}${listHref.includes("?") ? "&" : "?"}purchase_id=${encodeURIComponent(purchase.feed_purchase_id)}`
+    : listHref;
   const title = isAdding
     ? copy(pageContract, "drawer.record_purchase.title")
     : copy(pageContract, "drawer.detail.title");
@@ -280,9 +296,17 @@ export function FeedPurchaseDrawer({
               {cell(field("per_kg_cost"), purchase.per_kg_cost == null ? null : inr(purchase.per_kg_cost, 2))}
               {cell(field("vendor"), purchase.vendor)}
               {cell(
-                field("payment_released"),
-                purchase.payment_released == null ? null : inr(purchase.payment_released),
+                copy(pageContract, "column.entry_source"),
+                purchase.entry_source === "app"
+                  ? copy(pageContract, "value.entry_app")
+                  : copy(pageContract, "value.entry_sheet"),
               )}
+            </div>
+
+            {/* PAYMENTS: what has been handed over, what is still owed, the instalment history,
+                and — behind their backend controls — the add-payment and status-edit writes. */}
+            <div className="dgrp">{copy(pageContract, "section.payments.title")}</div>
+            <div className="metagrid">
               <div>
                 <div className="k">{copy(pageContract, "column.payment_status")}</div>
                 <div className="v">
@@ -294,12 +318,85 @@ export function FeedPurchaseDrawer({
                 </div>
               </div>
               {cell(
-                copy(pageContract, "column.entry_source"),
-                purchase.entry_source === "app"
-                  ? copy(pageContract, "value.entry_app")
-                  : copy(pageContract, "value.entry_sheet"),
+                copy(pageContract, "payments.paid_so_far"),
+                purchase.payment_released == null ? null : inr(purchase.payment_released),
+              )}
+              {/* The balance is BACKEND-derived; this cell renders it and never subtracts anything
+                  itself. Null while the landed cost is unknown. */}
+              {cell(
+                copy(pageContract, "payments.balance"),
+                purchase.payment_balance == null ? null : inr(purchase.payment_balance),
               )}
             </div>
+
+            {purchase.payments.length === 0 ? (
+              <div className="muted small">{copy(pageContract, "payments.empty")}</div>
+            ) : (
+              <div className="twrap">
+                <table aria-label={copy(pageContract, "section.payments.title")}>
+                  <thead>
+                    <tr>
+                      <th>{copy(pageContract, "payments.column.paid_on")}</th>
+                      <th>{copy(pageContract, "payments.column.amount")}</th>
+                      <th>{copy(pageContract, "payments.column.note")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {purchase.payments.map((payment) => (
+                      <tr key={payment.payment_id}>
+                        <td style={{ whiteSpace: "nowrap" }}>{fmtDate(payment.paid_on)}</td>
+                        <td style={{ whiteSpace: "nowrap" }}>{inr(payment.amount_rupees)}</td>
+                        <td>{payment.note || none}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {canRecordPayment ? (
+              <form action={recordFeedPurchasePaymentAction}>
+                <input type="hidden" name="return_to" value={detailHref} />
+                <input type="hidden" name="feed_purchase_id" value={purchase.feed_purchase_id} />
+                <input type="hidden" name="idempotency_key" value={paymentIdempotencyKey} />
+                <div className="fld">
+                  <label htmlFor="fpp-paid_on">{field("paid_on")}</label>
+                  <input id="fpp-paid_on" name="paid_on" type="date" required />
+                </div>
+                <div className="fld">
+                  <label htmlFor="fpp-amount">{field("amount_rupees")}</label>
+                  <input id="fpp-amount" name="amount_rupees" type="number" min={0.01} step="0.01" required />
+                </div>
+                <div className="fld">
+                  <label htmlFor="fpp-note">{field("note")}</label>
+                  <input id="fpp-note" name="note" maxLength={300} />
+                  <div className="muted small">{copy(pageContract, "hint.record_payment")}</div>
+                </div>
+                <button type="submit" className="btn p">
+                  {copy(pageContract, "action.record_feed_payment.label")}
+                </button>
+              </form>
+            ) : null}
+
+            {canEditStatus ? (
+              <form action={setFeedPurchasePaymentStatusAction} className="fld">
+                <input type="hidden" name="return_to" value={detailHref} />
+                <input type="hidden" name="feed_purchase_id" value={purchase.feed_purchase_id} />
+                <label htmlFor="fpp-status">{field("payment_status")}</label>
+                <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
+                  <select id="fpp-status" name="payment_status" required defaultValue={purchase.payment_status}>
+                    {paymentOptions.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="submit" className="btn">
+                    {copy(pageContract, "action.update_payment_status.label")}
+                  </button>
+                </div>
+              </form>
+            ) : null}
           </div>
         ) : null}
       </aside>

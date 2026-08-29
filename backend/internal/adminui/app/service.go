@@ -853,7 +853,7 @@ func sortable(t domain.TableContract, keys ...string) domain.TableContract {
 // rendering blank.
 func feedPurchaseTable() domain.TableContract {
 	t := tableP("feed-purchases", "Purchases", "/procurement/feed-purchases",
-		[]string{"purchase_date", "farm", "feed_item", "batch_no", "quantity_kg", "total_cost", "per_kg_cost", "vendor", "payment_status"},
+		[]string{"purchase_date", "farm", "feed_item", "batch_no", "quantity_kg", "total_cost", "per_kg_cost", "vendor", "payment_status", "payment_balance"},
 		"feed_purchase_id", []int{25, 50, 100})
 	copy := pageCopy("feed-purchases")
 	for i := range t.Columns {
@@ -2636,11 +2636,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"column.per_kg_cost":    "Per kg",
 			"column.vendor":         "Vendor",
 			"column.payment_status": "Payment",
-			"column.entry_source":   "Recorded",
-			"value.entry_app":       "In app",
-			"value.entry_sheet":     "From the feed book",
-			"empty.purchases":       "No feed purchases match this view.",
-			"empty.purchases.unset": "No feed purchases recorded yet. Record the first load to start the ledger.",
+			// The money still owed on the load, so a pending row answers "how much" without opening it.
+			"column.payment_balance": "Remaining",
+			"column.entry_source":    "Recorded",
+			"value.entry_app":        "In app",
+			"value.entry_sheet":      "From the feed book",
+			"empty.purchases":        "No feed purchases match this view.",
+			"empty.purchases.unset":  "No feed purchases recorded yet. Record the first load to start the ledger.",
 
 			// Filters and paging.
 			"filter.farm":      "Farm",
@@ -2672,17 +2674,37 @@ func pageSpecificCopy(id string) map[string]string {
 			"required.hint":                     "Date, farm, feed, quantity, vendor and payment status are required.",
 			"hint.batch_no":                     "Leave blank to record this as the next load of this feed at this farm.",
 			"hint.total_cost":                   "Leave blank to add up the feed, transport, loading and unloading costs entered above.",
-			"value.none":                        "—",
-			"action.save":                       "Save",
-			"action.saving":                     "Saving...",
-			"action.cancel":                     "Cancel",
-			"action.close":                      "Close",
-			"action.purchase_recorded":          "Feed purchase recorded.",
-			"action.purchase_record_failed":     "Could not record this purchase. Check the fields and try again.",
-			"action.error_form":                 "Could not complete that action.",
-			"error.load":                        "Could not load the feed purchase ledger. Refresh to try again.",
-			"error.options":                     "Could not load the purchase form options. Refresh to try again.",
-			"disabled.write":                    "Your current role can view feed purchases but not record them.",
+
+			// Payment section of the detail drawer: instalment history, running totals, and the
+			// add-payment / status-edit controls.
+			"section.payments.title":              "Payments",
+			"payments.paid_so_far":                "Paid so far",
+			"payments.balance":                    "Balance to pay",
+			"payments.empty":                      "No payments recorded against this load yet.",
+			"payments.column.paid_on":             "Paid on",
+			"payments.column.amount":              "Amount",
+			"payments.column.note":                "Note",
+			"field.paid_on":                       "Paid on",
+			"field.amount_rupees":                 "Amount paid",
+			"field.note":                          "Note",
+			"hint.record_payment":                 "Record each amount as it is handed over — the balance and payment status update themselves.",
+			"action.record_feed_payment.label":    "Add payment",
+			"action.update_payment_status.label":  "Update status",
+			"action.payment_recorded":             "Payment recorded.",
+			"action.payment_record_failed":        "Could not record this payment. Check the fields and try again.",
+			"action.payment_status_updated":       "Payment status updated.",
+			"action.payment_status_update_failed": "Could not update the payment status. Try again.",
+			"value.none":                          "—",
+			"action.save":                         "Save",
+			"action.saving":                       "Saving...",
+			"action.cancel":                       "Cancel",
+			"action.close":                        "Close",
+			"action.purchase_recorded":            "Feed purchase recorded.",
+			"action.purchase_record_failed":       "Could not record this purchase. Check the fields and try again.",
+			"action.error_form":                   "Could not complete that action.",
+			"error.load":                          "Could not load the feed purchase ledger. Refresh to try again.",
+			"error.options":                       "Could not load the purchase form options. Refresh to try again.",
+			"disabled.write":                      "Your current role can view feed purchases but not record them.",
 		}
 	case "sales":
 		// Backend-owned copy for the sales page. The client renders these verbatim; per the golden
