@@ -118,6 +118,12 @@ Slack shows progress even when Codex or Claude starts the deploy directly. The
 later deploy helper still posts Cloud Deploy started/succeeded/failed cards once
 the release step begins.
 
+The Cloud Deploy custom target runner is also built remotely. When
+`tools/deploy/stg-clouddeploy-task.sh` changes, run `cloudbuild.stg-runner.yaml`,
+copy the emitted `runner_image` digest into `deploy/clouddeploy/stg/clouddeploy.yaml`,
+land that digest on `main`, then run the normal deploy. Do not ask for laptop
+Docker to rebuild the runner.
+
 The card has two deploy buttons:
 
 - `Deploy main to STG`: if the `Also distribute Android mobile` checkbox is

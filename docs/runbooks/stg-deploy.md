@@ -61,6 +61,10 @@ gcloud builds submit --project=goatos-stg --config=cloudbuild.stg.yaml \
 Both paths use Cloud Build for Docker image creation and post Slack status
 cards.
 
+If the Cloud Deploy task runner itself needs rebuilding, use
+`cloudbuild.stg-runner.yaml` in Cloud Build and update the pinned runner digest
+in `deploy/clouddeploy/stg/clouddeploy.yaml`. Do not rebuild it on a laptop.
+
 Do not hand-write long `RELEASE_ID` values. Cloud Deploy generates rollout ids
 from the release id, target, and attempt suffix, and the final rollout id must
 fit Google Cloud's 63-character resource-id limit. Use the release helper's

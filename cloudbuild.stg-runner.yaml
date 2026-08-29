@@ -1,0 +1,30 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: ALLOW_LOOSE
+
+serviceAccount: projects/goatos-stg/serviceAccounts/goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
+
+substitutions:
+  _RUNNER_TAG: ""
+
+steps:
+  - id: build-clouddeploy-runner
+    name: gcr.io/cloud-builders/docker
+    entrypoint: sh
+    env:
+      - DOCKER_BUILDKIT=1
+    args:
+      - -ceu
+      - |
+        tag="$${_RUNNER_TAG:-$$(printf '%s' "$${COMMIT_SHA:-manual}" | cut -c1-12)}"
+        image="asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner:$${tag}"
+        docker build --platform linux/amd64 -f deploy/clouddeploy/stg/runner.Dockerfile -t "$${image}" .
+        docker push "$${image}"
+        digest="$$(docker inspect --format='{{index .RepoDigests 0}}' "$${image}")"
+        printf 'runner_image=%s\n' "$${digest}" > /workspace/runner-image.env
+
+artifacts:
+  objects:
+    location: gs://goatos-stg_cloudbuild/runner-builds/$BUILD_ID/
+    paths:
+      - /workspace/runner-image.env
