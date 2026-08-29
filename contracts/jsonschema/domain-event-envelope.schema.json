@@ -112,6 +112,7 @@
         "feed.direction.completed",
         "feed.distribution.completed",
         "feed.packing.completed",
+        "feed.packing.reopened",
         "feed.wastage.completed",
         "pc_care.task.pending_verification",
         "pc_care.task.completed",

@@ -95,6 +95,10 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(verificationVaccineLabels).WithLocationNames(verificationLocationNames).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
+	// The afternoon feed correction's packing reopen: DOWNWARD push to the packer whose bag was
+	// taken back, carrying the old-vs-new quantities (feed.packing.reopened; maintainer decision
+	// 2026-08-29).
+	notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
 	// A missed obligation must reach people, not just open an escalation row: DOWN to the assigned
 	// operator, UP to the park head and the owning module's director.
 	calendarapp.NewObligationMissedHandler(calendarService).WithNotifier(notificationbridge.NewObligationMissedNotifier(calendarService, rosterService, calendarService, logger)).Register(bus)

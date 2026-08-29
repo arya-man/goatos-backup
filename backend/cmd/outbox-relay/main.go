@@ -204,6 +204,10 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
 		notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 		notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
+		// The afternoon feed correction's packing reopen: DOWNWARD push to the packer whose bag was
+		// taken back, carrying the old-vs-new quantities (feed.packing.reopened; maintainer decision
+		// 2026-08-29).
+		notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
 		countsapp.NewProjectionInputHandler(countsService).Register(bus)
 		// Shifting + feed verification appliers: the ONE shared registration (see bootstrap/api.go and
 		// cmd/domain-event-consumer). In local eventbus mode this in-process bus IS the delivery, so

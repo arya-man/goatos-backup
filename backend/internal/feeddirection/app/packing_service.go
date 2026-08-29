@@ -163,6 +163,17 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 		}
 	}
 
+	// ONE read of the frozen sheet serves both decorations: the verifier's measurement fields and
+	// the packed-against snapshot stored on the row (migration 000222) -- what the operator's card
+	// directed at the moment the bag was filled, kept so the afternoon correction can say "you
+	// packed 4 kg for 2 animals; this bag is now 24 kg for 12" instead of silently rewriting the
+	// card. Both are fail-open: an unreadable sheet yields a nil row, a nil snapshot, and no fields.
+	sheetRow, sheetRowFound := s.packingSheetRow(ctx, in)
+	var packedAgainst *ports.PackedAgainstSnapshot
+	if sheetRowFound {
+		packedAgainst = packedAgainstFromRow(sheetRow)
+	}
+
 	result, err := s.packing.CompletePacking(ctx, ports.CompletePackingParams{
 		TenantID:        in.TenantID,
 		ParkID:          in.ParkID,
@@ -173,6 +184,7 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 		Workflow:        in.Workflow,
 		PackingProofRef: in.PackingProofRef,
 		CompletedBy:     strings.TrimSpace(in.CompletedBy),
+		PackedAgainst:   packedAgainst,
 		IdempotencyKey:  in.IdempotencyKey,
 		ActorID:         in.ActorID,
 		ActorType:       in.ActorType,
@@ -187,7 +199,10 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 	// idempotent on (completion_id + row_version), so a retry after a prior enqueue failure heals rather
 	// than duplicates: the completion is not "done" for the operator until the item is queued.
 	if result.NewlyPending {
-		fields := s.packingMeasurementFields(ctx, in)
+		var fields []PackingMeasurementField
+		if sheetRowFound {
+			fields = packingEntryFields(sheetRow.Items)
+		}
 		if enqErr := s.packingEnqueuer.EnqueueFeedPackingVerification(ctx, FeedPackingVerificationEnqueueRequest{
 			TenantID:          in.TenantID,
 			CompletionID:      result.CompletionID,
@@ -212,33 +227,30 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 	return result, nil
 }
 
-// packingMeasurementFields reads the FROZEN issued sheet and lists this PEN-SESSION's feed items --
-// NAMES ONLY, one entry box per item for the verifier to fill (maintainer decision 2026-08-21,
-// superseding the visible expected-ration summary this function used to compose). The planned
-// quantities are deliberately NOT carried: the verifier enters what she can see packed, blind, and
-// the intended-vs-entered variance surfaces only on the leadership feed analytics execution view.
+// packingSheetRow reads the FROZEN issued sheet and returns this PEN-SESSION's packing row -- the
+// single sheet read behind both submit-time decorations: the verifier's measurement fields
+// (packingEntryFields; NAMES ONLY per the 2026-08-21 blind-entry decision -- the verifier enters
+// what she can see packed, and the intended-vs-entered variance surfaces only on the leadership
+// feed analytics execution view) and the packed-against snapshot (packedAgainstFromRow).
 //
-// ONE SESSION'S items, not the day's -- one clip proves one bag. And only items the sheet DIRECTS
-// for this bag (resolved, positive quantity -- see packingEntryFields): the frozen grid mentions
-// every feed item the pen's ration rows carry, zero-quantity cells included, and boxes for those
-// made the verifier type 0 for items the shed is never fed (maintainer decision 2026-08-22,
-// superseding the initial list-every-item-blocked-included composition).
+// ONE SESSION'S row, not the day's -- one clip proves one bag.
 //
 // FAIL-OPEN, deliberately. A completion is the operator's work reaching the server; it must never
-// fail because a decoration could not be composed. An unreadable or never-issued sheet yields no
-// fields and the item degrades to a judge-the-video approve (the verification service exempts a
-// fields-less per-item item from the entries requirement for exactly this case).
+// fail because a decoration could not be composed. An unreadable or never-issued sheet, or a
+// pen-session the sheet does not list, returns (zero, false): the completion still lands with no
+// snapshot and the verifier item degrades to a judge-the-video approve (the verification service
+// exempts a fields-less per-item item from the entries requirement for exactly this case).
 //
 // It reads the same frozen rows the packing worklist serves, ONCE per completion (a submit, not a
 // list), bounded by the park's pens x sessions x items -- never by herd size.
-func (s *Service) packingMeasurementFields(ctx context.Context, in CompletePackingInput) []PackingMeasurementField {
+func (s *Service) packingSheetRow(ctx context.Context, in CompletePackingInput) (domain.PackingRow, bool) {
 	if s.issues == nil {
-		return nil
+		return domain.PackingRow{}, false
 	}
 	feedDay := biztime.BusinessDate(in.TargetDate)
 	scopeRows, _, served, err := s.loadServedRows(ctx, in.TenantID, in.ParkID, feedDay, in.Workflow)
 	if err != nil || !served {
-		return nil
+		return domain.PackingRow{}, false
 	}
 	// Match on the SAME identity the completion is keyed by -- shed + pen + session -- with the pen
 	// normalized the way the natural key normalizes it, so "Part 3" and "part 3" are one pen.
@@ -250,9 +262,32 @@ func (s *Service) packingMeasurementFields(ctx context.Context, in CompletePacki
 		if domain.PartitionMatchKey(row.PartitionLabel) != wantPartition {
 			continue
 		}
-		return packingEntryFields(row.Items)
+		return row, true
 	}
-	return nil
+	return domain.PackingRow{}, false
+}
+
+// packedAgainstFromRow projects one frozen packing row into the snapshot stored on the completion:
+// the head count and directed quantities the operator's card showed when the bag was filled. Items
+// keep the same resolved-positive filter as the verifier's entry boxes (packingEntryFields) -- the
+// bag's actual directed contents, not the grid's zero-quantity shape cells.
+func packedAgainstFromRow(row domain.PackingRow) *ports.PackedAgainstSnapshot {
+	snapshot := &ports.PackedAgainstSnapshot{HeadCount: row.HeadCount, TotalKg: strings.TrimSpace(row.TotalKg)}
+	for _, item := range row.Items {
+		if item.Status != domain.QuantityResolved || item.QuantityKg == nil {
+			continue
+		}
+		kg, err := strconv.ParseFloat(strings.TrimSpace(*item.QuantityKg), 64)
+		if err != nil || kg <= 0 {
+			continue
+		}
+		snapshot.Items = append(snapshot.Items, ports.PackedItemSnapshot{
+			Key:        domain.NormalizeConfigKey(item.FeedItem),
+			Label:      item.FeedItem,
+			QuantityKg: strings.TrimSpace(*item.QuantityKg),
+		})
+	}
+	return snapshot
 }
 
 // packingEntryFields turns ONE frozen packing row's items into the verifier's entry boxes:

@@ -28,6 +28,7 @@
     "feed.direction.completed",
     "feed.distribution.completed",
     "feed.packing.completed",
+    "feed.packing.reopened",
     "feed.wastage.completed",
     "pc_care.task.pending_verification",
     "pc_care.task.completed",
@@ -1136,6 +1137,29 @@
       "surfaces": [
         "backend",
         "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "feed.packing.reopened",
+      "producer": "afternoon feed correction packing reopen (maintainer decision 2026-08-29, extending the 2026-08-10 reopen rule): feeddirection.Repository.ReopenPackingForFeedChange emits ONE event per reopened completion, in the SAME transaction that flips the row back to 'rework', withdraws its pending verification item, and stores the session-specific old-vs-new reason (composed from the row's packed-against snapshot, migration 000222, plus the corrected sheet). Payload carries park/pen/session display labels, the packer (operator_id = completed_by), the packed-against numbers when snapshotted, the corrected numbers, and the stored reason -- so the push needs no lookup at consume time. Idempotency key is completion_id + the reopen's row_version: one completion reopened twice (reopen -> re-submit -> later correction) is two distinct facts, while a retried reopen collapses onto one message.",
+      "producerFiles": [
+        "backend/internal/feeddirection/adapters/postgres/packing_completions.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/feed_packing_reopen_notify_consumer.go",
+          "notes": "DOWNWARD push to the packer whose video was taken back (ResolveMemberRecipients on operator_id), naming the park, pen, session, feed day, and the old-vs-new quantities -- the STG 2026-08-28 confusion was the card silently mutating with no explanation and no notification. No leadership leg: a head-count correction is routine daily work, not an escalation. An event with no operator_id (legacy row with blank completed_by) pushes nothing and logs."
+        }
+      ],
+      "owningDoc": "docs/decisions/feed-distribution-verification.md",
+      "e2eProof": [
+        "backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go",
+        "backend/internal/notificationbridge/feed_packing_reopen_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
         "mobile"
       ]
     },

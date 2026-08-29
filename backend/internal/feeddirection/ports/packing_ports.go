@@ -74,12 +74,43 @@ type CompletePackingParams struct {
 	PackingProofRef string
 	// CompletedBy is the operator principal uuid when the caller carries one, else "".
 	CompletedBy string
+	// PackedAgainst is the frozen sheet's directed quantities for this pen-session AT SUBMIT TIME,
+	// snapshotted onto the row (migration 000222). It is what the operator's card said when the bag
+	// was filled, kept so the afternoon correction can tell the packer "you packed 4 kg for 2
+	// animals; this bag is now 24 kg for 12" instead of silently rewriting the number under them
+	// (STG incident 2026-08-28). Nil when the sheet could not be read at submit time -- the snapshot
+	// is decoration on the completion, never a precondition for recording an operator's work, so a
+	// nil snapshot still writes the completion (the reopen then degrades to new-values-only copy).
+	PackedAgainst *PackedAgainstSnapshot
 	// IdempotencyKey is the client-supplied request key, reserved in the same transaction as the write.
 	IdempotencyKey string
 	// ActorID/ActorType/TraceID feed the audit row written in the same transaction.
 	ActorID   string
 	ActorType string
 	TraceID   string
+}
+
+// PackedAgainstSnapshot is one pen-session's directed quantities on the frozen issued sheet at the
+// moment the operator submitted the bag. A rework re-submit refreshes it, because the operator
+// repacked against the then-current sheet.
+type PackedAgainstSnapshot struct {
+	// HeadCount is the pen's projected head count the card showed (PackingRow.HeadCount).
+	HeadCount int64
+	// TotalKg is the session's directed total in the sheet's "4.000" kg-string format.
+	TotalKg string
+	// Items are the per-item directed quantities (resolved items only, the ones the card listed).
+	Items []PackedItemSnapshot
+}
+
+// PackedItemSnapshot is one directed feed item inside a PackedAgainstSnapshot.
+type PackedItemSnapshot struct {
+	// Key is the normalized feed item key (domain.NormalizeConfigKey output) -- the same key the
+	// frozen sheet rows and feed_packing_verified_quantities.feed_item_key join by.
+	Key string
+	// Label is the display caption the card showed.
+	Label string
+	// QuantityKg is the directed quantity in the sheet's kg-string format.
+	QuantityKg string
 }
 
 // CompletePackingResult reports the outcome of a packing completion write.
@@ -133,6 +164,13 @@ type PackingCompletionStatus struct {
 	// travels with the status because the two things that put a pen in rework -- a verifier rejecting
 	// the video, and the afternoon correction re-counting the pen -- are indistinguishable without it.
 	ReworkReason string
+	// PackedHeadCount / PackedTotalKg echo the row's packed-against snapshot (migration 000222):
+	// the head count and directed session total the operator's card showed at submit time. Nil/""
+	// for rows submitted before the snapshot existed or whose sheet was unreadable at submit. The
+	// afternoon correction reads these to compose its old-vs-new reopen reason; the per-item list
+	// stays on the row (packed_items) and is not carried here because no overlay consumer needs it.
+	PackedHeadCount *int64
+	PackedTotalKg   string
 }
 
 // ApplyPackingParams flips a packing completion whose video a verifier APPROVED
@@ -178,10 +216,20 @@ type ReopenPackingParams struct {
 	// Pens are the operational locations to reopen, carrying the NORMALIZED partition key so they
 	// match feed_packing_completions.partition_key ('whole' for an undivided shed).
 	Pens []domain.PenKey
-	// Reason is the operator-facing sentence stored on the row and shown on the reopened card. It
-	// must say what happened in farm language ("animals moved in/out, quantities changed"), never
-	// name a table, a job or a correction window.
+	// Reason is the operator-facing FALLBACK sentence stored on a reopened row whose pen-session has
+	// no entry in SessionContexts (a session the corrected sheet no longer lists, or a submit that
+	// raced the correction). It must say what happened in farm language ("animals moved in/out,
+	// quantities changed"), never name a table, a job or a correction window.
 	Reason string
+	// SessionContexts carry, per (pen, session) of the corrected sheet, the SPECIFIC operator-facing
+	// reason (composed by the app from the corrected sheet plus the row's packed-against snapshot,
+	// e.g. "2 -> 12 animals ... you packed 4 kg, this bag is now 24 kg") and the display facts the
+	// feed.packing.reopened notification event needs. A reopened row matches its context on
+	// (shed_id, normalized partition key, session_no); an unmatched row falls back to Reason.
+	SessionContexts []ReopenSessionContext
+	// ParkLabel is the park's display name, carried onto the reopen event payload so the push can
+	// name the park without a lookup at consume time.
+	ParkLabel string
 	// There is deliberately NO ActorID. The correction is a scheduled system transition with no human
 	// behind it, and audit_log.actor_id is a UUID, so the only value a caller could reach for is the
 	// generated_by provenance string ("goatos-api") -- which is not a shortened actor but
@@ -189,6 +237,29 @@ type ReopenPackingParams struct {
 	// The audit row records ActorType "system" instead. Do not add the field back "for completeness":
 	// a field nothing can legally fill is the declared-but-never-populated shape AGENTS.md bans.
 	TraceID string
+}
+
+// ReopenSessionContext is one corrected pen-session's enrichment for the reopen: the specific
+// operator-facing reason to store on that row, and the corrected-sheet facts the
+// feed.packing.reopened event carries for the push notification. Composed by the app layer (which
+// holds both the corrected sheet and the rows' packed-against snapshots); the store only matches
+// and stores/emits -- it never composes copy.
+type ReopenSessionContext struct {
+	ShedID string
+	// PartitionKey is NORMALIZED (domain.PartitionMatchKey output), matching
+	// feed_packing_completions.partition_key.
+	PartitionKey string
+	SessionNo    int32
+	// Reason is the full operator-facing sentence for this pen-session, stored as rework_reason.
+	Reason string
+	// OperationalLocationDisplay / SessionLabel are the backend-composed display labels from the
+	// corrected sheet row ("Castro - 2", "Morning"), for the event payload.
+	OperationalLocationDisplay string
+	SessionLabel               string
+	// NewHeadCount / NewTotalKg are the corrected sheet's projected head count and directed session
+	// total (kg-string), for the event payload.
+	NewHeadCount int64
+	NewTotalKg   string
 }
 
 // ReopenPackingResult reports what the reopen actually moved.

@@ -91,9 +91,13 @@ type fakePackingStore struct {
 	reopenCalls    []ports.ReopenPackingParams
 	reopenedIDs    []string
 	reopenCallsErr error
+	// completeCalls records every CompletePacking write, so a test can assert the submit carried
+	// the packed-against snapshot read from the frozen sheet.
+	completeCalls []ports.CompletePackingParams
 }
 
-func (f *fakePackingStore) CompletePacking(_ context.Context, _ ports.CompletePackingParams) (ports.CompletePackingResult, error) {
+func (f *fakePackingStore) CompletePacking(_ context.Context, p ports.CompletePackingParams) (ports.CompletePackingResult, error) {
+	f.completeCalls = append(f.completeCalls, p)
 	return ports.CompletePackingResult{}, nil
 }
 
