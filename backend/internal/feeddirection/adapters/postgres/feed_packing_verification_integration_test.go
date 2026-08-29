@@ -849,7 +849,10 @@ WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, completionID
 	}
 
 	// (c) ONE feed.packing.reopened event per reopened bag, in the same transaction, carrying the
-	// packer and the numbers.
+	// packer and the numbers. Validated with the PRODUCTION envelope validator against the STORED
+	// bytes -- the jsonb round-trip is part of what the relay actually sees, and an in-memory
+	// marshal can pass while the stored row is rejected as invalid_event_envelope.
+	validator := feedEnvelopeValidator(t)
 	rows, err := pool.Query(ctx, `
 SELECT payload FROM outbox_messages
 WHERE tenant_id = $1::uuid AND event_type = 'feed.packing.reopened'
@@ -863,6 +866,9 @@ ORDER BY created_at`, fdTenant)
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
 			t.Fatalf("scan outbox payload: %v", err)
+		}
+		if err := validator.Validate([]byte(payload)); err != nil {
+			t.Errorf("the relay would REJECT this stored envelope as invalid_event_envelope, so the packer's push would silently never fire:\n%v\n\nstored: %s", err, payload)
 		}
 		payloads = append(payloads, payload)
 	}

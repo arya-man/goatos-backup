@@ -95,6 +95,12 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(notificationbridge.NewVaccineLabelResolver(pool, logger)).WithLocationNames(notificationbridge.NewLocationNameResolver(pool)).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
+	// The afternoon feed correction's packing reopen: DOWNWARD push to the packer whose bag was
+	// taken back, carrying the old-vs-new quantities (feed.packing.reopened; maintainer decision
+	// 2026-08-29). Registered here as well as in kernelstages/bus.go, cmd/domain-event-consumer and
+	// cmd/outbox-relay -- this builder is also the bus the kernel E2E fixture relays through, so a
+	// consumer missing here is invisible to the story suite.
+	notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
 	// Verifier-verdict appliers: the ONE shared registration (internal/eventwiring), the same call
 	// bootstrap/api.go and cmd/outbox-relay make. This builder previously hand-listed consumers and
 	// carried ONLY the weighing applier, so every shifting / feed-distribution / feed-packing /

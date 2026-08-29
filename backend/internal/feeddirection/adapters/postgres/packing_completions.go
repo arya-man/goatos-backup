@@ -964,6 +964,17 @@ func insertFeedPackingReopenedOutbox(ctx context.Context, tx pgx.Tx, o feedPacki
 	idempotencyKey := feedPackingReopenedEventType + ":" + suffix
 	eventID := platformoutbox.DeterministicUUID(feedPackingReopenedEventType + ":" + o.TenantID + ":" + suffix)
 
+	// The correction is a SCHEDULED transition: the worker's AmendDirection carries no request trace,
+	// so TraceID is ordinarily blank here -- and the envelope schema requires trace_id minLength 1,
+	// so a blank one is rejected by the relay as invalid_event_envelope and the packer's push
+	// silently never fires (caught by TestKernelStory_FeedAfternoonCorrection, which drives the
+	// correction exactly the way the worker does). Default a deterministic trace rather than
+	// dropping the event.
+	traceID := strings.TrimSpace(o.TraceID)
+	if traceID == "" {
+		traceID = idempotencyKey
+	}
+
 	payload := map[string]any{
 		"completion_id":                o.CompletionID,
 		"park_id":                      o.ParkID,
@@ -1005,7 +1016,7 @@ func insertFeedPackingReopenedOutbox(ctx context.Context, tx pgx.Tx, o feedPacki
 		// The FEED DAY: the business fact is that this feed day's bag must be packed again.
 		OccurredAt: businessInstant(o.TargetDate),
 		Payload:    payload,
-		TraceID:    o.TraceID,
+		TraceID:    traceID,
 	}.build()
 	envelopeJSON, err := json.Marshal(envelope)
 	if err != nil {
@@ -1026,7 +1037,7 @@ INSERT INTO outbox_messages (
 ON CONFLICT DO NOTHING`,
 		o.TenantID, eventID, feedPackingReopenedEventType, feedPackingCompletedSchemaVersion,
 		feedPackingCompletedAggregateType, o.CompletionID, feedPackingCompletedTopic,
-		envelopeJSON, headersJSON, idempotencyKey, o.TraceID)
+		envelopeJSON, headersJSON, idempotencyKey, traceID)
 	if err != nil {
 		return fmt.Errorf("feeddirection: insert packing reopened outbox: %w", err)
 	}

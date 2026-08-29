@@ -2,8 +2,13 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -80,6 +85,10 @@ func TestKernelStory_FeedAfternoonCorrection(t *testing.T) {
 	seedFeedCorrectionScope(t, ctx, fx.Pool, park, shedCastro, shedTrial)
 	seedFeedCorrectionGoats(t, ctx, fx.Pool, shedCastro, "1", 40)
 	seedFeedCorrectionGoats(t, ctx, fx.Pool, shedCastro, "2", 30)
+	// The packer's roster identity and registered phone -- external input facts, so the 14:00 reopen
+	// push asserted below resolves a real device exactly the way production does (workforce_members
+	// + workforce_member_devices via RosterService.ResolveMemberRecipients).
+	seedFeedCorrectionPacker(t, ctx, fx.Pool, operator)
 
 	// The production service wiring, mirroring internal/bootstrap/api.go: one repository owns the
 	// config reads, the frozen issue tables, the dispatch clock and the packing completions, and the
@@ -190,7 +199,7 @@ func TestKernelStory_FeedAfternoonCorrection(t *testing.T) {
 	story.Assert("the sibling pen is a separate card with its own animals",
 		penRow(before, "2", 1).HeadCount == 30, "Castro - 2 head_count=%d", penRow(before, "2", 1).HeadCount)
 	story.Assert("the backend composes the operational location, shed and pen together",
-		pen1Morning.OperationalLocationDisplay == "Castro - 1",
+		pen1Morning.OperationalLocationDisplay == "Castro 1",
 		"operational_location_display=%q", pen1Morning.OperationalLocationDisplay)
 
 	originalTotal := pen1Morning.TotalKg
@@ -228,6 +237,15 @@ func TestKernelStory_FeedAfternoonCorrection(t *testing.T) {
 		"both submissions returned completion_id=%s — one video would stand as proof for both bags",
 		first.CompletionID)
 
+	// THE PACKED-AGAINST SNAPSHOT (maintainer decision 2026-08-29): each submit freezes onto its row
+	// what the card directed at that moment -- 40 animals, 4.000 kg -- so the 14:00 correction can
+	// tell the packer what changed instead of silently rewriting the card (the STG 2026-08-28
+	// confusion).
+	story.Assert("each submit froze the sheet it was packed against onto the completion row",
+		packingSnapshotIs(t, ctx, fx.Pool, first.CompletionID, 40, "4.000") &&
+			packingSnapshotIs(t, ctx, fx.Pool, firstEvening.CompletionID, 40, "4.000"),
+		"packed_head_count/packed_total_kg must record 40 animals / 4.000 kg at submit time")
+
 	items := listPackingItems(t, ctx, fx.Pool, first.CompletionID)
 	eveningItems := listPackingItems(t, ctx, fx.Pool, firstEvening.CompletionID)
 	story.Assert("exactly ONE verification item was queued per bag",
@@ -235,7 +253,7 @@ func TestKernelStory_FeedAfternoonCorrection(t *testing.T) {
 		"verification items: morning=%d evening=%d", len(items), len(eveningItems))
 	if len(items) == 1 && len(eveningItems) == 1 {
 		story.Assert("the verifier's items name the SESSION and the pen, so the two cards are distinguishable",
-			items[0].subject == "Session 1 · Castro - 1" && eveningItems[0].subject == "Session 2 · Castro - 1",
+			items[0].subject == "Session 1 · Castro 1" && eveningItems[0].subject == "Session 2 · Castro 1",
 			"subject_labels = %q, %q — without the session prefix both cards read identically",
 			items[0].subject, eveningItems[0].subject)
 	}
@@ -323,6 +341,15 @@ func TestKernelStory_FeedAfternoonCorrection(t *testing.T) {
 			row.ReworkReason != "" && !containsAny(row.ReworkReason,
 				"amend", "correction", "shifting_events", "projection", "row_version", "workflow"),
 			"%s rework_reason=%q", tc.label, row.ReworkReason)
+		// AND THE SENTENCE NAMES BOTH SETS OF NUMBERS (maintainer decision 2026-08-29): the old
+		// values come from the row's own packed-against snapshot, the new from the corrected sheet,
+		// composed by the SAME aggregation the card renders from. Asserted as the exact output
+		// string, per the round-trip rule -- a field-presence check passed while this was wrong.
+		story.Assert("the "+tc.label+" sentence states what was packed and what the bag is now, exactly",
+			row.ReworkReason == "Animals moved in or out of this pen after you packed. "+
+				"This bag was 4 kg for 40 animals; it is now 5 kg for 50 animals. "+
+				"Pack the new amounts and record a new video.",
+			"%s rework_reason=%q", tc.label, row.ReworkReason)
 	}
 
 	story.Assert("the sibling pen is untouched — both its bags keep their status and quantities",
@@ -357,6 +384,69 @@ func TestKernelStory_FeedAfternoonCorrection(t *testing.T) {
 		"verified_by/verified_at must be cleared on every reopened row")
 
 	// -----------------------------------------------------------------------
+	story.Step("14:05 — the packer's phone is told, with the numbers",
+		"One feed.packing.reopened event per taken-back bag was written in the SAME transaction as the "+
+			"reopen (maintainer decision 2026-08-29). It travels the real outbox -> relay -> domain-bus "+
+			"path into FeedPackingReopenNotifyConsumer, which resolves the packer's registered device "+
+			"from the roster and queues a push naming the pen, the session, the old and new quantities, "+
+			"and the feed day -- so the card never again mutates silently under the operator.")
+
+	// The STORED envelopes must satisfy the production relay's schema. This is asserted here, on the
+	// jsonb-round-tripped bytes and with the correction's real (traceless, scheduled) call shape,
+	// because that exact combination is what an in-memory marshal test missed: the worker's
+	// AmendDirection carries no request trace, a blank trace_id fails the schema's minLength, and
+	// the relay then drops every reopen event as invalid_event_envelope with no error at the write.
+	if validator, err := outboxapp.NewEnvelopeValidator(filepath.Join("..", "..", "..", "contracts", "jsonschema", "domain-event-envelope.schema.json")); err == nil {
+		envRows, envErr := fx.Pool.Query(ctx, `SELECT payload::text FROM outbox_messages WHERE event_type='feed.packing.reopened'`)
+		if envErr != nil {
+			t.Fatalf("read stored reopen envelopes: %v", envErr)
+		}
+		for envRows.Next() {
+			var raw string
+			if err := envRows.Scan(&raw); err != nil {
+				envRows.Close()
+				t.Fatalf("scan stored reopen envelope: %v", err)
+			}
+			story.Assert("the stored reopen envelope satisfies the relay's schema",
+				validator.Validate([]byte(raw)) == nil, "envelope: %s", raw)
+		}
+		envRows.Close()
+	} else {
+		t.Fatalf("load production envelope schema: %v", err)
+	}
+
+	reopenEvents := feedPackingReopenedOutboxPayloads(t, ctx, fx.Pool)
+	story.Assert("one reopen event per taken-back bag rode the reopen transaction",
+		len(reopenEvents) == 2, "feed.packing.reopened outbox rows = %d, want 2", len(reopenEvents))
+	for _, ev := range reopenEvents {
+		story.Assert("the event addresses the packer and carries both sets of numbers",
+			ev["operator_id"] == operator &&
+				ev["packed_head_count"] == float64(40) && ev["packed_total_kg"] == "4.000" &&
+				ev["new_head_count"] == float64(50) && ev["new_total_kg"] == "5.000" &&
+				ev["operational_location_display"] == "Castro 1",
+			"payload=%v", ev)
+	}
+
+	fx.RelayOutboxEvents()
+	pushes := feedPackingReopenPushes(t, ctx, fx.Pool)
+	story.Assert("the packer's registered device is queued one push per taken-back bag",
+		len(pushes) == 2 && pushes[0].recipient == "fe-token-packer" && pushes[1].recipient == "fe-token-packer",
+		"pushes=%d recipients=%v", len(pushes), pushRecipients(pushes))
+	if len(pushes) == 2 {
+		joinedBodies := pushes[0].body + "\n" + pushes[1].body
+		story.Assert("the push says what he packed, what the bag now needs, where, and for which day",
+			strings.Contains(pushes[0].body, "you packed 4 kg for 40 animals") &&
+				strings.Contains(pushes[0].body, "it now needs 5 kg for 50 animals") &&
+				strings.Contains(pushes[0].body, "Castro 1") &&
+				strings.Contains(pushes[0].body, "30/07/2026") &&
+				strings.Contains(pushes[0].title, "Castro 1"),
+			"title=%q body=%q", pushes[0].title, pushes[0].body)
+		story.Assert("the two pushes are the pen's two bags, each naming its own session",
+			strings.Contains(joinedBodies, "(Morning)") && strings.Contains(joinedBodies, "(Evening)"),
+			"bodies=%q", joinedBodies)
+	}
+
+	// -----------------------------------------------------------------------
 	story.Step("14:00 — the experiment pen is deliberately left alone",
 		"Experiment rations are authored as an ABSOLUTE kg total per pen, so a head-count change moves "+
 			"no quantity there. Reopening one would discard a perfectly good video for a sheet that did "+
@@ -383,6 +473,12 @@ func TestKernelStory_FeedAfternoonCorrection(t *testing.T) {
 		second.CompletionID == first.CompletionID,
 		"completion_id %s -> %s", first.CompletionID, second.CompletionID)
 
+	// The snapshot is REFRESHED by the re-submit: the operator repacked against the corrected sheet
+	// (50 animals / 5.000 kg), so the old snapshot no longer describes the new video.
+	story.Assert("the re-submit re-froze the corrected sheet onto the row",
+		packingSnapshotIs(t, ctx, fx.Pool, second.CompletionID, 50, "5.000"),
+		"packed_head_count/packed_total_kg must now read 50 animals / 5.000 kg")
+
 	reItems := listPackingItems(t, ctx, fx.Pool, second.CompletionID)
 	story.Assert("a FRESH verification item reaches the verifier for the new video",
 		len(reItems) == 2, "items for this bag = %d (one withdrawn, one pending)", len(reItems))
@@ -400,6 +496,108 @@ func TestKernelStory_FeedAfternoonCorrection(t *testing.T) {
 		penRow(final, "1", 2).ReworkReason != "" && !penRow(final, "1", 2).Completed,
 		"evening rework_reason=%q completed=%t — the morning re-shoot must not close the evening out",
 		penRow(final, "1", 2).ReworkReason, penRow(final, "1", 2).Completed)
+}
+
+// seedFeedCorrectionPacker seeds the packer's roster row and one active, push-reachable Android
+// device -- the external input facts ResolveMemberRecipients resolves the reopen push against.
+func seedFeedCorrectionPacker(t *testing.T, ctx context.Context, pool *pgxpool.Pool, operator string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint)
+VALUES ($1::uuid, $2::uuid, 'FE-PACKER', 'Feed Packer', 'active', 'operator')
+ON CONFLICT DO NOTHING`, operator, fxTenant); err != nil {
+		t.Fatalf("seed packer roster row: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_member_devices (device_id, tenant_id, workforce_member_id, platform, app_install_id,
+  fcm_token, app_version, os_version, status, last_seen_at, registered_by)
+VALUES ('fe000000-0000-4000-8000-00000000d001', $1::uuid, $2::uuid, 'android', 'fe-install-packer',
+  'fe-token-packer', '1.0.0', '14', 'active', now(), $2::uuid)
+ON CONFLICT DO NOTHING`, fxTenant, operator); err != nil {
+		t.Fatalf("seed packer device: %v", err)
+	}
+}
+
+// packingSnapshotIs reads a completion row's packed-against snapshot columns and compares them to
+// the expected card values -- a DB round-trip on the real table, never a field-presence check.
+func packingSnapshotIs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, completionID string, wantHeads int64, wantTotal string) bool {
+	t.Helper()
+	var heads *int64
+	var total string
+	if err := pool.QueryRow(ctx, `
+SELECT packed_head_count, coalesce(packed_total_kg::text, '')
+FROM feed_packing_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fxTenant, completionID).Scan(&heads, &total); err != nil {
+		t.Fatalf("read packed-against snapshot for %s: %v", completionID, err)
+	}
+	return heads != nil && *heads == wantHeads && total == wantTotal
+}
+
+// feedPackingReopenedOutboxPayloads returns every feed.packing.reopened envelope payload written to
+// the transactional outbox, decoded, oldest first.
+func feedPackingReopenedOutboxPayloads(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []map[string]any {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+SELECT payload->'payload' FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'feed.packing.reopened'
+ORDER BY created_at`, fxTenant)
+	if err != nil {
+		t.Fatalf("read feed.packing.reopened outbox rows: %v", err)
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			t.Fatalf("scan reopen outbox payload: %v", err)
+		}
+		decoded := map[string]any{}
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatalf("decode reopen outbox payload %s: %v", raw, err)
+		}
+		out = append(out, decoded)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate reopen outbox rows: %v", err)
+	}
+	return out
+}
+
+// feedPackingReopenPush is one queued push row addressed to a device token.
+type feedPackingReopenPush struct{ title, body, recipient string }
+
+// feedPackingReopenPushes returns the notification_requests rows the reopen consumer queued,
+// oldest first.
+func feedPackingReopenPushes(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []feedPackingReopenPush {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+SELECT title, body, recipient_ref FROM notification_requests
+WHERE tenant_id = $1::uuid AND target_type = 'feed_packing_completion'
+ORDER BY created_at`, fxTenant)
+	if err != nil {
+		t.Fatalf("read reopen notification requests: %v", err)
+	}
+	defer rows.Close()
+	out := []feedPackingReopenPush{}
+	for rows.Next() {
+		var p feedPackingReopenPush
+		if err := rows.Scan(&p.title, &p.body, &p.recipient); err != nil {
+			t.Fatalf("scan reopen notification request: %v", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate reopen notification requests: %v", err)
+	}
+	return out
+}
+
+func pushRecipients(pushes []feedPackingReopenPush) []string {
+	out := make([]string, 0, len(pushes))
+	for _, p := range pushes {
+		out = append(out, p.recipient)
+	}
+	return out
 }
 
 // containsID reports whether ids holds want. The reopen returns its ids in whatever order the set-based
