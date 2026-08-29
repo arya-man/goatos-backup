@@ -32,6 +32,10 @@ class HealthOutboxConvergenceTest {
             flowOf(PagingData.empty())
 
         override fun observePageMeta(filters: HealthFilters): Flow<HealthPageMetaSnapshot?> = flowOf(null)
+        override fun observeDiagnosisRun(diagnosisRunId: String): Flow<sg.mesha.goatos.core.data.CachedDiagnosisRun?> = flowOf(null)
+        override suspend fun refreshDiagnosisRun(diagnosisRunId: String): Result<Unit> = Result.success(Unit)
+        override fun diagnosisQueue(filters: sg.mesha.goatos.core.data.DiagnosisQueueFilters): Flow<PagingData<sg.mesha.goatos.core.network.dto.HealthDiagnosisQueueItemDto>> = flowOf(PagingData.empty())
+        override fun observeDiagnosisQueueMeta(filters: sg.mesha.goatos.core.data.DiagnosisQueueFilters): Flow<sg.mesha.goatos.core.data.DiagnosisQueueMeta?> = flowOf(null)
         override fun observeDetail(healthSessionId: String): Flow<HealthWorkItemDetailDto?> = flowOf(null)
 
         override suspend fun refreshWorkItems(filters: HealthFilters): Result<Unit> {
