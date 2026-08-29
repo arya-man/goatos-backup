@@ -1115,6 +1115,12 @@ class ScreenshotTest {
                     // proves nothing. lifecycleStatus is "pending" -- IDENTICAL to Gandhi 1 below,
                     // which nobody has packed at all -- so the chip cannot tell the two apart and this
                     // golden is what proves an operator can.
+                    // The sentence is the SESSION-SPECIFIC one the backend composes since the
+                    // 2026-08-29 decision: the packed-against snapshot supplies the old numbers, the
+                    // corrected sheet the new, so the card says what changed instead of silently
+                    // showing a different quantity (the STG 2026-08-28 confusion). The generic
+                    // "quantities changed" fallback survives only for a pen-session the corrected
+                    // sheet no longer lists.
                     FeedPackingRowUi(
                         grainKey = "pack-3", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-3", sessionNo = 1,
                         shedLabel = "Castro - 2",
@@ -1122,8 +1128,9 @@ class ScreenshotTest {
                         workflow = "normal", experimentArm = "", headCount = 52,
                         items = feedItems(), totalKg = "17.8",
                         status = "ready", completed = false, lifecycleStatus = "pending",
-                        reworkReason = "Animals moved in or out of this pen, so the feed " +
-                            "quantities changed. Pack the new amounts and record a new video.",
+                        reworkReason = "Animals moved in or out of this pen after you packed. " +
+                            "This bag was 15 kg for 44 animals; it is now 17.8 kg for 52 animals. " +
+                            "Pack the new amounts and record a new video.",
                     ),
                     FeedPackingRowUi(
                         grainKey = "pack-4", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-3", sessionNo = 2,
@@ -1132,8 +1139,9 @@ class ScreenshotTest {
                         workflow = "normal", experimentArm = "", headCount = 52,
                         items = feedItems(), totalKg = "17.8",
                         status = "ready", completed = false, lifecycleStatus = "pending",
-                        reworkReason = "Animals moved in or out of this pen, so the feed " +
-                            "quantities changed. Pack the new amounts and record a new video.",
+                        reworkReason = "Animals moved in or out of this pen after you packed. " +
+                            "This bag was 15 kg for 44 animals; it is now 17.8 kg for 52 animals. " +
+                            "Pack the new amounts and record a new video.",
                     ),
                     FeedPackingRowUi(
                         grainKey = "pack-1", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-1", sessionNo = 1,

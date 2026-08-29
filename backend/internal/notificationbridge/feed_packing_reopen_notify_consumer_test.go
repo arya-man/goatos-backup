@@ -70,11 +70,11 @@ func TestFeedPackingReopenPushNamesThePenAndTheOldVsNewQuantities(t *testing.T) 
 	}
 	for _, want := range []string{
 		"Channapatna", "Castro 2", // the place
-		"Morning",                          // the session (one pen has two bags)
-		"you packed 4 kg for 2 animals",    // what the bag was filled for
+		"Morning",                           // the session (one pen has two bags)
+		"you packed 4 kg for 2 animals",     // what the bag was filled for
 		"it now needs 24 kg for 12 animals", // what the corrected sheet directs
-		"record a new video",               // the action owed
-		"29/08/2026",                       // the feed day, farm-readable (biztime.FarmDateFromBusinessDate)
+		"record a new video",                // the action owed
+		"29/08/2026",                        // the feed day, farm-readable (biztime.FarmDateFromBusinessDate)
 	} {
 		if !strings.Contains(notif.Body, want) {
 			t.Fatalf("push body %q is missing %q", notif.Body, want)
