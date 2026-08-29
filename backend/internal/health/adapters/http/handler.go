@@ -17,6 +17,7 @@ import (
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
 	"github.com/vgoats/goatos/backend/internal/health/domain"
 	"github.com/vgoats/goatos/backend/internal/health/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 )
@@ -28,6 +29,7 @@ type HealthService interface {
 	ListWorkItems(context.Context, domain.ListFilter) (domain.WorkItemPage, error)
 	GetWorkItem(context.Context, string, string) (domain.WorkItemDetail, error)
 	CompleteWorkItem(context.Context, domain.CompleteInput) (domain.CompleteResult, error)
+	CloseCase(context.Context, domain.CloseCaseInput) (domain.CloseCaseResult, error)
 }
 type Handler struct {
 	svc HealthService
@@ -45,6 +47,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/health/work-items", h.ListWorkItems)
 	mux.HandleFunc("GET /app/health/work-items/{health_session_id}", h.GetWorkItem)
 	mux.HandleFunc("POST /app/health/work-items/{health_session_id}/complete", h.CompleteWorkItem)
+	mux.HandleFunc("POST /app/health/cases/{health_case_id}/close", h.CloseCase)
 }
 
 type openCaseRequest struct {
@@ -55,6 +58,10 @@ type openCaseRequest struct {
 }
 type completeRequest struct {
 	ProofRef string `json:"proof_ref"`
+}
+type closeCaseRequest struct {
+	Outcome string `json:"outcome"`
+	Note    string `json:"note,omitempty"`
 }
 type errorResponse struct {
 	Code      string `json:"code"`
@@ -118,6 +125,19 @@ func (h *Handler) GetWorkItem(w http.ResponseWriter, r *http.Request) {
 		h.writeDomainError(w, r, err)
 		return
 	}
+	// Caller capabilities for the client's action gating. Derived from the caller's own grants —
+	// the same RoleHasPermission the route authorizer applies — never from a role string. A
+	// service/internal context with no grants reads false/false, which is the safe direction for
+	// a display hint (the route permission remains the enforcement).
+	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+	for _, g := range grants {
+		if permissions.RoleHasPermission(g.Role, permissions.HealthExecute) {
+			d.CanComplete = true
+		}
+		if permissions.RoleHasPermission(g.Role, permissions.HealthDiagnose) {
+			d.CanCloseCase = true
+		}
+	}
 	httpresponse.WriteJSON(w, http.StatusOK, d)
 }
 func (h *Handler) CompleteWorkItem(w http.ResponseWriter, r *http.Request) {
@@ -131,6 +151,26 @@ func (h *Handler) CompleteWorkItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := h.svc.CompleteWorkItem(r.Context(), domain.CompleteInput{TenantID: httpmiddleware.TenantIDFromContext(r.Context()), ActorID: httpmiddleware.ActorIDFromContext(r.Context()), SessionID: r.PathValue("health_session_id"), ProofRef: req.ProofRef, IdempotencyKey: idem, RequestFingerprint: fingerprint(body), TraceID: httpmiddleware.TraceIDFromContext(r.Context())})
+	if err != nil {
+		h.writeDomainError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, res)
+}
+func (h *Handler) CloseCase(w http.ResponseWriter, r *http.Request) {
+	body, req, ok := decodeStrict[closeCaseRequest](w, r, h)
+	if !ok {
+		return
+	}
+	idem := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if idem == "" {
+		h.writeError(w, r, http.StatusBadRequest, "idempotency_key_required", "Idempotency-Key is required", nil)
+		return
+	}
+	res, err := h.svc.CloseCase(r.Context(), domain.CloseCaseInput{
+		TenantID: httpmiddleware.TenantIDFromContext(r.Context()), ActorID: httpmiddleware.ActorIDFromContext(r.Context()),
+		CaseID: r.PathValue("health_case_id"), Outcome: req.Outcome, Note: req.Note,
+		IdempotencyKey: idem, RequestFingerprint: fingerprint(body), TraceID: httpmiddleware.TraceIDFromContext(r.Context())})
 	if err != nil {
 		h.writeDomainError(w, r, err)
 		return
@@ -166,6 +206,8 @@ func (h *Handler) writeDomainError(w http.ResponseWriter, r *http.Request, err e
 		h.writeError(w, r, http.StatusUnprocessableEntity, "age_band_mismatch", err.Error(), err)
 	case errors.Is(err, ports.ErrGoatNotAlive):
 		h.writeError(w, r, http.StatusConflict, "goat_not_alive", err.Error(), err)
+	case errors.Is(err, ports.ErrCaseNotOpen):
+		h.writeError(w, r, http.StatusConflict, "case_not_open", err.Error(), err)
 	case errors.Is(err, ports.ErrConflict):
 		h.writeError(w, r, http.StatusConflict, "idempotency_conflict", err.Error(), err)
 	default:

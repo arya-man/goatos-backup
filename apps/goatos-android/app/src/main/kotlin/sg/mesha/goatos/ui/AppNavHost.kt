@@ -1495,6 +1495,10 @@ fun AppNavHost(
                 state = state,
                 onBack = { navController.popBackStack() },
                 onComplete = vm::complete,
+                onRefresh = vm::refresh,
+                onRecordVideo = { vm.recordVideo() },
+                onReRecordVideo = { vm.recordVideo(replacing = true) },
+                onCloseCase = vm::closeCase,
             )
         }
 

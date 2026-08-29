@@ -52,6 +52,7 @@ import (
 	growthdirectorapp "github.com/vgoats/goatos/backend/internal/growthdirector/app"
 	healthhttp "github.com/vgoats/goatos/backend/internal/health/adapters/http"
 	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
+	healthverificationbridge "github.com/vgoats/goatos/backend/internal/health/adapters/verificationbridge"
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
 	"github.com/vgoats/goatos/backend/internal/health/diagnosis"
 	herdsignalshttp "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/http"
@@ -707,10 +708,6 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
-	// Weighing and Health are declared in the same backend registry even before their
-	// producers enqueue verification items. Their verifier modules/pages therefore stay
-	// stable and empty instead of disappearing based on today's queue contents.
-	//
 	// Weighing uses the weighingdomain constants rather than literals: main's weighing
 	// feature filters its own queue by those same constants, so a hand-written vertical
 	// here would silently not match its reads.
@@ -724,6 +721,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 			return nil, err
 		}
 	}
+	// Health treatment-evidence verification (2026-08-29): a proof-carrying treatment completion
+	// enqueues one item into health_adults/health_kids (the categories registered just above,
+	// which until now had no producer). Post-task evidence review only -- the verdict applier
+	// lives in eventwiring.RegisterVerificationAppliers.
+	healthService.WithVerificationEnqueuer(healthverificationbridge.New(verificationService))
 	weighingVerificationBridge := weighingverificationbridge.New(verificationService)
 	weighingService.WithVerificationEnqueuer(weighingVerificationBridge)
 	// Same bridge, retire direction: a reopened lump-sum bucket withdraws its
@@ -991,7 +993,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// publishes verdicts only to the outbox, so these appliers actually fire in the durable-bus
 	// consumers above. Registering here keeps parity through the same helper. Each handler filters
 	// strictly on source.module + source.ref_type, so no cross-fire.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, log)
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, healthRepo, log)
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)

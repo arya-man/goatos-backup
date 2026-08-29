@@ -640,7 +640,31 @@ interface SyncRepository {
     ): AppResult<String> = AppResult.Err("health case sync is not configured")
 
     /** Enqueues one Health session completion. The session id is both the ordering group and the
-     * stable idempotency identity, preventing duplicate medicine administration rows on retry. */
+     * stable idempotency identity, preventing duplicate medicine administration rows on retry.
+     * The MANDATORY treatment video is passed by REFERENCE to its PROOF_UPLOAD outbox row
+     * ([proofOutboxItemId]); both writes MUST share the same group (the session id) so the video
+     * drains strictly before the completion that references it. The caller puts the proof outbox
+     * id in [idempotencyKey] too: a retry of the same video replays for free, while a rework
+     * re-shoot (new video) is a NEW act that must not collide with the first completion's key —
+     * the audit's silent-drop defect (2026-08-29). */
+    suspend fun enqueueHealthTreatmentComplete(
+        healthSessionId: String,
+        idempotencyKey: String,
+        proofOutboxItemId: String = "",
+    ): AppResult<String> = AppResult.Err("health treatment sync is not configured")
+
+    /** Enqueues the clinical case closure (recovered / referred / canceled) for health.diagnose
+     * holders. [ageBand]/[businessDate]/[healthSessionId] are local-only refresh context. */
+    suspend fun enqueueHealthCaseClose(
+        healthCaseId: String,
+        outcome: String,
+        note: String,
+        idempotencyKey: String,
+        ageBand: String = "",
+        businessDate: String = "",
+        healthSessionId: String = "",
+    ): AppResult<String> = AppResult.Err("health case close sync is not configured")
+
     /**
      * Queues one completed observation form. The GOAT is the ordering group, so two
      * observations on the same animal drain in the order they were recorded.
@@ -667,11 +691,6 @@ interface SyncRepository {
         idempotencyKey: String,
     ): AppResult<String> = AppResult.Err("health diagnosis sync is not configured")
 
-    suspend fun enqueueHealthTreatmentComplete(
-        healthSessionId: String,
-        idempotencyKey: String,
-        proofRef: String = "",
-    ): AppResult<String> = AppResult.Err("health treatment sync is not configured")
 
     /** Re-arms a FAILED (dead-letter or conflict) row for another attempt — the SAME
      *  idempotency key and payload, a fresh attempt budget. Backs the sync-status sheet's
@@ -1764,13 +1783,39 @@ class DefaultSyncRepository(
     override suspend fun enqueueHealthTreatmentComplete(
         healthSessionId: String,
         idempotencyKey: String,
-        proofRef: String,
+        proofOutboxItemId: String,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.HEALTH_TREATMENT_COMPLETE,
         groupKey = healthSessionId,
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(
-            HealthTreatmentCompletePayload(healthSessionId = healthSessionId, proofRef = proofRef),
+            HealthTreatmentCompletePayload(healthSessionId = healthSessionId, proofOutboxItemId = proofOutboxItemId),
+        ),
+    )
+
+    override suspend fun enqueueHealthCaseClose(
+        healthCaseId: String,
+        outcome: String,
+        note: String,
+        idempotencyKey: String,
+        ageBand: String,
+        businessDate: String,
+        healthSessionId: String,
+    ): AppResult<String> = enqueue(
+        opType = OutboxOpType.HEALTH_CASE_CLOSE,
+        // The CASE is the lane: a close can never race a same-case completion out of order with
+        // itself, while different cases drain concurrently.
+        groupKey = healthCaseId,
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            HealthCaseClosePayload(
+                healthCaseId = healthCaseId,
+                outcome = outcome,
+                note = note,
+                ageBand = ageBand,
+                businessDate = businessDate,
+                healthSessionId = healthSessionId,
+            ),
         ),
     )
 

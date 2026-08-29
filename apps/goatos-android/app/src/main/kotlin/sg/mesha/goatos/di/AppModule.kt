@@ -881,6 +881,7 @@ object AppModule {
             // Health operations
             OutboxOpType.HEALTH_CASE_OPEN to healthCaseOpenRefreshHook(healthRepository),
             OutboxOpType.HEALTH_TREATMENT_COMPLETE to healthTreatmentCompleteRefreshHook(healthRepository),
+            OutboxOpType.HEALTH_CASE_CLOSE to sg.mesha.goatos.core.data.sync.healthCaseCloseRefreshHook(healthRepository),
             // PC Care: a successful slot registration re-polls the task's captures so the server's
             // per-slot truth (proof ref, attribution) lands back in the Room rows screens observe.
             OutboxOpType.PC_CARE_SLOT_REGISTER to sg.mesha.goatos.core.data.sync.pcCareSlotRegisterRefreshHook(pcCareRepository),

@@ -15,6 +15,9 @@ var (
 	ErrProtocolNotPublished  = errors.New("health: disease protocol is not published")
 	ErrAgeBandMismatch       = errors.New("health: requested age band does not match goat")
 	ErrCriticalActionGuarded = errors.New("health: critical action requires policy-pack handoff")
+	// ErrCaseNotOpen refuses a clinical closure (or a completion on a closure-canceled session)
+	// when the case is already closed or is held by the death-review workflow, which owns it.
+	ErrCaseNotOpen = errors.New("health: case is not open")
 )
 
 type Repository interface {
@@ -22,6 +25,7 @@ type Repository interface {
 	ListWorkItems(context.Context, domain.ListFilter) (domain.WorkItemPage, error)
 	GetWorkItem(context.Context, string, string) (domain.WorkItemDetail, error)
 	CompleteWorkItem(context.Context, domain.CompleteInput) (domain.CompleteResult, error)
+	CloseCase(context.Context, domain.CloseCaseInput) (domain.CloseCaseResult, error)
 	HoldForDeathReview(context.Context, string, string) error
 	ResumeAfterDeathRejected(context.Context, string, string) error
 	CloseForApprovedDeath(context.Context, string, string) error

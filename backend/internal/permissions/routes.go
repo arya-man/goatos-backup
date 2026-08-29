@@ -523,6 +523,10 @@ var protectedRoutes = []Route{
 	{OperationID: "listAppHealthObservations", Method: "GET", Pattern: "/app/health/observations", Permissions: []string{HealthRead}},
 	{OperationID: "getAppHealthObservation", Method: "GET", Pattern: "/app/health/observations/{health_diagnosis_run_id}", Permissions: []string{HealthRead}},
 	{OperationID: "confirmAppHealthDiagnosis", Method: "POST", Pattern: "/app/health/observations/{health_diagnosis_run_id}/confirm", Permissions: []string{HealthDiagnose}},
+	// Closing a case (recovered / referred / canceled) is a clinical judgement, so it carries
+	// HealthDiagnose -- the same authority tier that opens a configured course, and the first
+	// route that permission gates (it was granted since 2026-07-30 with no surface behind it).
+	{OperationID: "closeAppHealthCase", Method: "POST", Pattern: "/app/health/cases/{health_case_id}/close", Permissions: []string{HealthDiagnose}},
 	// Authored treatment protocols (/health-config/*), the surface behind the Health Config screen.
 	//
 	// The read/write split is the whole point: a principal may be allowed to INSPECT the standing

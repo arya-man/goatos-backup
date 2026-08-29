@@ -702,7 +702,11 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		if _, ok := keys["verification"]; ok {
 			t.Fatalf("verifier with no duties must NOT see generic verification; got %v", keys)
 		}
-		wantKeys := map[string]bool{"verify_vaccination": true, "verify_weighing": true, "verify_counts": true, "verify_pc_care": true, "clock": true}
+		wantKeys := map[string]bool{
+			"verify_vaccination": true, "verify_weighing": true, "verify_counts": true,
+			"verify_feed_direction": true, "verify_aas_health": true, "verify_milk": true,
+			"verify_pc_care": true, "clock": true,
+		}
 		if len(keys) != len(wantKeys) {
 			t.Fatalf("verifier with no duties should see one module per built feature; got %v", keys)
 		}
@@ -734,10 +738,13 @@ func TestBootstrapAlertsPerModule(t *testing.T) {
 	}
 
 	wantCategories := map[string]string{
-		"verify_vaccination": "vaccination_proof",
-		"verify_weighing":    "weighing_proof",
-		"verify_counts":      "shifting_move", // NOT "counts_proof" -- see verificationCategoryForFeature.
-		"verify_pc_care":     "pc_deworming",  // NOT "pc_care_proof" -- see verificationCategoryForFeature.
+		"verify_vaccination":    "vaccination_proof",
+		"verify_weighing":       "weighing_proof",
+		"verify_counts":         "shifting_move",     // NOT "counts_proof" -- see verificationCategoryForFeature.
+		"verify_feed_direction": "feed_distribution", // NOT "feed_direction_proof" -- see verificationCategoryForFeature.
+		"verify_aas_health":     "health_adults",     // NOT "aas_health_proof" -- see verificationCategoryForFeature.
+		"verify_milk":           "milk_preparation",  // NOT "milk_proof" -- see verificationCategoryForFeature.
+		"verify_pc_care":        "pc_deworming",      // NOT "pc_care_proof" -- see verificationCategoryForFeature.
 	}
 	// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You]. "You"
 	// carries shared_key "you" so it dedupes across modules like the leadership entries
@@ -931,5 +938,53 @@ func wantVerifierAlertsHref(feature, category string) string {
 		return "/weighing/alerts"
 	default:
 		return "/verify/alerts?category=" + category
+	}
+}
+
+// TestVerifierNoDutyFallbackCoversEveryBuiltVerifiableModule pins builtVerifiableFeatures against
+// the module registry, in both directions, so the list cannot silently go stale again.
+//
+// The defect this guards (found 2026-08-29): feed_direction, aas_health, and milk were all
+// moduleStatusAvailable with registered verification categories, but builtVerifiableFeatures still
+// carried only the original four features -- so a verifier holding only a coarse department-level
+// "verification" grant (no named duty) silently never saw Health, Feed, or Milk evidence. Nothing
+// erred anywhere; the evidence just never reached her.
+func TestVerifierNoDutyFallbackCoversEveryBuiltVerifiableModule(t *testing.T) {
+	// Modules that are deliberately NOT verifiable: they produce no verification items, so a
+	// verifier fallback entry for them would open a queue that answers 400 unknown_category
+	// forever. Adding a module here instead of builtVerifiableFeatures is a recorded decision,
+	// not a default.
+	notVerifiable := map[string]string{
+		"approvals": "capture-approval queue; approving is not evidence review and enqueues nothing",
+		"clock":     "attendance clock-in/out; no proof video, no verification category",
+		"toxin":     "strip-test module with its own CEO/CXO review routes; not a verificationcatalog producer",
+	}
+
+	listed := map[string]bool{}
+	for _, key := range builtVerifiableFeatures {
+		listed[key] = true
+
+		def, ok := moduleNavRegistry[key]
+		if !ok {
+			t.Fatalf("builtVerifiableFeatures entry %q is not in moduleNavRegistry", key)
+		}
+		if def.status != moduleStatusAvailable {
+			t.Fatalf("builtVerifiableFeatures entry %q has status %q; only built (available) modules are verifier-scoped", key, def.status)
+		}
+	}
+
+	for key, def := range moduleNavRegistry {
+		if def.status != moduleStatusAvailable {
+			continue
+		}
+		if _, exempt := notVerifiable[key]; exempt {
+			if listed[key] {
+				t.Fatalf("module %q is both in builtVerifiableFeatures and in the notVerifiable exemption; pick one", key)
+			}
+			continue
+		}
+		if !listed[key] {
+			t.Fatalf("available module %q is missing from builtVerifiableFeatures: a no-duty verifier would silently never see its evidence. Add it in drawer priority order, or record it in this test's notVerifiable map with a reason", key)
+		}
 	}
 }

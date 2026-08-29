@@ -15,6 +15,41 @@ const (
 	MaxPageSize         = 20
 )
 
+// Clinical case-closure outcomes (POST /app/health/cases/{id}/close, permission health.diagnose).
+// They map 1:1 onto the health_cases.status values 000098 has always allowed but nothing wrote:
+//   - recovered: the course worked; the animal is well.
+//   - referred:  handed to external/specialist care; the in-app course stops. The case stays
+//     holdable by the death workflow (its existing SQL treats 'referred' as open), and may later
+//     be closed 'recovered'.
+//   - canceled:  the diagnosis was withdrawn or the course abandoned by clinical decision.
+//
+// 'continued' (extend the course with more sessions) is deliberately NOT a closure outcome — it
+// needs session materialization and is a separate feature.
+const (
+	CaseOutcomeRecovered = "recovered"
+	CaseOutcomeReferred  = "referred"
+	CaseOutcomeCanceled  = "canceled"
+)
+
+// Verification identity for treatment-evidence review. The producer (CompleteWorkItem's enqueue),
+// the verdict consumer's source filter, and the verificationcatalog category registration must all
+// spell these identically, so they live here once.
+const (
+	VerificationVerticalHealth          = "health"
+	VerificationModuleHealth            = "health"
+	VerificationRefTypeTreatmentSession = "health_treatment_session"
+	VerificationCategoryHealthAdults    = "health_adults"
+	VerificationCategoryHealthKids      = "health_kids"
+)
+
+// VerificationCategoryForAgeBand routes a session's proof to the verifier page for its cohort.
+func VerificationCategoryForAgeBand(ageBand string) string {
+	if ageBand == AgeBandKid {
+		return VerificationCategoryHealthKids
+	}
+	return VerificationCategoryHealthAdults
+}
+
 type ProtocolStep struct {
 	StepID             string  `json:"step_id,omitempty"`
 	DayNo              int     `json:"day_no"`
@@ -130,6 +165,13 @@ type WorkItemPage struct {
 type WorkItemDetail struct {
 	WorkItem
 	Steps []ProtocolStep `json:"steps"`
+	// Caller capabilities, computed by the HTTP layer from the caller's own grants (never a role
+	// string): CanComplete mirrors health.execute, CanCloseCase mirrors health.diagnose. The
+	// route permissions still enforce the write; these exist so a client never renders an action
+	// the caller cannot perform (the 2026-08-29 audit found the Complete button 403-dead-lettering
+	// for health managers, who deliberately do not hold health.execute).
+	CanComplete  bool `json:"can_complete"`
+	CanCloseCase bool `json:"can_close_case"`
 }
 type CompleteInput struct {
 	TenantID           string
@@ -146,6 +188,39 @@ type CompleteResult struct {
 	CompletedAt      time.Time `json:"completed_at"`
 	MedicationCount  int       `json:"medication_count"`
 	IdempotentReplay bool      `json:"idempotent_replay"`
+
+	// Enqueue context for the treatment-evidence verification item, populated by the repository
+	// from the completion transaction's own reads and consumed by the app service's enqueue seam.
+	// Never serialized: the HTTP completion response contract is the five fields above.
+	CaseID         string `json:"-"`
+	GoatID         string `json:"-"`
+	GoatDisplayID  string `json:"-"`
+	DiseaseName    string `json:"-"`
+	AgeBand        string `json:"-"`
+	DayNo          int    `json:"-"`
+	ParkID         string `json:"-"`
+	ShedID         string `json:"-"`
+	ShedLabel      string `json:"-"`
+	PartitionLabel string `json:"-"`
+}
+
+// CloseCaseInput is one clinical closure decision (recovered / referred / canceled).
+type CloseCaseInput struct {
+	TenantID           string
+	ActorID            string
+	CaseID             string
+	Outcome            string
+	Note               string
+	IdempotencyKey     string
+	RequestFingerprint string
+	TraceID            string
+}
+type CloseCaseResult struct {
+	CaseID               string    `json:"case_id"`
+	Status               string    `json:"status"`
+	ClosedAt             time.Time `json:"closed_at"`
+	CanceledSessionCount int       `json:"canceled_session_count"`
+	IdempotentReplay     bool      `json:"idempotent_replay"`
 }
 type SourceProtocol struct {
 	DiseaseKey             string         `json:"disease_key"`

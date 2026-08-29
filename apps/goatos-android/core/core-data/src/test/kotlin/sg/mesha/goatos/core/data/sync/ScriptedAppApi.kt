@@ -180,6 +180,15 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
         registerPcCareTaskProofFn?.invoke(taskId, slot, idempotencyKey, request)
             ?: delegate.registerPcCareTaskProof(taskId, slot, idempotencyKey, request)
     }
+    var closeHealthCaseFn: (suspend (String, String, sg.mesha.goatos.core.network.dto.HealthCloseCaseRequestDto) -> sg.mesha.goatos.core.network.dto.HealthCloseCaseResponseDto)? = null
+
+    override suspend fun closeHealthCase(
+        healthCaseId: String,
+        idempotencyKey: String,
+        request: sg.mesha.goatos.core.network.dto.HealthCloseCaseRequestDto,
+    ): sg.mesha.goatos.core.network.dto.HealthCloseCaseResponseDto =
+        closeHealthCaseFn?.invoke(healthCaseId, idempotencyKey, request)
+            ?: delegate.closeHealthCase(healthCaseId, idempotencyKey, request)
 
     override suspend fun uploadProofBlob(
         proofId: String,

@@ -103,6 +103,15 @@ interface HealthPageMetaDao {
 
     @Query("DELETE FROM health_page_meta WHERE scopeKey = :scopeKey")
     suspend fun delete(scopeKey: String)
+
+    /** Self-ordered (its OWN updatedAt, not the remote-keys join the item/key prunes use) because
+     * refreshCaseOptions writes a meta row with no matching remote key; a join-based prune could
+     * never see it and this table grew without bound (2026-08-29 audit). */
+    @Query(
+        "DELETE FROM health_page_meta WHERE scopeKey IN " +
+            "(SELECT scopeKey FROM health_page_meta ORDER BY updatedAt DESC LIMIT -1 OFFSET :keep)",
+    )
+    suspend fun deleteOldestBeyond(keep: Int)
 }
 
 @Dao

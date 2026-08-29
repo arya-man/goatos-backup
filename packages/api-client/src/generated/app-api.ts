@@ -4362,6 +4362,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/health/cases/{health_case_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close one Health case with its clinical outcome.
+         * @description Records the clinical closure decision (recovered, referred, or canceled) on an open case and cancels its remaining unworked treatment sessions in the same transaction. Completed sessions keep their history and any pending evidence review. Requires the health.diagnose authority; a case held by the death-review workflow, or already closed, refuses with 409 case_not_open. Idempotency-Key makes retries safe.
+         */
+        post: operations["closeHealthCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health-config/protocols": {
         parameters: {
             query?: never;
@@ -13503,6 +13523,10 @@ export interface components {
         };
         HealthWorkItemDetail: components["schemas"]["HealthWorkItem"] & {
             steps: components["schemas"]["HealthTreatmentStep"][];
+            /** @description Whether THIS caller may complete the session (mirrors health.execute). Display gating only; the route permission remains the enforcement. */
+            can_complete: boolean;
+            /** @description Whether THIS caller may clinically close the case (mirrors health.diagnose). Display gating only; the route permission remains the enforcement. */
+            can_close_case: boolean;
         };
         CompleteHealthWorkItemRequest: {
             proof_ref?: string;
@@ -13515,6 +13539,21 @@ export interface components {
             /** Format: date-time */
             completed_at: string;
             medication_count: number;
+            idempotent_replay: boolean;
+        };
+        CloseHealthCaseRequest: {
+            /** @enum {string} */
+            outcome: "recovered" | "referred" | "canceled";
+            note?: string;
+        };
+        CloseHealthCaseResponse: {
+            /** Format: uuid */
+            case_id: string;
+            /** @enum {string} */
+            status: "recovered" | "referred" | "canceled";
+            /** Format: date-time */
+            closed_at: string;
+            canceled_session_count: number;
             idempotent_replay: boolean;
         };
         /** @description The goat-creation request for a newborn. origin_type is pinned to 'birth' by the endpoint: it may be omitted, but if present it must be 'birth'. For this birth route the server ignores child identifiers from the app and generates one provisional identifier per child from the canonical park code (`CBE-` or `CPT-`) plus five deterministic digits. One request fans out according to litter_size, so Twins creates two distinct canonical goats and Triplets creates three. The app never scans a child RFID at birth (docs/decisions/birth-death-workflows.md); the kid is promoted to its permanent RFID later through the "Tag the kid" step / Awaiting RFID flow. */
@@ -22003,6 +22042,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CompleteHealthWorkItemResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    closeHealthCase: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                health_case_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloseHealthCaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Case closed or exact replay returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CloseHealthCaseResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

@@ -155,6 +155,13 @@ enum class ProofFlow(val wireValue: String) {
      * capture identity and a re-shoot replaces that identity rather than accumulating.
      */
     TOXIN("toxin"),
+
+    /**
+     * Health treatment-session video (2026-08-29): the mandatory evidence behind a medicine
+     * administration. Rides the GENERIC storage/idempotency branches like PC_CARE — identity is
+     * taskId = the health_session_id, fieldKey = "health_treatment_video".
+     */
+    HEALTH("health"),
     ;
 
     companion object {

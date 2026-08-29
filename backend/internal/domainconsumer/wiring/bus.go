@@ -59,6 +59,8 @@ type verificationStores struct {
 	weighingAck weighingapp.VerificationApplyAcker
 	// pcCare applies PC Care task verdicts (pc_care/pc_care_task).
 	pcCare eventwiring.PCCareVerdictStore
+	// health applies treatment-session verdicts (health/health_treatment_session).
+	health eventwiring.HealthVerdictStore
 }
 
 // buildDomainBusOn is BuildDomainBus with the bus (and the verdict-applier stores) injected.
@@ -127,7 +129,10 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	if stores.pcCare == nil {
 		stores.pcCare = pccarepg.NewRepository(pool, queryTimeout)
 	}
-	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.milkPreparation, stores.weighing, stores.weighingAck, stores.pcCare, logger)
+	if stores.health == nil {
+		stores.health = healthpg.NewRepository(pool, queryTimeout)
+	}
+	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.milkPreparation, stores.weighing, stores.weighingAck, stores.pcCare, stores.health, logger)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
 	// Birth/death workflow consumers: the ONE shared registration (internal/eventwiring), same set on

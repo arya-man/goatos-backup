@@ -775,6 +775,15 @@ private fun categoryForModuleKey(moduleKey: String?): String? =
     when (moduleKey?.trim()?.lowercase()) {
         "vaccination" -> VACCINATION_CATEGORY
         "weighing" -> WEIGHING_CATEGORY
+        // Landing categories for the remaining registered modules, mirroring the backend's
+        // verificationCategoryForFeature. Without these, a deep link/notification that carries
+        // only the module key fell through to null -> isUnsupportedModule -> a dead screen
+        // (2026-08-29 audit); the queue's own page filter offers the sibling categories.
+        "counts" -> "shifting_move"
+        "feed_direction" -> "feed_distribution"
+        "aas_health" -> "health_adults"
+        "milk" -> "milk_preparation"
+        "pc_care" -> "pc_deworming"
         else -> null
     }
 

@@ -18,15 +18,33 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.update
+import sg.mesha.goatos.capture.ProofCaptureContext
+import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.CaptureDraft
+import sg.mesha.goatos.core.data.CaptureDraftRepository
+import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.HealthFilters
 import sg.mesha.goatos.core.data.HealthRepository
 import sg.mesha.goatos.core.data.CountsRepository
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
+import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofFlow
+import sg.mesha.goatos.core.data.capture.ProofIdentity
+import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.PendingHealthCaseOpen
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.network.dto.HealthWorkItemDetailDto
 import sg.mesha.goatos.core.network.dto.HealthSummaryDto
 import sg.mesha.goatos.core.network.dto.HealthTreatmentStepDto
 import sg.mesha.goatos.core.network.dto.HealthWorkItemDto
@@ -34,6 +52,7 @@ import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
 import sg.mesha.goatos.feature.health.AddHealthCaseEvent
 import sg.mesha.goatos.feature.health.AddHealthCaseUiState
 import sg.mesha.goatos.feature.health.HealthGoatUi
+import sg.mesha.goatos.feature.health.HealthDateMarkerUi
 import sg.mesha.goatos.feature.health.HealthDetailUiState
 import sg.mesha.goatos.feature.health.HealthFilterUi
 import sg.mesha.goatos.feature.health.HealthListEvent
@@ -82,12 +101,16 @@ abstract class HealthListViewModel(
             parkId = selected.parkId,
             shedId = selected.shedId,
             session = selected.session,
-            summary = (page?.summary ?: HealthSummaryDto()).toUi(),
-            diseases = page?.filterOptions?.diseases.orEmpty().map { HealthFilterUi(it.key, it.label) },
-            parks = page?.filterOptions?.parks.orEmpty().map { HealthFilterUi(it.key, it.label) },
-            sheds = page?.filterOptions?.sheds.orEmpty().map { HealthFilterUi(it.key, it.label) },
+            summary = (page?.page?.summary ?: HealthSummaryDto()).toUi(),
+            diseases = page?.page?.filterOptions?.diseases.orEmpty().map { HealthFilterUi(it.key, it.label) },
+            parks = page?.page?.filterOptions?.parks.orEmpty().map { HealthFilterUi(it.key, it.label) },
+            sheds = page?.page?.filterOptions?.sheds.orEmpty().map { HealthFilterUi(it.key, it.label) },
+            dateMarkers = page?.page?.dateMarkers.orEmpty()
+                .filter { it.date != selected.date && it.count > 0 }
+                .map { HealthDateMarkerUi(it.date, dateLabel(it.date), it.count) },
             pendingCases = visiblePendingHealthCases(selected, pending),
             refreshing = loading,
+            lastSyncedAt = page?.updatedAtMs,
             error = failure,
         )
     }.stateIn(
@@ -168,7 +191,7 @@ class AddHealthCaseViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             healthRepository.observePageMeta(HealthFilters(ageBand = ageBand, date = date)).collect { page ->
-                val diseases = page?.filterOptions?.diseases.orEmpty().map { HealthFilterUi(it.key, it.label) }
+                val diseases = page?.page?.filterOptions?.diseases.orEmpty().map { HealthFilterUi(it.key, it.label) }
                 _state.value = _state.value.copy(diseases = diseases)
                 recompute()
             }
@@ -292,14 +315,31 @@ class HealthDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repo: HealthRepository,
     private val syncRepository: SyncRepository,
+    private val proofCaptureSource: ProofCaptureSource,
+    private val proofCaptureRepository: ProofCaptureRepository,
+    private val drafts: CaptureDraftRepository,
+    private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
 ) : ViewModel() {
     private val sessionId: String = checkNotNull(savedStateHandle["healthSessionId"])
-    private val submitting = MutableStateFlow(false)
+    private val ops = MutableStateFlow(HealthDetailOps())
     private val message = MutableStateFlow<String?>(null)
+    private val video = MutableStateFlow(HealthVideoState())
+
+    /** Latest Room-backed detail, for the capture/close context (goat, case, band, date). */
+    private var latestDetail: HealthWorkItemDetailDto? = null
+
+    /** Durable per session; survives process death and re-entry, so a recorded clip renders
+     *  "recorded" instead of asking for the camera again. */
+    private var draft = CaptureDraft()
+    private var proofStatusJob: Job? = null
 
     val state: StateFlow<HealthDetailUiState> = combine(
-        repo.observeDetail(sessionId), submitting, message,
-    ) { detail, saving, notice ->
+        repo.observeDetail(sessionId), ops, message, video,
+    ) { detail, opsState, notice, videoState ->
+        val saving = opsState.submitting
+        val closingCase = opsState.closing
+        latestDetail = detail
         if (detail == null) HealthDetailUiState(loading = true, submitting = saving, message = notice)
         else HealthDetailUiState(
             loading = false,
@@ -310,30 +350,263 @@ class HealthDetailViewModel @Inject constructor(
             status = detail.status,
             steps = detail.steps.map(HealthTreatmentStepDto::toUi),
             submitting = saving,
+            closing = closingCase,
+            refreshing = opsState.refreshing,
             message = notice,
+            // Backend-owned capability gating (can_complete mirrors health.execute): the audit
+            // found the button rendering for principals whose tap could only ever 403.
+            canComplete = detail.canComplete && detail.status in OPEN_STATUSES && !saving &&
+                videoState.captured && !videoState.capturing,
+            canRecordVideo = detail.canComplete && detail.status in OPEN_STATUSES && !saving,
+            canCloseCase = detail.canCloseCase && detail.status !in CLOSED_SESSION_STATUSES && !closingCase,
+            videoCaptured = videoState.captured,
+            isCapturingVideo = videoState.capturing,
+            videoMessage = videoState.message,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HealthDetailUiState())
 
-    init { refresh() }
+    init {
+        analytics.track(AnalyticsEvents.HEALTH_VIEWED, mapOf(AnalyticsEvents.Params.KIND to "work_item"))
+        refresh()
+        viewModelScope.launch {
+            draft = drafts.find(CaptureFlow.HEALTH_TREATMENT, sessionId)
+            val proofItem = draft.proofs[STEP_VIDEO]
+            if (proofItem != null) {
+                video.update { it.copy(captured = true, message = VIDEO_QUEUED) }
+                observeProofItem(proofItem)
+            }
+        }
+        observeDurableProof()
+    }
 
-    fun refresh() = viewModelScope.launch { repo.refreshDetail(sessionId) }
+    fun refresh() = viewModelScope.launch {
+        if (ops.value.refreshing) return@launch
+        ops.update { it.copy(refreshing = true) }
+        try {
+            repo.refreshDetail(sessionId)
+        } finally {
+            ops.update { it.copy(refreshing = false) }
+        }
+    }
+
+    /** MANDATORY treatment video — a LIVE in-app camera clip, enqueued as a PROOF_UPLOAD on the
+     *  SESSION group so it drains before the completion that references it. Camera-only. */
+    fun recordVideo(replacing: Boolean = false) {
+        val detail = latestDetail ?: return
+        if (video.value.capturing) return
+        if (!replacing && video.value.captured) return
+        video.update { it.copy(capturing = true, message = null) }
+        viewModelScope.launch {
+            val captured = try {
+                proofCaptureSource.captureVideo(
+                    ProofCaptureContext(
+                        title = "Health treatment · ${detail.diseaseName}",
+                        primaryTag = detail.goatDisplayId.ifBlank { detail.goatId },
+                        workLabel = "Day ${detail.dayNo} · ${detail.session}",
+                    ),
+                )
+            } catch (error: Exception) {
+                crashReporter.recordException(error, "health treatment video capture failed")
+                null
+            }
+            if (captured == null) {
+                video.update { it.copy(capturing = false) }
+                return@launch
+            }
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(flow = ProofFlow.HEALTH, taskId = sessionId),
+                fieldKey = FIELD_HEALTH_TREATMENT_VIDEO,
+            )
+            when (
+                val result = proofCaptureRepository.captureReplacingLatest(
+                    slot = slot,
+                    subject = ProofSubject.GOAT,
+                    subjectId = detail.goatId,
+                    localUri = captured.localUri,
+                    mimeType = captured.mimeType,
+                    caption = "Health · ${detail.diseaseName} · ${detail.goatDisplayId.ifBlank { detail.goatId }} · Day ${detail.dayNo}",
+                    scopeType = "goat",
+                    scopeId = detail.goatId,
+                    capturedStartMs = captured.startedAtMs,
+                    capturedEndMs = captured.endedAtMs,
+                    capturedByPrincipalId = null,
+                    proofPolicy = healthTreatmentProofPolicy(captured.captureSource),
+                    awaitUploadEnqueue = true,
+                    // SAME group as the completion (the session id), so the upload drains
+                    // strictly before the completion write that references it.
+                    uploadGroupKey = sessionId,
+                )
+            ) {
+                is AppResult.Ok -> {
+                    val proofOutboxId = result.value.outboxItemId
+                    if (proofOutboxId.isNullOrBlank()) {
+                        video.update { it.copy(capturing = false, captured = false, message = PROOF_FAILED) }
+                        return@launch
+                    }
+                    drafts.putProof(CaptureFlow.HEALTH_TREATMENT, sessionId, STEP_VIDEO, proofOutboxId)
+                    draft = drafts.find(CaptureFlow.HEALTH_TREATMENT, sessionId)
+                    observeProofItem(proofOutboxId)
+                    analytics.track(AnalyticsEvents.HEALTH_TREATMENT_VIDEO_CAPTURED)
+                    video.update { it.copy(capturing = false, captured = true, message = VIDEO_QUEUED) }
+                }
+                is AppResult.Err -> {
+                    result.cause?.let { crashReporter.recordException(it, "health treatment video enqueue failed") }
+                    analytics.track(
+                        AnalyticsEvents.HEALTH_WRITE_FAILURE,
+                        mapOf(AnalyticsEvents.Params.KIND to "work_item", AnalyticsEvents.Params.REASON to result.message),
+                    )
+                    video.update { it.copy(capturing = false, captured = false, message = PROOF_FAILED) }
+                }
+            }
+        }
+    }
+
+    private fun observeProofItem(itemId: String) {
+        proofStatusJob?.cancel()
+        proofStatusJob = viewModelScope.launch {
+            syncRepository.observeItem(itemId)
+                .filterNotNull()
+                .distinctUntilChanged()
+                .collect { item ->
+                    val note = when (item.status) {
+                        SyncItemStatus.QUEUED -> VIDEO_QUEUED
+                        SyncItemStatus.IN_FLIGHT -> PROOF_UPLOADING
+                        SyncItemStatus.SUCCEEDED -> PROOF_SYNCED
+                        SyncItemStatus.FAILED -> item.lastError ?: PROOF_FAILED
+                    }
+                    video.update {
+                        it.copy(
+                            captured = it.captured || item.status != SyncItemStatus.FAILED,
+                            message = note,
+                        )
+                    }
+                    if (item.status == SyncItemStatus.FAILED) {
+                        video.update { it.copy(captured = false) }
+                    }
+                }
+        }
+    }
+
+    /** Re-hydrate a clip recorded before process death from the durable capture rows. */
+    private fun observeDurableProof() {
+        viewModelScope.launch {
+            proofCaptureRepository.observeProofs(sessionId).collect { rows ->
+                val row = rows
+                    .filter { it.fieldKey == FIELD_HEALTH_TREATMENT_VIDEO && it.syncStatus != CaptureSyncStatus.FAILED }
+                    .maxByOrNull { it.capturedAtMs }
+                    ?: return@collect
+                row.outboxItemId?.takeIf { it.isNotBlank() }?.let { outboxId ->
+                    if (draft.proofs[STEP_VIDEO] != outboxId) {
+                        drafts.putProof(CaptureFlow.HEALTH_TREATMENT, sessionId, STEP_VIDEO, outboxId)
+                        draft = drafts.find(CaptureFlow.HEALTH_TREATMENT, sessionId)
+                    }
+                    observeProofItem(outboxId)
+                }
+                video.update { it.copy(captured = true) }
+            }
+        }
+    }
 
     fun complete() = viewModelScope.launch {
-        if (submitting.value) return@launch
-        submitting.value = true
+        if (ops.value.submitting) return@launch
+        val videoItem = draft.proofs[STEP_VIDEO]
+        if (videoItem.isNullOrBlank()) {
+            video.update { it.copy(message = NEED_VIDEO_MESSAGE) }
+            return@launch
+        }
+        ops.update { it.copy(submitting = true) }
+        // The PROOF is part of the key: a retry of the same video replays for free, while a
+        // rework re-shoot (new video) is a NEW completion that must not collide with the first
+        // one's SUCCEEDED outbox row — the exact silent-drop defect of the 2026-08-29 audit.
         when (val result = syncRepository.enqueueHealthTreatmentComplete(
             healthSessionId = sessionId,
-            idempotencyKey = "health-complete:$sessionId",
+            idempotencyKey = "health-complete:$sessionId:$videoItem",
+            proofOutboxItemId = videoItem,
         )) {
             is AppResult.Ok -> {
                 repo.markCompleted(sessionId)
+                analytics.track(AnalyticsEvents.HEALTH_TREATMENT_SUBMITTED)
                 message.value = "Saved offline. Sync will finish automatically."
             }
-            is AppResult.Err -> message.value = result.message
+            is AppResult.Err -> {
+                analytics.track(
+                    AnalyticsEvents.HEALTH_WRITE_FAILURE,
+                    mapOf(AnalyticsEvents.Params.KIND to "work_item", AnalyticsEvents.Params.REASON to result.message),
+                )
+                message.value = result.message
+            }
         }
-        submitting.value = false
+        ops.update { it.copy(submitting = false) }
+    }
+
+    /** Clinical case closure (health.diagnose): recovered / referred / canceled. */
+    fun closeCase(outcome: String, note: String) = viewModelScope.launch {
+        val detail = latestDetail ?: return@launch
+        if (ops.value.closing) return@launch
+        ops.update { it.copy(closing = true) }
+        when (val result = syncRepository.enqueueHealthCaseClose(
+            healthCaseId = detail.caseId,
+            outcome = outcome,
+            note = note,
+            // Outcome + note are part of the key so a retry replays while a corrected decision
+            // is a new act; the backend refuses a second closure of a closed case regardless.
+            idempotencyKey = "health-close:${detail.caseId}:$outcome:${note.hashCode()}",
+            ageBand = detail.ageBand,
+            businessDate = detail.businessDate,
+            healthSessionId = sessionId,
+        )) {
+            is AppResult.Ok -> {
+                analytics.track(AnalyticsEvents.HEALTH_CASE_CLOSED, mapOf(AnalyticsEvents.Params.KIND to outcome))
+                message.value = "Outcome recorded. Sync will finish automatically."
+            }
+            is AppResult.Err -> {
+                analytics.track(
+                    AnalyticsEvents.HEALTH_WRITE_FAILURE,
+                    mapOf(AnalyticsEvents.Params.KIND to "case_close", AnalyticsEvents.Params.REASON to result.message),
+                )
+                message.value = result.message
+            }
+        }
+        ops.update { it.copy(closing = false) }
+    }
+
+    private data class HealthDetailOps(
+        val submitting: Boolean = false,
+        val closing: Boolean = false,
+        val refreshing: Boolean = false,
+    )
+
+    private data class HealthVideoState(
+        val captured: Boolean = false,
+        val capturing: Boolean = false,
+        val message: String? = null,
+    )
+
+    companion object {
+        private val OPEN_STATUSES = setOf("due", "scheduled", "in_progress", "rework")
+        private val CLOSED_SESSION_STATUSES = setOf("canceled_death", "canceled")
+        private const val STEP_VIDEO = "video"
+        private const val FIELD_HEALTH_TREATMENT_VIDEO = "health_treatment_video"
+        private const val VIDEO_QUEUED = "Treatment video saved on this phone. It will upload automatically."
+        private const val PROOF_UPLOADING = "Treatment video upload is in progress."
+        private const val PROOF_SYNCED = "Treatment video is ready."
+        private const val PROOF_FAILED = "Couldn't save that video. Please record it again."
+        private const val NEED_VIDEO_MESSAGE = "Record the treatment video before completing."
     }
 }
+
+internal fun healthTreatmentProofPolicy(captureSource: String): ProofPolicy =
+    ProofPolicy.Default.copy(
+        proofMode = "per_session_video",
+        subjectScope = ProofSubject.GOAT.wireValue,
+        expectedSubjects = listOf(ProofSubject.GOAT.wireValue),
+        captureSource = captureSource,
+        // One active clip per session (the slot's task id IS the session); the per-subject budget
+        // covers one goat's whole multi-day course plus transient replacement rows.
+        maximumCountPerField = 1,
+        maximumCountPerSubject = 200,
+    )
+
 
 private fun HealthWorkItemDto.toUi() = HealthWorkItemUi(
     healthSessionId = healthSessionId,
@@ -360,7 +633,16 @@ private fun GoatSearchItemDto.toHealthGoatUi() = HealthGoatUi(
 internal fun healthGoatMatchesAgeBand(goat: GoatSearchItemDto, requiredAgeBand: String): Boolean =
     goat.ageBand?.trim()?.lowercase() == requiredAgeBand
 
-private fun HealthSummaryDto.toUi() = HealthSummaryUi(total, due, scheduled, completed, held)
+private fun HealthSummaryDto.toUi() = HealthSummaryUi(
+    total = total,
+    due = due,
+    scheduled = scheduled,
+    inProgress = inProgress,
+    completed = completed,
+    rework = rework,
+    held = held,
+    canceledDeath = canceledDeath,
+)
 
 /**
  * Pending reports have only goat/disease/date grain. Scope or canonical-session status filters
@@ -405,5 +687,5 @@ private fun HealthTreatmentStepDto.toUi(): HealthStepUi {
         medicineRoute?.takeIf(String::isNotBlank),
         instruction?.takeIf(String::isNotBlank),
     ).joinToString(" · ")
-    return HealthStepUi(stepId.ifBlank { "$dayNo-$session-$seq" }, title, details, criticalActionType != null)
+    return HealthStepUi(stepId.ifBlank { "$dayNo-$session-$seq" }, title, details, criticalActionType != null, status)
 }

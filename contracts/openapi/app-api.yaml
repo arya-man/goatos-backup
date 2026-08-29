@@ -11177,6 +11177,42 @@ paths:
         "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
         "409": { $ref: "#/components/responses/WriteConflict" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/cases/{health_case_id}/close:
+    post:
+      tags: [Health]
+      operationId: closeHealthCase
+      summary: Close one Health case with its clinical outcome.
+      description: >-
+        Records the clinical closure decision (recovered, referred, or canceled) on an open case
+        and cancels its remaining unworked treatment sessions in the same transaction. Completed
+        sessions keep their history and any pending evidence review. Requires the health.diagnose
+        authority; a case held by the death-review workflow, or already closed, refuses with 409
+        case_not_open. Idempotency-Key makes retries safe.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: health_case_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseHealthCaseRequest"
+      responses:
+        "200":
+          description: Case closed or exact replay returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloseHealthCaseResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /health-config/protocols:
     get:
       tags: [Health Config]
@@ -32491,9 +32527,19 @@ components:
       allOf:
         - $ref: "#/components/schemas/HealthWorkItem"
         - type: object
-          required: [steps]
+          required: [steps, can_complete, can_close_case]
           properties:
             steps: { type: array, items: { $ref: "#/components/schemas/HealthTreatmentStep" } }
+            can_complete:
+              type: boolean
+              description: >-
+                Whether THIS caller may complete the session (mirrors health.execute). Display
+                gating only; the route permission remains the enforcement.
+            can_close_case:
+              type: boolean
+              description: >-
+                Whether THIS caller may clinically close the case (mirrors health.diagnose).
+                Display gating only; the route permission remains the enforcement.
     CompleteHealthWorkItemRequest:
       type: object
       additionalProperties: false
@@ -32508,6 +32554,25 @@ components:
         status: { type: string, enum: [completed] }
         completed_at: { type: string, format: date-time }
         medication_count: { type: integer, minimum: 0 }
+        idempotent_replay: { type: boolean }
+    CloseHealthCaseRequest:
+      type: object
+      additionalProperties: false
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [recovered, referred, canceled]
+        note: { type: string }
+    CloseHealthCaseResponse:
+      type: object
+      additionalProperties: false
+      required: [case_id, status, closed_at, canceled_session_count, idempotent_replay]
+      properties:
+        case_id: { type: string, format: uuid }
+        status: { type: string, enum: [recovered, referred, canceled] }
+        closed_at: { type: string, format: date-time }
+        canceled_session_count: { type: integer, minimum: 0 }
         idempotent_replay: { type: boolean }
     RecordBirthEventRequest:
       description: >-
