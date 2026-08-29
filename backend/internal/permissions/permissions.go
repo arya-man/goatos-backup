@@ -324,6 +324,10 @@ const (
 	// SalesWrite gates recording a sale (POST /sales/deals). Kept separate from SalesRead so a
 	// read-only oversight tier is expressible without a schema change.
 	SalesWrite = "sales.write"
+	// SalesAllocateAnimals gates mapping live herd animals to an already-recorded sale and exiting
+	// them as sold. It deliberately does NOT ride SalesWrite: recording ledger/pipeline data and
+	// mutating canonical goat lifecycle are different authorities.
+	SalesAllocateAnimals = "sales.allocate_animals"
 	// FeedPurchaseRead gates the FEED PURCHASE LEDGER (/procurement/feed-purchases, backend
 	// /procurement/feed-purchases*): what feed the farm bought, from whom, at what landed cost, and
 	// whether it has been paid for.
@@ -1066,7 +1070,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		LocationsRead:     {}, SOPRead: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
-		SalesRead: {}, SalesWrite: {},
+		SalesRead: {}, SalesWrite: {}, SalesAllocateAnimals: {},
 		FeedDirectionRead: {}, FeedPackingRead: {}, FeedWastageRead: {}, FeedTransportRead: {},
 		// The feed purchase ledger in full (maintainer decision 2026-08-24). This is a BUYING
 		// surface, so it sits inside this director's desk rather than being one of the read-only
@@ -1204,7 +1208,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
 		// The sales module (/sales): ledger, overview and record-sale. Same
 		// founder/builder visibility invariant.
-		SalesRead: {}, SalesWrite: {},
+		SalesRead: {}, SalesWrite: {}, SalesAllocateAnimals: {},
 		// The feed purchase ledger (/procurement/feed-purchases): what feed was bought, at what
 		// landed cost, from whom. Same founder/builder visibility invariant.
 		FeedPurchaseRead: {}, FeedPurchaseWrite: {},

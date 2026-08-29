@@ -334,6 +334,15 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		Key:      "sale_allocation",
+		Label:    "Sale Animal Allocation",
+		Blurb:    "Maps sold animals and applies their sold exit.",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelDo: {SalesAllocateAnimals},
+		},
+	},
+	{
 		Key:      "verification",
 		Label:    "Video Verification",
 		Blurb:    "Reviewing the proof videos operators record.",

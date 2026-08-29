@@ -124,6 +124,7 @@ var moduleRoutePrefixes = map[string]string{
 	"/verify":                     "verification",
 	"/procurement/source-entry":   "procurement",
 	"/procurement/vendors":        "vendors",
+	"/admin/goats/sale":           "sale_allocation",
 	"/sales":                      "sales",
 	"/procurement/feed-purchases": "feed_purchases",
 	"/counts":                     "counts",
