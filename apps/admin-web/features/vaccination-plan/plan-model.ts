@@ -95,7 +95,10 @@ function prettyCode(code: string): string {
  *
  * The trigger is the distinction that actually matters to a reader: a birth_age
  * dose lands on its own from the animal's date of birth, a manual_campaign dose
- * waits for someone to start a drive.
+ * waits for someone to start a drive. When operations sets a manual campaign as
+ * an anchor date for a vaccine family, config edits must preserve that meaning:
+ * DOB, arrival, or calendar base rows for the same animal/vaccine family start
+ * from that anchor instead of recreating older work.
  */
 export function describeFirstDoses(rules: ScheduleRule[]): string {
   if (rules.length === 0) return "—";

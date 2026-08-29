@@ -55,6 +55,23 @@ Priority order (1 = highest): Z1+Z3 → PPR → Goat Pox / Sheep Pox → Blue To
 FMD / HS. The source now specifies every priority (earlier revisions left the
 non-core rows blank).
 
+## Manual Anchor Dates
+
+Operations may set a manual campaign date as the first known anchor for any
+vaccine family when historical/base vaccination data is missing or intentionally
+reset. That anchor applies to every selected animal for that vaccine family,
+kids and adults included. From that date onward, repeats and boosters follow the
+published vaccine rules; DOB, arrival, and calendar base rules must not recreate
+older work before the manual anchor, including after the anchor row becomes
+`missed`.
+
+When scheduling an anchor campaign, split operator work at the common cap of 200
+animals per operator/day. Prefer whole shed/partition groups: if adding the next
+shed would cross 200, stop below the cap. Partitions sharing a parent shed name
+(for example `Mandela 1 - Part 1` through `Mandela 1 - Part 8`) should stay
+together where the cap allows, and operator assignment must remain within the
+operator's park scope.
+
 ## Source Dose / Vial Table
 
 | Vaccine | Source course type | Dosage | Vial doses |

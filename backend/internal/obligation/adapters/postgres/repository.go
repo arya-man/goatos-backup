@@ -2412,7 +2412,7 @@ JOIN protocol_rule_dimensions d
 WHERE oi.tenant_id = $1
   AND oi.target_type = 'goat'
   AND oi.target_id = $2
-  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
   AND pr.trigger_type = 'manual_campaign'
   AND d.category = 'vaccination'
   AND d.vaccine_code = ANY($3::text[])
