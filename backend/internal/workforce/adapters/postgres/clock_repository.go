@@ -305,7 +305,7 @@ WHERE wm.tenant_id = $1::uuid
 const clockBucketExpr = `
 CASE
   WHEN e.clock_entry_id IS NULL THEN 'not_clocked_in'
-  WHEN e.status = 'open' THEN 'working'
+  WHEN e.status = 'open' AND e.business_date = $6::date THEN 'working'
   ELSE 'clocked_out'
 END`
 

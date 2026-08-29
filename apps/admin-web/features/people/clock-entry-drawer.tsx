@@ -72,14 +72,19 @@ export function ClockEntryDrawer({
 
   useEffect(() => {
     if (!selection) return;
+    let active = true;
     startTransition(async () => {
       const result = await loadClockEntryDetailAction(selection);
+      if (!active || readClockingParam() !== selection) return;
       if (!result.ok) {
         setError(result.message);
         return;
       }
       setDetail(result.detail);
     });
+    return () => {
+      active = false;
+    };
   }, [selection]);
 
   const close = useCallback(() => {

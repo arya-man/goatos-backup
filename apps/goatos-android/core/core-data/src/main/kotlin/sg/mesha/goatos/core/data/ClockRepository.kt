@@ -1,10 +1,14 @@
 package sg.mesha.goatos.core.data
 
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.clock.ClockPunchDirection
@@ -24,6 +28,7 @@ import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
 import sg.mesha.goatos.core.network.dto.ClockStatusResponseDto
 import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.time.format.DateTimeFormatter
 
 /**
@@ -110,11 +115,10 @@ interface ClockRepository {
     suspend fun fetchPersonDay(workforceMemberId: String, date: String?): Result<ClockPersonDayResponseDto>
 
     /**
-     * The punch still sitting on the outbox for TODAY, or null. Durable: read
-     * from the outbox table itself, so a queued punch survives process death
-     * and navigation — the screen must acknowledge it until it drains
-     * (E2E finding 2026-08-28: a queued punch was invisible and the button
-     * stayed tappable). Emits "clock_in" | "clock_out" | null.
+     * The punch still sitting on the outbox, or null. Durable: read from the outbox table itself,
+     * so a queued punch survives process death and navigation. Emits "clock_in" | "clock_out" for
+     * today's pending write and "clock_in_old" | "clock_out_old" for an earlier-day write that still
+     * deserves acknowledgement but must not block today's punch.
      */
     fun observePendingPunch(): Flow<String?>
 }
@@ -237,12 +241,24 @@ class DefaultClockRepository(
         return combine(
             activePunchGroups("CLOCK_IN"),
             activePunchGroups("CLOCK_OUT"),
-        ) { ins, outs ->
+            businessDayTicks(),
+        ) { ins, outs, currentGroup ->
             when {
-                ins.isNotEmpty() -> "clock_in"
-                outs.isNotEmpty() -> "clock_out"
+                currentGroup in ins -> "clock_in"
+                currentGroup in outs -> "clock_out"
+                ins.isNotEmpty() -> "clock_in_old"
+                outs.isNotEmpty() -> "clock_out_old"
                 else -> null
             }
+        }
+    }
+
+    private fun businessDayTicks(): Flow<String> = flow {
+        while (currentCoroutineContext().isActive) {
+            val zonedNow = now().atZoneSameInstant(IST)
+            emit(clockPunchGroupKey(zonedNow.toLocalDate().toString()))
+            val nextDay = zonedNow.toLocalDate().plusDays(1).atStartOfDay(IST)
+            delay(ChronoUnit.MILLIS.between(zonedNow, nextDay).coerceAtLeast(1L))
         }
     }
 

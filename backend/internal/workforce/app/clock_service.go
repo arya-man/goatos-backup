@@ -47,6 +47,9 @@ func (s *ClockService) Punch(ctx context.Context, tenantID, actorID, eventType s
 	if eventType != clockEventIn && eventType != clockEventOut {
 		return nil, BadRequest("invalid_event_type", "unknown clock event type")
 	}
+	if strings.TrimSpace(req.IdempotencyKey) == "" {
+		return nil, BadRequest("missing_idempotency_key", "idempotency_key is required")
+	}
 	if req.Integrity.MockLocation || len(req.Integrity.MockProviderPackages) > 0 {
 		return nil, &Error{Code: "mock_location_detected", Message: clockCopyFor(localeTag)["refusal.mock"], HTTPStatus: 422}
 	}
@@ -491,13 +494,9 @@ func (s *ClockService) composePresenceRow(raw ports.ClockPresenceRawRow, busines
 	row.ClockInAt = &entry.ClockInAt
 	row.ClockOutAt = entry.ClockOutAt
 	row.WorkedMinutes = entry.WorkedMinutes
-	if entryRow.Status == "open" {
+	if entryRow.Status == "open" && businessDate == today {
 		row.Bucket = "working"
-		if businessDate == today {
-			row.TimeLabel = fmt.Sprintf(copyMap["row.working"], entry.ClockInLabel, entry.HoursLabel)
-		} else {
-			row.TimeLabel = fmt.Sprintf(copyMap["row.open_past"], entry.ClockInLabel)
-		}
+		row.TimeLabel = fmt.Sprintf(copyMap["row.working"], entry.ClockInLabel, entry.HoursLabel)
 	} else {
 		row.Bucket = "clocked_out"
 		if entry.ClockOutLabel != nil && entry.HoursLabel != "" {

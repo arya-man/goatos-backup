@@ -183,3 +183,43 @@ WHERE tenant_id=$1 AND workforce_member_id=$2 AND business_date=$3::date`,
 		t.Fatalf("detail events: want [clock_in clock_out], got %+v", detail.Events)
 	}
 }
+
+func TestClockPresenceDoesNotCountStaleOpenDayAsWorking(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, user_id, display_code, display_name, status, primary_role_hint)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'CLOCK-ST', 'Stale Open Member', 'active', 'operator')`,
+		clockMember, clockTenant, clockActor); err != nil {
+		t.Fatalf("seed workforce_members: %v", err)
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+	staleDay := "2020-01-01"
+	if _, err := repo.RecordClockPunch(ctx, clockPunch(clockMember, clockActor, "clock_in", "stale-in", staleDay, time.Date(2020, 1, 1, 3, 0, 0, 0, time.UTC))); err != nil {
+		t.Fatalf("clock_in stale day: %v", err)
+	}
+
+	page, err := repo.ListClockPresence(ctx, ports.ClockPresenceParams{
+		TenantID: clockTenant, BusinessDate: staleDay, Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("ListClockPresence: %v", err)
+	}
+	if page.Summary.Working != 0 || page.Summary.ClockedOut != 1 || page.Summary.Flagged != 1 {
+		t.Fatalf("summary=%+v want working=0 clocked_out=1 flagged=1", page.Summary)
+	}
+
+	working, err := repo.ListClockPresence(ctx, ports.ClockPresenceParams{
+		TenantID: clockTenant, BusinessDate: staleDay, Bucket: "working", Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("ListClockPresence working: %v", err)
+	}
+	if len(working.Rows) != 0 {
+		t.Fatalf("stale open day must not appear in working bucket; got %+v", working.Rows)
+	}
+}

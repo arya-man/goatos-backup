@@ -3,7 +3,11 @@ package sg.mesha.goatos.core.data
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -168,7 +172,58 @@ class ClockPunchTest {
             },
         )
 
-        assertEquals("clock_in", repo.observePendingPunch().first())
+        assertEquals("clock_in_old", repo.observePendingPunch().first())
+    }
+
+    @Test
+    fun `pending punch from current IST day remains blocking`() = runTest {
+        val repo = repository(
+            RecordingSyncRepository(),
+            MockLocationVerdict.Clean,
+            now = { OffsetDateTime.parse("2026-08-29T00:05:00+05:30") },
+            activePunchGroups = { opType ->
+                flowOf(
+                    if (opType == "CLOCK_OUT") {
+                        setOf(clockPunchGroupKey("2026-08-29"))
+                    } else {
+                        emptySet()
+                    },
+                )
+            },
+        )
+
+        assertEquals("clock_out", repo.observePendingPunch().first())
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun `pending punch flips to old when IST day changes without outbox emission`() = runTest {
+        var now = OffsetDateTime.parse("2026-08-28T23:59:59.900+05:30")
+        val emissions = mutableListOf<String?>()
+        val repo = repository(
+            RecordingSyncRepository(),
+            MockLocationVerdict.Clean,
+            now = { now },
+            activePunchGroups = { opType ->
+                flowOf(
+                    if (opType == "CLOCK_IN") {
+                        setOf(clockPunchGroupKey("2026-08-28"))
+                    } else {
+                        emptySet()
+                    },
+                )
+            },
+        )
+
+        val job = backgroundScope.launch {
+            repo.observePendingPunch().take(2).toList(emissions)
+        }
+        advanceTimeBy(100)
+        now = OffsetDateTime.parse("2026-08-29T00:00:00+05:30")
+        advanceTimeBy(1)
+        job.join()
+
+        assertEquals(listOf("clock_in", "clock_in_old"), emissions)
     }
 
     // --- fixtures -----------------------------------------------------------------------------

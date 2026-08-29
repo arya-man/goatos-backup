@@ -140,7 +140,7 @@ class ClockViewModel @Inject constructor(
         // a queued punch must stay visible across navigation and process death
         // until it drains (E2E finding 2026-08-28).
         combine(repo.observePendingPunch(), _punchInFlight) { queued, inFlight ->
-            queued ?: if (inFlight) "in_flight" else null
+            if (inFlight) "in_flight" else queued
         },
     ) { dto, refreshing, refusal, pending ->
         composeState(dto, refreshing, refusal, pending)
@@ -168,8 +168,10 @@ class ClockViewModel @Inject constructor(
             },
         )
         viewModelScope.launch {
+            _punchInFlight.value = true
             when (val outcome = repo.punch(direction)) {
                 is ClockPunchOutcome.Blocked -> {
+                    _punchInFlight.value = false
                     analytics.track(
                         AnalyticsEventsClock.CLOCK_IN_REFUSED_MOCK,
                         mapOf(AnalyticsEvents.Params.REASON to if (outcome.verdict.mockFix) "mock_fix" else "mock_app"),
@@ -183,6 +185,7 @@ class ClockViewModel @Inject constructor(
                     )
                 }
                 is ClockPunchOutcome.NoLocation -> {
+                    _punchInFlight.value = false
                     analytics.track(
                         AnalyticsEventsClock.CLOCK_REFUSED_NO_LOCATION,
                         mapOf(AnalyticsEvents.Params.REASON to if (outcome.permissionMissing) "permission" else "no_fix"),
@@ -204,6 +207,7 @@ class ClockViewModel @Inject constructor(
                     watchPending(outcome.outboxItemId)
                 }
                 is ClockPunchOutcome.Failed -> {
+                    _punchInFlight.value = false
                     crashReporter.recordException(
                         IllegalStateException(outcome.message),
                         "clock punch enqueue failed",
@@ -250,7 +254,7 @@ class ClockViewModel @Inject constructor(
         val copy = dto?.copy.orEmpty()
         val stateKey = dto?.state.orEmpty()
         val entry = dto?.entry
-        val inFlight = pending != null
+        val inFlight = pending == "clock_in" || pending == "clock_out" || pending == "in_flight"
         val baseHeadline = when (stateKey) {
             "clocked_in" -> template(copy["state.clocked_in"].orEmpty(), entry?.clockInLabel.orEmpty())
             // An auto-closed day has NO hours (never invented); trim the
@@ -264,7 +268,7 @@ class ClockViewModel @Inject constructor(
         // payload from before the pending copy shipped falls back to the plain
         // state headline (the button below is still disabled either way).
         val pendingKey = when {
-            pending == "clock_out" || (pending != null && stateKey == "clocked_in") -> "state.clock_out_pending"
+            pending == "clock_out" || pending == "clock_out_old" || (pending == "in_flight" && stateKey == "clocked_in") -> "state.clock_out_pending"
             pending != null -> "state.clock_in_pending"
             else -> null
         }

@@ -102,6 +102,23 @@ func TestPunchRefusesMockLocationBeforeAnyWrite(t *testing.T) {
 	}
 }
 
+func TestPunchRequiresIdempotencyKey(t *testing.T) {
+	repo := &fakeClockRepo{}
+	svc := newClockServiceForTest(repo)
+	lat, lng := 12.65, 77.21
+
+	_, err := svc.Punch(context.Background(), "t1", "u1", "clock_in", domain.ClockPunchRequest{
+		Location: domain.ClockLocation{Status: "captured", Latitude: &lat, Longitude: &lng},
+	}, httpmiddleware.ClientInfo{}, "en", "trace")
+	appErr, ok := err.(*Error)
+	if !ok || appErr.Code != "missing_idempotency_key" || appErr.HTTPStatus != 400 {
+		t.Fatalf("want 400 missing_idempotency_key, got %#v", err)
+	}
+	if repo.lastPunch != nil {
+		t.Fatalf("repository must not be reached without an idempotency key")
+	}
+}
+
 // D1: an offline punch anchors its business day and effective instant on the
 // DEVICE tap time, not server arrival; an online punch anchors on server now.
 func TestOfflinePunchAnchorsOnDeviceCapturedAt(t *testing.T) {
@@ -370,6 +387,28 @@ func TestPresenceComposesBucketsAndRowLines(t *testing.T) {
 	}
 	if len(resp.Parks) != 1 || resp.Parks[0].Label != "CPT" {
 		t.Fatalf("park filter options must come from the catalog; got %+v", resp.Parks)
+	}
+}
+
+func TestPresenceComposesStaleOpenRowAsClockedOut(t *testing.T) {
+	svc := newClockServiceForTest(&fakeClockRepo{})
+	staleDay := "2020-01-01"
+	row := svc.composePresenceRow(ports.ClockPresenceRawRow{
+		WorkforceMemberID: "m4",
+		PersonName:        "Ravi",
+		RoleHint:          "operator",
+		Entry: &ports.ClockEntryRow{
+			ClockEntryID: "e4",
+			BusinessDate: staleDay,
+			Status:       "open",
+			ClockInAt:    time.Date(2020, 1, 1, 3, 0, 0, 0, time.UTC),
+		},
+	}, staleDay, biztime.BusinessDate(time.Now()), clockCopyFor("en"))
+	if row.Bucket != "clocked_out" || row.TimeLabel == "" {
+		t.Fatalf("stale open row must compose as clocked_out with an open-past line; got %+v", row)
+	}
+	if len(row.Flags) == 0 || row.Flags[0].Key != "not_clocked_out" {
+		t.Fatalf("stale open row must carry not_clocked_out flag; got %+v", row.Flags)
 	}
 }
 
