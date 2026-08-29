@@ -25,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -40,6 +41,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -55,6 +59,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import java.time.Instant
@@ -78,9 +83,15 @@ data class HealthSummaryUi(
     val total: Int = 0,
     val due: Int = 0,
     val scheduled: Int = 0,
+    val inProgress: Int = 0,
     val completed: Int = 0,
+    val rework: Int = 0,
     val held: Int = 0,
+    val canceledDeath: Int = 0,
 )
+
+@Immutable
+data class HealthDateMarkerUi(val dateIso: String, val label: String, val count: Int)
 
 @Immutable
 data class HealthWorkItemUi(
@@ -118,6 +129,8 @@ data class HealthListUiState(
     val shedId: String = "",
     val session: String = "",
     val summary: HealthSummaryUi = HealthSummaryUi(),
+    /** Backend day markers for OTHER days that still hold open work — rendered as jump chips. */
+    val dateMarkers: List<HealthDateMarkerUi> = emptyList(),
     val diseases: List<HealthFilterUi> = emptyList(),
     val parks: List<HealthFilterUi> = emptyList(),
     val sheds: List<HealthFilterUi> = emptyList(),
@@ -194,10 +207,13 @@ fun HealthListScreen(
             },
         )
         SyncStatusIndicator(
-            isRefreshing = state.refreshing,
+            isRefreshing = state.refreshing || rows.loadState.refresh is LoadState.Loading,
             lastSyncedAt = state.lastSyncedAt,
             hasData = rows.itemCount > 0,
-            isOffline = state.isOffline,
+            // A failed paging refresh is the honest offline/stale signal for this Room-first
+            // list — the audit found this flag permanently false, so the banner never warned
+            // an operator in a dead-signal shed that the list was stale.
+            isOffline = state.isOffline || rows.loadState.refresh is LoadState.Error,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
         state.submissionNotice?.let { notice ->
@@ -235,6 +251,23 @@ fun HealthListScreen(
             }
         }
         HealthStatusChips(state) { onEvent(HealthListEvent.SelectStatus(it)) }
+        if (state.dateMarkers.isNotEmpty()) {
+            // Backend day markers: other days that still hold open treatment work. One tap jumps
+            // the worklist to that day, so operators stop blind-stepping through the calendar.
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Other days:", color = MeshaColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                state.dateMarkers.take(6).forEach { marker ->
+                    AssistChip(
+                        onClick = { onEvent(HealthListEvent.SelectDate(marker.dateIso)) },
+                        label = { Text("${marker.label} · ${marker.count}", fontSize = 11.sp) },
+                    )
+                }
+            }
+        }
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -394,6 +427,7 @@ private fun HealthStatusChips(state: HealthListUiState, onSelect: (String) -> Un
         "" to ("All" to state.summary.total),
         "due" to ("Due" to state.summary.due),
         "scheduled" to ("Later" to state.summary.scheduled),
+        "rework" to ("Rework" to state.summary.rework),
         "completed" to ("Done" to state.summary.completed),
         "held" to ("Held" to state.summary.held),
     )
@@ -505,7 +539,9 @@ private fun HealthSectionHeader(label: String, color: Color) {
 }
 
 private fun String.healthGroupLabel(): String = when (lowercase()) {
-    "completed", "canceled_death" -> "Completed"
+    "completed" -> "Completed"
+    "canceled_death" -> "Stopped — death review"
+    "rework" -> "Sent back — needs rework"
     "held" -> "Held"
     "scheduled" -> "Later today"
     else -> "Due now"
@@ -525,6 +561,7 @@ data class HealthStepUi(
     val title: String,
     val detail: String,
     val critical: Boolean,
+    val status: String = "",
 )
 
 @Immutable
@@ -537,6 +574,16 @@ data class HealthDetailUiState(
     val status: String = "",
     val steps: List<HealthStepUi> = emptyList(),
     val submitting: Boolean = false,
+    val closing: Boolean = false,
+    val refreshing: Boolean = false,
+    /** Backend-derived caller capability (health.execute); false hides Complete entirely. */
+    val canComplete: Boolean = false,
+    val canRecordVideo: Boolean = false,
+    /** Backend-derived caller capability (health.diagnose); false hides the outcome action. */
+    val canCloseCase: Boolean = false,
+    val videoCaptured: Boolean = false,
+    val isCapturingVideo: Boolean = false,
+    val videoMessage: String? = null,
     val message: String? = null,
 )
 
@@ -545,10 +592,23 @@ fun HealthDetailScreen(
     state: HealthDetailUiState,
     onBack: () -> Unit,
     onComplete: () -> Unit,
+    onRefresh: () -> Unit,
+    onRecordVideo: () -> Unit,
+    onReRecordVideo: () -> Unit,
+    onCloseCase: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    RefreshOnResume(onRefresh)
+    var showOutcomeDialog by remember { mutableStateOf(false) }
     Column(modifier.fillMaxSize().background(MeshaColors.PageBg)) {
-        MeshaScreenHeader(title = "Health", subtitle = state.goatDisplayId, onBack = onBack)
+        MeshaScreenHeader(
+            title = "Health",
+            subtitle = state.goatDisplayId,
+            onBack = onBack,
+            actions = {
+                SyncIconButton(isSyncing = state.refreshing, onSync = onRefresh)
+            },
+        )
         LazyColumn(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(16.dp),
@@ -561,6 +621,19 @@ fun HealthDetailScreen(
                         Text(state.dayLabel)
                         Text(state.locationLabel, color = MeshaColors.Muted)
                         state.message?.let { Text(it, color = MeshaColors.Brand) }
+                        if (state.canCloseCase) {
+                            Text(
+                                "Record case outcome",
+                                color = MeshaColors.Brand,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .padding(top = 8.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable(enabled = !state.closing) { showOutcomeDialog = true }
+                                    .minimumInteractiveComponentSize()
+                                    .padding(vertical = 6.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -568,7 +641,12 @@ fun HealthDetailScreen(
                 val step = state.steps[index]
                 Card(colors = CardDefaults.cardColors(containerColor = if (step.critical) MeshaColors.DangerX else MeshaColors.Surf)) {
                     Column(Modifier.padding(14.dp)) {
-                        Text(step.title, fontWeight = FontWeight.SemiBold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(step.title, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            step.status.healthStepStatusLabel()?.let { label ->
+                                Text(label, color = step.status.healthStatusColor(), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                         Spacer(Modifier.height(4.dp))
                         Text(step.detail)
                         if (step.critical) Text("Guarded handoff — no direct animal-state change", color = MeshaColors.Danger)
@@ -576,10 +654,95 @@ fun HealthDetailScreen(
                 }
             }
         }
+        if (state.canRecordVideo) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                state.videoMessage?.let { Text(it, color = MeshaColors.Muted, fontSize = 12.sp) }
+                OutlinedButton(
+                    onClick = if (state.videoCaptured) onReRecordVideo else onRecordVideo,
+                    enabled = !state.isCapturingVideo && !state.submitting,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                ) {
+                    Text(
+                        when {
+                            state.isCapturingVideo -> "Opening camera…"
+                            state.videoCaptured -> "Re-record treatment video"
+                            else -> "Record treatment video"
+                        },
+                    )
+                }
+            }
+        }
         Button(
             onClick = onComplete,
-            enabled = state.status !in setOf("completed", "held", "canceled_death") && !state.submitting,
+            enabled = state.canComplete,
             modifier = Modifier.fillMaxWidth().padding(16.dp),
-        ) { Text(if (state.submitting) "Saving…" else "Complete this session") }
+        ) {
+            Text(
+                when {
+                    state.submitting -> "Saving…"
+                    !state.canRecordVideo -> "Completion is recorded by the operator"
+                    !state.videoCaptured -> "Record the treatment video first"
+                    else -> "Complete this session"
+                },
+            )
+        }
     }
+    if (showOutcomeDialog) {
+        HealthOutcomeDialog(
+            onDismiss = { showOutcomeDialog = false },
+            onConfirm = { outcome, note ->
+                showOutcomeDialog = false
+                onCloseCase(outcome, note)
+            },
+        )
+    }
+}
+
+/** The clinical outcome picker (health.diagnose): recovered / referred / canceled + optional note. */
+@Composable
+private fun HealthOutcomeDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String, String) -> Unit,
+) {
+    var outcome by remember { mutableStateOf("recovered") }
+    var note by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Record case outcome") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Closing stops the remaining treatment sessions for this case. Completed work is kept.")
+                listOf(
+                    "recovered" to "Recovered — the animal is well",
+                    "referred" to "Referred — handed to external care",
+                    "canceled" to "Canceled — diagnosis withdrawn",
+                ).forEach { (key, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                            .clickable { outcome = key }.padding(vertical = 6.dp),
+                    ) {
+                        RadioButton(selected = outcome == key, onClick = { outcome = key })
+                        Text(label)
+                    }
+                }
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("Note (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(outcome, note.trim()) }) { Text("Record outcome") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+private fun String.healthStepStatusLabel(): String? = when (lowercase()) {
+    "completed" -> "Done"
+    "guarded" -> "Guarded"
+    "pending" -> null
+    "" -> null
+    else -> replaceFirstChar { it.uppercase() }
 }

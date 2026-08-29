@@ -21,6 +21,8 @@ import sg.mesha.goatos.core.network.dto.HealthDiagnosisProposalResponseDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisQueuePageDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisRunDto
 import sg.mesha.goatos.core.network.dto.SubmitHealthObservationRequestDto
+import sg.mesha.goatos.core.network.dto.HealthCloseCaseRequestDto
+import sg.mesha.goatos.core.network.dto.HealthCloseCaseResponseDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto
@@ -1480,6 +1482,12 @@ interface AppApi {
         request: HealthCompleteRequestDto,
     ): HealthCompleteResponseDto
 
+    /** POST /app/health/cases/{health_case_id}/close — the clinical outcome (health.diagnose). */
+    suspend fun closeHealthCase(
+        healthCaseId: String,
+        idempotencyKey: String,
+        request: HealthCloseCaseRequestDto,
+    ): HealthCloseCaseResponseDto
     /**
      * POST /app/clock/in — the day's clock-in punch (docs/features/clock-in-out/plan.md).
      * Drained through the offline-sync outbox with the STABLE day-scoped [idempotencyKey]
@@ -2247,6 +2255,15 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     ): HealthCompleteResponseDto = HealthCompleteResponseDto(
         healthSessionId = healthSessionId,
         status = "completed",
+    )
+
+    override suspend fun closeHealthCase(
+        healthCaseId: String,
+        idempotencyKey: String,
+        request: HealthCloseCaseRequestDto,
+    ): HealthCloseCaseResponseDto = HealthCloseCaseResponseDto(
+        caseId = healthCaseId,
+        status = request.outcome,
     )
 	    override suspend fun getPcCareWorklist(
 	        category: String,

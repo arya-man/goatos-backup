@@ -51,9 +51,16 @@ data class HealthFilters(
             .joinToString("|") { it.trim().lowercase() }
 }
 
+/** One cached page-meta blob plus WHEN it was last refreshed, so screens can render an honest
+ * last-synced line instead of the permanently-blank one the 2026-08-29 audit found. */
+data class HealthPageMetaSnapshot(
+    val page: HealthWorkItemPageDto,
+    val updatedAtMs: Long,
+)
+
 interface HealthRepository {
     fun workItems(filters: HealthFilters): Flow<PagingData<HealthWorkItemDto>>
-    fun observePageMeta(filters: HealthFilters): Flow<HealthWorkItemPageDto?>
+    fun observePageMeta(filters: HealthFilters): Flow<HealthPageMetaSnapshot?>
     fun observeDetail(healthSessionId: String): Flow<HealthWorkItemDetailDto?>
     suspend fun refreshWorkItems(filters: HealthFilters): Result<Unit>
     suspend fun refreshCaseOptions(ageBand: String, date: String): Result<Unit>
@@ -140,9 +147,12 @@ class DefaultHealthRepository(
         page.map { json.decodeFromString<HealthWorkItemDto>(it.dtoJson) }
     }.flowOn(Dispatchers.Default)
 
-    override fun observePageMeta(filters: HealthFilters): Flow<HealthWorkItemPageDto?> =
+    override fun observePageMeta(filters: HealthFilters): Flow<HealthPageMetaSnapshot?> =
         database.healthPageMetaDao().observe(filters.scopeKey).map { entity ->
-            entity?.let { runCatching { json.decodeFromString<HealthWorkItemPageDto>(it.dtoJson) }.getOrNull() }
+            entity?.let { row ->
+                runCatching { json.decodeFromString<HealthWorkItemPageDto>(row.dtoJson) }.getOrNull()
+                    ?.let { HealthPageMetaSnapshot(it, row.updatedAt) }
+            }
         }.flowOn(Dispatchers.Default)
 
     override fun observeDetail(healthSessionId: String): Flow<HealthWorkItemDetailDto?> =
@@ -238,6 +248,9 @@ class DefaultHealthRepository(
             )
             itemDao.deleteOutsideNewestScopes(HEALTH_RETAINED_SCOPES)
             database.healthRemoteKeyDao().deleteOutsideNewestScopes(HEALTH_RETAINED_SCOPES)
+            // +2 headroom over the item/key scopes so a fresh refreshCaseOptions meta row (which
+            // has no remote key) is not immediately evicted by the very transaction that wrote it.
+            database.healthPageMetaDao().deleteOldestBeyond(HEALTH_RETAINED_SCOPES + 2)
         }
     }
 
@@ -449,6 +462,7 @@ private class HealthRemoteMediator(
             )
             itemDao.deleteOutsideNewestScopes(HEALTH_RETAINED_SCOPES)
             database.healthRemoteKeyDao().deleteOutsideNewestScopes(HEALTH_RETAINED_SCOPES)
+            database.healthPageMetaDao().deleteOldestBeyond(HEALTH_RETAINED_SCOPES + 2)
         }
         MediatorResult.Success(response.nextCursor == null)
     } catch (cancellation: CancellationException) {

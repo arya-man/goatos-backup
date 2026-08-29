@@ -21,6 +21,7 @@ object CaptureFlow {
     const val MILK_PREPARATION = "milk_preparation"
     const val MILK_FEEDING = "milk_feeding"
     const val PC_CARE = "pc_care"
+    const val HEALTH_TREATMENT = "health_treatment"
 }
 
 /**

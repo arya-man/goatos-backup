@@ -179,6 +179,15 @@ object AnalyticsEvents {
      *  data stays visible when present, so this is the only signal that a refresh is failing. */
     const val HEALTH_READ_FAILURE = "health_read_failure"
 
+    /** The mandatory treatment video was captured and its upload queued (2026-08-29). */
+    const val HEALTH_TREATMENT_VIDEO_CAPTURED = "health_treatment_video_captured"
+
+    /** A treatment-session completion was queued durably, video reference attached. */
+    const val HEALTH_TREATMENT_SUBMITTED = "health_treatment_submitted"
+
+    /** A clinical case closure (recovered/referred/canceled) was queued durably. */
+    const val HEALTH_CASE_CLOSED = "health_case_closed"
+
     /** Operator opened the Room-first weighing work list or a weighing capture scope. */
     const val WEIGHING_VIEWED = "weighing_viewed"
 

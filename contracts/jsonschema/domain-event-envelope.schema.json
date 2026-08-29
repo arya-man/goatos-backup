@@ -51,6 +51,7 @@
         "health.case.death_held",
         "health.case.death_resumed",
         "health.case.closed_dead",
+        "health.case.closed",
         "health.treatment.completed",
         "goat.reproductive.changed",
         "goat.identity.changed",

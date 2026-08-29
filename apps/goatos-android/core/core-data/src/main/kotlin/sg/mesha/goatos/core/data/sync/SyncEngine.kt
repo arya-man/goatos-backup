@@ -29,6 +29,7 @@ import sg.mesha.goatos.core.network.dto.FeedWastageCompleteRequestDto
 import sg.mesha.goatos.core.data.cache.HealthDiagnosisRunDao
 import sg.mesha.goatos.core.data.cache.HealthDiagnosisRunEntity
 import sg.mesha.goatos.core.network.dto.ConfirmHealthDiagnosisResponseDto
+import sg.mesha.goatos.core.network.dto.HealthCloseCaseRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisProposalResponseDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationProofsDto
@@ -516,6 +517,7 @@ class SyncEngine(
         OutboxOpType.HEALTH_OBSERVATION_SUBMIT -> dispatchHealthObservationSubmit(item)
         OutboxOpType.HEALTH_DIAGNOSIS_CONFIRM -> dispatchHealthDiagnosisConfirm(item)
         OutboxOpType.HEALTH_TREATMENT_COMPLETE -> dispatchHealthTreatmentComplete(item)
+        OutboxOpType.HEALTH_CASE_CLOSE -> dispatchHealthCaseClose(item)
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> dispatchWeighingAnimalObservation(item)
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> dispatchWeighingShedObservation(item)
         OutboxOpType.WEIGHING_SCOPE_SUBMIT -> dispatchWeighingScopeSubmit(item)
@@ -1450,10 +1452,30 @@ class SyncEngine(
 
     private suspend fun dispatchHealthTreatmentComplete(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<HealthTreatmentCompletePayload>(item.payloadJson)
+        // New rows carry the PROOF_UPLOAD outbox reference (same group, drains first) and the
+        // uploaded proof id is resolved here; a legacy already-queued row falls back to its
+        // literal proofRef ("" for the pre-video builds), which the backend still accepts.
+        val proofRef = payload.proofOutboxItemId
+            .takeIf { it.isNotBlank() }
+            ?.let { resolveUploadedProofRef(it) }
+            ?: payload.proofRef
         val response = api.completeHealthWorkItem(
             healthSessionId = payload.healthSessionId,
             idempotencyKey = item.idempotencyKey,
-            request = HealthCompleteRequestDto(proofRef = payload.proofRef),
+            request = HealthCompleteRequestDto(proofRef = proofRef),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchHealthCaseClose(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<HealthCaseClosePayload>(item.payloadJson)
+        val response = api.closeHealthCase(
+            healthCaseId = payload.healthCaseId,
+            idempotencyKey = item.idempotencyKey,
+            request = HealthCloseCaseRequestDto(
+                outcome = payload.outcome,
+                note = payload.note.takeIf { it.isNotBlank() },
+            ),
         )
         return syncJson.encodeToString(response)
     }

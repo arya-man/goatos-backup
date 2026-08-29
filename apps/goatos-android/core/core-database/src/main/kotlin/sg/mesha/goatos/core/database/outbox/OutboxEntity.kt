@@ -195,6 +195,8 @@ enum class OutboxOpType {
      */
     HEALTH_OBSERVATION_SUBMIT,
     HEALTH_DIAGNOSIS_CONFIRM,
+    /** One clinical case closure (recovered / referred / canceled), health.diagnose only. */
+    HEALTH_CASE_CLOSE,
     WEIGHING_ANIMAL_OBSERVATION,
     WEIGHING_SHED_OBSERVATION,
 

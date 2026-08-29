@@ -35,6 +35,8 @@ import sg.mesha.goatos.core.network.dto.HealthDiagnosisProposalResponseDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisQueuePageDto
 import sg.mesha.goatos.core.network.dto.HealthDiagnosisRunDto
 import sg.mesha.goatos.core.network.dto.SubmitHealthObservationRequestDto
+import sg.mesha.goatos.core.network.dto.HealthCloseCaseRequestDto
+import sg.mesha.goatos.core.network.dto.HealthCloseCaseResponseDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.HealthOpenCaseRequestDto
@@ -1013,6 +1015,12 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: ConfirmHealthDiagnosisRequestDto,
     ): ConfirmHealthDiagnosisResponseDto
+    @POST("app/health/cases/{health_case_id}/close")
+    suspend fun closeHealthCase(
+        @Path("health_case_id") healthCaseId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: HealthCloseCaseRequestDto,
+    ): HealthCloseCaseResponseDto
 
     @GET("goats/search")
     suspend fun searchGoats(
@@ -1874,6 +1882,13 @@ class RetrofitAppApi(
         request: HealthCompleteRequestDto,
     ): HealthCompleteResponseDto =
         service.completeHealthWorkItem(healthSessionId, idempotencyKey, request)
+
+    override suspend fun closeHealthCase(
+        healthCaseId: String,
+        idempotencyKey: String,
+        request: HealthCloseCaseRequestDto,
+    ): HealthCloseCaseResponseDto =
+        service.closeHealthCase(healthCaseId, idempotencyKey, request)
 
     override suspend fun searchGoats(
         q: String?,

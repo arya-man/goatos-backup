@@ -118,6 +118,7 @@ val OutboxOpType.lifecyclePolicy: OutboxLifecyclePolicy
         // The Director's confirm/reject is a decision write whose server answer is likewise
         // projected directly into the run + queue rows (projectDiagnosisDecision).
         OutboxOpType.HEALTH_DIAGNOSIS_CONFIRM -> overlayDirectReconcileLifecycle()
+        OutboxOpType.HEALTH_CASE_CLOSE -> overlayRefreshLifecycle()
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> durableDirectReconcileLifecycle()
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> durableDirectReconcileLifecycle()
         OutboxOpType.WEIGHING_SCOPE_SUBMIT -> durableDirectReconcileLifecycle()
