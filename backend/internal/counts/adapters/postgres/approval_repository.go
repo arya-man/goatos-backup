@@ -606,6 +606,10 @@ WHERE tenant_id = $1::uuid AND birth_event_id = $2::uuid AND count_status = 'pen
 			current.TenantID, current.ApprovalRequestID); err != nil {
 			return domain.ApprovalRequest{}, false, fmt.Errorf("counts: reject birth count eligibility: %w", err)
 		}
+	} else if current.RequestType == domain.ApprovalRequestTypeShifting {
+		if err := r.rejectShiftingEventInTx(ctx, tx, current); err != nil {
+			return domain.ApprovalRequest{}, false, err
+		}
 	}
 
 	// The status flip. `AND status = 'pending'` makes the transition itself the concurrency guard:
@@ -810,6 +814,35 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND authorization_st
 			in.DecidedAt.UTC(), in.IdempotencyKey, approvedGoatIDs); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// rejectShiftingEventInTx flips the pending shifting_events row to rejected inside the decision
+// transaction, so the raiser's read-only Pending tab stops listing a movement its approver refused
+// and the raised-counts feed projection stops feeding the destination for it (rejection is the one
+// thing that stops the feed clock). The event_status CASE keeps a legacy completed-before-approval
+// row on its current status: only a still-pending movement becomes 'rejected'.
+func (r *Repository) rejectShiftingEventInTx(
+	ctx context.Context, tx pgx.Tx, req domain.ApprovalRequest,
+) error {
+	if req.ShiftingEventID == nil || *req.ShiftingEventID == "" {
+		return fmt.Errorf("counts: reject shifting request %s: request names no shifting event",
+			req.ApprovalRequestID)
+	}
+	tag, err := tx.Exec(ctx, `
+UPDATE shifting_events
+SET authorization_state = 'rejected',
+    event_status = CASE WHEN event_status = 'pending' THEN 'rejected' ELSE event_status END,
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid AND authorization_state = 'pending'`,
+		req.TenantID, *req.ShiftingEventID)
+	if err != nil {
+		return fmt.Errorf("counts: reject shifting event: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("%w: shifting event %s was not pending", ports.ErrApprovalAlreadyDecided, *req.ShiftingEventID)
 	}
 	return nil
 }

@@ -750,6 +750,116 @@ SELECT count(*) FROM goat_identity_events WHERE tenant_id = $1::uuid AND event_t
 	}
 }
 
+// Rejecting a shifting must flip the shifting_events row off 'pending', so the raiser's read-only
+// Pending tab stops listing a movement the approver refused. Before this was wired, the reject
+// flipped only counts_approval_requests and the event sat in the Pending tab forever (reported
+// 2026-08-29: "the approver rejected, but it still shows in pending").
+func TestRejectShiftingFlipsTheEventOffThePendingQueue(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := newApprovalRepo(t, pool, &fakeIdentityTx{})
+
+	goatID := "00000000-0000-4000-8000-00000000b002"
+	seedApprovalGoat(t, ctx, pool, goatID, countsShedA)
+
+	eventID, _, err := repo.RecordShiftingEvent(ctx, shiftingEventForApproval("shift-reject-1"))
+	if err != nil {
+		t.Fatalf("record shifting event: %v", err)
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"shifting_event_id":   eventID,
+		"destination_park_id": countsPark,
+		"destination_shed_id": countsShedB,
+		"goat_ids":            []string{goatID},
+	})
+	req, _, err := repo.CreateApprovalRequest(ctx, domain.ApprovalRequestSubmission{
+		TenantID:           countsTenant,
+		RequestType:        domain.ApprovalRequestTypeShifting,
+		Payload:            payload,
+		ShiftingEventID:    &eventID,
+		RaisedByUserID:     countsOperator,
+		RaisedAt:           time.Now().In(biztime.DefaultLocation()),
+		IdempotencyKey:     "shift-reject-key-1",
+		RequestFingerprint: "shift-reject-fp-1",
+	})
+	if err != nil {
+		t.Fatalf("submit shifting approval: %v", err)
+	}
+
+	// FAILING-BEFORE CHECK: the raised movement is on the Pending tab before the decision.
+	page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+		TenantID: countsTenant, Status: "pending",
+	})
+	if err != nil {
+		t.Fatalf("list pending before reject: %v", err)
+	}
+	found := false
+	for _, row := range page.Items {
+		if row.ShiftingEventID == eventID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("raised movement %s missing from the Pending tab before the decision", eventID)
+	}
+
+	if _, _, err := repo.DecideApprovalRequest(ctx, domain.ApprovalDecision{
+		TenantID:           countsTenant,
+		ApprovalRequestID:  req.ApprovalRequestID,
+		Status:             domain.ApprovalStatusRejected,
+		DecidedByUserID:    countsApprover,
+		DecidedAt:          time.Now().In(biztime.DefaultLocation()),
+		Reason:             "wrong destination pen, raise it again for Castro 2",
+		IdempotencyKey:     "decide-key-shift-reject",
+		RequestFingerprint: "decide-fp-shift-reject",
+	}); err != nil {
+		t.Fatalf("reject shifting: %v", err)
+	}
+
+	// The event row itself records the refusal — not just the approval-request row.
+	var authState, eventStatus string
+	if err := pool.QueryRow(ctx, `
+SELECT authorization_state, event_status FROM shifting_events WHERE shifting_event_id = $1::uuid`,
+		eventID).Scan(&authState, &eventStatus); err != nil {
+		t.Fatalf("read shifting event: %v", err)
+	}
+	if authState != "rejected" {
+		t.Fatalf("authorization_state=%q after reject, want rejected", authState)
+	}
+	if eventStatus != domain.ShiftingEventStatusRejected {
+		t.Fatalf("event_status=%q after reject, want %q", eventStatus, domain.ShiftingEventStatusRejected)
+	}
+
+	// And the movement left EVERY Actions tab: the Pending tab (the reported defect) and the
+	// operator work list alike.
+	for _, status := range []string{"pending", "all"} {
+		page, err := repo.ListShiftingEventsPendingExecution(ctx, domain.ShiftingExecutionQuery{
+			TenantID: countsTenant, Status: status,
+		})
+		if err != nil {
+			t.Fatalf("list %s after reject: %v", status, err)
+		}
+		for _, row := range page.Items {
+			if row.ShiftingEventID == eventID {
+				t.Fatalf("rejected movement %s still listed on the %q tab", eventID, status)
+			}
+		}
+	}
+
+	// A rejected movement can never be completed: the approve-first gate still holds.
+	if _, _, err := repo.CompleteShiftingEvent(ctx, domain.ShiftingCompletionCommand{
+		TenantID:           countsTenant,
+		ShiftingEventID:    eventID,
+		CompletedByUserID:  countsOperator,
+		CompletedAt:        time.Now().In(biztime.DefaultLocation()),
+		ProofRef:           "proof-artifact-shift-reject-1",
+		IdempotencyKey:     "complete-after-reject-1",
+		RequestFingerprint: "complete-fp-after-reject-1",
+	}); !errors.Is(err, ports.ErrShiftingNotAuthorized) {
+		t.Fatalf("complete after reject err=%v, want ErrShiftingNotAuthorized", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Death guardrail through the approval path
 // ---------------------------------------------------------------------------
