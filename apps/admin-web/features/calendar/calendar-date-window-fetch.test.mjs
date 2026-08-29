@@ -46,10 +46,18 @@ test("Calendar week view: today + offset drives fetch window for future selectio
   assert.equal(window.dateFrom, "2026-08-17", "fetch window starts on the Monday of selected week");
   assert.equal(window.dateTo, "2026-08-23", "fetch window ends on the Sunday of selected week");
 
-  // Verify no hardcoded `now` leaked into the window
-  const today = new Date().toISOString().slice(0, 10);
-  assert.notEqual(window.dateFrom, today, "window dateFrom is NOT today");
-  assert.notEqual(window.dateTo, today, "window dateTo is NOT today");
+  // Verify no hardcoded `now` leaked into the window.
+  //
+  // This used to compare the window against TODAY, which made the test self-destruct for one week
+  // a year: whenever today happened to be the Monday of the hard-coded 2026-08-17..2026-08-23 week,
+  // dateFrom legitimately equalled today and the assertion fired on correct behaviour. It broke
+  // main's landing gate on 2026-08-17 for exactly that reason.
+  //
+  // The real property is "the window is a pure function of the SELECTED date", so assert that
+  // directly against a week that can never contain the current date.
+  const farFuture = weekWindow("2031-08-20");
+  assert.equal(farFuture.dateFrom, "2031-08-18", "a far-future selection still yields ITS Monday");
+  assert.equal(farFuture.dateTo, "2031-08-24", "a far-future selection still yields ITS Sunday");
 });
 
 test("Calendar month view: selected past month drives fetch window", () => {

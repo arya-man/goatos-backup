@@ -18,14 +18,12 @@ class WeighingSubmitBlockedReasonTest {
 
     private fun lumpSum(
         weight: String = "42.5",
-        count: String = "12",
         proofs: List<ProofUploadStatus> = listOf(ProofUploadStatus.SYNCED),
         actionInFlight: Boolean = false,
     ) = WeighingUiState(
         hasScope = true,
         category = "per_shed_partition",
         weightInput = weight,
-        animalCountInput = count,
         actionInFlight = actionInFlight,
         shedProofs = proofs.mapIndexed { i, status -> WeighingProofUiRow("p$i", "video ${i + 1}", status) },
     )
@@ -52,9 +50,11 @@ class WeighingSubmitBlockedReasonTest {
     }
 
     @Test
-    fun `missing weight and missing count each name themselves, weight first`() {
-        assertEquals(R.string.weighing_blocked_need_weight, lumpSum(weight = "", count = "").submitBlockedReason)
-        assertEquals(R.string.weighing_blocked_need_count, lumpSum(count = "0").submitBlockedReason)
+    fun `missing weight names itself — and there is no count to ask for any more`() {
+        // The head count stopped being an operator input on 2026-08-24: the backend
+        // snapshots it from the herd register at submit, so the only typed field a
+        // lump-sum submit can be blocked on is the total weight.
+        assertEquals(R.string.weighing_blocked_need_weight, lumpSum(weight = "").submitBlockedReason)
     }
 
     @Test

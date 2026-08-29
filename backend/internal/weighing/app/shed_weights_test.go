@@ -17,22 +17,24 @@ import (
 // the fake made up. A scope regression is invisible if the fake ignores its input.
 type shedWeightsRepo struct {
 	fakeRepo
-	gotParkIDs  []string
-	gotStart    time.Time
-	gotEnd      time.Time
-	parks       []domain.WeighingPark
-	shedWeights domain.ShedWeights
+	gotScopeParkIDs []string
+	gotSelectedPark string
+	gotStart        time.Time
+	gotEnd          time.Time
+	parks           []domain.WeighingPark
+	shedWeights     domain.ShedWeights
 }
 
-func (r *shedWeightsRepo) GetShedWeights(_ context.Context, _ string, parkIDs []string, start, end time.Time) (domain.ShedWeights, error) {
-	r.gotParkIDs = append([]string(nil), parkIDs...)
+func (r *shedWeightsRepo) GetShedWeights(_ context.Context, _ string, scopeParkIDs []string, selectedParkID string, start, end time.Time, _ string) (domain.ShedWeights, error) {
+	r.gotScopeParkIDs = append([]string(nil), scopeParkIDs...)
+	r.gotSelectedPark = selectedParkID
 	r.gotStart, r.gotEnd = start, end
 	out := r.shedWeights
 	// The real repository builds the park vocabulary from the scope it was handed.
 	// Mirroring that here keeps this test honest: it still proves the caller's scope
 	// is what reaches the read, rather than asserting on a list the fake invented.
 	for _, park := range r.parks {
-		for _, id := range parkIDs {
+		for _, id := range scopeParkIDs {
 			if park.ParkID == id {
 				out.Parks = append(out.Parks, domain.GrowthPark{ParkID: park.ParkID, Name: park.Name})
 			}
@@ -71,11 +73,11 @@ func TestGetShedWeightsRejectsUnauthorizedParkID(t *testing.T) {
 		Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: swParkA,
 	})
 
-	if _, err := svc.GetShedWeights(ctx, swActor(), swParkB, "", ""); err == nil {
+	if _, err := svc.GetShedWeights(ctx, swActor(), swParkB, "", "", ""); err == nil {
 		t.Fatal("expected park B to be denied for a park-A scoped monitor, got nil error")
 	}
-	if repo.gotParkIDs != nil {
-		t.Fatalf("repository must not be reached when scope is denied, got parkIDs=%v", repo.gotParkIDs)
+	if repo.gotScopeParkIDs != nil {
+		t.Fatalf("repository must not be reached when scope is denied, got parkIDs=%v", repo.gotScopeParkIDs)
 	}
 }
 
@@ -91,12 +93,18 @@ func TestGetShedWeightsOmittedParkIDUsesOnlyAuthorizedParks(t *testing.T) {
 		Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: swParkA,
 	})
 
-	out, err := svc.GetShedWeights(ctx, swActor(), "", "", "")
+	out, err := svc.GetShedWeights(ctx, swActor(), "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
 	}
-	if len(repo.gotParkIDs) != 1 || repo.gotParkIDs[0] != swParkA {
-		t.Fatalf("expected repository scoped to park A only, got %v", repo.gotParkIDs)
+	if len(repo.gotScopeParkIDs) != 1 || repo.gotScopeParkIDs[0] != swParkA {
+		t.Fatalf("expected repository scoped to park A only, got %v", repo.gotScopeParkIDs)
+	}
+	if repo.gotSelectedPark != "" {
+		t.Fatalf("expected no selected park for omitted park filter, got %q", repo.gotSelectedPark)
+	}
+	if got := int(repo.gotEnd.Sub(repo.gotStart).Hours() / 24); got != domain.ShedWeightsDefaultPeriodDays {
+		t.Fatalf("omitted from/to default window=%d days, want %d", got, domain.ShedWeightsDefaultPeriodDays)
 	}
 	// The park filter vocabulary is backend-owned AND scoped: offering park B here
 	// would advertise a park this caller cannot read. The repository builds it from
@@ -113,14 +121,23 @@ func TestGetShedWeightsOmittedParkIDUsesOnlyAuthorizedParks(t *testing.T) {
 // caller's inclusive last day must become an exclusive midnight boundary the day
 // after, or the final day's weighs are silently dropped.
 func TestGetShedWeightsPassesHalfOpenBusinessDayWindow(t *testing.T) {
-	repo := &shedWeightsRepo{parks: []domain.WeighingPark{{ParkID: swParkA, Name: "Coimbatore"}}}
+	repo := &shedWeightsRepo{parks: []domain.WeighingPark{
+		{ParkID: swParkA, Name: "Coimbatore"},
+		{ParkID: swParkB, Name: "Channapatna"},
+	}}
 	svc := NewService(repo)
 	ctx := swContext(permissions.ActiveGrant{
 		Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: swTenant,
 	})
 
-	if _, err := svc.GetShedWeights(ctx, swActor(), swParkA, "2026-07-01", "2026-07-28"); err != nil {
+	if _, err := svc.GetShedWeights(ctx, swActor(), swParkA, "2026-07-01", "2026-07-28", ""); err != nil {
 		t.Fatalf("GetShedWeights: %v", err)
+	}
+	if len(repo.gotScopeParkIDs) != 2 || repo.gotScopeParkIDs[0] != swParkA || repo.gotScopeParkIDs[1] != swParkB {
+		t.Fatalf("expected full tenant scope for vocabulary, got %v", repo.gotScopeParkIDs)
+	}
+	if repo.gotSelectedPark != swParkA {
+		t.Fatalf("expected selected park %s for rows, got %q", swParkA, repo.gotSelectedPark)
 	}
 	if got := repo.gotStart.Format("2006-01-02"); got != "2026-07-01" {
 		t.Fatalf("period start: want 2026-07-01, got %s", got)
@@ -145,7 +162,7 @@ func TestGetShedWeightsRejectsMalformedInput(t *testing.T) {
 		{"inverted window", "", "2026-07-28", "2026-07-01"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := svc.GetShedWeights(ctx, swActor(), tc.park, tc.from, tc.to); err != ports.ErrInvalidArgument {
+			if _, err := svc.GetShedWeights(ctx, swActor(), tc.park, tc.from, tc.to, ""); err != ports.ErrInvalidArgument {
 				t.Fatalf("want ErrInvalidArgument, got %v", err)
 			}
 		})
@@ -159,7 +176,7 @@ func TestGetShedWeightsRequiresMonitorCapability(t *testing.T) {
 	ctx := swContext()
 	actor := domain.Actor{TenantID: swTenant, Roles: []string{permissions.RoleOperator}}
 
-	if _, err := svc.GetShedWeights(ctx, actor, "", "", ""); err != ports.ErrForbidden {
+	if _, err := svc.GetShedWeights(ctx, actor, "", "", "", ""); err != ports.ErrForbidden {
 		t.Fatalf("want ErrForbidden for a non-monitor role, got %v", err)
 	}
 }

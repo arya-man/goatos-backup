@@ -1,9 +1,10 @@
 # Cloud Deploy Staging Runbook
 
-Status: `goatos-stg` deployment authority is Cloud Deploy. GitHub Actions is
-not a Goat OS staging deploy path. A local operator may build images and create
-a release from the latest approved `origin/main`, but Cloud Run staging services
-and jobs must be mutated by the Cloud Deploy rollout task only.
+Status: `goatos-stg` deployment authority is the Slack deploy button backed by
+Google Cloud Build and Cloud Deploy. GitHub Actions is not a Goat OS staging
+deploy path. A local operator may run the scripts only for documented
+break-glass/repair, but Cloud Run staging services and jobs must be mutated by
+the Cloud Deploy rollout task only.
 
 ## Why this exists
 
@@ -53,7 +54,7 @@ The rollout task must keep this order:
    the backend image, including the analytics rollup.
 8. Update goatos-admin-web-stg to the admin-web image.
 9. Verify API/admin/migration/kernel-worker/manual-job image skew is zero.
-10. Smoke /livez, /readyz, and https://stg.dashboard.mesha.sg/login.
+10. Smoke /livez, /readyz, and https://dashboard.mesha.sg/login.
 ```
 
 Do not move migration after service deploy. The rollout fails before migration
@@ -62,12 +63,14 @@ list; the rollout discovers existing backend-image jobs and updates them.
 
 ## Create A Release
 
-Normal staging releases originate from a clean repo checkout at the latest
-approved `origin/main`. Do not create or wait for a `main -> stg` pull request,
-GitHub Actions workflow, or remote `stg` branch update as part of staging
-deployment.
+Normal staging releases originate from the `#goatos-stg-deploy` Slack button.
+The button invokes Cloud Build manual trigger `goatos-stg-deploy-main`, which
+reads latest approved `origin/main` and runs `cloudbuild.stg.yaml`. Do not
+create or wait for a `main -> stg` pull request, GitHub Actions workflow, or
+remote `stg` branch update as part of staging deployment.
 
-Run from a clean repo checkout that points at the intended commit:
+Break-glass only: run from a clean repo checkout that points at the intended
+commit:
 
 ```bash
 git fetch origin main --prune
@@ -79,6 +82,88 @@ git rev-parse origin/main
 gcloud config set project goatos-stg
 tools/deploy/stg-clouddeploy-release.sh
 ```
+
+## Deploy From Slack / Google Cloud Build
+
+The Slack app posts a deploy card in `#goatos-stg-deploy`. Use the latest
+bottom-most deploy panel; after each deploy reaches success or failure, the
+automation posts a fresh panel again so no one has to scroll channel history to
+find the next button. Pressing
+`Deploy main to STG` calls the Cloud Run Slack bot
+`goatos-stg-slack-deploy-bot`, which starts Cloud Build trigger
+`goatos-stg-deploy-main`.
+
+The trigger points at GitHub repo `vgoats/goatos`, branch `main`, and uses
+`cloudbuild.stg.yaml`. It runs as:
+
+```text
+goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
+```
+
+Cloud Build is an operator-controlled button, not a push-on-every-commit
+deployment. The same release helper still refuses non-`origin/main` commits and
+waits for Cloud Deploy rollout/image verification.
+
+Codex/Claude/agent-triggered staging deploys must use the same remote build
+authority. Do not require or assume Docker on a laptop. If an agent is driving a
+deploy outside Slack, it should start the `goatos-stg-deploy-main` Cloud Build
+trigger when the trigger can resolve `main`; otherwise submit the checked-out
+`origin/main` source to Cloud Build with `cloudbuild.stg.yaml` and an explicit
+`COMMIT_SHA=<12-char-main-sha>` substitution. The local
+`tools/deploy/stg-clouddeploy-release.sh` path is break-glass only for an OCI or
+other remote builder that actually has Docker; it is not the Mac/laptop path.
+
+`cloudbuild.stg.yaml` posts a Slack "build started" card before image builds, so
+Slack shows progress even when Codex or Claude starts the deploy directly. The
+later deploy helper still posts Cloud Deploy started/succeeded/failed cards once
+the release step begins.
+
+The Cloud Deploy custom target runner is also built remotely. When
+`tools/deploy/stg-clouddeploy-task.sh` changes, run `cloudbuild.stg-runner.yaml`,
+copy the emitted `runner_image` digest into `deploy/clouddeploy/stg/clouddeploy.yaml`,
+land that digest on `main`, then run the normal deploy. Do not ask for laptop
+Docker to rebuild the runner.
+
+The card has two deploy buttons:
+
+- `Deploy main to STG`: if the `Also distribute Android mobile` checkbox is
+  unchecked, only the backend/web deploy runs in the reused `goatos-stg`
+  project. If checked, Cloud Build runs the production-facing mobile release
+  only after the backend/web deploy step succeeds.
+- `Distribute Android only`: skips the Cloud Deploy step and runs only the
+  Android production-facing distribution flow from current `main`.
+
+Mobile means all configured channels, as one production-facing release: Firebase
+App Distribution for Firebase app
+`1:514832198871:android:2b3a80736ff2e8d9f19492`, Google Play package
+`sg.mesha.goatos`, and `https://mesha.sg/app.apk`. Any failure in those
+channels fails the Cloud Build and posts a Slack failure alert. The bot allows
+only one active deployment at a time: while any backend/web, backend/web+mobile,
+or Android-only build is queued or working, new button clicks replace the panel
+with an "already running" status card and links
+to Cloud Build / Cloud Deploy instead of starting another build.
+
+To inspect progress or failure, open the Cloud Build link posted by Slack. The
+STG deploy step links to Cloud Deploy releases/rollouts; the mobile step logs
+Firebase upload, Play internal upload, and APK mirror verification.
+
+Optional Slack alerts use Secret Manager secret:
+
+```text
+goatos-stg-deploy-slack-webhook-url
+```
+
+If the secret is absent, deploy continues and logs remain in Cloud Build.
+
+Release-tag bookkeeping is deliberately separate from STG deploy success. The
+Cloud Build deploy step is green only after Cloud Deploy rollout succeeds and
+live Cloud Run service/job images match the commit. After that, the
+`stg-release-tag-bookkeeping` step records the annotated GitHub release tag from
+a fresh clean checkout of the verified commit, using the `goatos-github-pat`
+Secret Manager token. It must not tag from the mutable deploy workspace because
+earlier Cloud Build steps may create generated or ignored files there. If
+tagging fails, it posts a Slack warning and exits successfully; STG remains
+deployed and the deploy card must stay green.
 
 The script refuses a dirty working tree unless `GOATOS_ALLOW_DIRTY_RELEASE=1`
 is set. Dirty release is for emergency debugging only; do not use it for normal

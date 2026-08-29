@@ -491,3 +491,144 @@ object FeedWorkflow {
     const val NORMAL = "normal"
     const val EXPERIMENT = "experiment"
 }
+
+// ---------------------------------------------------------------------------
+// READ — GET /feed-wastage/worklist (maintainer decision 2026-08-18)
+// ---------------------------------------------------------------------------
+
+/**
+ * One PEN-DAY wastage line — the leftover-feed video an EXPERIMENT pen owes for one feed day.
+ *
+ * The grain is the PEN-DAY: unlike packing/distribution there is deliberately NO session (wastage
+ * is what is LEFT OVER after the day's feeding, measured once) and the workflow is always
+ * `experiment` (wastage exists only for experiment pens). [wastageKg] is the VERIFIER'S recorded
+ * leftover weight — "0" is a real measurement (an empty trough), a different statement from the
+ * field being absent (not yet measured).
+ */
+@Serializable
+data class FeedWastageRowDto(
+    @SerialName("park_id") val parkId: String = "",
+    @SerialName("park_label") val parkLabel: String = "",
+    @SerialName("shed_id") val shedId: String = "",
+    @SerialName("shed_label") val shedLabel: String = "",
+    // The pen this wastage task is for; absent for an undivided shed. Part of the row's identity:
+    // one pen's video must never close another pen's task.
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    // Backend-composed shed+pen label; render verbatim rather than re-joining the two halves.
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
+    @SerialName("workflow") val workflow: String = "",
+    @SerialName("experiment_arm") val experimentArm: String = "",
+    // Context, never a gate or a quantity.
+    @SerialName("head_count") val headCount: Long = 0,
+    // Verification-lifecycle bucket: pending | pending_verification | completed. `rework` merges
+    // into `pending` server-side, because a bounced pen is the operator's to act on again.
+    @SerialName("lifecycle_status") val lifecycleStatus: String = "",
+    @SerialName("completed") val completed: Boolean = false,
+    // Why this pen came back to the operator, present only while it is in rework (which surfaces
+    // as lifecycle_status "pending"). Backend-composed farm copy; render verbatim.
+    @SerialName("rework_reason") val reworkReason: String = "",
+    // The VERIFIER'S recorded leftover weight in kg, as an exact decimal string, present only once
+    // she has recorded one.
+    @SerialName("wastage_kg") val wastageKg: String? = null,
+) {
+    val grainKey: String
+        // The PEN identity within one day's scope — the Room queryKey already carries the feed day
+        // and park. The PARTITION is load-bearing exactly as it is on packing rows: without it
+        // Castro 1 and Castro 2 collapse into one Room row and one silently overwrites the other.
+        get() = listOf(shedId, partitionLabel.orEmpty(), workflow).joinToString("|")
+}
+
+/** Whole-filtered-scope pen counts (invariant to limit/offset; the three buckets are disjoint and
+ *  sum to [totalPens]). */
+@Serializable
+data class FeedWastageWorklistSummaryDto(
+    @SerialName("total_pens") val totalPens: Int = 0,
+    @SerialName("pending_pens") val pendingPens: Int = 0,
+    @SerialName("in_review_pens") val inReviewPens: Int = 0,
+    @SerialName("completed_pens") val completedPens: Int = 0,
+)
+
+@Serializable
+data class FeedWastageWorklistPageDto(
+    @SerialName("items") val items: List<FeedWastageRowDto> = emptyList(),
+    @SerialName("summary") val summary: FeedWastageWorklistSummaryDto = FeedWastageWorklistSummaryDto(),
+    @SerialName("lifecycle") val lifecycle: FeedLifecycleDto = FeedLifecycleDto(),
+    @SerialName("filters") val filters: FeedFilterOptionsDto = FeedFilterOptionsDto(),
+    @SerialName("target_date") val targetDate: String = "",
+    @SerialName("limit") val limit: Int = 0,
+    @SerialName("offset") val offset: Int = 0,
+    @SerialName("has_more") val hasMore: Boolean = false,
+)
+
+// ---------------------------------------------------------------------------
+// WRITE — POST /feed-direction/wastage/complete (verifier-gated)
+// ---------------------------------------------------------------------------
+
+/**
+ * The gated feed-WASTAGE completion body. Grain is the PEN-DAY: (park, shed, pen, target_date) —
+ * no session (wastage is measured once per day) and no workflow (the server stamps `experiment`).
+ * [wastageProofRef] is MANDATORY — a blank value is rejected `422 proof_required` server-side; a
+ * pen the day's experiment sheet does not cover is rejected `422 not_experiment_pen`. A pen-day
+ * accepts exactly ONE video: submitting a DIFFERENT one is a 409 the client must surface as
+ * terminal, never retry. The Idempotency-Key header, not the body, carries the replay key.
+ */
+@Serializable
+data class FeedWastageCompleteRequestDto(
+    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("shed_id") val shedId: String,
+    /** The PEN whose leftover was filmed ("2", "Part 3"); null/"" for an undivided shed. Part of
+     *  the completion's IDENTITY — a partitioned shed has one wastage task PER PEN. */
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("target_date") val targetDate: String,
+    @SerialName("wastage_proof_ref") val wastageProofRef: String,
+)
+
+/**
+ * The gated-completion result. The pen-day is NOT completed here — it moves to
+ * `pending_verification` and a verification item is enqueued. [newlyPending] is false on an
+ * idempotent replay or an already-pending/already-completed no-op.
+ */
+@Serializable
+data class FeedWastageCompleteResponseDto(
+    @SerialName("completion_id") val completionId: String = "",
+    @SerialName("status") val status: String = "",
+    @SerialName("newly_pending") val newlyPending: Boolean = false,
+)
+
+// ---------------------------------------------------------------------------
+// WRITE — POST /feed-direction/wastage/{completion_id}/measurement (verifier-only)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE VERIFIER'S WASTAGE MEASUREMENT (maintainer decision 2026-08-18) — the second producer-owned
+ * measurement route after the weighing weight correction. She watches the pen's wastage video and
+ * records the leftover weight she reads off it, in kg; a later entry REPLACES the value.
+ *
+ * ZERO IS VALID — an empty trough is a real, good measurement — so the client must keep a blank
+ * field distinct from an explicit 0 and never coerce one into the other. Range is 0..10000 kg.
+ */
+@Serializable
+data class FeedWastageMeasurementRequestDto(
+    @SerialName("wastage_kg") val wastageKg: Double,
+    /** Derived, never random — the VALUE is in the key so a double-tap is one write while
+     *  recording 3 kg then 3.5 kg are two different acts. */
+    @SerialName("idempotency_key") val idempotencyKey: String? = null,
+)
+
+@Serializable
+data class FeedWastageMeasurementResultDto(
+    @SerialName("completion_id") val completionId: String = "",
+    /** The value AFTER this entry. */
+    @SerialName("wastage_kg") val wastageKg: Double = 0.0,
+    /** What the row held immediately before this entry; absent on a first entry. */
+    @SerialName("previous_wastage_kg") val previousWastageKg: Double? = null,
+    @SerialName("recorded_by") val recordedBy: String = "",
+    @SerialName("recorded_at") val recordedAt: String = "",
+    /** The recomposed verifier-facing label carrying the recorded value; rendered verbatim. */
+    @SerialName("subject_label") val subjectLabel: String = "",
+)
+
+@Serializable
+data class FeedWastageMeasurementResponseDto(
+    @SerialName("wastage_measurement") val wastageMeasurement: FeedWastageMeasurementResultDto = FeedWastageMeasurementResultDto(),
+)

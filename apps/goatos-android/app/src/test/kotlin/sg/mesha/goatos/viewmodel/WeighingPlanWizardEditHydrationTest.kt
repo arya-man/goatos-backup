@@ -21,6 +21,8 @@ import org.junit.Test
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachOutcome
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachStatus
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingDraft
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
@@ -325,8 +327,6 @@ class WeighingPlanWizardEditHydrationTest {
 
         override suspend fun appendLeadershipShed(campaignId: String, campaignShedId: String): AppResult<Int> = AppResult.Ok(0)
 
-        override suspend fun appendLeadershipVideos(): AppResult<Int> = AppResult.Ok(0)
-
         override suspend fun appendPlannerParkBuckets(
             periodStartDate: String,
             parkId: String,
@@ -493,11 +493,6 @@ class WeighingPlanWizardEditHydrationTest {
             reset: Boolean,
         ): AppResult<Int> = AppResult.Ok(0)
 
-        override fun observeLeadershipVideos(windowSize: Int): Flow<List<WeighingLeadershipShed>> =
-            MutableStateFlow(emptyList())
-
-        override suspend fun refreshLeadershipVideos(reset: Boolean): AppResult<Int> = AppResult.Ok(0)
-
         override suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?> =
             AppResult.Ok(null)
 
@@ -529,7 +524,15 @@ class WeighingPlanWizardEditHydrationTest {
             scannedIdentifier: String,
             proofCaptureId: String,
             serverProofId: String?,
-        ) = Unit
+        ): AppResult<IndividualProofAttachOutcome> = AppResult.Ok(
+            IndividualProofAttachOutcome(
+                status = IndividualProofAttachStatus.NO_OBSERVATION,
+                scopeKey = scopeKey,
+                scannedIdentifier = scannedIdentifier,
+                proofCaptureId = proofCaptureId,
+                serverProofId = serverProofId,
+            ),
+        )
 
         override suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft> =
             AppResult.Err("not configured in this fake")
@@ -547,7 +550,12 @@ class WeighingPlanWizardEditHydrationTest {
             campaignId: String,
             campaignShedId: String,
             scannedIdentifiers: List<String>,
-        ): AppResult<Unit> = AppResult.Ok(Unit)
+        ): AppResult<String> = AppResult.Ok("fake-outbox-item-id")
+
+        override suspend fun findPendingSubmit(
+            campaignId: String,
+            campaignShedId: String,
+        ): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = AppResult.Ok(null)
 
         override suspend fun reopenScope(
             campaignId: String,
@@ -563,18 +571,5 @@ class WeighingPlanWizardEditHydrationTest {
 
         override suspend fun closeCampaign(campaignId: String, reason: String): AppResult<Unit> =
             AppResult.Ok(Unit)
-
-        override suspend fun fetchWeightHistory(
-            parkId: String?,
-            campaignShedId: String?,
-        ): AppResult<sg.mesha.goatos.core.network.WeightHistoryResponseDto> =
-            AppResult.Err("not configured in this fake")
-
-        override suspend fun fetchGrowthSummary(
-            parkId: String?,
-            from: String?,
-            to: String?,
-        ): AppResult<sg.mesha.goatos.core.network.GrowthSummaryDto> =
-            AppResult.Err("not configured in this fake")
     }
 }

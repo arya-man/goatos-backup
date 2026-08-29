@@ -45,11 +45,16 @@ export function GrowthDirectorSection({
     );
   }
 
-  const { road_to_sale: road, fair_fight: fairFight, slow_growth: slowGrowth } = result.data;
-  // `feed_problems` and `trust` are still served by the backend, but the Feed sheet
-  // problems table and the trust-panel KPI row were removed from this page — the
-  // contract keeps them so the widgets can be restored without a backend change.
-  const { feed_vs_growth: feedVsGrowth } = result.data;
+  const { road_to_sale: road, fair_fight: fairFight } = result.data;
+  // `feed_problems`, `trust`, `slow_growth` and `feed_vs_growth` are still served by the
+  // backend, but the Feed sheet problems table, the trust-panel KPI row, the Slow-growth
+  // watchlist and the Feed given vs growth table were removed from this page — the contract
+  // keeps them so the widgets can be restored without a backend change. The watchlist went on
+  // 2026-08-15 (maintainer decision): it answered the same question as Fair fight from a
+  // narrower angle, ranking a group against a fixed target instead of against the other sheds
+  // holding the same kind of kid, and it was the reason that row was split two-up. Fair fight
+  // now takes the full width. The Feed given vs growth table went on 2026-08-17 (maintainer
+  // decision): mostly "No data available" rows until pens carry a second weigh.
   const noData = copy(pageContract, "empty.no_data.title");
 
   return (
@@ -103,178 +108,122 @@ export function GrowthDirectorSection({
         <p className="muted small">{gd(pageContract, "period.note")}</p>
       </section>
 
-      {/* ---------------- Fair fight + slow growth ---------------- */}
-      <section className="grid g2">
-        <div className="card wchart" aria-label={gd(pageContract, "fair_fight.title")}>
-          <h2 className="h">{gd(pageContract, "fair_fight.title")}</h2>
-          <p className="muted small">{gd(pageContract, "fair_fight.caption")}</p>
-          {fairFight.cohorts.length === 0 ? (
-            <div className="empty">
-              <b>{noData}</b>
-              <span className="muted small">{gd(pageContract, "fair_fight.empty")}</span>
-            </div>
-          ) : (
-            fairFight.cohorts.map((cohort) => (
-              <div key={`${cohort.breed}-${cohort.sex}`}>
-                <p className="muted small">
-                  <b>
-                    {cohort.breed} · {cohort.sex}
-                  </b>
-                </p>
-                <WeightBars
-                  data={cohort.sheds.map((shed) => ({
-                    key: shed.operational_key,
-                    label: `${shed.shed_display_name} (${nf(shed.pair_identities)} ${gd(pageContract, "fair_fight.pair_noun")})`,
-                    value: shed.median_adg_g_per_day,
-                  }))}
-                  emptyLabel={gd(pageContract, "fair_fight.empty")}
-                  unit="g"
-                  chartLabel={`${gd(pageContract, "fair_fight.title")} — ${cohort.breed} ${cohort.sex}`}
-                  size="short"
-                />
-              </div>
-            ))
-          )}
-          <p className="muted small">{gd(pageContract, "fair_fight.note")}</p>
-        </div>
-
-        <div className="card" aria-label={gd(pageContract, "slow.title")}>
-          <div className="wchart">
-            <h2 className="h">{gd(pageContract, "slow.title")}</h2>
-            <p className="muted small">{gd(pageContract, "slow.caption")}</p>
-          </div>
-          {slowGrowth.groups.length === 0 ? (
-            <div className="empty">
-              <b>{noData}</b>
-              <span className="muted small">{gd(pageContract, "slow.empty")}</span>
-            </div>
-          ) : (
-            <div className="tablewrap">
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    <th>{gd(pageContract, "slow.col.shed")}</th>
-                    <th>{gd(pageContract, "slow.col.breed")}</th>
-                    <th>{gd(pageContract, "slow.col.sex")}</th>
-                    <th>{gd(pageContract, "slow.col.pairs")}</th>
-                    <th>{gd(pageContract, "slow.col.median")}</th>
-                    <th>{gd(pageContract, "slow.col.wow")}</th>
-                    <th>{gd(pageContract, "slow.col.status")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {slowGrowth.groups.map((group) => (
-                    <tr key={`${group.operational_key}-${group.breed}-${group.sex}`}>
-                      <td>{group.shed_display_name}</td>
-                      <td>{group.breed}</td>
-                      <td>{group.sex}</td>
-                      <td>{nf(group.pair_identities)}</td>
-                      <td className={group.median_adg_g_per_day < 0 ? "neg" : undefined}>
-                        {nf(group.median_adg_g_per_day)} g
-                      </td>
-                      <td>
-                        {group.week_over_week_delta_g === null ? (
-                          <span className="muted small">{gd(pageContract, "slow.wow.none")}</span>
-                        ) : (
-                          <span className={group.week_over_week_delta_g < 0 ? "neg" : undefined}>
-                            {group.week_over_week_delta_g > 0 ? "+" : ""}
-                            {nf(group.week_over_week_delta_g)} g
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        <span
-                          className={
-                            group.status === "losing"
-                              ? "tag t-dng"
-                              : group.status === "below_target"
-                                ? "tag t-mut"
-                                : "tag t-info"
-                          }
-                        >
-                          {gd(pageContract, `slow.status.${group.status}`)}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          <div className="wchart">
-            <p className="muted small">{gd(pageContract, "slow.note")}</p>
-          </div>
-        </div>
-      </section>
-
-      {/* ---------------- Feed given vs growth ---------------- */}
-      <section className="card" aria-label={gd(pageContract, "feed_growth.title")}>
-        <div className="wchart">
-          <h2 className="h">
-            {gd(pageContract, "feed_growth.title")}{" "}
-            <span className="tag t-mut">{gd(pageContract, "feed_growth.estimate")}</span>
-          </h2>
-          <p className="muted small">{gd(pageContract, "feed_growth.caption")}</p>
-        </div>
-        {feedVsGrowth.sheds.length === 0 ? (
+      {/* ---------------- Fair fight ---------------- */}
+      {/* FULL WIDTH, and it earns it. This was the left half of a two-up row whose right half
+          was the Slow-growth watchlist; that card is gone (maintainer decision 2026-08-15) and
+          its width came here rather than to whitespace.
+          Each cohort renders as STANDINGS, because that is what the data already is: the
+          backend returns a cohort's sheds ordered by median gain DESC (growth_cohorts.go
+          `ORDER BY breed, sex, median_adg_g_day DESC`), so position IS the rank and nothing is
+          sorted or ranked on the client. The spread between first and last is the line that
+          decides whether a cohort is worth a walk -- sheds within a few grams of each other are
+          not a shed problem, however low the whole cohort sits. */}
+      <section className="card wchart ffcard" aria-label={gd(pageContract, "fair_fight.title")}>
+        <h2 className="h">{gd(pageContract, "fair_fight.title")}</h2>
+        <p className="muted small">{gd(pageContract, "fair_fight.caption")}</p>
+        {fairFight.cohorts.length === 0 ? (
           <div className="empty">
             <b>{noData}</b>
-            <span className="muted small">{gd(pageContract, "feed_growth.empty")}</span>
+            <span className="muted small">{gd(pageContract, "fair_fight.empty")}</span>
           </div>
         ) : (
-          <div className="tablewrap">
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>{gd(pageContract, "feed_growth.col.shed")}</th>
-                  <th>{gd(pageContract, "feed_growth.col.feed")}</th>
-                  <th>{gd(pageContract, "feed_growth.col.gain")}</th>
-                  <th>{gd(pageContract, "feed_growth.col.ratio")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {feedVsGrowth.sheds.map((shed) => (
-                  <tr key={shed.location_id}>
-                    <td>
-                      {shed.shed_display_name}{" "}
-                      <span className={shed.basis === "per_animal" ? "tag t-info" : "tag t-mut"}>
-                        {gd(pageContract, `feed_growth.basis.${shed.basis}`)}
-                      </span>{" "}
-                      {shed.is_experiment ? (
-                        <span className="tag t-info">
-                          {gd(pageContract, "feed_growth.experiment")}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td>
-                      {shed.feed_g_per_head_per_day === null
-                        ? noData
-                        : `${nf(shed.feed_g_per_head_per_day)} ${gd(pageContract, "feed_growth.feed_unit")}`}
-                    </td>
-                    <td>
-                      {shed.adg_g_per_day === null
-                        ? gd(pageContract, "feed_growth.no_gain")
-                        : `${nf(shed.adg_g_per_day)} g`}
-                    </td>
-                    <td>
-                      {shed.is_experiment
-                        ? gd(pageContract, "feed_growth.experiment")
-                        : shed.kg_feed_per_kg_gain === null
-                          ? noData
-                          : nf(shed.kg_feed_per_kg_gain)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="ffboard">
+            {fairFight.cohorts.map((cohort) => {
+              // The backend ranks these sheds fastest-first; the board LISTS them
+              // alphabetically (maintainer decision 2026-08-24), like every other shed list on
+              // the page, so a reader can find the pen they came here for.
+              //
+              // The numbers count the LIST, 1..n straight down (maintainer, 2026-08-24): a
+              // badge reading "1" three rows down looked like a mistake every time the eye
+              // passed it. The standing did not disappear with it — the leader/behind chips
+              // and the spread are still computed from the backend's ranked array, by VALUE,
+              // so "this pen is the fastest of its cohort" is still on the row that earned it.
+              const ranked = cohort.sheds;
+              const best = ranked[0];
+              const last = ranked[ranked.length - 1];
+              const rankByKey = new Map(ranked.map((shed, index) => [shed.operational_key, index]));
+              const sheds = [...ranked].sort((a, b) =>
+                a.shed_display_name.localeCompare(b.shed_display_name, undefined, { numeric: true }),
+              );
+              const spread = ranked.length > 1 ? best.median_adg_g_per_day - last.median_adg_g_per_day : null;
+              const kids = ranked.reduce((sum, shed) => sum + shed.pair_identities, 0);
+              return (
+                <div className="ffmatch" key={`${cohort.breed}-${cohort.sex}`}>
+                  <div className="ffhead">
+                    <b className="ffcohort">
+                      {cohort.breed} · {cohort.sex}
+                    </b>
+                    <span className="muted small">
+                      {nf(sheds.length)} {gd(pageContract, "fair_fight.shed_noun")} · {nf(kids)}{" "}
+                      {gd(pageContract, "fair_fight.pair_noun")}
+                    </span>
+                  </div>
+                  <ol className="ffstand" aria-label={`${gd(pageContract, "fair_fight.title")} — ${cohort.breed} ${cohort.sex}`}>
+                    {sheds.map((shed, index) => {
+                      // Standing by KEY (this list is alphabetical); the badge counts the list.
+                      const standing = rankByKey.get(shed.operational_key) ?? 0;
+                      // The bar is drawn against the cohort's OWN best, so every board reads
+                      // "share of the leader" rather than being scaled to a page-wide maximum
+                      // that would flatten a close race into identical bars. A non-positive
+                      // leader leaves every track empty, which is honest: there is no gain to
+                      // take a share of.
+                      const share =
+                        best.median_adg_g_per_day > 0
+                          ? Math.max(0, (shed.median_adg_g_per_day / best.median_adg_g_per_day) * 100)
+                          : 0;
+                      const isLeader = standing === 0 && ranked.length > 1;
+                      const isLast = standing === ranked.length - 1 && ranked.length > 1;
+                      return (
+                        <li className={`ffrow${isLeader ? " ffwin" : ""}`} key={shed.operational_key}>
+                          <span className="ffrank" aria-label={gd(pageContract, "fair_fight.rank_label")}>
+                            {index + 1}
+                          </span>
+                          {/* The name gets a LINE OF ITS OWN, because a shed's identity here is
+                              park + shed + pen — thirty-odd characters — and that does not fit
+                              beside a bar. Squeezed into a column it truncated after the park,
+                              naming the farm and hiding the one thing the row is about. `title`
+                              still carries the full string for a name that outruns even a line. */}
+                          <span className="ffshed" title={shed.shed_display_name}>
+                            {shed.shed_display_name}
+                          </span>
+                          <span className={`ffval${shed.median_adg_g_per_day < 0 ? " neg" : ""}`}>
+                            {nf(shed.median_adg_g_per_day)} g
+                          </span>
+                          <span className="fftrack">
+                            <i
+                              className={shed.median_adg_g_per_day < 0 ? "neg" : undefined}
+                              style={{ width: `${Math.max(share, 0.6)}%` }}
+                            />
+                          </span>
+                          {/* n and the standing chip share one cell so the chip never takes a
+                              column off every name — including the middle rows that carry no
+                              chip — and the kid count stays visible on the leader and last rows,
+                              which are exactly the two an operator checks the sample size of. */}
+                          <span className="ffmeta">
+                            <span className="muted ffn">
+                              {nf(shed.pair_identities)} {gd(pageContract, "fair_fight.pair_noun")}
+                            </span>
+                            {isLeader ? (
+                              <span className="tag t-ok ffchip">{gd(pageContract, "fair_fight.leader")}</span>
+                            ) : isLast ? (
+                              <span className="tag t-mut ffchip">{gd(pageContract, "fair_fight.behind")}</span>
+                            ) : null}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  {spread === null ? null : (
+                    <p className="ffspread muted small">
+                      {gd(pageContract, "fair_fight.spread")} <b>{nf(spread)} g</b>
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
-        <div className="wchart">
-          <p className="muted small">
-            {gd(pageContract, "feed_growth.note")}{" "}
-            {gd(pageContract, "feed_growth.experiment.note")}
-          </p>
-        </div>
+        <p className="muted small">{gd(pageContract, "fair_fight.note")}</p>
       </section>
 
     </>

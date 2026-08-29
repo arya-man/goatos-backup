@@ -126,7 +126,9 @@ These words have fixed meanings in Goat OS:
   module. Control Tower, Action Center, Calendar, Protocol Adherence, and
   Workflows are command lenses. They summarize/filter work emitted by modules.
 - **Authority screen** = top-level Admin/Data Ops authoring surface. Config
-  (`/config`) and SOP Library (`/sops`) are authority screens.
+  (`/config`) is the authority screen. The old SOP Library (`/sops`) is RETIRED
+  (SOP split, maintainer decision 2026-08-18): SOPs are per-module
+  module-surfaces at `/vaccination/sops`, `/counts/sops`, and `/feed/sops`.
 
 Do not say "module/vertical" as if they are interchangeable. Preventive Care (PC) is the
 vertical. Vaccination is the module under Preventive Care (PC). Procurement is the vertical.
@@ -153,9 +155,9 @@ into generic layers; do not show unbuilt modules as live.
 
 Control Tower, Action Center, Calendar, Protocol Adherence, and Workflows are
 **top-level command-room screens** (`/`, `/action-center`, `/calendar`,
-`/protocol-adherence`, `/workflows`), exactly as the mock places them. Config
-and SOP Library are also top-level Admin / Data Ops authority screens
-(`/config`, `/sops`). They are NOT tabs or redirects nested inside the
+`/protocol-adherence`, `/workflows`), exactly as the mock places them. Config is
+also a top-level Admin / Data Ops authority screen (`/config`). They are NOT
+tabs or redirects nested inside the
 Preventive Care (PC) Vaccination module, Procurement/source-entry, Parks, or any future vertical. The
 selected module/domain filters their *content*; it does not move them under a
 vertical. Do not reintroduce an Action Center / Calendar / Adherence /
@@ -188,9 +190,11 @@ Admin-web is built around the vaccination process-integrity slice:
   -> Execute chain, vaccination status matrix, per-cohort detail, drive/shed-event
   execution, proof/verification/rework states, and honest empty states when data
   is absent. It links OUT to the command screens; it does not embed them.
-- **Admin / Data Ops**: generic protocol config at `/config`, the CEO/admin
-  business Audit Log at `/operations/audit`, and the reopened vaccination-only
-  SOP Library / form-builder at `/sops`.
+- **Admin / Data Ops**: generic protocol config at `/config` and the CEO/admin
+  business Audit Log at `/operations/audit`. SOP pages moved to their modules
+  (SOP split, maintainer decision 2026-08-18): `/vaccination/sops`,
+  `/counts/sops` (Herd Operations SOP), and `/feed/sops`, each with the
+  form-builder at `?compose=1`.
 - **Vaccination execution context**: park/shed/stage/defer/blocker/owner context
   renders INSIDE Preventive Care (PC) / Vaccination at `/vaccination`, scoped by
   the top-bar park dropdown. It is powered by the execution read-model endpoints
@@ -212,7 +216,20 @@ Admin-web is built around the vaccination process-integrity slice:
   import/review surfaces. The Counts sidebar shows exactly two leaves in this
   slice — `Herd Register` (`/counts/herd`) and `Counts Breakdown`
   (`/counts/breakdown`); do not show disabled `Tagging & identity`, `Weights &
-  ADG`, or `Count reconciliation` leaves for mock fidelity.
+  ADG`, or `Count reconciliation` leaves for mock fidelity. Herd Register’s leaf is currently
+  withheld (its route stays reachable), so the two visible leaves are `Herd Analytics`
+  (`/counts/analytics`) and `Counts Breakdown` (`/counts/breakdown`).
+- **Herd Analytics** (`/counts/analytics`) is the Counts leadership read, opened by maintainer
+  decision 2026-08-20. Two questions, one screen: what the herd IS right now (breed, pen tag,
+  sex, kid/adult, farm) and what CHANGED it month by month (births in, deaths and sales out,
+  other exits, pen movements within). One round trip to `GET /counts/herd-analytics`; the page
+  derives no count of its own and reads whole-window `totals` from the response rather than
+  re-summing `months`. Composition uses the same live population `/counts/breakdown` reports, so
+  the two Counts screens can never disagree about the denominator. Charts are the shared inline
+  SVG marks in `components/svg-series.tsx` + `components/svg-bars.tsx` — SERVER components,
+  `var(--*)` series colours, recharts still at zero importers. Composition cards are FULL WIDTH
+  (`.herd-analytics-charts`), never the mock’s 340px `.charts` masonry, which squeezes the wide
+  SvgBars viewBox down to unreadable labels.
 - **Counts Breakdown** (`/counts/breakdown`) is the census surface, reopened by
   explicit maintainer decision (2026-07-18). Live head counts grouped by
   farm x stage x breed x gender x shed, plus the mock's `.charts` /
@@ -329,6 +346,19 @@ The only current exceptions are pre-contract auth screens and the emergency
 contract-unavailable shell, documented in
 `context/frontend/admin-web-backend-ui-contract.md`. Run
 `npm --prefix apps/admin-web run check:ui-contract` before handoff or push.
+
+## Date Display Rule (maintainer decision 2026-08-21)
+
+Every VISIBLE date in an admin-web table, card, or drawer renders **DD-MM-YYYY**
+through `lib/format.ts` `fmtDate` (timestamps through `fmtDateTime` /
+`dateTime`). Chart axes render the compact **dd-mm-yy** via
+`components/svg-series.tsx`. Never render a wire field like `feed_day`,
+`*_date`, or `*_day` directly into JSX text — that ships the API's ISO string to
+the operator's eyes. Wire formats themselves (query params, API payloads, React
+keys, `todayIso`/`istDayPlus` arithmetic) stay ISO `YYYY-MM-DD` and must not be
+reformatted. Machine gate: `make admin-web-date-format-guard` (canary on the
+helper's composition + a scan for bare date fields in JSX text nodes; laundering
+through intermediate variables is a stated blind spot that review owns).
 
 ## UI Source Of Truth
 
@@ -581,11 +611,25 @@ Only these routes are current implemented product routes:
                            verification queue. Polls by re-running the server tree (router.refresh).
 /procurement/source-entry    Source Entry Board for supplier warmup / accepted intake
 /procurement/source-entry/loads/{load_id}
-/counts/herd                 Herd Register for vaccination trigger closure
+/sales                       Sales board — its OWN top-level vertical, split out of Procurement
+                            (maintainer decision 2026-08-27). Animal + manure sales overview,
+                            buyers, demand pipeline, sale evidence, deals ledger, record-sale
+                            drawer. The record-sale form maps every deal to a vendor from the
+                            procurement register, so the page also needs procurement.vendor.read
+                            alongside sales.read / sales.write (backend "sales" page contract).
+                            Moved from /procurement/sales; there is no redirect.
+/counts/herd                 Herd Register for vaccination trigger closure (route live; its
+                             sidebar leaf is WITHHELD, maintainer decision 2026-08-20)
+/counts/analytics            Herd Analytics — composition now (breed / pen tag / sex / kid-adult /
+                             farm) beside month-by-month births, deaths, sales and pen movements
 /counts/breakdown            Counts Breakdown census (farm x stage x breed x gender x shed)
 /operations/audit            Admin / Data Ops Audit Log (business surface)
 /config
-/sops
+/vaccination/sops           Vaccination SOP (module-surface; builder at ?compose=1)
+/counts/sops                Herd Operations SOP — birth / death / shifting
+/feed/sops                  Feed SOP — distribution / packing / transport
+/milk/sops                  Milk SOP — preparation / feeding (SOP split extension, 2026-08-22)
+/weighing/sops              Weighing SOP — scan-and-submit session (SOP split extension, 2026-08-22)
 /goats/{goat_id}
 /verify                     Verify — cross-module verification evidence (top-level, below Approvals)
 /actions                    Compatibility redirect to /verify (route renamed 2026-08-12)
@@ -640,8 +684,8 @@ allowed product route or redirect.
 ## Hard Rules
 
 - Control Tower / Action Center / Protocol Adherence / Workflows are top-level
-  command screens. Config and SOP Library are top-level Admin / Data Ops
-  authority screens. Never nest them as tabs or compatibility redirects under
+  command screens. Config is the top-level Admin / Data Ops
+  authority screen. Never nest them as tabs or compatibility redirects under
   Preventive Care (PC) / Vaccination, Procurement/source-entry, Parks, or any future vertical.
   `/vaccination` is the Preventive Care (PC) operations surface and links out to them.
 - Never duplicate top-level command screens under procurement/source-entry or any
@@ -691,8 +735,10 @@ Do not rebuild these unless the product scope is explicitly reopened:
 /herd
 ```
 
-`/sops` was reopened as the Admin / Data Ops SOP Library (vaccination-only review
-surface); it is an active route, not a removed one. `/counts/herd` is active for
+`/sops` was reopened as the Admin / Data Ops SOP Library, then RETIRED by the
+SOP split (maintainer decision 2026-08-18) in favour of the per-module pages
+`/vaccination/sops`, `/counts/sops`, and `/feed/sops`; do not rebuild a
+top-level `/sops`. `/counts/herd` is active for
 Herd Register, and `/operations/audit` is active as the Admin / Data Ops business
 Audit Log for the vaccination trigger-closure slice.
 Old `/herd`, unrelated Counts modules, old `/tasks`, old Operations, old generic

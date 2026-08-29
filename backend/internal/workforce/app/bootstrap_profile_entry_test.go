@@ -92,13 +92,15 @@ func TestProfileEntryPlacementFollowsModuleCount(t *testing.T) {
 			name:           "verifier verifies vaccination only",
 			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
 			grantedModules: []string{"vaccination"},
-			wantMultiple:   false,
+			// Baseline clock (2026-08-28) joins the verify module: two modules, drawer owns You.
+			wantMultiple: true,
 		},
 		{
 			name:           "operator holds one module",
 			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			grantedModules: []string{"vaccination"},
-			wantMultiple:   false,
+			// Baseline clock (2026-08-28) joins vaccination: two modules, drawer owns You.
+			wantMultiple: true,
 		},
 		{
 			// Preventive-care leadership is the UNION of vaccination + weighing + health

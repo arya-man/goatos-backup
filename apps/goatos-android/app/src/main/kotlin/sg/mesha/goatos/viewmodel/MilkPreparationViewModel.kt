@@ -7,8 +7,11 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import java.util.Locale
 import javax.inject.Inject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +19,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -23,16 +28,26 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.capture.ProofCapturePrompt
 import sg.mesha.goatos.capture.ProofCaptureContext
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.submittedGrainKey
 import sg.mesha.goatos.core.data.MilkPreparationRepository
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
+import sg.mesha.goatos.core.data.capture.buildMilkPreparationEvidenceSlot
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofFlow
+import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.ProofPolicy
-import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.sync.MilkPreparationAnswersPayload
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.network.isConnectivityFailure
 import sg.mesha.goatos.core.network.dto.MilkPreparationPageDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationFarmTaskDto
 import sg.mesha.goatos.feature.counts.MilkPreparationCardBucket
@@ -55,41 +70,52 @@ private data class MilkPreparationRefreshState(
 @HiltViewModel
 class MilkPreparationListViewModel @Inject constructor(
     private val repo: MilkPreparationRepository,
+    private val submittedGrains: SubmittedGrainsSource,
     drafts: CaptureDraftRepository,
 ) : ViewModel() {
-    private val today = LocalDate.now(MILK_IST).toString()
+    private val selectedDate = MutableStateFlow(LocalDate.now(MILK_IST).toString())
     private val selectedFilter = MutableStateFlow("all")
     private val refresh = MutableStateFlow(MilkPreparationRefreshState())
 
-    val state: StateFlow<MilkPreparationListUiState> = combine(
-        repo.observe(today),
-        selectedFilter,
-        refresh,
-        // ONE bounded Room observation for the whole page, never a per-row lookup — a per-card
-        // draft read behind a list is the N+1 shape (docs/decisions/mobile-data-fetch-anti-patterns.md).
-        drafts.observeProgress(CaptureFlow.MILK_PREPARATION),
-    ) { resource, selected, sync, capturedByEntity ->
-        val page = resource.data
-        if (page == null) {
-            MilkPreparationListUiState(
-                selectedFilter = selected,
-                dateLabel = "Today · ${LocalDate.parse(today).format(MILK_DAY_LABEL)}",
-                isRefreshing = sync.isRefreshing,
-                isOffline = sync.isOffline,
-                emptyMessage = if (sync.isOffline) "Couldn't load Milk Preparation. It will appear once you're back online." else null,
-            )
-        } else {
-            buildMilkPreparationListUi(page, selected, capturedByEntity, draftDate = today).copy(
-                isRefreshing = sync.isRefreshing,
-                isOffline = sync.isOffline,
-                lastSyncedAt = resource.lastSyncedAt,
-            )
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val state: StateFlow<MilkPreparationListUiState> = selectedDate
+        .flatMapLatest { dateStr ->
+            combine(
+                repo.observe(dateStr),
+                selectedFilter,
+                refresh,
+                // ONE bounded Room observation for the whole page, never a per-row lookup — a per-card
+                // draft read behind a list is the N+1 shape (docs/decisions/mobile-data-fetch-anti-patterns.md).
+                drafts.observeProgress(CaptureFlow.MILK_PREPARATION),
+                submittedGrains.observe(),
+            ) { resource, selected, sync, capturedByEntity, locallySubmitted ->
+                val page = resource.data
+                if (page == null) {
+                    MilkPreparationListUiState(
+                        selectedFilter = selected,
+                        dateLabel = milkPreparationDateLabel(dateStr),
+                        selectedDate = dateStr,
+                        isToday = dateStr == LocalDate.now(MILK_IST).toString(),
+                        isRefreshing = sync.isRefreshing,
+                        isOffline = sync.isOffline,
+                        emptyMessage = if (sync.isOffline) "Couldn't load Milk Preparation. It will appear once you're back online." else null,
+                    )
+                } else {
+                    buildMilkPreparationListUi(page, selected, capturedByEntity, draftDate = dateStr, locallySubmitted = locallySubmitted).copy(
+                        selectedDate = dateStr,
+                        isToday = dateStr == LocalDate.now(MILK_IST).toString(),
+                        isRefreshing = sync.isRefreshing,
+                        isOffline = sync.isOffline,
+                        lastSyncedAt = resource.lastSyncedAt,
+                    )
+                }
+            }
         }
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        MilkPreparationListUiState(dateLabel = "Today · ${LocalDate.parse(today).format(MILK_DAY_LABEL)}"),
-    )
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            MilkPreparationListUiState(dateLabel = milkPreparationDateLabel(selectedDate.value)),
+        )
 
     init { refresh() }
 
@@ -97,30 +123,76 @@ class MilkPreparationListViewModel @Inject constructor(
         when (event) {
             MilkPreparationListEvent.Refresh -> refresh()
             is MilkPreparationListEvent.SelectFilter -> selectedFilter.value = event.key
+            is MilkPreparationListEvent.NavigateDate -> navigateDate(event.delta)
+            is MilkPreparationListEvent.SelectDate -> selectDate(event.date)
             is MilkPreparationListEvent.OpenFarm, MilkPreparationListEvent.Back -> Unit
         }
     }
 
+    /** Business dates are capped at today IST, mirroring WorkflowListViewModel.selectDate — future
+     *  days have no preparation tasks by definition. */
+    private fun navigateDate(delta: Int) {
+        applyDate(LocalDate.parse(selectedDate.value).plusDays(delta.toLong()))
+    }
+
+    /** Calendar jump from the date bar's picker; same today cap as the chevrons. */
+    private fun selectDate(dateIso: String) {
+        val requested = parseMilkPreparationDateOrNull(dateIso) ?: return
+        applyDate(requested)
+    }
+
+    private fun applyDate(requested: LocalDate) {
+        val today = LocalDate.now(MILK_IST)
+        val capped = if (requested.isAfter(today)) today else requested
+        if (capped.toString() == selectedDate.value) return
+        selectedDate.value = capped.toString()
+        refresh()
+    }
+
     private fun refresh() = viewModelScope.launch {
         refresh.value = MilkPreparationRefreshState(isRefreshing = true)
-        val preparationResult = repo.refresh(today)
-        refresh.value = MilkPreparationRefreshState(isOffline = preparationResult.isFailure)
+        val preparationResult = repo.refresh(selectedDate.value)
+        refresh.value = MilkPreparationRefreshState(isOffline = preparationResult.exceptionOrNull().isConnectivityFailure())
     }
 }
+
+/** "Today · 27 Jul" only when [dateIso] IS today IST; otherwise just the formatted date — matching
+ *  the WorkflowListViewModel date-bar convention (a past/future selection is never mislabeled Today). */
+private fun milkPreparationDateLabel(dateIso: String): String {
+    val parsed = parseMilkPreparationDateOrNull(dateIso) ?: return dateIso
+    val label = parsed.format(MILK_DAY_LABEL)
+    return if (dateIso == LocalDate.now(MILK_IST).toString()) "Today · $label" else label
+}
+
+private fun parseMilkPreparationDateOrNull(dateIso: String): LocalDate? =
+    try {
+        LocalDate.parse(dateIso)
+    } catch (_: DateTimeParseException) {
+        null
+    }
 
 internal fun buildMilkPreparationListUi(
     page: MilkPreparationPageDto?,
     selectedFilter: String,
     capturedByEntity: Map<String, Int> = emptyMap(),
     draftDate: String = "",
+    locallySubmitted: Set<String> = emptySet(),
 ): MilkPreparationListUiState {
+    val selectedIsToday = draftDate.isBlank() || draftDate == LocalDate.now(MILK_IST).toString()
     val allCards = page?.farmTasks.orEmpty()
         .map { task ->
             // MUST be the same key the detail screen writes its draft under
             // (MilkPreparationViewModel.entityId = "$parkId:$preparationDate", where the date is the
             // LOCAL IST business day). Keying off page.preparationDate instead would silently miss
             // every draft on any day the backend's sheet date differs from the phone's.
-            milkPreparationCard(task, capturedByEntity["${task.parkId}:$draftDate"] ?: 0)
+            milkPreparationCard(
+                task,
+                capturedByEntity["${task.parkId}:$draftDate"] ?: 0,
+                locallySubmitted.contains(
+                    task.submittedGrainKey(draftDate),
+                ),
+                canOpen = selectedIsToday,
+            )
         }
         .sortedBy { it.parkLabel }
     val cards = if (selectedFilter == "all") allCards else allCards.filter { card ->
@@ -136,7 +208,10 @@ internal fun buildMilkPreparationListUi(
     val toPrepare = counts[MilkPreparationCardBucket.TO_PREPARE] ?: 0
     return MilkPreparationListUiState(
         subtitle = "${allCards.size} ${if (allCards.size == 1) "farm" else "farms"} · $toPrepare need action",
-        dateLabel = page?.preparationDate.orEmpty().toMilkDateLabel("Today · "),
+        // The SELECTED date drives the label, not the page's own preparationDate echo — a page
+        // still carrying yesterday's cached data (offline) must not silently relabel the date the
+        // operator navigated to.
+        dateLabel = milkPreparationDateLabel(draftDate.ifBlank { page?.preparationDate.orEmpty() }),
         feedingDateLabel = page?.feedingDate?.toMilkDateLabel().orEmpty(),
         chips = listOf(
             MilkPreparationChipUi("all", "All", allCards.size),
@@ -151,8 +226,22 @@ internal fun buildMilkPreparationListUi(
     )
 }
 
-private fun milkPreparationCard(task: MilkPreparationFarmTaskDto, capturedProofCount: Int): MilkPreparationCardUi {
-    val bucket = when (task.verificationStatus) {
+private fun milkPreparationCard(
+    task: MilkPreparationFarmTaskDto,
+    capturedProofCount: Int,
+    isLocallySubmittedForReview: Boolean = false,
+    canOpen: Boolean = true,
+): MilkPreparationCardUi {
+    // A submit still in the outbox leaves verificationStatus at "not_submitted", so the card read
+    // "To prepare" for work already sent (254.mp4 class). Milk Preparation is FARM-DAY grain.
+    val bucket = when (
+        overlayVerificationStatus(
+            backendStatus = task.verificationStatus,
+            reworkReason = task.reworkReason,
+            isLocallySubmitted = isLocallySubmittedForReview,
+            inReviewToken = IN_REVIEW_PENDING_VERIFICATION,
+        )
+    ) {
         "pending_verification" -> MilkPreparationCardBucket.IN_REVIEW
         "completed" -> MilkPreparationCardBucket.COMPLETED
         "rework" -> MilkPreparationCardBucket.REWORK
@@ -184,6 +273,7 @@ private fun milkPreparationCard(task: MilkPreparationFarmTaskDto, capturedProofC
         },
         reworkReason = task.reworkReason,
         bucket = bucket,
+        canOpen = canOpen,
         detailLabel = "${task.cohortCount} cohorts · ${task.headCount} animals",
         capturedProofCount = capturedProofCount,
     )
@@ -193,7 +283,7 @@ private fun milkPreparationCard(task: MilkPreparationFarmTaskDto, capturedProofC
 internal fun Int.videosRecorded(): String = if (this == 1) "1 video" else "$this videos"
 
 private fun String.toMilkDateLabel(prefix: String = ""): String =
-    runCatching { prefix + LocalDate.parse(this).format(MILK_DAY_LABEL) }.getOrDefault(this)
+    parseMilkPreparationDateOrNull(this)?.let { prefix + it.format(MILK_DAY_LABEL) } ?: this
 
 private fun formatLitres(millilitres: Long): String = formatDecimal(millilitres.toDouble() / 1_000.0) + " L"
 private fun formatDecimal(value: Double): String =
@@ -221,12 +311,20 @@ class MilkPreparationViewModel @Inject constructor(
     private val capture: ProofCaptureSource,
     private val proofCaptureRepository: ProofCaptureRepository,
     private val drafts: CaptureDraftRepository,
+    private val analytics: AnalyticsPort,
     private val saved: SavedStateHandle,
 ) : ViewModel() {
     private val parkId = saved.get<String>(ARG_PARK_ID).orEmpty()
-    private val preparationDate = LocalDate.now(MILK_IST).toString()
+    private val preparationDate = saved.get<String>(ARG_PREPARATION_DATE) ?: LocalDate.now(MILK_IST).toString()
+    // Proof/draft field-key building now routes through the canonical ProofIdentity/EvidenceSlot
+    // model (see evidenceSlot() below). identity.taskId is set to the EXISTING groupKey() literal
+    // and fieldKey to the EXISTING "milk_preparation_$stepCode" literal, so the strings written to
+    // Room/outbox are byte-for-byte unchanged — only the plumbing carrying them is canonical now.
+    // DraftIdempotencyKey/SavedStateHandle process-death survival for the mint-random-UUID
+    // idempotency keys is unrelated to identity addressing and is unaffected by this migration.
     private val submitKey = DraftIdempotencyKey(saved, "milkPreparation.submitKey", "milk-preparation-submit")
     private val proofKeys = allSteps.associateWith { DraftIdempotencyKey(saved, "milkPreparation.proofKey.$it", "milk-preparation-$it") }
+    private val submitOutboxItemId = DraftOutboxItemId(saved, "milkPreparation.submitOutboxItemId")
     private val refresh = MutableStateFlow(MilkPreparationRefreshState())
 
     // Starts empty and is rehydrated from the DURABLE draft in init. Answers used to be mirrored
@@ -234,11 +332,13 @@ class MilkPreparationViewModel @Inject constructor(
     // recorded videos beside blank fields, and every step gates on answerComplete && captured, so
     // the whole sheet had to be retyped before Submit re-enabled.
     private val draft = MutableStateFlow(MilkPreparationDraftState(goatMilkUsed = null, steps = emptyList()))
+    private var statusJob: Job? = null
 
     val state: StateFlow<MilkPreparationUiState> = combine(repo.observe(preparationDate), draft, refresh) { resource, local, syncState ->
         val page = resource.data
         val task = page?.farmTasks?.firstOrNull { it.parkId == parkId }
         val backendSubmitted = task?.verificationStatus == "pending_verification" || task?.verificationStatus == "completed"
+        val isToday = preparationDate == LocalDate.now(MILK_IST).toString()
         MilkPreparationUiState(
             preparationDate = page?.preparationDate ?: preparationDate,
             feedingDate = page?.feedingDate.orEmpty(),
@@ -271,6 +371,7 @@ class MilkPreparationViewModel @Inject constructor(
             isRefreshing = syncState.isRefreshing,
             isOffline = syncState.isOffline,
             lastSyncedAt = resource.lastSyncedAt,
+            isToday = isToday,
         )
     }.stateIn(
         viewModelScope,
@@ -281,6 +382,9 @@ class MilkPreparationViewModel @Inject constructor(
     init { refresh() }
 
     fun onEvent(event: MilkPreparationEvent) {
+        // Block all edits if this submit is already in-flight/completed
+        val isSubmitInFlightOrCompleted = submitOutboxItemId.value != null
+        if (event != MilkPreparationEvent.Refresh && event != MilkPreparationEvent.Back && isSubmitInFlightOrCompleted) return
         when (event) {
             is MilkPreparationEvent.SetGoatMilkUsed -> if (state.value.goatMilkQuestionEnabled) {
                 // Answers already typed are carried across the step-set change, so toggling the
@@ -304,7 +408,7 @@ class MilkPreparationViewModel @Inject constructor(
                 draft.update { if (event.shift == "morning") it.copy(morningMilkCollected = event.value) else it.copy(eveningMilkCollected = event.value) }
             }
             is MilkPreparationEvent.SetStepAnswer -> {
-                if (state.value.steps.firstOrNull { it.code == event.stepCode }?.enabled != true) return
+                if (!state.value.isEditable || state.value.steps.firstOrNull { it.code == event.stepCode }?.enabled != true) return
                 draft.update { current -> current.copy(steps = current.steps.map { if (it.code == event.stepCode) it.copy(answer = event.value) else it }) }
             }
             MilkPreparationEvent.Submit -> submit()
@@ -321,6 +425,10 @@ class MilkPreparationViewModel @Inject constructor(
     private var captureDraft = CaptureDraft()
 
     init {
+        analytics.track(
+            AnalyticsEvents.MILK_PREPARATION_OPENED,
+            mapOf(AnalyticsEvents.Params.PARK_ID to parkId),
+        )
         viewModelScope.launch {
             captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
             val answers = captureDraft.answers
@@ -341,7 +449,26 @@ class MilkPreparationViewModel @Inject constructor(
             // Restore BEFORE the writer starts, or the empty initial state would immediately
             // overwrite the answers just read back.
             persistAnswers()
+            // Restore the submit outbox item ID from the durable store so process death doesn't
+            // lose the in-flight submission state. If one exists, observe it for status changes.
+            // Draft store may lag or be pruned — it must never CLOBBER a SavedStateHandle-restored
+            // in-flight id back to null (that reopened a queued submit for editing; caught by the
+            // process-death regression test 2026-08-16).
+            captureDraft.submitOutboxItemId?.let { submitOutboxItemId.value = it }
+            submitOutboxItemId.value?.let(::observeOutboxItem)
+            observeProofChanges()
         }
+    }
+
+    private fun observeProofChanges() = viewModelScope.launch {
+        drafts.observe(CaptureFlow.MILK_PREPARATION, entityId)
+            .distinctUntilChanged { old, new -> old.proofs == new.proofs }
+            .collect { newCaptureDraft ->
+                captureDraft = newCaptureDraft
+                draft.update { current ->
+                    current.copy(steps = current.steps.map { it.copy(captured = newCaptureDraft.hasProof(it.code)) })
+                }
+            }
     }
 
     /**
@@ -370,51 +497,74 @@ class MilkPreparationViewModel @Inject constructor(
     private fun refresh() = viewModelScope.launch {
         refresh.value = MilkPreparationRefreshState(isRefreshing = true)
         val preparationResult = repo.refresh(preparationDate)
-        refresh.value = MilkPreparationRefreshState(isOffline = preparationResult.isFailure)
+        refresh.value = MilkPreparationRefreshState(isOffline = preparationResult.exceptionOrNull().isConnectivityFailure())
     }
 
     /**
-     * Replaces one step's clip: the discarded take's queued upload is deleted (it must not reach the
-     * verifier as a second video), then the normal capture path runs again.
+     * Replaces one step's clip: Manohar ordering ensures the new proof captures and stores
+     * BEFORE the old one is deleted, so a cancelled or failed re-capture keeps the existing
+     * good proof (the old "proof disappeared" defect).
      */
     private fun reCaptureStep(stepCode: String) {
         val current = state.value
         if (!current.isEditable) return
+        val oldProofOutboxId = captureDraft.proofs[stepCode]
         viewModelScope.launch {
-            captureDraft.proofs[stepCode]?.let { sync.deleteOutboxItem(it) }
-            drafts.clearProof(CaptureFlow.MILK_PREPARATION, entityId, stepCode)
-            captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
             proofKeys[stepCode]?.invalidate()
-            draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(captured = false) else row }) }
-            captureStep(stepCode)
-        }
-    }
-
-    private fun captureStep(stepCode: String) {
-        val current = state.value
-        val step = current.steps.firstOrNull { it.code == stepCode } ?: return
-        if (!current.isEditable || parkId.isBlank() || !step.enabled || !step.answerComplete || step.captured || step.capturing) return
-        draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = true) else row }) }
-        viewModelScope.launch {
             val caption = proofOverlayContextLine(
                 feature = "Milk preparation",
                 parkLabel = current.parkLabel.ifBlank { parkId },
-                extraLabel = step.label,
+                extraLabel = current.steps.firstOrNull { it.code == stepCode }?.label.orEmpty(),
             )
-            val video = capture.captureVideo(
-                ProofCaptureContext(
-                    title = caption,
-                    primaryTag = current.parkLabel.ifBlank { parkId },
-                    workLabel = step.label,
-                    prompt = ProofCapturePrompt.MILK_PREPARATION,
-                    headerTitle = step.label,
-                ),
-            )
-            if (video == null) { setCapturing(stepCode, false); return@launch }
-            when (val result = proofCaptureRepository.capture(
-                taskId = groupKey(),
-                fieldKey = "milk_preparation_$stepCode",
-                subject = ProofSubject.PARK,
+            draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = true) else row }) }
+            var captureThrew = false
+            val video = try {
+                capture.captureVideo(
+                    ProofCaptureContext(
+                        title = caption,
+                        primaryTag = current.parkLabel.ifBlank { parkId },
+                        workLabel = current.steps.firstOrNull { it.code == stepCode }?.label.orEmpty(),
+                        prompt = ProofCapturePrompt.MILK_PREPARATION,
+                        headerTitle = current.steps.firstOrNull { it.code == stepCode }?.label.orEmpty(),
+                    ),
+                )
+            } catch (error: Exception) {
+                captureThrew = true
+                analytics.track(
+                    AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE,
+                    mapOf(
+                        AnalyticsEvents.Params.PARK_ID to parkId,
+                        AnalyticsEvents.Params.FIELD to stepCode,
+                        AnalyticsEvents.Params.REASON to "camera_exception",
+                    ),
+                )
+                null
+            }
+            if (video == null) {
+                if (!captureThrew) {
+                    analytics.track(
+                        AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.PARK_ID to parkId,
+                            AnalyticsEvents.Params.FIELD to stepCode,
+                            AnalyticsEvents.Params.REASON to "cancelled",
+                        ),
+                    )
+                }
+                draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = false) else row }) }
+                return@launch
+            }
+            val slot = evidenceSlot(stepCode)
+            when (val result = proofCaptureRepository.captureReplacingLatest(
+                slot = slot,
+                // subject_id is the park uuid, NOT a shed. Milk prep has no backend SOP
+                // task uuid to bind to at capture time (unlike milk feeding), and stamping
+                // subject_type='shed' here would poison the real subject_type='shed' lookups
+                // used by vaccination/weighing/sop (WHERE subject_type='shed' AND subject_id=
+                // <real shed uuid>) with a park id that resolves to no shed. 'other' carries
+                // no false identity claim; the park identity is already correct via
+                // scope_type='park'/scope_id=parkId above.
+                subject = ProofSubject.OTHER,
                 subjectId = parkId,
                 localUri = video.localUri,
                 mimeType = video.mimeType,
@@ -435,13 +585,132 @@ class MilkPreparationViewModel @Inject constructor(
                         draft.update { it.copy(message = "Proof upload could not be queued") }
                         return@launch
                     }
+                    // NEW PROOF is durable before we remove the old one, so a process death here
+                    // cannot lose the clip (Manohar ordering).
+                    drafts.putProof(CaptureFlow.MILK_PREPARATION, entityId, stepCode, proofOutboxId)
+                    captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
+                    draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(captured = true, capturing = false) else row }) }
+                    // ONLY NOW, after the new proof is stored, delete the old one so it never
+                    // reaches the verifier as a duplicate.
+                    oldProofOutboxId?.let { sync.deleteOutboxItem(it) }
+                }
+                is AppResult.Err -> {
+                    analytics.track(
+                        AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.PARK_ID to parkId,
+                            AnalyticsEvents.Params.FIELD to stepCode,
+                            AnalyticsEvents.Params.REASON to result.message,
+                        ),
+                    )
+                    setCapturing(stepCode, false)
+                    draft.update { it.copy(message = result.message) }
+                    // On error, keep the old proof: don't remove it.
+                }
+            }
+        }
+    }
+
+    private fun captureStep(stepCode: String) {
+        val current = state.value
+        val step = current.steps.firstOrNull { it.code == stepCode } ?: return
+        if (!current.isEditable || parkId.isBlank() || !step.enabled || !step.answerComplete || step.captured || step.capturing) return
+        analytics.track(
+            AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_ATTEMPT,
+            mapOf(
+                AnalyticsEvents.Params.PARK_ID to parkId,
+                AnalyticsEvents.Params.FIELD to stepCode,
+            ),
+        )
+        draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(capturing = true) else row }) }
+        viewModelScope.launch {
+            val caption = proofOverlayContextLine(
+                feature = "Milk preparation",
+                parkLabel = current.parkLabel.ifBlank { parkId },
+                extraLabel = step.label,
+            )
+            val video = capture.captureVideo(
+                ProofCaptureContext(
+                    title = caption,
+                    primaryTag = current.parkLabel.ifBlank { parkId },
+                    workLabel = step.label,
+                    prompt = ProofCapturePrompt.MILK_PREPARATION,
+                    headerTitle = step.label,
+                ),
+            )
+            if (video == null) {
+                analytics.track(
+                    AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE,
+                    mapOf(
+                        AnalyticsEvents.Params.PARK_ID to parkId,
+                        AnalyticsEvents.Params.FIELD to stepCode,
+                        AnalyticsEvents.Params.REASON to "cancelled",
+                    ),
+                )
+                setCapturing(stepCode, false)
+                return@launch
+            }
+            val slot = evidenceSlot(stepCode)
+            when (val result = proofCaptureRepository.captureReplacingLatest(
+                slot = slot,
+                // subject_id is the park uuid, NOT a shed. Milk prep has no backend SOP
+                // task uuid to bind to at capture time (unlike milk feeding), and stamping
+                // subject_type='shed' here would poison the real subject_type='shed' lookups
+                // used by vaccination/weighing/sop (WHERE subject_type='shed' AND subject_id=
+                // <real shed uuid>) with a park id that resolves to no shed. 'other' carries
+                // no false identity claim; the park identity is already correct via
+                // scope_type='park'/scope_id=parkId above.
+                subject = ProofSubject.OTHER,
+                subjectId = parkId,
+                localUri = video.localUri,
+                mimeType = video.mimeType,
+                caption = caption,
+                scopeType = "park",
+                scopeId = parkId,
+                capturedStartMs = video.startedAtMs,
+                capturedEndMs = video.endedAtMs,
+                capturedByPrincipalId = null,
+                proofPolicy = milkParkProofPolicy(video.captureSource),
+                awaitUploadEnqueue = true,
+                uploadGroupKey = groupKey(),
+            )) {
+                is AppResult.Ok -> {
+                    val proofOutboxId = result.value.outboxItemId
+                    if (proofOutboxId.isNullOrBlank()) {
+                        analytics.track(
+                            AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE,
+                            mapOf(
+                                AnalyticsEvents.Params.PARK_ID to parkId,
+                                AnalyticsEvents.Params.FIELD to stepCode,
+                                AnalyticsEvents.Params.REASON to "enqueue_failed",
+                            ),
+                        )
+                        setCapturing(stepCode, false)
+                        draft.update { it.copy(message = "Proof upload could not be queued") }
+                        return@launch
+                    }
                     // Durable BEFORE the UI flips, so a process death here cannot lose the clip.
                     drafts.putProof(CaptureFlow.MILK_PREPARATION, entityId, stepCode, proofOutboxId)
                     captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
+                    analytics.track(
+                        AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_SUCCESS,
+                        mapOf(
+                            AnalyticsEvents.Params.PARK_ID to parkId,
+                            AnalyticsEvents.Params.FIELD to stepCode,
+                        ),
+                    )
                     draft.update { it.copy(steps = it.steps.map { row -> if (row.code == stepCode) row.copy(captured = true, capturing = false) else row }) }
                 }
                 is AppResult.Err -> {
                     proofKeys.getValue(stepCode).invalidate()
+                    analytics.track(
+                        AnalyticsEvents.MILK_PREPARATION_PROOF_CAPTURE_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.PARK_ID to parkId,
+                            AnalyticsEvents.Params.FIELD to stepCode,
+                            AnalyticsEvents.Params.REASON to result.message,
+                        ),
+                    )
                     setCapturing(stepCode, false)
                     draft.update { it.copy(message = result.message) }
                 }
@@ -451,7 +720,9 @@ class MilkPreparationViewModel @Inject constructor(
 
     private fun submit() {
         val current = state.value
-        if (!current.canSubmit) return
+        if (!current.isToday || !current.canSubmit) return
+        // Prevent double-submit: if one is already queued/in-flight/succeeded, don't submit again
+        if (submitOutboxItemId.value != null) return
         val proofItems = current.steps.associate { it.code to captureDraft.proofs[it.code].orEmpty() }
         if (proofItems.values.any(String::isBlank)) return
         draft.update { it.copy(submitting = true, message = null) }
@@ -464,27 +735,79 @@ class MilkPreparationViewModel @Inject constructor(
                 drafts.putSubmit(CaptureFlow.MILK_PREPARATION, entityId, submitIdempotencyKey, null)
                 captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
             }
+            analytics.track(
+                AnalyticsEvents.MILK_PREPARATION_SUBMITTED,
+                mapOf(AnalyticsEvents.Params.PARK_ID to current.selectedParkId),
+            )
             when (val result = sync.enqueueMilkPreparationSubmit(groupKey(), submitIdempotencyKey, current.selectedParkId, current.preparationDate, goatMilkUsed, answers, proofItems)) {
                 is AppResult.Ok -> {
                     drafts.putSubmit(CaptureFlow.MILK_PREPARATION, entityId, submitIdempotencyKey, result.value)
                     captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
+                    // Store the outbox item ID durably so process death doesn't lose the in-flight state
+                    submitOutboxItemId.value = result.value
+                    observeOutboxItem(result.value)
                     draft.update { it.copy(submitting = false, queued = true, message = "Proof uploads in background.") }
                 }
-                is AppResult.Err -> draft.update { it.copy(submitting = false, message = result.message) }
+                is AppResult.Err -> {
+                    analytics.track(AnalyticsEvents.MILK_PREPARATION_FAILURE, mapOf(AnalyticsEvents.Params.REASON to result.message))
+                    // Clear both in-memory latch and persisted draft key so the operator can retry after process death
+                    submitOutboxItemId.value = null
+                    drafts.putSubmit(CaptureFlow.MILK_PREPARATION, entityId, submitIdempotencyKey, null)
+                    captureDraft = drafts.find(CaptureFlow.MILK_PREPARATION, entityId)
+                    draft.update { it.copy(submitting = false, message = result.message) }
+                }
             }
         }
     }
 
-    private fun groupKey() = "milk-preparation:$parkId:$preparationDate"
+    internal fun groupKey() = "milk-preparation:$parkId:$preparationDate"
 
     /** The work item the durable draft belongs to: this park's preparation for this business day. */
     private val entityId get() = "$parkId:$preparationDate"
+
+    /** Canonical slot grain for a milk-preparation step capture. identity.taskId/fieldKey resolve
+     *  to the SAME strings [groupKey] / the raw `"milk_preparation_$stepCode"` literal already
+     *  produced, so routing captures through this slot changes no on-disk value. */
+    internal fun evidenceSlot(stepCode: String): EvidenceSlot =
+        buildMilkPreparationEvidenceSlot(parkId, preparationDate, stepCode)
     private fun setCapturing(step: String, value: Boolean) = draft.update { current ->
         current.copy(steps = current.steps.map { row -> if (row.code == step) row.copy(capturing = value) else row })
     }
 
+    /**
+     * Observes the submit outbox item's status to detect when submission completes or fails,
+     * so the screen can update its state durably and reflect the result to the operator.
+     */
+    private fun observeOutboxItem(itemId: String) {
+        statusJob?.cancel()
+        statusJob = viewModelScope.launch {
+            sync.observeItem(itemId)
+                .filterNotNull()
+                .distinctUntilChanged()
+                .collect { item ->
+                    when (item.status) {
+                        SyncItemStatus.QUEUED, SyncItemStatus.IN_FLIGHT -> {
+                            // Still uploading in background
+                            draft.update { it.copy(submitting = false, queued = true, message = "Proof uploads in background.") }
+                        }
+                        SyncItemStatus.SUCCEEDED -> {
+                            draft.update { it.copy(submitting = false, queued = false, message = "Submission complete.") }
+                        }
+                        SyncItemStatus.FAILED -> {
+                            // Clear submitOutboxItemId so the operator can retry. The outbox item reached
+                            // terminal FAILED, but the submit button was blocked while it was in-flight.
+                            // Without this clear, the button stays dead forever (see FeedPackingCompleteViewModel:434-436).
+                            submitOutboxItemId.value = null
+                            draft.update { it.copy(submitting = false, queued = false, message = item.lastError ?: "Submission failed. Please retry.") }
+                        }
+                    }
+                }
+        }
+    }
+
     companion object {
         const val ARG_PARK_ID = "park_id"
+        const val ARG_PREPARATION_DATE = "preparation_date"
         private val allSteps = listOf("goat_milk_quantity", "boiling_temperature", "cooled_temperature", "uht_milk_quantity", "citric_acid_mixing")
         private val labels = mapOf(
             "goat_milk_quantity" to ("Quantity of goat milk used" to "L"),
@@ -524,8 +847,13 @@ internal fun milkPreparationAnswers(state: MilkPreparationUiState): MilkPreparat
 internal fun milkParkProofPolicy(captureSource: String): ProofPolicy =
     ProofPolicy.Default.copy(
         proofMode = "park_step_video",
-        subjectScope = ProofSubject.PARK.wireValue,
-        expectedSubjects = listOf(ProofSubject.PARK.wireValue),
+        // Matches the subject actually written by captureStep/reCaptureStep (ProofSubject.OTHER,
+        // subjectId=parkId): milk prep has no backend-valid 'park' subject type and no backend
+        // task uuid to bind to at capture time. Keeping this aligned with the real wire value
+        // matters because ProofPolicy.defaultSubject falls back to the first entry here for any
+        // future caller that does not pass an explicit subject.
+        subjectScope = ProofSubject.OTHER.wireValue,
+        expectedSubjects = listOf(ProofSubject.OTHER.wireValue),
         captureSource = captureSource,
     )
 

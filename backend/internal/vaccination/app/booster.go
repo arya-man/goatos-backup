@@ -79,6 +79,14 @@ type ScheduleNextInput struct {
 	ScopeID           string
 	PrevSequence      int32     // sequence of the dose just administered
 	AdministeredAt    time.Time // basis for the next due date
+
+	// CompletedObligationID is the obligation that was just administered -- the CAUSE of
+	// the successor this call mints. It becomes the successor's repeat-cycle anchor, which
+	// is what lets one completed dose mint exactly one open successor however many times
+	// the completion is replayed, and however far the successor's due date later moves.
+	// Empty means the caller could not identify the source: no metadata is written and the
+	// previous due-date behaviour applies unchanged.
+	CompletedObligationID string
 }
 
 // ScheduleNextDose schedules the next higher-sequence dose when that rule is triggered
@@ -206,18 +214,56 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 
 	key := obligationKey(in.TenantID, in.ProtocolVersionID, candidate.RuleID, "goat", in.GoatID,
 		due.UTC().Format(time.RFC3339), strconv.Itoa(int(candidate.Sequence)))
+	// Anchored to the administration that caused it, for repeat rules only. A one-off dose
+	// keeps its due-date identity, because its due date does not move on its own.
+	//
+	// The reference is the administration itself, not the completed obligation's id, because
+	// generation recomputes this same cycle from history and names its cause that way. Two
+	// vocabularies for one cause means two open rows, each invisible to the other. The
+	// obligation id is still recorded as the anchor, for the audit trail and for the stricter
+	// per-cause index.
+	// The cause is named by the vaccine that was GIVEN, not by the rule about to be
+	// scheduled. For a repeat those are the same rule, but a next-in-chain dose can belong to
+	// a different rule, and generation names this cause from the administration itself. Take
+	// the administered rule's vaccine so the two writers cannot disagree.
+	var repeatCycle *obldomain.RepeatCycleSource
+	if anchor := strings.TrimSpace(in.CompletedObligationID); anchor != "" && isRepeatRule(candidate) {
+		// Read inside the gate. Evaluated unconditionally, a rule whose vaccine block does not
+		// parse failed the completion event outright -- including for doses that write no
+		// metadata at all and used to schedule perfectly well.
+		administeredVaccineCode, err := boosterRuleVaccineCode(*current)
+		if err != nil {
+			return false, err
+		}
+		administered := in.AdministeredAt
+		nextDue := due
+		if ref := obldomain.RepeatCycleRef(administeredVaccineCode, administered, in.PrevSequence); ref != "" {
+			repeatCycle = &obldomain.RepeatCycleSource{
+				Source:             obldomain.RepeatCycleSourceTrustedHistory,
+				SourceRef:          ref,
+				AnchorObligationID: &anchor,
+				AnchorAt:           &administered,
+				DueAt:              &nextDue,
+			}
+		}
+	}
 	obID, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{
 		TenantID:          in.TenantID,
 		ProtocolVersionID: in.ProtocolVersionID,
 		RuleID:            candidate.RuleID,
 		TargetType:        "goat",
 		TargetID:          in.GoatID,
+		RepeatCycle:       repeatCycle,
 		ScopeType:         in.ScopeType,
 		ScopeID:           in.ScopeID,
 		DueAt:             due,
 		Status:            status,
 		IdempotencyKey:    key,
-		Sequence:          candidate.Sequence,
+		// The booster's own rule identity, from the same helper the publisher and generation use.
+		// A booster row without one sits outside the one-open-obligation-per-identity index, which
+		// is exactly where a duplicate dose can be written beside it.
+		RuleIdentityKey: boosterRuleIdentity(*candidate),
+		Sequence:        candidate.Sequence,
 	})
 	if err != nil {
 		return false, err
@@ -238,6 +284,18 @@ func (s *BoosterService) ScheduleNextDose(ctx context.Context, in ScheduleNextIn
 		}
 	}
 	return applied, nil
+}
+
+// boosterRuleIdentity names the rule a booster serves, matching what the publisher writes to
+// lineage and what generation stamps on its own rows. A rule whose vaccine cannot be read yields
+// an empty identity rather than a wrong one: an unlabelled row keeps today's behaviour, while a
+// mislabelled row would let reconciliation claim another vaccine's work.
+func boosterRuleIdentity(rule protodomain.Rule) string {
+	code, err := boosterRuleVaccineCode(rule)
+	if err != nil || strings.TrimSpace(code) == "" {
+		return ""
+	}
+	return protodomain.RuleIdentityKey(code, rule.DoseCode, rule.Sequence)
 }
 
 // boosterRuleVaccineCode reads a rule's OWN vaccine identity from the per-rule
@@ -317,4 +375,17 @@ func repeatDueAfterCompletion(rule protodomain.Rule, administeredAt time.Time) (
 	default:
 		return time.Time{}, false
 	}
+}
+
+// isRepeatRule reports whether a rule's obligations are repeat cycles -- the only ones that
+// carry repeat-cycle metadata.
+func isRepeatRule(rule *protodomain.Rule) bool {
+	if rule == nil {
+		return false
+	}
+	repeat := strings.TrimSpace(rule.Repeat)
+	if repeat != "" && !strings.EqualFold(repeat, "none") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(rule.TriggerType), "after_previous_completion")
 }

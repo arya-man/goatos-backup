@@ -31,13 +31,14 @@ func (r *Repository) OversightAnalytics(ctx context.Context, tenantID string) (d
 	var age1, age3, age7, ageOver int
 	if err := r.pool.QueryRow(ctx, `
 SELECT count(*),
-       max(EXTRACT(EPOCH FROM (now() - captured_at)) / 3600.0),
-       count(*) FILTER (WHERE captured_at >= now() - interval '1 day'),
-       count(*) FILTER (WHERE captured_at <  now() - interval '1 day'  AND captured_at >= now() - interval '3 days'),
-       count(*) FILTER (WHERE captured_at <  now() - interval '3 days' AND captured_at >= now() - interval '7 days'),
-       count(*) FILTER (WHERE captured_at <  now() - interval '7 days')
-FROM verification_items
-WHERE tenant_id = $1::uuid AND status = 'pending'`, tenantID).Scan(
+       max(EXTRACT(EPOCH FROM (now() - vi.captured_at)) / 3600.0),
+       count(*) FILTER (WHERE vi.captured_at >= now() - interval '1 day'),
+       count(*) FILTER (WHERE vi.captured_at <  now() - interval '1 day'  AND vi.captured_at >= now() - interval '3 days'),
+       count(*) FILTER (WHERE vi.captured_at <  now() - interval '3 days' AND vi.captured_at >= now() - interval '7 days'),
+       count(*) FILTER (WHERE vi.captured_at <  now() - interval '7 days')
+FROM verification_items vi
+WHERE vi.tenant_id = $1::uuid AND vi.status = 'pending'
+  AND `+samplingInSampleSQL()+``, tenantID).Scan(
 		&videosWaiting, &oldestPendingHours, &age1, &age3, &age7, &ageOver); err != nil {
 		return out, err
 	}
@@ -56,6 +57,7 @@ WHERE tenant_id = $1::uuid AND status = 'pending'`, tenantID).Scan(
 SELECT count(*), count(DISTINCT date_trunc('day', verified_at AT TIME ZONE 'Asia/Kolkata'))
 FROM verification_items
 WHERE tenant_id = $1::uuid AND verified_at IS NOT NULL
+  AND auto_resolution IS NULL
   AND verified_at >= now() - interval '7 days'`, tenantID).Scan(&verdicts7d, &activeDays7d); err != nil {
 		return out, err
 	}
@@ -75,6 +77,7 @@ SELECT module,
        ) AS median_hours
 FROM verification_items
 WHERE tenant_id = $1::uuid AND verified_at IS NOT NULL
+  AND auto_resolution IS NULL
   AND verified_at >= now() - interval '30 days'
 GROUP BY module
 ORDER BY module`, tenantID)
@@ -102,6 +105,7 @@ SELECT
   count(*) FILTER (WHERE status = 'rejected')
 FROM verification_items
 WHERE tenant_id = $1::uuid AND verified_at IS NOT NULL
+  AND auto_resolution IS NULL
   AND verified_at >= now() - interval '30 days'`, tenantID).Scan(&approved30d, &rejected30d); err != nil {
 		return out, err
 	}
@@ -112,11 +116,12 @@ WHERE tenant_id = $1::uuid AND verified_at IS NOT NULL
 
 	// 5) Pending backlog by module.
 	backlogRows, err := r.pool.Query(ctx, `
-SELECT module, count(*)
-FROM verification_items
-WHERE tenant_id = $1::uuid AND status = 'pending'
-GROUP BY module
-ORDER BY module`, tenantID)
+SELECT vi.module, count(*)
+FROM verification_items vi
+WHERE vi.tenant_id = $1::uuid AND vi.status = 'pending'
+  AND `+samplingInSampleSQL()+`
+GROUP BY vi.module
+ORDER BY vi.module`, tenantID)
 	if err != nil {
 		return out, err
 	}
@@ -166,7 +171,8 @@ days AS (
 verdicts AS (
   SELECT (vi.verified_at AT TIME ZONE 'Asia/Kolkata')::date AS business_date, count(*) AS n
   FROM verification_items vi, window_start w
-  WHERE vi.tenant_id = $1::uuid AND vi.verified_at IS NOT NULL AND vi.verified_at >= w.from_instant
+  WHERE vi.tenant_id = $1::uuid AND vi.verified_at IS NOT NULL AND vi.auto_resolution IS NULL
+    AND vi.verified_at >= w.from_instant
   GROUP BY 1
 ),
 arrived AS (

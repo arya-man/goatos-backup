@@ -18,6 +18,15 @@ var (
 	ErrImmutable           = errors.New("weighing: immutable")
 	ErrScopeIncomplete     = errors.New("weighing: scope incomplete")
 
+	// ErrCorrectionAfterClose is the verifier's weight correction refusing a bucket
+	// that is already closed. It is deliberately its own class rather than a reuse
+	// of ErrImmutable: the observation row is perfectly writable and the verifier
+	// has the authority — it is the BUCKET that has been settled, and the remedy is
+	// ReopenScope, which is a different act by a different (monitor) authority. A
+	// verifier told "that record cannot be changed" would have no idea a reopen
+	// exists.
+	ErrCorrectionAfterClose = errors.New("weighing: bucket closed, correction refused")
+
 	// ErrParkSelectionRequired is returned when the actor legitimately covers SEVERAL parks
 	// without a tenant grant and the surface can only answer for one. It is deliberately its
 	// own class rather than ErrInvalidArgument: the request was not malformed, the client
@@ -94,6 +103,14 @@ var (
 	// 409 Conflict — the resource (this tag, in this bucket, today) already
 	// exists as a submitted capture, so the request cannot proceed as issued.
 	ErrDuplicateScan = errors.New("weighing: duplicate scan")
+
+	// ErrShedCountUnavailable refuses a lump-sum submit whose bucket resolves to
+	// ZERO residents in the herd register (maintainer decision 2026-08-24: the
+	// head count is snapshotted from the register at submit, not typed by the
+	// operator). A weighed shed the register says is empty means the register is
+	// behind, and inventing a count would store an average nobody measured —
+	// so the submit fails closed with copy naming the real remedy.
+	ErrShedCountUnavailable = errors.New("weighing: shed head count unavailable")
 
 	// ErrVerificationPending is the leadership close gate: a bucket may only be
 	// closed on the NORMAL path once every submitted video has a verdict. It is
@@ -442,7 +459,7 @@ type Repository interface {
 	// weighing cadence rule -- and why lump-sum totals never feed per-animal ADG). parkIDs must
 	// be non-empty and every id must already be authorization-checked by the caller: this method
 	// does no scoping of its own.
-	GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.GrowthADG, error)
+	GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex string) (domain.GrowthADG, error)
 
 	// GetShedWeights returns one row per SHED (not per campaign bucket) carrying that
 	// shed's most recent weigh inside the half-open period [periodStart, periodEnd),
@@ -452,12 +469,17 @@ type Repository interface {
 	// rather than summed. See domain.ShedWeights for the grain and threshold-basis
 	// contract. parkIDs must be non-empty and already authorization-checked by the
 	// caller: this method does no scoping of its own.
-	GetShedWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.ShedWeights, error)
+	// scopeParkIDs is the caller's AUTHORIZED park scope and selectedParkID is the filter, and the
+	// two are separate on purpose: the returned Parks vocabulary is built from the SCOPE while the
+	// rows are narrowed by the SELECTION. Building both from one filtered slice collapsed the park
+	// dropdown to whichever park was already chosen, so a reader who picked CPT could not get back
+	// to CBE without clearing the filter by hand.
+	GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex string) (domain.ShedWeights, error)
 
 	// GetWeightDemographics returns average weight by breed, sex and management stage.
 	// This is the ONE weighing read permitted to resolve a scanned tag to its animal
 	// (maintainer decision 2026-08-07); see domain.WeightDemographics for the scope.
-	GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.WeightDemographics, error)
+	GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex string) (domain.WeightDemographics, error)
 
 	// ExportCampaignCSV exports weighing observations for a campaign as CSV.
 	// It streams CSV-formatted rows to the provided writer, including both individual
@@ -472,6 +494,20 @@ type Repository interface {
 // the planner/execution writes.
 type VerificationVerdictStore interface {
 	ApplyVerificationVerdict(ctx context.Context, verdict domain.VerificationVerdict) (domain.VerificationVerdictResult, error)
+}
+
+// WeightCorrectionStore is the verifier's weight-correction write. It is its own
+// narrow interface for the same reason VerificationVerdictStore is: the correction
+// is an act on ONE observation by the verifier, and the service that serves it must
+// not be handed the planner/execution writes to reach.
+//
+// CorrectObservationWeight overwrites the observation's live weight (and, for a
+// lump-sum capture, its head count and recomputed average) inside ONE transaction
+// that also preserves the operator's original values, writes the audit row, records
+// the idempotency snapshot, and enqueues the domain event. Partial application is
+// impossible by construction.
+type WeightCorrectionStore interface {
+	CorrectObservationWeight(ctx context.Context, cmd domain.WeightCorrectionCommand) (domain.WeightCorrectionResult, error)
 }
 
 // WeighingKernelStore is the PHASE 2 time-driven kernel write/read side. It is

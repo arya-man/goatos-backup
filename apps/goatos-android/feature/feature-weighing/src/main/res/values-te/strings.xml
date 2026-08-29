@@ -70,8 +70,8 @@
     <string name="weighing_submit">సమర్పించండి</string>
     <string name="weighing_blocked_saving">మీరు నమోదు చేసినది భద్రపరుస్తున్నాం. ఒక క్షణం ఆగండి.</string>
     <string name="weighing_blocked_no_shed_open">ఈ తూకం నమోదు చేసే ముందు ఒక షెడ్ తెరవండి.</string>
+    <string name="weighing_blocked_already_submitted">ఇప్పటికే సమర్పించారు — ఈ షెడ్ చదవడానికి మాత్రమే.</string>
     <string name="weighing_blocked_need_weight">సమర్పించే ముందు బరువు నమోదు చేయండి.</string>
-    <string name="weighing_blocked_need_count">త్రాసుపై ఎన్ని జంతువులు ఉన్నాయో నమోదు చేయండి.</string>
     <string name="weighing_blocked_need_video">సమర్పించే ముందు ఈ తూకం వీడియో రికార్డ్ చేయండి.</string>
     <string name="weighing_blocked_video_uploading">వీడియో ఇంకా పైకి వెళ్తోంది. పూర్తయిన వెంటనే సమర్పించు అందుబాటులోకి వస్తుంది.</string>
     <string name="weighing_blocked_video_failed">వీడియో వెళ్లలేదు. వీడియోపై మళ్లీ ప్రయత్నించు నొక్కి, ఆపై సమర్పించండి.</string>
@@ -99,8 +99,6 @@
     <string name="weighing_waiting_for_scan">RFID స్కాన్ కోసం వేచి ఉంది</string>
     <string name="weighing_reupload">మళ్లీ అప్‌లోడ్ చేయండి</string>
     <string name="weighing_field_total_weight">మొత్తం బరువు</string>
-    <string name="weighing_field_animal_count">జంతువుల సంఖ్య</string>
-    <string name="weighing_average_per_animal_fmt">ఒక్కో జంతువుకు సగటు %1$s కేజీ</string>
     <string name="weighing_videos_limit_reached">గరిష్ఠంగా 5 వీడియోలు రికార్డ్ చేయబడ్డాయి</string>
     <string name="weighing_videos_uploaded_fmt">%1$d అప్‌లోడ్ అయ్యాయి</string>
     <string name="weighing_video_index_fmt">వీడియో %1$d</string>

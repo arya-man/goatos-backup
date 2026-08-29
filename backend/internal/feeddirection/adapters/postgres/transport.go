@@ -104,7 +104,7 @@ func (r *Repository) ListTransportTasks(ctx context.Context, q ports.ListTranspo
 	// projection-review: producer unique=(tenant_id,business_date,shed_id) for every row this build
 	// writes (partition_label is always ''); consumer match/group uses the same columns. locations
 	// park and shed joins are 1:1 by (tenant_id,location_id). No ratios.
-	// projection-review: membership=feed_transport_tasks for one tenant and business date, optionally narrowed by actor, park, shed and status; group_key=none on the row read (one row per task); join_cardinality=both locations joins are 1:1 on (tenant_id, location_id) and nothing joins shed_partitions, so no side can fan a task row out; pagination=keyset on t.task_id with LIMIT n+1, applied after all filters; scope=tenant plus optional park/shed resolved from canonical location ids.
+	// projection-review: membership=feed_transport_tasks for one tenant and business date, optionally narrowed by park, shed and status; group_key=none on the row read (one row per task); join_cardinality=both locations joins are 1:1 on (tenant_id, location_id) and nothing joins shed_partitions, so no side can fan a task row out; pagination=keyset on t.task_id with LIMIT n+1, applied after all filters; scope=tenant plus optional park/shed resolved from canonical location ids.
 	// Returns the shed name and the stored partition as SEPARATE columns; oploc.Display() composes
 	// them in Go below. The display rule lives in exactly one place -- a CASE that concatenates
 	// them here is a second implementation, and six of those are what shipped 'Godel 1 1' and
@@ -122,15 +122,14 @@ JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
 LEFT JOIN feed_transport_attempts a ON a.tenant_id=t.tenant_id AND a.attempt_id=t.current_attempt_id
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND t.status <> 'retired'
-  AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
-	AND ($4::text='' OR t.park_id=$4::uuid)
-	AND (coalesce(cardinality($9::uuid[]), 0) = 0 OR t.park_id = ANY($9::uuid[]))
+	AND ($3::text='' OR t.park_id=$3::uuid)
+	AND (coalesce(cardinality($8::uuid[]), 0) = 0 OR t.park_id = ANY($8::uuid[]))
 	-- Shed, not shed+pen. There is no partition filter because there is no partition grain: one
 	-- shed is one task, so narrowing further could only hide part of a shed's own work.
-	AND ($5::text='' OR t.shed_id=$5::uuid)
-	AND ($6::text='' OR t.status=$6)
-	AND ($7::text='' OR t.task_id > $7::uuid)
-ORDER BY t.task_id LIMIT $8`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID, q.ShedID, q.Status, q.Cursor, q.Limit+1, q.AuthorizedParkIDs)
+	AND ($4::text='' OR t.shed_id=$4::uuid)
+	AND ($5::text='' OR t.status=$5)
+	AND ($6::text='' OR t.task_id > $6::uuid)
+ORDER BY t.task_id LIMIT $7`, q.TenantID, q.Day.Format("2006-01-02"), q.ParkID, q.ShedID, q.Status, q.Cursor, q.Limit+1, q.AuthorizedParkIDs)
 	if err != nil {
 		return ports.FeedTransportTaskPage{}, fmt.Errorf("feeddirection: list transport tasks: %w", err)
 	}
@@ -160,8 +159,8 @@ ORDER BY t.task_id LIMIT $8`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID,
 }
 
 func (r *Repository) listTransportFilterOptions(ctx context.Context, q ports.ListTransportTasksParams) (ports.FeedTransportFilterOptions, error) {
-	// projection-review: membership=feed_transport_tasks for the tenant/date/actor filter vocabulary, not the current page; group_key=(t.park_id, p.name) for parks and (t.shed_id, s.name) for sheds; join_cardinality=the locations join is 1:1 on (tenant_id, location_id) and nothing joins shed_partitions, so it cannot duplicate a filter option; pagination=none by design -- filter vocabulary is whole-date scoped so the dropdown never narrows to the visible page; scope=tenant plus optional park, applied before grouping.
-	// Filter vocabulary is whole-date and actor scoped, not derived from the current 20-row page.
+	// projection-review: membership=feed_transport_tasks for the tenant/date filter vocabulary, not the current page; group_key=(t.park_id, p.name) for parks and (t.shed_id, s.name) for sheds; join_cardinality=the locations join is 1:1 on (tenant_id, location_id) and nothing joins shed_partitions, so it cannot duplicate a filter option; pagination=none by design -- filter vocabulary is whole-date scoped so the dropdown never narrows to the visible page; scope=tenant plus optional park, applied before grouping.
+	// Filter vocabulary is whole-date and park scoped, not derived from the current 20-row page.
 	// The selected park narrows only the shed vocabulary; status/shed filters never hide choices.
 	rows, err := r.pool.Query(ctx, `
 SELECT 'park', t.park_id::text, p.name, ''
@@ -169,8 +168,7 @@ FROM feed_transport_tasks t
 JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND t.status <> 'retired'
-  AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
-  AND (coalesce(cardinality($5::uuid[]), 0) = 0 OR t.park_id = ANY($5::uuid[]))
+  AND (coalesce(cardinality($4::uuid[]), 0) = 0 OR t.park_id = ANY($4::uuid[]))
 GROUP BY t.park_id, p.name
 UNION ALL
 -- The shed option ID is the shed UUID, plainly. It was briefly an opaque
@@ -185,11 +183,10 @@ FROM feed_transport_tasks t
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND t.status <> 'retired'
-  AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
-  AND ($4::text='' OR t.park_id=$4::uuid)
-  AND (coalesce(cardinality($5::uuid[]), 0) = 0 OR t.park_id = ANY($5::uuid[]))
+  AND ($3::text='' OR t.park_id=$3::uuid)
+  AND (coalesce(cardinality($4::uuid[]), 0) = 0 OR t.park_id = ANY($4::uuid[]))
 GROUP BY t.shed_id, s.name
-ORDER BY 1, 3, 2`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID, q.AuthorizedParkIDs)
+ORDER BY 1, 3, 2`, q.TenantID, q.Day.Format("2006-01-02"), q.ParkID, q.AuthorizedParkIDs)
 	if err != nil {
 		return ports.FeedTransportFilterOptions{}, fmt.Errorf("feeddirection: list transport filter options: %w", err)
 	}
@@ -289,7 +286,7 @@ WHERE a.tenant_id=$1::uuid AND a.attempt_id=$2::uuid`, p.TenantID, reservation.r
 		committed = true
 		return res, nil
 	}
-	var status, assigned string
+	var status string
 	var res ports.SubmitTransportResult
 	// Row lock on feed_transport_tasks ONLY. The shed name and partition come from SCALAR
 	// SUBQUERIES rather than joins: FOR UPDATE cannot be applied to the nullable side of an
@@ -297,19 +294,16 @@ WHERE a.tenant_id=$1::uuid AND a.attempt_id=$2::uuid`, p.TenantID, reservation.r
 	// locations has no partition_label column -- partitions live in shed_partitions.
 	// AGREE-OR-GO-BARE via min() + HAVING; a bare HAVING over a non-aggregated column is
 	// rejected by Postgres (42803).
-	err = tx.QueryRow(ctx, `SELECT t.status,coalesce(t.operator_id::text,''),t.park_id::text,t.shed_id::text,
+	err = tx.QueryRow(ctx, `SELECT t.status,t.park_id::text,t.shed_id::text,
        coalesce((SELECT l.name FROM locations l WHERE l.tenant_id=t.tenant_id AND l.location_id=t.shed_id), ''),
        coalesce(t.partition_label, '')
 FROM feed_transport_tasks t
-WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid FOR UPDATE`, p.TenantID, p.TaskID).Scan(&status, &assigned, &res.ParkID, &res.ShedID, &res.ShedName, &res.PartitionLabel)
+WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid FOR UPDATE`, p.TenantID, p.TaskID).Scan(&status, &res.ParkID, &res.ShedID, &res.ShedName, &res.PartitionLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.SubmitTransportResult{}, ports.ErrTransportTaskNotActionable
 	}
 	if err != nil {
 		return ports.SubmitTransportResult{}, err
-	}
-	if assigned != "" && assigned != p.OperatorID {
-		return ports.SubmitTransportResult{}, ports.ErrTransportAssignedToAnotherOperator
 	}
 	if status != domain.TransportStatusDue && status != domain.TransportStatusRework {
 		return ports.SubmitTransportResult{}, ports.ErrTransportTaskNotActionable
@@ -322,7 +316,7 @@ RETURNING attempt_id::text,status,attempt_no`, p.TenantID, p.TaskID, strings.Tri
 	if err != nil {
 		return res, fmt.Errorf("feeddirection: insert transport attempt: %w", err)
 	}
-	_, err = tx.Exec(ctx, `UPDATE feed_transport_tasks SET status='verification_due',operator_id=$3::uuid,current_attempt_id=$4::uuid,updated_at=now(),row_version=row_version+1 WHERE tenant_id=$1::uuid AND task_id=$2::uuid`, p.TenantID, p.TaskID, p.OperatorID, res.AttemptID)
+	_, err = tx.Exec(ctx, `UPDATE feed_transport_tasks SET status='verification_due',operator_id=NULL,current_attempt_id=$3::uuid,updated_at=now(),row_version=row_version+1 WHERE tenant_id=$1::uuid AND task_id=$2::uuid`, p.TenantID, p.TaskID, res.AttemptID)
 	if err != nil {
 		return res, err
 	}

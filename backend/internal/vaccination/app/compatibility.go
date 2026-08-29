@@ -9,6 +9,7 @@ import (
 
 type genVaccineMeta struct {
 	Code               string `json:"code"`
+	Name               string `json:"name"`
 	Type               string `json:"type"`
 	PathogenClass      string `json:"pathogen_class"`
 	CompatibilityGroup string `json:"compatibility_group"`
@@ -27,6 +28,7 @@ const (
 
 type vaccineProfile struct {
 	Code               string
+	Name               string
 	Type               string
 	PathogenClass      string
 	CompatibilityGroup string
@@ -36,6 +38,7 @@ type vaccineProfile struct {
 func vaccineProfileFromDSL(dsl genDSL) vaccineProfile {
 	return vaccineProfile{
 		Code:               strings.TrimSpace(dsl.Vaccine.Code),
+		Name:               strings.TrimSpace(dsl.Vaccine.Name),
 		Type:               strings.TrimSpace(dsl.Vaccine.Type),
 		PathogenClass:      strings.TrimSpace(dsl.Vaccine.PathogenClass),
 		CompatibilityGroup: strings.TrimSpace(dsl.Vaccine.CompatibilityGroup),

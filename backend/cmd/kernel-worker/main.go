@@ -168,6 +168,10 @@ func run(ctx context.Context, args []string) error {
 			kernelstages.NewReminderCadenceStage(deps, tenantID),
 			kernelstages.NewFeedDirectionLifecycleStage(deps, tenantID),
 			kernelstages.NewFeedTransportStage(deps, tenantID),
+			// Daily low-stock alert. It sits on this shared lane deliberately: the task-kernel
+			// lock forbids a module keeping its own scheduler, and "once per day" comes from the
+			// notifier's business-date idempotency key rather than from a cron expression.
+			kernelstages.NewFeedLowStockStage(deps, tenantID, logger),
 			kernelstages.NewMilkFeedingStage(deps, tenantID),
 			// WEIGHING PHASE 2 cadence. No new worker binary: the weighing
 			// work-item kernel (terminal reconcile -> roll-forward ->
@@ -181,9 +185,20 @@ func run(ctx context.Context, args []string) error {
 			// notification naming them, not five. Same lane as the weighing kernel
 			// because the debounce it drains is measured in minutes.
 			kernelstages.NewWeighingReworkDigestStage(deps, tenantID),
+			// PC Care roll-forward: an unfinished deworming/ticks/hoof/hair task slides to
+			// today as 'delayed' shortly after the business-day boundary (weighing twin).
+			kernelstages.NewPcCareKernelStage(deps, tenantID),
+			kernelstages.NewPcCareInventoryVaccineStage(deps, tenantID),
 			kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
 			kernelstages.NewSopSubmissionFanoutRetryStage(deps, tenantID),
 			kernelstages.NewSopReviewFanoutRetryStage(deps, tenantID),
+			// RANDOMIZATION closeout (maintainer decision 2026-08-26): approve the proof videos
+			// the CEO's sampling percentage did not draw, once their business day has closed and
+			// the percentage can no longer change. Without it the videos the verifier is no longer
+			// shown would hold feed pen-sessions out of 'completed' and weighing buckets open
+			// against an unconditional close gate. Light and bounded (100 items/tick by default),
+			// so the shared operational lane's interval/4 budget is ample.
+			kernelstages.NewVerificationSamplingCloseoutStage(deps, tenantID),
 		)
 
 		// Generation (hourly): idempotently generate/recheck effective vaccination

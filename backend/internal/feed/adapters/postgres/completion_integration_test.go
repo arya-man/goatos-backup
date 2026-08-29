@@ -478,7 +478,7 @@ func feedReadinessPregnantShift() countsdomain.ShiftingEvent {
 	stage := "pregnant"
 	return countsdomain.ShiftingEvent{
 		TenantID: feedTenant, LogicalShiftingEventKey: "feed-readiness-pregnant-shift",
-		Priority: "high", Category: "pregnancy", SourceParkID: stringPtr(feedCountsPark),
+		Priority: "high", Category: "growth", SourceParkID: stringPtr(feedCountsPark),
 		SourceShedID: stringPtr(feedCountsSourceShed), DestinationParkID: feedCountsPark,
 		DestinationShedID: feedCountsDestinationShed,
 		RaisedAt:          time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC), EffectiveAt: time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC),

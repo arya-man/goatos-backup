@@ -54,6 +54,7 @@ fun quotedBuildConfig(value: String): String =
 
 val sourceCommit: String =
     System.getenv("GITHUB_SHA")?.takeIf { it.isNotBlank() }
+        ?: System.getenv("COMMIT_SHA")?.takeIf { it.isNotBlank() }
         ?: gitOutput("rev-parse", "HEAD").ifBlank { "unknown" }
 val shortSourceCommit = sourceCommit.take(12)
 val sourceTag: String =
@@ -71,6 +72,19 @@ val sourceLabel = listOfNotNull(
     sourceBranch.takeIf { it.isNotBlank() }?.let { "branch=$it" },
     if (sourceDirty) "dirty=true" else null,
 ).joinToString(" ")
+val releaseVersionCode = (
+    project.findProperty("goatosVersionCode") as String?
+        ?: System.getenv("GOATOS_ANDROID_VERSION_CODE")
+    )
+    ?.takeIf { it.isNotBlank() }
+    ?.toInt()
+    ?: 38
+val releaseVersionName = (
+    project.findProperty("goatosVersionName") as String?
+        ?: System.getenv("GOATOS_ANDROID_VERSION_NAME")
+    )
+    ?.takeIf { it.isNotBlank() }
+    ?: "0.1.37"
 
 android {
     namespace = "sg.mesha.goatos"
@@ -96,8 +110,8 @@ android {
         applicationId = "sg.mesha.goatos"
         minSdk = 29
         targetSdk = 36
-        versionCode = 21
-        versionName = "0.1.20"
+        versionCode = releaseVersionCode
+        versionName = releaseVersionName
         multiDexKeepProguard = file("multidex-startup-rules.pro")
 
         // Local dev bearer token (a minted HS256 dev token), injected from a gradle
@@ -192,18 +206,30 @@ android {
         }
         create("prod") {
             dimension = "env"
+            signingConfig = signingConfigs.getByName("stgRelease")
             buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "false")
             buildConfigField("String", "API_BASE_URL", "\"https://api.goatos.mesha.sg/\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"https://dashboard.mesha.sg/login\"")
-            // Telemetry (docs/TELEMETRY.md): OFF until prod's real Firebase project is confirmed
-            // and its google-services.json replaces the PLACEHOLDER at app/src/prod/google-services.json
-            // (OBSERVABILITY_DESIGN.md §6: "prod needs its Layer-1 terraform foundation before enabling").
+            // Reuses the existing goatos-stg Firebase/GCP project with the production package.
             buildConfigField(
                 "boolean",
                 "TELEMETRY_ENABLED",
                 (project.findProperty("goatosTelemetryEnabled") as String?) ?: "false",
             )
             buildConfigField("String", "OTLP_ENDPOINT", "\"\"")
+            firebaseAppDistribution {
+                appId = (project.findProperty("goatosProdFirebaseAppId") as String?)
+                    ?: System.getenv("FIREBASE_APP_ID")
+                    ?: "1:514832198871:android:2b3a80736ff2e8d9f19492"
+                artifactType = "APK"
+                groups = (project.findProperty("fadGroups") as String?) ?: "goatos-testers"
+                System.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { serviceCredentialsFile = it }
+                (project.findProperty("fadTesters") as String?)?.let { testers = it }
+                releaseNotes = (project.findProperty("fadReleaseNotes") as String?)
+                    ?: "GoatOS (Mesha) release build\n$sourceLabel"
+            }
         }
     }
 
@@ -304,15 +330,18 @@ dependencies {
     implementation(project(":core:core-analytics"))
 
     implementation(project(":feature:feature-calendar"))
+    implementation(project(":feature:feature-clock"))
     implementation(project(":feature:feature-counts"))
     implementation(project(":feature:feature-feed"))
     implementation(project(":feature:feature-health"))
+    implementation(project(":feature:feature-pccare"))
     implementation(project(":feature:feature-sheds"))
     implementation(project(":feature:feature-scan"))
     implementation(project(":feature:feature-submit"))
     implementation(project(":feature:feature-record"))
     implementation(project(":feature:feature-profile"))
     implementation(project(":feature:feature-timetable"))
+    implementation(project(":feature:feature-toxin"))
     implementation(project(":feature:feature-vaccination"))
     implementation(project(":feature:feature-verify"))
     implementation(project(":feature:feature-weighing"))

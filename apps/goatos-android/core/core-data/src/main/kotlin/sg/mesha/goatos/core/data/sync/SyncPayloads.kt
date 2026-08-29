@@ -5,10 +5,12 @@ import sg.mesha.goatos.core.network.dto.MilkFeedingAnswersDto
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
 import sg.mesha.goatos.core.network.dto.CountsApprovalDecisionRequestDto
 import sg.mesha.goatos.core.network.dto.CountsBirthEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsDeathEventRequestDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
+import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
@@ -16,8 +18,11 @@ import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 
 /** Shared JSON codec for outbox payload/result blobs — lenient so a field added later never
@@ -96,6 +101,20 @@ data class VerificationVerdictPayload(
     @SerialName("request") val request: VerificationVerdictRequestDto,
 )
 
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.WEIGHING_WEIGHT_CORRECTION]:
+ * the VERIFIER replacing the weight the operator typed, while she watches the proof video
+ * (maintainer decision 2026-08-17).
+ *
+ * The observation id and ref type come from the item's backend-owned measurement_correction block,
+ * which echoes source.ref_id/source.ref_type -- this app never composes that address itself.
+ */
+@Serializable
+data class WeighingWeightCorrectionPayload(
+    @SerialName("observation_id") val observationId: String,
+    @SerialName("request") val request: WeighingWeightCorrectionRequestDto,
+)
+
 @Serializable
 data class VerificationClosePayload(
     @SerialName("item_id") val itemId: String,
@@ -110,6 +129,12 @@ data class VerificationCloseSubmissionPayload(
 @Serializable
 data class VerificationCloseBatchPayload(
     @SerialName("batch_id") val batchId: String,
+)
+
+/** Durable verifier journey audit batch. Each nested event carries its persisted client_event_id. */
+@Serializable
+data class VerificationReviewEventsPayload(
+    @SerialName("request") val request: VerificationReviewEventBatchRequestDto,
 )
 
 /** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.COUNTS_SHIFTING].
@@ -163,6 +188,14 @@ data class WeighingAnimalObservationPayload(
 data class WeighingShedObservationPayload(
     @SerialName("campaign_id") val campaignId: String,
     @SerialName("request") val request: WeighingShedObservationRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.WEIGHING_SCOPE_SUBMIT]. */
+@Serializable
+data class WeighingScopeSubmitPayload(
+    @SerialName("campaign_id") val campaignId: String,
+    @SerialName("campaign_shed_id") val campaignShedId: String,
+    @SerialName("request") val request: WeighingScopeSubmitRequestDto,
 )
 
 /**
@@ -266,10 +299,25 @@ data class FeedDistributionCompletePayload(
      */
     @SerialName("feed_weight_proof_outbox_item_id") val feedWeightProofOutboxItemId: String? = null,
     /** Outbox id of the MANDATORY feed-distribution VIDEO's PROOF_UPLOAD item. */
-    @SerialName("distribution_proof_outbox_item_id") val distributionProofOutboxItemId: String,
+    @SerialName("distribution_proof_outbox_item_id") val distributionProofOutboxItemId: String? = null,
     /** Outbox id of the MANDATORY water-distribution VIDEO's PROOF_UPLOAD item. Video-only since
      *  2026-08-11; a row queued earlier may reference a photo, which the backend now rejects. */
-    @SerialName("water_proof_outbox_item_id") val waterProofOutboxItemId: String,
+    @SerialName("water_proof_outbox_item_id") val waterProofOutboxItemId: String? = null,
+    /**
+     * SERVER proof ids for slots this phone did NOT shoot.
+     *
+     * A pen-session's three proofs may be recorded by three different operators (maintainer decision
+     * 2026-08-14). A proof shot on another phone has no PROOF_UPLOAD outbox row here, so the outbox
+     * ids above cannot name it — the dispatcher uses these instead, verbatim. The backend already
+     * accepts them: ValidateFeedProofMedia checks tenant, upload state and media kind, never the
+     * uploader.
+     *
+     * Nullable with a default so a row queued by an older build still decodes; a slot the operator
+     * shot themselves leaves these null and resolves through its own outbox row exactly as before.
+     */
+    @SerialName("feed_weight_proof_ref") val feedWeightProofRef: String? = null,
+    @SerialName("distribution_proof_ref") val distributionProofRef: String? = null,
+    @SerialName("water_proof_ref") val waterProofRef: String? = null,
 )
 
 /**
@@ -352,6 +400,38 @@ data class FeedPackingCompletePayload(
     @SerialName("packing_proof_outbox_item_id") val packingProofOutboxItemId: String,
 )
 
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.FEED_WASTAGE_COMPLETE] —
+ * the verifier-GATED leftover-feed flow on EXPERIMENT pens (maintainer decision 2026-08-18). Grain
+ * is the PEN-DAY: no session (wastage is measured once per day) and no workflow (the server stamps
+ * `experiment`). ONE MANDATORY video, carried by reference to its PROOF_UPLOAD outbox row exactly
+ * like [FeedPackingCompletePayload]; the dispatcher resolves the uploaded `proof_id` and sends it
+ * as `wastage_proof_ref`. The pen-day key is the outbox group key so the proof drains first.
+ */
+@Serializable
+data class FeedWastageCompletePayload(
+    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("shed_id") val shedId: String,
+    /** The PEN whose leftover was filmed; null for an undivided shed. Part of the completion's
+     *  IDENTITY — a partitioned shed has one wastage task PER PEN. */
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("target_date") val targetDate: String,
+    /** Outbox id of the MANDATORY wastage VIDEO's PROOF_UPLOAD item. */
+    @SerialName("wastage_proof_outbox_item_id") val wastageProofOutboxItemId: String,
+)
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.FEED_WASTAGE_MEASUREMENT]:
+ * the VERIFIER recording the leftover weight she reads off a wastage video (maintainer decision
+ * 2026-08-18). The completion id comes from the item's backend-owned measurement_correction block
+ * (`observation_id`, echoing source.ref_id) — this app never composes that address itself.
+ */
+@Serializable
+data class FeedWastageMeasurementPayload(
+    @SerialName("completion_id") val completionId: String,
+    @SerialName("request") val request: FeedWastageMeasurementRequestDto,
+)
+
 @Serializable
 data class MilkPreparationSubmitPayload(
     @SerialName("park_id") val parkId: String,
@@ -385,3 +465,16 @@ data class MilkFeedingSubmitPayload(
 )
 
 @Serializable data class FeedTransportSubmitPayload(@SerialName("task_id") val taskId:String,@SerialName("proof_outbox_item_id") val proofOutboxItemId:String)
+
+/**
+ * Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.CLOCK_IN] /
+ * [sg.mesha.goatos.core.database.outbox.OutboxOpType.CLOCK_OUT] (module clock, maintainer
+ * decision 2026-08-27). The request carries the whole punch capture — device-clock tap time,
+ * location, integrity verdict, battery, network kind, offline flag — frozen at TAP time, so a
+ * drain hours later still reports what the device honestly knew when the person punched. The
+ * body's own `idempotency_key` equals the outbox row's stable day-scoped key.
+ */
+@Serializable
+data class ClockPunchPayload(
+    @SerialName("request") val request: ClockPunchRequestDto,
+)

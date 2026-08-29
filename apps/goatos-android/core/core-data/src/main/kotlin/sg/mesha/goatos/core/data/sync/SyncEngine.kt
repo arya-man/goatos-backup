@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.network.dto.FeedDirectionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedWastageCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationProofsDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationAnswersDto
@@ -39,6 +40,8 @@ import sg.mesha.goatos.core.network.isTerminalAppApiError
 import sg.mesha.goatos.core.network.serverErrorText
 import sg.mesha.goatos.core.data.weighing.WeighingObservationDao
 import sg.mesha.goatos.core.data.weighing.WeighingShedObservationDao
+import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochDao
+import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -51,12 +54,43 @@ fun interface SyncRetryScheduler {
 }
 
 /**
+ * A generic, sync-engine-driven "the local cache is a whole-page KV blob, not a Room row keyed by
+ * server id" reconcile hook: for opTypes whose observed screen state is a [Resource]-wrapped page
+ * blob (e.g. Milk Feeding/Preparation's `CountsBreakdownMetaCacheDao` page cache — see
+ * [sg.mesha.goatos.core.data.MilkFeedingRepository] / [sg.mesha.goatos.core.data.MilkPreparationRepository]),
+ * there is no server-truth row to write directly into. The correct reconcile is instead "go fetch
+ * the page again" — a plain `repo.refresh(...)`. Registered per-[OutboxOpType] at the repo/DI layer
+ * ([sg.mesha.goatos.di.AppModule]), never in a ViewModel: the moment matching this reconcile's
+ * timing (right after a row reaches SUCCEEDED, alongside every other [reconcileFeatureSuccess] arm)
+ * belongs to [SyncEngine], not to whichever screen happens to be on-screen when it happens.
+ *
+ * Failures are swallowed the same way [reportCacheReconcileFailure] swallows every other
+ * post-success cache-write failure here: the outbox row is already SUCCEEDED on the server, so a
+ * refresh miss must never re-mark it failed or abort the rest of the drain pass. The next
+ * successful list/detail fetch repairs the cache regardless (pull-to-refresh, next screen visit).
+ */
+fun interface PostSuccessRefreshHook {
+    /** [payloadJson] is the SAME [OutboxEntity.payloadJson] this opType was dispatched with —
+     *  the hook decodes whatever payload shape it needs to derive the page key(s) to refresh. */
+    suspend fun onSuccess(payloadJson: String)
+}
+
+/** Repairs feature cache state after a definitive outbox failure. The hook is replayed from the
+ * durable terminal row after process death, so an optimistic cache mutation cannot survive a
+ * server rejection merely because the app died between terminalization and local rollback. */
+fun interface PostTerminalFailureHook {
+    suspend fun onTerminalFailure(payloadJson: String)
+}
+
+/**
  * A definitive, non-retryable server rejection (e.g. a failed submission validation).
  * Retrying with the SAME payload would only reproduce the same rejection, so [SyncEngine]
  * terminalizes the row immediately (marks it `conflict`) instead of burning the backoff
  * budget on a rejection that will never change without a new/edited payload.
  */
 class NonRetryableSyncException(message: String) : Exception(message)
+
+private class ProofDependencyPendingException(message: String) : Exception(message)
 
 /**
  * Drains the outbox oldest-first (per group) and performs the real app-api call per queued
@@ -96,6 +130,25 @@ class SyncEngine(
     private val scannedGoatDao: ScannedGoatDao? = null,
     private val weighingObservationDao: WeighingObservationDao? = null,
     private val weighingShedObservationDao: WeighingShedObservationDao? = null,
+    // Advances the SAME transition-epoch mechanism `WeighingRepository.transitionIdempotencyKey`
+    // reads, ONLY after a WEIGHING_SCOPE_SUBMIT row reaches SUCCEEDED here — mirroring the
+    // repository's own "called only after the server confirmed" contract for reopen/close, which
+    // stayed direct-HTTP and unmoved (see docs/decisions/weighing-rework-task-cards.md; the close
+    // gate itself is unconditional and out of scope for this change).
+    private val weighingTransitionEpochDao: WeighingTransitionEpochDao? = null,
+    private val feedRepository: sg.mesha.goatos.core.data.FeedRepository? = null,
+    private val feedTransportRepository: sg.mesha.goatos.core.data.FeedTransportRepository? = null,
+    // PC Care (module pc_care): the durable scanned-animal rows this engine reconciles directly
+    // (scan SYNCED/DUPLICATE/FAILED, and the server row id a slot registration dispatch resolves),
+    // and the repository whose task caches a successful submit reconciles.
+    private val pcCareAnimalRowDao: sg.mesha.goatos.core.data.cache.PcCareAnimalRowDao? = null,
+    private val pcCareRepository: sg.mesha.goatos.core.data.PcCareRepository? = null,
+    // Toxin (module toxin): every step-complete/submit dispatch RETURNS the task's fresh detail
+    // (server-composed step states); this repository writes it through Room so the guided screen
+    // re-renders server truth the moment the write drains — and refreshes it after a terminal
+    // wait_not_elapsed / step_already_done refusal so the screen shows why.
+    private val toxinRepository: sg.mesha.goatos.core.data.ToxinRepository? = null,
+    private val idGenerator: () -> String = { java.util.UUID.randomUUID().toString() },
     /**
      * Lifecycle visibility for the queue itself. Defaults to
      * [OutboxTelemetryReporter.Noop] so every existing test/fake construction keeps compiling;
@@ -107,6 +160,16 @@ class SyncEngine(
      * emit can be forgotten by the next feature someone writes; a seam cannot.
      */
     private val telemetry: OutboxTelemetryReporter = OutboxTelemetryReporter.Noop,
+    /**
+     * Per-[OutboxOpType] whole-page-blob reconcile hooks — see [PostSuccessRefreshHook] kdoc.
+     * Empty by default so every existing test/fake construction keeps compiling; production
+     * wiring registers the Milk Feeding/Preparation refresh callbacks in `AppModule`.
+     */
+    private val postSuccessRefreshHooks: Map<OutboxOpType, PostSuccessRefreshHook> = emptyMap(),
+    /** Cache handoffs that must finish before the active outbox overlay retracts. The same hook
+     * remains registered in [postSuccessRefreshHooks] for durable restart replay. */
+    private val preSuccessRefreshHooks: Map<OutboxOpType, PostSuccessRefreshHook> = emptyMap(),
+    private val postTerminalFailureHooks: Map<OutboxOpType, PostTerminalFailureHook> = emptyMap(),
 ) {
     // The WorkManager-equivalent of "enqueue as unique work": never run two overlapping
     // drain passes. A trigger that arrives mid-drain simply waits its turn, then re-reads
@@ -133,7 +196,21 @@ class SyncEngine(
      * constraint. Backed-off rows are owned by the explicit retry work, never by a worker retry.
      */
     suspend fun drainOnce(): Boolean {
-        if (!connectivityGate.isOnline()) return false // capture continues offline; sync just waits.
+        // Repair already-accepted feature state even while offline. A process can die after
+        // markSucceeded and before Room reconciliation; replaying that durable response is local.
+        withContext(dispatchers.io) {
+            store.observeRecentTerminals(SUCCESS_RECONCILE_LIMIT).forEach { terminal ->
+                runCatching {
+                    when {
+                        terminal.status == OutboxStatus.SUCCEEDED.name -> reconcileFeatureSuccess(terminal)
+                        terminal.status == OutboxStatus.FAILED.name &&
+                            (terminal.conflict || terminal.attemptCount >= terminal.maxAttempts) ->
+                            reconcileFeatureTerminalFailure(terminal)
+                    }
+                }.onFailure { reportCacheReconcileFailure(terminal, it) }
+                }
+            }
+        if (!connectivityGate.isOnline()) return false
         val earliestRetryAt = AtomicLong(NO_RETRY_DUE)
         fun rememberRetryDue(epochMillis: Long) {
             while (true) {
@@ -151,9 +228,6 @@ class SyncEngine(
                 store.reclaimInFlight(clock())
                 // Rebuild feature acceptance after a process dies between marking the outbox
                 // success and updating the feature database. This projection is idempotent.
-                store.observeRecentTerminals(SUCCESS_RECONCILE_LIMIT)
-                    .filter { it.status == "SUCCEEDED" }
-                    .forEach { reconcileFeatureSuccess(it) }
                 // Groups whose FIFO head failed this pass. Once a group's oldest in-flight write
                 // fails it backs off, so eligibleForDrain would still return that group's NEWER
                 // queued rows on the next batch fetch — dispatching them would post newer writes
@@ -174,7 +248,13 @@ class SyncEngine(
                         actionable.groupBy { it.groupKey }.values.forEach { groupItems ->
                             launch {
                                 semaphore.withPermit {
-                                    for (item in groupItems.sortedBy { it.createdAt }) {
+                                    // NOT re-sorted here. The store returns rows in drain
+                                    // order (createdAt, then rowid), and re-sorting on
+                                    // createdAt alone threw that away: two rows from the same
+                                    // millisecond came back in an order the sort did not fix,
+                                    // so a Submit could still be handed to the server before a
+                                    // scan it must wait for. groupBy preserves encounter order.
+                                    for (item in groupItems) {
                                         if (!processItem(item, ::rememberRetryDue)) {
                                             blockedGroups += item.groupKey
                                             break
@@ -214,18 +294,30 @@ class SyncEngine(
                 phase = OutboxWritePhase.ATTEMPT_STARTED,
                 opType = item.opType,
                 itemId = item.id,
+                groupKey = item.groupKey,
+                idempotencyKey = item.idempotencyKey,
+                referencedProofOutboxItemId = item.referencedProofOutboxItemId(),
                 attempt = item.attemptCount + 1,
                 maxAttempts = item.maxAttempts,
             ),
         )
         return try {
             val resultJson = dispatch(item)
+            val preSuccessRefreshApplied = reconcileFeatureBeforeSuccess(item)
             if (store.markSucceeded(item.id, resultJson, clock())) {
-                reconcileFeatureSuccess(item)
+                // Reconcile with the response from this successful dispatch. The original
+                // in-memory item predates markSucceeded and therefore has resultJson=null.
+                reconcileFeatureSuccess(
+                    item.copy(resultJson = resultJson),
+                    skipPostSuccessRefresh = preSuccessRefreshApplied,
+                )
             }
             true
         } catch (cancellation: CancellationException) {
             throw cancellation
+        } catch (pendingProof: ProofDependencyPendingException) {
+            recordPendingProofDependency(item, pendingProof)?.let(rememberRetryDue)
+            false
         } catch (error: Throwable) {
             recordFailure(item, error)?.let(rememberRetryDue)
             false
@@ -274,6 +366,9 @@ class SyncEngine(
                     phase = OutboxWritePhase.ATTEMPT_FAILED,
                     opType = item.opType,
                     itemId = item.id,
+                    groupKey = item.groupKey,
+                    idempotencyKey = item.idempotencyKey,
+                    referencedProofOutboxItemId = item.referencedProofOutboxItemId(),
                     attempt = attempt,
                     maxAttempts = item.maxAttempts,
                     failureClass = failureClass,
@@ -285,6 +380,9 @@ class SyncEngine(
                         phase = OutboxWritePhase.TERMINAL,
                         opType = item.opType,
                         itemId = item.id,
+                        groupKey = item.groupKey,
+                        idempotencyKey = item.idempotencyKey,
+                        referencedProofOutboxItemId = item.referencedProofOutboxItemId(),
                         attempt = attempt,
                         maxAttempts = item.maxAttempts,
                         failureClass = failureClass,
@@ -299,6 +397,9 @@ class SyncEngine(
                         phase = OutboxWritePhase.RETRY_SCHEDULED,
                         opType = item.opType,
                         itemId = item.id,
+                        groupKey = item.groupKey,
+                        idempotencyKey = item.idempotencyKey,
+                        referencedProofOutboxItemId = item.referencedProofOutboxItemId(),
                         attempt = attempt,
                         maxAttempts = item.maxAttempts,
                         failureClass = failureClass,
@@ -306,6 +407,7 @@ class SyncEngine(
                     )
                 },
             )
+            if (terminal) reconcileFeatureTerminalFailure(item)
         }
         return if (applied && !terminal) {
             nextAttemptAt
@@ -314,9 +416,59 @@ class SyncEngine(
         }
     }
 
+    private suspend fun recordPendingProofDependency(item: OutboxEntity, error: ProofDependencyPendingException): Long? {
+        val nextAttemptAt = clock() + PROOF_DEPENDENCY_WAIT_RETRY_MS
+        val applied = store.markFailed(
+            id = item.id,
+            attemptCount = item.attemptCount,
+            nextAttemptAt = nextAttemptAt,
+            conflict = false,
+            lastError = error.outboxLastError(),
+            now = clock(),
+        )
+        if (applied) {
+            report(
+                OutboxTelemetryEvent(
+                    phase = OutboxWritePhase.DEPENDENCY_WAIT,
+                    opType = item.opType,
+                    itemId = item.id,
+                    groupKey = item.groupKey,
+                    idempotencyKey = item.idempotencyKey,
+                    referencedProofOutboxItemId = item.referencedProofOutboxItemId(),
+                    attempt = item.attemptCount,
+                    maxAttempts = item.maxAttempts,
+                    failureClass = error.javaClass.simpleName,
+                    retryInMs = (nextAttemptAt - clock()).coerceAtLeast(0),
+                ),
+            )
+        }
+        return if (applied) nextAttemptAt else null
+    }
+
     /** Telemetry is diagnostics, never control flow: a broken reporter must not fail a write. */
     private fun report(event: OutboxTelemetryEvent) {
         runCatching { telemetry.onOutboxWrite(event) }
+    }
+
+    private fun OutboxEntity.referencedProofOutboxItemId(): String =
+        PROOF_OUTBOX_ITEM_ID_REGEX.find(payloadJson)?.groupValues?.getOrNull(1).orEmpty()
+
+    /** Logs a post-success local-cache reconcile failure (e.g. the Room mirror write in
+     *  [reconcileFeatureSuccess] threw) without ever rethrowing: the golden rule is "never
+     *  swallow an exception", but this one item is already SUCCEEDED on the server, so it must
+     *  never be re-marked failed and must never abort the rest of a drain pass. Reused as
+     *  [OutboxWritePhase.ATTEMPT_FAILED] telemetry (attempt/maxAttempts left at 0) — the closest
+     *  existing signal that reaches the same Crashlytics/analytics sink as every other outbox
+     *  failure, rather than adding a new wire-format phase for one call site. */
+    private fun reportCacheReconcileFailure(item: OutboxEntity, error: Throwable) {
+        report(
+            OutboxTelemetryEvent(
+                phase = OutboxWritePhase.ATTEMPT_FAILED,
+                opType = item.opType,
+                itemId = item.id,
+                failureClass = error.javaClass.simpleName,
+            ),
+        )
     }
 
     /** Calls the app-api for [item], reusing its stored idempotency key verbatim (never a new
@@ -332,9 +484,11 @@ class SyncEngine(
         OutboxOpType.VERIFY_TASK -> dispatchVerifyTask(item)
         OutboxOpType.REWORK_TASK -> dispatchReworkTask(item)
         OutboxOpType.VERIFICATION_VERDICT -> dispatchVerificationVerdict(item)
+        OutboxOpType.WEIGHING_WEIGHT_CORRECTION -> dispatchWeighingWeightCorrection(item)
         OutboxOpType.VERIFICATION_CLOSE -> dispatchVerificationClose(item)
         OutboxOpType.VERIFICATION_CLOSE_SUBMISSION -> dispatchVerificationSubmissionClose(item)
         OutboxOpType.VERIFICATION_CLOSE_BATCH -> dispatchVerificationBatchClose(item)
+        OutboxOpType.VERIFICATION_REVIEW_EVENTS -> dispatchVerificationReviewEvents(item)
         OutboxOpType.COUNTS_SHIFTING -> dispatchCountsShifting(item)
         OutboxOpType.COUNTS_BIRTH -> dispatchCountsBirth(item)
         OutboxOpType.COUNTS_DEATH -> dispatchCountsDeath(item)
@@ -346,6 +500,8 @@ class SyncEngine(
         OutboxOpType.FEED_DIRECTION_COMPLETE -> dispatchFeedDirectionComplete(item)
         OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> dispatchFeedDistributionComplete(item)
         OutboxOpType.FEED_PACKING_COMPLETE -> dispatchFeedPackingComplete(item)
+        OutboxOpType.FEED_WASTAGE_COMPLETE -> dispatchFeedWastageComplete(item)
+        OutboxOpType.FEED_WASTAGE_MEASUREMENT -> dispatchFeedWastageMeasurement(item)
         OutboxOpType.MILK_PREPARATION_SUBMIT -> dispatchMilkPreparationSubmit(item)
         OutboxOpType.MILK_FEEDING_SUBMIT -> dispatchMilkFeedingSubmit(item)
         OutboxOpType.FEED_TRANSPORT_SUBMIT -> dispatchFeedTransportSubmit(item)
@@ -355,9 +511,35 @@ class SyncEngine(
         OutboxOpType.HEALTH_TREATMENT_COMPLETE -> dispatchHealthTreatmentComplete(item)
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> dispatchWeighingAnimalObservation(item)
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> dispatchWeighingShedObservation(item)
+        OutboxOpType.WEIGHING_SCOPE_SUBMIT -> dispatchWeighingScopeSubmit(item)
+        OutboxOpType.PC_CARE_SCAN_ADD -> dispatchPcCareScanAdd(item)
+        OutboxOpType.PC_CARE_SLOT_REGISTER -> dispatchPcCareSlotRegister(item)
+        OutboxOpType.PC_CARE_TASK_PROOF_REGISTER -> dispatchPcCareTaskProofRegister(item)
+        OutboxOpType.PC_CARE_TASK_SUBMIT -> dispatchPcCareTaskSubmit(item)
+        OutboxOpType.TOXIN_STEP_COMPLETE -> dispatchToxinStepComplete(item)
+        OutboxOpType.TOXIN_SUBMIT -> dispatchToxinSubmit(item)
+        OutboxOpType.CLOCK_IN -> dispatchClockPunch(item, clockIn = true)
+        OutboxOpType.CLOCK_OUT -> dispatchClockPunch(item, clockIn = false)
     }
 
-    private suspend fun reconcileFeatureSuccess(item: OutboxEntity) {
+    private suspend fun reconcileFeatureBeforeSuccess(item: OutboxEntity): Boolean {
+        val opType = runCatching { OutboxOpType.valueOf(item.opType) }
+            .onFailure { reportCacheReconcileFailure(item, it) }
+            .getOrNull() ?: return false
+        val hook = preSuccessRefreshHooks[opType] ?: return false
+        return runCatching {
+            hook.onSuccess(item.payloadJson)
+            true
+        }.getOrElse {
+            reportCacheReconcileFailure(item, it)
+            false
+        }
+    }
+
+    private suspend fun reconcileFeatureSuccess(
+        item: OutboxEntity,
+        skipPostSuccessRefresh: Boolean = false,
+    ) {
         when (OutboxOpType.valueOf(item.opType)) {
             OutboxOpType.SCAN_CAPTURE -> {
                 val payload = syncJson.decodeFromString<ScanCapturePayload>(item.payloadJson)
@@ -374,7 +556,184 @@ class SyncEngine(
                 weighingObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
             OutboxOpType.WEIGHING_SHED_OBSERVATION ->
                 weighingShedObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
+            OutboxOpType.WEIGHING_SCOPE_SUBMIT -> {
+                val payload = syncJson.decodeFromString<WeighingScopeSubmitPayload>(item.payloadJson)
+                val scopeId = "submit:${payload.campaignId}:${payload.campaignShedId}"
+                // Only NOW -- the row is SUCCEEDED -- does the epoch rotate, exactly matching
+                // WeighingRepository.advanceTransitionEpoch's "called only after the server
+                // confirmed" contract it replaces. A failed/still-retrying row keeps sending the
+                // SAME key.
+                weighingTransitionEpochDao?.upsert(
+                    WeighingTransitionEpochEntity(scopeId = scopeId, epoch = idGenerator(), updatedAt = clock()),
+                )
+                // Every OTHER epoch writer (WeighingRepository.advanceTransitionEpoch for
+                // reopen/close-shed/close-campaign/update) prunes to the same bound right after
+                // upserting; this one was skipped, leaving the transition-epoch table growing
+                // unboundedly by one row per scope ever submitted. Same bound, same table.
+                weighingTransitionEpochDao?.pruneOutsideNewest(WEIGHING_SCOPE_SUBMIT_CACHED_TRANSITION_SCOPES)
+            }
+            OutboxOpType.FEED_DISTRIBUTION_COMPLETE -> {
+                val payload = syncJson.decodeFromString<FeedDistributionCompletePayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedDistributionCompleteResponseDto>(resultJson)
+                    if (response.status.isNotBlank()) {
+                        // The server already accepted this write (item is SUCCEEDED) — a failure
+                        // HERE is only "local Room mirror didn't refresh", never a reason to mark
+                        // the outbox row failed or abort the rest of this drain pass (this runs
+                        // both per-item in processItem's try and in bulk in drainOnce's startup
+                        // reconcile loop, which has no surrounding try/catch of its own). Caught
+                        // locally and reported so it is never silently lost; the next successful
+                        // preview/worklist fetch repairs the cache regardless.
+                        runCatching {
+                            feedRepository?.persistDirectionSessionStatuses(
+                                targetDate = payload.targetDate,
+                                shedId = payload.shedId,
+                                partitionLabel = payload.partitionLabel ?: "",
+                                workflow = payload.workflow,
+                                sessionNo = payload.sessionNo,
+                                lifecycleStatus = response.status,
+                            )
+                        }.onFailure { reportCacheReconcileFailure(item, it) }
+                    }
+                }
+            }
+            OutboxOpType.FEED_PACKING_COMPLETE -> {
+                val payload = syncJson.decodeFromString<FeedPackingCompletePayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto>(resultJson)
+                    if (response.status.isNotBlank()) {
+                        // Same rationale as FEED_DISTRIBUTION_COMPLETE above: never let a local
+                        // cache-write failure look like (or behave like) a dispatch failure.
+                        runCatching {
+                            feedRepository?.persistPackingRowStatuses(
+                                targetDate = payload.targetDate,
+                                shedId = payload.shedId,
+                                partitionLabel = payload.partitionLabel ?: "",
+                                workflow = payload.workflow,
+                                sessionNo = payload.sessionNo,
+                                lifecycleStatus = response.status,
+                            )
+                        }.onFailure { reportCacheReconcileFailure(item, it) }
+                    }
+                }
+            }
+            OutboxOpType.FEED_TRANSPORT_SUBMIT -> {
+                val payload = syncJson.decodeFromString<FeedTransportSubmitPayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedTransportSubmitResponseDto>(resultJson)
+                    runCatching {
+                        feedTransportRepository?.persistTaskStatus(payload.taskId, response.status)
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
+            }
+            OutboxOpType.FEED_WASTAGE_COMPLETE -> {
+                val payload = syncJson.decodeFromString<FeedWastageCompletePayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.FeedWastageCompleteResponseDto>(resultJson)
+                    if (response.status.isNotBlank()) {
+                        // Same rationale as FEED_PACKING_COMPLETE above: never let a local
+                        // cache-write failure look like (or behave like) a dispatch failure.
+                        runCatching {
+                            feedRepository?.persistWastageRowStatus(
+                                shedId = payload.shedId,
+                                partitionLabel = payload.partitionLabel ?: "",
+                                workflow = FEED_WASTAGE_WORKFLOW,
+                                lifecycleStatus = response.status,
+                            )
+                        }.onFailure { reportCacheReconcileFailure(item, it) }
+                    }
+                }
+            }
+            OutboxOpType.PC_CARE_SCAN_ADD -> {
+                val payload = syncJson.decodeFromString<PcCareScanAddPayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    // POST-dispatch result, never the pre-dispatch entity: the server row id only
+                    // exists in the response this successful dispatch just returned.
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.PcCareScanResponseDto>(resultJson)
+                    // Same rationale as FEED_PACKING_COMPLETE above: never let a local cache-write
+                    // failure look like (or behave like) a dispatch failure — reported, not thrown.
+                    runCatching {
+                        pcCareAnimalRowDao?.updateScanSynced(
+                            taskId = payload.taskId,
+                            normalizedTag = payload.normalizedTag,
+                            animalRowId = response.animalRowId,
+                            updatedAt = clock(),
+                        )
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
+            }
+            OutboxOpType.PC_CARE_TASK_SUBMIT -> {
+                val payload = syncJson.decodeFromString<PcCareTaskSubmitPayload>(item.payloadJson)
+                item.resultJson?.let { resultJson ->
+                    val response = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto>(resultJson)
+                    if (response.status.isNotBlank()) {
+                        // Same rationale as FEED_WASTAGE_COMPLETE above.
+                        runCatching {
+                            pcCareRepository?.persistTaskSubmitResult(
+                                taskId = payload.taskId,
+                                status = response.status,
+                                rowVersion = response.rowVersion,
+                                animalCount = response.animalCount,
+                            )
+                        }.onFailure { reportCacheReconcileFailure(item, it) }
+                    }
+                }
+            }
+            OutboxOpType.TOXIN_STEP_COMPLETE, OutboxOpType.TOXIN_SUBMIT -> {
+                item.resultJson?.let { resultJson ->
+                    // POST-dispatch result: the server returns the task's FRESH detail (its
+                    // server-composed step states) from the very transaction this write landed
+                    // in. Same rationale as FEED_PACKING_COMPLETE above: a local cache-write
+                    // failure is reported, never allowed to look like a dispatch failure.
+                    runCatching {
+                        val detail = syncJson.decodeFromString<sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto>(resultJson)
+                        toxinRepository?.persistServerDetail(detail)
+                    }.onFailure { reportCacheReconcileFailure(item, it) }
+                }
+            }
             else -> Unit
+        }
+        // Whole-page-blob opTypes (no server-truth row to write directly into a Room table) — run
+        // AFTER the opType-specific arm above so any row-shaped reconcile still happens first.
+        postSuccessRefreshHooks[OutboxOpType.valueOf(item.opType)]?.takeUnless { skipPostSuccessRefresh }?.let { hook ->
+            runCatching { hook.onSuccess(item.payloadJson) }
+                .onFailure { reportCacheReconcileFailure(item, it) }
+        }
+    }
+
+    private suspend fun reconcileFeatureTerminalFailure(item: OutboxEntity) {
+        val opType = runCatching { OutboxOpType.valueOf(item.opType) }
+            .getOrElse {
+                reportCacheReconcileFailure(item, it)
+                return
+            }
+        if (opType == OutboxOpType.PC_CARE_SCAN_ADD) {
+            // The durable animal row is the scan screen's model, so a terminally failed scan must
+            // stop reading as still-queued work. PENDING-guarded: a DUPLICATE verdict (written by
+            // the dispatch before the 409 terminalized this row) is never overwritten. Replayed
+            // from the durable terminal row after process death like every reconcile here.
+            runCatching {
+                val payload = syncJson.decodeFromString<PcCareScanAddPayload>(item.payloadJson)
+                pcCareAnimalRowDao?.markScanFailedIfPending(payload.taskId, payload.normalizedTag, clock())
+            }.onFailure { reportCacheReconcileFailure(item, it) }
+        }
+        if (opType == OutboxOpType.TOXIN_STEP_COMPLETE || opType == OutboxOpType.TOXIN_SUBMIT) {
+            // A terminal refusal here is the SERVER's clock/state disagreeing with the phone
+            // (wait_not_elapsed, step_already_done, a cancelled task). The refusal's farm copy
+            // rides the outbox row's lastError; re-reading the detail puts the server's own step
+            // states back on screen — the network clearly works, the server just answered.
+            runCatching {
+                val taskId = when (opType) {
+                    OutboxOpType.TOXIN_STEP_COMPLETE ->
+                        syncJson.decodeFromString<ToxinStepCompletePayload>(item.payloadJson).taskId
+                    else -> syncJson.decodeFromString<ToxinSubmitPayload>(item.payloadJson).taskId
+                }
+                toxinRepository?.refreshTaskDetail(taskId)
+            }.onFailure { reportCacheReconcileFailure(item, it) }
+        }
+        postTerminalFailureHooks[opType]?.let { hook ->
+            runCatching { hook.onTerminalFailure(item.payloadJson) }
+                .onFailure { reportCacheReconcileFailure(item, it) }
         }
     }
 
@@ -496,6 +855,18 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
+    /**
+     * THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17). Weighing owns the route --
+     * the correction writes a weighing record -- while the verification item told the screen WHICH
+     * record to address. The idempotency key is the outbox row's own stable key, so a redelivery
+     * replays the original correction instead of writing a second one.
+     */
+    private suspend fun dispatchWeighingWeightCorrection(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WeighingWeightCorrectionPayload>(item.payloadJson)
+        val response = api.correctWeighingObservationWeight(payload.observationId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
     private suspend fun dispatchVerificationClose(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<VerificationClosePayload>(item.payloadJson)
         val response = api.closeVerificationItem(payload.itemId, item.idempotencyKey, payload.request)
@@ -514,6 +885,12 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
+    private suspend fun dispatchVerificationReviewEvents(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<VerificationReviewEventsPayload>(item.payloadJson)
+        val response = api.recordVerificationReviewEvents(payload.request)
+        return syncJson.encodeToString(response)
+    }
+
     /**
      * The three Counts writes. Same idempotent-replay contract as every other `dispatch*` here:
      * the row's STORED key is passed through verbatim as the `Idempotency-Key` header on every
@@ -525,6 +902,26 @@ class SyncEngine(
      * [recordFailure]'s `isTerminalAppApiError` check, so it is surfaced to the operator for
      * correction rather than silently retried against an unchanged payload.
      */
+    /**
+     * The clock punch (module clock, maintainer decision 2026-08-27). Same idempotent-replay
+     * contract as every other `dispatch*` here: the row's STORED day-scoped key
+     * (`clock:<business_date>:<in|out>`) rides both the Idempotency-Key header and the body, so a
+     * server-committed-but-client-unrecorded retry replays the original entry instead of punching
+     * twice. A 409 (`already_clocked_in` / `not_clocked_in` / `already_clocked_out`) and a 422
+     * `mock_location_detected` are definitive answers about an unchangeable day state — terminal
+     * by [recordFailure]'s `isTerminalAppApiError` check, surfaced with the server's own message,
+     * never retried against a payload that can never succeed.
+     */
+    private suspend fun dispatchClockPunch(item: OutboxEntity, clockIn: Boolean): String {
+        val payload = syncJson.decodeFromString<ClockPunchPayload>(item.payloadJson)
+        val response = if (clockIn) {
+            api.recordClockIn(item.idempotencyKey, payload.request)
+        } else {
+            api.recordClockOut(item.idempotencyKey, payload.request)
+        }
+        return syncJson.encodeToString(response)
+    }
+
     private suspend fun dispatchCountsShifting(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<CountsShiftingPayload>(item.payloadJson)
         val response = api.recordCountsShiftingEvent(item.idempotencyKey, payload.request)
@@ -597,39 +994,19 @@ class SyncEngine(
      * Resolves the uploaded proof_id for a shifting completion from its coupled PROOF_UPLOAD outbox
      * row. Same-group ordering means that row has already drained to SUCCEEDED before this completion
      * runs; if it has not (a rare concurrency edge, or a pre-upgrade row with no coupling), the
-     * completion is retried (plain exception -> non-conflict retry) until the video is uploaded. A
-     * missing coupling or a permanently-failed upload is terminal — a shed move without a verifiable
-     * video must not reach the backend.
+     * completion waits on the shared proof-dependency lane until the video is uploaded. A missing
+     * coupling or a permanently-failed upload is terminal — a shed move without a verifiable video
+     * must not reach the backend.
      */
     private suspend fun resolveShiftingProofRef(payload: ShiftingCompletePayload): String {
         val proofItemId = payload.proofOutboxItemId
             ?: throw NonRetryableSyncException("Shifting completion is missing its mandatory video reference.")
-        val proofRow = store.findById(proofItemId)
-            ?: throw NonRetryableSyncException("The shifting video upload could not be found.")
-        if (proofRow.status != OutboxStatus.SUCCEEDED.name) {
-            throw IllegalStateException("Waiting for the shifting video to finish uploading before completing.")
-        }
-        val resultJson = proofRow.resultJson
-            ?: throw IllegalStateException("The shifting video upload result is not yet available.")
-        val proofId = syncJson.decodeFromString<ProofUploadResponseDto>(resultJson).proof.proofId
-        if (proofId.isBlank()) {
-            throw NonRetryableSyncException("The shifting video upload did not return a proof id.")
-        }
-        return proofId
+        return resolveUploadedProofRef(proofItemId)
     }
 
     private suspend fun resolveOptionalShiftingProofRef(proofItemId: String?, label: String): String? {
         if (proofItemId.isNullOrBlank()) return null
-        val proofRow = store.findById(proofItemId)
-            ?: throw NonRetryableSyncException("The shifting $label video upload could not be found.")
-        if (proofRow.status != OutboxStatus.SUCCEEDED.name) {
-            throw IllegalStateException("Waiting for the shifting $label video to finish uploading before completing.")
-        }
-        val resultJson = proofRow.resultJson
-            ?: throw IllegalStateException("The shifting $label video upload result is not yet available.")
-        return syncJson.decodeFromString<ProofUploadResponseDto>(resultJson).proof.proofId
-            .takeIf { it.isNotBlank() }
-            ?: throw NonRetryableSyncException("The shifting $label video upload did not return a proof id.")
+        return resolveUploadedProofRef(proofItemId)
     }
 
     private suspend fun dispatchFeedDirectionComplete(item: OutboxEntity): String {
@@ -651,11 +1028,11 @@ class SyncEngine(
      * The verifier-GATED feed-DISTRIBUTION completion (docs/decisions/feed-distribution-verification.md).
      * Same idempotent-replay contract as every other `dispatch*` — the row's STORED key is passed
      * verbatim as the `Idempotency-Key` header. ALL THREE mandatory proofs are resolved from their
-     * coupled PROOF_UPLOAD outbox rows (same group, drained first) exactly like
-     * [dispatchShiftingComplete]'s single video; a missing coupling or a permanently-failed upload is
-     * terminal — a gated completion without every verifiable proof must not reach the backend. The
-     * backend re-rejects a blank proof with `422 proof_required` (terminal by [recordFailure]'s
-     * check).
+     * referenced PROOF_UPLOAD outbox rows by id. The uploads do not have to share the completion's
+     * group: a not-yet-succeeded proof row makes this completion retry, while a missing coupling or a
+     * permanently-failed upload is terminal. A gated completion without every verifiable proof must not
+     * reach the backend. The backend re-rejects a blank proof with `422 proof_required` (terminal by
+     * [recordFailure]'s check).
      *
      * THE ROLLOUT CASE, stated because it costs an operator real work: a completion queued OFFLINE by
      * a build that predates the 2026-08-11 weight photo carries only two proofs. It cannot be healed
@@ -675,14 +1052,21 @@ class SyncEngine(
                 sessionNo = payload.sessionNo,
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,
-                feedWeightProofRef = resolveUploadedProofRef(
-                    payload.feedWeightProofOutboxItemId
-                        ?: throw NonRetryableSyncException(
-                            "This feeding needs a feed weight photo. Please record this shed's feeding again.",
-                        ),
+                feedWeightProofRef = resolveFeedProofRef(
+                    payload.feedWeightProofRef,
+                    payload.feedWeightProofOutboxItemId,
+                    "This feeding needs a feed weight photo. Please record this shed's feeding again.",
                 ),
-                distributionProofRef = resolveUploadedProofRef(payload.distributionProofOutboxItemId),
-                waterProofRef = resolveUploadedProofRef(payload.waterProofOutboxItemId),
+                distributionProofRef = resolveFeedProofRef(
+                    payload.distributionProofRef,
+                    payload.distributionProofOutboxItemId,
+                    "This feeding needs a feed video. Please record this shed's feeding again.",
+                ),
+                waterProofRef = resolveFeedProofRef(
+                    payload.waterProofRef,
+                    payload.waterProofOutboxItemId,
+                    "This feeding needs a water video. Please record this shed's feeding again.",
+                ),
             ),
         )
         return syncJson.encodeToString(response)
@@ -716,6 +1100,178 @@ class SyncEngine(
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,
                 packingProofRef = resolveUploadedProofRef(payload.packingProofOutboxItemId),
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * The verifier-GATED feed-WASTAGE completion (maintainer decision 2026-08-18). Shaped exactly
+     * like [dispatchFeedPackingComplete]: a SINGLE mandatory video resolved from its coupled
+     * PROOF_UPLOAD outbox row (same group, drained first). The grain is the PEN-DAY, so there is
+     * no session and no workflow field. A `409` — this pen-day already holds a DIFFERENT video —
+     * is terminal by [recordFailure]'s `isTerminalAppApiError` check, so it is surfaced to the
+     * operator with the server's own sentence rather than retried against a state that will never
+     * change.
+     */
+    private suspend fun dispatchFeedWastageComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<FeedWastageCompletePayload>(item.payloadJson)
+        val response = api.completeFeedWastage(
+            item.idempotencyKey,
+            FeedWastageCompleteRequestDto(
+                parkId = payload.parkId,
+                shedId = payload.shedId,
+                partitionLabel = payload.partitionLabel,
+                targetDate = payload.targetDate,
+                wastageProofRef = resolveUploadedProofRef(payload.wastageProofOutboxItemId),
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * THE VERIFIER'S WASTAGE MEASUREMENT (maintainer decision 2026-08-18). Feed owns the route —
+     * the measurement writes a feed-wastage record — while the verification item told the screen
+     * WHICH record to address. The idempotency key is the outbox row's own stable, value-bearing
+     * key, so a redelivery replays the original measurement instead of writing a second one.
+     */
+    private suspend fun dispatchFeedWastageMeasurement(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<FeedWastageMeasurementPayload>(item.payloadJson)
+        val response = api.recordFeedWastageMeasurement(payload.completionId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * One PC Care RFID scan (module pc_care). Same idempotent-replay contract as every other
+     * `dispatch*` — the row's STORED key is passed verbatim, never a new key on retry. A `409
+     * duplicate_scan` (another phone already scanned this tag) is terminal by [recordFailure]'s
+     * `isTerminalAppApiError` check; before rethrowing, the durable Room animal row is marked
+     * DUPLICATE so the scan screen shows the server's verdict instead of a forever-pending row.
+     * The server's own farm-language sentence rides the rethrown error into the outbox row's
+     * lastError. A `409 task_locked` (submitted while this scan was queued) is likewise terminal,
+     * surfaced with the server's copy through the generic terminal-failure reconcile.
+     */
+    private suspend fun dispatchPcCareScanAdd(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PcCareScanAddPayload>(item.payloadJson)
+        try {
+            val response = api.scanPcCareAnimal(
+                payload.taskId,
+                item.idempotencyKey,
+                sg.mesha.goatos.core.network.dto.PcCareScanRequestDto(scannedIdentifier = payload.tagVerbatim),
+            )
+            return syncJson.encodeToString(response)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Throwable) {
+            if (error.appApiStatusCode() == 409 && error.serverErrorText()?.code == "duplicate_scan") {
+                // Room write failure here must not change the dispatch outcome; reported like
+                // every other post-dispatch cache reconcile miss.
+                runCatching {
+                    pcCareAnimalRowDao?.markScanDuplicate(payload.taskId, payload.normalizedTag, clock())
+                }.onFailure { reportCacheReconcileFailure(item, it) }
+            }
+            throw error
+        }
+    }
+
+    /**
+     * One PC Care slot proof registration. The animal's SERVER row id is re-resolved from the
+     * durable Room animal row at dispatch time — it may have been blank at enqueue while the scan
+     * was still syncing. Still blank is a plain retryable wait (the scan's own group drains
+     * independently), never terminal. The video resolves through its coupled PROOF_UPLOAD row on
+     * the same group exactly like [dispatchFeedPackingComplete]'s single video.
+     */
+    private suspend fun dispatchPcCareSlotRegister(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PcCareSlotRegisterPayload>(item.payloadJson)
+        val animalRowId = payload.animalRowId.ifBlank {
+            val row = pcCareAnimalRowDao?.getByTag(payload.taskId, payload.normalizedTag)
+            when {
+                row == null ->
+                    throw NonRetryableSyncException("This animal's scan is missing. Please scan it again.")
+                row.scanSyncStatus == sg.mesha.goatos.core.data.cache.PcCareScanStatus.DUPLICATE ->
+                    // The server refused the scan as already recorded by another phone; this
+                    // phone's clip cannot attach to a row it does not own. Terminal with a
+                    // farm-language reason instead of waiting on a sync that will never come.
+                    throw NonRetryableSyncException("This animal was already scanned on another phone. Its video is recorded there.")
+                row.animalRowId.isBlank() ->
+                    throw ProofDependencyPendingException("Waiting for this animal's scan to finish syncing.")
+                else -> row.animalRowId
+            }
+        }
+        api.registerPcCareSlotProof(
+            payload.taskId,
+            animalRowId,
+            payload.slotFieldKey,
+            item.idempotencyKey,
+            sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto(
+                proofRef = resolveUploadedProofRef(payload.proofOutboxItemId),
+            ),
+        )
+        // The route returns no body; store an empty JSON object like other body-less successes.
+        return "{}"
+    }
+
+    private suspend fun dispatchPcCareTaskProofRegister(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PcCareTaskProofRegisterPayload>(item.payloadJson)
+        api.registerPcCareTaskProof(
+            payload.taskId,
+            payload.slotFieldKey,
+            item.idempotencyKey,
+            sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto(
+                proofRef = resolveUploadedProofRef(payload.proofOutboxItemId),
+            ),
+        )
+        return "{}"
+    }
+
+    /**
+     * The WHOLE-task PC Care submit. Drains after every coupled PROOF_UPLOAD and
+     * [dispatchPcCareSlotRegister] row on the same task group, so the server holds every slot
+     * before the gate check runs. A `422 proof_incomplete` / `422 no_animals` is terminal by
+     * [recordFailure]'s check and surfaces the server's own sentence to the operator.
+     */
+    private suspend fun dispatchPcCareTaskSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<PcCareTaskSubmitPayload>(item.payloadJson)
+        val response = api.submitPcCareTask(payload.taskId, item.idempotencyKey)
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * One Toxin step completion (module toxin). The proof resolves through its coupled
+     * PROOF_UPLOAD row on the same task group exactly like [dispatchPcCareSlotRegister]'s video.
+     * The row's STORED key is passed verbatim — never a new key on retry. A `422
+     * wait_not_elapsed` (the SERVER clock gate — the phone never computes its own) or `409
+     * step_already_done` (another authorized person got there first) is terminal by
+     * [recordFailure]'s check, carries the server's own farm sentence into lastError, and the
+     * terminal reconcile refreshes the task detail so the screen re-renders server state.
+     */
+    private suspend fun dispatchToxinStepComplete(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ToxinStepCompletePayload>(item.payloadJson)
+        val response = api.completeToxinStep(
+            payload.taskId,
+            payload.stepNo,
+            item.idempotencyKey,
+            sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto(
+                proofRef = resolveUploadedProofRef(payload.proofOutboxItemId),
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    /**
+     * The Toxin reading submit — step 7's strip photo + outcome. Drains after every coupled
+     * PROOF_UPLOAD and [dispatchToxinStepComplete] row on the same task group, so the server
+     * holds every step before the reading lands. A `422` (steps incomplete / proof missing) is
+     * terminal and surfaces the server's own sentence.
+     */
+    private suspend fun dispatchToxinSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ToxinSubmitPayload>(item.payloadJson)
+        val response = api.submitToxinReading(
+            payload.taskId,
+            item.idempotencyKey,
+            sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto(
+                outcome = payload.outcome,
+                stripPhotoRef = resolveUploadedProofRef(payload.stripPhotoOutboxItemId),
             ),
         )
         return syncJson.encodeToString(response)
@@ -773,16 +1329,40 @@ class SyncEngine(
     private suspend fun dispatchFeedTransportSubmit(item:OutboxEntity):String{val payload=syncJson.decodeFromString<FeedTransportSubmitPayload>(item.payloadJson);return syncJson.encodeToString(api.submitFeedTransport(payload.taskId,item.idempotencyKey,FeedTransportSubmitRequestDto(resolveUploadedProofRef(payload.proofOutboxItemId))))}
 
     /**
-     * Resolves an uploaded proof_id from a coupled PROOF_UPLOAD outbox row (same-group ordering means
-     * it has already drained to SUCCEEDED before the completion that references it). A not-yet-drained
-     * row throws a plain exception -> a non-conflict retry until the upload finishes; a missing row or
-     * a blank proof id is terminal. Shared by the two mandatory feed-distribution proofs.
+     * Resolves an uploaded proof_id from a referenced PROOF_UPLOAD outbox row. A not-yet-drained row
+     * throws a plain exception -> a non-conflict retry until the upload finishes; a missing row or a
+     * blank proof id is terminal.
      */
+    /**
+     * The server proof id for ONE feed slot, from whichever side holds it.
+     *
+     * [remoteRef] is already a SERVER proof id: the slot was shot on ANOTHER operator's phone, so
+     * there is no local outbox row to resolve and it is sent verbatim. Otherwise the slot was shot
+     * here and resolves through its own PROOF_UPLOAD row exactly as before.
+     *
+     * Neither present is terminal rather than retryable: a completion with a missing proof can never
+     * succeed, so retrying forever would strand the row silently instead of telling the operator
+     * what to re-record.
+     */
+    private suspend fun resolveFeedProofRef(
+        remoteRef: String?,
+        proofItemId: String?,
+        missingMessage: String,
+    ): String {
+        remoteRef?.takeIf { it.isNotBlank() }?.let { return it }
+        val localItemId = proofItemId?.takeIf { it.isNotBlank() }
+            ?: throw NonRetryableSyncException(missingMessage)
+        return resolveUploadedProofRef(localItemId)
+    }
+
     private suspend fun resolveUploadedProofRef(proofItemId: String): String {
         val proofRow = store.findById(proofItemId)
             ?: throw NonRetryableSyncException("A required proof upload could not be found.")
+        if (proofRow.status == OutboxStatus.FAILED.name && (proofRow.conflict || proofRow.attemptCount >= proofRow.maxAttempts)) {
+            throw NonRetryableSyncException("A required proof upload failed permanently; record the proof again.")
+        }
         if (proofRow.status != OutboxStatus.SUCCEEDED.name) {
-            throw IllegalStateException("Waiting for a proof upload to finish before completing.")
+            throw ProofDependencyPendingException("Waiting for a proof upload to finish before completing.")
         }
         val resultJson = proofRow.resultJson
             ?: throw IllegalStateException("A proof upload result is not yet available.")
@@ -895,11 +1475,32 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
+    // The close gate is UNCONDITIONAL server-side (verification pending -> the submit itself is
+    // rejected, never bypassed by a client flag). Reusing the row's stable idempotencyKey verbatim
+    // on every attempt is what lets a server-committed-but-client-unrecorded retry dedupe instead
+    // of double-submitting; WeighingRepository advances its transition epoch only after this
+    // returns successfully (via reconcileFeatureSuccess below), so a failed/retried attempt keeps
+    // sending the SAME key until the server actually confirms it.
+    private suspend fun dispatchWeighingScopeSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<WeighingScopeSubmitPayload>(item.payloadJson)
+        api.submitWeighingScope(payload.campaignId, payload.campaignShedId, item.idempotencyKey, payload.request)
+        return "{}"
+    }
+
     private companion object {
         const val SUCCESS_RECONCILE_LIMIT = 20
         // Max rows pulled into memory per drain iteration. A long offline backlog drains in
         // successive batches of this size rather than one unbounded SELECT * materialization.
         const val DRAIN_BATCH_SIZE = 200
         const val NO_RETRY_DUE = Long.MAX_VALUE
+        const val PROOF_DEPENDENCY_WAIT_RETRY_MS = 1_000L
+        val PROOF_OUTBOX_ITEM_ID_REGEX = Regex(""""proof_outbox_item_id"\s*:\s*"([^"]+)"""")
+        // Mirrors WeighingRepository's private WEIGHING_CACHED_TRANSITION_SCOPES bound for the
+        // SAME weighing_transition_epoch table -- every writer of that table prunes to this bound.
+        const val WEIGHING_SCOPE_SUBMIT_CACHED_TRANSITION_SCOPES = 50
+
+        // Wastage exists only on experiment pens; the server stamps the workflow, and the Room
+        // grain key mirrors it so the reconcile addresses the exact cached row the worklist wrote.
+        const val FEED_WASTAGE_WORKFLOW = "experiment"
     }
 }

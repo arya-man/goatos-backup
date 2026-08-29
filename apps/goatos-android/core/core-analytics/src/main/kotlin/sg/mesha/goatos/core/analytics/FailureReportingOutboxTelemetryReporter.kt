@@ -3,6 +3,7 @@ package sg.mesha.goatos.core.analytics
 import android.util.Log
 import sg.mesha.goatos.core.common.OutboxTelemetryEvent
 import sg.mesha.goatos.core.common.OutboxTelemetryReporter
+import sg.mesha.goatos.core.common.OutboxTerminalReason
 import sg.mesha.goatos.core.common.OutboxWritePhase
 
 /**
@@ -25,22 +26,17 @@ import sg.mesha.goatos.core.common.OutboxWritePhase
  * | `ATTEMPT_STARTED` |   yes  |    yes     | —                             |     —     |
  * | `ATTEMPT_FAILED`  |   yes  |    yes     | `sync_write_attempt_failed`   |     —     |
  * | `RETRY_SCHEDULED` |   yes  |    yes     | —                             |     —     |
- * | `TERMINAL`        |   yes  |    yes     | `sync_write_dead`             | throttled |
+ * | `DEPENDENCY_WAIT` |   yes  |    yes     | `sync_write_dependency_wait`  |     —     |
+ * | `TERMINAL`        |   yes  |    yes     | `sync_write_dead`             | scoped    |
  *
- * The healthy phases stay logcat + breadcrumb deliberately: they are what makes a stalled queue
+ * Non-terminal phases stay logcat + breadcrumb deliberately: they are what makes a stalled queue
  * READABLE live on a phone (`adb logcat -s GoatOsOutbox` shows enqueue → attempt → retry, over
- * and over, which IS the diagnosis), and they attach that same history to whatever non-fatal
- * lands next — but they are not worth an analytics event per attempt.
+ * and over, which IS the diagnosis), and they attach that same history to whatever Crashlytics
+ * report lands next — but they are not worth an analytics event per attempt.
  *
- * `TERMINAL` gets the full treatment because it is the one phase describing data that will never
- * be sent. Before this, that was indistinguishable on-device from data still in flight.
- *
- * ### Throttling
- * Same shape as the HTTP reporter: a retry storm is worth N logcat lines, N breadcrumbs, and N
- * events (the COUNT is the signal) but exactly ONE Crashlytics non-fatal per
- * `(opType, terminalReason, failureClass)` per [NON_FATAL_THROTTLE_MS] — otherwise a whole shed's
- * worth of writes dying at once buries the console and burns the quota, and the storm still
- * attaches to that single issue.
+ * `TERMINAL` also emits `sync_write_dead`, because it is the one phase describing data that will
+ * never be sent. Expected transport failures stay out of Crashlytics; unexpected client defects
+ * still get one throttled non-fatal so they remain triageable.
  *
  * ### What never crosses this seam
  * Operation type, row id, attempt counters, a failure CLASS name and a terminal reason. Never a
@@ -58,8 +54,6 @@ class FailureReportingOutboxTelemetryReporter(
     private val logLine: (String) -> Unit = { Log.w(TAG, it) },
 ) : OutboxTelemetryReporter {
 
-    // Bounded by (op type x terminal reason x failure class) — all small, closed-ish sets. A
-    // storm re-uses one key rather than adding entries; that is the point of the throttle.
     private val lastNonFatalMs = mutableMapOf<String, Long>() // mobile-guard:ignore: keyed by (op type, terminal reason, failure class) — bounded by enum cardinality, not traffic
 
     override fun onOutboxWrite(event: OutboxTelemetryEvent) {
@@ -86,6 +80,10 @@ class FailureReportingOutboxTelemetryReporter(
                     crashReporter.recordException(DeadQueuedWrite(summary), summary)
                 }
             }
+            OutboxWritePhase.DEPENDENCY_WAIT -> analytics.track(
+                AnalyticsEvents.SYNC_WRITE_DEPENDENCY_WAIT,
+                baseParams(event),
+            )
             OutboxWritePhase.ENQUEUED,
             OutboxWritePhase.ATTEMPT_STARTED,
             OutboxWritePhase.RETRY_SCHEDULED,
@@ -95,12 +93,31 @@ class FailureReportingOutboxTelemetryReporter(
 
     private fun baseParams(event: OutboxTelemetryEvent): Map<String, String> = mapOf(
         AnalyticsEvents.Params.OP_TYPE to event.opType,
+        AnalyticsEvents.Params.OUTBOX_ITEM_ID to event.itemId,
+        AnalyticsEvents.Params.GROUP_KEY to event.groupKey,
+        AnalyticsEvents.Params.IDEMPOTENCY_KEY to event.idempotencyKey,
+        AnalyticsEvents.Params.PROOF_OUTBOX_ITEM_ID to event.referencedProofOutboxItemId,
         AnalyticsEvents.Params.ATTEMPT to event.attempt.toString(),
         AnalyticsEvents.Params.MAX_ATTEMPTS to event.maxAttempts.toString(),
         AnalyticsEvents.Params.REASON to event.failureClass.orEmpty(),
     )
 
+    private fun summarize(event: OutboxTelemetryEvent): String = buildString {
+        append("outbox_write ")
+        append(event.phase.name.lowercase())
+        append(" op=").append(event.opType)
+        append(" item=").append(event.itemId)
+        event.groupKey.takeIf { it.isNotBlank() }?.let { append(" group=").append(it) }
+        event.idempotencyKey.takeIf { it.isNotBlank() }?.let { append(" idempotency=").append(it) }
+        event.referencedProofOutboxItemId.takeIf { it.isNotBlank() }?.let { append(" proof_outbox=").append(it) }
+        append(" attempt=").append(event.attempt).append('/').append(event.maxAttempts)
+        event.failureClass?.let { append(" failure=").append(it) }
+        event.terminalReason?.let { append(" terminal_reason=").append(it) }
+        event.retryInMs?.let { append(" retry_in_ms=").append(it) }
+    }
+
     private fun shouldRecordNonFatal(event: OutboxTelemetryEvent): Boolean {
+        if (event.failureClass.isExpectedTransportFailure()) return false
         val key = "${event.opType} ${event.terminalReason} ${event.failureClass}"
         val now = nowMs()
         val previous = lastNonFatalMs[key]
@@ -109,28 +126,36 @@ class FailureReportingOutboxTelemetryReporter(
         return true
     }
 
-    private fun summarize(event: OutboxTelemetryEvent): String = buildString {
-        append("outbox_write ")
-        append(event.phase.name.lowercase())
-        append(" op=").append(event.opType)
-        append(" item=").append(event.itemId)
-        append(" attempt=").append(event.attempt).append('/').append(event.maxAttempts)
-        event.failureClass?.let { append(" failure=").append(it) }
-        event.terminalReason?.let { append(" terminal_reason=").append(it) }
-        event.retryInMs?.let { append(" retry_in_ms=").append(it) }
-    }
-
-    /**
-     * Distinct exception type so dead queued writes group as their own Crashlytics issue rather
-     * than merging into whatever `IOException` the dispatch happened to throw.
-     */
     class DeadQueuedWrite(message: String) : RuntimeException(message)
 
     companion object {
         /** Filter with `adb logcat -s GoatOsOutbox` to watch the queue live on a device. */
         private const val TAG = "GoatOsOutbox"
 
-        /** One non-fatal per `(opType, terminalReason, failureClass)` per minute — see above. */
         const val NON_FATAL_THROTTLE_MS: Long = 60_000
+
+        private fun String?.isExpectedTransportFailure(): Boolean {
+            val name = this ?: return false
+            if (name in EXPECTED_TRANSPORT_FAILURES) return true
+            return name.endsWith("IOException") ||
+                name.endsWith("SocketException") ||
+                name.endsWith("HttpException") ||
+                name.endsWith("ProtocolException")
+        }
+
+        private val EXPECTED_TRANSPORT_FAILURES = setOf(
+            "ConnectException",
+            "EOFException",
+            "HttpException",
+            "IOException",
+            "InterruptedIOException",
+            "NoRouteToHostException",
+            "ProtocolException",
+            "SSLException",
+            "SSLHandshakeException",
+            "SocketException",
+            "SocketTimeoutException",
+            "UnknownHostException",
+        )
     }
 }

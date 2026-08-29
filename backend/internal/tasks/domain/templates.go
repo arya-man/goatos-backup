@@ -72,7 +72,17 @@ const (
 	ActionKeyFirstColostrum = "first_colostrum"
 	ActionKeyTakeWeight     = "take_weight"
 	ActionKeyKidStanding    = "kid_standing"
-	ActionKeyTagTheKid      = "tag_the_kid"
+	// ActionKeyRecordShed is the FALLBACK placement step (maintainer decision 2026-08-20). It is
+	// present ONLY on a kid whose park had no kid pen when the birth was recorded, so the kid was
+	// placed in whatever pen the operator picked. Completing it moves the kid into the pen the
+	// operator records and TAGS that pen for kids, so the park's next birth places automatically.
+	//
+	// It is a PLACEMENT COMPLETION, never a shifting. The legacy shifting steps were deliberately
+	// removed from this template because shifting is its own gated module (park-head approval,
+	// mandatory video, verifier review); this step must not reintroduce that dependency -- it
+	// finishes recording where a kid ALREADY is, which is not a movement anybody approves.
+	ActionKeyRecordShed = "record_shed"
+	ActionKeyTagTheKid  = "tag_the_kid"
 
 	ActionKeyBabiesStillInside = "babies_still_inside"
 	ActionKeyMotherLicking     = "mother_licking"
@@ -216,7 +226,7 @@ func ordinal(n int) string {
 // TemplateBirthKidAt is the kid track of the Delivery Template: seven immediate main steps, the
 // birth-time-derived colostrum series, then Tag the kid as the final operator step. The legacy
 // TRIGGER_EVENT shifting steps are dropped (shifting is its own gated module).
-func TemplateBirthKidAt(eventAt time.Time) Template {
+func TemplateBirthKidAt(eventAt time.Time, needsShedPlacement bool) Template {
 	actions := []ActionTemplate{
 		{Key: ActionKeyKidClean, Seq: 1, Section: SectionMain, Type: ActionTypeQuestion,
 			Title:  "Is the kid clean?",
@@ -243,6 +253,20 @@ func TemplateBirthKidAt(eventAt time.Time) Template {
 			Detail:   "One hour after birth, confirm the kid is standing on its own.",
 			Schedule: Schedule{Offset: time.Hour}, RequiresVideo: true},
 	}
+	// The kid's pen is confirmed only when the birth could not resolve one. It sits at the end of
+	// the immediate main steps rather than at the front: the kid is cleaned, dipped, fed and
+	// weighed in the minutes after delivery, and putting a pen question first would hold that
+	// medical work behind a configuration gap. Main-section steps run in seq order
+	// (OperatorActionBlocked), so this is the last immediate step before the colostrum series.
+	if needsShedPlacement {
+		actions = append(actions, ActionTemplate{
+			Key: ActionKeyRecordShed, Seq: len(actions) + 1, Section: SectionMain, Type: ActionTypeQuestion,
+			Title: "Record shed",
+			Detail: "Record which shed and pen this kid is in. " +
+				"This pen becomes the park's kid pen, so the next kid born here is placed there automatically.",
+			RequiresVideo: false,
+		})
+	}
 	for i, session := range birthColostrumSessions(eventAt) {
 		dayLabel := "birth day"
 		if session.DayOffset == 1 {
@@ -250,7 +274,7 @@ func TemplateBirthKidAt(eventAt time.Time) Template {
 		}
 		actions = append(actions, ActionTemplate{
 			Key:           fmt.Sprintf("colostrum_day_%d_%02d%02d", session.DayOffset+1, session.Hour, session.Minute),
-			Seq:           8 + i,
+			Seq:           len(actions) + 1,
 			Section:       SectionColostrumSession,
 			Type:          ActionTypeAction,
 			Title:         ordinal(i+2) + " Colostrum",
@@ -323,10 +347,12 @@ func TemplateDeath() Template {
 
 // TemplateByKeyAt resolves a template key to its code-defined template using the event moment for
 // birth-time-derived scheduling.
-func TemplateByKeyAt(key string, eventAt time.Time) (Template, bool) {
+// needsShedPlacement is meaningful only for the kid track: it adds the Record shed fallback step
+// when the birth could not resolve a kid pen. Every other template ignores it.
+func TemplateByKeyAt(key string, eventAt time.Time, needsShedPlacement bool) (Template, bool) {
 	switch key {
 	case TemplateKeyBirthKid:
-		return TemplateBirthKidAt(eventAt), true
+		return TemplateBirthKidAt(eventAt, needsShedPlacement), true
 	case TemplateKeyBirthMother:
 		return TemplateBirthMother(), true
 	case TemplateKeyDeath:

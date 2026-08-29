@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 
+	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 )
@@ -24,6 +25,42 @@ type appShiftingDestinationPark struct {
 	ParkID string                       `json:"park_id"`
 	Name   string                       `json:"name"`
 	Sheds  []appShiftingDestinationShed `json:"sheds"`
+
+	// BirthPlacement is the newborn-placement contract for THIS park (maintainer decision
+	// 2026-08-20): which pens a kid born here may go into, and the farm-worded notice the birth
+	// form shows above them.
+	//
+	// It rides on the destinations response rather than a route of its own because the birth form
+	// already fetches and caches this catalog, and the pens it names are rows of this very catalog
+	// -- a second endpoint would be a second copy of the same bounded configuration, cached
+	// separately and able to disagree with the picker beside it.
+	//
+	// BACKEND OWNS THE MODE AND THE COPY. The phone must not re-derive "how many kid pens does this
+	// park have" by filtering sheds on destination_stage: the mode also governs whether the WRITE
+	// will accept a freely chosen pen, and a client that computed its own answer could offer a pen
+	// the birth would then refuse.
+	BirthPlacement appBirthPlacement `json:"birth_placement"`
+}
+
+// appBirthPlacement is the wire form of domain.BirthPlacementResolution.
+type appBirthPlacement struct {
+	// Mode is "automatic" (exactly one kid pen -- shown read-only, not chosen), "choose" (several
+	// kid pens -- the picker offers only these), or "record_later" (no kid pen configured -- the
+	// operator picks freely and the kid's care steps carry Record shed).
+	Mode string `json:"mode"`
+	// Notice is farm-worded copy rendered VERBATIM above the placement field.
+	Notice string `json:"notice"`
+	// Pens is this park's kid pens, empty in record_later mode and exactly one entry in automatic
+	// mode. Each carries the full operational location so the form never re-derives a display
+	// string from shed_id + partition_label.
+	Pens []appBirthPlacementPen `json:"pens"`
+}
+
+type appBirthPlacementPen struct {
+	ShedID                     string  `json:"shed_id"`
+	ShedName                   string  `json:"shed_name"`
+	PartitionLabel             *string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string  `json:"operational_location_display"`
 }
 
 type appShiftingDestinationShed struct {
@@ -47,6 +84,22 @@ type appShiftingDestinationShed struct {
 	// because the screen re-derived the label locally, which is the defect this field exists to
 	// prevent.
 	OperationalLocationDisplay string `json:"operational_location_display"`
+
+	// DestinationStage is the tag a movement INTO this pen would stamp, and
+	// DestinationStageReason is the farm-worded explanation when it would stamp none. Exactly one
+	// of the two is ever non-empty (domain.DestinationStageResolution guarantees it).
+	//
+	// These exist for the raise form's TAG TOGGLE (maintainer decision 2026-08-15): the operator
+	// chooses "keep current tag" or "use destination tag", so the form has to show WHICH tag the pen
+	// would give and grey the option out, with a reason, when the pen cannot give one.
+	//
+	// BACKEND OWNS BOTH STRINGS. The phone renders them verbatim -- it must not re-derive the tag
+	// from management_stages (that is the residents' raw list, not the resolved answer, and the
+	// resolution rules -- authored-pen-tag-first, mixed, empty, clinical -- live in
+	// counts/domain), and it must not compose its own reason from a blank tag, because a blank tag
+	// does not say WHY it is blank.
+	DestinationStage       string `json:"destination_stage"`
+	DestinationStageReason string `json:"destination_stage_reason"`
 }
 
 // ListShiftingDestinations returns the active park -> shed cascade for the caller's tenant.
@@ -78,18 +131,44 @@ func (h *AppWriteHandler) ListShiftingDestinations(w http.ResponseWriter, r *htt
 	for _, park := range catalog.Parks {
 		sheds := make([]appShiftingDestinationShed, 0, len(park.Sheds))
 		for _, shed := range park.Sheds {
+			// Resolved with the SAME function the raise handler uses, against the SAME catalog, so
+			// the tag the form shows on the toggle is byte-for-byte the tag the raise will stamp.
+			// Two implementations of "what tag does this pen give" would drift, and the operator
+			// would approve one answer while the movement recorded another.
+			stage := domain.ResolveShiftingDestinationPenStageDetailed(
+				shed.ConfiguredStage, shed.ManagementStages, catalog.ManagementStages,
+			)
 			sheds = append(sheds, appShiftingDestinationShed{
 				ShedID:                     shed.ShedID,
 				Name:                       shed.Name,
 				ManagementStages:           shed.ManagementStages,
 				PartitionLabel:             shed.PartitionLabel,
 				OperationalLocationDisplay: shed.Display,
+				DestinationStage:           stage.Stage,
+				DestinationStageReason:     stage.Reason,
+			})
+		}
+		// Resolved with the SAME function the birth write validates against, from the SAME catalog
+		// rows, so the pens this form offers are byte-for-byte the pens the write accepts.
+		placement := domain.ResolveBirthPlacement(park.Sheds)
+		pens := make([]appBirthPlacementPen, 0, len(placement.Pens))
+		for _, pen := range placement.Pens {
+			pens = append(pens, appBirthPlacementPen{
+				ShedID:                     pen.ShedID,
+				ShedName:                   pen.ShedName,
+				PartitionLabel:             pen.PartitionLabel,
+				OperationalLocationDisplay: pen.Display,
 			})
 		}
 		parks = append(parks, appShiftingDestinationPark{
 			ParkID: park.ParkID,
 			Name:   park.Name,
 			Sheds:  sheds,
+			BirthPlacement: appBirthPlacement{
+				Mode:   placement.Mode,
+				Notice: placement.Notice,
+				Pens:   pens,
+			},
 		})
 	}
 

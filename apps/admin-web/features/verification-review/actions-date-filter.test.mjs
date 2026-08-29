@@ -34,16 +34,37 @@ test("the shared date params live OUTSIDE the client boundary", () => {
   assert.doesNotMatch(filterSource, /export const DATE_(FROM|TO)_PARAM/);
 });
 
-test("today is the landing default and is expressed by absence, not by a written-out date", () => {
-  // parseDateRange falls through to today when no params are present...
-  assert.match(pageSource, /return \{ from: today, to: today \};/);
+// The landing default is a recent WINDOW, not today (maintainer decision 2026-08-17). Proof arrives
+// on the day it is captured and is reviewed later, so a queue pinned to today shows an empty board
+// on top of a full backlog -- observed on real data: 402 pending weighing proofs across the previous
+// twelve days, and a board reading "No actions to review". The backend already said this in
+// ports.ListQueueParams.IsVerifierQueueRead ("does NOT clamp to today"); this page was overriding it.
+test("the landing default is a recent window, not today alone, and is expressed by absence", () => {
+  // parseDateRange falls through to the window when no params are present...
+  assert.match(pageSource, /return \{ from: businessDaysBefore\(today, DEFAULT_QUEUE_WINDOW_DAYS\), to: today \};/);
+  assert.match(pageSource, /const DEFAULT_QUEUE_WINDOW_DAYS = \d+;/);
+  assert.doesNotMatch(
+    pageSource,
+    /return \{ from: today, to: today \};/,
+    "landing on today alone hides the backlog the verifier is meant to be working",
+  );
   assert.match(pageSource, /const today = todayIso\(\);/);
-  // ...and selecting today CLEARS the params rather than pinning the date into the URL, so a
-  // bookmark keeps meaning "today" instead of freezing on the day it was taken.
+  // ...and only a selection equal to that DEFAULT WINDOW clears the params. Selecting today alone
+  // must WRITE vd_from/vd_to=today into the URL: absence now means the whole window, so deleting
+  // the params on a today-only pick (the pre-fix behavior) silently widened the board back to two
+  // weeks and read as the date filter not working at all — the 2026-08-19 defect.
   assert.match(
     filterSource,
-    /if \(nextFrom === today && nextTo === today\) \{\s*\n\s*next\.delete\(DATE_FROM_PARAM\);\s*\n\s*next\.delete\(DATE_TO_PARAM\);/,
+    /if \(nextFrom === defaultFrom && nextTo === today\) \{\s*\n\s*next\.delete\(DATE_FROM_PARAM\);\s*\n\s*next\.delete\(DATE_TO_PARAM\);/,
   );
+  assert.doesNotMatch(
+    filterSource,
+    /nextFrom === today && nextTo === today/,
+    "a today-only selection must pin the date into the URL, not fall back to the window",
+  );
+  // The page hands the filter the same window start parseDateRange falls back to, so the two
+  // sides cannot disagree about what absence means.
+  assert.match(pageSource, /defaultFrom=\{businessDaysBefore\(today, DEFAULT_QUEUE_WINDOW_DAYS\)\}/);
 });
 
 

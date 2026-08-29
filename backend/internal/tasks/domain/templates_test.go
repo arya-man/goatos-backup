@@ -14,7 +14,7 @@ var eventAt = time.Date(2026, 7, 27, 14, 30, 0, 0, biztime.DefaultLocation())
 func TestTemplateBirthKidShape(t *testing.T) {
 	// A 19:20 IST birth has only the 22:00 slot left on the birth day, then all
 	// five slots on the following day: six scheduled feeds plus 1st Colostrum.
-	tmpl := TemplateBirthKidAt(time.Date(2026, 7, 27, 19, 20, 0, 0, biztime.DefaultLocation()))
+	tmpl := TemplateBirthKidAt(time.Date(2026, 7, 27, 19, 20, 0, 0, biztime.DefaultLocation()), false)
 	if tmpl.Module != ModuleBirth {
 		t.Fatalf("module = %q, want %q", tmpl.Module, ModuleBirth)
 	}
@@ -56,7 +56,7 @@ func TestTemplateBirthKidShape(t *testing.T) {
 }
 
 func TestTemplateBirthKidScheduleOffsets(t *testing.T) {
-	tmpl := TemplateBirthKidAt(eventAt)
+	tmpl := TemplateBirthKidAt(eventAt, false)
 
 	// kid_standing is EVENT+1H.
 	standing := actionByKey(t, tmpl, ActionKeyKidStanding)
@@ -148,7 +148,7 @@ func TestTemplateBirthKidColostrumEligibilityUsesBirthTimeAndPreNotifyCutoff(t *
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			birthAt := time.Date(2026, 7, 27, tt.birthHour, tt.birthMinute, tt.birthSecond, 0, biztime.DefaultLocation())
-			tmpl := TemplateBirthKidAt(birthAt)
+			tmpl := TemplateBirthKidAt(birthAt, false)
 			var sessions []ActionTemplate
 			for _, action := range tmpl.Actions {
 				if action.Section == SectionColostrumSession {
@@ -387,11 +387,11 @@ func TestRecomputeCardIncludesScheduledColostrumInOperatorProgress(t *testing.T)
 
 func TestTemplateByKey(t *testing.T) {
 	for _, key := range []string{TemplateKeyBirthKid, TemplateKeyBirthMother, TemplateKeyDeath} {
-		if _, ok := TemplateByKeyAt(key, eventAt); !ok {
-			t.Fatalf("TemplateByKeyAt(%q) not found", key)
+		if _, ok := TemplateByKeyAt(key, eventAt, false); !ok {
+			t.Fatalf("TemplateByKeyAt(%q, false) not found", key)
 		}
 	}
-	if _, ok := TemplateByKeyAt("nope", eventAt); ok {
+	if _, ok := TemplateByKeyAt("nope", eventAt, false); ok {
 		t.Fatal("unknown key must not resolve")
 	}
 	if got := ModuleForTemplate(TemplateKeyBirthMother); got != ModuleBirth {

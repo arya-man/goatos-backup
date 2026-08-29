@@ -18,11 +18,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 	workforcedomain "github.com/vgoats/goatos/backend/internal/workforce/domain"
 	workforceports "github.com/vgoats/goatos/backend/internal/workforce/ports"
-	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
-	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 // Baseline fixture ids: every migrated database already has these rows (see migration
@@ -39,11 +39,11 @@ const (
 // Fixture bundles an ephemeral pool with the roster repository and service, plus small seed
 // helpers shared by all HRMS kernel stories.
 type Fixture struct {
-	T      *testing.T
-	Ctx    context.Context
-	Pool   *pgxpool.Pool
-	Repo   *workforcepg.Repository // Explicitly typed repository for all interface methods
-	Svc    *workforceapp.RosterService
+	T    *testing.T
+	Ctx  context.Context
+	Pool *pgxpool.Pool
+	Repo *workforcepg.Repository // Explicitly typed repository for all interface methods
+	Svc  *workforceapp.RosterService
 }
 
 // NewFixture boots a fresh throwaway Postgres container (all committed migrations applied) and

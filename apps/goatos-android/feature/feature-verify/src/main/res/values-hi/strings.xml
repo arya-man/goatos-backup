@@ -47,6 +47,8 @@
     <string name="verify_detail_captured_label">कैप्चर किया गया</string>
     <string name="verify_detail_photo_description">इस काम का फ़ोटो प्रमाण</string>
     <string name="verify_detail_recorded_answer">रिकॉर्ड किया गया: %1$s</string>
+    <string name="verify_detail_correction_reason_label">नोट (वैकल्पिक)</string>
+    <string name="verify_detail_measurement_required">वीडियो में जो वज़न दिख रहा है वह दर्ज करें, फिर स्वीकार करें। अगर पढ़ा नहीं जा सकता, तो वीडियो अस्वीकार करें।</string>
     <string name="verify_detail_no_media">इस आइटम में कोई वीडियो संलग्न नहीं है</string>
     <string name="verify_detail_approve">स्वीकृत करें</string>
     <string name="verify_detail_reject">अस्वीकार करें</string>
@@ -56,6 +58,8 @@
     <string name="verify_detail_close_submission">ड्राइव बंद करें</string>
     <string name="verify_detail_rejection_reason_title">सत्यापक अस्वीकृति कारण</string>
     <string name="verify_detail_submitting">सबमिट हो रहा…</string>
+    <string name="verify_detail_speed_off">2x पर चलाएं</string>
+    <string name="verify_detail_speed_on">2x पर चल रहा है</string>
     <string name="verify_drive_ready_title">टीकाकरण ड्राइव तैयार है</string>
     <string name="verify_drive_ready_subtitle">%1$d पशु · %2$d शेड · %3$d/%4$d वीडियो स्वीकृत</string>
     <string name="verify_drive_ready_detail">वीडियो लंबित %1$d · अस्वीकृत %2$d</string>

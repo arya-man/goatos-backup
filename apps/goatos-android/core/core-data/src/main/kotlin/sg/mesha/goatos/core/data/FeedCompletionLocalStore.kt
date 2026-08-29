@@ -51,8 +51,8 @@ class FeedCompletionLocalStore {
     fun isCompleted(key: String): Boolean = _completedKeys.value.contains(key)
 
     /**
-     * Drops every optimistic completion. Called by [LogoutCoordinator.logout] so no part of the
-     * departing operator's work is visible to the next principal on the device.
+     * Drops every optimistic completion and submission. Called by [LogoutCoordinator.logout] so no
+     * part of the departing operator's work is visible to the next principal on the device.
      */
     fun clear() {
         _completedKeys.value = emptySet()
@@ -78,6 +78,7 @@ class FeedCompletionLocalStore {
         /** The optimistic key must carry the PEN for the same reason the backend's natural key
          *  does: Castro 1 and Castro 2 share a shed_id, so a shed-only key made one pen's submit
          *  grey out every pen of that shed on the spot (STG 2026-08-08). */
+
         fun key(shedId: String, partitionLabel: String?, sessionNo: Int, workflow: String): String =
             listOf(
                 businessDate(),

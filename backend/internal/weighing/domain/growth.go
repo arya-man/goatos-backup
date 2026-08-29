@@ -15,24 +15,33 @@ type GrowthADGHeadline struct {
 	// means PairCount is 0 -- no animal was weighed twice in the period, so there is no ADG to
 	// report -- and every pointer field below is nil rather than a fabricated 0.
 	Status string `json:"status"`
-	// MedianADGGPerDay is the median grams/day gain across all qualifying
-	// consecutive-weigh pairs whose LATER weigh falls in the requested period.
-	// Nil when Status is "insufficient_data" -- a park where every animal was weighed exactly
-	// once must never render as "0 g/day" (which would read as a real, static herd).
-	MedianADGGPerDay *float64 `json:"median_adg_g_per_day"`
-	// PreviousMedianADGGPerDay is the same statistic for the immediately preceding period of
-	// equal length, for the delta comparison. Nil when the previous period itself has no
-	// qualifying pairs (PreviousStatus is "insufficient_data") -- there is nothing to compare to.
-	PreviousMedianADGGPerDay *float64 `json:"previous_median_adg_g_per_day"`
+	// AverageADGGPerDay is the farm's daily gain: the ANIMAL-WEIGHTED MEAN grams/day across every
+	// qualifying consecutive-weigh pair whose LATER weigh falls in the requested period, PLUS every
+	// whole-shed pen weighed at least twice in the period, each contributing its own average-weight
+	// movement once per animal it holds (maintainer decision 2026-08-26).
+	//
+	// It was previously the MEDIAN of scanned pairs alone, which excluded the whole-shed pens that
+	// hold most of this farm's kids and disagreed with the by-breed/by-sex/by-stage gain charts --
+	// the same page reported male kids at 133 g/day and 200 g/day at once. This is now the SINGLE
+	// definition of daily gain; the charts compute the identical statistic per dimension.
+	//
+	// Nil when Status is "insufficient_data" -- a park where nothing was weighed twice must never
+	// render as "0 g/day", which would read as a real, static herd.
+	AverageADGGPerDay *float64 `json:"average_adg_g_per_day"`
+	// PreviousAverageADGGPerDay is the same statistic for the immediately preceding period of
+	// equal length, for the delta comparison. Nil when the previous period itself has nothing to
+	// measure (PreviousStatus is "insufficient_data") -- there is nothing to compare to.
+	PreviousAverageADGGPerDay *float64 `json:"previous_average_adg_g_per_day"`
 	// PreviousStatus is the same Status marker as above, computed for the previous-period query.
 	PreviousStatus string `json:"previous_status"`
-	// DeltaGPerDay is MedianADGGPerDay - PreviousMedianADGGPerDay. Nil whenever EITHER side is
+	// DeltaGPerDay is AverageADGGPerDay - PreviousAverageADGGPerDay. Nil whenever EITHER side is
 	// nil: a period with no current-period pairs, or one with no comparable previous period, has
 	// no honest delta to report. A delta must never be synthesized from a 0 standing in for
 	// "unknown" -- that reads as an invented improvement or decline.
 	DeltaGPerDay *float64 `json:"delta_g_per_day"`
-	// PositiveADGPercent is the % of qualifying pairs with ADG > 0. Nil when Status is
-	// "insufficient_data" (see MedianADGGPerDay).
+	// PositiveADGPercent is the % of qualifying SCANNED pairs with ADG > 0. Nil when Status is
+	// "insufficient_data" (see AverageADGGPerDay). Individual-only on purpose: a whole-shed average
+	// has no per-animal sign, so a pen cannot contribute to a "% of animals gaining" figure.
 	PositiveADGPercent *float64 `json:"positive_adg_percent"`
 	// NegativeADGCount is the count of qualifying PAIRS with ADG < 0 across the whole period --
 	// a statistic about measurements, not about animals. One animal that dipped and recovered
@@ -46,8 +55,14 @@ type GrowthADGHeadline struct {
 	// losing" leading to a list of 2.
 	LosingAnimalCount int `json:"losing_animal_count"`
 	// PairCount is the total number of qualifying (non-rejected, non-zero-elapsed)
-	// consecutive-weigh pairs the headline is computed from.
+	// consecutive-weigh SCANNED pairs in the period. It is the denominator of the pair-based
+	// statistics above, and no longer the denominator of the headline itself -- see HeadlineAnimals.
 	PairCount int `json:"pair_count"`
+	// HeadlineAnimals is how many kids AverageADGGPerDay actually speaks for: the scanned pairs plus
+	// every animal in the whole-shed pens that moved. This is the number a card should print beside
+	// the gain, because printing PairCount there described the herd by the minority of it that
+	// happens to be scanned one by one.
+	HeadlineAnimals int `json:"headline_animals"`
 	// RejectedObservationCount is the count of weighing_observations rows in the
 	// period with verification_status='rejected'. These are EXCLUDED from every
 	// ADG number above; this field exists purely as a data-quality signal.
@@ -89,13 +104,18 @@ type GrowthTrendPoint struct {
 
 // GrowthShedLeaderboardRow is one shed's ADG/weight summary for the period.
 type GrowthShedLeaderboardRow struct {
-	LocationID                 string  `json:"location_id"`
-	DisplayName                string  `json:"display_name"`
-	PartitionLabel             string  `json:"partition_label,omitempty"`
-	OperationalLocationDisplay string  `json:"operational_location_display"`
-	AnimalCount                int     `json:"n"`
-	MedianWeightKg             float64 `json:"median_weight_kg"`
-	MedianADGGPerDay           float64 `json:"median_adg_g_per_day"`
+	LocationID                 string `json:"location_id"`
+	DisplayName                string `json:"display_name"`
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	// ParkName is the park's SHORT CODE (CBE, CPT) when it has one, falling back to its full
+	// name -- the same convention ShedWeightsRow uses, so the two series sharing the gain chart
+	// name a park identically. REQUIRED, not decorative: 39 shed names exist in BOTH parks, so a
+	// row without it names two different sheds at once.
+	ParkName         string  `json:"park_name"`
+	AnimalCount      int     `json:"n"`
+	MedianWeightKg   float64 `json:"median_weight_kg"`
+	MedianADGGPerDay float64 `json:"median_adg_g_per_day"`
 	// ADGPairCount is how many qualifying ADG pairs this shed's median is based on. Can be
 	// less than AnimalCount -- a shed can have animals weighed once (no pair yet).
 	ADGPairCount int `json:"adg_pair_count"`
@@ -210,11 +230,12 @@ type GrowthPark struct {
 //
 // Identified by its RAW SCANNED TAG only -- weighing never resolves a tag to a goat.
 type GrowthLosingAnimal struct {
-	ScannedIdentifier string  `json:"scanned_identifier"`
-	ShedDisplayName   string  `json:"shed_display_name"`
-	PreviousWeightKg  float64 `json:"previous_weight_kg"`
-	LatestWeightKg    float64 `json:"latest_weight_kg"`
-	ADGGPerDay        float64 `json:"adg_g_per_day"`
-	DaysBetween       float64 `json:"days_between"`
-	LatestWeighDate   string  `json:"latest_weigh_date"`
+	ScannedIdentifier          string  `json:"scanned_identifier"`
+	ShedDisplayName            string  `json:"shed_display_name"`
+	OperationalLocationDisplay string  `json:"operational_location_display"`
+	PreviousWeightKg           float64 `json:"previous_weight_kg"`
+	LatestWeightKg             float64 `json:"latest_weight_kg"`
+	ADGGPerDay                 float64 `json:"adg_g_per_day"`
+	DaysBetween                float64 `json:"days_between"`
+	LatestWeighDate            string  `json:"latest_weigh_date"`
 }

@@ -325,8 +325,8 @@ type seedAnimalStage struct {
 	AgeBand string
 }
 
-func seedAnimalStageLookup(ctx context.Context, tx pgx.Tx, tenantID string) error {
-	stages := []seedAnimalStage{
+func seedAnimalStages() []seedAnimalStage {
+	return []seedAnimalStage{
 		{Code: "K0", Name: "Newborn", MinAgeDay: int32Ptr(0), MaxAgeDay: int32Ptr(1), SortOrder: 0, AgeBand: "kid"},
 		{Code: "K1", Name: "Milk training", MinAgeDay: int32Ptr(2), MaxAgeDay: int32Ptr(7), SortOrder: 10, AgeBand: "kid"},
 		{Code: "K2", Name: "Milk drinking", MinAgeDay: int32Ptr(8), MaxAgeDay: int32Ptr(42), SortOrder: 20, AgeBand: "kid"},
@@ -347,7 +347,22 @@ func seedAnimalStageLookup(ctx context.Context, tx pgx.Tx, tenantID string) erro
 		// reclassify an animal as a kid or an adult.
 		{Code: "ICU", Name: "ICU", SortOrder: 120},
 		{Code: "Quarantine", Name: "Quarantine", SortOrder: 130},
+		// The clinical KID pens are their own tags, and they are WRITABLE (migration 000167) so a
+		// shifting into one stamps it. Bare ICU/Quarantine above remain rejected by
+		// identity.resolveDestinationTag -- a movement may say which pen an animal is in, never
+		// that it is sick. Unclassified for the same reason as their parents: the animal's
+		// existing kid/adult band survives the move untouched.
+		{Code: "ICU-Kid", Name: "ICU kid", SortOrder: 121},
+		{Code: "Quarantine kids", Name: "Quarantine kids", SortOrder: 131},
+		// Flushing is a writable feeding pen tag by maintainer decision 2026-08-15, but a movement
+		// into it must not also rewrite the kid/adult band as a side effect. Migration 000171
+		// backfills existing tenants; the seed keeps fresh tenants on the same rule.
+		{Code: "Flushing", Name: "Flushing", SortOrder: 132},
 	}
+}
+
+func seedAnimalStageLookup(ctx context.Context, tx pgx.Tx, tenantID string) error {
+	stages := seedAnimalStages()
 	for _, stage := range stages {
 		if _, err := tx.Exec(ctx, `
 INSERT INTO animal_stage_lookup (
@@ -2886,13 +2901,21 @@ func missingPersistedRows(ctx context.Context, tx pgx.Tx, table, idColumn, tenan
 	}
 	// table is a fixed internal literal ('obligation_instances' | 'vaccination_completions'), never
 	// user input, so this is not an injection surface.
+	// seed-fixture-guard:ignore: verifier-internal cast fix. This changes no seed input, no
+	// source-CSV contract and no canonical DDL -- it only stops the drop reporter from dying
+	// on the blank row id that IS the drop it reports.
+	// row_id is read as text and cast only when it is actually present. A fact whose row id was
+	// never assigned is a legitimate input here -- it is exactly the shape a dropped row has --
+	// and casting "" straight to uuid turned that finding into an opaque 22P02 from deep inside
+	// the verifier instead of the drop report this function exists to produce.
 	q := fmt.Sprintf(`
 		SELECT e.idempotency_key
-		FROM jsonb_to_recordset($2::jsonb) AS e(idempotency_key text, row_id uuid)
+		FROM jsonb_to_recordset($2::jsonb) AS e(idempotency_key text, row_id text)
 		WHERE NOT EXISTS (
 			SELECT 1 FROM %s t
 			WHERE t.tenant_id = $1::uuid
-			  AND (t.idempotency_key = e.idempotency_key OR t.%s = e.row_id)
+			  AND (t.idempotency_key = e.idempotency_key
+			       OR (NULLIF(btrim(e.row_id), '') IS NOT NULL AND t.%s = NULLIF(btrim(e.row_id), '')::uuid))
 		)`, table, idColumn)
 	rows, err := tx.Query(ctx, q, tenantID, string(payload))
 	if err != nil {
@@ -4034,7 +4057,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 				{DoseCode: "blue_tongue_kid_16w", Days: 112, MinGapDays: 0},
 				{DoseCode: "blue_tongue_kid_20w", Days: 140, MinGapDays: 28},
 			},
-			PostArrivalWaves:  []postArrivalWave{{Days: 35}},
+			PostArrivalWaves:  []postArrivalWave{{Days: 35}, {Days: 28, MinGapDays: 28}},
 			RevaccinationDays: 365,
 		},
 		"Sheep Pox": {

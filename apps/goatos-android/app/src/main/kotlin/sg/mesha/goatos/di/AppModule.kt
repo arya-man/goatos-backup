@@ -20,6 +20,7 @@ import sg.mesha.goatos.core.data.BootstrapCacheDao
 import sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository
+import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureTelemetry
 import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
@@ -73,8 +74,12 @@ import sg.mesha.goatos.core.data.cache.CountsBreakdownMetaCacheDao
 import sg.mesha.goatos.core.data.cache.CountsShiftingDestinationsCacheDao
 import sg.mesha.goatos.core.data.cache.FeedDirectionMetaCacheDao
 import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheDao
+import sg.mesha.goatos.core.data.cache.FeedWastageMetaCacheDao
 import sg.mesha.goatos.core.data.cache.HerdSummaryCacheDao
 import sg.mesha.goatos.core.data.LogoutCoordinator
+import sg.mesha.goatos.core.data.ClockPunchFactsProvider
+import sg.mesha.goatos.core.data.ClockRepository
+import sg.mesha.goatos.core.data.DefaultClockRepository
 import sg.mesha.goatos.core.data.DefaultRosterRepository
 import sg.mesha.goatos.core.data.RoomScreenCacheStore
 import sg.mesha.goatos.core.data.RosterRepository
@@ -100,9 +105,12 @@ import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.analytics.FailureReportingOutboxTelemetryReporter
 import sg.mesha.goatos.core.common.OutboxTelemetryReporter
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
 import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
 import sg.mesha.goatos.core.data.sync.AndroidConnectivitySource
 import sg.mesha.goatos.core.data.sync.ConnectivityGate
@@ -114,13 +122,33 @@ import sg.mesha.goatos.core.data.sync.MediaStoreGalleryProofSaver
 import sg.mesha.goatos.core.data.sync.OutboxStore
 import sg.mesha.goatos.core.data.sync.OutboxWiper
 import sg.mesha.goatos.core.data.sync.RoomOutboxStore
+import sg.mesha.goatos.core.data.sync.PostSuccessRefreshHook
 import sg.mesha.goatos.core.data.sync.SyncEngine
+import sg.mesha.goatos.core.data.sync.milkFeedingSubmitRefreshHook
+import sg.mesha.goatos.core.data.sync.milkPreparationSubmitRefreshHook
+import sg.mesha.goatos.core.data.sync.countsShiftingRefreshHook
+import sg.mesha.goatos.core.data.sync.countsBirthRefreshHook
+import sg.mesha.goatos.core.data.sync.countsDeathRefreshHook
+import sg.mesha.goatos.core.data.sync.countsApprovalApproveRefreshHook
+import sg.mesha.goatos.core.data.sync.countsApprovalRejectRefreshHook
+import sg.mesha.goatos.core.data.sync.shiftingCompleteRefreshHook
+import sg.mesha.goatos.core.data.sync.shiftingCancelRefreshHook
+import sg.mesha.goatos.core.data.sync.countsPromoteIdentifierRefreshHook
+import sg.mesha.goatos.core.data.sync.healthCaseOpenRefreshHook
+import sg.mesha.goatos.core.data.sync.healthTreatmentCompleteFailureHook
+import sg.mesha.goatos.core.data.sync.healthTreatmentCompleteRefreshHook
+import sg.mesha.goatos.core.data.sync.workflowActionAnswerFailureHook
+import sg.mesha.goatos.core.data.sync.workflowActionCompleteFailureHook
+import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.data.sync.SyncJobsCanceller
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
 import sg.mesha.goatos.core.data.sync.SyncRetryScheduler
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.weighing.DefaultWeighingRepository
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachOutcome
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachStatus
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
+import sg.mesha.goatos.core.data.weighing.WeighingProofAttachTelemetryReporter
 import sg.mesha.goatos.core.database.outbox.OutboxDao
 import sg.mesha.goatos.core.database.outbox.OutboxDatabase
 import sg.mesha.goatos.core.database.outbox.buildOutboxDatabase
@@ -147,8 +175,10 @@ import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.ScanSource
 import sg.mesha.goatos.push.PushLogoutCleanup
 import sg.mesha.goatos.sync.AndroidForegroundSyncController
+import sg.mesha.goatos.analytics.BackendAnalyticsAdapter
 import sg.mesha.goatos.sync.SyncWorkScheduler
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.map
 
 /**
  * App-level DI wiring. The real Retrofit-backed [AppApi] hits the backend at
@@ -256,6 +286,11 @@ object AppModule {
     @Provides
     fun provideFeedPackingMetaCacheDao(db: GoatDatabase): FeedPackingMetaCacheDao =
         db.feedPackingMetaCacheDao()
+
+    @Provides
+    @Singleton
+    fun provideFeedWastageMetaCacheDao(db: GoatDatabase): FeedWastageMetaCacheDao =
+        db.feedWastageMetaCacheDao()
 
     @Provides
     fun provideRosterCoverageCacheDao(db: GoatDatabase): RosterCoverageCacheDao = db.rosterCoverageCacheDao()
@@ -462,12 +497,40 @@ object AppModule {
     @Provides
     @Singleton
     fun provideFeedRepository(
+        wastageMetaDao: FeedWastageMetaCacheDao,
         api: AppApi,
         database: GoatDatabase,
         directionMetaDao: FeedDirectionMetaCacheDao,
         packingMetaDao: FeedPackingMetaCacheDao,
     ): FeedRepository =
-        DefaultFeedRepository(api, database, directionMetaDao, packingMetaDao)
+        DefaultFeedRepository(api, database, directionMetaDao, packingMetaDao, wastageMetaDao)
+
+    @Provides
+    @Singleton
+    fun providePcCareRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        syncRepository: sg.mesha.goatos.core.data.sync.SyncRepository,
+    ): sg.mesha.goatos.core.data.PcCareRepository = sg.mesha.goatos.core.data.DefaultPcCareRepository(
+        api = api,
+        database = database,
+        detailDao = database.pcCareTaskDetailCacheDao(),
+        animalDao = database.pcCareAnimalRowDao(),
+        syncRepository = syncRepository,
+    )
+
+    /**
+     * Toxin module reads (module toxin, maintainer decision 2026-08-25). Room-backed and
+     * offline-first; the WRITES ride the outbox, so unlike PC Care this repository takes no
+     * SyncRepository and creates no Dagger cycle.
+     */
+    @Provides
+    @Singleton
+    fun provideToxinRepository(
+        api: AppApi,
+        database: GoatDatabase,
+    ): sg.mesha.goatos.core.data.ToxinRepository =
+        sg.mesha.goatos.core.data.DefaultToxinRepository(api = api, database = database)
 
     // App-scoped optimistic overlay for feed completions (offline-first badge ahead of the next
     // refresh). A process singleton, not persisted — the outbox is the durable command record.
@@ -476,6 +539,11 @@ object AppModule {
     fun provideFeedCompletionLocalStore(): FeedCompletionLocalStore = FeedCompletionLocalStore()
 
     @Provides @Singleton fun provideFeedTransportRepository(api: AppApi, database: GoatDatabase): FeedTransportRepository = FeedTransportRepository(api,database)
+
+    /** The narrow live-status surface FeedTransportCaptureViewModel depends on — same singleton
+     *  instance as [provideFeedTransportRepository], bound to its slimmer interface so tests can
+     *  fake just that surface without a real [GoatDatabase]. */
+    @Provides @Singleton fun provideFeedTransportStatusSource(repository: FeedTransportRepository): sg.mesha.goatos.core.data.FeedTransportStatusSource = repository
 
     @Provides
     @Singleton
@@ -525,6 +593,32 @@ object AppModule {
         coverageDao: RosterCoverageCacheDao,
     ): RosterRepository = DefaultRosterRepository(api, timetableDao, coverageDao)
 
+    /** The clock module's Android-fact collector (location+mock verdict+battery+network). */
+    @Provides
+    @Singleton
+    fun provideClockPunchFactsProvider(
+        impl: sg.mesha.goatos.capture.AppClockPunchFactsProvider,
+    ): ClockPunchFactsProvider = impl
+
+    @Provides
+    @Singleton
+    fun provideClockRepository(
+        api: AppApi,
+        database: GoatDatabase,
+        outboxDatabase: OutboxDatabase,
+        syncRepository: SyncRepository,
+        factsProvider: ClockPunchFactsProvider,
+    ): ClockRepository = DefaultClockRepository(
+        api = api,
+        dao = database.clockBlobCacheDao(),
+        syncRepository = syncRepository,
+        factsProvider = factsProvider,
+        activePunchGroups = { opType ->
+            outboxDatabase.outboxDao().observeActiveByOpType(opType)
+                .map { rows -> rows.mapTo(mutableSetOf()) { it.groupKey } }
+        },
+    )
+
     @Provides
     @Singleton
     fun provideVerificationRepository(
@@ -539,6 +633,8 @@ object AppModule {
         database: GoatDatabase,
         syncRepository: SyncRepository,
         appScope: CoroutineScope,
+        analytics: AnalyticsPort,
+        crashReporter: CrashReporter,
     ): WeighingRepository = DefaultWeighingRepository(
         api = api,
         tenantId = BuildConfig.TENANT_ID,
@@ -548,6 +644,7 @@ object AppModule {
         database = database,
         syncRepository = syncRepository,
         appScope = appScope,
+        proofAttachTelemetry = weighingProofAttachTelemetryReporter(analytics, crashReporter),
     )
 
     // --- MOB-002 capture (docs/mobile/proof-capture-sync-and-e2e.md) -------------------
@@ -606,6 +703,7 @@ object AppModule {
         appScope = appScope,
         mediaProcessor = mediaProcessor,
         locationProvider = locationProvider,
+        proofArtifactValidator = FileSystemProofArtifactValidator(),
         galleryProofSaver = MediaStoreGalleryProofSaver(context),
         telemetry = ProofCaptureTelemetry { event, props -> analytics.track(event, props) },
     )
@@ -699,6 +797,13 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideSubmittedGrainsSource(syncRepository: SyncRepository): SubmittedGrainsSource =
+        // Bound to the OUTBOX-derived projection: a submit that succeeds or dies leaves the active
+        // set by itself, so the badge retracts with nothing to clear.
+        SubmittedGrainsSource { syncRepository.observeSubmittedForReviewGrains() }
+
+    @Provides
+    @Singleton
     fun provideSyncEngine(
         store: OutboxStore,
         api: AppApi,
@@ -706,7 +811,32 @@ object AppModule {
         retryScheduler: SyncRetryScheduler,
         database: GoatDatabase,
         outboxTelemetry: OutboxTelemetryReporter,
-    ): SyncEngine = SyncEngine(
+        feedRepository: FeedRepository,
+        feedTransportRepository: FeedTransportRepository,
+        milkFeedingRepository: MilkFeedingRepository,
+        milkPreparationRepository: MilkPreparationRepository,
+        countsRepository: CountsRepository,
+        countsApprovalRepository: CountsApprovalRepository,
+        awaitingRfidRepository: AwaitingRfidRepository,
+        shiftingPendingRepository: ShiftingPendingRepository,
+        workflowsRepository: WorkflowsRepository,
+        healthRepository: HealthRepository,
+        // Provider, NOT the repository: PcCareRepository -> SyncRepository -> SyncEngine would
+        // otherwise be a Dagger dependency cycle (PC Care is the one module whose repository
+        // enqueues its own outbox writes). The handle defers provider.get() to CALL time, after
+        // the graph is fully built, so construction never recurses.
+        pcCareRepositoryProvider: javax.inject.Provider<sg.mesha.goatos.core.data.PcCareRepository>,
+        // Provider for the same cycle reason as PC Care above: ClockRepository enqueues its own
+        // outbox punches through SyncRepository, so a direct dependency here would recurse.
+        clockRepositoryProvider: javax.inject.Provider<ClockRepository>,
+        // Without this, toxinRepository defaults to null in the constructor and the
+        // TOXIN_STEP_COMPLETE/TOXIN_SUBMIT reconciliation silently no-ops in production: every
+        // step write would land on the server while the phone kept rendering the PREVIOUS step
+        // states until the next manual refresh. Same defect class as feedRepository above.
+        toxinRepository: sg.mesha.goatos.core.data.ToxinRepository,
+    ): SyncEngine {
+        val pcCareRepository = DeferredPcCareRepository(pcCareRepositoryProvider)
+        return SyncEngine(
         store = store,
         api = api,
         connectivityGate = connectivityGate,
@@ -714,8 +844,61 @@ object AppModule {
         scannedGoatDao = database.scannedGoatDao(),
         weighingObservationDao = database.weighingObservationDao(),
         weighingShedObservationDao = database.weighingShedObservationDao(),
+        weighingTransitionEpochDao = database.weighingTransitionEpochDao(),
+        // Without this, feedRepository defaults to null in the constructor and
+        // FEED_DISTRIBUTION_COMPLETE/FEED_PACKING_COMPLETE reconciliation silently no-ops in
+        // production (feedRepository?.persist... does nothing) — the exact bug this wiring fixes.
+        feedRepository = feedRepository,
+        feedTransportRepository = feedTransportRepository,
+        // Same rationale as feedRepository above: nullable constructor defaults silently no-op
+        // PC_CARE_SCAN_ADD/PC_CARE_TASK_SUBMIT reconciliation in production without this wiring.
+        pcCareAnimalRowDao = database.pcCareAnimalRowDao(),
+        pcCareRepository = pcCareRepository,
+        toxinRepository = toxinRepository,
         telemetry = outboxTelemetry,
-    )
+        // Whole-page-blob reconcile: these opTypes affect cached lists/envelopes with no server-truth
+        // row to write directly into. The reconcile is "refresh the page" or "forget the row",
+        // never "write a result". Registered here (repo/DI layer), never in a ViewModel — see
+        // PostSuccessRefreshHook. Counts-family operations (birth/death/shifting/approval) + Milk
+        // operations (feeding/preparation) all follow this pattern.
+        postSuccessRefreshHooks = mapOf(
+            // Milk operations
+            OutboxOpType.MILK_FEEDING_SUBMIT to milkFeedingSubmitRefreshHook(milkFeedingRepository),
+            OutboxOpType.MILK_PREPARATION_SUBMIT to milkPreparationSubmitRefreshHook(milkPreparationRepository),
+            // Counts family operations
+            OutboxOpType.COUNTS_SHIFTING to countsShiftingRefreshHook(countsRepository),
+            OutboxOpType.COUNTS_BIRTH to countsBirthRefreshHook(countsRepository),
+            OutboxOpType.COUNTS_DEATH to countsDeathRefreshHook(countsRepository),
+            OutboxOpType.COUNTS_APPROVAL_APPROVE to countsApprovalApproveRefreshHook(countsApprovalRepository),
+            OutboxOpType.COUNTS_APPROVAL_REJECT to countsApprovalRejectRefreshHook(countsApprovalRepository),
+            OutboxOpType.SHIFTING_COMPLETE to shiftingCompleteRefreshHook(shiftingPendingRepository),
+            OutboxOpType.SHIFTING_CANCEL to shiftingCancelRefreshHook(shiftingPendingRepository),
+            OutboxOpType.COUNTS_PROMOTE_IDENTIFIER to countsPromoteIdentifierRefreshHook(
+                countsRepository,
+                awaitingRfidRepository,
+            ),
+            // Health operations
+            OutboxOpType.HEALTH_CASE_OPEN to healthCaseOpenRefreshHook(healthRepository),
+            OutboxOpType.HEALTH_TREATMENT_COMPLETE to healthTreatmentCompleteRefreshHook(healthRepository),
+            // PC Care: a successful slot registration re-polls the task's captures so the server's
+            // per-slot truth (proof ref, attribution) lands back in the Room rows screens observe.
+            OutboxOpType.PC_CARE_SLOT_REGISTER to sg.mesha.goatos.core.data.sync.pcCareSlotRegisterRefreshHook(pcCareRepository),
+            OutboxOpType.PC_CARE_TASK_PROOF_REGISTER to sg.mesha.goatos.core.data.sync.pcCareTaskProofRegisterRefreshHook(pcCareRepository),
+            // Clock: a drained punch re-fetches the status blob so the My Clock screen AND the
+            // shell reminder banner flip to server truth the moment the write lands (plan §4.3).
+            OutboxOpType.CLOCK_IN to PostSuccessRefreshHook { clockRepositoryProvider.get().refreshStatus() },
+            OutboxOpType.CLOCK_OUT to PostSuccessRefreshHook { clockRepositoryProvider.get().refreshStatus() },
+        ),
+        preSuccessRefreshHooks = mapOf(
+            OutboxOpType.HEALTH_CASE_OPEN to healthCaseOpenRefreshHook(healthRepository),
+        ),
+        postTerminalFailureHooks = mapOf(
+            OutboxOpType.HEALTH_TREATMENT_COMPLETE to healthTreatmentCompleteFailureHook(healthRepository),
+            OutboxOpType.WORKFLOW_ACTION_ANSWER to workflowActionAnswerFailureHook(workflowsRepository),
+            OutboxOpType.WORKFLOW_ACTION_COMPLETE to workflowActionCompleteFailureHook(workflowsRepository),
+        ),
+        )
+    }
 
     /**
      * Queue-lifecycle visibility (W-23). Bound unconditionally — unlike the network reporter
@@ -778,6 +961,7 @@ object AppModule {
         engine: SyncEngine,
         syncRepository: SyncRepository,
         connectivityGate: ConnectivityGate,
+        backendAnalyticsAdapter: BackendAnalyticsAdapter,
     ): ConnectivitySyncTrigger {
         val repo = syncRepository as? DefaultSyncRepository
         return ConnectivitySyncTrigger(source = AndroidConnectivitySource(context)) { platformOnline ->
@@ -790,7 +974,106 @@ object AppModule {
             // rendered freshly fetched data.
             val online = platformOnline || connectivityGate.isOnline()
             repo?.notifyConnectivityChanged(online)
-            if (online) appScope.launch { engine.drainOnce() }
+            if (online) appScope.launch {
+                engine.drainOnce()
+                runCatching { backendAnalyticsAdapter.drainQueue() }
+            }
         }
     }
+}
+
+private const val WEIGHING_PROOF_ATTACH_REASON_LIMIT = 96 // mobile-guard:ignore: analytics reason text cap, not a fetched page/list size
+
+private fun weighingProofAttachTelemetryReporter(
+    analytics: AnalyticsPort,
+    crashReporter: CrashReporter,
+): WeighingProofAttachTelemetryReporter =
+    WeighingProofAttachTelemetryReporter { outcome, source, recoveredByRfid ->
+        val props = weighingProofAttachTelemetryProps(outcome, source)
+        when (outcome.status) {
+            IndividualProofAttachStatus.ATTACHED,
+            IndividualProofAttachStatus.ALREADY_QUEUED -> if (recoveredByRfid) {
+                analytics.track(AnalyticsEventsWeighing.WEIGHING_ORPHAN_SYNCED_PROOF_RECOVERED, props)
+            }
+            IndividualProofAttachStatus.NO_OBSERVATION -> {
+                analytics.track(AnalyticsEventsWeighing.WEIGHING_PROOF_ATTACH_NO_OBSERVATION, props)
+            }
+            IndividualProofAttachStatus.ENQUEUE_FAILED -> {
+                analytics.track(AnalyticsEventsWeighing.WEIGHING_OBSERVATION_ENQUEUE_FAILED, props)
+                crashReporter.recordException(
+                    IllegalStateException("weighing observation enqueue failed"),
+                    "weighing observation enqueue failed",
+                )
+            }
+            IndividualProofAttachStatus.ALREADY_ACCEPTED -> Unit
+        }
+    }
+
+private fun weighingProofAttachTelemetryProps(
+    outcome: IndividualProofAttachOutcome,
+    source: String,
+): Map<String, String> =
+    buildMap {
+        put(AnalyticsEvents.Params.ITEM_ID, outcome.scopeKey)
+        put(AnalyticsEvents.Params.PROOF_ID, outcome.proofCaptureId)
+        put(AnalyticsEvents.Params.STATUS, outcome.status.name.lowercase())
+        put(AnalyticsEvents.Params.SOURCE, source)
+        put(AnalyticsEventsWeighing.Params.RFID, outcome.scannedIdentifier)
+        outcome.campaignId?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.CAMPAIGN_ID, it) }
+        outcome.campaignShedId?.takeIf(String::isNotBlank)?.let { put(AnalyticsEvents.Params.CAMPAIGN_SHED_ID, it) }
+        outcome.serverProofId?.takeIf(String::isNotBlank)?.let {
+            put(AnalyticsEventsWeighing.Params.SERVER_PROOF_ID, it)
+            put(AnalyticsEvents.Params.PROOF_STATE, "server_synced")
+        }
+        outcome.reason?.takeIf(String::isNotBlank)?.let {
+            put(AnalyticsEvents.Params.REASON, it.take(WEIGHING_PROOF_ATTACH_REASON_LIMIT))
+        }
+    }
+
+/**
+ * Call-time-deferred [sg.mesha.goatos.core.data.PcCareRepository] handle that breaks the ONE
+ * legitimate loop in the sync graph: PC Care's repository enqueues its own outbox writes
+ * (SyncRepository), SyncRepository wraps SyncEngine, and SyncEngine reconciles PC Care rows
+ * back through the repository. Every method resolves the real singleton via [provider] at the
+ * moment it is CALLED — never during construction — so Dagger sees no cycle and the first
+ * engine callback still lands on the fully wired repository.
+ */
+private class DeferredPcCareRepository(
+    private val provider: javax.inject.Provider<sg.mesha.goatos.core.data.PcCareRepository>,
+) : sg.mesha.goatos.core.data.PcCareRepository {
+    private val delegate: sg.mesha.goatos.core.data.PcCareRepository by lazy { provider.get() }
+
+    override fun worklistRows(query: sg.mesha.goatos.core.data.PcCareWorklistQuery) = delegate.worklistRows(query)
+    override suspend fun invalidateWorklist(query: sg.mesha.goatos.core.data.PcCareWorklistQuery) = delegate.invalidateWorklist(query)
+    override fun observeTaskDetail(taskId: String) = delegate.observeTaskDetail(taskId)
+    override fun observeTaskRowStatus(taskId: String) = delegate.observeTaskRowStatus(taskId)
+    override suspend fun refreshTaskDetail(taskId: String) = delegate.refreshTaskDetail(taskId)
+    override fun observeAnimals(taskId: String) = delegate.observeAnimals(taskId)
+    override fun observeRoster(taskId: String) = delegate.observeRoster(taskId)
+    override suspend fun refreshRoster(taskId: String) = delegate.refreshRoster(taskId)
+    override suspend fun pollTaskOnce(taskId: String) = delegate.pollTaskOnce(taskId)
+    override suspend fun recordScan(taskId: String, tagVerbatim: String) = delegate.recordScan(taskId, tagVerbatim)
+    override suspend fun registerSlotProof(
+        taskId: String,
+        normalizedTag: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ) = delegate.registerSlotProof(taskId, normalizedTag, slotFieldKey, proofOutboxItemId)
+    override suspend fun registerTaskProof(
+        taskId: String,
+        slotFieldKey: String,
+        proofOutboxItemId: String,
+    ) = delegate.registerTaskProof(taskId, slotFieldKey, proofOutboxItemId)
+    override suspend fun proofDownloadUrl(proofId: String) = delegate.proofDownloadUrl(proofId)
+    override suspend fun submitTask(taskId: String, rowVersion: Int) = delegate.submitTask(taskId, rowVersion)
+    override suspend fun persistTaskSubmitResult(taskId: String, status: String, rowVersion: Int, animalCount: Int) =
+        delegate.persistTaskSubmitResult(taskId, status, rowVersion, animalCount)
+    override suspend fun plannerCatalog() = delegate.plannerCatalog()
+    override suspend fun plannerParkSheds(parkId: String, category: String, date: String, cursor: String?) =
+        delegate.plannerParkSheds(parkId, category, date, cursor)
+    override suspend fun createTask(
+        idempotencyKey: String,
+        request: sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto,
+    ) = delegate.createTask(idempotencyKey, request)
+    override suspend fun cancelTask(taskId: String) = delegate.cancelTask(taskId)
 }

@@ -310,6 +310,68 @@ func TestVaccinationCommandBoardShedVaccineStatusMatrixEveryStatusStatusBuckets(
 	}
 }
 
+func TestVaccinationCommandBoardShedVaccineAnimalListIgnoresStalePartitionFromOtherShed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tenantID := "00000000-0000-4000-8000-0000000000aa"
+	parkID := uuidFromSuffix("01", "g10a")
+	shedID := uuidFromSuffix("02", "g10a")
+	staleParkID := uuidFromSuffix("01", "g10b")
+	staleShedID := uuidFromSuffix("02", "g10b")
+	protocolVersionID, ruleID := seedCommandBoardProtocol(t, ctx, pool, tenantID, "g10")
+	seedCommandBoardPark(t, ctx, pool, tenantID, parkID, shedID, "Mandela 2")
+	seedCommandBoardPark(t, ctx, pool, tenantID, staleParkID, staleShedID, "Yashoda")
+	seedVaccineDimension(t, ctx, pool, tenantID, protocolVersionID, ruleID,
+		uuidFromSuffix("0b", "g10d"), "sel-a", "GOAT_POX")
+
+	asOf := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	goatID := uuidFromSuffix("03", "g10a")
+	seedBareGoat(t, ctx, pool, tenantID, shedID, goatID, uuidFromSuffix("0a", "g10a"))
+	seedObligation(t, ctx, pool, tenantID, protocolVersionID, ruleID, shedID, goatID,
+		uuidFromSuffix("08", "g10a"), "missed", asOf.Add(-3*24*time.Hour), "stale-partition")
+
+	// A stale per-goat partition row from a previous shed must not re-key the animal drawer list.
+	// The aggregate query already joins gsp.shed_id = goats.shed_id; the drilldown query must use
+	// the same scope or the red cell opens with a title from one shed and animal evidence from
+	// another partition.
+	execProjectionSQL(t, ctx, pool, "stale partition row",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, 'Part 8', 'Yashoda - Part 8')`,
+		tenantID, goatID, staleShedID)
+
+	repo := NewRepository(pool, 5*time.Second)
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard() error = %v", err)
+	}
+	var cell *domain.CommandBoardShedVaccineCell
+	for i := range resp.ShedVaccineMatrix {
+		candidate := &resp.ShedVaccineMatrix[i]
+		if candidate.ShedID == shedID && candidate.VaccineCode == "GOAT_POX" {
+			cell = candidate
+			break
+		}
+	}
+	if cell == nil {
+		t.Fatalf("missing current-shed GOAT_POX cell")
+	}
+	if cell.OperationalLocationDisplay != "Mandela 2" {
+		t.Fatalf("cell display = %q, want current shed without stale partition", cell.OperationalLocationDisplay)
+	}
+	if cell.BehindAnimals != 1 {
+		t.Fatalf("behindAnimals = %d, want 1", cell.BehindAnimals)
+	}
+	if len(cell.FlaggedAnimals) != 1 {
+		t.Fatalf("flaggedAnimals = %d, want 1; stale partition re-keyed the drawer list away from the clicked cell", len(cell.FlaggedAnimals))
+	}
+	if got := cell.FlaggedAnimals[0].PartitionLabel; got != "" {
+		t.Fatalf("flagged partitionLabel = %q, want empty because the only partition row belongs to another shed", got)
+	}
+}
+
 // shedVaccineCellsByCode reads the board and indexes its shed x vaccine cells by vaccine code.
 // Every test here seeds exactly one shed, so code alone identifies a cell.
 func shedVaccineCellsByCode(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID string, asOf time.Time) map[string]domain.CommandBoardShedVaccineCell {
@@ -505,6 +567,142 @@ func seedShedVideo(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant
 		 VALUES ($1::uuid, $2::uuid, 'gcs', $3::text, 'video/mp4', 'completed', 'shed', $4::uuid, 'shed', $4::uuid,
 		         'video', $5::timestamptz, jsonb_build_object('field_key', $6::text))`,
 		proofID, tenantID, proofID, shedID, uploadedAt, fieldKey)
+}
+
+func TestVaccinationCommandBoardDoesNotComposeScopeShedWithCurrentPartition(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tenantID := "00000000-0000-4000-8000-0000000000aa"
+	parkID := uuidFromSuffix("01", "ga")
+	castroID := uuidFromSuffix("02", "ga")
+	yashodaID := uuidFromSuffix("04", "ga")
+	protocolVersionID, ruleID := seedCommandBoardProtocol(t, ctx, pool, tenantID, "ga")
+	seedCommandBoardPark(t, ctx, pool, tenantID, parkID, castroID, "Castro")
+	execProjectionSQL(t, ctx, pool, "rename command-board shed to Castro",
+		`UPDATE locations SET name = 'Castro' WHERE tenant_id = $1 AND location_id = $2`,
+		tenantID, castroID)
+	execProjectionSQL(t, ctx, pool, "create current Yashoda shed",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Yashoda', 'shed', $3, 'active')`,
+		yashodaID, tenantID, parkID)
+	seedVaccineDimension(t, ctx, pool, tenantID, protocolVersionID, ruleID,
+		uuidFromSuffix("0b", "gad"), "sel-a", "ET_TT")
+
+	asOf := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	past := asOf.Add(-4 * 24 * time.Hour)
+	goatID := uuidFromSuffix("03", "gaa")
+	oblID := uuidFromSuffix("08", "gaa")
+	seedBareGoat(t, ctx, pool, tenantID, castroID, goatID, uuidFromSuffix("0a", "gaa"))
+	seedObligation(t, ctx, pool, tenantID, protocolVersionID, ruleID, castroID, goatID, oblID, "missed", past, "hybrid-castro-yashoda")
+
+	execProjectionSQL(t, ctx, pool, "move goat to Yashoda partition 10",
+		`UPDATE goats SET shed_id = $3 WHERE tenant_id = $1 AND goat_id = $2`,
+		tenantID, goatID, yashodaID)
+	execProjectionSQL(t, ctx, pool, "record current Yashoda partition",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, '10', 'Yashoda 10')`,
+		tenantID, goatID, yashodaID)
+
+	cells := shedVaccineCellsByCode(t, ctx, pool, tenantID, asOf)
+	et := cells["ET_TT"]
+	if et.OperationalLocationDisplay == "Castro 10" || et.PartitionLabel == "10" {
+		t.Fatalf("cell location = %q partition=%q; command board must not compose obligation shed Castro with current Yashoda partition 10",
+			et.OperationalLocationDisplay, et.PartitionLabel)
+	}
+	if et.OperationalLocationDisplay != "Castro" {
+		t.Fatalf("cell location = %q, want obligation shed Castro without invented partition", et.OperationalLocationDisplay)
+	}
+	if len(et.FlaggedAnimals) != 1 {
+		t.Fatalf("flaggedAnimals = %d, want 1", len(et.FlaggedAnimals))
+	}
+	if got := et.FlaggedAnimals[0].LocationDisplay; got != "Yashoda 10" {
+		t.Fatalf("flagged animal location = %q, want current ground location Yashoda 10", got)
+	}
+}
+
+func TestVaccinationCommandBoardPartitionCatalogOneToManyPaginationDateShiftScopeHierarchyStatusMatrixMatchesOnNormalizedLabel(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tenantID := "00000000-0000-4000-8000-0000000000ab"
+	parkID := uuidFromSuffix("01", "gb")
+	shedID := uuidFromSuffix("02", "gb")
+	protocolVersionID, ruleID := seedCommandBoardProtocol(t, ctx, pool, tenantID, "gb")
+	seedCommandBoardPark(t, ctx, pool, tenantID, parkID, shedID, "Godel 1")
+	seedVaccineDimension(t, ctx, pool, tenantID, protocolVersionID, ruleID,
+		uuidFromSuffix("0b", "gbd"), "sel-a", "ET_TT")
+	execProjectionSQL(t, ctx, pool, "catalog worded partition",
+		`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+		 VALUES ($1, $2, 'Part 10', '10', 'active', 'manual')`,
+		tenantID, shedID)
+
+	asOf := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	due := asOf.Add(-2 * 24 * time.Hour)
+	goatID := uuidFromSuffix("03", "gba")
+	oblID := uuidFromSuffix("08", "gba")
+	seedBareGoat(t, ctx, pool, tenantID, shedID, goatID, uuidFromSuffix("0a", "gba"))
+	seedObligation(t, ctx, pool, tenantID, protocolVersionID, ruleID, shedID, goatID, oblID, "missed", due, "normalized-catalog")
+	execProjectionSQL(t, ctx, pool, "goat uses numeric partition spelling",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, '10', 'Godel 1 - Part 10')`,
+		tenantID, goatID, shedID)
+	execProjectionSQL(t, ctx, pool, "recorded completion",
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, goat_id, status, administered_at, verified_at, idempotency_key)
+		 VALUES ($1, $2, $3, $4, 'recorded', $5::timestamptz, NULL, 'normalized-catalog-completion')`,
+		uuidFromSuffix("09", "gba"), tenantID, oblID, goatID, due)
+
+	repo := NewRepository(pool, 5*time.Second)
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard() error = %v", err)
+	}
+	foundVaccine := false
+	for _, cell := range resp.ShedVaccineMatrix {
+		if cell.VaccineCode == "ET_TT" && cell.State == "verifying" {
+			foundVaccine = true
+			if cell.PartitionLabel != "Part 10" || cell.OperationalLocationDisplay != "Godel 1 - Part 10" {
+				t.Fatalf("shed vaccine cell = %q partition=%q, want Godel 1 - Part 10 from normalized catalog match",
+					cell.OperationalLocationDisplay, cell.PartitionLabel)
+			}
+			if len(cell.FlaggedAnimals) != 1 {
+				t.Fatalf("flaggedAnimals = %d, want 1", len(cell.FlaggedAnimals))
+			}
+			animal := cell.FlaggedAnimals[0]
+			if animal.PartitionLabel != "Part 10" || animal.LocationDisplay != "Godel 1 - Part 10" {
+				t.Fatalf("flagged animal location = %q partition=%q, want catalog label Godel 1 - Part 10",
+					animal.LocationDisplay, animal.PartitionLabel)
+			}
+			break
+		}
+	}
+	if !foundVaccine {
+		t.Fatalf("shed vaccine matrix did not render the verifying ET_TT partition cell: %+v", resp.ShedVaccineMatrix)
+	}
+	foundDose := false
+	for _, cell := range resp.ShedDoseMatrix {
+		if cell.State == "awaiting" && cell.PartitionLabel == "Part 10" && cell.OperationalLocationDisplay == "Godel 1 - Part 10" {
+			foundDose = true
+			break
+		}
+	}
+	if !foundDose {
+		t.Fatalf("shed dose matrix did not render the normalized catalog partition: %+v", resp.ShedDoseMatrix)
+	}
+	foundQueue := false
+	for _, row := range resp.VerificationQueue {
+		if row.PartitionLabel == "Part 10" && row.OperationalLocationDisplay == "Godel 1 - Part 10" {
+			foundQueue = true
+			break
+		}
+	}
+	if !foundQueue {
+		t.Fatalf("verification queue did not render the normalized catalog partition: %+v", resp.VerificationQueue)
+	}
 }
 
 // TestVaccinationCommandBoardShedVaccineColumnsExcludeRetiredProtocolVaccines pins the SOURCE OF

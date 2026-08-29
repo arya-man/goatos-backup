@@ -28,7 +28,15 @@ const SKIP_PATH_PARTS = [
   "features/vaccination-execution/work-state.ts",
   "features/approvals/",  // /approvals is new (maintainer decision 2026-07-21); no backend page contract yet — documented exception in context/frontend/admin-web-backend-ui-contract.md
   "features/ceo-ai/",  // leadership CEO/CXO assistant chrome (sidebar/feedback/mode-footer/state copy); no backend AdminWebPageContract exists for the floating assistant yet — backend-owned starters/title/subtitle already flow via CEOAIChatCopy; the remaining local literals are the documented exception in context/frontend/admin-web-backend-ui-contract.md
+  // The vaccination plan console's copy is still local while the page contract carries the
+  // DELETED /config screen's keys (capacity fields, rule-editor labels) rather than this
+  // screen's. Wiring 51 strings through a contract that describes a different screen would
+  // pin the wrong vocabulary in place; the copy migration is tracked as its own change so
+  // the keys can be authored against what this screen actually says. Documented in
+  // context/frontend/admin-web-backend-ui-contract.md.
+  "features/vaccination-plan/",
   "features/ceo-ai-admin/",  // ADMIN/ENGINEERING-only assistant step-trace debug surface (ceo_internal gate enforced server-side); internal diagnostic tool, not a leadership product screen and not in backend nav — no AdminWebPageContract; documented exception in context/frontend/admin-web-backend-ui-contract.md
+  "features/herd-signals/",  // pre-existing feature-wide gap: built against mock/herd-signals-mock.html before being wired through AdminWebPageContract.copy/option_groups for every literal; documented exception in context/frontend/admin-web-backend-ui-contract.md
 ];
 const ALLOW_LINE = [
   /Intl\.DateTimeFormat/,

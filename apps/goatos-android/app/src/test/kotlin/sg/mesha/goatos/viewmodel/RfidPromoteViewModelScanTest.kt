@@ -35,6 +35,7 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TemporaryTaggedGoatDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.feature.counts.RfidPromoteEvent
 import sg.mesha.goatos.feature.counts.RfidPromoteField
 import sg.mesha.goatos.rfid.FakeScanSource
@@ -176,6 +177,24 @@ class RfidPromoteViewModelScanTest {
     }
 
     @Test
+    fun `terminal promote failure keeps the awaiting RFID row and permits correction`() = runTest(dispatcher) {
+        val vm = newViewModel()
+        advanceUntilIdle()
+
+        vm.onEvent(RfidPromoteEvent.RfidChanged("982000123456789"))
+        vm.onEvent(RfidPromoteEvent.Submit)
+        advanceUntilIdle()
+
+        assertNull("enqueue alone must not destructively delete the cached goat", repo.forgotten)
+
+        syncRepository.emitTerminalFailure("RFID is already assigned.")
+        advanceUntilIdle()
+
+        assertNull(repo.forgotten)
+        assertTrue(vm.state.value.canSubmit)
+    }
+
+    @Test
     fun `leaving the screen releases the reader`() = runTest(dispatcher) {
         // Through the real store, so the release runs on the SAME path the nav host takes when the
         // destination is popped — not a hand-called cleanup method.
@@ -237,15 +256,16 @@ private class RecordingPromoteSyncRepository : SyncRepository {
     var lastRowVersion: Int? = null
 
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
+    private val item = MutableStateFlow<SyncQueueItem?>(null)
     override fun observeStatus(): StateFlow<SyncStatus> = status
     override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: SubmitTaskRequestDto): AppResult<String> = error("unused")
     override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: RescheduleObligationRequestDto): AppResult<String> = error("unused")
     override suspend fun enqueueProofUpload(groupKey: String, idempotencyKey: String, request: ProofUploadRequestDto, localFilePath: String, durationMs: Long?): AppResult<String> = error("unused")
     override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
-    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> = error("unused")
+    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int, measurement: VerificationVerdictMeasurementDto?): AppResult<String> = error("unused")
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
-    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf(null)
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = item
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun triggerDrain() = Unit
     override suspend fun enqueuePromoteIdentifier(
@@ -259,6 +279,22 @@ private class RecordingPromoteSyncRepository : SyncRepository {
         lastSecondaryIdentifier = secondaryIdentifier
         lastRowVersion = rowVersion
         return AppResult.Ok("outbox-promote-1")
+    }
+
+    fun emitTerminalFailure(message: String) {
+        item.value = SyncQueueItem(
+            id = "outbox-promote-1",
+            opType = "COUNTS_PROMOTE_IDENTIFIER",
+            idempotencyKey = "promote-key",
+            groupKey = "goat-1",
+            status = sg.mesha.goatos.core.data.sync.SyncItemStatus.FAILED,
+            attemptCount = 1,
+            maxAttempts = 3,
+            conflict = true,
+            createdAt = 1L,
+            updatedAt = 2L,
+            lastError = message,
+        )
     }
 }
 

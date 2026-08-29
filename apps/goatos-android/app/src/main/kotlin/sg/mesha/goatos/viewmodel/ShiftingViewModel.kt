@@ -24,19 +24,25 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.CountsDestinationParkDto
 import sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto
 import sg.mesha.goatos.core.network.dto.GoatSearchItemDto
+import sg.mesha.goatos.feature.counts.BirthPlacementUi
 import sg.mesha.goatos.feature.counts.CountsWriteResultUi
 import sg.mesha.goatos.feature.counts.CountsWriteStatus
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_BREEDING
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_DELIVERY
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_FLUSHING
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_GROWTH
 import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_HEALTH
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_SPACING
 import sg.mesha.goatos.feature.counts.SHIFTING_PRIORITY_HIGH
 import sg.mesha.goatos.feature.counts.SHIFTING_PRIORITY_LOW
+import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_DESTINATION
+import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_KEEP_CURRENT
 import sg.mesha.goatos.feature.counts.ShiftingAnimalUi
 import sg.mesha.goatos.feature.counts.ShiftingEvent
 import sg.mesha.goatos.feature.counts.ShiftingParkUi
 import sg.mesha.goatos.feature.counts.ShiftingShedUi
 import sg.mesha.goatos.feature.counts.ShiftingUiState
+import sg.mesha.goatos.rfid.ScanSource
 import javax.inject.Inject
 
 /**
@@ -63,6 +69,7 @@ class ShiftingViewModel @Inject constructor(
     private val countsRepository: CountsRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
+    private val scanSource: ScanSource,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -77,6 +84,7 @@ class ShiftingViewModel @Inject constructor(
     val state: StateFlow<ShiftingUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
+    private var scanJob: Job? = null
 
     init {
         outboxItemId.value?.let(::observeOutboxItem)
@@ -89,9 +97,15 @@ class ShiftingViewModel @Inject constructor(
         when (event) {
             is ShiftingEvent.EditAnimalQuery -> onEditAnimalQuery(event.value)
             ShiftingEvent.LookupAnimals -> lookupAnimals()
+            ShiftingEvent.ToggleRfidScan -> toggleRfidScan()
+            is ShiftingEvent.RemoveAnimal -> onRemoveAnimal(event.goatId)
+            ShiftingEvent.RequestSubmitConfirmation -> onRequestSubmitConfirmation()
+            ShiftingEvent.DismissSubmitConfirmation ->
+                _state.update { it.copy(showSubmitConfirmation = false) }
             is ShiftingEvent.SelectAnimal -> onSelectAnimal(event.goatId)
             is ShiftingEvent.SelectDestinationPark -> onSelectDestinationPark(event.parkId)
             is ShiftingEvent.SelectDestinationShed -> onSelectDestinationShed(event.shedId, event.partitionLabel)
+            is ShiftingEvent.SelectStageMode -> onSelectStageMode(event.stageMode)
             is ShiftingEvent.SelectPriority -> onSelectPriority(event.priority)
             is ShiftingEvent.SelectCategory -> onSelectCategory(event.category)
             is ShiftingEvent.EditComment -> onEditComment(event.value)
@@ -142,6 +156,13 @@ class ShiftingViewModel @Inject constructor(
                         },
                         destinationsMessage = if (parks.isEmpty()) current.destinationsMessage else null,
                     )
+                        // A refresh can also change a pen's TAG -- someone re-tags it in the
+                        // Counts Breakdown, or a second animal arrives and makes a
+                        // single-cohort pen mixed. Re-resolve the toggle against the refreshed
+                        // catalog for the same reason the ids above are re-validated: a mode the
+                        // destination no longer supports is as stale as a shed that no longer
+                        // exists.
+                        .withStageModeValidForDestination()
                 }
                 recomputeSubmitGate()
             }
@@ -203,6 +224,58 @@ class ShiftingViewModel @Inject constructor(
     }
 
     /**
+     * Starts or stops the Bluetooth reader for the animal lookup field.
+     *
+     * The reader is a keyboard wedge and an APP-WIDE SINGLETON: while capture is on it swallows
+     * hardware key events everywhere, so a leaked listener would eat the comment field's typing or
+     * another screen's input. It is therefore started only on an explicit tap and stopped the
+     * moment it has done its job — on the first tag, on leaving the screen, and before submit.
+     *
+     * A captured tag is fed through [onEditAnimalQuery], the SAME path a typed tag takes, and then
+     * the lookup runs automatically: the operator scanned an animal because they want to find it,
+     * so making them tap "Find animal" afterwards would be asking twice.
+     */
+    private fun toggleRfidScan() {
+        if (_state.value.scanningAnimalTag) {
+            stopRfidScan()
+            return
+        }
+        if (!beginEdit()) return
+        _state.update { it.copy(scanningAnimalTag = true) }
+        scanSource.start()
+        analytics.track(
+            AnalyticsEvents.COUNTS_RFID_SCAN_STARTED,
+            mapOf(AnalyticsEvents.Params.KIND to "shifting", AnalyticsEvents.Params.FIELD to "animal_lookup"),
+        )
+        scanJob = viewModelScope.launch {
+            scanSource.tags.collect { tag ->
+                onEditAnimalQuery(tag)
+                analytics.track(
+                    AnalyticsEvents.COUNTS_RFID_SCAN_CAPTURED,
+                    mapOf(AnalyticsEvents.Params.KIND to "shifting", AnalyticsEvents.Params.FIELD to "animal_lookup"),
+                )
+                stopRfidScan()
+                lookupAnimals()
+            }
+        }
+    }
+
+    private fun stopRfidScan() {
+        if (!_state.value.scanningAnimalTag) return
+        scanSource.stop()
+        scanJob?.cancel()
+        scanJob = null
+        _state.update { it.copy(scanningAnimalTag = false) }
+    }
+
+    override fun onCleared() {
+        // Leaving the screen must release the reader: capture consumes hardware key events
+        // app-wide while enabled, so a leaked listener would eat another screen's input.
+        stopRfidScan()
+        super.onCleared()
+    }
+
+    /**
      * Resolves the typed/scanned tag to real animals. The tag itself is NOT a goat id, so this
      * round trip is what keeps an RFID string out of `goat_ids`.
      *
@@ -222,7 +295,7 @@ class ShiftingViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isLookingUpAnimals = false,
-                            animalMatches = eligible.map(GoatSearchItemDto::toShiftingAnimalUi),
+                            animalMatches = eligible.toDistinctShiftingAnimalUi(),
                             animalLookupMessage = when {
                                 eligible.isNotEmpty() -> null
                                 matches.isNotEmpty() -> INELIGIBLE_ANIMAL_MESSAGE
@@ -251,24 +324,46 @@ class ShiftingViewModel @Inject constructor(
     }
 
     /**
-     * Selects THE animal being moved. Single selection: this REPLACES any previous choice rather
-     * than appending to a list, so the screen can never carry an animal the operator stopped
-     * looking at. A tap on the already-selected row is a no-op, not a deselect — clearing the
-     * selection is not a state an operator ever wants on the way to submitting a movement.
+     * ADDS an animal to the movement (maintainer decision 2026-08-21, reversing the single-animal
+     * rule so a group can be scanned one tag at a time).
+     *
+     * Two invariants survive the reversal:
+     *  - **Idempotent**: an animal already in the basket is not added twice, so re-scanning a tag
+     *    on a crowded pen is harmless rather than a duplicate in `goat_ids`.
+     *  - **Intra-farm**: a movement never crosses parks. The FIRST animal fixes the destination
+     *    farm; an animal from another park is refused with farm-worded copy instead of silently
+     *    widening the move, and the destination shed is cleared only when that farm actually changes
+     *    (re-clearing it on every scan would wipe a destination the operator already chose).
      */
     private fun onSelectAnimal(goatId: String) {
         if (!beginEdit()) return
         _state.update { current ->
             val match = current.animalMatches.firstOrNull { it.goatId == goatId }
                 ?: return@update current
+            if (current.selectedAnimals.any { it.goatId == match.goatId }) return@update current
+            val farm = current.selectedAnimals.firstOrNull()?.parkId
+            if (farm != null && farm != match.parkId) {
+                return@update current.copy(animalLookupMessage = FARM_MISMATCH_MESSAGE)
+            }
+            val farmChanged = current.destinationParkId != match.parkId
             current.copy(
-                selectedAnimal = match,
+                selectedAnimals = current.selectedAnimals + match,
+                animalLookupMessage = null,
                 // A shed move is intra-farm by contract. The animal's current park is canonical,
-                // so selecting the animal also selects the only legal destination farm.
+                // so the first selected animal also selects the only legal destination farm.
                 destinationParkId = match.parkId,
-                destinationShedId = "",
-                destinationPartitionLabel = null,
+                destinationShedId = if (farmChanged) "" else current.destinationShedId,
+                destinationPartitionLabel = if (farmChanged) null else current.destinationPartitionLabel,
             )
+        }
+        recomputeSubmitGate()
+    }
+
+    /** Removes one animal from the basket — how a mis-scan is undone before it becomes a movement. */
+    private fun onRemoveAnimal(goatId: String) {
+        if (!beginEdit()) return
+        _state.update { current ->
+            current.copy(selectedAnimals = current.selectedAnimals.filterNot { it.goatId == goatId })
         }
         recomputeSubmitGate()
     }
@@ -284,7 +379,7 @@ class ShiftingViewModel @Inject constructor(
     private fun onSelectDestinationPark(parkId: String) {
         if (!beginEdit()) return
         _state.update { current ->
-            val currentFarm = current.selectedAnimal?.parkId.orEmpty()
+            val currentFarm = current.selectedAnimals.firstOrNull()?.parkId.orEmpty()
             if (parkId == currentFarm) current.copy(destinationParkId = currentFarm) else current
         }
         recomputeSubmitGate()
@@ -302,6 +397,12 @@ class ShiftingViewModel @Inject constructor(
             }
             if (belongsToPark) {
                 current.copy(destinationShedId = shedId, destinationPartitionLabel = partitionLabel)
+                    // Changing the pen changes which tags are on offer, so the toggle is
+                    // re-resolved against the NEW pen. Without this, picking a tagged pen, choosing
+                    // "use destination tag", then switching to an untagged pen would leave the form
+                    // showing a mode that pen cannot honour -- the raise would fall back to
+                    // keep-current and the operator would never be told.
+                    .withStageModeValidForDestination()
             } else {
                 current
             }
@@ -309,6 +410,28 @@ class ShiftingViewModel @Inject constructor(
         recomputeSubmitGate()
     }
 
+
+    /**
+     * Flips the tag toggle.
+     *
+     * Asking for the destination pen's tag when that pen cannot supply one is IGNORED rather than
+     * accepted-and-quietly-downgraded. The option is greyed out for exactly those pens, so reaching
+     * here means a stale composition or a race with a catalog refresh — and storing a mode the
+     * destination does not support would make the form claim a tag the raise then would not apply.
+     */
+    private fun onSelectStageMode(stageMode: String) {
+        if (!beginEdit()) return
+        if (stageMode !in ALLOWED_STAGE_MODES) return
+        _state.update { current ->
+            if (stageMode == SHIFTING_STAGE_MODE_DESTINATION && !current.canUseDestinationStage) {
+                current
+            } else {
+                current.copy(stageMode = stageMode)
+            }
+        }
+        // Deliberately no recomputeSubmitGate(): the toggle can never make a movement submittable
+        // or block one. Both positions are valid for every movement.
+    }
 
     private fun onSelectPriority(priority: String) {
         if (!beginEdit()) return
@@ -341,10 +464,34 @@ class ShiftingViewModel @Inject constructor(
     // Submit
     // -----------------------------------------------------------------------
 
+    /**
+     * Opens the read-back before anything is recorded. The reader is stopped here rather than at
+     * submit: once the operator is reading the list, a tag arriving from a still-live scanner would
+     * change what they are confirming while they look at it.
+     */
+    private fun onRequestSubmitConfirmation() {
+        val current = _state.value
+        if (!current.canSubmit) {
+            trackSubmitBlocked(current)
+            return
+        }
+        stopRfidScan()
+        analytics.track(AnalyticsEvents.COUNTS_SHIFTING_CONFIRM_OPENED, current.submitAnalyticsProps())
+        _state.update { it.copy(showSubmitConfirmation = true) }
+    }
+
     private fun submit() {
         val current = _state.value
-        if (!current.canSubmit) return
+        if (!current.canSubmit) {
+            trackSubmitBlocked(current)
+            return
+        }
+        // The movement is being recorded: a reader still listening would drop the next animal's tag
+        // into a form that has already left the operator's hands.
+        stopRfidScan()
+        _state.update { it.copy(showSubmitConfirmation = false) }
         val key = idempotencyKey.current()
+        analytics.track(AnalyticsEvents.COUNTS_SHIFTING_SUBMIT_ATTEMPTED, current.submitAnalyticsProps())
         viewModelScope.launch {
             val result = syncRepository.enqueueCountsShifting(
                 // Destination shed partitions ordering: two movements INTO the same shed drain
@@ -355,9 +502,8 @@ class ShiftingViewModel @Inject constructor(
             )
             when (result) {
                 is AppResult.Ok -> {
-                    outboxItemId.value = result.value
-                    observeOutboxItem(result.value)
-                    analytics.track(AnalyticsEvents.COUNTS_SHIFTING_SUBMITTED)
+                    resetForNextEntry(confirmation = QUEUED_MESSAGE, submittedOutboxItemId = result.value)
+                    analytics.track(AnalyticsEvents.COUNTS_SHIFTING_SUBMITTED, current.submitAnalyticsProps())
                 }
                 is AppResult.Err -> {
                     result.cause?.let { crashReporter.recordException(it, "counts shifting enqueue failed") }
@@ -377,25 +523,72 @@ class ShiftingViewModel @Inject constructor(
         }
     }
 
+    private fun trackSubmitBlocked(state: ShiftingUiState) {
+        val reason = state.validationMessage ?: "result_committed_or_form_not_ready"
+        analytics.track(
+            AnalyticsEvents.SUBMIT_BLOCKED,
+            state.submitAnalyticsProps() + (AnalyticsEvents.Params.REASON to reason),
+        )
+    }
+
+    private fun ShiftingUiState.submitAnalyticsProps(): Map<String, String> = mapOf(
+        AnalyticsEvents.Params.KIND to "shifting",
+        AnalyticsEvents.Params.ANIMAL_COUNT to selectedAnimals.size.toString(),
+        AnalyticsEvents.Params.PARK_ID to destinationParkId,
+        AnalyticsEvents.Params.SHED_ID to destinationShedId,
+        "priority" to priority,
+        "category" to category,
+        "stage_mode" to stageMode,
+    )
+
     /**
      * The wire body. `impacts` and `effective_at` are no longer sent at all: the backend derives
      * the movement's impact from the selected animal's own canonical breed/stage and stamps the
      * recording time itself. Source park/shed are likewise absent — the server reads the source
      * from the animal, which is the only place it was ever authoritative.
      */
+    /**
+     * Re-resolves the tag toggle against the CURRENTLY selected destination, snapping it back to
+     * keep-current whenever that pen cannot supply a tag.
+     *
+     * Called from every place the destination or the catalog can change, so the invariant is
+     * "[ShiftingUiState.stageMode] is always a mode the selected pen supports" rather than a rule
+     * each call site has to remember. Snapping DOWN to keep-current only — it never silently
+     * promotes a keep-current choice back to the pen's tag, because that is the operator's decision
+     * and re-making it for them would override a deliberate choice on a catalog refresh.
+     */
+    private fun ShiftingUiState.withStageModeValidForDestination(): ShiftingUiState = when {
+        // NO DESTINATION CHOSEN YET -- leave the mode alone. A mode is only invalid RELATIVE to a
+        // pen, and there is no pen here to judge it against.
+        //
+        // This branch is load-bearing, not defensive. The destination catalog lands while the form
+        // is still empty (it is fetched on open, before the operator has looked an animal up), so
+        // without it the very first refresh would see "no destination, so the pen's tag is
+        // unavailable", snap the mode to keep-current, and -- because this helper only ever snaps
+        // DOWN -- leave it there for the rest of the form. The default would be unreachable.
+        selectedDestination == null -> this
+        stageMode == SHIFTING_STAGE_MODE_DESTINATION && !canUseDestinationStage ->
+            copy(stageMode = SHIFTING_STAGE_MODE_KEEP_CURRENT)
+        else -> this
+    }
+
     private fun ShiftingUiState.toRequest(): CountsShiftingEventRequestDto = CountsShiftingEventRequestDto(
         destinationParkId = destinationParkId,
         destinationShedId = destinationShedId,
         destinationPartitionLabel = destinationPartitionLabel,
         priority = priority,
         category = category,
+        // Sent EXPLICITLY, like priority/category, because the screen shows the choice visibly. A
+        // form that displays a selected toggle must send what it displays rather than lean on a
+        // server default.
+        stageMode = stageMode,
         // Blank normalizes to absent: "left empty" and "typed then cleared" are the same intent,
         // and sending "" for one of them would change the request fingerprint of an otherwise
         // identical resubmission.
         comment = comment.trim().ifBlank { null },
-        // A list of exactly one: the contract's shape is a list and the client does not narrow a
-        // server contract it does not own.
-        goatIds = listOfNotNull(selectedAnimal?.goatId),
+        // Every animal in the basket, in the order they were gathered. The wire contract was always
+        // a list; bulk shifting is what finally fills it with more than one.
+        goatIds = selectedAnimals.map { it.goatId },
     )
 
     private fun observeOutboxItem(itemId: String) {
@@ -414,7 +607,7 @@ class ShiftingViewModel @Inject constructor(
                     // values on a locked form. A still-syncing (queued) or terminally-rejected (failed)
                     // write keeps its banner and values.
                     if (writeResult.status == CountsWriteStatus.SYNCED) {
-                        resetForNextEntry(confirmation = writeResult.message)
+                        resetForNextEntry(confirmation = writeResult.message, submittedOutboxItemId = itemId)
                         return@collect
                     }
                     _state.update { it.copy(result = writeResult) }
@@ -429,7 +622,7 @@ class ShiftingViewModel @Inject constructor(
      * syncs on its own, so we drop only THIS ViewModel's references to it and mint a fresh idempotency
      * key for the next movement, while KEEPING the cached destination catalog so the form stays usable.
      */
-    private fun resetForNextEntry(confirmation: String?) {
+    private fun resetForNextEntry(confirmation: String?, submittedOutboxItemId: String? = null) {
         statusJob?.cancel()
         statusJob = null
         idempotencyKey.invalidate()
@@ -440,6 +633,7 @@ class ShiftingViewModel @Inject constructor(
                 lastRecordedMessage = null,
                 returnToActions = true,
                 submissionNotice = confirmation,
+                submittedOutboxItemId = submittedOutboxItemId,
             )
         }
         recomputeSubmitGate()
@@ -464,20 +658,27 @@ class ShiftingViewModel @Inject constructor(
         // the backend is certain to reject with `missing_goat_ids` — durable in the outbox,
         // terminal on first dispatch, and only visible as a failure long after they walked away
         // from the shed.
-        val animal = state.selectedAnimal ?: return "Find and select the animal that moved."
-        if (!animal.lifecycleStatus.equals("alive", ignoreCase = true)) {
+        if (state.selectedAnimals.isEmpty()) return "Find and select the animals that moved."
+        // EVERY animal is checked, not just the first: a bulk basket is gathered a tag at a time,
+        // and one ineligible or out-of-farm animal among twenty would otherwise ride along unseen
+        // into a write the backend then rejects whole.
+        if (state.selectedAnimals.any { !it.lifecycleStatus.equals("alive", ignoreCase = true) }) {
             return INELIGIBLE_ANIMAL_MESSAGE
         }
-        if (animal.parkId.isBlank() || state.destinationParkId != animal.parkId) {
-            return "This animal's current farm is unavailable. Refresh and try again."
+        if (state.selectedAnimals.any { it.parkId.isBlank() || it.parkId != state.destinationParkId }) {
+            return FARM_MISMATCH_MESSAGE
         }
-        if (state.destinationShedId.isBlank()) return "Choose the shed the animal moved to."
+        if (state.destinationShedId.isBlank()) return "Choose the shed the animals moved to."
         return null
     }
 
     private companion object {
         const val KEY_IDEMPOTENCY = "countsShifting.idempotencyKey"
         const val KEY_OUTBOX_ITEM_ID = "countsShifting.outboxItemId"
+        // Farm-worded, because the operator reads it: goats never move between farms, so an animal
+        // from another park cannot join this movement.
+        const val FARM_MISMATCH_MESSAGE =
+            "That animal is on another farm. A movement can only carry animals from one farm."
         const val QUEUED_MESSAGE = "Saved on this phone. It will sync automatically."
         const val SYNCED_MESSAGE = "Movement submitted for review."
 
@@ -503,6 +704,14 @@ class ShiftingViewModel @Inject constructor(
             SHIFTING_CATEGORY_HEALTH,
             SHIFTING_CATEGORY_BREEDING,
             SHIFTING_CATEGORY_DELIVERY,
+            SHIFTING_CATEGORY_SPACING,
+            SHIFTING_CATEGORY_FLUSHING,
+        )
+
+        /** The tag toggle's two positions; a value outside it is never stored. */
+        val ALLOWED_STAGE_MODES = setOf(
+            SHIFTING_STAGE_MODE_DESTINATION,
+            SHIFTING_STAGE_MODE_KEEP_CURRENT,
         )
     }
 }
@@ -533,6 +742,9 @@ internal fun GoatSearchItemDto.toShiftingAnimalUi(): ShiftingAnimalUi = Shifting
     lifecycleStatus = lifecycleStatus,
 )
 
+internal fun List<GoatSearchItemDto>.toDistinctShiftingAnimalUi(): List<ShiftingAnimalUi> =
+    distinctBy { it.goatId }.map(GoatSearchItemDto::toShiftingAnimalUi)
+
 internal fun GoatSearchItemDto.isEligibleForShifting(): Boolean =
     lifecycleStatus.equals("alive", ignoreCase = true) &&
         !locationPath.parkId.isNullOrBlank() &&
@@ -560,6 +772,27 @@ internal fun CountsDestinationParkDto.toShiftingParkUi(): ShiftingParkUi = Shift
             name = it.operationalLocationDisplay.ifBlank { it.name },
             partitionLabel = it.partitionLabel,
             operationalLocationDisplay = it.operationalLocationDisplay,
+            // Both carried verbatim for the tag toggle. Exactly one is non-blank on a response
+            // from a current backend; both blank means an older backend that predates the toggle,
+            // which reads as "this pen offers no tag" and leaves the form on keep-current -- the
+            // safe direction, since that build's server would ignore the mode anyway.
+            destinationStage = it.destinationStage,
+            destinationStageReason = it.destinationStageReason,
         )
     },
+    // Passed through verbatim: the pens are already filtered to this park's kid pens server-side,
+    // and each carries its own composed operational-location display. Re-deriving either here
+    // would be a second implementation of a backend-owned rule.
+    birthPlacement = BirthPlacementUi(
+        mode = birthPlacement.mode,
+        notice = birthPlacement.notice,
+        pens = birthPlacement.pens.map { pen ->
+            ShiftingShedUi(
+                shedId = pen.shedId,
+                name = pen.operationalLocationDisplay.ifBlank { pen.shedName },
+                partitionLabel = pen.partitionLabel,
+                operationalLocationDisplay = pen.operationalLocationDisplay,
+            )
+        },
+    ),
 )

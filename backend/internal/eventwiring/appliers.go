@@ -11,6 +11,7 @@ package eventwiring
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
@@ -18,6 +19,8 @@ import (
 	countsports "github.com/vgoats/goatos/backend/internal/counts/ports"
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectionports "github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
+	pccareports "github.com/vgoats/goatos/backend/internal/pccare/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
 	weighingports "github.com/vgoats/goatos/backend/internal/weighing/ports"
@@ -36,6 +39,35 @@ type FeedCompletionStore interface {
 	feeddirectionports.DistributionCompletionStore
 	feeddirectionports.PackingCompletionStore
 	feeddirectionports.TransportStore
+	feeddirectionports.WastageCompletionStore
+	feeddirectionports.ExternalConsumptionStore
+}
+
+// uhtConsumptionRecorder adapts the feeddirection external-consumption store to
+// the counts-side MilkPreparationUHTRecorder seam: an approved milk preparation
+// records the litres of UHT it opened into the feed stock ledger (maintainer
+// decision 2026-08-22 — the app's verified answer is the consumption source;
+// the sheet import remains history bootstrap only). Interface lives with the
+// consumer (countsapp), implementation with the owner (feeddirection), and only
+// this composition point knows both.
+type uhtConsumptionRecorder struct {
+	feed feeddirectionports.ExternalConsumptionStore
+}
+
+// uhtMilkFeedItemLabel is the feed_item_catalog label the milk-preparation UHT
+// answer depletes. One constant, because the recorder and the sheet importer
+// must land on the same catalog identity.
+const uhtMilkFeedItemLabel = "UHT Milk"
+
+func (a uhtConsumptionRecorder) RecordVerifiedUHTConsumption(ctx context.Context, in countsdomain.MilkPreparationUHTConsumption) error {
+	return a.feed.RecordExternalConsumption(ctx, feeddirectionports.RecordExternalConsumptionCommand{
+		TenantID:      in.TenantID,
+		ParkID:        in.ParkID,
+		FeedItemLabel: uhtMilkFeedItemLabel,
+		FeedDay:       in.PreparationDate,
+		QuantityKg:    in.UHTMilkQuantityLitres,
+		SourceRef:     fmt.Sprintf("milk-preparation:%s:attempt=%d", in.CompletionID, in.AttemptNo),
+	})
 }
 
 // WeighingVerdictStore is satisfied by *weighingpg.Repository. Weighing enqueued a verification item
@@ -43,6 +75,13 @@ type FeedCompletionStore interface {
 // applier registered here is that missing half.
 type WeighingVerdictStore interface {
 	weighingports.VerificationVerdictStore
+}
+
+// PCCareVerdictStore is satisfied by *pccarepg.Repository — the pc_care_tasks verdict half
+// (ApplyVerifiedTask / BounceTaskForRework).
+type PCCareVerdictStore interface {
+	ApplyVerifiedTask(ctx context.Context, p pccareports.ApplyVerifiedTaskParams) (bool, error)
+	BounceTaskForRework(ctx context.Context, p pccareports.BounceTaskParams) (bool, error)
 }
 
 // RegisterVerificationAppliers subscribes the shifting, feed-distribution, and feed-packing appliers to
@@ -57,13 +96,24 @@ func RegisterVerificationAppliers(
 	milkPreparation countsports.MilkPreparationCompletionStore,
 	weighing WeighingVerdictStore,
 	weighingAck weighingapp.VerificationApplyAcker,
+	pcCare PCCareVerdictStore,
 	log *slog.Logger,
 ) {
 	countsapp.NewShiftingVerificationHandler(shifting, nil).Register(bus)
-	countsapp.NewMilkPreparationVerificationHandler(milkPreparation).Register(bus)
+	countsapp.NewMilkPreparationVerificationHandler(milkPreparation).
+		WithUHTRecorder(uhtConsumptionRecorder{feed: feed}).Register(bus)
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feed, log).Register(bus)
+	// Feed WASTAGE (maintainer decision 2026-08-18): the fourth feed gate's applier, filtered to
+	// feed/feed_wastage_completion. Registered HERE, in the one shared list, so the API bus, the
+	// outbox relay, and the Pub/Sub consumer cannot drift apart — the exact incident this package
+	// exists to prevent.
+	feeddirectionapp.NewFeedWastageVerificationHandler(feed, log).Register(bus)
+	// PC Care (maintainer decision 2026-08-21): the pc_care module's applier, filtered to
+	// pc_care/pc_care_task. Registered HERE, in the one shared list, so the API bus, the outbox
+	// relay, and the Pub/Sub consumer cannot drift apart.
+	pccareapp.NewPCCareVerificationHandler(pcCare, log).Register(bus)
 	// weighingAck is the receipt weighing sends verification once a verdict has landed on the
 	// observation, so a decided item stops reading as still-being-applied. It may be nil (a bus
 	// built without a verification repo still applies verdicts exactly as before -- the ack is

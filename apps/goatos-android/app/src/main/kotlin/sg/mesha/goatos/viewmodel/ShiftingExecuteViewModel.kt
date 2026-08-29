@@ -26,7 +26,10 @@ import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.ShiftingPendingRepository
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofFlow
+import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
@@ -100,6 +103,7 @@ class ShiftingExecuteViewModel @Inject constructor(
     val state: StateFlow<ShiftingExecuteUiState> = _state.asStateFlow()
 
     private var statusJob: Job? = null
+    private var proofStatusJob: Job? = null
 
     init {
         analytics.track(AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_OPENED)
@@ -128,6 +132,7 @@ class ShiftingExecuteViewModel @Inject constructor(
             // fingerprint check, canComplete) reads the evidence this movement already has.
             draft = drafts.find(CaptureFlow.SHIFTING, shiftingEventId)
             draft.submitOutboxItemId?.let(::observeOutboxItem)
+            observeProofOutboxes()
             val cached = repo.findCached(shiftingEventId)
             if (cached == null) {
                 _state.update { it.copy(loading = false, notFound = true, canComplete = false) }
@@ -154,7 +159,7 @@ class ShiftingExecuteViewModel @Inject constructor(
      * outbox item id is retained so the completion can resolve the uploaded proof_id and send it as
      * proof_ref. Until a video is captured, "Mark done" stays disabled.
      */
-    private fun captureVideo(step: String, prompt: ProofCapturePrompt) {
+    private fun captureVideo(step: String, prompt: ProofCapturePrompt, replacing: Boolean = false) {
         if (_state.value.isCapturingVideo || destinationShedId.isBlank()) return
         _state.update { it.copy(isCapturingVideo = true, capturingStep = step, videoMessage = null) }
         viewModelScope.launch {
@@ -175,9 +180,19 @@ class ShiftingExecuteViewModel @Inject constructor(
                 _state.update { it.copy(isCapturingVideo = false, capturingStep = null) }
                 return@launch
             }
-            val result = proofCaptureRepository.capture(
-                taskId = shiftingEventId,
+            // Manohar ordering: capture the new proof durably, and only THEN let the repository
+            // discard the previous step's row/outbox item. captureReplacingLatest only removes the
+            // old occupant(s) of this slot AFTER the new capture returns AppResult.Ok, so a camera
+            // cancel, a repository failure, or process death mid-flow all leave the old clip's
+            // outbox item and draft entry exactly where they were (see [ProofCaptureRepository]'s
+            // captureReplacingLatest kdoc). Previously this deleted the old outbox item and cleared
+            // the draft BEFORE opening the camera, so a failed re-record lost the old proof.
+            val slot = EvidenceSlot(
+                identity = ProofIdentity(flow = ProofFlow.SHIFTING, taskId = shiftingEventId, subjectKey = destinationShedId),
                 fieldKey = shiftingProofFieldKey(step),
+            )
+            val result = proofCaptureRepository.captureReplacingLatest(
+                slot = slot,
                 subject = ProofSubject.SHED,
                 subjectId = destinationShedId,
                 localUri = captured.localUri,
@@ -200,7 +215,12 @@ class ShiftingExecuteViewModel @Inject constructor(
                         return@launch
                     }
                     // Durable BEFORE the UI flips: if the process dies here, re-entry still finds
-                    // the recorded clip instead of asking for it again.
+                    // the recorded clip instead of asking for it again. On a replace, the OLD
+                    // outbox item was already durably superseded by captureReplacingLatest above,
+                    // so re-pointing the draft at the new one here is safe.
+                    if (replacing) {
+                        drafts.clearProof(CaptureFlow.SHIFTING, shiftingEventId, step)
+                    }
                     drafts.putProof(
                         flowKey = CaptureFlow.SHIFTING,
                         entityId = shiftingEventId,
@@ -209,7 +229,13 @@ class ShiftingExecuteViewModel @Inject constructor(
                         fingerprint = _state.value.feedConfigFingerprint.takeIf { step != STEP_SHIFTING },
                     )
                     draft = drafts.find(CaptureFlow.SHIFTING, shiftingEventId)
-                    analytics.track(AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_VIDEO_CAPTURED)
+                    observeProofOutboxes()
+                    analytics.track(
+                        AnalyticsEvents.COUNTS_SHIFTING_EXECUTE_VIDEO_CAPTURED,
+                        shiftingProofEventProps(step) +
+                            (AnalyticsEvents.Params.PROOF_ID to result.value.id) +
+                            (PARAM_OUTBOX_ITEM_ID to proofOutboxId),
+                    )
                     _state.update {
                         it.copy(
                             isCapturingVideo = false,
@@ -245,27 +271,14 @@ class ShiftingExecuteViewModel @Inject constructor(
         )
 
     /**
-     * Replaces one step's clip. The previously queued PROOF_UPLOAD is deleted first (it has not been
-     * reviewed and must not upload as a second piece of evidence), then the flow re-enters the normal
-     * capture path so the new take is stored durably like any other.
+     * Replaces one step's clip. The new take is captured and durably persisted FIRST via
+     * [ProofCaptureRepository.captureReplacingLatest]; only once that succeeds does the repository
+     * discard the previous take's row and outbox item (Manohar ordering). A camera cancel or a
+     * capture-repo failure now leaves the previously recorded clip untouched and still submittable.
      */
     private fun reRecord(step: String, prompt: ProofCapturePrompt) {
         if (_state.value.isCapturingVideo) return
-        viewModelScope.launch {
-            draft.proofs[step]?.let { syncRepository.deleteOutboxItem(it) }
-            drafts.clearProof(CaptureFlow.SHIFTING, shiftingEventId, step)
-            draft = drafts.find(CaptureFlow.SHIFTING, shiftingEventId)
-            _state.update {
-                it.copy(
-                    videoCaptured = if (step == STEP_SHIFTING) false else it.videoCaptured,
-                    feedPackingVideoCaptured = if (step == STEP_PACKING) false else it.feedPackingVideoCaptured,
-                    feedGivenVideoCaptured = if (step == STEP_FEEDING) false else it.feedGivenVideoCaptured,
-                    canComplete = false,
-                    videoMessage = null,
-                )
-            }
-            captureVideo(step, prompt)
-        }
+        captureVideo(step, prompt, replacing = true)
     }
 
     private fun markDone() {
@@ -346,6 +359,17 @@ class ShiftingExecuteViewModel @Inject constructor(
 
     private fun shiftingProofFieldKey(step: String): String = "shifting_${step}_video"
 
+    private fun shiftingProofEventProps(step: String): Map<String, String> =
+        mapOf(
+            AnalyticsEvents.Params.SOURCE to SCREEN_SHIFTING_EXECUTE,
+            AnalyticsEvents.Params.KIND to KIND_SHIFTING_COMPLETE,
+            AnalyticsEvents.Params.ACTION to ACTION_CAPTURED,
+            AnalyticsEvents.Params.FIELD to shiftingProofFieldKey(step),
+            AnalyticsEvents.Params.SHED_ID to destinationShedId,
+            PARAM_GROUP_KEY to shiftingEventId,
+            PARAM_SLOT_KEY to step,
+        )
+
     private fun resetFeedEvidenceForChangedConfig() {
         packingProofKey.invalidate()
         feedingProofKey.invalidate()
@@ -356,6 +380,7 @@ class ShiftingExecuteViewModel @Inject constructor(
             drafts.clearProof(CaptureFlow.SHIFTING, shiftingEventId, STEP_FEEDING)
             drafts.putSubmit(CaptureFlow.SHIFTING, shiftingEventId, null, null)
             draft = drafts.find(CaptureFlow.SHIFTING, shiftingEventId)
+            observeProofOutboxes()
         }
         _state.update {
             it.copy(
@@ -372,6 +397,34 @@ class ShiftingExecuteViewModel @Inject constructor(
         viewModelScope.launch { drafts.clearProof(CaptureFlow.SHIFTING, shiftingEventId, STEP_SHIFTING) }
         resetFeedEvidenceForChangedConfig()
         _state.update { it.copy(videoCaptured = false, videoMessage = REWORK_REQUIRED) }
+    }
+
+    private fun observeProofOutboxes() {
+        val proofItemIds = draft.proofs.values
+            .filter { it.isNotBlank() }
+            .toSet()
+        proofStatusJob?.cancel()
+        if (proofItemIds.isEmpty()) return
+        proofStatusJob = viewModelScope.launch {
+            syncRepository.observeStatus()
+                .map { status ->
+                    proofItemIds.mapNotNull { proofItemId ->
+                        status.items.firstOrNull { it.id == proofItemId }
+                    }
+                }
+                .distinctUntilChanged()
+                .collect { items ->
+                    if (items.size < proofItemIds.size) return@collect
+                    val proofMessage = when {
+                        items.any { it.status == SyncItemStatus.FAILED } -> VIDEO_UPLOAD_FAILED
+                        items.all { it.status == SyncItemStatus.SUCCEEDED } -> VIDEOS_SYNCED
+                        else -> VIDEO_QUEUED
+                    }
+                    _state.update { current ->
+                        if (current.result.isCommitted) current else current.copy(videoMessage = proofMessage)
+                    }
+                }
+        }
     }
 
     private fun observeOutboxItem(itemId: String) {
@@ -450,6 +503,12 @@ class ShiftingExecuteViewModel @Inject constructor(
         const val STEP_SHIFTING = "shifting"
         const val STEP_PACKING = "packing"
         const val STEP_FEEDING = "feeding"
+        const val SCREEN_SHIFTING_EXECUTE = "shifting_execute"
+        const val KIND_SHIFTING_COMPLETE = "shifting_complete"
+        const val ACTION_CAPTURED = "captured"
+        const val PARAM_GROUP_KEY = "group_key"
+        const val PARAM_OUTBOX_ITEM_ID = "outbox_item_id"
+        const val PARAM_SLOT_KEY = "slot_key"
         const val KEY_PROOF_IDEMPOTENCY = "shiftingExecute.proofKey"
         const val KEY_PACKING_PROOF_IDEMPOTENCY = "shiftingExecute.packingProofKey"
         const val KEY_FEEDING_PROOF_IDEMPOTENCY = "shiftingExecute.feedingProofKey"
@@ -457,6 +516,8 @@ class ShiftingExecuteViewModel @Inject constructor(
         const val QUEUED_MESSAGE = "Saved on this phone. The move will sync automatically."
         const val SYNCED_MESSAGE = "Completion recorded. The move applies when Park Head approval is also present."
         const val VIDEO_QUEUED = "Video saved on this phone. It will upload automatically."
+        const val VIDEOS_SYNCED = "Videos synced."
+        const val VIDEO_UPLOAD_FAILED = "Video upload failed. Re-record the failed proof."
         const val VIDEO_FAILED = "Couldn't save the video. A video is required — please record or upload it again."
         const val VIDEO_REQUIRED = "Record the video first — it is required evidence for this task."
         const val HIGH_PRIORITY_VIDEO_REQUIRED = "Record all three live videos before marking this high-priority shifting done."

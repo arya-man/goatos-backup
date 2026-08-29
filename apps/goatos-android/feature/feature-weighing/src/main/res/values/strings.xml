@@ -77,8 +77,8 @@
     <string name="weighing_submit">Submit</string>
     <string name="weighing_blocked_saving">Saving what you entered. One moment.</string>
     <string name="weighing_blocked_no_shed_open">Open a shed before you record this weighing.</string>
+    <string name="weighing_blocked_already_submitted">Already submitted — this shed is read-only.</string>
     <string name="weighing_blocked_need_weight">Enter the weight before you submit.</string>
-    <string name="weighing_blocked_need_count">Enter how many animals were on the scale.</string>
     <string name="weighing_blocked_need_video">Record the video of this weighing before you submit.</string>
     <string name="weighing_blocked_video_uploading">The video is still going up. Submit opens as soon as it finishes.</string>
     <string name="weighing_blocked_video_failed">The video did not go up. Tap Retry on the video, then submit.</string>
@@ -106,8 +106,6 @@
     <string name="weighing_waiting_for_scan">Waiting for RFID scan</string>
     <string name="weighing_reupload">Re-upload</string>
     <string name="weighing_field_total_weight">Total weight</string>
-    <string name="weighing_field_animal_count">Animal count</string>
-    <string name="weighing_average_per_animal_fmt">Average %1$s kg per animal</string>
     <!-- NO INVENTED DENOMINATOR. This used to read "%1$d / 5 videos uploaded", where the
          numerator counted videos ADDED (a video still uploading was reported as uploaded) and the
          5 was the MAXIMUM, not a requirement. On a shed with one recorded video it read

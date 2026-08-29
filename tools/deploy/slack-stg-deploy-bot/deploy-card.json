@@ -1,0 +1,59 @@
+{
+  "text": "GoatOS deploy",
+  "blocks": [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*GoatOS deploy*\nDeploy the current `main` branch to the existing production-facing services, or distribute only the Android release."
+      }
+    },
+    {
+      "type": "actions",
+      "block_id": "deploy_options",
+      "elements": [
+        {
+          "type": "checkboxes",
+          "action_id": "deploy_options",
+          "options": [
+            {
+              "text": {
+                "type": "plain_text",
+                "text": "Also distribute Android mobile"
+              },
+              "description": {
+                "type": "plain_text",
+                "text": "Firebase App Distribution, Play Internal Testing, and mesha.sg/app.apk"
+              },
+              "value": "mobile_distribution"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "Deploy backend/web"
+          },
+          "style": "primary",
+          "action_id": "deploy_goatos_stg_main",
+          "value": "main"
+        },
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "Distribute Android only"
+          },
+          "action_id": "deploy_goatos_mobile_only",
+          "value": "mobile"
+        }
+      ]
+    }
+  ]
+}

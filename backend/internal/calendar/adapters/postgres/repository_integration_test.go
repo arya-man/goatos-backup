@@ -895,7 +895,11 @@ func TestCalendarParkDriveTargetsIncludeParkScopedBatchMembers(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
-	dueAt := time.Date(2026, 8, 2, 6, 0, 0, 0, time.UTC)
+	// The projection classifies a scheduled drive whose date has passed as OVERDUE, which is
+	// correct -- so a fixture pinned to a fixed calendar date stops testing the scheduled
+	// case the moment the clock passes it. Anchor the pair to the future, same 3-day gap.
+	driveAnchor := time.Now().UTC().AddDate(0, 0, 10).Truncate(24 * time.Hour).Add(6 * time.Hour)
+	dueAt := driveAnchor.AddDate(0, 0, -3)
 	const (
 		protocolID  = "86000000-0000-4000-8000-00000000d201"
 		versionID   = "86000000-0000-4000-8000-00000000d202"
@@ -928,7 +932,9 @@ func TestCalendarDefaultListKeepsPlannedDriveWhenSameDayCatchupDeferred(t *testi
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
-	driveDate := time.Date(2026, 8, 5, 6, 0, 0, 0, time.UTC)
+	// A scheduled drive whose date has passed is classified OVERDUE, correctly -- so a fixture
+	// pinned to a fixed calendar date stops testing the scheduled case once the clock passes it.
+	driveDate := time.Now().UTC().AddDate(0, 0, 10).Truncate(24 * time.Hour).Add(6 * time.Hour)
 	const (
 		protocolID  = "86000000-0000-4000-8000-00000000d301"
 		versionID   = "86000000-0000-4000-8000-00000000d302"
@@ -3190,7 +3196,10 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $3::uuid)`,
 		if location.PartitionLabel == nil || *location.PartitionLabel != wantPartition {
 			t.Fatalf("drive shed %d partition=%v, want %s", i, location.PartitionLabel, wantPartition)
 		}
-		if location.OperationalLocationDisplay != "Test Shed 0711 - "+wantPartition {
+		// Bare numeric partitions join with a SPACE (AGENTS.md pen-naming spec, 2026-08-16:
+		// the sheds ARE named "Castro 1" -- that is the name painted on the building).
+		// oploc.Display is the single place that decision lives.
+		if location.OperationalLocationDisplay != "Test Shed 0711 "+wantPartition {
 			t.Fatalf("drive shed %d display=%q", i, location.OperationalLocationDisplay)
 		}
 		if location.TotalAnimals != 1 {

@@ -34,9 +34,12 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
+import sg.mesha.goatos.core.data.capture.vaccinationSessionGroupKey
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
+import sg.mesha.goatos.core.data.capture.ProofFlow
+import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
@@ -510,7 +513,8 @@ class SubmitViewModel @Inject constructor(
                 if (captured != null) {
                     val shedScopeId = selectedShedId.value
                         ?: task.scopeId.takeIf { task.scopeType.equals("shed", ignoreCase = true) && it.isNotBlank() }
-                    proofCaptureRepository.capture(
+                    // HIGH-1: Pattern-match capture() result like every other caller (removeProof:546 style)
+                    when (val captureResult = proofCaptureRepository.capture(
                         taskId = task.taskId,
                         fieldKey = key,
                         subject = subject,
@@ -525,7 +529,24 @@ class SubmitViewModel @Inject constructor(
                         capturedByPrincipalId = currentPrincipalId,
                         proofPolicy = currentProofPolicy.copy(captureSource = captured.captureSource),
                         partitionLabel = activePartitionLabel(),
-                    )
+                    )) {
+                        is AppResult.Ok -> {
+                            _state.update { it.copy(lastError = null) }
+                        }
+                        is AppResult.Err -> {
+                            // Gate-3 backstop: surface proof capture error via screen's existing error channel
+                            crashReporter.recordException(
+                                captureResult.cause ?: IllegalStateException(captureResult.message),
+                                "SubmitViewModel.requestVideoCapture proof persist failed",
+                            )
+                            _state.update {
+                                it.copy(
+                                    lastError = captureResult.message.ifBlank { "Could not save proof video. Try again." },
+                                    snackbarMessage = SubmitSnackbarMessage.PROOF_SAVE_FAILED,
+                                )
+                            }
+                        }
+                    }
                 }
             } finally {
                 captureInFlightKey = null
@@ -690,12 +711,18 @@ class SubmitViewModel @Inject constructor(
                     snackbarMessage = null,
                 )
             }
-            // groupKey = the shed/scope this submission belongs to, so the outbox drains all
-            // of a shed's writes in order (TRD: outbox is "ordered per shed").
-            val groupKey = listOf(
-                activeShedId ?: current.scopeId.ifBlank { current.taskId },
-                activePartitionLabel()?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "whole",
-            ).joinToString("|")
+            // groupKey = the ONE lane this vaccination session's writes share, so the
+            // outbox holds this Submit behind any of the session's scans that have not
+            // reached the server yet.
+            //
+            // It used to be built here from the shed id and a differently-normalised
+            // partition label, which put it in a different lane from the scans
+            // (CaptureRepository enqueues under taskId + executionPartitionKey). Nothing
+            // ordered the two, so a Submit could drain while an animal's scan was still
+            // FAILED and close the shed one animal short -- and the shed then read as
+            // complete, so nobody went looking. Both sides now derive the key from one
+            // tested helper instead of re-typing it, which is how they drifted apart.
+            val groupKey = vaccinationSessionGroupKey(current.taskId, activePartitionLabel())
             val request = SubmitTaskRequestDto(
                 sopVersionId = current.sopVersionId.ifBlank { routeSopVersionId.orEmpty() },
                 idempotencyKey = key,
@@ -1598,13 +1625,40 @@ class SubmitViewModel @Inject constructor(
 
         val answersJson = Json { ignoreUnknownKeys = true }
 
-        fun stableSubmissionKey(task: TaskSummaryDto): String = "shed-submit:${submissionScope(task)}"
+        fun stableSubmissionKey(task: TaskSummaryDto): String {
+            val scopeId = task.scopeId.ifBlank { task.taskId }
+            val identity = ProofIdentity(
+                flow = ProofFlow.GENERIC_SUBMIT,
+                taskId = task.taskId,
+                scopeId = scopeId,
+                rowVersion = task.rowVersion,
+            )
+            return identity.submissionScopeKey(includePartition = false)
+        }
 
-        fun stableSubmissionKey(task: TaskSummaryDto, activeShedId: String?): String =
-            "shed-submit:${submissionScope(task, activeShedId)}"
+        fun stableSubmissionKey(task: TaskSummaryDto, activeShedId: String?): String {
+            val scopeId = activeShedId?.takeIf { it.isNotBlank() } ?: task.scopeId.ifBlank { task.taskId }
+            val identity = ProofIdentity(
+                flow = ProofFlow.GENERIC_SUBMIT,
+                taskId = task.taskId,
+                scopeId = scopeId,
+                rowVersion = task.rowVersion,
+            )
+            return identity.submissionScopeKey(includePartition = false)
+        }
 
-        fun stableSubmissionKey(task: TaskSummaryDto, activeShedId: String?, partitionLabel: String?): String =
-            "shed-submit:${submissionScope(task, activeShedId, partitionLabel)}"
+        fun stableSubmissionKey(task: TaskSummaryDto, activeShedId: String?, partitionLabel: String?): String {
+            val scopeId = activeShedId?.takeIf { it.isNotBlank() } ?: task.scopeId.ifBlank { task.taskId }
+            val partitionKey = partitionLabel?.trim()?.lowercase()?.takeIf { it.isNotBlank() } ?: "whole"
+            val identity = ProofIdentity(
+                flow = ProofFlow.GENERIC_SUBMIT,
+                taskId = task.taskId,
+                scopeId = scopeId,
+                partitionKey = partitionKey,
+                rowVersion = task.rowVersion,
+            )
+            return identity.submissionScopeKey(includePartition = true)
+        }
 
         fun submissionScope(task: TaskSummaryDto): String =
             submissionScope(task, activeShedId = null)

@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.CalendarRepository
+import sg.mesha.goatos.core.network.isConnectivityFailure
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
 import sg.mesha.goatos.feature.calendar.CalendarDayUiState
@@ -100,7 +101,7 @@ class CalendarDayViewModel @Inject constructor(
             return@launch
         }
         val result = repo.refreshEvents(status = statusFilter, dateFrom = key, dateTo = key, limit = CALENDAR_PAGE_SIZE)
-        _isOffline.value = result.isFailure
+        _isOffline.value = result.exceptionOrNull().isConnectivityFailure()
         _isRefreshing.value = false
     }
 
@@ -110,7 +111,7 @@ class CalendarDayViewModel @Inject constructor(
         _isLoadingMore.value = true
         // MOB-004: append the next page INTO Room; the observed flow re-emits the merged window.
         val result = repo.appendEvents(cursor = cursor, status = statusFilter, dateFrom = key, dateTo = key, limit = CALENDAR_PAGE_SIZE)
-        _isOffline.value = result.isFailure
+        _isOffline.value = result.exceptionOrNull().isConnectivityFailure()
         _isLoadingMore.value = false
     }
 }

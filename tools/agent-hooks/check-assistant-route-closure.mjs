@@ -35,6 +35,45 @@ function goBin() {
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PLANNER = path.join(repo, "backend/internal/ceoai/adapters/keywordplanner/planner.go");
 const DOCS_DIR = path.join(repo, "docs/ceo-ai");
+const MCP_MAIN = path.join(repo, "backend/cmd/mcp/main.go");
+const GOLDEN_DIR = path.join(repo, "tools/ceo-ai/eval/golden");
+const EXTERNAL_MCP_REQUIRED_TOOLS = [
+  "get_vaccination_today",
+  "get_action_center",
+  "get_verification_backlog",
+  "get_feed_today",
+  "get_procurement_pipeline",
+  "get_sales_overview",
+  "get_sales_deals",
+  "get_counts_summary",
+  "get_health_today",
+  "get_health_work_items",
+  "get_milk_feeding_today",
+  "get_workforce_coverage",
+  "get_weighing_progress",
+  "get_weighing_growth_adg",
+  "get_weighing_shed_weights",
+  "get_weighing_process_state",
+  "get_weighing_weight_demographics",
+];
+const GOLDEN_EXTERNAL_MCP_EXPECTATIONS = {
+  vaccination_live_tracker: ["get_vaccination_today", "GET /vaccination/live-tracker"],
+  verification_queue: ["get_verification_backlog", "GET /verification/queue"],
+  counts_breakdown: ["get_counts_summary", "GET /counts/breakdown"],
+  health_work_items: ["get_health_today", "get_health_work_items", "get_milk_feeding_today", "GET /app/health/work-items", "GET /app/counts/milk-feeding/tasks"],
+  workforce_coverage: ["get_workforce_coverage", "GET /admin/roster/coverage"],
+  feed_direction_today: ["get_feed_today", "GET /feed-direction/preview"],
+  feed_blocked_config_gaps: ["get_feed_today", "GET /feed-direction/preview"],
+  procurement_open_loads: ["get_procurement_pipeline", "GET /procurement/source-entry/loads"],
+  sales_overview: ["get_sales_overview", "GET /sales/overview"],
+  sales_deals: ["get_sales_deals", "GET /sales/deals"],
+  action_center_queue: ["get_action_center", "GET /action-center/obligations"],
+  weighing_progress: ["get_weighing_progress", "GET /weighing/campaigns"],
+  weighing_process_state: ["get_weighing_process_state", "GET /weighing/process-state"],
+  weighing_growth_adg: ["get_weighing_growth_adg", "GET /weighing/leadership/growth"],
+  weighing_shed_weights: ["get_weighing_shed_weights", "GET /weighing/shed-weights"],
+  weighing_weight_demographics: ["get_weighing_weight_demographics", "GET /weighing/weight-demographics"],
+};
 const STALE = [
   { re: /ProjectedCountFor/, why: "counts reader no longer uses ProjectedCountFor (deleted); docs are stale" },
   { re: /empty[- ]facts fallback/i, why: "empty-facts fallback replaced by ToolResult.Err + runtime retry; docs are stale" },
@@ -59,6 +98,78 @@ function checkDocs() {
     const text = readFileSync(path.join(DOCS_DIR, f), "utf8");
     for (const s of STALE) {
       if (s.re.test(text)) problems.push(`docs/ceo-ai/${f}: ${s.why}`);
+    }
+  }
+  return problems;
+}
+
+function checkExternalMCPTools() {
+  const text = readFileSync(MCP_MAIN, "utf8");
+  const problems = [];
+  for (const tool of EXTERNAL_MCP_REQUIRED_TOOLS) {
+    if (!text.includes(`Name:        "${tool}"`) && !text.includes(`"name":        "${tool}"`)) {
+      problems.push(`backend/cmd/mcp/main.go: missing external MCP typed tool ${tool}`);
+    }
+  }
+  const coverage = readFileSync(path.join(repo, "docs/ceo-ai/coverage-matrix.md"), "utf8");
+  const integration = readFileSync(path.join(repo, "docs/ceo-ai/external-mcp-integration.md"), "utf8");
+  for (const tool of EXTERNAL_MCP_REQUIRED_TOOLS) {
+    if (!coverage.includes(`external MCP:${tool}`) && tool !== "get_vaccination_today") {
+      problems.push(`docs/ceo-ai/coverage-matrix.md: missing external MCP coverage marker for ${tool}`);
+    }
+    if (!integration.includes(`\`${tool}\``)) {
+      problems.push(`docs/ceo-ai/external-mcp-integration.md: missing tool catalog entry for ${tool}`);
+    }
+  }
+  if (!/Feed MCP answers planned\/issued feed[\s\S]*feed_adherence/i.test(integration)) {
+    problems.push("docs/ceo-ai/external-mcp-integration.md: must explicitly state feed actuals/adherence are not covered by external MCP yet");
+  }
+  if (!/reorder thresholds are not configured/i.test(integration)) {
+    problems.push("docs/ceo-ai/external-mcp-integration.md: must explicitly state inventory reorder thresholds are not configured yet");
+  }
+  if (!/feed actuals\/adherence are not covered/i.test(text)) {
+    problems.push("backend/cmd/mcp/main.go: get_feed_today must warn that feed actuals/adherence are not covered yet");
+  }
+  return problems;
+}
+
+function checkGoldenExternalMCPMappings() {
+  const problems = [];
+  const seenExpectedClasses = new Set();
+  for (const f of readdirSync(GOLDEN_DIR)) {
+    if (!f.endsWith(".json")) continue;
+    const rel = `tools/ceo-ai/eval/golden/${f}`;
+    let cases;
+    try {
+      cases = JSON.parse(readFileSync(path.join(GOLDEN_DIR, f), "utf8"));
+    } catch (error) {
+      problems.push(`${rel}: invalid JSON: ${error.message}`);
+      continue;
+    }
+    if (!Array.isArray(cases)) {
+      problems.push(`${rel}: expected top-level array`);
+      continue;
+    }
+    for (const testCase of cases) {
+      const klass = testCase && testCase.class;
+      const expected = GOLDEN_EXTERNAL_MCP_EXPECTATIONS[klass];
+      const actual = testCase?.expect?.external_mcp_tools_any_of;
+      if (!expected) continue;
+      seenExpectedClasses.add(klass);
+      if (!Array.isArray(actual)) {
+        problems.push(`${rel}:${testCase.id || klass}: missing external_mcp_tools_any_of for ${klass}`);
+        continue;
+      }
+      for (const item of expected) {
+        if (!actual.includes(item)) {
+          problems.push(`${rel}:${testCase.id || klass}: ${klass} must include ${item} in external_mcp_tools_any_of`);
+        }
+      }
+    }
+  }
+  for (const klass of Object.keys(GOLDEN_EXTERNAL_MCP_EXPECTATIONS).sort()) {
+    if (!seenExpectedClasses.has(klass)) {
+      problems.push(`tools/ceo-ai/eval/golden/*.json: missing golden question for required external MCP class ${klass}`);
     }
   }
   return problems;
@@ -101,9 +212,12 @@ function main() {
     process.exit(1);
   }
   const docs = checkDocs();
-  if (docs.length) {
+  const externalMCP = checkExternalMCPTools();
+  const goldenMCP = checkGoldenExternalMCPMappings();
+  const problems = [...docs, ...externalMCP, ...goldenMCP];
+  if (problems.length) {
     console.error("assistant-route-closure guard failed: stale assistant docs:");
-    for (const p of docs) console.error(`  - ${p}`);
+    for (const p of problems) console.error(`  - ${p}`);
     process.exit(1);
   }
   console.log("assistant-route-closure guard passed");

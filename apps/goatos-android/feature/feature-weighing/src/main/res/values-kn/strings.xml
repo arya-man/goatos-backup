@@ -70,8 +70,8 @@
     <string name="weighing_submit">ಸಲ್ಲಿಸಿ</string>
     <string name="weighing_blocked_saving">ನೀವು ನಮೂದಿಸಿದ್ದನ್ನು ಉಳಿಸಲಾಗುತ್ತಿದೆ. ಒಂದು ಕ್ಷಣ ಇರಿ.</string>
     <string name="weighing_blocked_no_shed_open">ಈ ತೂಕ ದಾಖಲಿಸುವ ಮೊದಲು ಒಂದು ಶೆಡ್ ತೆರೆಯಿರಿ.</string>
+    <string name="weighing_blocked_already_submitted">ಈಗಾಗಲೇ ಸಲ್ಲಿಸಲಾಗಿದೆ — ಈ ಶೆಡ್ ಓದಲು ಮಾತ್ರ.</string>
     <string name="weighing_blocked_need_weight">ಸಲ್ಲಿಸುವ ಮೊದಲು ತೂಕ ನಮೂದಿಸಿ.</string>
-    <string name="weighing_blocked_need_count">ತಕ್ಕಡಿಯ ಮೇಲೆ ಎಷ್ಟು ಪ್ರಾಣಿಗಳಿದ್ದವು ಎಂದು ನಮೂದಿಸಿ.</string>
     <string name="weighing_blocked_need_video">ಸಲ್ಲಿಸುವ ಮೊದಲು ಈ ತೂಕದ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
     <string name="weighing_blocked_video_uploading">ವೀಡಿಯೊ ಇನ್ನೂ ಮೇಲೇರುತ್ತಿದೆ. ಮುಗಿದ ತಕ್ಷಣ ಸಲ್ಲಿಸು ತೆರೆಯುತ್ತದೆ.</string>
     <string name="weighing_blocked_video_failed">ವೀಡಿಯೊ ಹೋಗಲಿಲ್ಲ. ವೀಡಿಯೊ ಮೇಲೆ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ ಒತ್ತಿ, ನಂತರ ಸಲ್ಲಿಸಿ.</string>
@@ -99,8 +99,6 @@
     <string name="weighing_waiting_for_scan">RFID ಸ್ಕ್ಯಾನ್‌ಗಾಗಿ ಕಾಯುತ್ತಿದೆ</string>
     <string name="weighing_reupload">ಮತ್ತೆ ಅಪ್‌ಲೋಡ್ ಮಾಡಿ</string>
     <string name="weighing_field_total_weight">ಒಟ್ಟು ತೂಕ</string>
-    <string name="weighing_field_animal_count">ಪ್ರಾಣಿಗಳ ಸಂಖ್ಯೆ</string>
-    <string name="weighing_average_per_animal_fmt">ಪ್ರತಿ ಪ್ರಾಣಿಗೆ ಸರಾಸರಿ %1$s ಕೆಜಿ</string>
     <string name="weighing_videos_limit_reached">ಗರಿಷ್ಠ 5 ವೀಡಿಯೊಗಳನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಲಾಗಿದೆ</string>
     <string name="weighing_videos_uploaded_fmt">%1$d ಅಪ್‌ಲೋಡ್ ಆಗಿವೆ</string>
     <string name="weighing_video_index_fmt">ವೀಡಿಯೊ %1$d</string>

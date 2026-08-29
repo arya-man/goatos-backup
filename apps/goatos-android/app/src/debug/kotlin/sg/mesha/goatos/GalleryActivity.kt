@@ -52,7 +52,6 @@ import sg.mesha.goatos.ui.sampleScanState
 import sg.mesha.goatos.ui.sampleShedsState
 import sg.mesha.goatos.ui.sampleSubmitState
 import sg.mesha.goatos.ui.sampleTimetableState
-import sg.mesha.goatos.ui.ShowkaseWeighingLeadershipLumpSumFiveVideos
 
 /**
  * Debug-only screenshot harness. Renders a single screen with mock-matching sample fixture data
@@ -108,7 +107,6 @@ class GalleryActivity : ComponentActivity() {
                             "alerts" -> AlertsScreen(state = sampleAlertsState())
                             "you", "profile" -> ProfileScreen(state = sampleProfileState())
                             "timetable" -> TimetableScreen(state = sampleTimetableState())
-                            "weighing_lumpsum_five" -> ShowkaseWeighingLeadershipLumpSumFiveVideos()
                             else -> Text("unknown screen: $screen", color = Color.White)
                         }
                     }

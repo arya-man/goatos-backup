@@ -1,6 +1,121 @@
 # Goat OS Workspace Agent Context
 
-## Local Stack Canonical Ports
+## PR Review + Land Main Rule
+
+When the maintainer asks to review a GitHub PR and land main, the task is not
+done after pushing the certified commit to `origin/main`. After local CI passes
+and `make land-main` lands the commit, also resolve the GitHub PR itself:
+
+1. Verify the PR head branch and `origin/main` both point at the landed SHA, or
+   merge the PR through GitHub if it is still mergeable and not already landed.
+2. If the PR branch is stale but the exact PR content is already in `main`,
+   update the PR head branch to the landed SHA so GitHub closes the PR as
+   resolved.
+3. Report the PR state separately from the main SHA. If GitHub cannot mark it
+   "Merged" because the branch already equals `main`, say that explicitly.
+
+## GCP Billing Console Landing Rule
+
+When investigating Google Cloud billing for Goat OS, always land directly on
+the working billing reports page for the Mesha account:
+
+```text
+https://console.cloud.google.com/billing/01FEDE-96BCB3-76D992/reports?authuser=2&organizationId=563962826703&project=goatos-stg
+```
+
+Use the `ravi@mesha.sg` Google account. Do not use the personal Gmail accounts
+for billing reports; they land on the Google Cloud "You need additional access"
+error and are missing permissions such as `billing.resourceCosts.get`.
+
+For the 2026-08-26 billing investigation, the reports page showed August
+forecasted cost of about `₹34,382.31`, mostly driven by Cloud Run
+(`₹17,869.22` for 1-25 Aug), then Cloud SQL (`₹4,954.30`) and BigQuery
+(`₹2,152.09`). Always read the report table before guessing from the overview
+balance.
+
+## Vaccination Anchor Date Rule
+
+When the maintainer tells Codex, Claude, or any other agent to add a vaccination
+drive, anchor date, campaign date, baseline date, or "start from this date" for
+one or more vaccines, treat that date as a **vaccine timeline anchor**, not as a
+manual one-off obligation insert.
+
+Required behavior:
+
+1. Resolve the exact vaccine/program name the maintainer used. For example,
+   `Z1+Z3` is the vaccine/program label, not separate `Z1`, `Z2`, or `Z3`
+   management stages.
+2. Resolve the intended animal set from live herd scope: park, shed,
+   partition, species, sex, current stage, and explicit RFID/tag identifiers
+   where relevant. Report animal identifiers as actual RFID/tag values, not
+   internal goat ids.
+3. Clear, cancel, or supersede bad old obligations only when asked, and keep
+   that separate from the new anchor. Old missed rows are history; do not assume
+   deleting or canceling them will make the sweeper invent a new campaign.
+4. Create or configure the anchor through the vaccination generation/kernel path
+   so future boosters and revaccination are derived from the anchor date.
+   Do not blind-insert a single drive row unless the maintainer explicitly asks
+   for a one-off data repair and accepts the loss of future-rule semantics.
+5. Before claiming a date is scheduled, verify same-day and cross-vaccine
+   safety: live/live, live/killed, killed/live, killed/killed, maximum vaccines
+   per session, booster gaps, existing future obligations, and accepted vaccine
+   history. If another vaccine lands on the requested date, the backend/kernel
+   must either keep a medically compatible pair or push the lower-priority /
+   overflow work forward by the configured safe-gap rules.
+6. Respect operator-day packing: default cap is 200 animals per operator-day,
+   counted by animals, not doses. Fill with complete sheds first. For partitioned
+   sheds with a common parent, such as `Mandela 1 - Part 1` through
+   `Mandela 1 - Part 8`, keep sibling partitions together before mixing
+   unrelated sheds when they fit safely under the cap. If complete buckets total
+   180 and the next whole shed would exceed 200, keep 180 and carry the next
+   shed/group forward instead of splitting it.
+7. Never invent an operator fallback. A vaccination drive assignment's
+   `operator_id` must be an active workforce member whose
+   `primary_location_id` is the same park as the assignment's `park_id`.
+   If `vaccination_operator_assignment_config` is missing for a park, stop and
+   fix the park config; do not use another park's default operator. Any manual
+   SQL repair must include a pre-commit check that no assigned operator belongs
+   to a different park.
+8. After generation, report what actually happened: animals scheduled on the
+   requested anchor date, animals pushed to another date, the reason for each
+   push, remaining missing work, and next booster/revaccination dates.
+
+For the current Goat OS vaccination rules, `Z1+Z3` is goat + sheep, killed,
+bacterial/toxoid, first course at 4 weeks with booster at 7 weeks, and
+revaccination every 6 months. If the maintainer says "all kids and adults Oct
+15", that means anchor all selected live animals on October 15 and let the
+kernel apply compatibility and future scheduling from there.
+
+## Ravi Laptop Default: OCI DB, Not Local Docker Postgres
+
+On Ravi's laptop, default local Goat OS backend/admin-web development to the OCI
+Postgres tunnel when it is available:
+
+```text
+Database: postgres://postgres:${REMOTE_POSTGRES_PASSWORD}@127.0.0.1:15432/goatos?sslmode=disable
+Tunnel:   127.0.0.1:15432 -> OCI VM 127.0.0.1:5432
+```
+
+Current OCI dev VM connection details, credentials, and recovery metadata must
+live outside git. Resolve them from the operator's local environment or Google
+Secret Manager; do not commit account names, public IPs, laptop home paths, SSH
+keys, or Postgres passwords.
+
+Do not install or start Colima, Docker Desktop, Docker CLI, Lima, `goatos-local-current`,
+or any other local Postgres container just because older local-stack docs mention
+`5433` or a CI gate asks for Docker. Before any Goat OS work that appears to need
+Docker/Colima on Ravi's laptop, first check whether the OCI tunnel on `15432` is
+active and whether the task can use OCI instead. For `make land-main`,
+`validate-sqlc-plans`, query-plan proof, or any other disposable Postgres proof,
+use an OCI-hosted throwaway DB/container and clean it after the landing attempt;
+do not install Docker/Colima locally as the workaround. Use local Docker Postgres
+only when the maintainer explicitly asks for a disposable/local Docker DB, a
+Docker-specific integration test, or an isolated mutation test that must not touch
+OCI/staging-like data. If a stale `goatos-local-current` container or Colima VM is
+running while the active dev stack uses OCI, stop it instead of treating it as
+canonical.
+
+## Legacy Local Stack Canonical Ports
 
 For local Goat OS browser/debug work, use one shared local stack unless the user
 explicitly asks for an isolated throwaway stack:
@@ -12,11 +127,41 @@ Database: postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable
 Docker DB container: goatos-local-current
 ```
 
+This `5433` Docker DB setup is legacy/local-only on Ravi's machine and is not
+the default when the OCI tunnel is active.
+
 Before cloning, seeding, importing, or debugging local data, first verify the
-running backend's `DATABASE_URL` and make it match the canonical DB above. Do
-not infer the local DB from a previous temp worktree, a random Docker port, or a
-stale shell variable. If a temp stack is unavoidable, clearly label it as
+running backend's `DATABASE_URL`. On Ravi's laptop, prefer the OCI tunnel above;
+use the legacy `5433` Docker DB only after an explicit Docker/local DB request.
+Do not infer the local DB from a previous temp worktree, a random Docker port,
+or a stale shell variable. If a temp stack is unavoidable, clearly label it as
 throwaway and do not call it "the local DB".
+
+**HARD RULE - No circular OCI/E2E retries.** Before rerunning any long OCI DB,
+generation, Chrome E2E, CI, or landing command after a failure, identify the
+specific changed condition that makes the retry different: a code patch, data
+repair, tunnel repair, config change, or narrower diagnostic. Use an explicit
+timeout and capture the terminal result. If the same command fails twice with
+the same blocker, stop repeating it and switch to diagnosis or report the exact
+blocker; do not start another blind long run.
+
+**HARD RULE - UI fixes require real-surface proof after the final edit.** Claude
+and Codex must not call a UI fix done from code/tests alone. For any
+`apps/admin-web` browser-visible change, reload Chrome on the exact target URL
+after the last code edit and verify the changed UI is actually rendered there.
+For any Android/operator-mobile change, open the app on the physical phone or
+emulator target required by the task and verify the changed screen there.
+Static tests, typecheck, backend API checks, and screenshots from before the
+last edit are not enough.
+
+For any change that touches `apps/admin-web` Weights UI, Weights page copy,
+Weights charts, generated API contracts used by Weights, or backend read-model
+data consumed by `/weighing/weights`, verify the local Chrome page is not on
+`ERR_CONNECTION_REFUSED`, not showing backend-down copy, and not showing the
+React "Something went wrong" fallback. For chip/label/calendar changes, verify
+the actual rendered row labels, chips, calendar markers, and tooltip/info text
+in Chrome. If Chrome/phone verification is blocked, say it is blocked; do not
+present the UI fix as verified.
 
 When the user says "my local DB" or "local frontend/backend", treat that as:
 
@@ -32,6 +177,30 @@ Database: postgres://postgres:goatos@127.0.0.1:15544/goatos?sslmode=disable
 Docker DB container: goatos-phone-qa
 Runbook: docs/runbooks/phone-qa-throwaway-rbac.md
 ```
+
+## Android CLI Bootstrap - Claude AND Codex
+
+Before any Goat OS Android developer command, Claude, Codex, and human
+developers must ensure Google's Android CLI is available. Use the repo helper;
+do not hand-roll separate install steps:
+
+```bash
+bash tools/dev/ensure-android-cli.sh
+```
+
+The helper is idempotent. If `android` is missing, it installs the user-local
+Android CLI for the developer's platform, runs `android update`, runs
+`android init`, and runs `android skills add --all` so Codex, Claude, and other
+detected agents receive the official Android skills. If `android` is already on
+`PATH`, the helper stays quiet unless the base Codex/Claude Android CLI skill or
+the broader official skill set is missing. The Android entrypoints
+`make android-doctor`, `make android-emulator-ensure`, and `make
+android-dev-run` already run this first; agents that call lower-level Android
+scripts directly must preserve that bootstrap.
+
+For what Android CLI and Journeys are allowed to prove in Goat OS, read
+`docs/mobile/android-cli-and-journeys.md`. Journeys supplement the existing
+Gradle/Paparazzi/phone-QA gates; they do not replace them.
 
 **HARD RULE — phone/mobile QA must NEVER use or repoint the default ports.**
 `127.0.0.1:3300` (admin-web), `127.0.0.1:8080` (API), and `127.0.0.1:5433`
@@ -115,37 +284,124 @@ BANNED on every path: `goats`, `goat_identifiers`, `herd_*`, `vaccination_*`,
 module's rules. Weighing knows a scanned string and a weight. It does not know
 what animal that is and must never ask.
 
-ONE RECORDED EXCEPTION (maintainer decision 2026-08-07). The admin-web Weights
+RECORDED REPORTING EXCEPTIONS (maintainer decisions 2026-08-07 and 2026-08-19). The admin-web Weights
 screen reports average weight by BREED, SEX and MANAGEMENT STAGE. Those three
 facts live only on the animal, so exactly one file may resolve a scanned tag:
 `backend/internal/weighing/adapters/postgres/weight_demographics.go`, allowlisted
 BY NAME in `check-weighing-free-flow-guard.mjs` (`HERD_JOIN_EXEMPT_FILES`) and
-permitted `goats` + `goat_identifiers` only. Everything else stays banned, on
+permitted `goats` + `goat_identifiers` for same-animal reporting only. The same
+file may read `goat_shed_partitions` only to label lump-sum Weights read-model
+rows by the exact `(shed, partition)` resident cohort (`Godel 2 - Part 1`,
+`Castro 1/2/3`, `Gandhi 1/2/3`, legacy `Gandi 1/2/3`). It must not use that
+table to gate capture, submit, close, expected animals, or any write path.
+Everything else stays banned, on
 every path, in every other weighing file — the exemption is file-scoped precisely
 so it cannot leak to the write path, which is the 2026-08-04 defect.
 
 What keeps it safe, and what a future change must preserve: it is READ-ONLY; it
 is a reporting path with no capture, submit or close behaviour; NO scan is gated
 on identity; and a tag that resolves to nothing is COUNTED and reported, never
-rejected — free-flow capture is untouched. A whole-shed weigh has no tags and is
-attributed by the shed's own cohort, contributing to the stage figure but never to
-breed or sex, because splitting one shed average across a mix invents a
-distribution nobody measured. Widening this exemption — another file, another
-table, or any write path — is a MAINTAINER decision, never a developer
-convenience.
+rejected — free-flow capture is untouched. The same file may return row context
+chips such as "F2 / female" or "Anantapur Sheep / male" for the admin-web
+Weights table; those chips label the weighed shed row and must not become a
+write-path lookup or validation rule. A whole-shed weigh has no tags and is
+attributed by the shed's own cohort only when that cohort is homogeneous for the
+reported dimension. Mixed whole-shed averages may be labelled with multiple
+breed/sex chips, but are never split across breed or sex buckets, because
+splitting one shed average across a mix invents a distribution nobody measured.
+Widening this exemption — another file, another table, or any write path — is a
+MAINTAINER decision, never a developer convenience.
+
+SECOND RECORDED EXCEPTION (maintainer decision 2026-08-24): the LUMP-SUM CENSUS
+SNAPSHOT. Operators kept typing wrong lump-sum head counts, so the operator no
+longer enters one: `RecordShedObservation` snapshots the bucket's live resident
+count from `goats` + `goat_shed_partitions` INSIDE the submit transaction via
+exactly one file — `backend/internal/weighing/adapters/postgres/lump_sum_census.go`,
+allowlisted BY NAME in `check-weighing-free-flow-guard.mjs` — stores it frozen on
+`weighing_shed_observations.animal_count`, and derives the average from it. The
+snapshot never changes afterwards: herd moves do not recompute it, replays return
+the original, and the verifier's weight correction is WEIGHT ONLY on both grains
+(a correction naming a count is refused, `animal_count_not_applicable`; the
+verification spec no longer declares a count field). A register-empty bucket
+refuses the submit (422 `shed_count_unavailable`) rather than inventing a count.
+This is knowingly a WRITE-PATH read and is recorded as such; its boundaries — one
+COUNT of the bucket's own (shed, pen), no per-animal identity, individual
+free-flow capture untouched — are stated in the guard header and the census file
+itself. Canonical prose: `docs/decisions/weighing-lump-sum-census-count.md`.
+
+THIRD RECORDED EXCEPTION (maintainer decision 2026-08-26): the WEIGHTS SEX FILTER. The
+admin-web Weights page carries a **Sex** filter in its own filter bar, beside Weighing, and it
+governs the WHOLE page — every KPI, the shed table, both leaderboards, the load chart, the
+Growth Director widgets and the breed gain card. A page whose cards disagree about which kids
+they counted has no true number on it, which is why this is a page filter and not a card
+control. A weighing row knows only a scanned string, so exactly one more file may resolve it:
+`backend/internal/weighing/adapters/postgres/sex_scope.go`, allowlisted BY NAME in
+`check-weighing-free-flow-guard.mjs`.
+
+That file answers "which weighs belong to this sex" ONCE and hands the other reads an OPAQUE
+list — tag strings and (location, partition) buckets — so `shed_weights.go`, `growth.go`,
+`load_weights.go` and the Growth Director reads still name no herd table and still know nothing
+about animals. Letting each of them join `goat_identifiers` instead is exactly the leak the
+2026-08-04 defect was about. It is READ-ONLY and REPORTING-ONLY: no capture, submit, close or
+verdict path calls it, NO scan is gated on identity, and an empty sex resolves to an empty scope
+that every caller reads as "no filter", so the unfiltered page runs the query it ran before this
+file existed and reads no goat row at all.
+
+An individual weigh is claimed through the animal its tag resolves to. A WHOLE-SHED weigh has
+no tag and is claimed only when its shed's resident cohort is entirely that sex — the
+maintainer's own rule is that a lump-sum shed holds one sex — and a shed the register shows as
+mixed is claimed by NEITHER side rather than split, because one shed average cannot be divided
+between two cohorts. A tag that resolves to nothing is still recorded and still counted in the
+unfiltered view; it simply cannot answer a question about sex, so the filtered halves do not add
+up to the unfiltered total, and that gap is honest rather than missing data.
+
+ONE DAILY-GAIN NUMBER, AND WHOLE-SHED PENS ARE IN IT (maintainer decision 2026-08-26, same day,
+SUPERSEDING the individual-only headline). The farm's daily gain is the ANIMAL-WEIGHTED MEAN over
+every kid weighed twice (each kid once, at the median of its own pairs) PLUS every whole-shed pen
+weighed twice in the window, each pen contributing its average-weight movement ONCE PER ANIMAL it
+holds. `weighing.leadership.growth`'s headline and the Weights page's gain-by-breed/sex/stage
+charts now compute the IDENTICAL statistic, so a page filtered to one sex shows the same number in
+the headline and in the chart.
+
+It did not, and the maintainer found it: filtered to Male the page read 133 g/day in the headline
+above 200 g/day in the chart. Three mismatches at once — MEDIAN vs weighted MEAN, PAIRS vs ANIMALS,
+and whole-shed pens counted in one and not the other. Each was individually defensible; together
+they left the screen with no true number on it. Most of this farm's kids are weighed by the whole
+shed (339 of 791 in the landing window), so the old headline also answered "how fast is the herd
+growing" from under half the herd.
+
+The wire field is `average_adg_g_per_day` (was `median_adg_g_per_day`) and `headline_animals` is
+its denominator — `pair_count` remains the SCANNED-pair count and is now only the denominator of
+the pair statistics. Renaming was part of the fix, not tidying: a field named `median_` returning a
+mean is the same trap as the caption that told readers "Daily gain uses only the same animals
+weighed twice" while 65% of the number was whole-shed movement. Android reads the same endpoint and
+moved in the same change; the two surfaces must never report different herd growth.
+
+KNOWN AND ACCEPTED: a whole-shed average moves when animals ENTER OR LEAVE the pen, not only when
+they grow, so this is a coarser measure than a scanned pair. That is the trade taken deliberately
+rather than report the herd from a minority of it. The pair-based statistics (positive %, negative
+pairs, losing animals) stay individual-only — a shed average has no per-animal sign, and inventing
+one would put animals in a losing list nobody weighed.
+
+Pinned by `TestGrowthHeadlineEqualsTheGainChartForTheSameSex`, which filters to one sex so the
+chart holds exactly one bucket and the headline must equal it animal for animal; it was
+mutation-tested by restoring the old median-of-pairs headline and confirming it goes red.
 
 ALLOWED besides `weighing_*`: proof / idempotency / audit / outbox plumbing, and
 exactly four ORG tables — `locations`, `workforce_members`, `user_scope_grants`,
 `shed_partitions` (a task belongs to a park, a person, and a physical partition).
 Adding to that list is a MAINTAINER decision, never a developer convenience.
 
-CRITICAL DISTINCTION (maintainer decision 2026-08-06): `shed_partitions` is an
+CRITICAL DISTINCTION (maintainer decision 2026-08-06; reporting exception clarified 2026-08-19): `shed_partitions` is an
 ORG-scoped CATALOG of partitions that exist, keyed by (tenant_id, shed_id,
 normalized_label), with NO per-animal data. It is allowed. `goat_shed_partitions`
 is a PER-GOAT table (PK tenant_id, goat_id) that reveals which animal sits where.
-It is strictly BANNED. This distinction is enforced by the weighing isolation
-guard (`check-weighing-free-flow-guard.mjs` mode 16): reading one maintains
-isolation, reading the other breaks it.
+It is strictly BANNED except for the single reporting file named above, where it
+may be used only to label lump-sum composition at the selected operational
+location grain. This distinction is enforced by the weighing isolation guard
+(`check-weighing-free-flow-guard.mjs` mode 16): reading one maintains isolation,
+reading the other breaks it unless the read stays inside that file-scoped
+reporting exception.
 
 Also banned, because they are invented rules on a path that has none: any
 weighing CADENCE ("weekly", "monthly on the 15th", a minimum interval between
@@ -244,9 +500,47 @@ HEAD:main` when the maintainer asked to land directly on `main`. Never include
 unrelated proof files, screenshots, temp folders, or local artifacts in the
 commit.
 
+When the maintainer asks whether a fix was pushed or why it was not pushed,
+answer the status plainly first and do not argue. If the maintainer's intent is
+to land the already-reviewed/focused fix on `main`, do the repo/identity/dirty
+state checks and push the scoped fix to `main` instead of stopping at an
+explanation. If the worktree contains unrelated dirty files, isolate only the
+fix files in the commit/push path or state the concrete blocker.
+
+If `main` push is rejected by the landing gate, **do not stop at "can't push to
+main."** Run `make land-main` from a clean isolated worktree, inspect every named
+failure, fix branch-owned blockers, commit them, push the branch, and rerun the
+gate. Repeat until the exact SHA lands on `main` or the remaining blocker is a
+real external prerequisite the agent cannot change (for example a missing local
+OCI tunnel/VM credential, expired cloud auth, or an unavailable maintainer-owned
+service). A missing local Docker binary is **not** a blocker on Ravi's laptop:
+follow the OCI-DB rule at the top of this file and use OCI-hosted disposable
+Postgres/query-plan proof instead of asking for or installing local Docker. If a
+gate prints `docker: command not found`, first look for its OCI/admin-DSN
+override (for example `GOATOS_SQLC_PLAN_ADMIN_DSN` for query-plan proof) and run
+that path; do not report local Docker absence as the reason `main` cannot land.
+Even then, report the specific prerequisite and the exact command/output that
+proved it; do not present a guard failure as the final answer while fixable
+blockers remain.
+
 Report the verification boundary honestly and briefly. If only a narrow check
 was run, say so; do not spend 20 minutes manufacturing confidence for a one-line
 change.
+
+## Main Merge Requires Exact-SHA CI Evidence
+
+No PR, GitHub UI merge, connector/API merge, merge queue action, or direct push
+may put code on `main` unless one of these is true for the exact commit being
+landed:
+
+1. `make land-main` completed green from a clean isolated worktree.
+2. GitHub `ci` completed green for the exact current PR head SHA after the
+   branch was rebased onto fresh `origin/main`.
+
+Pending, failed, cancelled, stale, skipped, or targeted-only checks do not
+authorize a merge to `main`. Targeted local checks are review/preflight evidence
+only. If neither exact-SHA proof exists, do not merge; run `make land-main`
+locally or wait for/dispatch GitHub CI and verify the exact SHA is green first.
 
 ## MANDATORY: 4-Layer Lookup on Every Code Question
 
@@ -300,6 +594,25 @@ Only for what the graph cannot see:
 - Uncommitted/unstaged code
 - Any `callers_of = 0` result that seems wrong — verify with grep
 
+## Production-Facing Environment Decision
+
+Current operator-facing production cleanup uses the existing `goatos-stg`
+Google/Firebase project internally. Do not infer from the project id that public
+surfaces should keep staging names. Public app, browser, and operator-facing
+surfaces must use production names:
+
+- Android package: `sg.mesha.goatos`
+- Dashboard: `https://dashboard.mesha.sg`
+- API: `https://api.goatos.mesha.sg/` unless the maintainer explicitly chooses a
+  different prod API host in the same request
+- Firebase Auth issuer/audience may still be `goatos-stg` while the existing
+  Firebase project is reused. This is internal auth plumbing, not public naming.
+
+When editing docs, skills, release notes, app config, or deploy guidance for the
+current live operator path, describe it as production-facing even if the backing
+GCP/Firebase project id is `goatos-stg`. Keep historical incident/runbook facts
+unchanged only when they are explicitly about the old staging environment.
+
 ## STG Deployment Contract
 
 For Goat OS, STG deploy is NOT GitHub Actions and NOT PR-driven.
@@ -310,25 +623,40 @@ Do not create main→stg PRs as a deploy mechanism.
 Do not force-push a `stg` branch and wait for CI.
 Do not infer CI deployment from branch names.
 
+If STG shows Google Frontend `429 Rate exceeded` after a paid/restored Google
+bill, do not guess or redeploy app code first. Read and follow
+`docs/runbooks/stg-cloud-run-billing-recovery.md`: verify `ravi@mesha.sg`,
+`goatos-stg`, `billingEnabled: true`, Cloud Run service readiness in
+`asia-south1`, and finish with both terminal curls and live Chrome verification.
+The 2026-08-26 maintainer baseline for `goatos-api-stg` is min-instances `2`
+and max-instances `2`.
+
 Authoritative STG deploy path:
 1. Read `docs/runbooks/stg-deploy.md` (short contract) →
    `docs/runbooks/cloud-deploy-staging.md` (full Cloud Deploy mechanics).
-2. Use the manual Google Cloud Deploy scripts under
-   `tools/deploy/stg-clouddeploy-*.sh`.
+2. Use the Slack deploy button in `#goatos-stg-deploy`. The button triggers the
+   Google Cloud Build manual trigger `goatos-stg-deploy-main`, which reads
+   `cloudbuild.stg.yaml` and creates the Cloud Deploy release from `origin/main`.
 3. Verify active account is `ravi@mesha.sg`.
 4. Verify target org is `vgoats.com` and environment is Goat OS STG
    (`goatos-stg`).
 5. Never use Slice/Heva GitHub identity or cloud project for Goat OS.
 
 If a user asks to "push to STG", "promote STG", or "deploy STG", this means:
-manual Google Cloud Deploy from the latest approved `origin/main`, following the
-runbook.
+use the Slack button/Cloud Build route from the latest approved `origin/main`,
+following the runbook. Do not run a local deploy unless the Slack/Cloud Build
+route itself is broken and the maintainer explicitly asks for break-glass.
+
+If a user asks whether STG deploy is done, failed, or stuck, check the Cloud
+Build run started by the Slack bot first, then the Cloud Deploy release/rollout
+linked from that build. Do not infer status from local shell output or branch
+names.
 
 If a user asks to "publish Firebase", "upload to Firebase", "Firebase App
-Distribution", "release Android STG", "push the APK", "internal test", "Play
+Distribution", "release Android", "push the APK", "internal test", "Play
 internal testing", or includes an Android APK/AAB as part of a STG deploy, the
 Android release is not complete after Firebase App Distribution alone. Follow
-`docs/mobile/stg-signed-release.md` and publish the employee/internal release to
+`docs/mobile/production-facing-release.md` and publish the employee/internal release to
 all required channels: Firebase App Distribution, Google Play Internal Testing,
 and the stable operator URL `https://mesha.sg/app.apk`. That URL redirects to
 `gs://goatos-stg-public-downloads/operator/latest/app.apk`; do not copy APKs
@@ -346,13 +674,14 @@ Do not ask whether to use GitHub Actions, PR merge, or force-push `stg` unless
 the user explicitly asks to change deployment architecture. The machine-readable
 form of this contract lives at `context/deploy-contract.json`.
 
-## Mandatory Android STG APK Source Traceability
+## Mandatory Android APK Source Traceability
 
-Every Android STG APK uploaded to Firebase App Distribution must be traceable to
+Every Android APK uploaded to Firebase App Distribution must be traceable to
 the exact source revision that produced it.
 
-- Use only `:app:appDistributionUploadStgRelease` for Firebase App Distribution
-  Android STG uploads. Do not upload ad-hoc APK files manually from the Firebase
+- Use only `:app:appDistributionUploadProdRelease` for the active
+  production-facing Firebase App Distribution Android uploads. Do not upload
+  ad-hoc APK files manually from the Firebase
   console, `firebase appdistribution:distribute`, or any other path unless the
   maintainer explicitly asks for a one-off rescue build and the release notes
   still record the source label.
@@ -405,7 +734,9 @@ not exist, and the maintainer keeps re-explaining them. This is the WHOLE featur
 ```
 CEO assigns sheds to an operator or a director (the Growth Director executes too)
 individual  → scan RFID, enter weight, record video — per animal
-lump-sum    → total weight, animal count, video(s) — per shed
+lump-sum    → total weight, video(s) — per shed (head count is snapshotted
+              server-side from the herd register at submit; maintainer decision
+              2026-08-24, frozen forever, verifier edits weight only)
 submit
 ```
 
@@ -457,19 +788,19 @@ The private source/wiki may contain that branch, but GoatOS ignores it. Mothers
 are kept vaccinated operationally, and every kid uses the approved standard
 schedule in `docs/preventive-care-vaccination/vaccination-rules.md`.
 
-Confirmed Preventive Care (PC) ET+TT course rule: ET+TT is a two-dose course
+Confirmed Preventive Care (PC) Z1+Z3 course rule: Z1+Z3 is a two-dose course
 before the 182-day repeat. Dose 2 is due 21 days after dose 1 for both kid and
-adult courses. Imported/seeded ET+TT dose 1 must create the dose 2 obligation
+adult courses. Imported/seeded Z1+Z3 dose 1 must create the dose 2 obligation
 first; it must not jump straight to the 182-day repeat. The 182-day repeat
-starts only after accepted ET+TT dose 2/course completion. Blue Tongue kid dose
+starts only after accepted Z1+Z3 dose 2/course completion. Blue Tongue kid dose
 2 remains 28 days after dose 1; pox vaccines still obey the 28-day live-to-live
 spacing after PPR.
 
 Hard seed/generation guard: after real vaccination seeding, any accepted
-`et_tt_adult_w1` completion without a same-goat `et_tt_adult_w2` obligation or
+legacy `et_tt_adult_w1` completion without a same-goat legacy `et_tt_adult_w2` obligation or
 completion is a broken database, not a warning. Do not report future drives from
 `vaccination_drive_assignments` alone; first audit missing required obligations
-against `protocol_rules` and accepted history, especially adult ET+TT dose 2.
+against `protocol_rules` and accepted history, especially adult Z1+Z3 dose 2.
 
 Confirmed module ownership and weighing planning authority (maintainer decision
 2026-08-01): each operational module has ONE accountable director, and a module's
@@ -641,24 +972,100 @@ surfaces disagree about what a count means, stop and surface the conflict per th
 maintainer-lock rule above; fix parity by making the backend own one number, not
 by choosing a client's semantics.
 
-Confirmed shifting stage-selection and Vaccination handoff rule (maintainer decision
-2026-08-03, SUPERSEDING the 2026-07-29 three-mode operator chooser, which in turn
-superseded the 2026-07-20 destination `shed_profiles` authority rule): the raiser no
-longer chooses a management stage. A movement ADOPTS THE DESTINATION SHED's cohort,
-resolved by the BACKEND at raise time and snapshotted onto the request. The mobile form
-must not ask; `management_stage_mode` and `target_management_stage` are no longer accepted
-from clients and are rejected as unknown fields. The single exception is a FLUSHING
-destination: flushing is a nutrition cohort owned by its own workflow, so moving an animal
-into a flushing shed keeps that animal's current stage. Because the resolution cannot be
-guessed when the destination is ambiguous, three cases also keep the current stage — a shed
-holding more than one cohort, an empty shed, and a cohort absent from active
-`animal_stage_lookup` (real sheds carry `ICU-Kid`, `ICU-Non-Pregnant`, `Quarantine kids`,
-which the relocation cannot write and which would otherwise fail at the SECOND GATE, after
-the operator's video and the park head's approval). Keeping the current stage is the
-already-shipped empty-target behaviour, never a fabricated cohort; do not "improve" it into
-a majority-resident pick, which stamps a stage on thin evidence and flips as animals move.
-Canonical rule: `backend/internal/counts/domain.ResolveShiftingDestinationStage`; resolution
-happens at RAISE time so the park head approves the same stage the completion applies.
+Confirmed shifting TYPED-RAISE rule (maintainer decisions 2026-08-20, SUPERSEDING the
+2026-08-15 tag-toggle rule below on WHO decides for a raise that names a category, and
+superseding the clinical raise-time refusal FOR `health` MOVEMENTS ONLY): **THE SHIFT
+TYPE DECIDES THE TAG — the raiser is no longer asked.** Every typed raise carries a
+`category` that IS the rule selector: `health` stamps the destination tag on both legs
+(the one type allowed to stamp a clinical state — a health shift IS the health team
+acting); `growth` stamps the destination tag FORWARD ONLY along the authored lifecycle
+ladder (one reverse edge, Pregnant → Non-Pregnant; sexed stages refuse the wrong sex);
+`breeding` never changes the tag; `delivery` stamps the destination tag except never the
+newborn stage (into an empty untagged recovery shed the mother keeps her tag and the pen
+ADOPTS it); `spacing` moves the WHOLE source pen carrying its tag ("half-half is not an
+option") into a same-tag or empty destination (an empty pen adopts the tag); `flushing`
+moves females onto the Flushing tag into an empty or already-flushing pen. A raise a
+rule refuses is rejected at RAISE time with backend-owned farm copy — before approval and
+before any video. Pen adoption is snapshotted at raise (`adopt_pen_tag`, migration
+000179) and re-validated under the apply row lock, failing the whole apply closed
+(`ErrDestinationPenChanged`) when the pen changed underneath the approval. The client
+still names no stage of its own — `target_management_stage` stays rejected; the 2026-08-15
+toggle below survives ONLY as the legacy path for a category-less raise from an older APK.
+Canonical prose: `docs/features/shifting/shifting-rewrite-tag-rules.md`; rulebook:
+`backend/internal/counts/domain.ResolveShiftTypeDecision`. Open decisions recorded there:
+Mother/Milking/M0/Warmup have no growth edges yet (a growth raise touching them refuses),
+and an approver-chooses-tag capability for an untagged spacing source is a follow-up.
+
+Confirmed shifting TAG TOGGLE rule (maintainer decision 2026-08-15, now the LEGACY path
+governing only category-less raises per the 2026-08-20 typed-raise rule above; it had
+itself SUPERSEDED the
+2026-08-03 no-chooser rule below on WHO decides, and its FLUSHING carve-out outright;
+the 2026-08-03 rule had itself superseded the 2026-07-29 three-mode operator chooser and
+the 2026-07-20 destination `shed_profiles` authority rule): **the raiser chooses again —
+but between two BACKEND-OWNED answers, never a stage of their own.**
+
+The raise form shows a two-position toggle:
+
+```text
+keep_current      the animals keep the tag they already carry
+destination_stage the animals adopt the destination PEN's tag   (DEFAULT)
+```
+
+`stage_mode` on `POST /app/counts/shifting-events` carries the choice. ABSENT means
+`destination_stage`, so an APK predating the toggle keeps behaving exactly as it does
+today; a present-but-invalid value is REJECTED (`invalid_stage_mode`), never rewritten to
+the default — silently defaulting would stamp the pen's tag on a movement whose raiser
+asked for the opposite.
+
+**What did NOT change, and is the real content of the 2026-08-03 lock:
+`target_management_stage` is still rejected as an unknown field.** The client sends a
+MODE; the BACKEND still resolves which tag that means, from the same catalog the form
+renders. A phone therefore still cannot invent a cohort, cannot name one the relocation
+would refuse at the second gate, and cannot disagree with what the park head approved. Do
+not "simplify" the toggle into a stage picker — that is the 2026-07-29 chooser, and it was
+retired for these reasons.
+
+**FLUSHING IS NOW ADOPTED.** The carve-out (flushing is a nutrition cohort owned by its own
+workflow) is retired. The maintainer was shown the consequence — a move into a flushing pen
+puts that animal on flushing ration and re-keys her vaccination schedule — and accepted it.
+Migration `000171_flushing_stage_is_writable.sql` lists it as writable, which is the other
+half: nothing special-cases the string any more, so the WRITABLE VOCABULARY governs it.
+
+**A CLINICAL STATE IS STILL REFUSED, and is now refused EARLIER.** Bare `ICU`,
+`Quarantine`, `sick`, `under_treatment`, `recovering` may never be stamped by a movement:
+an animal in one of them has her vaccinations POSTPONED, so a placement action must not
+make that medical call. This is now enforced at RAISE time in
+`counts/domain.resolveConfiguredStage` (via `protocol/domain.IsClinicalManagementStage`,
+the ONE implementation, shared with identity's second-gate guard) rather than only at the
+second gate. It matters because a tenant really can list `ICU`/`Quarantine` in
+`animal_stage_lookup` — `migrations/postgres/stage_age_band_test.go` seeds exactly those —
+so the vocabulary check alone would resolve one at raise and then fail in
+`identity/adapters/postgres.resolveDestinationTag` AFTER the operator shot the completion
+video and the park head approved. The clinical PEN names `ICU-Kid` / `Quarantine kids` are
+NOT states and stay writable (migration 000167): a movement may say which pen an animal is
+in, never what condition she is in.
+
+Three cases still keep the current stage because the destination cannot be resolved: a pen
+holding more than one cohort, an empty pen, and a tag absent from active
+`animal_stage_lookup`. Keeping the current stage is the already-shipped empty-target
+behaviour, never a fabricated cohort; do not "improve" it into a majority-resident pick,
+which stamps a stage on thin evidence and flips as animals move.
+
+**The unavailable option is GREYED OUT WITH A REASON, never silently inert.**
+`GET /app/counts/shifting/destinations` carries `destination_stage` and
+`destination_stage_reason` per pen, exactly one of which is non-empty. The reasons are
+BACKEND-OWNED farm copy rendered verbatim (`counts/domain.StageReason*`): "This destination
+has no tag set", "This destination holds a mix of tags", "This destination's tag can only be
+set by the health team". The phone must not compose its own reason from a blank tag — a blank tag does not
+say WHY it is blank, and the operator is owed that. The catalog and the raise resolve
+through the SAME function, so the tag the toggle advertises is the tag the raise stamps.
+
+Canonical rule: `backend/internal/counts/domain.ResolveShiftingDestinationPenStageDetailed`;
+resolution happens at RAISE time so the park head approves the same stage the completion
+applies. Pinned by `TestPenStageAdoptsFlushingAndRefusesClinicalStates`,
+`TestPenStageReasonsAreFarmWordedAndExclusive`,
+`TestRecordShiftingEventHonoursTheRaisersTagToggle` and
+`TestRecordShiftingEventRejectsAnUnknownTagToggle` (each mutation-tested when written).
 Once Park Head approval and operator completion both exist, the
 second-gate transaction must atomically update the goat's `shed_id` and, when selected,
 `management_stage`, write identity audit, and publish
@@ -768,7 +1175,7 @@ guessing.
 EFFECTIVE STAGE (maintainer decision 2026-08-12): the ration is priced against the snapshotted
 target stage, or -- when that is BLANK -- against each ANIMAL's own current stage. Blank is the
 normal outcome whenever `ResolveShiftingDestinationStage` declines to adopt a destination cohort
-(empty pen, mixed pen, Flushing, or a cohort the relocation cannot write); it means "keep each
+(empty pen, mixed pen, clinical state, or a cohort the relocation cannot write); it means "keep each
 animal's current stage", NOT a missing input, and the raiser is never asked for a stage. Keying the
 ration off the blank target hard-blocked EVERY high-priority movement into an EMPTY PEN with
 "selected destination management stage is missing" -- naming a choice the phone does not offer. Do
@@ -800,6 +1207,30 @@ ref_type=feed_distribution_completion`. Canonical source:
 `docs/decisions/feed-distribution-verification.md`; migration
 `000032_feed_distribution_verification_gate.sql`.
 
+Confirmed FEED PURCHASE ENTRY rule (maintainer decision 2026-08-24, SUPERSEDING the READ-ONLY
+half — and only that half — of the 2026-08-17 lock recorded in migration `000174`): feed bought
+for CBE and CPT is now RECORDED IN THE APP on `/procurement/feed-purchases`, carrying the same
+fields the legacy Feed DB sheet's Purchase row keeps. 000174's own comment said "There is no
+authoring UI; purchase/vendor entry screens belong to the future Procurement vertical" — that
+vertical now exists, so the screen was built where the lock said it belonged.
+
+The other two decisions in 000174 STAND and are enforced on the write path: CURRENT-CATALOG FEEDS
+ONLY (an entered feed must resolve to an ACTIVE `feed_item_catalog` row, checked inside the write
+transaction; unknown feeds are rejected, never invented into the catalog) and STOCK DEPLETES AT
+SHEET LOCK (an app row sets `depletes_from = purchase_date`, `consumed_at_import_kg = 0`, so the
+existing stock/days-left read on `/feed/analytics` needed NO change). PROCUREMENT owns the write;
+feeddirection keeps the read.
+
+`feed.purchase.read` / `feed.purchase.write` are DEDICATED permissions, never a reuse of
+`ProcurementRead` — `operator` and `park_head` hold that for the source-entry screens they work,
+and this ledger carries supplier prices and payment state. `feed_director` holds READ ONLY: it
+owns what the farm feeds and is accountable for the stock cards these loads are counted from, but
+buying is the procurement desk's job. Canonical prose: `docs/decisions/feed-purchase-entry.md`;
+migration `000206_feed_purchases_app_entry.sql`. Pinned by
+`TestRecordFeedPurchaseControlIsCapabilityGated` (the feed_director row is the mutation test: it
+holds every feed permission there is, so enabling the control from a broader key turns it red),
+`TestFeedPurchaseRolePermissions` and `TestFeedPurchaseRoutesAreGatedOnTheDedicatedPermissions`.
+
 Confirmed feed-PACKING SHED-SESSION grain (maintainer decision 2026-08-11,
 REVERTING the 2026-08-10 PEN-DAY grain in full and restoring the shed-SESSION grain
 of the packing gate below): a pen's morning and evening shares are TWO SEPARATE
@@ -823,7 +1254,7 @@ merge had removed:
    `CHECK (session_no >= 1)`.
 2. `/feed-packing/worklist` accepts `session` again (0/absent = every session).
    `summary.line_count` counts pen×session lines.
-3. The verifier's item is subjected `Session N · Castro - 2`. Without the prefix a
+3. The verifier's item is subjected `Session N · Castro 2`. Without the prefix a
    verifier holding a pen's two cards cannot tell which bag each clip proves.
 4. The expected-ration context on that item names THAT SESSION's quantities, not the
    day's — one clip proves one bag, so a day total would show twice what the video
@@ -834,7 +1265,7 @@ merge had removed:
 Two things the merge did NOT touch and that stay as they are:
 
 - **The PEN is part of the key.** Castro 1/2/3 are different animals on different
-  rations; `000137` exists because one Castro - 1 clip closed out all three. This
+  rations; `000137` exists because one Castro 1 clip closed out all three. This
   survived the merge and must survive any future change.
 - **Feed DISTRIBUTION was never merged** and needs no repair.
 
@@ -907,7 +1338,7 @@ Transport is one daily task per active physical shed and is never per feed sessi
 **NOR PER PARTITION.** A shed's pens are packed and fed as separate bags, but they
 are LOADED AND STAGED as one trip, so transport is ONE task and ONE video for the
 whole shed. Migration `000143` fanned the materializer out over `shed_partitions`
-and a partitioned shed began listing `Castro - 1`, `Castro - 2`, `Castro - 3` as
+and a partitioned shed began listing `Castro 1`, `Castro 2`, `Castro 3` as
 three transport tasks -- three videos of one load. That was never a recorded
 decision; it contradicted this rule and `docs/decisions/feed-transport-verification.md`
 at the same time. `000152_feed_transport_restore_shed_grain.sql` is the forward
@@ -944,6 +1375,91 @@ independent. Route `POST /verification/items/{item_id}/verdict` is gated on
 Canonical source: `context/architecture/verifier-app-and-flow.md` → "Roles (truth table
 alignment)"; pinned by `TestVerificationSeparationOfDuty` and
 `TestVerdictRouteIsVerifierOnlyWhileQueueReadStaysLeadershipVisible`.
+
+Confirmed TOXIN module rule (maintainer decisions 2026-08-25; a RECORDED, SCOPED exception
+to the verifier verdict-exclusivity rule above that leaves that rule untouched): every feed
+load recorded on `/procurement/feed-purchases` owes one aflatoxin strip test (SafetiX SHF
+001-A), born automatically per feed-purchase row from `procurement.feed_purchase.recorded`
+— never hand-created, no calendar, no due clock. The test is a 7-STEP GUIDED FLOW with
+PROOF AT EVERY WORKING STEP: steps 1/2/3/5/6 one in-app-camera VIDEO each, step 4 a
+settling wait (the farm does NOT centrifuge — the extract sits ~1 hour), step 7 one
+in-app-camera strip PHOTO plus the reading (Negative/Positive/Invalid). ALL THREE WAITS
+ARE HARD-BLOCKED ON THE SERVER CLOCK (60 min after step 3 → step 5; 3 min → step 6; 8 min
+→ step 7); the phone renders server step states and never derives gate logic from its own
+clock. Steps are PERSON-INDEPENDENT among `toxin.execute` holders; each completion records
+who. An Invalid strip or a rejected review CANCELS the whole round and mints a fresh
+retest task in the SAME transaction (`round_no+1`; one live round per load, enforced by a
+partial unique index); rejects require a reason and never name a step. REVIEW IS CEO/CXO
+ONLY: `toxin.verdict` is granted to `ceo_internal` alone on its own routes — the module is
+an approval gate in the `counts_approver` shape, deliberately NOT a Verification category,
+so the verifier never sees toxin work and `verification.verdict` stays verifier-only.
+Access is PER PERSON via `toxin_tester` (`perPersonGrants`; today the two named park
+heads) — never on the park_head/director job. `toxin.execute` is ORed into the
+`/app/proofs/*` routes. **CEO/CXO WATCHES AND JUDGES BUT NEVER RUNS A TEST (maintainer
+decision 2026-08-26, correcting the 2026-08-25 grant): `ceo_internal` holds
+`toxin.read` + `toxin.verdict` and NOT `toxin.execute`.** Do not add it back — a CEO who
+could film the steps would be approving their own evidence. Enforced on BOTH halves per
+the capability-gated lock: the step/submit routes refuse leadership at the route table,
+AND `can_execute` on `ToxinTask` (the CALLER's permission, resolved per request) makes the
+composed payload render every unfinished step `locked` and the phone card non-tappable, so
+no camera is ever offered for a write the server would refuse. Pinned by
+`TestToxinExecuteIsTesterOnlyAndNeverCEO`, `TestWatcherSeesNoActionableStep`, and the
+`ToxinTaskListViewModelTest` watcher case. v1: accepted Positive FLAGS the load, does not block feeding; no
+FCM. Canonical prose: `docs/decisions/toxin-testing-module.md`; pinned by
+`TestToxinVerdictIsCEOOnly`, `TestToxinTesterCarriesOnlyTestingAuthority`,
+`TestToxinModuleIsOfferedPerPersonNotPerJob` (each mutation-tested when written).
+
+Confirmed THE APPROVE CARRIES THE NUMBER rule (maintainer decision 2026-08-20, SUPERSEDING
+the separate-save-act half of the 2026-08-17 weighing weight-correction and 2026-08-18 feed
+wastage measurement decisions): where a verification item declares a measurement, the verifier
+types the value and presses **Approve ONCE**. There is **NO separate save button**, on the
+phone or in the admin-web drawer.
+
+**Why this is a lock and not a preference.** Recording the measurement RELABELS the
+verification item, and the relabel is `row_version = row_version + 1`. The verdict UPDATE is
+version-fenced (`AND row_version = $6`), so the Approve pressed straight after a save carried
+the version the screen had loaded with, matched no row, and SILENTLY DID NOTHING. Two acts for
+one judgement, the second broken by the first, with no error the verifier could see. Do not
+reintroduce a save button: it recreates the defect exactly.
+
+Four parts, each load-bearing:
+
+1. **The number rides the verdict.** `measurement` on
+   `POST /verification/items/{item_id}/verdict`. It names NO target — the record it lands on is
+   resolved from the ITEM's own source, because a client that could name its own target could
+   aim one item's approve at another item's record.
+2. **Verification still does not know what the number MEANS.** It reaches the write through
+   `verificationapp.MeasurementApplier`, registered per category at composition time exactly
+   like the enqueue/withdraw/relabel seams producers already register. Each applier forwards to
+   the SAME producer service its standalone route calls, so range checks, idempotency, audit and
+   relabel are ONE implementation. Do NOT make verification read a producer's table.
+3. **`RequiredForApprove` is TRUE for feed wastage and FALSE for weighing, and that asymmetry is
+   the rule, not an oversight.** Wastage's operator submits a VIDEO AND NO NUMBER, so the
+   reading is born on the verifier's screen and approving blank would complete a pen-day with no
+   wastage recorded at all — checked BEFORE the verdict, because the producer's own
+   `ErrWastageMeasurementRequired` fires in the CONSUMER, after the verdict is durable, and
+   strands the item mid-apply. Weighing's operator already recorded a weight, so blank means
+   "his weight is right" and MUST stay a single tap.
+4. **A REJECT never carries the number.** Rejection sends the work back to be recorded again, so
+   a value written onto a record about to be redone is a number nobody will use. Reject is also
+   never held on the measurement: a reading that cannot be taken off the clip is exactly the case
+   that must be sent back.
+
+Order inside one request: fence on the version she had on screen -> apply the measurement ->
+re-read `row_version` (it moved through OUR relabel, not a competing verifier's) -> record the
+verdict. Concurrency is still fenced, because the verdict UPDATE also requires the item to be
+`pending`. A producer that refuses the value stops the whole approve rather than leaving an
+approved item beside a number that never landed.
+
+Both producer routes (`.../weight-correction`, `.../wastage/{id}/measurement`) STAY SERVED for
+installed APKs that still show their own save button, and an item measured that way is still
+approvable — the applier is asked whether a value is already recorded. No current client calls
+them; do not build a new one that does.
+
+Canonical prose: `docs/decisions/feed-distribution-verification.md` -> "THE APPROVE CARRIES THE
+NUMBER". Pinned by `backend/internal/verification/app/verdict_measurement_test.go` (which keeps
+the save-then-approve 409 reproduced as the defect being replaced) and the Android
+`VerifyDetailViewModelAnalyticsTest` approve/reject pair; each was mutation-tested when written.
 
 Confirmed Approvals-on-mobile rule (maintainer decision 2026-08-05, SUPERSEDING the
 2026-07-21 decision that removed approvals from mobile and moved them to admin-web
@@ -1030,6 +1546,139 @@ names in ONE batched query per entity kind, and a fact whose name cannot be
 resolved is DROPPED from the line rather than rendered as an id. Clients render
 both verbatim; do not reintroduce client-side composition of that copy.
 
+Confirmed RANDOMIZED VERIFICATION SAMPLING rule (maintainer decision 2026-08-26): the CEO sets, per
+verification category, the PERCENTAGE of that category's proof videos the verifier actually has to
+watch. Her day is complete when she has cleared HER SHARE -- at 40% on feed packing, reviewing those
+40% IS 100% of her work, and the progress number is backend-owned so no surface derives its own.
+
+An UNSAMPLED video is AUTO-ACCEPTED, never left hanging, and that is the load-bearing half. Verifier
+approval is not merely review for feed and weighing -- it is the gate that COMPLETES the work (a feed
+pen-session stays pending_verification until an approve lands; a weighing bucket cannot close while
+verification is pending, ledger D-5, unconditional). Hiding the unsampled ones would stall those
+workflows forever, so the closeout stage approves them with
+`verification_items.auto_resolution = 'not_sampled'` and NO verified_by, emitting the ordinary
+`verification.verdict.approved` event -- every producer's consumer applies exactly as it does for a
+human approve. There is no second apply path, and a waived item can never be counted as her work.
+Sampling decides what gets WATCHED; a video nobody watched is never evidence the work was wrong, so
+a waived item is always an approval and never a rejection.
+
+Four narrowings, each load-bearing. (1) The draw is DETERMINISTIC AND MONOTONIC -- `sampling_bucket`
+is a GENERATED column, in sample when `bucket < percent` -- so raising the share mid-day only ADDS
+videos and can never retract one she is already holding. That is what makes "takes effect the same
+day" safe. (2) The policy is EFFECTIVE-DATED: a change writes a row at TODAY's business date and a
+past day keeps the percentage it actually ran at; the date is the SERVER's, never the client's.
+(3) A category whose approve must CARRY a measurement (feed packing's packed quantities, feed
+wastage's leftover weight) is LOCKED at 100% and the write is refused `sampling_not_available` --
+there the verifier is the DATA SOURCE, not a spot check, and waiving would either record no quantity
+at all or strand the item mid-apply. Derived from `MeasurementCorrection.RequiredForApprove`, never a
+hardcoded list. (4) The CLOSEOUT settles only CLOSED business days, because a video waived the moment
+it arrived could not be recruited back by a raise that afternoon.
+
+THE SHARE IS A FLOOR, NOT A CEILING (maintainer decision 2026-08-27, raised in review). A verdict on
+an item the policy did NOT draw is ACCEPTED and recorded as a HUMAN verdict (`verified_by` set,
+`auto_resolution` NULL). There is deliberately no sampling gate on the verdict route, and adding one
+would make bad work unreportable -- she watches an undrawn video, sees the work was wrong, and the
+rejection is refused so the work proceeds to `completed` -- as well as discarding a review already
+performed, since only a LOWERED share can drop an item she was holding. It mislabels nothing:
+`not_sampled` is the contract for a video NOBODY reviewed, `Reviewed`/`Selected` are share-scoped so
+an extra review cannot pass 100%, and the closeout skips any item a verifier already decided.
+Sampling is NOT an authorization boundary; what takes an item out of her reach is leaving `pending`.
+Reported as a P1 in review and closed as working-as-decided -- do not re-open it without reading
+`context/repo-audits/verification-randomization-do-not-reopen-ledger.md` -> B-1, which carries the
+reasoning, what a REAL defect here would look like, and the two stricter variants already costed.
+
+`permissions.VerificationSampling` is CEO-ONLY and narrower than every other capability on /verify:
+`pc_director` holds VerificationOversee and does NOT hold this. Oversight WATCHES the verification
+workload; randomization DECIDES how much of it a human must watch, and a director setting that for
+his own department's work is the separation of duty that keeps VerificationVerdict off leadership.
+The VERIFIER's queue is narrowed by the policy; LEADERSHIP's is not -- the principal who sets the
+percentage must be able to audit what it waived. Canonical prose:
+`docs/decisions/verification-randomization-sampling.md`; schema: migration
+`000214_verification_sampling.sql`; the cross-surface impact table (what sampling does to the KPI
+strip, the vaccination live tracker, the People proof stats and the verifier push) is in that same
+decision doc, and every row of it is asserted by `TestKernelStory_VerificationRandomization`. Two
+rules fall out of it and bind future changes: a count of what a PERSON STILL OWES uses
+`verification/samplingsql.InSample` (drawn items only), and a count of what a PERSON DID excludes
+`auto_resolution IS NOT NULL` -- a settled item carries the closeout's `verified_at` and would
+otherwise read as a verdict nobody cast, collapsing the reject rate with approvals no one decided.
+Note also `backend/internal/verificationcatalog`: the category
+set is now read by TWO processes (the API's registry and the worker's closeout), and a worker holding
+a hand-copied subset would not fail loudly -- it would silently never settle the categories it was
+missing. Declaring a category inline in `bootstrap/api.go` is blocked by
+`TestBootstrapDeclaresNoCategoryOfItsOwn`.
+
+Confirmed PAGE-GRAIN ACCESS rule (maintainer decision 2026-08-27, SUPERSEDING the MECHANISM
+-- and only the mechanism -- of the 2026-08-21 procurement-director workspace decision, whose
+OUTCOME is preserved byte for byte): **a person's admin-web sidebar is exactly the pages ticked
+for them on /people.** One layer, editable by a human.
+
+Until now TWO layers decided it and they disagreed. PERMISSIONS said what someone may do; a
+LENS -- hand-written Go keyed on a ROLE -- then deleted nav leaves and page contracts regardless.
+The Procurement Director HOLDS `feed_config.read/write`, `operators.*`, `roster.*` and
+`verification.act` through the `feed_director` role he also wears, and saw none of it, because
+`procurement_director_lens.go` kept only the Procurement and Feed groups and hid `/feed/config`.
+Both layers were right about their own question; together they meant the People access editor
+(which reads permissions) advertised modules he could not reach, and every future "this person
+should not see that page" was a commit.
+
+`adminui/app/procurement_director_lens.go` is DELETED. Its narrowing was written onto that
+person's OWN rows by the backfill, once, as data (`NarrowForRetiredLenses`).
+
+**THE VERIFIER LENS STAYS** (maintainer instruction, same day) and is not the same kind of
+thing: it does not subtract from the ordinary console, it composes a DIFFERENT workspace -- a
+queue, its own registry-built modules, its own landing. Retiring it would delete a product
+surface rather than a narrowing. It is still checked FIRST, so a verifier is never page-narrowed.
+
+**THE PHONE DOES NOT CHANGE.** Android composes its bar from the mobile module registry; a page
+tick is web-only and never reaches it. Operator access is untouched.
+
+Four properties, each load-bearing:
+
+1. **AN EMPTY PAGE LIST MEANS EVERY PAGE OF THAT MODULE.** This is what makes a page shipped
+   tomorrow reach whoever already holds the module, instead of silently reaching nobody until
+   someone re-ticks thirty people. Narrowing is opt-in: you have to say "not that one".
+2. **THE CATALOG IS ASSERTED AGAINST THE REAL NAVIGATION.** `permissions.ModulePages` carries
+   every nav leaf; `TestEveryNavLeafIsATickablePage` fails if a leaf ships without a row (it
+   would be unwithholdable) and `TestEveryPageContractRouteIsOwnedByAModule` fails if a page
+   contract's route belongs to no module (it could never be narrowed). Adding a screen without
+   a catalog row is a build failure, not a silent hole.
+3. **FAIL OPEN ON ABSENCE AND ON ERROR.** A person with no stored rows is NOT narrowed -- they
+   are still on the retired role path, and narrowing them to nothing would lock out anyone the
+   backfill has not reached. A source error is logged and the full contract served. The sidebar
+   is a convenience; every route behind it is independently permission-gated, and the 403 is the
+   lockout.
+4. **TWO REFUSALS ON THE WRITE PATH.** A page key from another module is REJECTED (a dropped
+   tick reads as granted while granting nothing). A granted module with screens and NONE ticked
+   is REJECTED -- it would resolve to every page by property 1, the opposite of what the admin
+   just did on screen.
+
+**A SCREEN IS OFFERED ONLY WHEN IT CAN BE OPENED**, and this is the fifth property rather than
+a detail. Every page declares the permissions its own screen needs, and a screen the person
+cannot open is never ticked -- so it can never render greyed. The catalog and the navigation
+gate (`adminui/app.permissionsForNav`) are asserted IDENTICAL by
+`TestPageCatalogPermissionsMatchTheNavigationGate`; they are two layers and drift between them
+is what produced dead rows. Openability is computed from the person's WHOLE permission set,
+not the owning module: Feed SOP is grouped under Feed and needs `sop.read` from Protocols &
+SOPs, and checking only the owner hid it from the CEO. A module is where a screen is TICKED,
+never where its authority comes from. Note also that permissions union across SURFACES, so
+removing a module from web removes the SCREENS while the phone's own grant still carries the
+ability -- consistent, because a route does not know which surface called it.
+
+The live sweep that proves all of this is `tools/dev/audit-person-access.py` (930 checks over
+all 31 people, both surfaces). Its PASS 3 opens the DATA ROUTE behind every visible leaf and
+fails on a 403; that is what found NINE dead leaves for four real people, every one of them a
+pre-existing leaf with no navigation gate at all, plus Counts Breakdown gated on `goat.read`
+while `/counts/breakdown` checks `counts.read`. Run it after any change to the access model --
+it needs the local stack, so it is deliberately not in CI.
+
+Resolution is `permissions.PageAccessForAssignments`, read by BOTH the bootstrap narrowing and
+the access editor, so the ticks the screen shows are the ticks the sidebar obeys. Schema:
+migration `000220_person_page_access.sql`. Canonical prose:
+`docs/decisions/per-person-page-access.md`. Pinned by
+`TestRetiredProcurementDirectorLensIsReproducedByTicks` (the holder's two stacked roles produce
+exactly the six leaves his live bootstrap served on 2026-08-27, and no page contract for
+`/feed/config`, `/people`, `/verify` or `/`) and `TestCeoIsNeverNarrowed`.
+
 Confirmed verifier admin-web workspace rule (maintainer decision 2026-08-03): the
 verifier-only workspace, previously mobile-only, also runs on admin-web with the SAME
 five evidence modules as mobile — Vaccination, Weighing, Counts, Feed, Health. `verifier`
@@ -1100,7 +1749,7 @@ Three parts, and each narrowing is load-bearing:
    quantity there and reopening one would discard a good video for a sheet that
    did not change. *HEAD COUNT ONLY, PER PEN* — `AffectedShedIDs` also fires for a
    relabelled ration group and is shed-wide, so driving the reopen from it would
-   make the packers of Castro - 1 and Castro - 3 refilm because Castro - 2 gained
+   make the packers of Castro 1 and Castro 3 refilm because Castro 2 gained
    animals. Making an operator refilm is expensive; it is spent only where the
    number of mouths actually moved. Canonical rule:
    `feeddirection/domain.CellDiff.HeadCountChangedPens` →
@@ -1327,6 +1976,24 @@ rule; when the rule is "package A must not depend on package B", check the
 import graph, and state every remaining blind spot in the guard's own header
 comment with a self-test fixture for each.
 
+## Whole-Packet Review Scope (Mandatory, Claude AND Codex)
+
+When the maintainer gives a review/fix/landing packet, treat the entire packet as
+the task goal until proven otherwise. That includes PR numbers and merge state,
+screenshots or attached docs, pasted reviewer notes, prompts, fixes claimed by
+other agents, lenses, judges, sub-agent briefs, branch/base SHAs, and any
+maintainer corrections in chat. Do not narrow the task to only the first visible
+diff, only `origin/main`, only one PR, or only a screenshot table unless the
+maintainer explicitly says to ignore the rest.
+
+Before reporting "pending bugs only", "already fixed", "not a bug", or "nothing
+to push", reconcile every finding against the complete packet and the current
+candidate SHA. If a document says a finding was fixed by a later PR/SHA, verify
+that later PR/SHA is actually in the reviewed candidate. If the maintainer asks
+whether PR 115 was reviewed, answer from evidence that includes 115, not from a
+stale main checkout. If the packet names lenses or judges, run or inspect those
+review surfaces as first-class acceptance criteria, not optional commentary.
+
 ## Root-Cause Fixes Only — No Partial / Surface Fixes (Mandatory, Claude AND Codex)
 
 When fixing ANY reported bug (review finding, audit item, regression):
@@ -1507,7 +2174,7 @@ Purpose:
   actions.
 - Frontend command-room/authority guardrail: Control Tower, Action Center,
   Calendar, Protocol Adherence, and Workflows are top-level screens only. Config
-  and SOP Library are top-level Admin / Data Ops authority screens only. Do not
+  is a top-level Admin / Data Ops authority screen only. Do not
   duplicate them under procurement/source-entry, Preventive Care (PC), Parks, or any future
   vertical as routes, redirects, tabs, or nav items. A vertical can feed those
   top-level screens through a selected domain/filter/lens such as
@@ -1536,9 +2203,29 @@ Purpose:
   classified `module-surface`, not `authority-screen`. This exception covers
   Config for Health ONLY. Canonical prose:
   `docs/decisions/health-config-authoring.md`.
-  The machine guard carries the same allowlist — now exactly two entries — in
-  `apps/admin-web/scripts/check-ia-guard.mjs`; widening it needs a new recorded
-  maintainer decision here first.
+  **SOP split (maintainer decision 2026-08-18): the top-level SOP Library
+  (`/sops`) is RETIRED.** SOPs are per-module module-surfaces, mirroring the
+  `/feed/config` shape: `/vaccination/sops` (Vaccination SOP, under Preventive
+  Care), `/counts/sops` (Herd Operations SOP: birth / death / shifting), and
+  `/feed/sops` (Feed SOP: distribution / packing / transport). All three render
+  the same `sop-library` table contract over `/admin/sops`, scoped by SOP code
+  prefix; the full-page SOP builder lives at `<module page>?compose=1`. There is
+  no `/sops` route, redirect, or nav leaf any more, and `/config` stays the
+  single generic authority screen.
+  **SOP split EXTENSION (maintainer decision 2026-08-22): `/milk/sops` (Milk
+  SOP: preparation / feeding) and `/weighing/sops` (Weighing SOP: the
+  scan-and-submit session) join the same shape** — the same `sop-library`
+  contract over `/admin/sops`, scoped by the `milk.` and `weighing.` code
+  prefixes, with the library documents seeded by migration
+  `000186_sop_library_milk_and_weighing.sql` (`milk.preparation`,
+  `milk.feeding`, `weighing.session`; library documents only, never a second
+  execution engine — sop_tasks stay vaccination.drive-only per the 000175
+  precedent). Any OTHER nested `*/sops` route still needs
+  its own recorded maintainer decision — the five routes are named in
+  `check-ia-guard.mjs` `MODULE_SURFACE_ROUTE_EXCEPTIONS`.
+  The machine guard carries the same allowlist — the two Config entries plus
+  the five SOP-split routes — in `apps/admin-web/scripts/check-ia-guard.mjs`;
+  widening it needs a new recorded maintainer decision here first.
 - Config / Protocol Rules is a generic Admin / Data Ops authority screen
   (`/config`) for CEO/COO/superadmin users. It is not owned by Preventive Care (PC) / Vaccination.
   Preventive Care (PC) / Vaccination may link to `/config?category=vaccination`, but the Config UI
@@ -1606,11 +2293,13 @@ Organization boundaries:
   `goatos-prod` projects.
 - Do not use Heva projects/orgs, Slice projects/orgs, or `hevaplatform` for
   Goat OS work.
-- Current active Goat OS agent/tooling project is `goatos-stg`. Do not create,
-  update, read, grant IAM on, or store agent/tooling secrets in `goatos-dev`
-  unless the user explicitly says `goatos-dev` in the same request. For Context7,
-  Gemini/Graphify, Claude/Codex bootstrap, and local agent docs, `goatos-stg`
-  is mandatory.
+- Current active Goat OS agent/tooling and Firebase project is still
+  `goatos-stg`, but it backs the current production-facing cleanup path. Do not
+  create, update, read, grant IAM on, or store agent/tooling secrets in
+  `goatos-dev` unless the user explicitly says `goatos-dev` in the same request.
+  For Context7, Gemini/Graphify, Claude/Codex bootstrap, and local agent docs,
+  `goatos-stg` is mandatory. Public URLs/app package/release labels must use
+  production-facing names, not staging names.
 - Do not modify or replace the legacy `goatos-sheets` project while creating
   Goat OS projects.
 - Before any cloud/GitHub command that creates, updates, deletes, grants IAM,
@@ -1643,14 +2332,16 @@ Organization boundaries:
   gmail, or personal identities are blocked by `make git-identity-guard` and
   the local CI common gate. The expected maintainer identity is
   `Raviteja <ravi@mesha.sg>`.
-- **Staging deployment is manual Cloud Deploy only.** Do not create or wait for
-  a `main -> stg` pull request, GitHub Actions workflow, or direct `stg` branch
-  push as a deployment mechanism. Agents must deploy from a clean checkout at
-  the latest approved `origin/main` using `docs/runbooks/stg-deploy.md` and
-  `tools/deploy/stg-clouddeploy-*.sh`. Never push any local ref, local `stg`,
-  `main`, `HEAD`, agent branch, or refspec directly to remote `stg`; the branch
-  is not deployment authority. Run `make ai-setup` so the local guard blocks
-  accidental remote `stg` writes. Do not bypass it with `--no-verify`.
+- **Staging deployment is Slack-triggered Cloud Build into Cloud Deploy.** Do
+  not create or wait for a `main -> stg` pull request, GitHub Actions workflow,
+  or direct `stg` branch push as a deployment mechanism. Agents must use the
+  `#goatos-stg-deploy` Slack button, which runs Cloud Build trigger
+  `goatos-stg-deploy-main` from latest approved `origin/main`; manual scripts
+  under `tools/deploy/stg-clouddeploy-*.sh` are break-glass/repair mechanics.
+  Never push any local ref, local `stg`, `main`, `HEAD`, agent branch, or
+  refspec directly to remote `stg`; the branch is not deployment authority. Run
+  `make ai-setup` so the local guard blocks accidental remote `stg` writes. Do
+  not bypass it with `--no-verify`.
 - Create Goat OS cloud resources under `vgoats.com`, preferably in a `goat-os`
   folder, or directly under the org if folder creation is not available. Do not
   create Goat OS resources inside `system-gsuite` or `apps-script`.
@@ -1733,37 +2424,58 @@ Do:
   the drive execution/grouping scope. Required guards:
   `make goat-shed-scope-guard`; post-seed DB proof:
   `make goat-shed-integrity-db-proof` or `tools/dev/seed-closeout.sh`.
-## Operational Location and Partition Convention (maintainer lock, 2026-08-06)
+## Operational Location and Partition Convention (maintainer lock, 2026-08-06; clarified 2026-08-16)
 
-Every goat's ground location is defined as: `park + physical_shed + optional partition_label`.
+**Read `docs/decisions/partition-is-operational-shed.md` FIRST. It outranks the
+storage wording below.** In product terms `Castro 1` and `Castro 2` ARE sheds —
+separate buildings, with animals physically in them. There is no operator-facing
+"parent shed plus partition". Everything in this section describes how those
+sheds are currently STORED while the operational-location migration is in
+progress; it is not a claim about the farm.
+
+Every goat's ground location is stored as: `park + physical_shed + optional
+partition_label`. That triple is one shed. `shed_id` alone never names it.
 
 **The convention is LOCKED by evidence from THREE independent sources (master registry, live BigQuery, legacy production code), with FOUR worked wrong-examples from production bugs. This section tightens the rule with those examples and a guard.**
 
 ### Rule 1: Normalize Partition Labels at Seed/Import
 
-Subdivided sheds (historically named `Godel 1`, `Mandela 2`, etc.) normalize to `shed_name + partition_label`:
-  - `Castro 1`, `Castro 2`, `Castro 3` → ONE shed `Castro` with partitions `1`, `2`, `3`
-  - `Godel 1 - Part 3` → ONE shed `Godel 1` with partition `Part 3`
+Sheds whose names share a base (`Castro 1`, `Godel 1 - Part 3`) are STORED as
+`shed_name + partition_label`. This is a storage layout, not a statement that the
+base name is a building:
+  - `Castro 1`, `Castro 2`, `Castro 3` → three sheds, stored under one `locations`
+    row `Castro` with labels `1`, `2`, `3`. `Castro` is grouping metadata; it is
+    not a shed anyone works in.
+  - `Godel 1 - Part 3` → the shed `Godel 1 - Part 3`, stored as `Godel 1` + `Part 3`
 
 Undivided sheds (numeric-suffix names that are NOT subdivided, like `Ho Chi Minh 1`, `Yashoda`) → stored with NULL / '' / 'whole' partition. The `1` in the shed name is NOT a partition.
 
-**NEVER seed raw partition strings as separate physical shed buildings.** The `locations` table is the single source of truth for which partitions exist.
+**NEVER seed raw partition strings as new `locations` rows.** The `locations`
+table is the single source of truth for which sheds exist; inventing a row from a
+label string duplicates a shed that is already stored. This is a rule about how
+to WRITE `locations`, not a claim that the labelled sheds are less real than the
+base name.
 
-### Rule 2: Storage vs. Display Are Different (Maintainer 2026-08-05)
+### Rule 2: Storage vs. Display Are Different (Maintainer 2026-08-05, clarified 2026-08-16)
 
-Storage normalizes `Castro 1` and `Castro 2` to `Castro + partition 1/2`. Product display ALWAYS shows the partition when one exists:
-- No partition (NULL / '' / 'whole') → `Yashoda`, `Ho Chi Minh 1` (both undivided
-  sheds per Rule 1 — never `Castro - 1`, which Rule 1 defines as shed `Castro` +
-  partition `1` and therefore has a partitioned display, `Castro - 1` shown WITH
-  its partition, not an unpartitioned example)
-- Has partition → `Castro - 2` (numeric) or `Godel 1 - Part 3` (prefixed)
+Storage keeps the sheds `Castro 1` and `Castro 2` as `Castro + label 1/2`. Display ALWAYS puts the two halves back together, because the label half carries the shed's actual name:
+- No label (NULL / '' / 'whole') → `Yashoda`, `Ho Chi Minh 1`: undivided sheds whose trailing digit is part of the name (Rule 1). Never `Yashoda - 2`, and never a bare base name for a shed that HAS a label
+- Bare numeric partition → `Castro 1`, `Gandhi 2`, `Gandhi 3` (space separator; the farm's actual physical shed names as painted on buildings)
+- Worded/prefixed partition → `Godel 1 - Part 3`, `Mandela 1 - Part 1` (dash separator; visual boundary since 75% of live shed names end in digits)
 
-**NEVER render:**
-- `Yashoda whole` — `'whole'` is a matching key, never user copy
-- `Godel 1 1` — the worked wrong-example (naive space-numeric join, truncated)
-- Shed name alone when a partition exists (`Godel 1` without the partition) — both halves must always render together
+**Separator rule (2026-08-16 clarification):** Numeric partitions use SPACE because the farm's sheds ARE NAMED `Castro 1`, `Gandhi 2`, etc. — that is the real name painted on the building, not a display formatting choice. Worded labels use " - " (dash) for visual boundary: `Godel 1 - Part 3` is unambiguous from the shed name.
 
-**Both layers must always be read together.** The normalization is a storage rule; the partition is a product rule.
+**NEVER render.** Where a forbidden string is shown it is paired with the correct
+one; the numeric-dash rule is stated in words instead, so the wrong form is not
+sitting on the page as something to copy:
+
+- `WRONG: Yashoda whole` -> `RIGHT: Yashoda` — `'whole'` is a matching key, never user copy
+- Numeric pens must not use dash separators: write `Castro 1`. A dash-separated
+  numeric pen name contradicts the farm's physical naming and is never rendered.
+- `WRONG: Godel 1 1` -> `RIGHT: Godel 1 - Part 1` — naive space-numeric join, truncated
+- `WRONG: Godel 1` -> `RIGHT: Godel 1 - Part 3` — the base name alone when the shed has a label; both halves always render together
+
+**Both layers must always be read together.** The normalization is a storage rule; the partition is a product rule (and the separator reflects the farm's real-world naming).
 
 ### Rule 3: Carry Partition in All Location-Bearing Responses
 
@@ -2124,9 +2836,10 @@ git rev-parse --show-toplevel  # Must print THIS repo root, not another checkout
   normal app DB from E2E. Destructive/load tests must use an isolated DB with
   its own seed/cleanup, such as the explicit local GCP-kernel stack on `55432`;
   that stack must never become the default laptop runtime DB.
-- Deploy `goatos-stg` through Cloud Deploy. Build systems may create images and
-  Cloud Deploy releases, but Cloud Run service/job mutations for staging belong
-  to `deploy/clouddeploy/stg/clouddeploy.yaml` and
+- Deploy `goatos-stg` through the Slack button backed by Cloud Build and Cloud
+  Deploy. Build systems may create images and Cloud Deploy releases, but Cloud
+  Run service/job mutations for staging belong to
+  `deploy/clouddeploy/stg/clouddeploy.yaml` and
   `tools/deploy/stg-clouddeploy-task.sh`. Direct `gcloud run services update`,
   `gcloud run jobs update`, or manual migration execution is break-glass only
   and must be followed by a Cloud Deploy release from the same commit; see
@@ -2682,7 +3395,10 @@ git rev-parse --show-toplevel  # Must print THIS repo root, not another checkout
   sessions may open on dirty/shared worktrees with other agents' changes. Commit
   only the scoped work and use a clean isolated worktree for landing. Standalone
   `make ci-local` remains valid for development/hosted CI; `make land-main` is
-  the release path that mutates history and pushes.
+  the release path that mutates history and pushes. Do not use GitHub connector,
+  `gh pr merge`, or the web merge button as a shortcut unless the current PR
+  head already has a completed green GitHub `ci` run on the exact SHA after a
+  fresh-main rebase.
 - **Whole-ledger/task-kernel program landing exception**: the documentation
   foundation may use ordinary `make land-main`, but the approved implementation
   program uses exactly one external integration PR. It must not use milestone
@@ -2893,14 +3609,19 @@ Do not:
   real coverage artifact (`ceo_ai.*` view / MCP tool / Cube binding / wired
   `Set*DataReader`) or a coverage-matrix row/exclusion NAMING that surface in the
   same commit; a bare keyword-bearing doc touch no longer satisfies it, and pure
-  refactors pass without a coverage file. The
-  read-path routing is Cube-first (official KPI → Cube; then read APIs → MCP
-  Toolbox `ceo_ai.*` tools → read-only SQL fallback). The planner → catalog →
+  refactors pass without a coverage file. The external MCP connector is not a
+  raw table/API auto-publisher; it exposes the leadership assistant product
+  entrypoint. New tables/APIs become visible through Claude/Codex/CEO chat only
+  after they are covered by the Cube/read-API/Toolbox/`ceo_ai`/SQL-fallback
+  layer or explicitly excluded. The read-path routing is Cube-first (official
+  KPI → Cube; then read APIs → MCP Toolbox `ceo_ai.*` tools → read-only SQL
+  fallback). The planner → catalog →
   wiring → reader chain must be LIVE and CLOSED end-to-end (ROUTE-CLOSURE rule):
   every tool name must resolve in the runtime registry (Cube binding, executor spec,
   toolbox tool, or fallback alias), every RouteAPI target must have a wired reader or
   fallback alias, and every coverage row must reference a golden eval question. HOW-TO:
   `.agents/skills/goatos-leadership-assistant/SKILL.md` (includes ROUTE-CLOSURE rules).
+  External MCP setup/docs: `docs/ceo-ai/external-mcp-integration.md`.
   Scaffold: `node tools/ceo-ai/scaffold-coverage.mjs <module>`. Enforced by
   `make leadership-assistant-coverage-guard` + `make assistant-route-closure-guard`
   (local CI + PostToolUse nudge for Claude and Codex).

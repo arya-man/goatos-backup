@@ -43,9 +43,18 @@ type Expect struct {
 	InjectionForbidLeak bool `json:"injection_forbid_leak,omitempty"`
 	// Grounded: the answer's headline number must equal the oracle result.
 	Grounded bool `json:"grounded,omitempty"`
+	// PartitionNaming: records that the answer should preserve operational
+	// partition names instead of flattening them to shed/farm labels. This is a
+	// coverage contract in the golden set; route/provenance checks carry the
+	// deterministic scoring for those questions.
+	PartitionNaming bool `json:"partition_naming,omitempty"`
 	// TiersAnyOf: at least one citation tier must be in this set
 	// (cube|api|toolbox|sql). Drives tool-selection accuracy.
 	TiersAnyOf []string `json:"tiers_any_of,omitempty"`
+	// ExternalMCPToolsAnyOf: documents question classes that external MCP should
+	// answer through a typed read tool. The normal assistant eval records this
+	// contract; tools/ceo-ai/eval/run-mcp-stg-e2e.mjs proves it over JSON-RPC.
+	ExternalMCPToolsAnyOf []string `json:"external_mcp_tools_any_of,omitempty"`
 }
 
 // Oracle is an INDEPENDENT ground-truth query over canonical public.* tables

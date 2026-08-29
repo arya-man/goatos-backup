@@ -97,7 +97,7 @@
 </head>
 <body>
   <h1>Vaccination Kernel Story Report</h1>
-  <p class="subtitle">Generated 2026-08-12 15:01:00 UTC &middot; backend/tests/e2e</p>
+  <p class="subtitle">Generated 2026-08-29 06:39:20 UTC &middot; backend/tests/e2e</p>
 
   <p class="subtitle">Related reports in this category:
     <a href="vaccination-closure-audit-2026-07-19.html?v=10568bc2">Vaccination Closure Audit Report (2026-07-19)</a>
@@ -105,10 +105,10 @@
 
   <div class="summary">
     <div class="tile"><span class="n">1</span>stories</div>
-    <div class="tile pass"><span class="n">0</span>stories passed</div>
-    <div class="tile fail"><span class="n">1</span>stories failed</div>
-    <div class="tile"><span class="n">11</span>assertions checked</div>
-    <div class="tile fail"><span class="n">5</span>assertions failed</div>
+    <div class="tile pass"><span class="n">1</span>stories passed</div>
+    <div class="tile fail"><span class="n">0</span>stories failed</div>
+    <div class="tile"><span class="n">44</span>assertions checked</div>
+    <div class="tile pass"><span class="n">0</span>assertions failed</div>
     <div class="tile pass"><span class="n">1/1</span>certification surfaces declared</div>
   </div>
 
@@ -133,41 +133,59 @@
   </section>
 
 
-  <section class="story fail">
-    <h2>Feed Transport is one task per shed, never one per pen <span class="badge fail">FAIL</span></h2>
+  <section class="story pass">
+    <h2>Feed: one video per bag, and the afternoon correction that takes it back <span class="badge pass">PASS</span></h2>
     <div class="certification">Certified surface: backend kernel</div>
-    <p class="narrative">A shed&#39;s pens are packed as separate bags and fed separately, but the feed for all of them is LOADED AND STAGED as one trip. Feed Transport is therefore one daily task, one video and one verifier review per physical shed, no matter how many pens the shed is divided into.</p>
+    <p class="narrative">A pen&#39;s morning and evening shares are two separate bags, so the worklist serves one card per pen per session and each is filmed on its own. But a low-priority movement raised at 10:00 is due TOMORROW, and tomorrow&#39;s sheet was issued at 07:00 and was already packed and verified by 09:30 -- so the animals arriving tomorrow would have had no feed. The 14:00 correction now counts that movement BEFORE a park head approves it, recomputes the pen, takes BOTH already-approved videos back, withdraws the verifier&#39;s closed items, and hands the packer cards carrying the NEW amounts and a sentence saying why. Experiment pens, whose rations are authored in absolute kg, are left alone.</p>
 
     <div class="step">
-      <h3>A park with one partitioned shed and one undivided shed</h3>
-      <p class="narrative">The partitioned shed carries three ACTIVE pens in the shed_partitions catalog. Under the per-pen grain this shed alone produced three transport tasks for one day.</p>
-
-    </div>
-
-    <div class="step">
-      <h3>The scheduler materializes the day&#39;s transport work</h3>
-      <p class="narrative">MaterializeTransportTasks is the production call. It runs twice here on purpose: overlapping workers and retries are normal, and the daily shed key must absorb them.</p>
+      <h3>07:00 — the sheet is issued and frozen</h3>
+      <p class="narrative">The normal workflow&#39;s direction_time is 07:00, so tomorrow&#39;s sheet is generated once and frozen. From here the packer is working to a fixed document.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
-          <tr class="bad">
-            <td>the three-pen shed produced exactly ONE transport task</td>
-            <td>FAIL</td>
-            <td class="detail">tasks=3 (a per-pen grain would produce 3)</td>
+          <tr class="ok">
+            <td>the normal sheet for tomorrow is issued</td>
+            <td>PASS</td>
+            <td class="detail">feed_day=2026-07-30 state=issued</td>
           </tr>
 
           <tr class="ok">
-            <td>the undivided shed produced exactly one too</td>
+            <td>the pen appears ONCE PER SESSION — two bags, two cards</td>
             <td>PASS</td>
-            <td class="detail">tasks=1</td>
+            <td class="detail">rows for Castro - 1 = 2, want 2 (Morning &#43; Evening)</td>
           </tr>
 
-          <tr class="bad">
-            <td>the task names no pen</td>
-            <td>FAIL</td>
-            <td class="detail">partition_label=&#34;1&#34;</td>
+          <tr class="ok">
+            <td>each card names its own session in the farm&#39;s authored words</td>
+            <td>PASS</td>
+            <td class="detail">session labels = &#34;Morning&#34;, &#34;Evening&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>each card carries only its own session&#39;s quantity, never the day&#39;s</td>
+            <td>PASS</td>
+            <td class="detail">morning=4.000 evening=4.000 — 40 head x 200 g x 0.5 = 4.000 kg per bag</td>
+          </tr>
+
+          <tr class="ok">
+            <td>head count is the PEN&#39;s and repeats across its sessions, never doubles</td>
+            <td>PASS</td>
+            <td class="detail">morning head_count=40 evening head_count=40, want the pen&#39;s 40 animals on both</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the sibling pen is a separate card with its own animals</td>
+            <td>PASS</td>
+            <td class="detail">Castro - 2 head_count=30</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the backend composes the operational location, shed and pen together</td>
+            <td>PASS</td>
+            <td class="detail">operational_location_display=&#34;Castro 1&#34;</td>
           </tr>
 
         </tbody>
@@ -176,35 +194,41 @@
     </div>
 
     <div class="step">
-      <h3>The operator&#39;s list and its shed filter agree with that grain</h3>
-      <p class="narrative">ListTransportTasks serves the phone. The row must read as the bare shed, and the filter vocabulary must offer the shed ONCE — it previously listed the same shed once per pen, keyed by an opaque &lt;shed&gt;\x1f&lt;pen&gt; composite the operator could not tell apart.</p>
+      <h3>09:00 — the operator packs BOTH of Castro - 1&#39;s bags and films each one</h3>
+      <p class="narrative">One mandatory video per bag. Each becomes its own item in the verifier&#39;s queue, subjected on the session AND the pen, so a verifier holding two cards for Castro - 1 can tell which bag each clip proves.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
-          <tr class="bad">
-            <td>the list shows the partitioned shed once</td>
-            <td>FAIL</td>
-            <td class="detail">rows=3</td>
-          </tr>
-
-          <tr class="bad">
-            <td>and names it by the bare shed, with no pen suffix</td>
-            <td>FAIL</td>
-            <td class="detail">display=&#34;E2E-FT-PART - 1&#34;</td>
+          <tr class="ok">
+            <td>each completion is awaiting verification, not completed</td>
+            <td>PASS</td>
+            <td class="detail">morning status=pending_verification evening status=pending_verification</td>
           </tr>
 
           <tr class="ok">
-            <td>the filter option is keyed by the plain shed UUID, not a pen composite</td>
+            <td>the two bags are two SEPARATE completion rows</td>
             <td>PASS</td>
-            <td class="detail">partition_label=&#34;&#34;</td>
+            <td class="detail">both submissions returned completion_id=6110aea8-1925-47e3-b293-0ba2e50229a0 — one video would stand as proof for both bags</td>
           </tr>
 
           <tr class="ok">
-            <td>the shed filter offers that shed exactly once</td>
+            <td>each submit froze the sheet it was packed against onto the completion row</td>
             <td>PASS</td>
-            <td class="detail">options=1</td>
+            <td class="detail">packed_head_count/packed_total_kg must record 40 animals / 4.000 kg at submit time</td>
+          </tr>
+
+          <tr class="ok">
+            <td>exactly ONE verification item was queued per bag</td>
+            <td>PASS</td>
+            <td class="detail">verification items: morning=1 evening=1</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the verifier&#39;s items name the SESSION and the pen, so the two cards are distinguishable</td>
+            <td>PASS</td>
+            <td class="detail">subject_labels = &#34;Session 1 · Castro 1&#34;, &#34;Session 2 · Castro 1&#34; — without the session prefix both cards read identically</td>
           </tr>
 
         </tbody>
@@ -213,35 +237,268 @@
     </div>
 
     <div class="step">
-      <h3>One submitted video reaches the verifier as ONE review item</h3>
-      <p class="narrative">The service is wired exactly as bootstrap/api.go wires it: SubmitTransport appends the proof attempt and the transport bridge creates the verification item. This is the hop that made the per-pen grain expensive — ten pens meant ten clips of one load sitting in the queue.</p>
+      <h3>09:30 — the verifier approves it</h3>
+      <p class="narrative">The verdict travels the real outbox -&gt; domain-consumer -&gt; FeedPackingVerificationHandler path, which is what actually flips the pen to completed and emits feed.packing.completed.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>the operator&#39;s submit succeeded</td>
+            <td>both bags read completed once a verifier has approved each video</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
+            <td class="detail">morning lifecycle_status=completed completed=true / evening lifecycle_status=completed completed=true</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>10:00 — a low-priority movement is RAISED, and nobody approves it</h3>
+      <p class="narrative">This is the situation the whole change exists for. The movement is due TOMORROW, which is the feed day that was issued at 07:00 and packed at 09:00. Under the previous rule the projection waited for a park head, so the arriving animals had no feed at all.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>the movement sits unapproved in the park head&#39;s queue</td>
+            <td>PASS</td>
+            <td class="detail">authorization_state=pending</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>14:00 — the afternoon correction recomputes and takes the video back</h3>
+      <p class="narrative">correction_time is 14:00 for both workflows and needs no new clock. The transport LOCK is 15:30, AFTER this, so nothing had to be unlocked -- amending a locked sheet is still refused, because past the transport cutoff the feed has physically left the store.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>the correction reopened BOTH of the pen&#39;s bags — and nothing else</td>
+            <td>PASS</td>
+            <td class="detail">reopened=[6110aea8-1925-47e3-b293-0ba2e50229a0 f3a33229-d671-4e31-8ba6-e78e155f1545], want both Castro - 1 bags (6110aea8-1925-47e3-b293-0ba2e50229a0, f3a33229-d671-4e31-8ba6-e78e155f1545); Castro - 2 did not move and its packer must not refilm</td>
           </tr>
 
           <tr class="ok">
-            <td>the task is awaiting verification</td>
+            <td>Morning is back with the operator</td>
             <td>PASS</td>
-            <td class="detail">status=verification_due</td>
+            <td class="detail">Morning lifecycle_status=pending completed=false</td>
           </tr>
 
           <tr class="ok">
-            <td>the verifier receives exactly ONE feed-transport item for the three-pen shed</td>
+            <td>Morning&#39;s head count now includes the animals the unapproved movement is bringing</td>
             <td>PASS</td>
-            <td class="detail">verification_items=1 (a per-pen grain would queue 3 clips of one trip)</td>
+            <td class="detail">Morning head_count=50, want 40 &#43; the 10 being moved in</td>
           </tr>
 
-          <tr class="bad">
-            <td>and that item names no pen either</td>
-            <td>FAIL</td>
-            <td class="detail">partition_label=&#34;1&#34;</td>
+          <tr class="ok">
+            <td>the quantities on the Morning card actually changed</td>
+            <td>PASS</td>
+            <td class="detail">Morning total_kg 4.000 -&gt; 5.000</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the packer is TOLD why the Morning card came back, in farm language</td>
+            <td>PASS</td>
+            <td class="detail">Morning rework_reason=&#34;Animals moved in or out of this pen after you packed. This bag was 4 kg for 40 animals; it is now 5 kg for 50 animals. Pack the new amounts and record a new video.&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the Morning sentence states what was packed and what the bag is now, exactly</td>
+            <td>PASS</td>
+            <td class="detail">Morning rework_reason=&#34;Animals moved in or out of this pen after you packed. This bag was 4 kg for 40 animals; it is now 5 kg for 50 animals. Pack the new amounts and record a new video.&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>Evening is back with the operator</td>
+            <td>PASS</td>
+            <td class="detail">Evening lifecycle_status=pending completed=false</td>
+          </tr>
+
+          <tr class="ok">
+            <td>Evening&#39;s head count now includes the animals the unapproved movement is bringing</td>
+            <td>PASS</td>
+            <td class="detail">Evening head_count=50, want 40 &#43; the 10 being moved in</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the quantities on the Evening card actually changed</td>
+            <td>PASS</td>
+            <td class="detail">Evening total_kg 4.000 -&gt; 5.000</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the packer is TOLD why the Evening card came back, in farm language</td>
+            <td>PASS</td>
+            <td class="detail">Evening rework_reason=&#34;Animals moved in or out of this pen after you packed. This bag was 4 kg for 40 animals; it is now 5 kg for 50 animals. Pack the new amounts and record a new video.&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the Evening sentence states what was packed and what the bag is now, exactly</td>
+            <td>PASS</td>
+            <td class="detail">Evening rework_reason=&#34;Animals moved in or out of this pen after you packed. This bag was 4 kg for 40 animals; it is now 5 kg for 50 animals. Pack the new amounts and record a new video.&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the sibling pen is untouched — both its bags keep their status and quantities</td>
+            <td>PASS</td>
+            <td class="detail">Castro - 2 morning head_count=30 reason=&#34;&#34; / evening head_count=30 reason=&#34;&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the verdicts a verifier really cast are kept as history, not rewritten</td>
+            <td>PASS</td>
+            <td class="detail">item statuses = approved, approved</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the earlier approvals are stripped, so no verifier is credited with the old quantity</td>
+            <td>PASS</td>
+            <td class="detail">verified_by/verified_at must be cleared on every reopened row</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>14:05 — the packer&#39;s phone is told, with the numbers</h3>
+      <p class="narrative">One feed.packing.reopened event per taken-back bag was written in the SAME transaction as the reopen (maintainer decision 2026-08-29). It travels the real outbox -&gt; relay -&gt; domain-bus path into FeedPackingReopenNotifyConsumer, which resolves the packer&#39;s registered device from the roster and queues a push naming the pen, the session, the old and new quantities, and the feed day -- so the card never again mutates silently under the operator.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>the stored reopen envelope satisfies the relay&#39;s schema</td>
+            <td>PASS</td>
+            <td class="detail">envelope: {&#34;actor&#34;: {&#34;actor_id&#34;: null, &#34;actor_type&#34;: &#34;system_rule&#34;}, &#34;payload&#34;: {&#34;reason&#34;: &#34;Animals moved in or out of this pen after you packed. This bag was 4 kg for 40 animals; it is now 5 kg for 50 animals. Pack the new amounts and record a new video.&#34;, &#34;park_id&#34;: &#34;fe000000-0000-4000-8000-000000003001&#34;, &#34;shed_id&#34;: &#34;fe000000-0000-4000-8000-000000004001&#34;, &#34;workflow&#34;: &#34;normal&#34;, &#34;park_label&#34;: &#34;FE-CPT&#34;, &#34;session_no&#34;: 1, &#34;operator_id&#34;: &#34;fe000000-0000-4000-8000-000000005001&#34;, &#34;target_date&#34;: &#34;2026-07-30&#34;, &#34;new_total_kg&#34;: &#34;5.000&#34;, &#34;completion_id&#34;: &#34;6110aea8-1925-47e3-b293-0ba2e50229a0&#34;, &#34;session_label&#34;: &#34;Morning&#34;, &#34;new_head_count&#34;: 50, &#34;packed_total_kg&#34;: &#34;4.000&#34;, &#34;partition_label&#34;: &#34;1&#34;, &#34;packed_head_count&#34;: 40, &#34;operational_location_display&#34;: &#34;Castro 1&#34;}, &#34;event_id&#34;: &#34;a3fe570e-843f-32f9-aa9b-b54c92c0736a&#34;, &#34;producer&#34;: {&#34;module&#34;: &#34;feeddirection&#34;, &#34;service&#34;: &#34;goatos-api&#34;, &#34;version&#34;: null}, &#34;trace_id&#34;: &#34;feed.packing.reopened:6110aea8-1925-47e3-b293-0ba2e50229a0:3&#34;, &#34;event_type&#34;: &#34;feed.packing.reopened&#34;, &#34;schema_ref&#34;: &#34;domain-event-envelope.v1&#34;, &#34;subject_id&#34;: &#34;fe000000-0000-4000-8000-000000004001&#34;, &#34;occurred_at&#34;: &#34;2026-07-29T18:30:00.000000Z&#34;, &#34;recorded_at&#34;: &#34;2026-08-29T06:39:25.969372Z&#34;, &#34;aggregate_id&#34;: &#34;6110aea8-1925-47e3-b293-0ba2e50229a0&#34;, &#34;subject_type&#34;: &#34;location&#34;, &#34;evidence_refs&#34;: [], &#34;aggregate_type&#34;: &#34;feed_packing_completion&#34;, &#34;schema_version&#34;: &#34;1.0.0&#34;, &#34;idempotency_key&#34;: &#34;feed.packing.reopened:6110aea8-1925-47e3-b293-0ba2e50229a0:3&#34;, &#34;visibility_scope&#34;: {&#34;park_id&#34;: &#34;fe000000-0000-4000-8000-000000003001&#34;, &#34;shed_id&#34;: &#34;fe000000-0000-4000-8000-000000004001&#34;, &#34;tenant_id&#34;: &#34;00000000-0000-4000-8000-000000000001&#34;}}</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the stored reopen envelope satisfies the relay&#39;s schema</td>
+            <td>PASS</td>
+            <td class="detail">envelope: {&#34;actor&#34;: {&#34;actor_id&#34;: null, &#34;actor_type&#34;: &#34;system_rule&#34;}, &#34;payload&#34;: {&#34;reason&#34;: &#34;Animals moved in or out of this pen after you packed. This bag was 4 kg for 40 animals; it is now 5 kg for 50 animals. Pack the new amounts and record a new video.&#34;, &#34;park_id&#34;: &#34;fe000000-0000-4000-8000-000000003001&#34;, &#34;shed_id&#34;: &#34;fe000000-0000-4000-8000-000000004001&#34;, &#34;workflow&#34;: &#34;normal&#34;, &#34;park_label&#34;: &#34;FE-CPT&#34;, &#34;session_no&#34;: 2, &#34;operator_id&#34;: &#34;fe000000-0000-4000-8000-000000005001&#34;, &#34;target_date&#34;: &#34;2026-07-30&#34;, &#34;new_total_kg&#34;: &#34;5.000&#34;, &#34;completion_id&#34;: &#34;f3a33229-d671-4e31-8ba6-e78e155f1545&#34;, &#34;session_label&#34;: &#34;Evening&#34;, &#34;new_head_count&#34;: 50, &#34;packed_total_kg&#34;: &#34;4.000&#34;, &#34;partition_label&#34;: &#34;1&#34;, &#34;packed_head_count&#34;: 40, &#34;operational_location_display&#34;: &#34;Castro 1&#34;}, &#34;event_id&#34;: &#34;f02759ac-670d-3d4d-8304-4cd35454e756&#34;, &#34;producer&#34;: {&#34;module&#34;: &#34;feeddirection&#34;, &#34;service&#34;: &#34;goatos-api&#34;, &#34;version&#34;: null}, &#34;trace_id&#34;: &#34;feed.packing.reopened:f3a33229-d671-4e31-8ba6-e78e155f1545:3&#34;, &#34;event_type&#34;: &#34;feed.packing.reopened&#34;, &#34;schema_ref&#34;: &#34;domain-event-envelope.v1&#34;, &#34;subject_id&#34;: &#34;fe000000-0000-4000-8000-000000004001&#34;, &#34;occurred_at&#34;: &#34;2026-07-29T18:30:00.000000Z&#34;, &#34;recorded_at&#34;: &#34;2026-08-29T06:39:25.969910Z&#34;, &#34;aggregate_id&#34;: &#34;f3a33229-d671-4e31-8ba6-e78e155f1545&#34;, &#34;subject_type&#34;: &#34;location&#34;, &#34;evidence_refs&#34;: [], &#34;aggregate_type&#34;: &#34;feed_packing_completion&#34;, &#34;schema_version&#34;: &#34;1.0.0&#34;, &#34;idempotency_key&#34;: &#34;feed.packing.reopened:f3a33229-d671-4e31-8ba6-e78e155f1545:3&#34;, &#34;visibility_scope&#34;: {&#34;park_id&#34;: &#34;fe000000-0000-4000-8000-000000003001&#34;, &#34;shed_id&#34;: &#34;fe000000-0000-4000-8000-000000004001&#34;, &#34;tenant_id&#34;: &#34;00000000-0000-4000-8000-000000000001&#34;}}</td>
+          </tr>
+
+          <tr class="ok">
+            <td>one reopen event per taken-back bag rode the reopen transaction</td>
+            <td>PASS</td>
+            <td class="detail">feed.packing.reopened outbox rows = 2, want 2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the event addresses the packer and carries both sets of numbers</td>
+            <td>PASS</td>
+            <td class="detail">payload=map[completion_id:f3a33229-d671-4e31-8ba6-e78e155f1545 new_head_count:50 new_total_kg:5.000 operational_location_display:Castro 1 operator_id:fe000000-0000-4000-8000-000000005001 packed_head_count:40 packed_total_kg:4.000 park_id:fe000000-0000-4000-8000-000000003001 park_label:FE-CPT partition_label:1 reason:Animals moved in or out of this pen after you packed. This bag was 4 kg for 40 animals; it is now 5 kg for 50 animals. Pack the new amounts and record a new video. session_label:Evening session_no:2 shed_id:fe000000-0000-4000-8000-000000004001 target_date:2026-07-30 workflow:normal]</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the event addresses the packer and carries both sets of numbers</td>
+            <td>PASS</td>
+            <td class="detail">payload=map[completion_id:6110aea8-1925-47e3-b293-0ba2e50229a0 new_head_count:50 new_total_kg:5.000 operational_location_display:Castro 1 operator_id:fe000000-0000-4000-8000-000000005001 packed_head_count:40 packed_total_kg:4.000 park_id:fe000000-0000-4000-8000-000000003001 park_label:FE-CPT partition_label:1 reason:Animals moved in or out of this pen after you packed. This bag was 4 kg for 40 animals; it is now 5 kg for 50 animals. Pack the new amounts and record a new video. session_label:Morning session_no:1 shed_id:fe000000-0000-4000-8000-000000004001 target_date:2026-07-30 workflow:normal]</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the packer&#39;s registered device is queued one push per taken-back bag</td>
+            <td>PASS</td>
+            <td class="detail">pushes=2 recipients=[fe-token-packer fe-token-packer]</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the push says what he packed, what the bag now needs, where, and for which day</td>
+            <td>PASS</td>
+            <td class="detail">title=&#34;Repack FE-CPT · Castro 1&#34; body=&#34;Animals moved in FE-CPT · Castro 1 after you packed (Evening): you packed 4 kg for 40 animals; it now needs 5 kg for 50 animals. Pack the new amounts and record a new video for 30/07/2026.&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the two pushes are the pen&#39;s two bags, each naming its own session</td>
+            <td>PASS</td>
+            <td class="detail">bodies=&#34;Animals moved in FE-CPT · Castro 1 after you packed (Evening): you packed 4 kg for 40 animals; it now needs 5 kg for 50 animals. Pack the new amounts and record a new video for 30/07/2026.\nAnimals moved in FE-CPT · Castro 1 after you packed (Morning): you packed 4 kg for 40 animals; it now needs 5 kg for 50 animals. Pack the new amounts and record a new video for 30/07/2026.&#34;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>14:00 — the experiment pen is deliberately left alone</h3>
+      <p class="narrative">Experiment rations are authored as an ABSOLUTE kg total per pen, so a head-count change moves no quantity there. Reopening one would discard a perfectly good video for a sheet that did not change.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>an experiment correction reopens nothing</td>
+            <td>PASS</td>
+            <td class="detail">experiment reopened=[]</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>14:30 — the operator repacks to the new amounts and films it again</h3>
+      <p class="narrative">The re-shoot is a fresh pending transition, so it queues a NEW verification item rather than colliding with the withdrawn one, and the reason is cleared so nobody is told twice.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>the re-submission is awaiting verification again</td>
+            <td>PASS</td>
+            <td class="detail">status=pending_verification newly_pending=true</td>
+          </tr>
+
+          <tr class="ok">
+            <td>it is the SAME row, re-opened and re-submitted, not a second one</td>
+            <td>PASS</td>
+            <td class="detail">completion_id 6110aea8-1925-47e3-b293-0ba2e50229a0 -&gt; 6110aea8-1925-47e3-b293-0ba2e50229a0</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the re-submit re-froze the corrected sheet onto the row</td>
+            <td>PASS</td>
+            <td class="detail">packed_head_count/packed_total_kg must now read 50 animals / 5.000 kg</td>
+          </tr>
+
+          <tr class="ok">
+            <td>a FRESH verification item reaches the verifier for the new video</td>
+            <td>PASS</td>
+            <td class="detail">items for this bag = 2 (one withdrawn, one pending)</td>
+          </tr>
+
+          <tr class="ok">
+            <td>exactly one of them is pending</td>
+            <td>PASS</td>
+            <td class="detail">pending items = 1</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the reason is gone once the bag is re-submitted</td>
+            <td>PASS</td>
+            <td class="detail">rework_reason=&#34;&#34; on a re-submitted bag — a stale sentence would tell a packer to redo what they just did</td>
+          </tr>
+
+          <tr class="ok">
+            <td>the pen&#39;s evening bag is still in rework, awaiting its own re-shoot</td>
+            <td>PASS</td>
+            <td class="detail">evening rework_reason=&#34;Animals moved in or out of this pen after you packed. This bag was 4 kg for 40 animals; it is now 5 kg for 50 animals. Pack the new amounts and record a new video.&#34; completed=false — the morning re-shoot must not close the evening out</td>
           </tr>
 
         </tbody>

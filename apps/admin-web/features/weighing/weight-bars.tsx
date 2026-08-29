@@ -13,7 +13,16 @@
 // correct in both themes and passes the banned-hex scan by construction. It renders
 // no copy of its own: every string is passed in already resolved from the page
 // contract by the caller.
-export type WeightBar = { key: string; label: string; value: number };
+import { Tag, type Tone } from "@/components/ui-primitives";
+
+export type WeightBar = {
+  key: string;
+  label: string;
+  value: number;
+  valueLabel?: string;
+  modeLabel?: string;
+  modeTone?: Tone;
+};
 
 export function WeightBars({
   data,
@@ -22,6 +31,7 @@ export function WeightBars({
   chartLabel,
   size = "tall",
   wide = false,
+  domain,
 }: {
   data: readonly WeightBar[];
   /** Resolved from the page contract by the caller. */
@@ -37,6 +47,13 @@ export function WeightBars({
    * which is the one thing that label exists to show.
    */
   wide?: boolean;
+  /**
+   * Shared scale for lists rendered side by side. Two columns of the same chart must
+   * draw the same value at the same length, or the eye reads the shorter column's
+   * best pen as slower than the other column's mid-pack. Unioned with this list's own
+   * values so a value outside the caller's span can never overflow the track.
+   */
+  domain?: { lo: number; hi: number };
 }) {
   // A bar can only be drawn with a positive length. Non-positive values are real
   // data, so they are not silently dropped — the caller's empty copy has to explain
@@ -59,8 +76,8 @@ export function WeightBars({
   // read as crossing zero, not as a short positive bar. The axis spans min..max with
   // zero always inside it, so the baseline sits where zero actually falls — hard left
   // when everything is positive, mid-track when the series straddles zero.
-  const lo = Math.min(0, ...bars.map((bar) => bar.value));
-  const hi = Math.max(0, ...bars.map((bar) => bar.value));
+  const lo = Math.min(0, domain?.lo ?? 0, ...bars.map((bar) => bar.value));
+  const hi = Math.max(0, domain?.hi ?? 0, ...bars.map((bar) => bar.value));
   const span = hi - lo || 1;
   const zeroPct = ((0 - lo) / span) * 100;
   const geometry = (value: number) => {
@@ -80,7 +97,12 @@ export function WeightBars({
       {bars.map((bar) => (
         <li className="wbar" key={bar.key}>
           <span className="wbl" title={bar.label}>
-            {bar.label}
+            <span className="wbl-text">{bar.label}</span>
+            {bar.modeLabel ? (
+              <span className="wbar-mode">
+                <Tag tone={bar.modeTone ?? "mut"}>{bar.modeLabel}</Tag>
+              </span>
+            ) : null}
           </span>
           <span className="wbt">
             {/* The zero rule only appears when the series actually straddles zero;
@@ -95,7 +117,7 @@ export function WeightBars({
             />
           </span>
           <span className={`wbv${bar.value < 0 ? " neg" : ""}`}>
-            {bar.value.toLocaleString("en-IN", { maximumFractionDigits: 1 })} {unit}
+            {bar.valueLabel ?? `${bar.value.toLocaleString("en-IN", { maximumFractionDigits: 1 })} ${unit}`}
           </span>
         </li>
       ))}

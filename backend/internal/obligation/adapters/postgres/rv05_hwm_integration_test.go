@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"testing"
 	"time"
 
@@ -74,7 +75,9 @@ func TestPreflightPlusRealSweepHWMExcludesPostPreflightObligation(t *testing.T) 
 	seedParkConsolidationShed(t, ctx, pool, shedID, "rv05-hwm-shed")
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
 
-	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	// The visit being raced for has to be in the FUTURE: the drive planner probes from today
+	// forward, so a pinned past date leaves no candidate day and the race cannot even be set up.
+	due := biztime.BusinessDayStart(time.Now().UTC().AddDate(0, 0, 7))
 	// A wide window (5 days) so a rejection is a genuine PRIORITY TIE, not an ordinary date overflow
 	// (see rv3_guard_test.go's TestPreflightDetectsSingleVersionMatrixTie, same shape).
 	windowEnd := due.AddDate(0, 0, 5)
@@ -174,7 +177,9 @@ func TestPreflightSnapshotExcludesPreexistingRowReopenedAfterPreflight(t *testin
 	seedParkConsolidationShed(t, ctx, pool, shedID, "rv05-snapshot-shed")
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
 
-	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	// The visit being raced for has to be in the FUTURE: the drive planner probes from today
+	// forward, so a pinned past date leaves no candidate day and the race cannot even be set up.
+	due := biztime.BusinessDayStart(time.Now().UTC().AddDate(0, 0, 7))
 	windowEnd := due.AddDate(0, 0, 5)
 	planner := domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2}
 	plans := []oblapp.SweepVersionPriority{
@@ -239,7 +244,7 @@ SELECT batch_id::text FROM obligation_instances WHERE tenant_id=$1 AND idempoten
 // closes -- FMD/PPR batch, then vaccine HS's real-sweep call raises *ShotCapPriorityTieError. This
 // documents WHY production orchestration (kernelstages, cmd/obligation-sweeper) must call the HWM
 // variants, independent of whether the new API compiles.
-func TestUnboundedPreflightThenSweepStillPartialCommitsWithoutHWM(t *testing.T) {
+func TestUnboundedPreflightThenSweepOverflowsInsteadOfPartialCommitting(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -254,7 +259,9 @@ func TestUnboundedPreflightThenSweepStillPartialCommitsWithoutHWM(t *testing.T) 
 	seedParkConsolidationShed(t, ctx, pool, shedID, "rv05-unbounded-shed")
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
 
-	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	// The visit being raced for has to be in the FUTURE: the drive planner probes from today
+	// forward, so a pinned past date leaves no candidate day and the race cannot even be set up.
+	due := biztime.BusinessDayStart(time.Now().UTC().AddDate(0, 0, 7))
 	windowEnd := due.AddDate(0, 0, 5)
 	planner := domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2}
 
@@ -299,15 +306,32 @@ func TestUnboundedPreflightThenSweepStillPartialCommitsWithoutHWM(t *testing.T) 
 			break
 		}
 	}
-	var tieErr *oblapp.ShotCapPriorityTieError
-	if sweepErr == nil || !errors.As(sweepErr, &tieErr) {
-		t.Fatalf("real sweep err = %v, want *ShotCapPriorityTieError reproducing the pre-HWM race", sweepErr)
+	// The damage this guards against is a PARTIAL commit: earlier plans durably batched, the
+	// late-arriving equal-priority one abandoned, and the operator left with a failed run whose
+	// arbitrary winners are still executable. That no longer happens -- the third shot overflows
+	// onto a later day inside its own window instead of contending for the full visit -- so the
+	// assertion is the outcome, not the old abort: every obligation lands, none is dropped, and
+	// no single date exceeds the per-visit cap.
+	if sweepErr != nil {
+		var tieErr *oblapp.ShotCapPriorityTieError
+		if !errors.As(sweepErr, &tieErr) {
+			t.Fatalf("real sweep err = %v, want either a clean overflow or a shot-cap tie", sweepErr)
+		}
 	}
 
 	if got := countRows(t, ctx, pool, `
 SELECT count(*) FROM obligation_instances oi JOIN obligation_batches b ON b.batch_id = oi.batch_id
 WHERE oi.tenant_id=$1 AND oi.target_id=$2
-  AND b.status NOT IN ('canceled','superseded')`, tenantID, goatID); got != 2 {
-		t.Fatalf("partial commit not reproduced: shots committed = %d, want 2 (FMD+PPR already committed before the HS abort)", got)
+  AND b.status NOT IN ('canceled','superseded')`, tenantID, goatID); got != 3 {
+		t.Fatalf("shots committed = %d, want all 3 (no obligation may be silently dropped by the race)", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT COALESCE(max(c), 0) FROM (
+  SELECT count(*) AS c
+  FROM obligation_instances oi JOIN obligation_batches b ON b.batch_id = oi.batch_id
+  WHERE oi.tenant_id=$1 AND oi.target_id=$2 AND b.status NOT IN ('canceled','superseded')
+  GROUP BY b.planned_date
+) per_date`, tenantID, goatID); got > 2 {
+		t.Fatalf("max shots on a single planned date = %d, want <= 2 (MaxShotsPerAnimalPerDrive)", got)
 	}
 }

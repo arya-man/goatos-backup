@@ -422,7 +422,11 @@ func parseShiftingEvent(raw []byte, cfg config) (countsdomain.ShiftingEvent, imp
 	if event.Priority != "" && !oneOf(event.Priority, "normal", "high", "emergency") {
 		return countsdomain.ShiftingEvent{}, importRow{}, fmt.Errorf("priority %q is invalid", event.Priority)
 	}
-	if event.Category != "" && !oneOf(event.Category, "routine", "high_priority", "pregnancy", "warmup", "medical", "quarantine", "other") {
+	// The shifting-rewrite taxonomy (migration 000179) is the one the database enforces and the
+	// one the tag rules dispatch on. The importer kept validating the retired 2026-07 vocabulary
+	// (routine/pregnancy/warmup/...), so every row it accepted was then refused by
+	// shifting_events_category_check on write.
+	if event.Category != "" && !oneOf(event.Category, "growth", "health", "breeding", "delivery", "spacing", "flushing") {
 		return countsdomain.ShiftingEvent{}, importRow{}, fmt.Errorf("category %q is invalid", event.Category)
 	}
 	if !oneOf(event.AuthorizationState, "pending", "authorized", "rejected") {
@@ -698,18 +702,23 @@ func parseOptionalInstant(raw *string) (*time.Time, error) {
 	return &parsed, nil
 }
 
+// inferredCategory names the shift REASON in the vocabulary the tag rules dispatch on
+// (docs/features/shifting/shifting-rewrite-tag-rules.md). Pregnancy and warm-up movements are
+// lifecycle progressions -- the animal changed and takes the destination pen's tag -- so both are
+// `growth`. Anything else the source does not label is a plain relocation carrying its own tag,
+// which is `spacing`.
 func inferredCategory(impacts []countsdomain.ShiftingEventImpact) string {
 	for _, impact := range impacts {
 		if impact.PregnantCount > 0 {
-			return "pregnancy"
+			return "growth"
 		}
 	}
 	for _, impact := range impacts {
 		if impact.WarmupCount > 0 {
-			return "warmup"
+			return "growth"
 		}
 	}
-	return "routine"
+	return "spacing"
 }
 
 func isJSONObject(raw []byte) bool {

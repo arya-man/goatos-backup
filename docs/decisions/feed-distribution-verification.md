@@ -78,11 +78,15 @@ generated session (the ration; operator sees only the two proof prompts, not the
   the upload (`/app/proofs/uploads` then `/app/proofs/{id}/complete`) and can genuinely disagree. The
   weight photo additionally requires `capture_source = in_app_camera`: it is the capture that carries
   a NUMBER, and a gallery still of a scale is a reading from some other day.
-- **Capture is sequential and camera-only.** Each step unlocks the next (weight → feed → water). Feed
-  Distribution exposes no gallery/import control for any proof. Automatic outbox upload remains
-  unchanged. Vaccination is explicitly outside this rule and retains gallery upload.
+- **Capture is camera-only; slots are independent and parallel (SUPERSEDED: "sequential").** The
+  original 2026-07-26 wording said each step unlocks the next (weight → feed → water). Superseded
+  2026-08-15 by `docs/product/feed-proof-collaboration.md`: the three proof slots belong to one
+  shared shed-session that multiple peer operators fill simultaneously from their own phones, in any
+  split — no slot gates another. Camera-only stands: Feed Distribution exposes no gallery/import
+  control for any proof. Automatic outbox upload remains unchanged. Vaccination is explicitly
+  outside this rule and retains gallery upload.
 - **One Accept per session covers all three proofs.** The three media travel on a single verification
-  item, in capture order; the verifier approves (or rejects) the set together.
+  item; the verifier approves (or rejects) the set together.
 - **Rejection bounces to `rework`.** The operator re-records and re-submits, which returns the row to
   `pending_verification` (row_version bumped) and enqueues a fresh verification item.
 
@@ -352,6 +356,45 @@ genuinely watched and passed that video — what protects the operator is the co
 `TestReopenPackingWithdrawsPendingItemsAndKeepsCastVerdicts`, mutation-tested two ways (a session
 predicate on the reopen; withdrawing a cast verdict).
 
+### The reopened card names the numbers, and the packer is TOLD — 2026-08-29
+
+STG incident 2026-08-28: a pen's sheet was issued at 07:00 for two animals and its bag was packed
+and filmed that morning; a shifting before the 13:30 cutoff moved animals in, the 14:00 correction
+(correctly) reopened the packing — and the card silently showed the corrected quantity with the one
+generic sentence. Nothing anywhere kept what the operator had actually packed against, so the number
+rewrote itself under the packer's feet with no explanation and no notification. Three additions fix
+the visibility (the reopen mechanics above are unchanged):
+
+1. **The submit snapshots what the card directed** (migration `000222`,
+   `feed_packing_completions.packed_head_count` / `packed_total_kg` / `packed_items`). Read from the
+   same frozen sheet row the worklist card renders, in the same read that already composes the
+   verifier's measurement fields, so the snapshot and the card cannot disagree. NULL means "not
+   snapshotted" (legacy rows, unreadable sheet) — never zero — and the snapshot is decoration: a
+   submit never fails because it could not be composed. A rework RE-SUBMIT refreshes it, because the
+   operator repacked against the then-current sheet. This is a HISTORICAL record; the worklist still
+   renders the frozen sheet's live instruction.
+2. **The reopen reason is session-specific and names both numbers.**
+   `packingReopenContexts` composes, per reopened pen-session, *"Animals moved in or out of this pen
+   after you packed. This bag was 4 kg for 2 animals; it is now 24 kg for 12 animals. Pack the new
+   amounts and record a new video."* — old from the row's snapshot, new from the corrected sheet via
+   the same `BuildPackingRows` the cards render from. Every clause degrades independently (no
+   snapshot → new-values-only; a pen-session the corrected sheet no longer lists → the generic
+   fallback sentence). Still backend-owned copy, rendered verbatim through the existing
+   `rework_reason` plumbing — no client change was needed.
+3. **`feed.packing.reopened` is emitted and pushed.** One event per reopened completion, in the SAME
+   transaction as the state flip, carrying the packer (`operator_id` = `completed_by`), the display
+   labels, and both sets of numbers; idempotency key is completion + the reopen's `row_version`, so
+   one bag reopened twice (reopen → re-submit → later correction) is two facts while a retried
+   reopen collapses onto one message. `FeedPackingReopenNotifyConsumer` sends a DOWNWARD push to the
+   packer only — routine daily work, no leadership leg — naming park, pen, session, old-vs-new
+   quantities, and the feed day. Registered in `context/architecture/domain-event-registry.json`.
+
+Pinned by `TestCompletePackingSnapshotsThePackedAgainstSheet`,
+`TestAfternoonCorrectionReopenReasonNamesOldAndNewQuantities` (mutation-tested: stubbing the context
+composition to nil turns it red), `TestAfternoonCorrectionReopenReasonDegradesWithoutASnapshot`,
+`TestReopenPackingStoresSessionReasonsAndEmitsReopenEvents` (the Postgres round-trip, outbox
+included) and the `TestFeedPackingReopenPush*` consumer trio.
+
 ## Feed packing (also gated) — follow-up, 2026-07-26
 
 > **Grain note** — briefly superseded on 2026-08-10 by a pen-DAY grain and RESTORED on 2026-08-11;
@@ -402,3 +445,154 @@ packing session -> operator records ONE MANDATORY packing VIDEO with the live in
 `feed.packing.completed` + idempotent replay; rejection → `rework` + re-submit. Registered in the
 domain-event registry as a new `feed.packing.completed` producer plus feeddirection consumers under the
 verdict events.
+
+## Feed WASTAGE — experiment pens, and the VERIFIER records the number — 2026-08-18
+
+Feed Wastage is the fourth feed gate (maintainer decision 2026-08-18): every feed day, each pen on
+a hand-authored feed EXPERIMENT owes ONE wastage video — the operator films the leftover feed and
+submits, nothing more. The verifier watches the clip; when she can read the leftover weight in it
+she RECORDS that weight in kg and approves, and when she cannot she rejects for a re-shoot.
+
+What makes wastage different from its three siblings, and why each difference exists:
+
+- **PEN-DAY grain, no session.** Packing and distribution are per-bag work (a pen's morning and
+  evening are two bags, two videos), but wastage is what is LEFT OVER after the day's feeding,
+  measured once. Table `feed_wastage_completions` (migration `000176`), natural key
+  `(tenant, park, shed, partition_key, target_date, workflow)`.
+- **EXPERIMENT ONLY, by derivation, not by flag.** The worklist (`GET /feed-wastage/worklist`) is
+  derived from the day's FROZEN experiment sheet — the same rows packing reads — so "which pens
+  are on the experiment today" has exactly one source of truth. The write refuses a pen the sheet
+  does not cover (`422 not_experiment_pen`), and the table's CHECK pins `workflow = 'experiment'`.
+- **THE VERIFIER OWNS THE NUMBER.** The operator submits no number at all; the measured leftover
+  is born on the verifier's screen. It rides the measurement-correction mechanism the weighing
+  weight correction introduced (registry `MeasurementCorrectionSpec` on category `feed_wastage`;
+  producer route `POST /feed-direction/wastage/{completion_id}/measurement`, gated on
+  `verification.verdict`), REPLACES on re-entry, relabels the queue item with the value, and never
+  changes the completion's status — the verdict owns the lifecycle. ZERO IS A VALID MEASUREMENT
+  (an empty trough), so the range check is `>= 0`, deliberately unlike weighing's `> 0`.
+- **THE APPROVE CARRIES THE NUMBER, and for wastage it MUST — 2026-08-20, SUPERSEDING the
+  "recording is deliberately NOT a hard gate on approve" rule this bullet used to state.**
+
+  That rule made recording and approving two separate acts on two routes. Two things went wrong
+  with it, and both were reported from the field:
+
+  1. **The save broke the approve.** Recording the measurement relabels the verification item, and
+     the relabel is `row_version = row_version + 1`. The verdict UPDATE is version-fenced
+     (`AND row_version = $6`), so the Approve she pressed straight afterwards carried the version
+     her screen had loaded with, matched no row, and silently did nothing.
+  2. **Approving without recording completed a pen-day with no wastage at all.** The producer's
+     own `ErrWastageMeasurementRequired` fires in the verdict CONSUMER, after the verdict is
+     already durable, so it stranded the item mid-apply instead of telling her to enter the number.
+
+  The number now travels ON the verdict (`measurement` on
+  `POST /verification/items/{item_id}/verdict`). The old objection — that coupling them would make
+  verification read a producer's table — is answered by a seam, not by a read:
+  `verificationapp.MeasurementApplier`, registered per category at composition time exactly like
+  the enqueue/withdraw/relabel seams the producers already register. Verification still does not
+  know what the number MEANS; it holds the copy and the decision, and the producing module owns the
+  write. It calls the SAME `WastageMeasurementService` the standalone route calls, so the range
+  check, idempotency, audit row and relabel are one implementation.
+
+  Order inside one request: fence on the version she had on screen → apply the measurement through
+  the seam → re-read the item's row_version (it moved through OUR relabel, not a competing
+  verifier's) → record the verdict. Concurrency is still fenced, because the verdict UPDATE also
+  requires the item to be `pending`, so a verdict that landed in between is still a 409. A producer
+  that refuses the number stops the whole approve rather than leaving an approved item beside a
+  value that never landed. The measurement's idempotency key is the verdict's suffixed
+  `:measurement`, so a replayed approve re-applies the same reading.
+
+  `MeasurementCorrectionSpec.RequiredForApprove` is TRUE for wastage and FALSE for weighing, and it
+  is what holds Approve until a number exists — checked BEFORE the verdict, not after. An item
+  measured earlier through the standalone route (an installed APK still showing its own save
+  button) is still approvable: the applier is asked whether a value is already recorded. Both
+  producer routes stay served for exactly that reason; no current client calls them.
+
+  A REJECT never carries the number. Rejection sends the work back to be recorded again, so writing
+  a value onto a record about to be redone would store a number nobody will use.
+
+  **Proof:** `backend/internal/verification/app/verdict_measurement_test.go` — the save-then-approve
+  409 reproduced as the defect being replaced; one-act approve applies value + verdict and targets
+  the ITEM's own source; blank approve leaves the operator's weight alone; reject drops the value
+  before the verdict is stored; wastage refuses a number-less approve and accepts a recorded ZERO;
+  an already-measured pen still approves; a producer refusal stops the approve; a stale screen is
+  refused before anything is written. Each was mutation-tested when written.
+
+Lifecycle, idempotency, one-video-per-unit conflict (`409`), rework/re-submit, outbox event
+(`feed.wastage.completed`, emitted ONLY at approval, carrying `wastage_kg` only when recorded),
+verdict consumer (`FeedWastageVerificationHandler`, registered in `eventwiring` and both bus
+builders), audit rows, and the serving index all mirror the packing gate exactly.
+
+Permission: `feed_wastage.read` gates the worklist and the phone's fourth Feed tab
+(`/feed/wastage`); the completion write reuses `feed_direction.complete`.
+
+**Proof:** `backend/internal/feeddirection/adapters/postgres/feed_wastage_verification_integration_test.go`
+— pending-verification write with stamped experiment workflow; approval → `completed` +
+`feed.wastage.completed` + idempotent replay; rejection → `rework` + re-submit bumps row_version;
+second differing video refused; measurement stores/replaces/replays, zero accepted, out-of-range
+and unknown-completion refused; pens kept apart. Registered in the domain-event registry as the
+`feed.wastage.completed` producer plus feeddirection consumers under the verdict events.
+
+## Packing review is BLIND PER-ITEM ENTRY — 2026-08-21, SUPERSEDING the visible "Expected ration" context row
+
+Maintainer decision 2026-08-21. Feed packing verification changes shape: the verifier no longer
+judges the video against a printed expected ration. Her item now shows, below the video on BOTH
+surfaces (admin-web `/verify` drawer and the Android Verify detail), **one numeric entry box per
+feed item of that pen-session — names only**. She watches the clip, types the packed weight she can
+see for each item, and presses **Accept once**; the approve carries every reading (the 2026-08-20
+"THE APPROVE CARRIES THE NUMBER" rule, extended from one value to one value per field). A verifier
+who cannot see a usable video **rejects**, which sends the bag to rework exactly as before.
+
+The load-bearing choices:
+
+- **BLIND ENTRY.** The planned quantities are deliberately absent from the verifier's item — the
+  "Expected ration" / "Animals in this pen" context rows the item used to carry are gone, because a
+  verifier who can see the sheet can copy it, and a copied number confirms nothing. The
+  intended-vs-entered comparison is computed by the producing module and surfaces ONLY on the
+  leadership Feed Analytics execution section (`/feed/analytics`), which the verifier lens can never
+  open. Do not put the planned figures, or the variance, on any verifier surface.
+- **The field list rides the ITEM.** New generic column `verification_items.measurement_fields`
+  (migration `000181`): an ordered `[{key,label}]` the producer composes at enqueue from the FROZEN
+  issued sheet — `key` is the normalized feed item key (`NormalizeConfigKey`, the same key the sheet
+  rows carry), `label` the display caption. Composed at enqueue and stored, like `context_rows`, so
+  re-authoring the config cannot change which boxes an already-submitted bag is judged with. Served
+  to clients inside `measurement_correction.fields`; the verdict's measurement carries `entries`
+  echoing each key. **Only items the sheet DIRECTS for the bag become boxes** (maintainer decision
+  2026-08-22, superseding the initial every-item-blocked-included composition): the frozen grid
+  mentions every feed item the pen's ration rows carry, zero-quantity cells included, and boxes for
+  those forced the verifier to type 0 for items the shed is never fed. `packingEntryFields` keeps
+  only resolved, positive-quantity items (sheet order preserved); an all-zero/blocked bag yields no
+  fields and falls into the same judge-the-video exemption as an unreadable sheet.
+- **Every box must be filled to Accept.** `MeasurementCorrectionSpec` on category `feed_packing`:
+  `RequiredForApprove: true`, `PerItemFields: true`. Verification enforces completeness against the
+  item's OWN fields before the verdict (422 `measurement_required` naming the missing box), refuses
+  unknown keys, and — the one deliberate exemption — lets a FIELDS-LESS packing item approve as a
+  plain judge-the-video item, because the enqueue composes fields fail-open (an unreadable sheet
+  must never fail the operator's submit, and a required control with no boxes would strand the item
+  unapprovable). ZERO IS A VALID ENTRY ("this item was not packed"); blank is not entered.
+- **The producer owns the readings.** New table `feed_packing_verified_quantities` (migration
+  `000182`), PK `(tenant_id, completion_id, feed_item_key)`, written only through
+  `RecordPackingVerifiedQuantities` via the registered `PackingMeasurementApplier` — BEFORE the
+  verdict, so a refusal (unknown completion, out-of-range weight; ceiling 10000 kg like wastage)
+  stops the whole approve. REPLACE semantics per completion: a rework re-submit's fresh approve
+  overwrites the previous reading set, and keys it no longer names are removed.
+- **A REJECT never carries the readings** — same as the 2026-08-20 rule: rejection sends the bag
+  back to be packed and filmed again.
+- **Variance pops beyond a 0.2 kg tolerance** (maintainer decision 2026-08-21, second same-day
+  decision SUPERSEDING the initial any-mismatch rule stated that morning): a reading taken off a
+  video is honest to a couple hundred grams, so a difference of 0.2 kg or less is treated as the
+  same number and stays off the execution view; strictly more than 0.2 kg pops. The threshold is
+  `feeddirection/domain.PackingVarianceToleranceKg` — one constant, bound into the SQL as a
+  parameter, never re-hardcoded. The execution analytics read joins the
+  readings to the frozen sheet on the completion's own natural-key coordinates plus
+  `feed_item_key`, pre-aggregating the ration-grain side (the same summation `BuildPackingRows`
+  does for the packer's worklist) before comparing. Only `status='completed'` rows count — a
+  pending or reworked completion's readings are not yet a finding. A planned quantity the sheet
+  never resolved renders blank, never zero.
+
+Pinned by `verdict_measurement_entries_test.go` (completeness, unknown key, fields-less exemption,
+reject-drops-entries, entries-refused-on-single-value-items),
+`TestMeasurementFieldsRoundTripThroughBothReadPaths_RealPostgres`,
+`TestPackingVerifiedQuantitiesUpsertAndVariance`, and
+`TestPackingVarianceOneToManyParkScopeStatusMatrixPageBoundary` (grain, scope, status and window
+adversarial proofs), plus the packing enqueue tests asserting the item carries entry boxes and
+NEVER the planned quantities.

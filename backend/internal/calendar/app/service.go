@@ -567,7 +567,7 @@ func mapRepoError(err error) error {
 	case errors.Is(err, ports.ErrProjectionStale):
 		return Unavailable("projection_stale", "calendar projection is stale; retry after refresh")
 	default:
-		return Internal("calendar request failed")
+		return InternalWrap("calendar request failed", err)
 	}
 }
 

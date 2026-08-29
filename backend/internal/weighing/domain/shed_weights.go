@@ -71,10 +71,9 @@ type ShedWeightsRow struct {
 	// lightest animals leave, the average rises while no animal gained a gram. It
 	// answers "is this shed getting heavier", which is a real and different question.
 	//
-	// Measured against the weigh closest to four weeks before the latest weigh, with
-	// a weekly tolerance for slipped capture dates. If there is no older row near
-	// that four-week baseline, the value stays nil instead of falling back to the
-	// immediately previous entry and manufacturing a noisy short-span rate.
+	// Measured from the first accepted weigh date inside the selected window to the
+	// latest accepted weigh date in that same window. If the shed has only one
+	// weighed date in the selected window, the value stays nil.
 	ShedAverageGainGPerDay *float64 `json:"shed_average_gain_g_per_day,omitempty"`
 	// GainSpanDays is the span that gain was measured over, so a reader can discount a
 	// figure drawn from two days against one drawn from a month. A short span is not
@@ -144,10 +143,10 @@ type LoadGainBucket struct {
 	// a mean of per-shed averages, which would let a 10-head shed pull as hard as a
 	// 73-head one.
 	AverageWeightKg float64 `json:"average_weight_kg"`
-	// GainGPerDay blends each shed's own four-week-baseline movement, weighted by
-	// head count. Nil when no shed in the load has a usable baseline near four weeks
-	// before its latest weigh — a load with only recent repeats has a weight but no
-	// defensible four-week growth, and reporting 0 would read as "flat".
+	// GainGPerDay blends each shed's own selected-window movement, weighted by head
+	// count. Nil when no shed in the load was weighed twice inside the selected
+	// window — a load with only one weigh has a weight but no growth, and reporting
+	// 0 would read as "flat".
 	//
 	// IT IS SHED-AVERAGE MOVEMENT, NOT PER-ANIMAL GROWTH, and carries every caveat
 	// ShedWeightsRow.ShedAverageGainGPerDay does: a shed's population changes between
@@ -157,6 +156,37 @@ type LoadGainBucket struct {
 	// GainSpanDays is the widest span any contributing shed was measured over, so a
 	// figure drawn from two days can be discounted on sight rather than hidden.
 	GainSpanDays int `json:"gain_span_days,omitempty"`
+	// Placements names WHERE this load's weighed animals actually are: one entry per
+	// contributing operational shed row, park included. Without it the chart reports
+	// that a supplier's stock grew without saying which park or shed grew it, and a
+	// reader cannot walk from the load bar to the shed table below.
+	//
+	// It is the SAME key set the figures above are computed over -- the rows of
+	// shed_latest that carry this load's tag -- so sum(Placements.Animals) equals
+	// Animals and len(Placements) equals Sheds. Ordered park, then shed.
+	Placements []LoadPlacement `json:"placements"`
+}
+
+// LoadPlacement is ONE operational shed a load's weighed animals sit in.
+//
+// GRAIN: one row per (location_id, partition_label) measured row behind the load,
+// which is the grain the load's own averages blend. The load TAG itself is
+// authored at physical-shed grain (weighing_shed_load_tags keys on location_id),
+// so a partition shown here says where the weighed animals are, never that the
+// tag was authored per pen.
+type LoadPlacement struct {
+	// ParkName is the park's SHORT CODE (CBE, CPT) when it has one, falling back to
+	// its full name -- the same rule ShedWeightsRow.ParkName follows, so the two
+	// surfaces cannot disagree about what a park is called.
+	ParkName string `json:"park_name"`
+	// ShedDisplayName comes from locations.name, never from the weighing bucket's
+	// own display_name: that column is free text typed at planning time.
+	ShedDisplayName            string `json:"shed_display_name"`
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	// Animals is this shed row's head count at its LATEST weigh -- the same figure
+	// that weights it inside the load's blended average.
+	Animals int `json:"animals"`
 }
 
 // ShedWeights is the full response.
@@ -174,6 +204,21 @@ type ShedWeights struct {
 	// ONE. Returned so the gap between the load chart and the shed table is legible
 	// as unmapped rather than looking like missing weighing data.
 	LoadUnattributedSheds int `json:"load_unattributed_sheds"`
+	// LumpWeighingDates is the distinct set of Asia/Kolkata business dates inside
+	// the resolved window where at least one live lump-sum weighing was accepted.
+	// The Weights page calendar renders these as day markers, so the marker's grain
+	// is the same park/window filter the reader is already using.
+	LumpWeighingDates []string `json:"lump_weighing_dates"`
+	// LatestWeighingDate is the Asia/Kolkata business DATE of the most recent weigh of ANY kind --
+	// individual or whole-shed -- inside the queried range. Empty when nothing was weighed.
+	//
+	// It exists because the Weights page opens on "the last two whole-shed weigh dates", and a
+	// window whose END came from that same lump-only set silently dropped every kid weighed since:
+	// 199 kids scanned across 17 sheds on 25 Aug fell outside a window that closed on the 24th,
+	// purely because the 25th had no whole-shed weigh to put it on that map. The START still comes
+	// from the lump dates -- two of them are what make a shed-average movement measurable -- but the
+	// END is the last day the farm weighed anything at all.
+	LatestWeighingDate string `json:"latest_weighing_date,omitempty"`
 	// PeriodStart / PeriodEnd echo the RESOLVED window (YYYY-MM-DD, Asia/Kolkata) so
 	// the screen labels what it is actually showing rather than what it asked for.
 	PeriodStart string `json:"period_start"`
@@ -188,8 +233,8 @@ const (
 )
 
 // ShedWeightsDefaultPeriodDays is the default window when the caller names
-// neither bound: four weeks, matching the screen's default filter.
-const ShedWeightsDefaultPeriodDays = 28
+// neither bound: the last 15 inclusive days, matching the screen's default filter.
+const ShedWeightsDefaultPeriodDays = 15
 
 // MaxShedWeightsRows bounds the shed list. Both parks together hold well over a
 // hundred sheds, so this is a hard ceiling on one response rather than a page

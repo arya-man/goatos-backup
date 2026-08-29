@@ -34,6 +34,11 @@ type IdentityTxWriter interface {
 	CreateAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd identityports.CreateAdminGoatCommand) (*identityports.AdminGoatMutationResult, error)
 	ExitGoatInTx(ctx context.Context, tx pgx.Tx, cmd identityports.ExitGoatCommand) (*identityports.AdminGoatMutationResult, error)
 	RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd identityports.RelocateGoatsCommand) (identityports.RelocateGoatsResult, error)
+	// ConfigureAdoptedShedCohortInTx tags a destination pen with an arriving typed-shifting
+	// group's tag ("pen tags follow occupancy", 2026-08-20 rewrite). Counts never writes
+	// shed_partitions/shed_profiles itself; the adoption goes through this seam inside the same
+	// apply transaction as the relocation.
+	ConfigureAdoptedShedCohortInTx(ctx context.Context, tx pgx.Tx, cmd identityports.ConfigureAdoptedShedCohortCommand) error
 }
 
 // DeathEvidenceTxGate is implemented by the tasks Postgres repository. The consuming adapter owns

@@ -446,8 +446,12 @@ func TestLumpSumObservationAcceptsTotalWeightAndOneToFiveVideos(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("record five-video lump sum: %v", err)
 	}
-	if repo.received.AverageWeightKg != 13.25 || repo.received.WeightKg != 132.5 {
-		t.Fatalf("normalized weight=(%v,%v), want average 13.25 and total 132.5", repo.received.AverageWeightKg, repo.received.WeightKg)
+	// The service passes the client-sent count/average through UNTOUCHED (they
+	// only feed the idempotency fingerprint); the repository snapshots the real
+	// head count from the herd register and derives the average itself
+	// (maintainer decision 2026-08-24).
+	if repo.received.AverageWeightKg != 0 || repo.received.WeightKg != 132.5 || repo.received.AnimalCount != 10 {
+		t.Fatalf("normalized weight=(%v,%v,count=%d), want client fields passed through verbatim with total 132.5", repo.received.AverageWeightKg, repo.received.WeightKg, repo.received.AnimalCount)
 	}
 	if len(repo.received.ProofArtifactIDs) != 5 || repo.received.ProofArtifactID != proofOne {
 		t.Fatalf("normalized proofs=%v primary=%q", repo.received.ProofArtifactIDs, repo.received.ProofArtifactID)
@@ -494,15 +498,17 @@ func TestRecordAnimalObservationRejectsInvalidWeight(t *testing.T) {
 	}
 }
 
-func TestLumpSumObservationRejectsInvalidCountAndWeight(t *testing.T) {
+// The head count is no longer a client input (maintainer decision 2026-08-24):
+// a missing or garbage count must NOT reject the submit — the repository
+// snapshots the real count from the herd register — while the total weight the
+// operator DOES still type keeps its validation.
+func TestLumpSumObservationRejectsInvalidWeightButNeverValidatesClientCount(t *testing.T) {
 	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
 	tests := []struct {
 		name   string
 		weight float64
 		count  int
 	}{
-		{name: "missing count", weight: 100, count: 0},
-		{name: "negative count", weight: 100, count: -2},
 		{name: "missing total weight", weight: 0, count: 4},
 		{name: "negative total weight", weight: -100, count: 4},
 		{name: "not a number total weight", weight: math.NaN(), count: 4},
@@ -527,9 +533,30 @@ func TestLumpSumObservationRejectsInvalidCountAndWeight(t *testing.T) {
 			}
 		})
 	}
+
+	// A zero or negative client count must sail through: older APKs stop sending
+	// a meaningful count, and the register snapshot happens in the repository.
+	for name, count := range map[string]int{"missing count": 0, "negative count": -2} {
+		t.Run(name, func(t *testing.T) {
+			repo := &shedCaptureRepo{}
+			if _, err := NewService(repo).RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
+				CampaignID:      "00000000-0000-4000-8000-000000000501",
+				CampaignShedID:  perShedScope,
+				WeightKg:        100,
+				AnimalCount:     count,
+				ProofArtifactID: proofShed,
+				IdempotencyKey:  "shed:countless",
+			}); err != nil {
+				t.Fatalf("count=%d error=%v, want accepted (count is a server-side snapshot now)", count, err)
+			}
+			if repo.received.WeightKg != 100 {
+				t.Fatalf("repository received %+v, want the submit to reach the store", repo.received)
+			}
+		})
+	}
 }
 
-func TestLumpSumObservationAcceptsSingleProofWithRequiredAnimalCount(t *testing.T) {
+func TestLumpSumObservationAcceptsSingleProofFromLegacyClient(t *testing.T) {
 	repo := &shedCaptureRepo{}
 	service := NewService(repo)
 	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
@@ -544,7 +571,10 @@ func TestLumpSumObservationAcceptsSingleProofWithRequiredAnimalCount(t *testing.
 	}); err != nil {
 		t.Fatalf("record legacy lump sum: %v", err)
 	}
-	if repo.received.AverageWeightKg != 12.75 || len(repo.received.ProofArtifactIDs) != 1 || repo.received.ProofArtifactIDs[0] != proofShed {
+	// Client average is passed through verbatim (zero here), never recomputed by
+	// the service: the repository derives the real average from the register
+	// snapshot. Proof normalization is the service's job and must still happen.
+	if repo.received.AverageWeightKg != 0 || len(repo.received.ProofArtifactIDs) != 1 || repo.received.ProofArtifactIDs[0] != proofShed {
 		t.Fatalf("legacy request normalized to %+v", repo.received)
 	}
 }
@@ -776,16 +806,16 @@ func (r *fakeRepo) GetWeightHistory(_ context.Context, _ string, _ []string, _, 
 }
 
 // GetLeadershipGrowthADG is a stub implementation for test fakes.
-func (r *fakeRepo) GetLeadershipGrowthADG(_ context.Context, _ string, _ []string, _, _ time.Time) (domain.GrowthADG, error) {
+func (r *fakeRepo) GetLeadershipGrowthADG(_ context.Context, _ string, _ []string, _, _ time.Time, _ string) (domain.GrowthADG, error) {
 	return domain.GrowthADG{}, nil
 }
 
 // GetShedWeights is a stub implementation for test fakes.
-func (r *fakeRepo) GetShedWeights(_ context.Context, _ string, _ []string, _, _ time.Time) (domain.ShedWeights, error) {
+func (r *fakeRepo) GetShedWeights(_ context.Context, _ string, _ []string, _ string, _, _ time.Time, _ string) (domain.ShedWeights, error) {
 	return domain.ShedWeights{}, nil
 }
 
-func (r *fakeRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time) (domain.WeightDemographics, error) {
+func (r *fakeRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string) (domain.WeightDemographics, error) {
 	return domain.WeightDemographics{}, nil
 }
 

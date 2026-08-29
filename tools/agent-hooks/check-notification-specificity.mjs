@@ -80,13 +80,15 @@ const RAW_TOKEN_IN_STRING = /["'`][^"'`]*\b[a-z]+(?:_[a-z]+){2,}\b[^"'`]*["'`]/;
 
 // Tokens/markers that indicate the string (or the surrounding construction) carries real
 // specificity: a location reference, a vaccine/work-item name reference, a count, or a date.
-const LOCATION_MARKERS = /\b(?:park|shed|partition|location|Park|Shed|Partition|Location)\b|parkName|shedName|shedLabel|partitionLabel/; // operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=another-guards-marker-vocabulary-regex-not-a-runtime-grouping-key expiry=2027-08-06
+const LOCATION_MARKERS = /\b(?:park|shed|partition|location|farm|Park|Shed|Partition|Location|Farm)\b|parkName|shedName|shedLabel|partitionLabel|farmLabel|FarmLabel/; // operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=another-guards-marker-vocabulary-regex-not-a-runtime-grouping-key expiry=2027-08-06
 // `SubjectLabel` / a local `subject` spliced into the copy IS a farm entity: it resolves to the
 // shed or record under review (e.g. "Gandhi 2"), which is exactly the context this rule exists to
 // require. Matched only in concatenation position (`subject +`) so the ordinary English word
 // "subject" inside prose cannot satisfy the rule by accident.
 const NAME_MARKERS = /vaccineLabel|vaccine_labels|driveName|workNoun|profile\.\w*[Nn]oun|itemName|VACCINE_LABEL|SubjectLabel|subjectLabel|\bsubject\s*\+/;
-const DATE_MARKERS = /businessDate|dueAt|due_at|\.Format\(|asOf|as_of|IST\b|dueDate|scheduledFor/;
+// visibleDate / FarmDate are the dd/mm/yyyy renderings a person reads (biztime.FarmDate*,
+// maintainer decision 2026-08-24); businessDate stays the ISO value in structured context.
+const DATE_MARKERS = /businessDate|dueAt|due_at|\.Format\(|asOf|as_of|IST\b|dueDate|scheduledFor|visibleDate|FarmDate/;
 const COUNT_MARKERS = /len\(|%d|count\b|Count\b/;
 
 // Strings/constructions that ARE the defect: a bare count + generic noun, no location/date/name.

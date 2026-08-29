@@ -261,33 +261,28 @@ ORDER BY stage_code LIMIT 1`, cmd.TenantID, stage).Scan(&canonical, &ageBand)
 	// (sick/under_treatment/recovering/quarantine/icu -- protocol/domain.MandatoryClinicalDeferStates,
 	// reused not re-hardcoded) is rejected. The animal's clinical state is set by its owning clinical
 	// flow; the move then follows an already-diagnosed animal. See ports.ErrClinicalDestinationTag.
-	if isClinicalDestinationStage(canonical) {
+	//
+	// THE ONE EXCEPTION (maintainer decision 2026-08-20): a HEALTH-type shifting sets
+	// AllowClinicalDestinationTag -- moving an animal into the ICU pen IS the health team setting
+	// her clinical state, and the typed raise resolver already gated which raises may carry the
+	// flag. Every other caller keeps the refusal.
+	if isClinicalDestinationStage(canonical) && !cmd.AllowClinicalDestinationTag {
 		return destinationStageResolution{}, ports.ErrClinicalDestinationTag
 	}
 	return resolved, nil
 }
 
-// clinicalStageKey normalizes a free-text management_stage for comparison against the canonical
-// clinical vocabulary: lowercase, trimmed, and inner whitespace collapsed to single underscores so
-// "Under Treatment", "under treatment", and "under_treatment" all match.
-func clinicalStageKey(stage string) string {
-	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(stage))), "_")
-}
-
 // isClinicalDestinationStage reports whether a resolved destination tag names a clinical state -- the
 // canonical protocol/domain.MandatoryClinicalDeferStates (sick, under_treatment, recovering,
 // quarantine, icu), reused rather than re-hardcoded per the clinical-defer safety rule.
+//
+// The normalization and the comparison BOTH moved to protocol/domain (2026-08-15) so this guard and
+// the counts raise-time resolver share one implementation. They used to answer the same question in
+// two places: this one collapsed inner whitespace, the shifting resolver did not consult the set at
+// all, so a pen tagged with a clinical state resolved cleanly at raise and then failed HERE -- at the
+// second gate, after the operator had shot the completion video and the park head had approved.
 func isClinicalDestinationStage(stage string) bool {
-	key := clinicalStageKey(stage)
-	if key == "" {
-		return false
-	}
-	for _, clinical := range protocoldomain.MandatoryClinicalDeferStates {
-		if key == clinicalStageKey(clinical) {
-			return true
-		}
-	}
-	return false
+	return protocoldomain.IsClinicalManagementStage(stage)
 }
 
 // insertRelocationIdentityEvents takes the row locks and writes the canonical per-animal
@@ -530,6 +525,41 @@ moved AS (
         -- classified ($20), so a keep-current move and an unclassified/clinical tag both leave the
         -- animal's existing band untouched rather than blanking it.
         age_band            = CASE WHEN $16::text = '' OR $20::text = '' THEN g.age_band ELSE $20::text END,
+        -- Stamping a clinical KID pen tag (ICU-Kid, Quarantine kids -- writable since 000167)
+        -- OVERWRITES the milk band the animal was on, and a kid in ICU still drinks milk. Save the
+        -- band here, in the same statement that destroys it, so it can never be lost: there is no
+        -- window where management_stage says ICU-Kid and nothing remembers the animal was a K2.
+        -- Milk Preparation reads milk_cohort as its fallback band (000166).
+        --
+        -- The reverse leg clears it: a move back onto a real milk band means the band is live in
+        -- management_stage again, and a stale milk_cohort would outlive its own truth. Every other
+        -- destination -- keep-current, or a weaned/adult cohort -- leaves the column untouched,
+        -- because moving a K3 kid to F2-Male takes it OFF milk rather than hiding its band.
+        milk_cohort         = CASE
+            WHEN $16::text = '' THEN g.milk_cohort
+            WHEN $16::text IN ('K1', 'K2', 'K3') THEN NULL
+            WHEN upper(regexp_replace(btrim($16::text), '[^A-Za-z0-9]+', '', 'g'))
+                 IN ('ICUKID', 'QUARANTINEKIDS', 'QUARANTINEKID', 'QUARANTINEMILKKID')
+                 AND g.management_stage IN ('K1', 'K2', 'K3')
+                THEN g.management_stage
+            ELSE g.milk_cohort
+        END,
+        -- K3 is a SEVEN DAY weaning window (000168), and this is where its clock starts: an animal
+        -- shifted INTO K3 draws milk for 7 days from today, then stops.
+        --
+        -- Guarded on the animal not ALREADY being K3, so a within-K3 move (a partition change, a
+        -- move to another K3 pen) does not restart a week the animal is halfway through. Leaving K3
+        -- clears it, so a later return starts a fresh week instead of inheriting a spent one.
+        --
+        -- The date is the business day in Asia/Kolkata, not the UTC calendar day: a feed day is a
+        -- farm day, and an 02:00 IST move belongs to that day rather than the one before.
+        k3_milk_started_on  = CASE
+            WHEN $16::text = '' THEN g.k3_milk_started_on
+            WHEN $16::text = 'K3' AND g.management_stage IS DISTINCT FROM 'K3'
+                THEN ($4::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+            WHEN $16::text = 'K3' THEN g.k3_milk_started_on
+            ELSE NULL
+        END,
         updated_at          = $4::timestamptz,
         row_version         = row_version + 1
     FROM identified i

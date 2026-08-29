@@ -44,17 +44,21 @@ type Service interface {
 	WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error)
 	ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error)
 	GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error)
-	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.GrowthADG, error)
-	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.ShedWeights, error)
-	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.WeightDemographics, error)
+	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.GrowthADG, error)
+	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.ShedWeights, error)
+	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
-	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate string, writer io.Writer) error
+	ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, writer io.Writer) error
 }
 
 type Handler struct {
 	service Service
 	log     *slog.Logger
-	media   interface {
+	// weightCorrector serves the VERIFIER's weight correction. It is a separate,
+	// optional seam rather than a Service method so the verifier's write cannot
+	// reach the planner/execution surface -- see weight_correction.go.
+	weightCorrector WeightCorrector
+	media           interface {
 		DownloadURL(context.Context, string, string) (string, error)
 	}
 }
@@ -99,6 +103,10 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/reopen", h.ReopenScope)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close", h.CloseScope)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/close", h.CloseCampaign)
+	// The VERIFIER's weight correction. Observation-grained, not campaign-scoped:
+	// she reaches it from a verification item, which knows the observation id and
+	// nothing about which campaign it belongs to.
+	mux.HandleFunc("POST /app/weighing/observations/{observation_id}/weight-correction", h.CorrectObservationWeight)
 	// PHASE 2 Calendar / Control Tower binding. Backend-owned grain + disjoint
 	// buckets + whole-filter summary; renderers never recompute totals.
 	mux.HandleFunc("GET /weighing/process-state", h.WeighingProcessState)
@@ -155,6 +163,9 @@ func (h *Handler) GetWeightHistory(w http.ResponseWriter, r *http.Request) {
 //     the caller's own authorized-park scope (never widened) -- see domain.GrowthADG.ParkIDs.
 //   - from, to (optional): INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD). Defaults to the
 //     last 90 days ending today when omitted.
+//   - sex (optional): `male` or `female` to report on that half of the herd only. Omitted means
+//     every kid. An unknown value is REJECTED rather than ignored, because silently widening a
+//     filter shows a reader more kids than the heading they are reading says.
 func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.GetLeadershipGrowthADG(
 		r.Context(),
@@ -162,6 +173,7 @@ func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request)
 		r.URL.Query().Get("park_id"),
 		r.URL.Query().Get("from"),
 		r.URL.Query().Get("to"),
+		r.URL.Query().Get("sex"),
 	)
 	h.respond(w, r, result, err)
 }
@@ -177,6 +189,7 @@ func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("park_id"),
 		r.URL.Query().Get("from"),
 		r.URL.Query().Get("to"),
+		r.URL.Query().Get("sex"),
 	)
 	h.respond(w, r, result, err)
 }
@@ -187,6 +200,7 @@ func (h *Handler) GetWeightDemographics(w http.ResponseWriter, r *http.Request) 
 	result, err := h.service.GetWeightDemographics(
 		r.Context(), actor(r),
 		r.URL.Query().Get("park_id"), r.URL.Query().Get("from"), r.URL.Query().Get("to"),
+		r.URL.Query().Get("sex"),
 	)
 	h.respond(w, r, result, err)
 }
@@ -739,6 +753,11 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 			FieldErrors: fieldErrors,
 			TraceID:     traceID(r),
 		}, nil)
+	case errors.Is(err, ports.ErrShedCountUnavailable):
+		// 422, not 409: the request is well-formed but the herd register holds no
+		// animals for this shed/pen, so there is no head count to snapshot. The
+		// remedy is a register fix, never a retry of the same submit.
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, errorEnvelope{Code: "shed_count_unavailable", Message: "No animals are recorded in this shed right now, so the weight can't be submitted. Update the herd register, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrProofNotReady):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_video_missing", Message: "This shed's video is not ready yet. Wait for the video to finish uploading, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrRejectedProofReuse):
@@ -931,7 +950,8 @@ func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="weighing-export.csv"`)
 
 	counting := &countingResponseWriter{ResponseWriter: w}
-	if err := h.service.ExportCSV(ctx, a, r.URL.Query().Get("from"), r.URL.Query().Get("to"), counting); err != nil {
+	query := r.URL.Query()
+	if err := h.service.ExportCSV(ctx, a, query.Get("from"), query.Get("to"), query.Get("park_id"), query["shed_id"], counting); err != nil {
 		if counting.written > 0 {
 			h.log.Error("export csv failed mid-stream", "bytes_written", counting.written, "error", err)
 			return

@@ -356,9 +356,130 @@ class GoatDatabaseUpgradeCrashTest {
             //     an omitted CREATE would still compile and still pass every fresh-install test —
             //     only reopening a real old file like this one catches it.
             assertWeighingLeadershipTablesRoundTrip(upgraded, base = 140L)
+
+            // 14. The four v49 PC CARE tables (MIGRATION_48_49). Same MOB-007 proof: a write+read
+            //     round-trip on each proves the migrated table matches its @Entity shape.
+            assertPcCareTablesRoundTrip(upgraded, base = 160L)
+
+            // 15. The three v50 TOXIN tables (MIGRATION_49_50). Same MOB-007 proof: the migration
+            //     is purely additive, so an omitted or mis-shaped CREATE still passes every
+            //     fresh-install test — only reopening a real old file and round-tripping each
+            //     table catches it before an upgraded phone crashes on open.
+            assertToxinTablesRoundTrip(upgraded, base = 180L)
+
+            // 16. The v51 CLOCK blob cache (MIGRATION_50_51). Same MOB-007 proof: purely
+            //     additive, so an omitted or mis-shaped CREATE still passes every fresh-install
+            //     test — only reopening a real old file and round-tripping the table catches it.
+            assertClockBlobCacheRoundTrips(upgraded)
         } finally {
             upgraded.close()
         }
+    }
+
+    /** Round-trips the clock blob cache so a missing/mismatched CREATE in MIGRATION_50_51
+     *  fails here — the MOB-007 upgrade-crash class — rather than on a tester's phone. */
+    private suspend fun assertClockBlobCacheRoundTrips(upgraded: GoatDatabase) {
+        upgraded.clockBlobCacheDao().upsert(
+            sg.mesha.goatos.core.data.cache.ClockBlobCacheEntity(
+                cacheKey = "status",
+                dtoJson = "{\"probe\":\"clock\"}",
+                updatedAt = 200L,
+            ),
+        )
+        val row = upgraded.clockBlobCacheDao().observe("status").first()
+        assertEquals("{\"probe\":\"clock\"}", row?.dtoJson)
+    }
+
+    /** Round-trips the three Toxin tables so a missing/mismatched CREATE in MIGRATION_49_50
+     *  fails here — the MOB-007 upgrade-crash class — rather than on a tester's phone. */
+    private suspend fun assertToxinTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        upgraded.toxinTaskItemDao().upsertAll(
+            listOf(
+                sg.mesha.goatos.core.data.cache.ToxinTaskItemEntity(
+                    queryKey = "toxin",
+                    grainKey = "toxin-task-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals(1, upgraded.toxinTaskItemDao().countForQuery("toxin"))
+        assertEquals(1, upgraded.toxinTaskItemDao().rowsForTask("toxin-task-1").size)
+
+        upgraded.toxinTaskRemoteKeyDao().upsert(
+            sg.mesha.goatos.core.data.cache.ToxinTaskRemoteKeyEntity(
+                queryKey = "toxin",
+                nextCursor = "cursor-20",
+                endReached = false,
+                updatedAt = base + 1,
+            ),
+        )
+        assertEquals("cursor-20", upgraded.toxinTaskRemoteKeyDao().get("toxin")?.nextCursor)
+
+        upgraded.toxinTaskDetailCacheDao().upsert(
+            sg.mesha.goatos.core.data.cache.ToxinTaskDetailCacheEntity(
+                cacheKey = "toxin-task-1",
+                dtoJson = "{}",
+                updatedAt = base + 2,
+            ),
+        )
+        assertEquals(
+            base + 2,
+            upgraded.toxinTaskDetailCacheDao().observe("toxin-task-1").first()?.updatedAt,
+        )
+    }
+
+    /** Round-trips the four PC Care tables so a missing/mismatched CREATE in MIGRATION_48_49
+     *  fails here — the MOB-007 upgrade-crash class — rather than on a user's phone. */
+    private suspend fun assertPcCareTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        upgraded.pcCareTaskItemDao().upsertAll(
+            listOf(
+                sg.mesha.goatos.core.data.cache.PcCareTaskItemEntity(
+                    queryKey = "pc",
+                    grainKey = "task-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals(1, upgraded.pcCareTaskItemDao().countForQuery("pc"))
+
+        upgraded.pcCareTaskRemoteKeyDao().upsert(
+	            sg.mesha.goatos.core.data.cache.PcCareTaskRemoteKeyEntity(
+	                queryKey = "pc",
+	                nextCursor = "cursor-20",
+	                endReached = false,
+	                updatedAt = base + 1,
+	            ),
+	        )
+	        assertEquals("cursor-20", upgraded.pcCareTaskRemoteKeyDao().get("pc")?.nextCursor)
+
+        upgraded.pcCareTaskDetailCacheDao().upsert(
+            sg.mesha.goatos.core.data.cache.PcCareTaskDetailCacheEntity(
+                cacheKey = "task-1",
+                dtoJson = "{}",
+                updatedAt = base + 2,
+            ),
+        )
+        assertEquals(base + 2, upgraded.pcCareTaskDetailCacheDao().observe("task-1").first()?.updatedAt)
+
+        upgraded.pcCareAnimalRowDao().upsertAll(
+            listOf(
+                sg.mesha.goatos.core.data.cache.PcCareAnimalRowEntity(
+                    taskId = "task-1",
+                    normalizedTag = "tag-1",
+                    tagVerbatim = "TAG-1",
+                    animalRowId = "",
+                    scannedByName = "",
+                    scanSyncStatus = "PENDING",
+                    serverSlotsJson = "",
+                    updatedAt = base + 3,
+                ),
+            ),
+        )
+        assertEquals("TAG-1", upgraded.pcCareAnimalRowDao().getByTag("task-1", "tag-1")?.tagVerbatim)
     }
 
     /** Round-trips all six Feed read-model tables so a missing/mismatched CREATE in MIGRATION_16_17
@@ -1077,14 +1198,17 @@ class GoatDatabaseUpgradeCrashTest {
             MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31,
             MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36,
             MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41,
-            MIGRATION_41_42,
+            MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46,
+            MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51,
         )
 
         /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —
-         *  i.e. everything except MIGRATION_25_26 onwards, the last SEVENTEEN entries of
+         *  i.e. everything except MIGRATION_25_26 onwards, the last EIGHTEEN entries of
          *  ALL_TEST_MIGRATIONS. Keep this drop count in lockstep with the array above: adding a
          *  migration without bumping it silently writes a wrong-version file. */
-        val V25_MIGRATIONS = ALL_TEST_MIGRATIONS.dropLast(17)
+        // Version-bounded, not positional: dropLast(N) silently kept extra migrations every time
+        // the chain grew, which re-broke this fixture (2026-08-15).
+        val V25_MIGRATIONS = ALL_TEST_MIGRATIONS.filter { it.endVersion <= 25 }
     }
 }
 

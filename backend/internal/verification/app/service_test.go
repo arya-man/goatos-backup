@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,16 +17,43 @@ import (
 const testTenant = "00000000-0000-4000-8000-000000000001"
 
 type fakeRepo struct {
+	mu              sync.Mutex
 	items           map[string]domain.Item
 	byIdemKey       map[string]string
 	createCalls     int
 	seq             int
 	verdictErr      error
 	lastQueueParams ports.ListQueueParams
+	// lastVerdict is what actually reached the storage layer, so a test can assert on what the
+	// service DROPPED as well as on what it kept.
+	lastVerdict domain.Verdict
+
+	videoLogSheds     []domain.VideoLogShed
+	videoLogRows      []domain.VideoLogRow
+	videoLogTruncated bool
+	videoLogErr       error
+	videoLogParams    ports.VideoLogParams
+	videoLogRowParams ports.VideoLogParams
+
+	samplingPolicies   []ports.SamplingPolicyRow
+	samplingPolicyDate string
+	samplingStats      map[string]domain.SamplingDayStats
+	samplingErr        error
+	samplingUpsertErr  error
+	samplingUpserts    []domain.SetSamplingPolicy
+	settleParams       ports.SettleUnsampledParams
+	settled            int
+	settleErr          error
 }
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{items: map[string]domain.Item{}, byIdemKey: map[string]string{}}
+}
+
+func (r *fakeRepo) WithVerdictLock(ctx context.Context, _ string, _ string, fn func(context.Context) error) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return fn(ctx)
 }
 
 func (r *fakeRepo) CreateItem(_ context.Context, in domain.CreateItem) (domain.CreateItemResult, error) {
@@ -46,12 +74,15 @@ func (r *fakeRepo) CreateItem(_ context.Context, in domain.CreateItem) (domain.C
 		SubjectLabel: in.SubjectLabel,
 		Source:       in.Source,
 		MediaRefs:    in.MediaRefs,
-		Status:       domain.StatusPending,
-		OperatorID:   in.OperatorID,
-		ShedID:       in.ShedID,
-		ParkID:       in.ParkID,
-		CapturedAt:   in.CapturedAt,
-		RowVersion:   1,
+		// MeasurementFields must round-trip like the real repository's jsonb column: the verdict
+		// path's completeness check reads them off the ITEM, not the create input.
+		MeasurementFields: in.MeasurementFields,
+		Status:            domain.StatusPending,
+		OperatorID:        in.OperatorID,
+		ShedID:            in.ShedID,
+		ParkID:            in.ParkID,
+		CapturedAt:        in.CapturedAt,
+		RowVersion:        1,
 	}
 	r.items[id] = item
 	return domain.CreateItemResult{Item: item, Created: true}, nil
@@ -196,6 +227,7 @@ func (r *fakeRepo) ListQueueFilterOptions(_ context.Context, params ports.ListQu
 }
 
 func (r *fakeRepo) RecordVerdict(_ context.Context, in domain.Verdict) (domain.Item, error) {
+	r.lastVerdict = in
 	if r.verdictErr != nil {
 		return domain.Item{}, r.verdictErr
 	}
@@ -272,6 +304,28 @@ func (r *fakeRepo) CloseVaccinationBatch(_ context.Context, in domain.CloseVacci
 	})
 }
 
+// RelabelItemBySource is the RELABEL seam: the producing module restating the
+// subject label after the fact it names changed (the verifier corrected a weight).
+// It rewrites copy on items in EVERY status -- an approved item's label must still
+// name the weight the record actually holds -- and touches nothing else.
+func (r *fakeRepo) RelabelItemBySource(_ context.Context, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel string) (int, error) {
+	relabelled := 0
+	for _, item := range r.items {
+		if item.TenantID != tenantID || item.Source.Module != sourceModule ||
+			item.Source.RefType != sourceRefType || item.Source.RefID != sourceRefID {
+			continue
+		}
+		if item.SubjectLabel != nil && *item.SubjectLabel == subjectLabel {
+			continue
+		}
+		label := subjectLabel
+		item.SubjectLabel = &label
+		item.RowVersion++
+		relabelled++
+	}
+	return relabelled, nil
+}
+
 // MarkVerdictApplied is the apply-RECEIPT seam: the producing module reporting that
 // it wrote the verdict's outcome onto its own record. It stamps only the receipt --
 // never status, never verdict -- so the applier stays the single writer of the outcome.
@@ -317,6 +371,59 @@ func (r *fakeRepo) WithdrawItemsBySource(_ context.Context, tenantID, sourceModu
 
 func (r *fakeRepo) OversightAnalytics(_ context.Context, _ string) (domain.OversightAnalytics, error) {
 	return domain.OversightAnalytics{}, nil
+}
+
+// videoLogSheds/videoLogRows/videoLogTruncated let a test drive the video log without a database,
+// and videoLogParams captures what the service actually asked the repository for -- which is where
+// the day normalization, the park clamp and the limit are proved.
+func (r *fakeRepo) VideoLogShedSummary(_ context.Context, params ports.VideoLogParams) ([]domain.VideoLogShed, error) {
+	r.videoLogParams = params
+	return r.videoLogSheds, r.videoLogErr
+}
+
+func (r *fakeRepo) VideoLogShedRows(_ context.Context, params ports.VideoLogParams) ([]domain.VideoLogRow, bool, error) {
+	r.videoLogRowParams = params
+	return r.videoLogRows, r.videoLogTruncated, r.videoLogErr
+}
+
+// -- Randomized verification sampling (maintainer decision 2026-08-26) --
+//
+// samplingPolicies/samplingStats let a test drive the Randomization panel without a database, and
+// settleParams captures what the service actually asked the repository to settle -- which is where
+// the business-day cutoff and the waivable allowlist are proved.
+func (r *fakeRepo) ListSamplingPolicies(_ context.Context, _ string, businessDate string) ([]ports.SamplingPolicyRow, error) {
+	r.samplingPolicyDate = businessDate
+	return r.samplingPolicies, r.samplingErr
+}
+
+func (r *fakeRepo) UpsertSamplingPolicy(_ context.Context, in domain.SetSamplingPolicy) error {
+	if r.samplingUpsertErr != nil {
+		return r.samplingUpsertErr
+	}
+	r.samplingUpserts = append(r.samplingUpserts, in)
+	// Reflect the write back so a follow-up read in the same test sees it, exactly as the real
+	// upsert would.
+	next := make([]ports.SamplingPolicyRow, 0, len(r.samplingPolicies)+1)
+	for _, row := range r.samplingPolicies {
+		if row.Category != in.Category {
+			next = append(next, row)
+		}
+	}
+	r.samplingPolicies = append(next, ports.SamplingPolicyRow{
+		Category:              in.Category,
+		Percent:               in.Percent,
+		EffectiveBusinessDate: in.EffectiveBusinessDate,
+	})
+	return nil
+}
+
+func (r *fakeRepo) ListSamplingDayStats(_ context.Context, _ string, _ string) (map[string]domain.SamplingDayStats, error) {
+	return r.samplingStats, r.samplingErr
+}
+
+func (r *fakeRepo) SettleUnsampledItems(_ context.Context, in ports.SettleUnsampledParams) (int, error) {
+	r.settleParams = in
+	return r.settled, r.settleErr
 }
 
 var _ ports.Repository = (*fakeRepo)(nil)

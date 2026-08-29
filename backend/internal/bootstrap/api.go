@@ -32,7 +32,6 @@ import (
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsproof "github.com/vgoats/goatos/backend/internal/counts/adapters/proof"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
-	countsdomain "github.com/vgoats/goatos/backend/internal/counts/domain"
 	countsbridge "github.com/vgoats/goatos/backend/internal/countsbridge"
 	eventwiring "github.com/vgoats/goatos/backend/internal/eventwiring"
 	feedhttp "github.com/vgoats/goatos/backend/internal/feed/adapters/http"
@@ -54,8 +53,12 @@ import (
 	healthhttp "github.com/vgoats/goatos/backend/internal/health/adapters/http"
 	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
+	herdsignalshttp "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/http"
+	herdsignalspg "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/postgres"
+	herdsignalsapp "github.com/vgoats/goatos/backend/internal/herdsignals/app"
 	identityhttp "github.com/vgoats/goatos/backend/internal/identity/adapters/http"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
+	"github.com/vgoats/goatos/backend/internal/identity/adapters/salesbridge"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
@@ -72,6 +75,11 @@ import (
 	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
 	passporthttp "github.com/vgoats/goatos/backend/internal/passport/adapters/http"
 	passportapp "github.com/vgoats/goatos/backend/internal/passport/app"
+	pccarehttp "github.com/vgoats/goatos/backend/internal/pccare/adapters/http"
+	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
+	pccareproof "github.com/vgoats/goatos/backend/internal/pccare/adapters/proof"
+	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
+	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	permissionspg "github.com/vgoats/goatos/backend/internal/permissions/adapters/postgres"
 	platformaudit "github.com/vgoats/goatos/backend/internal/platform/audit"
@@ -80,6 +88,13 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/authaudit"
 	"github.com/vgoats/goatos/backend/internal/platform/buildinfo"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	toxinhttp "github.com/vgoats/goatos/backend/internal/toxin/adapters/http"
+	toxinpg "github.com/vgoats/goatos/backend/internal/toxin/adapters/postgres"
+	toxinproof "github.com/vgoats/goatos/backend/internal/toxin/adapters/proof"
+	toxinapp "github.com/vgoats/goatos/backend/internal/toxin/app"
+	"golang.org/x/oauth2"
+
+	"github.com/vgoats/goatos/backend/internal/platform/firebaseidentity"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/migrationguard"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
@@ -99,6 +114,9 @@ import (
 	protocolhttp "github.com/vgoats/goatos/backend/internal/protocol/adapters/http"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
+	saleshttp "github.com/vgoats/goatos/backend/internal/sales/adapters/http"
+	salespg "github.com/vgoats/goatos/backend/internal/sales/adapters/postgres"
+	salesapp "github.com/vgoats/goatos/backend/internal/sales/app"
 	sophttp "github.com/vgoats/goatos/backend/internal/sop/adapters/http"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
@@ -107,7 +125,6 @@ import (
 	taskspg "github.com/vgoats/goatos/backend/internal/tasks/adapters/postgres"
 	tasksverificationbridge "github.com/vgoats/goatos/backend/internal/tasks/adapters/verificationbridge"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
-	tasksdomain "github.com/vgoats/goatos/backend/internal/tasks/domain"
 	vaccinationhttp "github.com/vgoats/goatos/backend/internal/vaccination/adapters/http"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
@@ -121,6 +138,7 @@ import (
 	verificationproofmedia "github.com/vgoats/goatos/backend/internal/verification/adapters/proofmedia"
 	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
+	"github.com/vgoats/goatos/backend/internal/verificationcatalog"
 	weighinghttp "github.com/vgoats/goatos/backend/internal/weighing/adapters/http"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
@@ -129,6 +147,7 @@ import (
 	workforcehttp "github.com/vgoats/goatos/backend/internal/workforce/adapters/http"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
+	workforceports "github.com/vgoats/goatos/backend/internal/workforce/ports"
 )
 
 type Config struct {
@@ -253,6 +272,14 @@ func (w weighingExportProofURLResolver) ResolveProofDownloadURL(ctx context.Cont
 	}
 	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
 		return url, nil
+	}
+	// PROTOCOL-RELATIVE GUARD: a signed path beginning with "//" is scheme-relative ("//evil.com/x"),
+	// and naively concatenating it after baseURL would leave a URL some parsers/clients resolve as
+	// pointing at a THIRD-PARTY host, not this API -- an open-redirect shape in a value that ends up
+	// clickable in an exported sheet. Collapse any leading slashes down to exactly one first, so the
+	// result can only ever be a path on this API's own baseURL.
+	for strings.HasPrefix(url, "//") {
+		url = url[1:]
 	}
 	// Host-relative local-storage signed path: make it absolute against the API's own public
 	// base URL so the cell is clickable from wherever the sheet is opened, not just from a
@@ -418,6 +445,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	identityRepo := identitypg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	identityService := identityapp.NewService(identityRepo).WithBulkPreviewSigningKey(bulkPreviewSigningKey)
 	identityHandler := identityhttp.NewHandler(identityService, log)
+	// The sale-count gate needs one fact from the sales ledger (how many animals a deal
+	// is for). It arrives through a BRIDGE rather than a join, so identity's own queries
+	// stay clear of the sales schema -- see migration 000177.
+	saleAllocationHandler := identityhttp.NewSaleAllocationHandler(
+		identityapp.NewSaleAllocationService(identityRepo, identityRepo, salesbridge.New(pool)), log)
 	bulkStatusRepo := bulkstatuspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	bulkStatusService := bulkstatusapp.NewService(bulkStatusRepo, bulkStatusRepo).WithSigningKey(bulkPreviewSigningKey)
 	bulkStatusHandler := bulkstatushttp.NewHandler(bulkStatusService, log)
@@ -427,8 +459,42 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	workforceRepo := workforcepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	workforceService := workforceapp.NewService(workforceRepo)
 	workforceHandler := workforcehttp.NewHandler(workforceService, log)
+	// People/HRMS directory + in-app onboarding. The Firebase identity adapter
+	// activates only when a Firebase project can be resolved (explicit env or a
+	// securetoken issuer); local dev-headers/HS256 environments run without it
+	// and the create-person route fails closed with identity_unavailable.
+	var workforceIdentity workforceports.IdentityProvider
+	if projectID := firebaseIdentityProjectID(cfg.Auth.Issuer); projectID != "" {
+		var identityOpts []firebaseidentity.Option
+		// Emulator/local override: point the adapter at a Firebase Auth
+		// emulator (or a local stand-in) instead of the live Identity Toolkit.
+		// The emulator accepts any bearer, so a static token source suffices.
+		if baseURL := strings.TrimSpace(os.Getenv("GOATOS_FIREBASE_IDENTITY_BASE_URL")); baseURL != "" {
+			identityOpts = append(identityOpts,
+				firebaseidentity.WithBaseURL(baseURL),
+				firebaseidentity.WithTokenSource(oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "emulator"})),
+			)
+		}
+		identityClient, err := firebaseidentity.New(projectID, identityOpts...)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+		workforceIdentity = identityClient
+	}
+	peopleService := workforceapp.NewPeopleService(workforceRepo, workforceIdentity, cfg.Auth.Issuer)
+	peopleHandler := workforcehttp.NewPeopleHandler(peopleService, log)
+	// Per-person module access (maintainer decision 2026-08-24). Its own repository
+	// because it owns its own tables; the SAME pool, so a save and the read that
+	// enforces it see one database.
+	accessRepo := workforcepg.NewAccessRepository(pool)
+	accessService := workforceapp.NewAccessService(accessRepo)
+	accessHandler := workforcehttp.NewAccessHandler(accessService, log)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
 	rosterHandler := workforcehttp.NewRosterHandler(rosterService, log)
+	// Clock In / Out (docs/features/clock-in-out/plan.md): punches + presence.
+	clockService := workforceapp.NewClockService(workforceRepo, workforceRepo, workforceRepo)
+	clockHandler := workforcehttp.NewClockHandler(clockService, log)
 	proofStorage, err := buildProofStorage()
 	if err != nil {
 		pool.Close()
@@ -488,10 +554,21 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// countsApprovalRepo therefore carries the identity write seam (goat create / guarded critical-
 	// death exit / bulk relocate). identityService supplies the Prepare* validators, which validate
 	// a payload at submit time without applying it.
-	tasksWorkflowRepo := taskspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	// The identity seam lets the Record shed fallback step place a kid inside that action write's
+	// own transaction (tasks/adapters/postgres/newborn_placement.go). Without it the step would
+	// record an answer and leave the kid where it was.
+	tasksWorkflowRepo := taskspg.NewRepository(pool, cfg.Postgres.QueryTimeout).
+		WithIdentityTxWriter(identityRepo)
 	healthRepo := healthpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	healthService := healthapp.NewService(healthRepo)
 	healthHandler := healthhttp.NewHandler(healthService, log)
+	// Herd Signals: BLE ear-tag telemetry ingest + live/timeline/gateways/insights read model.
+	// Owns its own four tables (herd_signal_gateways/packets/tag_latest/activity_windows) and
+	// reads goat_identifiers/goats/locations/shed_partitions read-only to resolve a tag to an
+	// animal and operational location -- it writes to none of them.
+	herdSignalsRepo := herdsignalspg.NewRepository(pool)
+	herdSignalsService := herdsignalsapp.NewService(herdSignalsRepo, log)
+	herdSignalsHandler := herdsignalshttp.NewHandler(herdSignalsService, log)
 	// The authored treatment rulebook behind /health/config. Same repository, because the
 	// protocol tables belong to the Health module and a second package writing them would be the
 	// cross-module table write AGENTS.md bans -- the authoring surface is a different API over
@@ -556,20 +633,45 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		// instant" rule): a SEPARATE store on a NEW table (feed_packing_completions). The packing overlay
 		// now reads verified rows from here, and the enqueue seam is wired below.
 		WithPackingStore(feedDirectionRepo).
+		// Feed WASTAGE verification gate (maintainer decision, 2026-08-18): a SEPARATE store on a
+		// NEW table (feed_wastage_completions), one pen-day task per EXPERIMENT pen. The enqueue
+		// seam is wired below, once verificationService exists.
+		WithWastageStore(feedDirectionRepo).
 		WithTransportStore(feedDirectionRepo).
-		WithProofValidator(feeddirectionproof.NewValidator(proofRepo)).
+		WithProofValidator(feeddirectionproof.NewValidatorWithPool(proofRepo, pool)).
+		WithAnalyticsReader(feedDirectionRepo).
 		// The feed module's own lifecycle alerts feed (GET /app/feed/alerts), the twin of
 		// weighing/vaccination's alerts feeds. Same repository instance already used for
 		// config/issue/schedule/completion reads implements ports.AlertsRepository.
 		WithAlertsRepository(feedDirectionRepo).
 		WithGeneratedBy("goatos-api")
 	feedDirectionHandler := feeddirectionhttp.NewHandler(feedDirectionService, log)
+	// PC Care (module_key pc_care, maintainer decision 2026-08-21): planner-assigned deworming /
+	// ticks removal / hoof trimming / hair trimming tasks with per-animal live-camera video
+	// proof. The verification enqueue seam is wired below, once verificationService exists.
+	pcCareRepo := pccarepg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	pcCareService := pccareapp.NewService(pcCareRepo).
+		WithProofValidator(pccareproof.NewValidator(proofRepo))
+	pcCareHandler := pccarehttp.NewHandler(pcCareService, log)
 	procurementService := procurementapp.NewService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).WithVaccinationCanceler(obligationRepo)
 	procurementHandler := procurementhttp.NewHandler(procurementService, log)
 	// The vendor register shares procurement's postgres repository (it owns procurement_vendors)
 	// but has its own thin service: a contact book has no state machine to orchestrate.
 	procurementVendorHandler := procurementhttp.NewVendorHandler(
 		procurementapp.NewVendorService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+	// The feed PURCHASE ledger (maintainer decision 2026-08-24, retiring the read-only half of
+	// migration 000174's lock). Procurement owns the write; feeddirection keeps the stock read.
+	procurementFeedPurchaseHandler := procurementhttp.NewFeedPurchaseHandler(
+		procurementapp.NewFeedPurchaseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+	// Toxin (maintainer decision 2026-08-25): the aflatoxin strip-test module. Tasks are
+	// born from procurement.feed_purchase.recorded (consumer wired in kernelstages); the
+	// routes here serve the tester's guided step flow and the CEO/CXO-only review.
+	toxinHandler := toxinhttp.NewHandler(
+		toxinapp.NewService(toxinpg.NewRepository(pool, cfg.Postgres.QueryTimeout), toxinproof.NewValidator(proofRepo)), log)
+	// The sales module: its own bounded ledger (sales_*) with a thin service -- a commercial
+	// record with no state machine to orchestrate.
+	salesHandler := saleshttp.NewSalesHandler(
+		salesapp.NewSalesService(salespg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	vaccinationService := vaccinationapp.NewService(vaccinationRepo)
 	inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
@@ -586,12 +688,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithActionPresentationResolver(tasksWorkflowRepo)
 	processIntegrityService.WithMediaResolver(verificationMedia)
 	verificationService := verificationapp.NewService(verificationRepo, verificationMedia)
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: "preventive_care", Module: "vaccination", Category: sopbridge.VaccinationVerificationCategory,
-		ExpectedMedia: []string{"video"}, MediaLabels: []string{"Vaccination proof video"},
-		NavigationModule: "vaccination", NavigationModuleLabel: "Vaccination",
-		PageKey: "vaccination", PageLabel: "Vaccination", PageOrder: 1,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.Vaccination); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -603,25 +700,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// feature filters its own queue by those same constants, so a hand-written vertical
 	// here would silently not match its reads.
 	for _, def := range []verificationdomain.CategoryDefinition{
-		{
-			Vertical: weighingdomain.VerificationVerticalWeighing, Module: weighingdomain.VerificationModuleWeighing,
-			Category:      weighingdomain.VerificationCategoryWeighing,
-			ExpectedMedia: []string{"video"}, MediaLabels: []string{"Weighing video"},
-			NavigationModule: "weighing", NavigationModuleLabel: "Weighing",
-			PageKey: "weighing", PageLabel: "Weighing", PageOrder: 1,
-		},
-		{
-			Vertical: "health", Module: "health", Category: "health_adults",
-			ExpectedMedia: []string{"video"}, MediaLabels: []string{"Health case video"},
-			NavigationModule: "aas_health", NavigationModuleLabel: "Health",
-			PageKey: "health_adults", PageLabel: "Adults", PageOrder: 1,
-		},
-		{
-			Vertical: "health", Module: "health", Category: "health_kids",
-			ExpectedMedia: []string{"video"}, MediaLabels: []string{"Health case video"},
-			NavigationModule: "aas_health", NavigationModuleLabel: "Health",
-			PageKey: "health_kids", PageLabel: "Kids", PageOrder: 2,
-		},
+		verificationcatalog.Weighing,
+		verificationcatalog.HealthAdults,
+		verificationcatalog.HealthKids,
 	} {
 		if err := verificationService.RegisterCategory(def); err != nil {
 			pool.Close()
@@ -633,17 +714,33 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Same bridge, retire direction: a reopened lump-sum bucket withdraws its
 	// submission, so the item raised for it must stop being decidable.
 	weighingService.WithVerificationWithdrawer(weighingVerificationBridge)
+	// Same bridge, RELABEL direction: the verifier's weight correction replaces the
+	// weight the item's subject label states, so the label is recomposed or the
+	// queue keeps showing the number she just replaced.
+	//
+	// The correction is served by its own service and its own narrow store, NOT by
+	// weighingService: it is the verifier's act on one observation and must not be
+	// able to reach the planner/execution writes.
+	weighingWeightCorrections := weighingapp.NewWeightCorrectionService(weighingRepo, log).
+		WithVerificationRelabeler(weighingVerificationBridge)
+	weighingHandler.WithWeightCorrector(weighingWeightCorrections)
+	// THE APPROVE CARRIES THE WEIGHT (maintainer decision 2026-08-20). The same correction service,
+	// reached by verification when the verifier's approve carries a number, so she types it and
+	// presses Approve once instead of saving and then approving -- a pair whose save relabelled the
+	// item, bumped row_version, and fenced out the approve that followed. The standalone route above
+	// stays served for installed APKs that still show their own save button.
+	if err := verificationService.RegisterMeasurementApplier(
+		weighingdomain.VerificationCategoryWeighing,
+		weighingverificationbridge.NewMeasurementApplier(weighingWeightCorrections),
+	); err != nil {
+		pool.Close()
+		return nil, err
+	}
 	// Shifting-move verification (maintainer decision, 2026-07-26): a shed move is applied only after
 	// a verifier approves the operator's mandatory video, so shifting is a verification producer just
 	// like vaccination. Register its category and wire the enqueue seam into the execution service now
 	// that the verification service exists.
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: countsdomain.VerificationVerticalShifting, Module: countsdomain.VerificationModuleShifting,
-		Category: countsdomain.VerificationCategoryShifting, ExpectedMedia: []string{"video"},
-		MediaLabels:      []string{"Shifting video"},
-		NavigationModule: "counts", NavigationModuleLabel: "Counts",
-		PageKey: "shifting", PageLabel: "Shifting", PageOrder: 3,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.Shifting); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -652,31 +749,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// Milk preparation is a park-day work item. Every applicable step owns a distinct live-camera
 	// video (five with goat milk, two without), and all videos travel on one verifier item so one
 	// verdict completes or reworks the whole preparation attempt.
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: countsdomain.VerificationVerticalMilkPreparation, Module: countsdomain.VerificationModuleMilkPreparation,
-		Category:      countsdomain.VerificationCategoryMilkPreparation,
-		ExpectedMedia: []string{"video", "video", "video", "video", "video"},
-		// Reviewed under MILK, not Counts (maintainer decision 2026-08-09). The two milk tasks were
-		// split out of Counts into their own operator module on 2026-07-31, but their VERIFICATION
-		// was deliberately left in the Counts lens -- so a verifier saw Milk Prep and Milk Feeding
-		// filed under Herd Operations, while the Milk module in her own drawer pointed at an
-		// invented "milk_proof" category that no producer writes and that answers 400 forever.
-		// Review now follows the module the work belongs to.
-		SLAHours: 24, NavigationModule: "milk", NavigationModuleLabel: "Milk",
-		PageKey: "milk_preparation", PageLabel: "Milk Prep", PageOrder: 1,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.MilkPreparation); err != nil {
 		pool.Close()
 		return nil, err
 	}
 	herdRegisterService.WithMilkPreparationVerificationEnqueuer(
 		countsbridge.NewMilkPreparationVerificationEnqueuer(verificationService))
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: countsdomain.VerificationVerticalMilkFeeding, Module: countsdomain.VerificationModuleMilkFeeding,
-		Category: countsdomain.VerificationCategoryMilkFeeding, ExpectedMedia: []string{"video", "video"},
-		MediaLabels: []string{"Milk preparation video", "Milk feeding video"}, SLAHours: 24,
-		NavigationModule: "milk", NavigationModuleLabel: "Milk",
-		PageKey: "milk_feeding", PageLabel: "Milk Feeding", PageOrder: 2,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.MilkFeeding); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -686,14 +765,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// verification producer just like vaccination and shifting. Register its category and wire the
 	// enqueue seam into the feed-direction service now that verificationService exists. Weight photo,
 	// feed-distribution video, and water-distribution video travel together on one verification item.
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
-		Category:         feeddirectiondomain.VerificationCategoryFeed,
-		ExpectedMedia:    []string{"photo", "video", "video"},
-		MediaLabels:      []string{"Feed weight photo", "Feed distribution video", "Water distribution video"},
-		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
-		PageKey: "feed_distribution", PageLabel: "Feed Distribution", PageOrder: 1,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.FeedDistribution); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -704,53 +776,89 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// mandatory packing video, so packing is a verification producer too. Same feed module as
 	// distribution, but a DISTINCT category (feed_packing) and ref_type so the two feed gates never
 	// cross-fire. Register the category and wire the enqueue seam.
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
-		Category:         feeddirectiondomain.VerificationCategoryPacking,
-		ExpectedMedia:    []string{"video"},
-		MediaLabels:      []string{"Feed packing video"},
-		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
-		PageKey: "feed_packing", PageLabel: "Feed Packing", PageOrder: 2,
-	}); err != nil {
+	// BLIND PER-ITEM QUANTITY ENTRY on packing review (maintainer decision 2026-08-21): the item
+	// carries the pen-session's feed item NAMES as entry boxes (MeasurementFields, enqueued by the
+	// producer -- the planned quantities are deliberately hidden from the verifier), she types the
+	// packed weight she can see for each, and the approve carries every reading. A verifier who
+	// cannot see a usable video rejects -> rework, unchanged. The intended-vs-entered variance
+	// surfaces only on the leadership feed analytics execution view.
+	if err := verificationService.RegisterCategory(verificationcatalog.FeedPacking); err != nil {
 		pool.Close()
 		return nil, err
 	}
 	feedDirectionService.WithPackingVerificationEnqueuer(
 		feeddirectionverificationbridge.NewPacking(verificationService))
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
-		Category: feeddirectiondomain.VerificationCategoryTransport, ExpectedMedia: []string{"video"},
-		MediaLabels:      []string{"Feed transport video"},
-		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
-		PageKey: "feed_transport", PageLabel: "Feed Transport", PageOrder: 3,
-	}); err != nil {
+	// THE APPROVE CARRIES THE NUMBERS: the readings land on feed_packing_verified_quantities
+	// through the producer's own store, BEFORE the verdict is recorded, so a refusal stops the
+	// whole approve rather than approving beside readings that never landed.
+	if err := verificationService.RegisterMeasurementApplier(
+		feeddirectiondomain.VerificationCategoryPacking,
+		feeddirectionverificationbridge.NewPackingMeasurementApplier(feedDirectionRepo),
+	); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := verificationService.RegisterCategory(verificationcatalog.FeedTransport); err != nil {
 		pool.Close()
 		return nil, err
 	}
 	feedDirectionService.WithTransportVerificationEnqueuer(feeddirectionverificationbridge.NewTransport(verificationService))
+	// Feed WASTAGE verification (maintainer decision, 2026-08-18): a daily task on EXPERIMENT pens
+	// only — one mandatory leftover-feed video per pen per feed day, reviewed under the same feed
+	// module with its own category so the four feed gates never cross-fire.
+	//
+	// THE VERIFIER RECORDS THE MEASURED VALUE. Wastage is the second category (after weighing) to
+	// declare a correctable/recordable measurement: the operator submits only a video, and the
+	// number is born on the verifier's screen — she reads the leftover weight off the clip, records
+	// it, and approves; an unreadable value is a rejection, never a guess. Every visible word lives
+	// here because the backend owns labels (her phone and admin-web drawer render this same copy).
+	if err := verificationService.RegisterCategory(verificationcatalog.FeedWastage); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	feedWastageBridge := feeddirectionverificationbridge.NewWastage(verificationService)
+	feedDirectionService.WithWastageVerificationEnqueuer(feedWastageBridge)
+	// The measurement is served by its own small service and the SAME bridge's relabel seam, NOT by
+	// feedDirectionService: it is the verifier's act on one completion and must not be able to
+	// reach the generation/completion writes (same shape as the weighing weight correction).
+	feedWastageMeasurements := feeddirectionapp.NewWastageMeasurementService(feedDirectionRepo, log).
+		WithVerificationRelabeler(feedWastageBridge)
+	feedDirectionHandler.WithWastageMeasurer(feedWastageMeasurements)
+	// THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20), and for wastage it must:
+	// RequiredForApprove above refuses an approve that carries no reading and finds none already
+	// recorded, BEFORE the verdict -- rather than letting the verdict commit and having the
+	// consumer's ErrWastageMeasurementRequired strand the item mid-apply.
+	if err := verificationService.RegisterMeasurementApplier(
+		feeddirectiondomain.VerificationCategoryWastage,
+		feeddirectionverificationbridge.NewWastageMeasurementApplier(feedWastageMeasurements, feedDirectionRepo),
+	); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	// PC Care verification (maintainer decision 2026-08-21): a PC Care task is completed only
+	// when a verifier approves the operators' whole video set, so pc_care is a verification
+	// producer like feed and weighing. ONE module (pc_care) with FOUR categories — one per work
+	// category — all sharing NavigationModule "pc_care" so the verifier gets ONE Verify tab and
+	// the categories split as queue page filters (never one tab per category). All four share
+	// ref_type pc_care_task; the verdict consumer filters on module+ref_type.
+	for _, def := range verificationcatalog.PCCare() {
+		if err := verificationService.RegisterCategory(def); err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
+	pcCareService.WithVerificationEnqueuer(pccareverificationbridge.New(verificationService))
 	// Death evidence verification (maintainer decision 2026-07-28, docs/decisions/
 	// birth-death-workflows.md): after admin approval, the death workflow's two mandatory videos
 	// travel to Verify as
 	// ONE generic verification item (category death_evidence, both proofs on the item), so tasks is a
 	// verification producer just like shifting and feed. Register the category and wire the enqueue
 	// seam into the tasks workflow service.
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: tasksdomain.VerificationVerticalCounts, Module: tasksdomain.VerificationModuleCounts,
-		Category:      tasksdomain.VerificationCategoryDeathEvidence,
-		ExpectedMedia: []string{"video", "video"},
-		SLAHours:      24, NavigationModule: "counts", NavigationModuleLabel: "Counts",
-		PageKey: "death", PageLabel: "Death", PageOrder: 2,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.DeathEvidence); err != nil {
 		pool.Close()
 		return nil, err
 	}
-	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
-		Vertical: tasksdomain.VerificationVerticalCounts, Module: tasksdomain.VerificationModuleCounts,
-		Category:      tasksdomain.VerificationCategoryBirthEvidence,
-		ExpectedMedia: []string{"video"},
-		SLAHours:      24, NavigationModule: "counts", NavigationModuleLabel: "Counts",
-		PageKey: "birth", PageLabel: "Birth", PageOrder: 1,
-	}); err != nil {
+	if err := verificationService.RegisterCategory(verificationcatalog.BirthEvidence); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -770,7 +878,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// must be wired AFTER every RegisterCategory call — a module registered later would otherwise
 	// be missing from the verifier's evidence groups.
 	adminUIService.WithVerificationModules(verificationadminuibridge.New(verificationService)).
-		WithModuleDutyReader(workforceRepo)
+		WithModuleDutyReader(workforceRepo).
+		// PAGE-GRAIN ACCESS (maintainer decision 2026-08-27). The sidebar is narrowed to
+		// the pages this person is ticked for on /people, which is what retired the
+		// hand-coded procurement-director lens. A person with no stored rows is not
+		// narrowed at all.
+		WithPersonPageAccess(accessRepo)
 
 	// Leadership read-only assistant (CEO AI). Wired end-to-end: the Vertex
 	// Gemini planner (when MESHA_AI_PROVIDER=vertex + ADC available; else the
@@ -863,7 +976,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// publishes verdicts only to the outbox, so these appliers actually fire in the durable-bus
 	// consumers above. Registering here keeps parity through the same helper. Each handler filters
 	// strictly on source.module + source.ref_type, so no cross-fire.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, weighingRepo, weighingVerificationBridge, log)
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, weighingRepo, weighingVerificationBridge, pcCareRepo, log)
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
@@ -901,15 +1014,24 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	passportHandler := passporthttp.NewHandler(passportService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
 	authAuditRecorder := authaudit.NewPostgresRecorder(pool, cfg.Postgres.QueryTimeout)
+	// DB-backed email allowlist: written by the workforce create-person flow,
+	// consulted in union with the GOATOS_AUTH_ALLOWED_EMAILS env list by both
+	// the auth middleware and the session-events handler.
+	allowedEmailSource := permissionspg.NewAllowedEmailSource(pool, cfg.Postgres.QueryTimeout, log)
 	authAuditOptions = append(authAuditOptions, authaudit.WithPendingEmailGrantClaimer(
 		permissionspg.NewPendingEmailGrantClaimer(pool, cfg.Postgres.QueryTimeout),
-	))
+	), authaudit.WithDynamicAllowedEmails(allowedEmailSource))
 	authAuditHandler := authaudit.NewHandler(verifier, authAuditRecorder, log, authAuditOptions...)
-	authz, err := buildAuthMiddleware(cfg.Auth, verifier, appCheckVerifier, grantSource, log)
+	authz, err := buildAuthMiddleware(cfg.Auth, verifier, appCheckVerifier, grantSource, allowedEmailSource, log)
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
+	// PER-PERSON ACCESS (maintainer decision 2026-08-24). From here a request's
+	// permissions come from the person's own stored module rows; the route rules are
+	// unchanged. A person with no rows yet still authorizes from their role, logged
+	// each time -- see the middleware for why that bridge exists and when it goes.
+	authz.SetPersonAccessSource(accessRepo)
 
 	protectedMux := http.NewServeMux()
 	protectedMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -977,10 +1099,14 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		_ = json.NewEncoder(w).Encode(body)
 	})
 	identityhttp.Register(protectedMux, identityHandler)
+	identityhttp.RegisterSaleAllocation(protectedMux, saleAllocationHandler)
 	bulkstatushttp.Register(protectedMux, bulkStatusHandler)
 	locationshttp.Register(protectedMux, locationsHandler)
 	workforcehttp.Register(protectedMux, workforceHandler)
 	workforcehttp.RegisterRoster(protectedMux, rosterHandler)
+	workforcehttp.RegisterPeople(protectedMux, peopleHandler)
+	workforcehttp.RegisterAccess(protectedMux, accessHandler)
+	workforcehttp.RegisterClock(protectedMux, clockHandler)
 	proofhttp.Register(protectedMux, proofHandler)
 	sophttp.Register(protectedMux, sopHandler)
 	protocolhttp.Register(protectedMux, protocolHandler)
@@ -989,6 +1115,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	processintegrityhttp.Register(protectedMux, processIntegrityHandler)
 	procurementhttp.Register(protectedMux, procurementHandler)
 	procurementhttp.RegisterVendors(protectedMux, procurementVendorHandler)
+	procurementhttp.RegisterFeedPurchases(protectedMux, procurementFeedPurchaseHandler)
+	toxinhttp.Register(protectedMux, toxinHandler)
+	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)
 	vaccexechttp.Register(protectedMux, vaccExecHandler)
 	weighinghttp.Register(protectedMux, weighingHandler)
@@ -1005,9 +1134,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	taskshttp.Register(protectedMux, tasksWorkflowHandler)
 	healthhttp.Register(protectedMux, healthHandler)
 	healthhttp.RegisterConfig(protectedMux, healthConfigHandler)
+	herdsignalshttp.Register(protectedMux, herdSignalsHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	feedconfighttp.Register(protectedMux, feedConfigHandler)
 	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)
+	pccarehttp.Register(protectedMux, pcCareHandler)
 	passporthttp.Register(protectedMux, passportHandler)
 	verificationhttp.Register(protectedMux, verificationHandler)
 	ceoService.Register(protectedMux)
@@ -1158,7 +1289,7 @@ func buildAppCheckVerifier(cfg AuthConfig) (httpmiddleware.TokenVerifier, error)
 	})
 }
 
-func buildAuthMiddleware(cfg AuthConfig, verifier, appCheckVerifier httpmiddleware.TokenVerifier, grants permissions.GrantSource, log *slog.Logger) (*httpmiddleware.AuthMiddleware, error) {
+func buildAuthMiddleware(cfg AuthConfig, verifier, appCheckVerifier httpmiddleware.TokenVerifier, grants permissions.GrantSource, dynamicEmails authallow.DynamicEmailSource, log *slog.Logger) (*httpmiddleware.AuthMiddleware, error) {
 	mode := strings.TrimSpace(cfg.Mode)
 	if mode == "" {
 		mode = httpmiddleware.AuthModeBearer
@@ -1177,10 +1308,23 @@ func buildAuthMiddleware(cfg AuthConfig, verifier, appCheckVerifier httpmiddlewa
 		AppCheckMode:     cfg.AppCheckMode,
 		AppCheckVerifier: appCheckVerifier,
 
-		DevHeadersAllowed: cfg.DevHeadersAllowed,
-		Environment:       cfg.Environment,
-		AllowedEmails:     cfg.AllowedEmails,
+		DevHeadersAllowed:    cfg.DevHeadersAllowed,
+		Environment:          cfg.Environment,
+		AllowedEmails:        cfg.AllowedEmails,
+		DynamicAllowedEmails: dynamicEmails,
 	}, verifier, grants, log)
+}
+
+// firebaseIdentityProjectID resolves the Firebase project the create-person
+// flow mints login accounts in: an explicit GOATOS_FIREBASE_PROJECT_ID wins,
+// else it is derived from a securetoken.google.com auth issuer. Empty means
+// "no Firebase in this environment" (local HS256 dev) and the identity adapter
+// is not constructed.
+func firebaseIdentityProjectID(issuer string) string {
+	if explicit := strings.TrimSpace(os.Getenv("GOATOS_FIREBASE_PROJECT_ID")); explicit != "" {
+		return explicit
+	}
+	return firebaseidentity.ProjectIDFromIssuer(issuer)
 }
 
 func buildAuthAuditOptions(cfg AuthConfig) ([]authaudit.Option, error) {

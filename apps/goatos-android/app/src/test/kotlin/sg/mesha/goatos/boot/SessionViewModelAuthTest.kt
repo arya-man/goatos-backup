@@ -5,6 +5,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import sg.mesha.goatos.feature.auth.LoginError
 import java.io.IOException
+import java.util.Base64
 
 class SessionViewModelAuthTest {
 
@@ -16,9 +17,32 @@ class SessionViewModelAuthTest {
     @Test
     fun `a reinstalled dev APK replaces the previous local role token`() {
         assertEquals(true, devSessionNeedsRefresh(AuthMode.DEV_BEARER, "operator-token", "verifier-token"))
+        assertEquals(true, devSessionNeedsWipe(AuthMode.DEV_BEARER, "operator-token", "verifier-token"))
         assertEquals(true, devSessionNeedsRefresh(AuthMode.DEV_BEARER, "operator-token", ""))
+        assertEquals(true, devSessionNeedsWipe(AuthMode.DEV_BEARER, "operator-token", ""))
         assertEquals(false, devSessionNeedsRefresh(AuthMode.DEV_BEARER, "verifier-token", "verifier-token"))
+        assertEquals(false, devSessionNeedsWipe(AuthMode.DEV_BEARER, "verifier-token", "verifier-token"))
         assertEquals(false, devSessionNeedsRefresh(AuthMode.FIREBASE, "firebase-session", "dev-token"))
+        assertEquals(false, devSessionNeedsWipe(AuthMode.FIREBASE, "firebase-session", "dev-token"))
+    }
+
+    @Test
+    fun `rotating dev token for same principal refreshes token without wiping local evidence`() {
+        val oldToken = unsignedDevJwt("tenant-1", "operator-1", issuedAt = 1)
+        val newToken = unsignedDevJwt("tenant-1", "operator-1", issuedAt = 2)
+
+        assertEquals("tenant-1:operator-1", devBearerPrincipalKey(oldToken))
+        assertEquals(true, devSessionNeedsRefresh(AuthMode.DEV_BEARER, oldToken, newToken))
+        assertEquals(false, devSessionNeedsWipe(AuthMode.DEV_BEARER, oldToken, newToken))
+    }
+
+    @Test
+    fun `rotating dev token for different principal still wipes local evidence`() {
+        val oldToken = unsignedDevJwt("tenant-1", "operator-1", issuedAt = 1)
+        val newToken = unsignedDevJwt("tenant-1", "verifier-1", issuedAt = 2)
+
+        assertEquals(true, devSessionNeedsRefresh(AuthMode.DEV_BEARER, oldToken, newToken))
+        assertEquals(true, devSessionNeedsWipe(AuthMode.DEV_BEARER, oldToken, newToken))
     }
 
     @Test
@@ -72,5 +96,15 @@ class SessionViewModelAuthTest {
 
         assertEquals(LoginError.INVALID_CREDENTIALS, reason)
         assertNull(detail)
+    }
+
+    private fun unsignedDevJwt(tenantId: String, subject: String, issuedAt: Int): String {
+        fun enc(raw: String): String = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(raw.toByteArray(Charsets.UTF_8))
+        return listOf(
+            enc("""{"alg":"none"}"""),
+            enc("""{"tenant_id":"$tenantId","sub":"$subject","iat":$issuedAt}"""),
+            "",
+        ).joinToString(".")
     }
 }

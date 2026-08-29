@@ -40,9 +40,10 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
  * (docs/mobile/proof-capture-sync-and-e2e.md §4). Login is role-neutral and never asks
  * verifiers or leaders for capture access. Operator capture entry points request camera,
  * microphone, precise location, OS-applicable notifications, and Android-12+ Nearby Devices
- * permissions (`BLUETOOTH_CONNECT` + `BLUETOOTH_SCAN`). Android 12+ requires
- * the location dialog to request coarse alongside fine; fine remains mandatory
- * for operator proof capture, so approximate-only grants keep the gate closed.
+ * permissions (`BLUETOOTH_CONNECT` + `BLUETOOTH_SCAN`). Fine location remains mandatory
+ * for operator proof capture. Coarse is included only when launching the Android location
+ * request bundle, so a device that already granted fine location is not blocked after an
+ * update merely because coarse is reported separately as denied.
  * There is no degraded operator capture path: if any required
  * permission is denied, [content] never composes. Runtime notification permission exists
  * only on Android 13+, so Android 12 must never include it in the all-granted check.
@@ -58,7 +59,6 @@ internal val MANDATORY_CAPTURE_PERMISSIONS: List<String> =
 internal fun mandatoryCapturePermissionsForSdk(sdkInt: Int): List<String> = buildList {
     add(Manifest.permission.CAMERA)
     add(Manifest.permission.RECORD_AUDIO)
-    add(Manifest.permission.ACCESS_COARSE_LOCATION)
     add(Manifest.permission.ACCESS_FINE_LOCATION)
     if (sdkInt >= Build.VERSION_CODES.TIRAMISU) {
         add(Manifest.permission.POST_NOTIFICATIONS)
@@ -143,7 +143,7 @@ fun CaptureAccessGate(
                         },
                     )
                 } else {
-                    launcher.launch(MANDATORY_CAPTURE_PERMISSIONS.toTypedArray())
+                    launcher.launch(requestPermissionsFor(deniedPermissions).toTypedArray())
                 }
             },
         )
@@ -172,3 +172,12 @@ internal fun permissionLabel(permission: String): String = when (permission) {
     Manifest.permission.POST_NOTIFICATIONS -> "Notifications"
     else -> permission
 }
+
+internal fun requestPermissionsFor(missingPermissions: Collection<String>): List<String> = buildList {
+    missingPermissions.forEach { permission ->
+        if (permission == Manifest.permission.ACCESS_FINE_LOCATION) {
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        add(permission)
+    }
+}.distinct()

@@ -9,6 +9,11 @@
 // 2026-08-05: unchanged by the SOP rework-reopen work. Source validation covers the
 // IMPORT contract; task state transitions after import are the SOP module's own.
 // Used by seed scripts and referenced by ceo_ai reporting views (migrations 000024-000027).
+// Coupling review 2026-08-22: migration 000187 adds nullable
+// workforce_members.first_name/last_name/email (People/HRMS directory + in-app
+// Add Person). Source validation is unchanged: the HRMS source registers carry
+// no login emails, seeds leave the columns NULL, and the runtime create-person
+// flow is the only writer.
 // Coupling review 2026-07-25: migration 000045's nullable capacity shot-cap override is not
 // part of the source fixture — seed leaves it NULL and the sweeper uses rule_dsl/default — so
 // source validation is unchanged by the caps-editable feature.
@@ -51,6 +56,7 @@ import {
   OPERATOR_ROSTER_VERIFIER_IDENTITY_PROVIDER,
   OPERATOR_ROSTER_VERIFIER_ROLE,
   ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END,
+  BOOSTER_TIMING_ANCHORS_TO_ACCEPTED_DOSE1,
   ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS,
   ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE,
   VACCINATION_MEDICAL_DATE_FIELD,
@@ -70,6 +76,9 @@ if (!ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END) {
 }
 if (!ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE) {
   throw new Error("adult blank-history seed contract must automatically join the normal generated drive");
+}
+if (!BOOSTER_TIMING_ANCHORS_TO_ACCEPTED_DOSE1) {
+  throw new Error("multi-dose booster timing must anchor to accepted dose 1, not DOB/adult no-history timing");
 }
 if (VACCINATION_MEDICAL_DATE_FIELD !== "vaccination_completions.administered_at") {
   throw new Error("vaccination repeat timing must use the operator-administered medical date");
@@ -825,6 +834,11 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // membership, not a manual approval lane, and operator administered_at remains the medical
 // date even when verification closes later. This changes derived generation semantics only;
 // source vaccination cells, HRMS rows, hashes, and validation counts stay unchanged.
+// Coupling review 2026-08-21: seed-roster-real adds pc_care (deworming / ticks removal /
+// hoof trimming / hair trimming) to the preventive_care department module grant; migration
+// 000181_pc_care_module_grants.sql applies the same grant to already-seeded databases. This
+// changes runtime module/navigation authorization only; it does not change HRMS roster rows,
+// vaccination history, source dates, fixture bytes, hashes, or counts.
 
 // 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.
 
@@ -842,8 +856,28 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // position upserts do not alter HRMS source rows, hashes, or counts. Current
 // open obligation generation excludes Blue Tongue and PPR by policy until later
 // stock-confirmed scheduling.
+// Coupling review 2026-08-29: accepted dose 1/manual dose-1 anchors now drive
+// Blue Tongue adult W2/booster timing (+28 days). Source validation continues
+// to check only source date order/minimum gap; no fixture bytes, HRMS rows,
+// parser inputs, SOP proof grain, or source-date semantics change.
 
 // Coupling review 2026-08-05 (preventive_care module grants): reviewed against this source audit and
 // found nothing to validate. Removing milk/aas_health from the preventive_care department affects
 // which modules that department is OFFERED in the app; it is not an HRMS/vaccination source input and
 // changes no column, row count, or hash this auditor reads.
+// Coupling review 2026-08-14: pen capacity/cohort config now lives on shed_partitions for the
+// Counts/Sheds directory. Source validation remains unchanged because those columns are not raw HRMS
+// or vaccination source fields and do not change goat_shed_partitions animal placement semantics.
+// Coupling review 2026-08-15: source validation keeps DOB/stage/history as evidence only.
+// Kid/adult schedule-path selection is owned by shared SchedulePathForGoat during seed/runtime
+// generation; the raw source validator must not grow a second classifier.
+// Coupling review 2026-08-16: Flushing is a writable stage-catalog row with NULL age_band for
+// shifting destination-tag parity. It is not a new source column, source date, HRMS roster field, SOP
+// proof field, or operator-capacity input, so this raw source validator remains unchanged.
+// Coupling review 2026-08-26: protocol_rule_dimensions.procurement_purpose is compiled from
+// authored rule DSL at publish time and defaults existing dimensions to all. It is not a raw
+// HRMS/vaccination source column, date, roster field, SOP proof field, or validation input, so this
+// source validator remains unchanged.
+// Coupling review 2026-08-29: later manual anchors suppress generated manual_campaign seed rows for
+// the same vaccine family. This validator remains source-only: no raw fixture date, HRMS row, SOP
+// proof field, or hash validation changes.

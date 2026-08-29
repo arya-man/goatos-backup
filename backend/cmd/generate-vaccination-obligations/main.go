@@ -22,7 +22,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
@@ -39,6 +41,7 @@ type config struct {
 	TenantID            string
 	VersionID           string
 	UnsafeVersionRun    bool
+	GoatIDs             []string
 	AsOf                time.Time
 	Timeout             time.Duration
 	RecoveryRepairLimit int
@@ -60,7 +63,9 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
+	baseCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(baseCtx, cfg.Timeout)
 	defer cancel()
 
 	shutdown, err := observability.SetupTelemetry(ctx, observability.Config{Service: "generate-vaccination-obligations"})
@@ -81,6 +86,28 @@ func run(args []string) error {
 	vaccinationRepo := vaccinationpg.NewRepository(pool, pgCfg.QueryTimeout)
 	gen := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 
+	if len(cfg.GoatIDs) > 0 {
+		var total vaccinationdomain.GenerateResult
+		for _, goatID := range cfg.GoatIDs {
+			res, err := gen.GenerateForGoat(ctx, cfg.TenantID, goatID, cfg.AsOf)
+			if err != nil && !vaccinationapp.IsGenerationPartialFailure(err) {
+				return fmt.Errorf("generate goat %s: %w", goatID, err)
+			}
+			fmt.Printf("generated goat=%s generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
+				goatID, res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.ReconcileDateBlocked, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
+			mergeGenerateResult(&total, res)
+			total.Reconciled += res.Reconciled
+			total.AmbiguousOpenWork += res.AmbiguousOpenWork
+			total.ReconcileDateBlocked += res.ReconcileDateBlocked
+			if err != nil {
+				return withExitCode(exitCodePartialFailure, fmt.Errorf("generate goat %s: %w", goatID, err))
+			}
+		}
+		fmt.Printf("generated goat-scope total_goats=%d generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
+			len(cfg.GoatIDs), total.Generated, total.Reconciled, total.Deferred, total.Reopened, total.FailedGoats, total.AmbiguousOpenWork, total.ReconcileDateBlocked, total.SkippedNoDueDate, total.SuppressedByTrustedHistory)
+		return nil
+	}
+
 	if cfg.VersionID == "" {
 		repair, repairCandidates, missedBatchRepaired, repairErr := runRecoveryRepair(ctx, obligationRepo, vaccinationRepo, gen, cfg.TenantID, cfg.AsOf, cfg.RecoveryRepairAge, cfg.RecoveryRepairLimit)
 		if repairErr != nil && !errors.Is(repairErr, errRecoveryRepairPartialFailures) {
@@ -98,8 +125,27 @@ func run(args []string) error {
 		if err != nil {
 			return fmt.Errorf("count recoverable deferred vaccination obligations: %w", err)
 		}
-		fmt.Printf("generated effective-cohort generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d stuck_recoverable_deferred=%d\n",
-			res.Generated, res.Deferred, res.Reopened, res.FailedGoats, res.SkippedNoDueDate, res.SuppressedByTrustedHistory, stuck)
+		fmt.Printf("generated effective-cohort generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d stuck_recoverable_deferred=%d\n",
+			res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.ReconcileDateBlocked, res.SkippedNoDueDate, res.SuppressedByTrustedHistory, stuck)
+		if res.ReconcileDateBlocked > 0 {
+			// Not a failure: the animal keeps exactly one open obligation and nothing was
+			// duplicated. But its date did not move, so it is worth seeing rather than inferring.
+			fmt.Printf("  %d obligation(s) were claimed but kept a stale due date: the key they would move to is already held by another row (usually their own canceled or completed twin).\n", res.ReconcileDateBlocked)
+		}
+		if res.AmbiguousOpenWork > 0 {
+			// Named separately from failed_goats because it is not a transient failure: those
+			// animals already hold two open obligations for one dose, and no re-run fixes that.
+			fmt.Printf("  %d animal(s) hold more than one UNLABELLED open obligation for a single rule and were skipped.\n", res.AmbiguousOpenWork)
+			fmt.Println("  Generation refuses to guess which scheduled vaccination is real. Resolve the duplicates, then re-run. List them with:")
+			// The lines below are operator help text, not a query this process runs. Marked so the
+			// aggregate guard can see what it would be if it were run, which is also what a reader
+			// needs to trust it:
+			// projection-review: membership=open obligation_instances with no identity label, joined to the lineage row of the rule they point at; group_key=(target_id, identity_key, sequence); join_cardinality=one lineage row per rule_id (primary key), no fan-out; pagination=n/a, a human runs this once against a psql session to see which animals need resolving; scope=whatever tenant the operator connects to
+			fmt.Println(`    SELECT oi.target_id, l.identity_key, oi."sequence", count(*), array_agg(oi.obligation_id), array_agg(oi.due_at)`)
+			fmt.Println(`    FROM obligation_instances oi JOIN protocol_rule_lineage l ON l.tenant_id = oi.tenant_id AND l.rule_id = oi.rule_id`)
+			fmt.Println(`    WHERE oi.rule_identity_key IS NULL AND oi.status IN ('scheduled','due','in_progress','deferred')`)
+			fmt.Println(`    GROUP BY 1,2,3 HAVING count(*) > 1;`)
+		}
 		if genErr != nil {
 			return withExitCode(exitCodePartialFailure, fmt.Errorf("generate effective cohort: %w", genErr))
 		}
@@ -126,8 +172,8 @@ func run(args []string) error {
 		if err != nil && !vaccinationapp.IsGenerationPartialFailure(err) {
 			return fmt.Errorf("generate version %s: %w", versionID, err)
 		}
-		fmt.Printf("generated run=%s version=%s generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
-			run.RunID, versionID, res.Generated, res.Deferred, res.Reopened, res.FailedGoats, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
+		fmt.Printf("generated run=%s version=%s generated=%d reconciled=%d deferred=%d reopened=%d failed_goats=%d ambiguous_open_work=%d date_blocked=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
+			run.RunID, versionID, res.Generated, res.Reconciled, res.Deferred, res.Reopened, res.FailedGoats, res.AmbiguousOpenWork, res.ReconcileDateBlocked, res.SkippedNoDueDate, res.SuppressedByTrustedHistory)
 		if err != nil {
 			return withExitCode(exitCodePartialFailure, fmt.Errorf("generate version %s: %w", versionID, err))
 		}
@@ -224,6 +270,7 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	fs.StringVar(&cfg.TenantID, "tenant-id", strings.TrimSpace(os.Getenv("GOATOS_TENANT_ID")), "tenant id")
 	fs.StringVar(&cfg.VersionID, "version-id", "", "unsafe repair-only protocol version id; empty uses effective per-goat protocol resolution")
 	fs.BoolVar(&cfg.UnsafeVersionRun, "unsafe-version-id-bypass-effective-resolution", false, "allow version-id to bypass effective per-goat protocol resolution for a targeted repair run")
+	goatIDsRaw := fs.String("goat-id", "", "comma-separated goat ids to generate through effective-version resolution")
 	fs.DurationVar(&cfg.Timeout, "timeout", 120*time.Second, "generation timeout")
 	fs.IntVar(&cfg.RecoveryRepairLimit, "recovery-repair-limit", 1000, "max old deferred/missed vaccination goats to repair before the full effective-cohort scan; 0 disables")
 	fs.DurationVar(&cfg.RecoveryRepairAge, "recovery-repair-age", 7*24*time.Hour, "minimum age of deferred/missed vaccination obligations considered stuck/recoverable")
@@ -253,6 +300,20 @@ func parseFlags(args []string, now func() time.Time) (config, error) {
 	}
 	if cfg.RecoveryRepairAge < 0 {
 		return config{}, errors.New("recovery-repair-age must be non-negative")
+	}
+	if strings.TrimSpace(*goatIDsRaw) != "" {
+		for _, raw := range strings.Split(*goatIDsRaw, ",") {
+			goatID := strings.TrimSpace(raw)
+			if goatID != "" {
+				cfg.GoatIDs = append(cfg.GoatIDs, goatID)
+			}
+		}
+		if len(cfg.GoatIDs) == 0 {
+			return config{}, errors.New("goat-id must include at least one non-empty id")
+		}
+		if strings.TrimSpace(cfg.VersionID) != "" {
+			return config{}, errors.New("goat-id uses effective-version resolution; omit version-id")
+		}
 	}
 	return cfg, nil
 }

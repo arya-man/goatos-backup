@@ -31,17 +31,27 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.VerificationDecision
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventPayloadDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementEntryDto
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.feature.verify.VerifyContextKind
 import sg.mesha.goatos.feature.verify.VerifyContextRow
 import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
+import sg.mesha.goatos.feature.verify.VerifyMeasurementField
+import sg.mesha.goatos.feature.verify.VerifyMeasurementInput
 import sg.mesha.goatos.feature.verify.VerifyDetailEntryUiState
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailUiState
 import sg.mesha.goatos.feature.verify.VerifyMediaItem
 import sg.mesha.goatos.feature.verify.VerifyTone
+import sg.mesha.goatos.feature.verify.VerifyWeightCorrection
 import sg.mesha.goatos.feature.verify.VideoPlaybackAction
+import java.time.Instant
+import java.util.UUID
 import javax.inject.Inject
 
 /** Transient (non-Room) UI flags, combined with the Room-observed item below. */
@@ -65,6 +75,18 @@ private data class VerifyDetailFlags(
 )
 
 private const val VERIFY_DETAIL_PAGE_SIZE = 20
+
+/** The weighing INDIVIDUAL capture grain (verification source ref_type). One animal, so it carries
+ *  no head count and the backend refuses one, so the card never offers the field there. */
+private const val REF_TYPE_INDIVIDUAL_OBSERVATION = "weighing_observation"
+
+/** The feed-WASTAGE measurement grain (maintainer decision 2026-08-18). The same control renders,
+ *  but the value routes to the feed measurement endpoint, ZERO IS VALID (an empty trough), the
+ *  range is 0..10000 kg, and there is no head count and no reason field. */
+private const val REF_TYPE_FEED_WASTAGE_COMPLETION = "feed_wastage_completion"
+
+/** The wastage measurement's backend range ceiling (`wastage_out_of_range`: 0 to 10000 kg). */
+private const val MAX_WASTAGE_KG = 10_000.0
 
 /** Upper bound on how long the screen holds its skeleton waiting for the refetch to return the
  *  decided item. Generous enough for a slow round trip, short enough that a refetch which never
@@ -124,6 +146,8 @@ class VerifyDetailViewModel @Inject constructor(
     private val _flags = MutableStateFlow(VerifyDetailFlags())
     private val watchTimeByProof = mutableMapOf<String, Long>()
     private var trackedItemOpened = false
+    private var activeProofSubject: String? = null
+    private val reviewSessionId = "verify-detail-${itemId}-${UUID.randomUUID()}"
 
     // Item ids for which [AnalyticsEventsVerification.VERIFY_DECISION_UNAVAILABLE] has already
     // fired with EVIDENCE_UNAVAILABLE this screen visit — the entry map is recomputed on every
@@ -229,6 +253,16 @@ class VerifyDetailViewModel @Inject constructor(
                         itemId = itemId,
                         category = first.category.ifBlank { category.orEmpty() },
                     )
+                    recordBackendReviewEvent(
+                        eventType = "item_opened",
+                        targetItemId = first.itemId,
+                        payload = VerificationReviewEventPayloadDto(
+                            category = first.category.ifBlank { category },
+                            parkId = first.parkId,
+                            shedId = first.shedId,
+                            status = first.status,
+                        ),
+                    )
                 }
             }
         }
@@ -269,8 +303,15 @@ class VerifyDetailViewModel @Inject constructor(
             VerifyDetailEvent.Close -> trackClosed()
             VerifyDetailEvent.Refresh -> refresh()
             is VerifyDetailEvent.Approve ->
-                submitVerdict(event.itemId ?: itemId, VerificationDecision.APPROVED, reason = null)
+                submitVerdict(
+                    event.itemId ?: itemId,
+                    VerificationDecision.APPROVED,
+                    reason = null,
+                    measurement = event.measurement,
+                )
             is VerifyDetailEvent.Reject ->
+                // No measurement: rejection sends the work back to be recorded again, so a number
+                // typed before she changed her mind must not land on a record about to be redone.
                 submitVerdict(event.itemId ?: itemId, VerificationDecision.REJECTED, reason = event.reason)
             is VerifyDetailEvent.VideoPlayback -> trackVideoPlayback(event)
             is VerifyDetailEvent.RejectDialogOpened -> AnalyticsFunnels.trackVerifyRejectDialogOpened(analytics, event.itemId)
@@ -296,6 +337,37 @@ class VerifyDetailViewModel @Inject constructor(
         AnalyticsFunnels.trackVerifyItemClosed(analytics, itemId, reason)
     }
 
+    private fun recordBackendReviewEvent(
+        eventType: String,
+        targetItemId: String = itemId,
+        proofId: String? = null,
+        payload: VerificationReviewEventPayloadDto = VerificationReviewEventPayloadDto(),
+    ) {
+        if (targetItemId.isBlank()) return
+        val clientEventId = UUID.randomUUID().toString()
+        val event = VerificationReviewEventRequestDto(
+            itemId = targetItemId,
+            proofId = proofId?.takeIf { it.isNotBlank() },
+            sessionId = reviewSessionId,
+            eventType = eventType,
+            occurredAt = Instant.now().toString(),
+            payload = payload,
+            clientEventId = clientEventId,
+        )
+        viewModelScope.launch {
+            val result = syncRepo.enqueueVerificationReviewEvents(
+                groupKey = "verification-review:$targetItemId",
+                idempotencyKey = "verification-review:$clientEventId",
+                request = VerificationReviewEventBatchRequestDto(events = listOf(event)),
+            )
+            if (result is AppResult.Err) {
+                result.cause?.let { error ->
+                    runCatching { crashReporter.recordException(error, "verification review event enqueue failed") }
+                }
+            }
+        }
+    }
+
     private fun refresh() = viewModelScope.launch {
         _flags.update { it.copy(isRefreshing = true) }
         val result = if (isActionMode) {
@@ -319,7 +391,25 @@ class VerifyDetailViewModel @Inject constructor(
      * this shed's group stays exactly as it was — no shared verdict, no shared enable/disable
      * state, matching [SyncRepository.enqueueVerificationVerdict]'s own per-item_id outbox key.
      */
-    private fun submitVerdict(targetItemId: String, decision: String, reason: String?) = viewModelScope.launch {
+    /**
+     * The standalone weight-correction path that used to live here is DELETED.
+     *
+     * THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20). Correcting and then
+     * approving was two acts for one judgement, and the correction relabelled the verification
+     * item -- which bumps row_version -- so the approve she pressed next carried the version the
+     * screen had loaded with and was fenced out with a conflict. Nothing happened, and she was told
+     * nothing. The value now travels on [submitVerdict], which is also one durable outbox row
+     * instead of two that can drain apart.
+     *
+     * The producing modules' own correction routes stay served for installed builds that still
+     * show their own save button; this app no longer calls them.
+     */
+    private fun submitVerdict(
+        targetItemId: String,
+        decision: String,
+        reason: String?,
+        measurement: VerifyMeasurementInput? = null,
+    ) = viewModelScope.launch {
         // Belt-and-braces guard mirroring the reject dialog's own mandatory-reason validation —
         // a malformed event can never enqueue a reason-less reject.
         if (decision == VerificationDecision.REJECTED && reason.isNullOrBlank()) return@launch
@@ -328,6 +418,7 @@ class VerifyDetailViewModel @Inject constructor(
         // from a screen state where THIS animal's evidence is not watchable, whatever produced
         // the event — a sibling animal's healthy evidence must never let this one through.
         if (decision == VerificationDecision.APPROVED && targetEntry?.isApproveEnabled != true) return@launch
+        val pendingBeforeDecision = state.value.entries.count { it.statusTone == VerifyTone.PENDING }
 
         val rowVersion = observedGroup.value.firstOrNull { it.itemId == targetItemId }?.rowVersion ?: 1
         _flags.update { it.copy(isSubmitting = true, awaitingBackendDecision = false, autoCloseAfterDecision = false, errorMessage = null, isDecisionResolving = true) }
@@ -337,6 +428,29 @@ class VerifyDetailViewModel @Inject constructor(
             decision = decision,
             reason = reason,
             rowVersion = rowVersion,
+            // THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20). One durable outbox
+            // row for one judgement, so a shed with no signal queues one act rather than two that
+            // can drain apart -- and the approve can no longer be fenced out by the row_version
+            // bump its own earlier save caused. Guarded belt-and-braces: a malformed event can
+            // never enqueue a value the server would refuse as out of range.
+            measurement = measurement?.let { input ->
+                val entries = input.entries
+                    .filter { entry -> entry.key.isNotBlank() && entry.value.isFinite() && entry.value >= 0 }
+                    .map { entry -> VerificationVerdictMeasurementEntryDto(key = entry.key, value = entry.value) }
+                val usableValue = input.value?.takeIf { value -> value.isFinite() && value >= 0 }
+                if (usableValue == null && entries.isEmpty()) {
+                    null
+                } else {
+                    VerificationVerdictMeasurementDto(
+                        value = usableValue,
+                        // Per-field readings (feed packing's blind entry, 2026-08-21): one per
+                        // declared field, keys echoed verbatim. Empty for single-value categories.
+                        entries = entries,
+                        count = input.count?.takeIf { count -> count > 0 },
+                        reason = input.reason?.takeIf(String::isNotBlank),
+                    )
+                }
+            },
         )
         when (result) {
             is AppResult.Ok -> {
@@ -348,7 +462,8 @@ class VerifyDetailViewModel @Inject constructor(
                     // same as before; a multi-animal shed keeps the verifier here to work through
                     // the rest, exactly the fix this task exists for (one reject must not evict
                     // her from the shed's other, still-pending, animals).
-                    val stillPending = observedGroup.value.any { it.status == VerificationStatus.PENDING }
+                    val closesGroup = pendingBeforeDecision <= 1 ||
+                        observedGroup.value.none { it.status == VerificationStatus.PENDING }
                     // isDecisionResolving deliberately stays TRUE here. refresh() is launched, not
                     // awaited, so the queue re-emission lands AFTER this point: the decided item
                     // stops matching the observed query and the group goes momentarily empty. That
@@ -357,10 +472,17 @@ class VerifyDetailViewModel @Inject constructor(
                     // awaitDecidedItemDelivered below clears it once the refetch actually returns
                     // the item, or after a bounded wait so the screen can never latch.
                     _flags.update {
-                        it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = !stillPending)
+                        it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = closesGroup)
                     }
-                    awaitDecidedItemDelivered(targetItemId)
+                    if (!closesGroup) {
+                        awaitDecidedItemDelivered(targetItemId)
+                    }
                     AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, targetItemId, decision, totalWatchTimeMs())
+                    recordBackendReviewEvent(
+                        eventType = "verdict_recorded",
+                        targetItemId = targetItemId,
+                        payload = VerificationReviewEventPayloadDto(verdict = decision),
+                    )
                     watchTimeByProof.clear()
                 } else {
                     _flags.update {
@@ -396,9 +518,26 @@ class VerifyDetailViewModel @Inject constructor(
                 )
                 playWatchdogFor(event.proofSubject)
                     .armIntent(props, AnalyticsFunnels.VERIFY_VIDEO_PLAY_WATCHDOG_TIMEOUT_MS)
+                if (event.targetAction == "pause") {
+                    recordBackendReviewEvent(
+                        eventType = "video_pause",
+                        targetItemId = itemIdForProof(event.proofSubject),
+                        proofId = event.proofSubject,
+                    )
+                }
             }
             VideoPlaybackAction.PLAY_OUTCOME -> playWatchdogFor(event.proofSubject).disarm()
-            VideoPlaybackAction.PLAY_STARTED ->
+            VideoPlaybackAction.PLAY_STARTED -> {
+                val targetItemId = itemIdForProof(event.proofSubject)
+                val previousProof = activeProofSubject
+                if (previousProof != null && previousProof != event.proofSubject) {
+                    recordBackendReviewEvent(
+                        eventType = "proof_switched",
+                        targetItemId = targetItemId,
+                        proofId = event.proofSubject,
+                    )
+                }
+                activeProofSubject = event.proofSubject
                 AnalyticsFunnels.trackVerifyVideoPlayStarted(
                     analytics = analytics,
                     itemId = itemId,
@@ -406,6 +545,13 @@ class VerifyDetailViewModel @Inject constructor(
                     mimeType = event.mimeType,
                     durationMs = event.durationMs,
                 )
+                recordBackendReviewEvent(
+                    eventType = "video_play",
+                    targetItemId = targetItemId,
+                    proofId = event.proofSubject,
+                    payload = VerificationReviewEventPayloadDto(videoDurationMs = event.durationMs),
+                )
+            }
             VideoPlaybackAction.WATCH_SUMMARY -> {
                 watchTimeByProof[event.proofSubject] = (watchTimeByProof[event.proofSubject] ?: 0L) + event.watchTimeMs.coerceAtLeast(0)
                 AnalyticsFunnels.trackVerifyVideoWatchSummary(
@@ -421,6 +567,17 @@ class VerifyDetailViewModel @Inject constructor(
                     replayCount = event.replayCount,
                     bufferingTimeMs = event.bufferingTimeMs,
                 )
+                val reachedEnd = event.durationMs > 0L &&
+                    event.positionMs >= (event.durationMs - 750L).coerceAtLeast(0L)
+                recordBackendReviewEvent(
+                    eventType = if (reachedEnd) "video_ended" else "video_pause",
+                    targetItemId = itemIdForProof(event.proofSubject),
+                    proofId = event.proofSubject,
+                    payload = VerificationReviewEventPayloadDto(
+                        videoPositionMs = event.positionMs,
+                        videoDurationMs = event.durationMs,
+                    ),
+                )
             }
             VideoPlaybackAction.PLAYBACK_ERROR -> {
                 val reason = event.reason ?: "unknown"
@@ -433,12 +590,29 @@ class VerifyDetailViewModel @Inject constructor(
                 }
                 AnalyticsFunnels.trackVerifyVideoPlaybackError(analytics, itemId, event.proofSubject, reason)
             }
-            VideoPlaybackAction.FULLSCREEN_OPENED ->
+            VideoPlaybackAction.FULLSCREEN_OPENED -> {
                 AnalyticsFunnels.trackVerifyVideoFullscreenOpened(analytics, itemId, event.proofSubject)
-            VideoPlaybackAction.FULLSCREEN_EXITED ->
+                recordBackendReviewEvent(
+                    eventType = "fullscreen_toggled",
+                    targetItemId = itemIdForProof(event.proofSubject),
+                    proofId = event.proofSubject,
+                    payload = VerificationReviewEventPayloadDto(status = "opened"),
+                )
+            }
+            VideoPlaybackAction.FULLSCREEN_EXITED -> {
                 AnalyticsFunnels.trackVerifyVideoFullscreenExited(analytics, itemId, event.proofSubject)
+                recordBackendReviewEvent(
+                    eventType = "fullscreen_toggled",
+                    targetItemId = itemIdForProof(event.proofSubject),
+                    proofId = event.proofSubject,
+                    payload = VerificationReviewEventPayloadDto(status = "closed"),
+                )
+            }
         }
     }
+
+    private fun itemIdForProof(proofSubject: String): String =
+        observedGroup.value.firstOrNull { item -> item.media.any { it.proofId == proofSubject } }?.itemId ?: itemId
 
     private fun totalWatchTimeMs(): Long = watchTimeByProof.values.sum()
 
@@ -535,6 +709,39 @@ class VerifyDetailViewModel @Inject constructor(
         return VerifyDetailEntryUiState(
             itemId = itemId,
             subjectLabel = subjectLabel?.takeIf { it.isNotBlank() },
+            // Backend-declared, or absent. Every string is carried straight through -- this
+            // ViewModel composes none of the control's copy. Null (every category but weighing
+            // today) means the card renders no correction control at all.
+            weightCorrection = measurementCorrection
+                ?.takeIf { it.observationId.isNotBlank() && it.refType.isNotBlank() }
+                ?.let { correction ->
+                    // Feed wastage (2026-08-18) shares the control shape with the weighing
+                    // correction but not its validation: zero is a real measurement there (an
+                    // empty trough), and its write path carries no reason field, so the card
+                    // must not offer one that would be silently dropped.
+                    val isWastage = correction.refType == REF_TYPE_FEED_WASTAGE_COMPLETION
+                    VerifyWeightCorrection(
+                        refType = correction.refType,
+                        observationId = correction.observationId,
+                        title = correction.title,
+                        help = correction.help,
+                        valueLabel = correction.valueLabel,
+                        submitLabel = correction.submitLabel,
+                        countLabel = correction.countLabel?.takeIf { it.isNotBlank() },
+                        allowZero = isWastage,
+                        showReason = !isWastage,
+                        // Backend-declared. It is what holds Approve on a wastage item until she
+                        // enters a reading -- the operator sent a video and no number, so approving
+                        // blank would complete a pen-day with no wastage recorded at all.
+                        requiredForApprove = correction.requiredForApprove,
+                        // Per-field entry boxes (feed packing's blind entry, maintainer decision
+                        // 2026-08-21): keys posted back verbatim, labels rendered verbatim. A
+                        // keyless field could never be posted back, so it is dropped here.
+                        fields = correction.fields
+                            .filter { it.key.isNotBlank() }
+                            .map { VerifyMeasurementField(key = it.key, label = it.label) },
+                    )
+                },
             media = media.map {
                 VerifyMediaItem(
                     signedUrl = absoluteDownloadUrl(it.downloadUrl),
@@ -654,6 +861,9 @@ private fun String.isExpectedVerificationPlaybackState(): Boolean {
     val normalized = lowercase()
     return "source error" in normalized ||
         "behind live window" in normalized ||
+        "mediacodecvideorenderer" in normalized ||
+        "mediacodec" in normalized ||
+        "decoder" in normalized ||
         "cleartext http traffic" in normalized ||
         "response code: 404" in normalized ||
         "response code: 410" in normalized

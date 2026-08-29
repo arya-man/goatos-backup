@@ -36,6 +36,7 @@ import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationSourceRef
 import sg.mesha.goatos.core.network.dto.VerificationStatus
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 
@@ -80,6 +81,27 @@ class VerifyDetailAutoCloseTest {
     // failed for reasons that had nothing to do with the screen. Rather than keep a test that
     // asserts the harness, the close behaviour is verified on device against the real backend.
     // The screen-side rule under test is one line: close when state.autoCloseAfterDecision.
+
+    @Test
+    fun `approving the only pending entry requests immediate auto-close`() =
+        runTest(dispatcher) {
+            val repo = AutoCloseRepository(itemCount = 1)
+            val sync = AutoCloseSyncRepository(repo)
+            val vm = viewModel(repo, sync)
+            backgroundScope.launch { vm.state.collect {} }
+            advanceUntilIdle()
+
+            assertEquals("entry should exist before approve", 1, vm.state.value.entries.size)
+            assertTrue("approve should be enabled before approve", vm.state.value.isApproveEnabled)
+
+            vm.onEvent(VerifyDetailEvent.Approve(itemId = "item-1"))
+            advanceUntilIdle()
+
+            assertTrue(
+                "single-entry approve should close the detail instead of waiting on a blank refetch state",
+                vm.state.value.autoCloseAfterDecision,
+            )
+        }
 
     @Test
     fun `an entry with genuinely empty media stays in entries and does not trigger auto-close`() =
@@ -200,7 +222,7 @@ private class AutoCloseSyncRepository(private val queue: AutoCloseRepository? = 
     override suspend fun enqueueProofUpload(groupKey: String, idempotencyKey: String, request: ProofUploadRequestDto, localFilePath: String, durationMs: Long?): AppResult<String> = error("unused")
     override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
-    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> {
+    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int, measurement: VerificationVerdictMeasurementDto?): AppResult<String> {
         queue?.markItemDecided(itemId)
         return AppResult.Ok("outbox-1")
     }

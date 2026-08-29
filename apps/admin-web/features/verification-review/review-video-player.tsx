@@ -10,7 +10,27 @@ interface ReviewVideoPlayerProps {
   proofId?: string;
   itemId: string;
   eventBuffer: ReviewEventBuffer;
+  /**
+   * Backend-owned labels for the double-speed control (maintainer decision 2026-08-17). Passed in
+   * rather than written here, because visible copy belongs to the page contract, not a renderer.
+   */
+  speedLabels: { normal: string; fast: string; hint: string };
 }
+
+/**
+ * DOUBLE-SPEED PLAYBACK is offered ONLY on clips longer than this (maintainer decision
+ * 2026-08-17).
+ *
+ * The point of the control is to save a verifier real time on a long clip. On a short one it saves
+ * a few seconds while making it materially easier to miss the single moment the proof turns on --
+ * the scale reading, the needle going in -- so the control is simply absent rather than present and
+ * discouraged. Compared against the ELEMENT'S OWN duration, not a declared one: the duration the
+ * browser measures is the video she is actually watching.
+ */
+const MIN_DOUBLE_SPEED_DURATION_SECONDS = 20;
+
+const DOUBLE_SPEED_RATE = 2;
+const NORMAL_SPEED_RATE = 1;
 
 /**
  * Custom video player that emits review events and blocks forward seeking.
@@ -25,7 +45,7 @@ export const ReviewVideoPlayer = React.forwardRef<
   ReviewVideoPlayerProps & React.HTMLAttributes<HTMLDivElement>
 >(
   (
-    { src, mimeType, proofId, itemId, eventBuffer, ...divProps },
+    { src, mimeType, proofId, itemId, eventBuffer, speedLabels, ...divProps },
     ref,
   ) => {
     // The element is held in STATE, not a ref, so the listener effect re-runs whenever React mounts a
@@ -34,6 +54,23 @@ export const ReviewVideoPlayer = React.forwardRef<
     // new one recorded nothing and could not block a skip — proven in-browser: a forward jump past
     // unwatched video stood, and no video_seek_attempt row was written.
     const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
+    // Duration is unknown until the browser has the metadata, so the control starts absent and
+    // appears once the clip proves itself long enough -- never the other way round, which would
+    // flash an option that then vanishes.
+    const [durationSeconds, setDurationSeconds] = useState(0);
+    const [isDoubleSpeed, setIsDoubleSpeed] = useState(false);
+    // The skip guard lives in an EFFECT, so between the browser having a playable element and React
+    // running that effect there is a window in which the seek listeners and the clamp poll are not
+    // attached yet. A seek landing in that window is not rolled back by anything. Measured in a real
+    // browser: seeking immediately after `loadedmetadata` STOOD at the target, while the identical
+    // seek a few hundred ms later was clamped to 0.
+    //
+    // The window is short and a human is unlikely to win the race, but "unlikely" is not a guard on
+    // an evidence-integrity control, and a slow machine widens it. So the native scrubber is not
+    // handed to the verifier until the guard is provably armed: `controls` is withheld until the
+    // effect below has bound. Withholding the control is the safe direction -- she waits a moment
+    // for the scrubber, rather than getting an unguarded one.
+    const [guardArmed, setGuardArmed] = useState(false);
 
     // All watch/seek logic lives in WatchTracker (player-telemetry.ts) so it is unit-testable
     // without a browser; this component only wires DOM events to it and applies the revert it asks
@@ -50,6 +87,12 @@ export const ReviewVideoPlayer = React.forwardRef<
       const video = videoEl;
       if (!video) return;
 
+      // A new <video> is mounted per proof (keyed on proof_id upstream), so each clip is judged and
+      // sped independently: 2x chosen on one long clip must not carry silently onto the next one,
+      // which may be short.
+      const onLoadedMetadata = () => {
+        setDurationSeconds(Number.isFinite(video.duration) ? video.duration : 0);
+      };
       const onPlay = () => tracker.onPlay(video);
       const onPause = () => tracker.onPause(video);
       const onEnded = () => tracker.onEnded(video);
@@ -89,29 +132,64 @@ export const ReviewVideoPlayer = React.forwardRef<
         if (clampToMs !== null) video.currentTime = clampToMs / 1000;
       }, 250);
 
+      video.addEventListener("loadedmetadata", onLoadedMetadata);
+      // Metadata can already be present when this effect runs (a cached clip fires the event before
+      // the listener binds), so read it once up front rather than waiting for an event that has
+      // been and gone.
+      if (video.readyState >= 1) onLoadedMetadata();
       video.addEventListener("play", onPlay);
       video.addEventListener("pause", onPause);
       video.addEventListener("seeking", onSeeking);
       video.addEventListener("seeked", onProgress);
       video.addEventListener("timeupdate", onProgress);
       video.addEventListener("ended", onEnded);
+      // Everything above is bound and the clamp poll is running: the scrubber is now safe to offer.
+      setGuardArmed(true);
 
       return () => {
         clearInterval(clampTimer);
+        video.removeEventListener("loadedmetadata", onLoadedMetadata);
         video.removeEventListener("play", onPlay);
         video.removeEventListener("pause", onPause);
         video.removeEventListener("seeking", onSeeking);
         video.removeEventListener("seeked", onProgress);
         video.removeEventListener("timeupdate", onProgress);
         video.removeEventListener("ended", onEnded);
+        // A new proof mounts a new element; it must re-arm on its own rather than inherit this one's.
+        setGuardArmed(false);
       };
     }, [tracker, videoEl]);
 
+    // The rate is applied in an effect rather than at click time so it survives the browser
+    // resetting playbackRate on a source change or a re-mount, which would otherwise leave the
+    // button reading 2x while the clip played at 1x.
+    useEffect(() => {
+      if (!videoEl) return;
+      videoEl.playbackRate = isDoubleSpeed ? DOUBLE_SPEED_RATE : NORMAL_SPEED_RATE;
+    }, [videoEl, isDoubleSpeed, src]);
+
+    const mayDoubleSpeed = durationSeconds > MIN_DOUBLE_SPEED_DURATION_SECONDS;
+    // A clip that turns out to be short must not stay stuck at 2x from a previous, longer one.
+    useEffect(() => {
+      if (!mayDoubleSpeed && isDoubleSpeed) setIsDoubleSpeed(false);
+    }, [mayDoubleSpeed, isDoubleSpeed]);
+
     return (
       <div ref={ref} {...divProps}>
-        <video ref={setVideoEl} controls preload="metadata">
+        <video ref={setVideoEl} controls={guardArmed} preload="metadata">
           <source src={src} type={mimeType} />
         </video>
+        {mayDoubleSpeed ? (
+          <button
+            type="button"
+            className="btn"
+            onClick={() => setIsDoubleSpeed((on) => !on)}
+            aria-pressed={isDoubleSpeed}
+            title={speedLabels.hint}
+          >
+            {isDoubleSpeed ? speedLabels.fast : speedLabels.normal}
+          </button>
+        ) : null}
       </div>
     );
   },

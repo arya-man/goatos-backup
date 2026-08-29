@@ -28,11 +28,28 @@ func (transportFilterService) PackingWorklist(context.Context, domain.PackingQue
 func (transportFilterService) CompleteSession(context.Context, app.CompleteSessionInput) (ports.CompleteSessionResult, error) {
 	return ports.CompleteSessionResult{}, nil
 }
+
+// ListPenSessionCaptures: these handler tests drive filters and completion bodies, not the
+// multi-operator discovery read.
+func (transportFilterService) ListPenSessionCaptures(
+	context.Context, app.PenSessionCapturesInput,
+) (app.PenSessionCapturesResult, error) {
+	return app.PenSessionCapturesResult{}, nil
+}
+
 func (transportFilterService) CompleteDistribution(context.Context, app.CompleteDistributionInput) (ports.CompleteDistributionResult, error) {
 	return ports.CompleteDistributionResult{}, nil
 }
 func (transportFilterService) CompletePacking(context.Context, app.CompletePackingInput) (ports.CompletePackingResult, error) {
 	return ports.CompletePackingResult{}, nil
+}
+
+func (transportFilterService) WastageWorklist(context.Context, domain.WastageQuery) (domain.WastagePage, error) {
+	return domain.WastagePage{}, nil
+}
+
+func (transportFilterService) CompleteWastage(context.Context, app.CompleteWastageInput) (ports.CompleteWastageResult, error) {
+	return ports.CompleteWastageResult{}, nil
 }
 func (transportFilterService) ListTransportTasks(_ context.Context, in app.ListTransportTasksInput) (ports.FeedTransportTaskPage, error) {
 	tasks := []ports.FeedTransportTask{
@@ -106,6 +123,7 @@ type transportScopeSpyService struct {
 
 	completeDistributionCalls int
 	completeDistributionInput app.CompleteDistributionInput
+	completeDistributionErr   error
 }
 
 func (s *transportScopeSpyService) CompleteDistribution(
@@ -113,6 +131,9 @@ func (s *transportScopeSpyService) CompleteDistribution(
 ) (ports.CompleteDistributionResult, error) {
 	s.completeDistributionCalls++
 	s.completeDistributionInput = in
+	if s.completeDistributionErr != nil {
+		return ports.CompleteDistributionResult{}, s.completeDistributionErr
+	}
 	return ports.CompleteDistributionResult{
 		CompletionID: "50000000-0000-4000-8000-000000000002",
 		Status:       "pending_verification",
@@ -141,6 +162,14 @@ func (s *transportScopeSpyService) CompletePacking(_ context.Context, in app.Com
 	return ports.CompletePackingResult{CompletionID: "50000000-0000-4000-8000-000000000001", Status: "pending_verification", NewlyPending: true}, nil
 }
 
+func (s *transportScopeSpyService) WastageWorklist(context.Context, domain.WastageQuery) (domain.WastagePage, error) {
+	return domain.WastagePage{}, nil
+}
+
+func (s *transportScopeSpyService) CompleteWastage(context.Context, app.CompleteWastageInput) (ports.CompleteWastageResult, error) {
+	return ports.CompleteWastageResult{}, nil
+}
+
 func TestGetTransportTasksResolvesCapabilityAwareParkScope(t *testing.T) {
 	const (
 		tenantID = "00000000-0000-4000-8000-000000000001"
@@ -166,6 +195,29 @@ func TestGetTransportTasksResolvesCapabilityAwareParkScope(t *testing.T) {
 		}
 		if got := service.listInput.AuthorizedParkIDs; len(got) != 1 || got[0] != parkA {
 			t.Fatalf("authorized parks=%v, want [%s]", got, parkA)
+		}
+	})
+
+	t.Run("tenant feed reader sees all assigned transport tasks", func(t *testing.T) {
+		service := &transportScopeSpyService{}
+		req := httptest.NewRequest(http.MethodGet, "/feed-transport/tasks?business_date=2026-07-29", nil)
+		ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+		ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: tenantID}})
+		recorder := httptest.NewRecorder()
+
+		NewHandler(service, slog.Default()).GetTransportTasks(recorder, req.WithContext(ctx))
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+		}
+		if service.listInput.ActorID != "" {
+			t.Fatalf("actor filter=%q, want empty for tenant-wide feed transport reader -- CEO/CXO must see tasks assigned to any operator", service.listInput.ActorID)
+		}
+		if service.listInput.ParkID != "" {
+			t.Fatalf("park_id=%q, want empty for tenant-wide feed transport reader", service.listInput.ParkID)
+		}
+		if len(service.listInput.AuthorizedParkIDs) != 0 {
+			t.Fatalf("authorized parks=%v, want unrestricted tenant-wide read", service.listInput.AuthorizedParkIDs)
 		}
 	})
 
@@ -311,6 +363,61 @@ func TestPostCompleteDistributionPassesPartitionLabel(t *testing.T) {
 	}
 }
 
+// TestPostCompleteDistributionMissingProofIsUnprocessable pins that EVERY mandatory distribution
+// proof reports the same client error, one per step.
+//
+// The feed-weight photo was added as a third mandatory proof but never given a branch in
+// writeCompletionError, so it fell to the default arm and answered 500 -- a server fault, for an
+// operator who simply had not taken the photo yet. The distribution video and water video, added
+// earlier, both map to 422 proof_required. Two consequences of the 500: the phone shows a generic
+// failure instead of naming the capture that is missing, and a retryable-looking server error
+// invites a retry loop against a request that can never succeed until the operator shoots it.
+//
+// RequireLiveCamera routes through the SAME error, so a weight photo picked from the gallery lands
+// here too -- the case most likely to be hit in the field, since the phone offers a picker.
+func TestPostCompleteDistributionMissingProofIsUnprocessable(t *testing.T) {
+	const (
+		tenantID = "00000000-0000-4000-8000-000000000001"
+		actorID  = "40000000-0000-4000-8000-000000000001"
+	)
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "feed weight photo", err: ports.ErrFeedWeightProofRequired},
+		{name: "distribution video", err: ports.ErrDistributionProofRequired},
+		{name: "water video", err: ports.ErrWaterProofRequired},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &transportScopeSpyService{completeDistributionErr: tc.err}
+			req := httptest.NewRequest(http.MethodPost, "/feed-direction/distribution/complete", strings.NewReader(`{
+				"park_id":"20000000-0000-4000-8000-000000000001",
+				"shed_id":"30000000-0000-4000-8000-000000000001",
+				"partition_label":"1",
+				"session_no":1,
+				"target_date":"2026-08-13",
+				"workflow":"experiment",
+				"feed_weight_proof_ref":"proof-feed-weight-photo-1",
+				"distribution_proof_ref":"proof-feed-distribution-video-1",
+				"water_proof_ref":"proof-water-video-1"
+			}`))
+			req.Header.Set("Idempotency-Key", "feed-distribution-complete-test-0003")
+			ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+			recorder := httptest.NewRecorder()
+
+			NewHandler(service, slog.Default()).PostCompleteDistribution(recorder, req.WithContext(ctx))
+
+			if recorder.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status=%d, want 422 -- a missing capture is the operator's to fix, not a server fault; body=%s",
+					recorder.Code, recorder.Body.String())
+			}
+			if body := recorder.Body.String(); !strings.Contains(body, `"proof_required"`) {
+				t.Fatalf("body=%s, want code proof_required so the client can tell this apart from a real failure", body)
+			}
+		})
+	}
+}
+
 func TestPostCompletePackingInvalidPartitionIsBadRequest(t *testing.T) {
 	const (
 		tenantID = "00000000-0000-4000-8000-000000000001"
@@ -337,4 +444,29 @@ func TestPostCompletePackingInvalidPartitionIsBadRequest(t *testing.T) {
 	if !strings.Contains(recorder.Body.String(), "partition_label") {
 		t.Fatalf("body=%s, want partition_label explanation", recorder.Body.String())
 	}
+}
+
+// DirectedAnalytics: these handler tests drive transport filters, not analytics.
+func (transportFilterService) DirectedAnalytics(
+	context.Context, app.DirectedAnalyticsInput,
+) (domain.DirectedAnalytics, error) {
+	return domain.DirectedAnalytics{}, nil
+}
+
+func (transportFilterService) ExecutionAnalytics(
+	context.Context, app.DirectedAnalyticsInput,
+) (domain.ExecutionAnalytics, error) {
+	return domain.ExecutionAnalytics{}, nil
+}
+
+func (transportFilterService) ExperimentAnalytics(
+	context.Context, app.DirectedAnalyticsInput,
+) (domain.ExperimentAnalytics, error) {
+	return domain.ExperimentAnalytics{}, nil
+}
+
+func (transportFilterService) StockAnalytics(
+	context.Context, app.DirectedAnalyticsInput,
+) (domain.StockAnalytics, error) {
+	return domain.StockAnalytics{}, nil
 }

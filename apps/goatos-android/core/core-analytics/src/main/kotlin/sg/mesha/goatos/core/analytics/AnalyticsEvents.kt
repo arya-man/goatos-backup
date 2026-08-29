@@ -97,6 +97,12 @@ object AnalyticsEvents {
     /** An operator queued a shifting/movement event. */
     const val COUNTS_SHIFTING_SUBMITTED = "counts_shifting_submitted"
 
+    /** The operator opened the shifting confirmation sheet from a valid form. */
+    const val COUNTS_SHIFTING_CONFIRM_OPENED = "counts_shifting_confirm_opened"
+
+    /** The operator accepted the shifting confirmation and the app started durable enqueue. */
+    const val COUNTS_SHIFTING_SUBMIT_ATTEMPTED = "counts_shifting_submit_attempted"
+
     /** The operator opened the Shifting "Pending" tab (the web-approved execution queue). */
     const val COUNTS_SHIFTING_PENDING_VIEWED = "counts_shifting_pending_viewed"
 
@@ -204,8 +210,7 @@ object AnalyticsEvents {
     const val WEIGHING_PROOF_UPLOAD_RETRY = "weighing_proof_upload_retry"
 
     /** A weighing proof video's upload reached its terminal FAILED state, so the capture can
-     *  never be submitted until the video is recorded again. Always paired with a Crashlytics
-     *  non-fatal — this is the state that silently disables Submit. */
+     *  never be submitted until the video is recorded again. */
     const val WEIGHING_PROOF_UPLOAD_FAILED = "weighing_proof_upload_failed"
 
     /** Leadership opened the weighing plan wizard to create or edit a weighing task. */
@@ -254,18 +259,6 @@ object AnalyticsEvents {
     /** A weighing shed reopen could not be queued. */
     const val WEIGHING_SHED_DETAIL_REOPEN_FAILED = "weighing_shed_detail_reopen_failed"
 
-    /** Leadership opened the weighing leadership videos gallery. */
-    const val WEIGHING_LEADERSHIP_VIDEO_VIEWED = "weighing_leadership_video_viewed"
-
-    /** Leadership started playing one weighing proof video. */
-    const val WEIGHING_LEADERSHIP_VIDEO_PLAY_STARTED = "weighing_leadership_video_play_started"
-
-    /** Leadership ended a bounded playback session for one weighing proof video. */
-    const val WEIGHING_LEADERSHIP_VIDEO_WATCH_SUMMARY = "weighing_leadership_video_watch_summary"
-
-    /** Leadership video playback failed before a usable review could continue. */
-    const val WEIGHING_LEADERSHIP_VIDEO_PLAYBACK_ERROR = "weighing_leadership_video_playback_error"
-
     /** Leadership opened the vaccination verification videos gallery. */
     const val VACCINATION_LEADERSHIP_VIDEO_VIEWED = "vaccination_leadership_video_viewed"
 
@@ -277,18 +270,6 @@ object AnalyticsEvents {
 
     /** Leadership vaccination video playback failed before a usable review could continue. */
     const val VACCINATION_LEADERSHIP_VIDEO_PLAYBACK_ERROR = "vaccination_leadership_video_playback_error"
-
-    /** Leadership opened the weight history chart screen. */
-    const val WEIGHT_HISTORY_VIEWED = "weight_history_viewed"
-
-    /** A weight history read failed to refresh. */
-    const val WEIGHT_HISTORY_LOAD_FAILED = "weight_history_load_failed"
-
-    /** Leadership opened the weighing growth (ADG) summary screen. */
-    const val WEIGHING_GROWTH_VIEWED = "weighing_growth_viewed"
-
-    /** A weighing growth read failed to refresh. */
-    const val WEIGHING_GROWTH_LOAD_FAILED = "weighing_growth_load_failed"
 
     /** Verifier opened a proof item detail screen that can stream evidence media. */
     const val VERIFY_ITEM_OPENED = "verify_item_opened"
@@ -302,8 +283,7 @@ object AnalyticsEvents {
 
     /** [VERIFY_VIDEO_PLAY_INTENT] fired but no [VERIFY_VIDEO_PLAY_STARTED] /
      *  onIsPlayingChanged(false-to-true after a pause tap) callback landed within the watchdog
-     *  window — a dead play/pause control. Always paired with a [CrashReporter.recordException]
-     *  non-fatal carrying the same context. */
+     *  window — a dead play/pause control. */
     const val VERIFY_VIDEO_PLAY_DEAD = "verify_video_play_dead"
 
     /** Verifier started playing one proof video. */
@@ -461,6 +441,29 @@ object AnalyticsEvents {
     /** A feed-distribution completion or proof could not be queued. [Params.REASON] a coarse cause. */
     const val FEED_DISTRIBUTION_FAILURE = "feed_distribution_failure"
 
+    /**
+     * A read of ANOTHER operator's server-recorded proof slots for this pen-session completed
+     * (success, empty, a failed attempt, or the retry ladder exhausted). [Params.RESULT],
+     * [Params.SLOT_MASK], [Params.RETRY_COUNT], and [Params.SOURCE] carry the bounded outcome;
+     * richer per-slot detail is backend-mirror-only on the same call site.
+     */
+    const val FEED_DISTRIBUTION_TEAMMATE_CAPTURES_READ = "feed_distribution_teammate_captures_read"
+
+    /** A teammate's server proof ref was adopted for a slot this phone had not itself captured.
+     *  [Params.KIND] names the slot; [Params.LOCAL_SLOT_STATE] is always `empty` here (a local
+     *  capture always wins and is never overwritten -- see [adoptTeammateCapture]). */
+    const val FEED_DISTRIBUTION_TEAMMATE_PROOF_ADOPTED = "feed_distribution_teammate_proof_adopted"
+
+    /** Fired alongside [FEED_DISTRIBUTION_SUBMITTED]/[FEED_DISTRIBUTION_SUBMIT_BLOCKED] with the
+     *  per-slot source breakdown ([Params.FEED_WEIGHT_SOURCE]/[Params.FEED_VIDEO_SOURCE]/
+     *  [Params.WATER_VIDEO_SOURCE]) and [Params.RESULT]. */
+    const val FEED_DISTRIBUTION_SUBMIT_SOURCES = "feed_distribution_submit_sources"
+
+    /** The screen's editable/read-only status changed. [Params.SOURCE] is `room`/`server_poll`/
+     *  `sync_tap`; [Params.PREVIOUS]/[Params.NEXT] are `editable`/`readonly`; [Params.STATUS] is
+     *  the underlying lifecycle bucket. */
+    const val FEED_DISTRIBUTION_LIVE_STATUS_CHANGED = "feed_distribution_live_status_changed"
+
     /** The verifier-gated feed-packing completion detail was opened (a Packing row tapped). */
     const val FEED_PACKING_COMPLETE_OPENED = "feed_packing_complete_opened"
 
@@ -479,6 +482,22 @@ object AnalyticsEvents {
     /** A feed-packing completion or proof could not be queued. [Params.REASON] a coarse cause. */
     const val FEED_PACKING_COMPLETE_FAILURE = "feed_packing_complete_failure"
 
+    /** The Feed Wastage worklist screen was opened (maintainer decision 2026-08-18). */
+    const val FEED_WASTAGE_VIEWED = "feed_wastage_viewed"
+
+    /** The verifier-gated feed-wastage capture detail was opened (a pen row was tapped). */
+    const val FEED_WASTAGE_COMPLETE_OPENED = "feed_wastage_complete_opened"
+
+    /** The MANDATORY leftover-feed video was captured on the wastage capture detail. */
+    const val FEED_WASTAGE_VIDEO_CAPTURED = "feed_wastage_video_captured"
+
+    /** A feed-wastage completion was submitted for verification (proof queued, completion enqueued
+     *  -> the pen-day moves to pending_verification). */
+    const val FEED_WASTAGE_SUBMITTED = "feed_wastage_submitted"
+
+    /** A feed-wastage completion or proof could not be queued. [Params.REASON] a coarse cause. */
+    const val FEED_WASTAGE_COMPLETE_FAILURE = "feed_wastage_complete_failure"
+
     /** The feed-transport proof/submit detail was opened from the Transport worklist. */
     const val FEED_TRANSPORT_OPENED = "feed_transport_opened"
 
@@ -495,6 +514,108 @@ object AnalyticsEvents {
 
     /** A feed-transport proof or completion could not be queued. */
     const val FEED_TRANSPORT_FAILURE = "feed_transport_failure"
+
+    // --- PC Care (module pc_care, maintainer decision 2026-08-21): planner-assigned deworming /
+    // ticks removal / hoof trimming / hair trimming tasks with per-animal slot videos. ---
+
+    /** A PC Care category worklist tab was opened; [Params.KIND] carries the category key. */
+    const val PC_CARE_WORKLIST_VIEWED = "pc_care_worklist_viewed"
+
+    /** A PC Care task detail was opened from a worklist card. */
+    const val PC_CARE_TASK_OPENED = "pc_care_task_opened"
+
+    /** The vaccination Stock proof detail rendered; [Params.STATUS] is the task lifecycle. */
+    const val PC_CARE_STOCK_PROOF_SCREEN_VISIBLE = "pc_care_stock_proof_screen_visible"
+
+    /** A vaccination Stock proof row/button was tapped; [Params.KIND] = photo/video. */
+    const val PC_CARE_STOCK_PROOF_ACTION_TAPPED = "pc_care_stock_proof_action_tapped"
+
+    /** Camera returned for Stock proof capture before durable Room enqueue. */
+    const val PC_CARE_STOCK_PROOF_CAPTURE_RESULT = "pc_care_stock_proof_capture_result"
+
+    /** Captured Stock proof row was inserted into Room and upload enqueue was requested. */
+    const val PC_CARE_STOCK_PROOF_ROOM_WRITTEN = "pc_care_stock_proof_room_written"
+
+    /** Upload outbox id became visible in Room for the Stock proof. */
+    const val PC_CARE_STOCK_PROOF_UPLOAD_ENQUEUED = "pc_care_stock_proof_upload_enqueued"
+
+    /** Stock proof slot registration write was enqueued or failed. */
+    const val PC_CARE_STOCK_PROOF_REGISTRATION = "pc_care_stock_proof_registration"
+
+    /** Stock proof manual refresh/sync action started or completed. */
+    const val PC_CARE_STOCK_PROOF_SYNC = "pc_care_stock_proof_sync"
+
+    /** Stock detail proof preview URL hydration/playback. */
+    const val PC_CARE_STOCK_PROOF_PREVIEW = "pc_care_stock_proof_preview"
+
+    /** Stock proof submit button was tapped or blocked before confirmation. */
+    const val PC_CARE_STOCK_PROOF_SUBMIT = "pc_care_stock_proof_submit"
+
+    /** Stock proof submit write was enqueued or failed. */
+    const val PC_CARE_STOCK_PROOF_SUBMIT_ENQUEUED = "pc_care_stock_proof_submit_enqueued"
+
+    /** A scanned tag was accepted into the task (queued durably for sync). */
+    const val PC_CARE_SCAN_ACCEPTED = "pc_care_scan_accepted"
+
+    /** A scanned tag was already in the task ("Already scanned" notice shown). */
+    const val PC_CARE_SCAN_DUPLICATE = "pc_care_scan_duplicate"
+
+    /** A slot's video recorder was opened; [Params.KIND] carries the slot field key. */
+    const val PC_CARE_SLOT_CAPTURE_STARTED = "pc_care_slot_capture_started"
+
+    /** A slot's video was captured and its upload queued; [Params.KIND] the slot field key. */
+    const val PC_CARE_SLOT_CAPTURED = "pc_care_slot_captured"
+
+    /** Submit was refused; [Params.REASON] carries the coarse blocked cause. */
+    const val PC_CARE_SUBMIT_BLOCKED = "pc_care_submit_blocked"
+
+    /** The operator confirmed the whole-task submit (write enqueued). */
+    const val PC_CARE_SUBMIT_CONFIRMED = "pc_care_submit_confirmed"
+
+    /** A task in rework was opened (the verifier's reason is on screen). */
+    const val PC_CARE_REWORK_VIEWED = "pc_care_rework_viewed"
+
+    /** The planner created a PC Care task; [Params.KIND] carries the category key. */
+    const val PC_CARE_PLAN_TASK_CREATED = "pc_care_plan_task_created"
+
+    /** A PC Care read, scan, capture, or submit could not be queued/served. [Params.REASON]. */
+    const val PC_CARE_FAILURE = "pc_care_failure"
+
+    /** The milk preparation screen (park's milk processing setup) was opened. */
+    const val MILK_PREPARATION_OPENED = "milk_preparation_opened"
+
+    /** Operator attempted to capture a proof video for a milk preparation step. */
+    const val MILK_PREPARATION_PROOF_CAPTURE_ATTEMPT = "milk_preparation_proof_capture_attempt"
+
+    /** A milk preparation proof video was captured successfully. */
+    const val MILK_PREPARATION_PROOF_CAPTURE_SUCCESS = "milk_preparation_proof_capture_success"
+
+    /** A milk preparation proof capture failed or was cancelled. */
+    const val MILK_PREPARATION_PROOF_CAPTURE_FAILURE = "milk_preparation_proof_capture_failure"
+
+    /** Operator submitted milk preparation answers and proofs for verification. */
+    const val MILK_PREPARATION_SUBMITTED = "milk_preparation_submitted"
+
+    /** A milk preparation submission could not be queued. [Params.REASON] carries a coarse cause. */
+    const val MILK_PREPARATION_FAILURE = "milk_preparation_failure"
+
+    /** The milk feeding screen (recording feeding observations) was opened. */
+    const val MILK_FEEDING_OPENED = "milk_feeding_opened"
+
+    /** Operator attempted to capture a proof video for a milk feeding task. */
+    const val MILK_FEEDING_PROOF_CAPTURE_ATTEMPT = "milk_feeding_proof_capture_attempt"
+
+    /** A milk feeding proof video was captured successfully. */
+    const val MILK_FEEDING_PROOF_CAPTURE_SUCCESS = "milk_feeding_proof_capture_success"
+
+    /** A milk feeding proof capture failed or was cancelled. */
+    const val MILK_FEEDING_PROOF_CAPTURE_FAILURE = "milk_feeding_proof_capture_failure"
+
+    /** Operator submitted milk feeding answers and proofs for verification. */
+    const val MILK_FEEDING_SUBMITTED = "milk_feeding_submitted"
+
+    /** A milk feeding submission could not be queued. [Params.REASON] carries a coarse cause. */
+    const val MILK_FEEDING_FAILURE = "milk_feeding_failure"
 
     /**
      * A Birth/Death workflow work list was opened (docs/decisions/birth-death-workflows.md).
@@ -649,6 +770,38 @@ object AnalyticsEvents {
     /** A proof-video job reached a terminal state and will need operator/manual action. */
     const val PROOF_VIDEO_DEAD_LETTER = "proof_video_dead_letter"
 
+    /** Shared Room-first proof pipeline events, emitted for every feature using ProofCaptureRepository. */
+    const val PROOF_CAMERA_REQUESTED = "proof_camera_requested"
+    const val PROOF_CAMERA_VISIBLE = "proof_camera_visible"
+    const val PROOF_CAMERA_BOUND = "proof_camera_bound"
+    const val PROOF_CAMERA_STREAMING = "proof_camera_streaming"
+    const val PROOF_CAMERA_RECORDING_STARTED = "proof_camera_recording_started"
+    const val PROOF_CAMERA_STOP_TAPPED = "proof_camera_stop_tapped"
+    const val PROOF_CAMERA_CANCELLED = "proof_camera_cancelled"
+    const val PROOF_CAMERA_RETRY_TAPPED = "proof_camera_retry_tapped"
+    const val PROOF_CAMERA_FINALIZED = "proof_camera_finalized"
+    const val PROOF_CAMERA_FAILED = "proof_camera_failed"
+    const val PROOF_CAMERA_TORCH_ON = "proof_camera_torch_on"
+    const val PROOF_CAMERA_TORCH_OFF = "proof_camera_torch_off"
+    const val PROOF_CAMERA_TORCH_FAILED = "proof_camera_torch_failed"
+    const val PROOF_GALLERY_PICKER_OPENED = "proof_gallery_picker_opened"
+    const val PROOF_GALLERY_PICKER_CANCELLED = "proof_gallery_picker_cancelled"
+    const val PROOF_GALLERY_PICKER_IMPORTED = "proof_gallery_picker_imported"
+    const val PROOF_GALLERY_PICKER_FAILED = "proof_gallery_picker_failed"
+    const val PROOF_PROCESSING_STARTED = "proof_processing_started"
+    const val PROOF_PROCESSING_COMPLETED = "proof_processing_completed"
+    const val PROOF_PROCESSING_FAILED = "proof_processing_failed"
+    const val PROOF_CAPTURE_COMPLETED = "proof_capture_completed"
+    const val PROOF_GALLERY_SAVE_STARTED = "proof_gallery_save_started"
+    const val PROOF_GALLERY_SAVE_COMPLETED = "proof_gallery_save_completed"
+    const val PROOF_GALLERY_SAVE_FAILED = "proof_gallery_save_failed"
+    const val PROOF_UPLOAD_REGISTERED = "proof_upload_registered"
+    const val PROOF_UPLOAD_STARTED = "proof_upload_started"
+    const val PROOF_UPLOAD_COMPLETED = "proof_upload_completed"
+    const val PROOF_UPLOAD_FAILED = "proof_upload_failed"
+    const val PROOF_UPLOAD_ENQUEUE_FAILED = "proof_upload_enqueue_failed"
+    const val PROOF_UPLOAD_DRIVER_MISSING = "proof_upload_driver_missing"
+
     /** Standard event parameter keys. */
     /**
      * The OS notification-permission prompt was shown. Until this existed, POST_NOTIFICATIONS was
@@ -688,6 +841,12 @@ object AnalyticsEvents {
     const val SYNC_WRITE_ATTEMPT_FAILED = "sync_write_attempt_failed"
 
     /**
+     * A queued submit/completion write is waiting for one or more referenced proof-upload rows to
+     * succeed. Emitted from the outbox drain seam without consuming the write's retry budget.
+     */
+    const val SYNC_WRITE_DEPENDENCY_WAIT = "sync_write_dependency_wait"
+
+    /**
      * A queued write is DEAD — it will never be sent again without a manual retry. The loudest
      * event in the outbox lifecycle, and the one whose absence meant permanently-undelivered farm
      * data looked exactly like data still on its way.
@@ -700,6 +859,10 @@ object AnalyticsEvents {
     object Params {
         const val METHOD = "method"
         const val REASON = "reason"
+
+        /** Stable park identifier, event-scoped (unlike [UserProps.PARK_ID], which is a durable
+         *  user property) — e.g. which park a Milk Preparation/Feeding event happened in. */
+        const val PARK_ID = "park_id"
 
         /**
          * Bounded-cardinality request route TEMPLATE (`/app/weighing/campaigns/{id}/sheds`),
@@ -749,6 +912,7 @@ object AnalyticsEvents {
 
         const val ITEM_ID = "item_id"
         const val PROOF_ID = "proof_id"
+        const val REPLACED_PROOF_ID = "replaced_proof_id"
         const val PROOF_SURFACE = "proof_surface"
         const val PROOF_MODE = "proof_mode"
         const val PROOF_STATE = "proof_state"
@@ -770,6 +934,18 @@ object AnalyticsEvents {
          * construction (it is an enum), and it carries no goat, shed, or operator identity.
          */
         const val OP_TYPE = "op_type"
+
+        /** Local outbox row id for durable-sync lifecycle/debug events. */
+        const val OUTBOX_ITEM_ID = "outbox_item_id"
+
+        /** Local durable sync lane key, used to reconstruct ordering/dependency waits. */
+        const val GROUP_KEY = "group_key"
+
+        /** Deterministic write key used for server replay/idempotency. */
+        const val IDEMPOTENCY_KEY = "idempotency_key"
+
+        /** Referenced proof upload outbox row id for dependent register/submit writes. */
+        const val PROOF_OUTBOX_ITEM_ID = "proof_outbox_item_id"
 
         /** How many attempts that queued write is allowed before it is declared dead. */
         const val MAX_ATTEMPTS = "max_attempts"
@@ -829,6 +1005,47 @@ object AnalyticsEvents {
          * auto-sessions.
          */
         const val JOURNEY_ID = "journey_id"
+
+        /** Bounded outcome of a read/attempt (`success_slots`/`success_empty`/`failed`/
+         *  `retry_exhausted`/`submitted`/`blocked`, depending on the event). */
+        const val RESULT = "result"
+
+        /** Bitmask-style label of which teammate-captured slots came back (`weight`/`feed`/
+         *  `water`/`weight_feed`/`weight_water`/`feed_water`/`all`/`none`). */
+        const val SLOT_MASK = "slot_mask"
+
+        /** How many retries a bounded retry ladder has attempted so far. */
+        const val RETRY_COUNT = "retry_count"
+
+        /** What triggered a read or a status change (`open`/`sync_tap`/`retry`/`server_poll`/
+         *  `room`, depending on the event). */
+        const val SOURCE = "source"
+
+        /** Whether the local slot was empty or already locally captured when a teammate ref
+         *  arrived (`empty`/`local_present`). */
+        const val LOCAL_SLOT_STATE = "local_slot_state"
+
+        /** Where the feed-weight-photo slot's submitted value came from (`local_outbox`/
+         *  `server_ref`/`missing`). */
+        const val FEED_WEIGHT_SOURCE = "feed_weight_source"
+
+        /** Where the feed-video slot's submitted value came from (`local_outbox`/`server_ref`/
+         *  `missing`). */
+        const val FEED_VIDEO_SOURCE = "feed_video_source"
+
+        /** Where the water-video slot's submitted value came from (`local_outbox`/`server_ref`/
+         *  `missing`). */
+        const val WATER_VIDEO_SOURCE = "water_video_source"
+
+        /** Editable/read-only state before a status change (`editable`/`readonly`). */
+        const val PREVIOUS = "previous"
+
+        /** Editable/read-only state after a status change (`editable`/`readonly`). */
+        const val NEXT = "next"
+
+        /** Coarse lifecycle bucket backing a status change (`open`/`pending_verification`/
+         *  `submitted`/`unknown`). */
+        const val STATUS = "status"
     }
 
     /** Durable user-property keys (set via [AnalyticsPort.setUserProperty]). */

@@ -33,6 +33,10 @@ import sg.mesha.goatos.core.network.dto.ValidationIssueDto
 import sg.mesha.goatos.core.network.dto.ValidationReportDto
 import sg.mesha.goatos.core.network.dto.VerificationDecision
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventPayloadDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import java.io.IOException
@@ -722,6 +726,51 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `dispatches VERIFICATION_REVIEW_EVENTS through the backend audit endpoint`() = runBlocking {
+        val store = FakeOutboxStore()
+        val request = VerificationReviewEventBatchRequestDto(
+            events = listOf(
+                VerificationReviewEventRequestDto(
+                    itemId = "item-1",
+                    proofId = "proof-1",
+                    sessionId = "session-1",
+                    eventType = "video_play",
+                    occurredAt = "2026-08-12T05:30:00Z",
+                    payload = VerificationReviewEventPayloadDto(videoDurationMs = 25_000L),
+                    clientEventId = "client-event-1",
+                ),
+            ),
+        )
+        store.insert(
+            OutboxEntity(
+                id = "row-review-1",
+                opType = OutboxOpType.VERIFICATION_REVIEW_EVENTS.name,
+                groupKey = "verification-review:item-1",
+                idempotencyKey = "verification-review:client-event-1",
+                payloadJson = syncJson.encodeToString(VerificationReviewEventsPayload(request = request)),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        val api = ScriptedAppApi().apply {
+            recordVerificationReviewEventsFn = { VerificationReviewEventBatchResponseDto(inserted = it.events.size) }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+
+        engine.drainOnce()
+
+        assertEquals(listOf(request), api.reviewEventCalls)
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-review-1")!!.status)
+    }
+
+    @Test
     fun `dispatches an atomic drive closure with the stable submission idempotency key`() = runBlocking {
         val store = FakeOutboxStore()
         val idempotencyKey = "submission-1-drive-close"
@@ -895,6 +944,62 @@ class SyncEngineTest {
         val decoded = syncJson.decodeFromString<ProofUploadResponseDto>(row.resultJson!!)
         assertEquals("server-proof-9", decoded.proof.proofId)
         assertEquals("completed", decoded.proof.uploadState)
+    }
+
+    @Test
+    fun `PC Care task proof registration resolves uploaded proof and uses stable idempotency key`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(
+            queuedProofUpload(id = "proof-outbox-7").copy(
+                status = OutboxStatus.SUCCEEDED.name,
+                resultJson = syncJson.encodeToString(
+                    ProofUploadResponseDto(
+                        proof = ProofReferenceDto(
+                            proofId = "server-proof-9",
+                            proofType = "video",
+                            subjectType = "pc_care_task",
+                            uploadState = "completed",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        store.insert(
+            OutboxEntity(
+                id = "task-proof-row-1",
+                opType = OutboxOpType.PC_CARE_TASK_PROOF_REGISTER.name,
+                groupKey = pcCareTaskGroupKey("task-1"),
+                idempotencyKey = pcCareTaskProofIdempotencyKey("task-1", "stock_fridge_video", "proof-outbox-7"),
+                payloadJson = syncJson.encodeToString(
+                    PcCareTaskProofRegisterPayload(
+                        taskId = "task-1",
+                        slotFieldKey = "stock_fridge_video",
+                        proofOutboxItemId = "proof-outbox-7",
+                    ),
+                ),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 1L,
+                updatedAt = 1L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        val api = ScriptedAppApi()
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 10L })
+
+        engine.drainOnce()
+
+        val row = store.findById("task-proof-row-1")!!
+        assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+        assertEquals(
+            listOf(listOf("task-1", "stock_fridge_video", "pc-care:task-proof:task-1:stock_fridge_video:proof-outbox-7", "server-proof-9")),
+            api.pcCareTaskProofCalls,
+        )
+        assertEquals("{}", row.resultJson)
     }
 
     @Test
@@ -1180,10 +1285,10 @@ private class FakeScannedGoatDao : ScannedGoatDao {
             it.obligationId == obligationId
     }
 
-    override suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String) {
+    override suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String, obligationRowVersion: Int) {
         rows.replaceAll { row ->
             if (row.id == id) {
-                row.copy(goatId = goatId, obligationId = obligationId, capturedAtMs = capturedAtMs, syncStatus = syncStatus)
+                row.copy(goatId = goatId, obligationId = obligationId, capturedAtMs = capturedAtMs, syncStatus = syncStatus, obligationRowVersion = obligationRowVersion)
             } else {
                 row
             }
@@ -1297,6 +1402,8 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
     override suspend fun insert(entity: OutboxEntity) = inner.insert(entity)
     override suspend fun findById(id: String) = inner.findById(id)
     override suspend fun findByIdempotencyKey(key: String) = inner.findByIdempotencyKey(key)
+    override suspend fun findLatestForGroupAndOpType(groupKey: String, opType: String) =
+        inner.findLatestForGroupAndOpType(groupKey, opType)
 
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> {
         drainLimits += limit
@@ -1304,6 +1411,14 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
     }
 
     override fun observeActive() = inner.observeActive()
+    override fun observeActiveByOpType(opType: String): kotlinx.coroutines.flow.Flow<List<OutboxEntity>> {
+        val base = observeActive()
+        return kotlinx.coroutines.flow.flow {
+            base.collect { rows -> emit(rows.filter { row -> row.opType == opType }) }
+        }
+    }
+    override fun observeActiveCounts() = inner.observeActiveCounts()
+    override fun observeActiveWindow(limit: Int) = inner.observeActiveWindow(limit)
     override fun observeById(id: String) = inner.observeById(id)
     override suspend fun observeRecentTerminals(recentLimit: Int) = inner.observeRecentTerminals(recentLimit)
     override suspend fun pruneSucceeded(retentionMs: Long, now: Long) = inner.pruneSucceeded(retentionMs, now)
@@ -1313,6 +1428,15 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
     override suspend fun markFailed(id: String, attemptCount: Int, nextAttemptAt: Long, conflict: Boolean, lastError: String, now: Long) =
         inner.markFailed(id, attemptCount, nextAttemptAt, conflict, lastError, now)
     override suspend fun markRetryReady(id: String, now: Long) = inner.markRetryReady(id, now)
+    override suspend fun reopenTerminalForRetry(id: String, payloadJson: String, fingerprint: String, now: Long) =
+        inner.reopenTerminalForRetry(id, payloadJson, fingerprint, now)
+    override suspend fun reopenFailedProofUploadForRetry(
+        id: String,
+        groupKey: String,
+        payloadJson: String,
+        fingerprint: String,
+        now: Long,
+    ) = inner.reopenFailedProofUploadForRetry(id, groupKey, payloadJson, fingerprint, now)
     override suspend fun reclaimInFlight(now: Long) = inner.reclaimInFlight(now)
     override suspend fun delete(id: String) = inner.delete(id)
 }

@@ -17,6 +17,8 @@ import sg.mesha.goatos.core.data.cache.CalendarScheduleDao
 import sg.mesha.goatos.core.data.cache.CalendarScheduleEntity
 import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.ClockBlobCacheDao
+import sg.mesha.goatos.core.data.cache.ClockBlobCacheEntity
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheEntity
 import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheDao
@@ -47,6 +49,20 @@ import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheDao
 import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheEntity
 import sg.mesha.goatos.core.data.cache.FeedPackingRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.FeedPackingRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.FeedWastageItemDao
+import sg.mesha.goatos.core.data.cache.FeedWastageItemEntity
+import sg.mesha.goatos.core.data.cache.FeedWastageMetaCacheDao
+import sg.mesha.goatos.core.data.cache.FeedWastageMetaCacheEntity
+import sg.mesha.goatos.core.data.cache.FeedWastageRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.FeedWastageRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.PcCareAnimalRowDao
+import sg.mesha.goatos.core.data.cache.PcCareAnimalRowEntity
+import sg.mesha.goatos.core.data.cache.PcCareTaskDetailCacheDao
+import sg.mesha.goatos.core.data.cache.PcCareTaskDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.PcCareTaskItemDao
+import sg.mesha.goatos.core.data.cache.PcCareTaskItemEntity
+import sg.mesha.goatos.core.data.cache.PcCareTaskRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.PcCareTaskRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.FeedTransportItemDao
 import sg.mesha.goatos.core.data.cache.FeedTransportItemEntity
 import sg.mesha.goatos.core.data.cache.FeedTransportRemoteKeyDao
@@ -93,6 +109,12 @@ import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.ShiftingPendingRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.ToxinTaskDetailCacheDao
+import sg.mesha.goatos.core.data.cache.ToxinTaskDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.ToxinTaskItemDao
+import sg.mesha.goatos.core.data.cache.ToxinTaskItemEntity
+import sg.mesha.goatos.core.data.cache.ToxinTaskRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.ToxinTaskRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
 import sg.mesha.goatos.core.data.cache.WorkflowCardDao
@@ -224,6 +246,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         FeedPackingMetaCacheEntity::class,
         FeedPackingItemEntity::class,
         FeedPackingRemoteKeyEntity::class,
+        FeedWastageMetaCacheEntity::class,
+        FeedWastageItemEntity::class,
+        FeedWastageRemoteKeyEntity::class,
         ShiftingPendingItemEntity::class,
         ShiftingPendingRemoteKeyEntity::class,
         AwaitingRfidItemEntity::class,
@@ -260,8 +285,16 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         VaccinationAlertsCacheEntity::class,
         WeighingTransitionEpochEntity::class,
         ProofCaptureStateEventEntity::class,
+        PcCareTaskItemEntity::class,
+        PcCareTaskRemoteKeyEntity::class,
+        PcCareTaskDetailCacheEntity::class,
+        PcCareAnimalRowEntity::class,
+        ToxinTaskItemEntity::class,
+        ToxinTaskRemoteKeyEntity::class,
+        ToxinTaskDetailCacheEntity::class,
+        ClockBlobCacheEntity::class,
     ],
-    version = 42,
+    version = 51,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -336,6 +369,35 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v38 (see [MIGRATION_37_38]) adds shared proof-video processing state, metrics, and
     // append-only state events for support/debug breadcrumbs.
     // v39 (see [MIGRATION_38_39]) persists the actual capture location/address burned into proof media.
+    // v40 (see [MIGRATION_39_40]) adds rfidTag to proof_capture.
+    // v41 (see [MIGRATION_40_41]) adds obligationId to the scanned_goat_capture unique index constraint.
+    // v42 (see [MIGRATION_41_42]) persists gallerySavedUri on proof_capture.
+    // v43 (see [MIGRATION_42_43]) adds performance indexes on live-status observer columns: grainKey
+    // for feed direction/packing items and taskId for feed transport scoped items.
+    // v44 (see [MIGRATION_43_44]) persists obligation_instances.row_version on scanned_goat_capture
+    // so reconciliation can distinguish "never submitted" from "submitted then reopened".
+    // v45 (see [MIGRATION_44_45]) persists scopeType/scopeId on proof_capture (R50-060) so
+    // startup recovery re-registers weighing free-flow proofs with their original scope.
+    // v46 (see [MIGRATION_45_46]) adds supersedesRowId to proof_capture — a durable
+    // captureReplacingLatest supersession marker (P1 fix) so the replaced row's retirement
+    // survives process death instead of living only in an in-memory ticket.
+    // v48 (see [MIGRATION_47_48]) adds the three Feed WASTAGE read-model tables (maintainer
+    // decision 2026-08-18) — the per-EXPERIMENT-pen leftover-feed worklist as a summary-envelope
+    // blob + normalized paged rows + per-scope remote keys, the same offline-first shape as the
+    // Direction and Packing trios.
+    // v49 (see [MIGRATION_48_49]) adds the four PC Care read/write-model tables (module pc_care,
+    // maintainer decision 2026-08-21): the paged operator worklist rows + their per-scope remote
+    // keys (the Wastage trio shape minus the summary envelope), the task-detail JSON blob cache,
+    // and the durable per-(task, tag) scanned-animal rows behind the scan screen's duplicate
+    // check, sync status, and peer slot visibility.
+    // v50 (see [MIGRATION_49_50]) adds the three Toxin read-model tables (module toxin, maintainer
+    // decision 2026-08-25): the paged aflatoxin test-task list rows + their per-scope remote keys
+    // (the PC Care pair shape) and the task-detail JSON blob cache carrying the server-composed
+    // 7-step state contract.
+    // v51 (see [MIGRATION_50_51]) adds `clock_blob_cache` — the Clock In / Clock Out module's
+    // JSON-blob-by-scope cache (module clock, maintainer decision 2026-08-27): the caller's own
+    // status (My Clock + the shell reminder banner), the leadership presence board's first page
+    // per filter, and person-day detail blobs, each offline-first from day one.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -378,6 +440,9 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun feedPackingMetaCacheDao(): FeedPackingMetaCacheDao
     abstract fun feedPackingItemDao(): FeedPackingItemDao
     abstract fun feedPackingRemoteKeyDao(): FeedPackingRemoteKeyDao
+    abstract fun feedWastageMetaCacheDao(): FeedWastageMetaCacheDao
+    abstract fun feedWastageItemDao(): FeedWastageItemDao
+    abstract fun feedWastageRemoteKeyDao(): FeedWastageRemoteKeyDao
     abstract fun shiftingPendingItemDao(): ShiftingPendingItemDao
     abstract fun shiftingPendingRemoteKeyDao(): ShiftingPendingRemoteKeyDao
     abstract fun awaitingRfidItemDao(): AwaitingRfidItemDao
@@ -405,4 +470,12 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun weighingPlannerCatalogDao(): WeighingPlannerCatalogDao
     abstract fun weighingPlannerRemoteKeyDao(): WeighingPlannerRemoteKeyDao
     abstract fun weighingTransitionEpochDao(): WeighingTransitionEpochDao
+    abstract fun pcCareTaskItemDao(): PcCareTaskItemDao
+    abstract fun pcCareTaskRemoteKeyDao(): PcCareTaskRemoteKeyDao
+    abstract fun pcCareTaskDetailCacheDao(): PcCareTaskDetailCacheDao
+    abstract fun pcCareAnimalRowDao(): PcCareAnimalRowDao
+    abstract fun toxinTaskItemDao(): ToxinTaskItemDao
+    abstract fun toxinTaskRemoteKeyDao(): ToxinTaskRemoteKeyDao
+    abstract fun toxinTaskDetailCacheDao(): ToxinTaskDetailCacheDao
+    abstract fun clockBlobCacheDao(): ClockBlobCacheDao
 }

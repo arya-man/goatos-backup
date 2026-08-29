@@ -112,9 +112,14 @@
         "feed.direction.completed",
         "feed.distribution.completed",
         "feed.packing.completed",
+        "feed.packing.reopened",
+        "feed.wastage.completed",
+        "pc_care.task.pending_verification",
+        "pc_care.task.completed",
         "vaccination.capacity.changed",
         "vaccination.roster.changed",
-        "vaccination.leave.changed"
+        "vaccination.leave.changed",
+        "procurement.feed_purchase.recorded"
       ]
     },
     "schema_version": {
@@ -144,6 +149,7 @@
         "shifting_event",
         "count_projection_exception",
         "counts_approval_request",
+        "pc_care_task",
         "verification_item",
         "weighing",
         "vaccination_batch",
@@ -153,7 +159,8 @@
         "health_case",
         "feed_packing_completion",
         "feed_distribution_completion",
-        "feed_direction_session_completion"
+        "feed_direction_session_completion",
+        "feed_purchase"
       ]
     },
     "aggregate_id": {
@@ -183,7 +190,8 @@
         "weighing_observation",
         "vaccination_batch",
         "notification_request",
-        "health_protocol_version"
+        "health_protocol_version",
+        "feed_purchase"
       ]
     },
     "subject_id": {

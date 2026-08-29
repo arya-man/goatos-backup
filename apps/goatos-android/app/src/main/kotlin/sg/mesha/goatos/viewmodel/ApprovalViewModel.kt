@@ -8,11 +8,13 @@ import androidx.paging.cachedIn
 import androidx.paging.map
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -22,6 +24,7 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.CountsApprovalRepository
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.dto.CountsApprovalListItemDto
 import sg.mesha.goatos.feature.counts.ApprovalEvent
 import sg.mesha.goatos.feature.counts.ApprovalRowUi
@@ -62,6 +65,9 @@ class ApprovalViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
+    private val decisionOutboxItemId = DraftOutboxItemId(savedStateHandle, KEY_OUTBOX_ITEM_ID)
+    private var decisionStatusJob: Job? = null
+
     private val _state = MutableStateFlow(ApprovalUiState())
     val state: StateFlow<ApprovalUiState> = _state.asStateFlow()
 
@@ -77,6 +83,13 @@ class ApprovalViewModel @Inject constructor(
 
     init {
         analytics.track(AnalyticsEvents.COUNTS_APPROVAL_QUEUE_VIEWED)
+        val pendingRequestId = savedStateHandle.get<String>(KEY_PENDING_REQUEST_ID)
+        decisionOutboxItemId.value?.let { itemId ->
+            if (pendingRequestId != null) {
+                _state.update { it.copy(decidingRequestId = pendingRequestId) }
+                observeDecision(itemId, pendingRequestId)
+            }
+        }
     }
 
     fun onEvent(event: ApprovalEvent) {
@@ -127,11 +140,9 @@ class ApprovalViewModel @Inject constructor(
             )
             when (result) {
                 is AppResult.Ok -> {
-                    // Drop the decided row from the cached queue the moment the decision is
-                    // DURABLE. Two reasons: the approver sees their action take effect offline,
-                    // and the same request cannot be decided a second time while the first
-                    // decision is still draining.
-                    approvalRepository.forgetDecided(requestId)
+                    decisionOutboxItemId.value = result.value
+                    savedStateHandle[KEY_PENDING_REQUEST_ID] = requestId
+                    observeDecision(result.value, requestId)
                     analytics.track(
                         AnalyticsEvents.COUNTS_APPROVAL_DECIDED,
                         mapOf(
@@ -140,7 +151,6 @@ class ApprovalViewModel @Inject constructor(
                     )
                     _state.update {
                         it.copy(
-                            decidingRequestId = null,
                             rejectingRequestId = null,
                             rejectReason = "",
                             message = QUEUED_MESSAGE,
@@ -165,6 +175,36 @@ class ApprovalViewModel @Inject constructor(
         }
     }
 
+    private fun observeDecision(itemId: String, requestId: String) {
+        decisionStatusJob?.cancel()
+        decisionStatusJob = viewModelScope.launch {
+            syncRepository.observeItem(itemId).filterNotNull().collect { item ->
+                when {
+                    item.status == SyncItemStatus.SUCCEEDED -> {
+                        approvalRepository.forgetDecided(requestId)
+                        clearDecisionTracking()
+                        _state.update { it.copy(decidingRequestId = null) }
+                    }
+                    item.isTerminalFailure -> {
+                        clearDecisionTracking()
+                        _state.update {
+                            it.copy(
+                                decidingRequestId = null,
+                                message = item.lastError ?: DECISION_FAILED_MESSAGE,
+                                isError = true,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun clearDecisionTracking() {
+        decisionOutboxItemId.value = null
+        savedStateHandle[KEY_PENDING_REQUEST_ID] = null
+    }
+
     /**
      * The stable idempotency key for deciding ONE request ONE way.
      *
@@ -186,7 +226,10 @@ class ApprovalViewModel @Inject constructor(
 
     private companion object {
         const val KEY_IDEMPOTENCY = "countsApproval.idempotencyKey"
+        const val KEY_OUTBOX_ITEM_ID = "countsApproval.outboxItemId"
+        const val KEY_PENDING_REQUEST_ID = "countsApproval.pendingRequestId"
         const val QUEUED_MESSAGE = "Decision saved on this phone. It will apply automatically."
+        const val DECISION_FAILED_MESSAGE = "This decision did not go through. Review it and try again."
         const val REASON_REQUIRED_MESSAGE =
             "Add a reason — the operator who raised this needs to know what to fix."
     }

@@ -190,6 +190,7 @@ type EligibleGoat struct {
 	LifecycleStatus      string
 	HealthStatus         string
 	ReproductiveStatus   string
+	ProcurementPurpose   string
 	ShedID               string
 	ParkID               string
 	PartitionLabel       string
@@ -229,9 +230,25 @@ type RecentVaccineAdministration struct {
 
 // GenerateResult summarises an SM-1 generation run.
 type GenerateResult struct {
-	Generated                  int
-	Deferred                   int
-	Reopened                   int
+	Generated int
+	Deferred  int
+	Reopened  int
+	// Reconciled counts work the animal ALREADY owed under this rule identity, moved onto the
+	// current version and due date instead of being re-minted beside itself. It is deliberately
+	// separate from Generated: nothing new was created, and an operator reading the run should
+	// see that the plan moved without their list churning.
+	Reconciled int
+	// AmbiguousOpenWork counts animals that already hold more than one UNLABELLED open obligation
+	// for a single rule. They are a pre-existing data problem: generation refuses to guess which
+	// scheduled vaccination is real, fails for that animal alone, and reports the count so the
+	// duplicates get resolved rather than silently multiplied.
+	AmbiguousOpenWork int
+	// ReconcileDateBlocked counts obligations that were claimed but could NOT take their new due
+	// date, because obligation_instances_dup_guard already holds that key -- usually the row's own
+	// canceled or completed twin. The animal keeps exactly one open obligation, so nothing is
+	// duplicated, but its date is stale until the blocking row's key stops colliding. Counted
+	// rather than hidden: a number that stays high across runs is a signal, not a nuisance.
+	ReconcileDateBlocked       int
 	FailedGoats                int
 	SkippedNoDueDate           int
 	SuppressedByTrustedHistory int

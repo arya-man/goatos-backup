@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Bind the refresh token BEFORE recording the audit event. The refresh token —
-  // the durable 14-day credential SSR mints fresh id tokens from — must be proven
+  // the durable 90-day credential SSR mints fresh id tokens from — must be proven
   // to belong to the same user the id token authenticated; an unbound token could
   // pair account A's id token with account B's refresh token, silently turning
   // the session into B once the id token expires. A verified uid mismatch is a

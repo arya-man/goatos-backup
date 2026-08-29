@@ -11,6 +11,12 @@ import (
 // ErrNotFound is returned when a requested protocol row does not exist.
 var ErrNotFound = errors.New("protocol: not found")
 
+// ErrDraftAlreadyExists is returned when creating a draft would give a protocol scope a
+// SECOND one. A plan being worked on is a single thing, so the caller should open the
+// existing draft rather than making another. Enforced by a partial unique index, which is
+// what makes it safe against two callers racing past a read-then-write check.
+var ErrDraftAlreadyExists = errors.New("protocol: a draft already exists for this scope")
+
 // ErrVersionNotDraft is returned when a caller tries to mutate or publish a
 // protocol version that is no longer draft. Published config is immutable.
 var ErrVersionNotDraft = errors.New("protocol: version is not draft")
@@ -50,6 +56,16 @@ type Repository interface {
 	// PublishVersion flips a draft version to published. Executable-contract checks are enforced
 	// by the app layer before calling this.
 	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error
+	// DiscardVersion permanently deletes a DRAFT version and its rules. Implementations
+	// must refuse anything that is not a draft: a published or retired version is part of
+	// the tenant's history and no caller may remove it.
+	DiscardVersion(ctx context.Context, tenantID, versionID string) error
+
+	// ReplaceDraftVersion swaps one draft for another in a single transaction. Editing a plan
+	// needs both halves to be atomic: with one-draft-per-scope enforced in the database,
+	// create-then-discard is refused outright, and discard-then-create destroys the farm's
+	// work if the create fails.
+	ReplaceDraftVersion(ctx context.Context, in domain.NewVersion, replacesVersionID string) (string, error)
 
 	CreateRule(ctx context.Context, in domain.NewRule) (ruleID string, err error)
 	ListRules(ctx context.Context, tenantID, versionID string) ([]domain.Rule, error)

@@ -16,11 +16,14 @@ import (
 // shared_key allows items to be deduped across modules (e.g., "calendar" is shared
 // by Vaccination, Feed Direction, and future modules).
 type moduleNavContribution struct {
-	key        string // e.g., "vaccination", "overview", "calendar"
-	labelKey   string // i18n key in bootstrapLabels
-	href       string
-	shared_key string // "" if not shared; if set, dedupe by this key across modules
-	priority   int    // lower = earlier in nav; shared items use the first module's priority
+	key            string // e.g., "vaccination", "overview", "calendar"
+	labelKey       string // i18n key in bootstrapLabels
+	href           string
+	hrefIfRole     string
+	labelKeyIfRole string
+	hrefRole       string
+	shared_key     string // "" if not shared; if set, dedupe by this key across modules
+	priority       int    // lower = earlier in nav; shared items use the first module's priority
 	// requiredPermission gates this single nav item. "" means the item is ungated and
 	// visible to anyone holding the module. This is what lets ONE module expose
 	// different pages to different jobs without a per-role nav template (banned by
@@ -65,6 +68,13 @@ type moduleDefinition struct {
 const (
 	moduleStatusAvailable = "available"
 	moduleStatusSoon      = "soon"
+
+	// clockModuleKey is the Clock In / Out attendance module
+	// (docs/features/clock-in-out/plan.md). It is the BASELINE module: offered
+	// to EVERY app principal (maintainer decision D2 — everyone clocks in) and
+	// exempt from per-person tick narrowing, because mandatory attendance must
+	// not be revocable by an accidental untick.
+	clockModuleKey = "clock"
 )
 
 // moduleNavRegistry maps module IDs to their drawer identity and nav contributions.
@@ -87,9 +97,9 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:            moduleStatusAvailable,
 		priority:          1,
 		contributions: []moduleNavContribution{
-			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead}, //nav-composition:ignore: registry entry
-			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},         //nav-composition:ignore: registry entry
-			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},     //nav-composition:ignore: registry entry
+			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead},                                                                                          //nav-composition:ignore: registry entry
+			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", hrefIfRole: "/pc/vaccine-stock", labelKeyIfRole: "nav.stock", hrefRole: permissions.RolePCDirector, shared_key: "", priority: 1, requiredPermission: permissions.TaskExecute}, //nav-composition:ignore: registry entry
+			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction, excludedPermission: permissions.TaskExecute},                                                 //nav-composition:ignore: registry entry
 			// Leadership's Videos tab is a REVIEW/audit surface (context/architecture/
 			// verifier-app-and-flow.md; verdict-exclusivity rule in AGENTS.md): it must show the
 			// complete evidence trail -- pending, approved, rejected, AND already-closed proofs --
@@ -144,7 +154,6 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "tasks", labelKey: "nav.tasks", href: "/weighing/tasks", shared_key: "", priority: 1, requiredPermission: permissions.WeighingPlan},                         //nav-composition:ignore: registry entry
 			{key: "weighing", labelKey: "nav.my_work", href: "/weighing", shared_key: "", priority: 2, requiredPermission: permissions.WeighingExecute},                       //nav-composition:ignore: registry entry
 			{key: "operators", labelKey: "nav.operators", href: "/weighing/operators", shared_key: "", priority: 3, requiredPermission: permissions.WeighingOverseeOperators}, //nav-composition:ignore: registry entry
-			{key: "videos", labelKey: "nav.videos", href: "/weighing/videos", shared_key: "", priority: 4, requiredPermission: permissions.WeighingMonitor},                   //nav-composition:ignore: registry entry
 			// Weighing's OWN alerts feed. This is NOT /alerts -- that is the vaccination
 			// process-integrity feed, whose upstream needs ObligationRead+VaccinationRead and
 			// whose label reads "Vaccination alerts" in all four languages. Carried in the
@@ -161,15 +170,16 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// It also fixes the degenerate single-tab bar: an operator holding only
 			// WeighingExecute previously got [My work] alone, a switcher with nothing to
 			// switch to.
-			// Weights and Growth are the PLANNER's read-outs, so they gate on WeighingPlan
-			// (CEO-only, see RoleGrowthDirector's own "NOT WeighingPlan" note), not on
-			// WeighingMonitor. Monitor is held by the Growth Director too, which put seven
-			// tabs in that role's bottom bar -- My work, Operators, Videos, Weights, Growth,
-			// Alerts, You -- for two destinations they do not own (maintainer ruling
-			// 2026-08-05). The Growth Director keeps My work / Operators / Videos / Alerts.
-			{key: "weights", labelKey: "nav.weights", href: "/weighing/weights", shared_key: "", priority: 5, requiredPermission: permissions.WeighingPlan}, //nav-composition:ignore: registry entry
-			{key: "growth", labelKey: "nav.growth", href: "/weighing/growth", shared_key: "", priority: 6, requiredPermission: permissions.WeighingPlan},    //nav-composition:ignore: registry entry
-			{key: "weighing_alerts", labelKey: "nav.alerts", href: "/weighing/alerts", shared_key: "", priority: 7},                                         //nav-composition:ignore: registry entry
+			// Weights, Growth, and Videos are RETIRED from the mobile weighing bar
+			// (maintainer ruling 2026-08-28): mobile weighing keeps only the work
+			// surfaces -- Tasks (planner), My work (operator), Operators (oversight) --
+			// plus Alerts. The Weights/Growth read-outs stay admin-web-only
+			// (/weighing/weights, /weighing/growth in adminui), and evidence review
+			// lives in the verifier/leadership surfaces; the Android screens remain
+			// routable for push deep links but get no tab. This supersedes the
+			// 2026-08-05 ruling's tab list (My work / Operators / Videos / Alerts for
+			// the Growth Director -- now My work / Operators / Alerts).
+			{key: "weighing_alerts", labelKey: "nav.alerts", href: "/weighing/alerts", shared_key: "", priority: 7}, //nav-composition:ignore: registry entry
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
 		reviewContributions: []moduleNavContribution{
@@ -238,6 +248,10 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "feed_direction", labelKey: "nav.feed_direction", href: "/feed/direction", shared_key: "", priority: 1, requiredPermission: permissions.FeedDirectionRead}, //nav-composition:ignore: registry entry
 			{key: "feed_packing", labelKey: "nav.feed_packing", href: "/feed/packing", shared_key: "", priority: 2, requiredPermission: permissions.FeedPackingRead},         //nav-composition:ignore: registry entry
 			{key: "feed_transport", labelKey: "nav.feed_transport", href: "/feed/transport", shared_key: "", priority: 3, requiredPermission: permissions.FeedTransportRead}, //nav-composition:ignore: registry entry
+			// Feed Wastage (maintainer decision 2026-08-18): the daily experiment-pen leftover-video
+			// worklist. Gated on its OWN read permission — the same permission its backing route
+			// (/feed-wastage/worklist) requires, per TestFeedNavGatesEqualTheirBackingRoutePermissions.
+			{key: "feed_wastage", labelKey: "nav.feed_wastage", href: "/feed/wastage", shared_key: "", priority: 4, requiredPermission: permissions.FeedWastageRead}, //nav-composition:ignore: registry entry
 		},
 		reviewContributions: []moduleNavContribution{
 			{key: "videos", labelKey: "nav.videos", href: "/verify/feed", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
@@ -330,11 +344,103 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		labelKey:    "module.approvals",
 		landingHref: "/counts/approvals", //nav-composition:ignore: registry entry
 		status:      moduleStatusAvailable,
-		priority:    7,
+		// Swapped with pc_care (maintainer ask 2026-08-21): Preventive Care sits ABOVE
+		// Approvals in the drawer.
+		priority: 8,
 		contributions: []moduleNavContribution{
 			// labelKey reuses the pre-existing "nav.approval" key rather than minting a new one:
 			// it survived the 2026-07-21 removal already translated into all four locales.
 			{key: "approvals", labelKey: "nav.approval", href: "/counts/approvals", shared_key: "", priority: 1, requiredPermission: permissions.CountsApproveAccess}, //nav-composition:ignore: registry entry
+		},
+	},
+	// "toxin" is the aflatoxin strip-test module (maintainer decision 2026-08-25): one
+	// 7-step guided test per purchased feed load, proof at every step, CEO/CXO-only review
+	// on admin-web. Same per-person shape as "approvals" above: the module is offered on a
+	// PERMISSION carried by the per-person toxin_tester role (plus ceo_internal), never on
+	// the park_head/director job. No "you" contribution, for the approvals reason: no
+	// principal can hold this module alone (toxin_tester grants no AppBootstrap).
+	"toxin": {
+		key:         "toxin",
+		labelKey:    "module.toxin",
+		landingHref: "/toxin", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		priority:    9,
+		contributions: []moduleNavContribution{
+			{key: "toxin", labelKey: "nav.toxin", href: "/toxin", shared_key: "", priority: 1, requiredPermission: permissions.ToxinRead}, //nav-composition:ignore: registry entry
+		},
+	},
+	// PC Care (module_key pc_care, maintainer decision 2026-08-21): planner-assigned deworming /
+	// ticks removal / hoof trimming / hair trimming, one bottom-bar tab per category — the Feed
+	// four-tab shape. Each category tab is gated on PCCareExecute, the SAME permission its
+	// backing routes (/app/pc-care/worklist and the task writes) require; the planner "Tasks"
+	// tab is gated on PCCarePlan (CEO-only), mirroring weighing's planner tab. Verification
+	// registers four categories under NavigationModule "pc_care", so the verifier gets ONE
+	// Verify tab with the categories as queue page filters.
+	"pc_care": {
+		key:               "pc_care",
+		labelKey:          "module.pc_care",
+		landingHref:       "/pc/deworming",   //nav-composition:ignore: registry entry
+		reviewLandingHref: "/verify/pc_care", //nav-composition:ignore: registry entry
+		status:            moduleStatusAvailable,
+		priority:          7,
+		contributions: []moduleNavContribution{
+			// The FOUR CATEGORIES ARE THE BAR (maintainer decision 2026-08-21, matching Feed's
+			// four-tab shape). Every module holder sees the same four tabs; what each tab RENDERS
+			// is capability-driven through the `pc_care_execute` / `pc_care_plan` bootstrap flags
+			// (an operator gets the scan worklist, a planner/monitor gets the read-only task list
+			// with the plan wizard) — never a fifth per-persona tab.
+			{key: "pc_deworming", labelKey: "nav.pc_deworming", href: "/pc/deworming", shared_key: "", priority: 1},             //nav-composition:ignore: registry entry
+			{key: "pc_ticks", labelKey: "nav.pc_ticks", href: "/pc/ticks", shared_key: "", priority: 2},                         //nav-composition:ignore: registry entry
+			{key: "pc_hoof_trimming", labelKey: "nav.pc_hoof_trimming", href: "/pc/hoof-trimming", shared_key: "", priority: 3}, //nav-composition:ignore: registry entry
+			{key: "pc_hair_trimming", labelKey: "nav.pc_hair_trimming", href: "/pc/hair-trimming", shared_key: "", priority: 4}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                   //nav-composition:ignore: registry entry
+		},
+		reviewContributions: []moduleNavContribution{
+			{key: "videos", labelKey: "nav.videos", href: "/verify/pc_care", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
+			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                 //nav-composition:ignore: registry entry
+		},
+	},
+	// Clock In / Out (maintainer decisions 2026-08-27/28, docs/features/
+	// clock-in-out/plan.md): the attendance module. TWO pages split by
+	// capability, the PR-#126 page-grain shape:
+	//
+	//   - My Clock (/clock): punch in/out + own recent days. UNGATED inside
+	//     the module because the module itself is offered to every principal
+	//     (decision D2) and the punch routes ride AppBootstrap.
+	//   - Team (/clock/team): the leadership presence board — who is working
+	//     now, from when, with park/designation filters. Gated on
+	//     ClockPresenceRead (CXO-only via ceo_internal + per-person ticks), so
+	//     an operator never sees the page and the backing routes agree.
+	//
+	// No "you" contribution, for the approvals reason: this module is never
+	// held alone by a principal who has anywhere else to render.
+	"clock": {
+		key:         "clock", // = clockModuleKey; literal so registry-parsing guards can see it
+		labelKey:    "module.clock",
+		landingHref: "/clock", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		// TOP of the drawer (maintainer ask 2026-08-28): attendance is the
+		// first thing everyone does, so the row sits above every work module.
+		// activeModuleKey deliberately refuses to let this priority win the
+		// LANDING bar — a person with a real work module still lands there.
+		priority: 0,
+		contributions: []moduleNavContribution{
+			{key: "clock", labelKey: "nav.clock", href: "/clock", shared_key: "", priority: 1}, //nav-composition:ignore: registry entry
+			// The Team presence board is DELIBERATELY HIDDEN on mobile for now
+			// (maintainer decision 2026-08-29: "no need of this for some time").
+			// The screen, route, permission (ClockPresenceRead), and the
+			// /app/clock/presence reads all stay built — restoring it is
+			// re-adding this one row:
+			//   {key: "clock_team", labelKey: "nav.clock_team", href: "/clock/team", shared_key: "", priority: 2, requiredPermission: permissions.ClockPresenceRead}
+			// Leadership sees the same board on admin-web /people → Clock tab,
+			// which stays live and is the surface that matters today.
+		},
+		// The standalone verifier's lens composes from reviewContributions, and
+		// she clocks in like everyone else (decision D2) — without this row her
+		// drawer would silently drop the module (the aas_health nameless-row
+		// defect class, one mechanism over).
+		reviewContributions: []moduleNavContribution{
+			{key: "clock", labelKey: "nav.clock", href: "/clock", shared_key: "", priority: 1}, //nav-composition:ignore: registry entry
 		},
 	},
 	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the
@@ -357,6 +463,19 @@ var soonModuleKeys = []string{"breeding"}
 // Otherwise, they see the union of their granted modules' nav contributions,
 // deduped by shared_key and ordered by priority.
 func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapNavigationItem {
+	return visibleNavigationForFrom(grants, grantedModules, localeTag, false)
+}
+
+func visibleNavigationForTicks(scope navScope, grantedModules []string, localeTag string, ticked []string) []domain.BootstrapNavigationItem {
+	return visibleNavigationForScope(scope, grantedModules, localeTag, false, ticked)
+}
+
+func visibleNavigationForFrom(grants []domain.GrantSummary, grantedModules []string, localeTag string, fromTicks bool) []domain.BootstrapNavigationItem {
+	return visibleNavigationForScope(scopeOf(grants), grantedModules, localeTag, fromTicks, nil)
+}
+
+func visibleNavigationForScope(scope navScope, grantedModules []string, localeTag string, fromTicks bool, ticked []string) []domain.BootstrapNavigationItem {
+	grants := scope.grants
 	// A standalone verifier shows the active module's bottom bar -- the first feature from
 	// verifierFeatureKeys, same resolution modulesFor uses for the drawer, so
 	// visible_navigation always equals modules[0].NavItems. Built via
@@ -375,12 +494,16 @@ func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string,
 	// Leadership principals default to their curated module set. There is no synthetic
 	// leadership/overview screen; preventive-care leaders land on the shared
 	// Vaccination module, while CEO gets Vaccination plus org-level modules.
-	if isLeadershipPrincipal(grants) {
-		keys := leadershipModuleKeys(grants)
+	//
+	// When the keys ARE the person's ticks they decide here too. The drawer and the bottom
+	// bar must never disagree: a module unticked out of the drawer while the bar still lands
+	// on it is the same "you can see what you cannot use" defect, one screen over.
+	if !fromTicks && isLeadershipPrincipal(grants) {
+		keys := narrowOfferToTicks(leadershipModuleKeys(grants), ticked)
 		if len(keys) == 0 {
 			return []domain.BootstrapNavigationItem{}
 		}
-		return composeNavigationFromModules([]string{keys[0]}, grants, localeTag)
+		return composeNavigationFromModulesScope([]string{keys[0]}, scope, localeTag)
 	}
 
 	// Non-leadership operators get the bar of their ACTIVE module. The bar is
@@ -388,16 +511,64 @@ func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string,
 	// an unusable 6+ tab bar as modules are added. The client switches the active module
 	// via the drawer and renders that module's items from BootstrapResponse.Modules;
 	// VisibleNavigation carries the default (first available) module's bar.
-	active := activeModuleKey(grants, grantedModules)
+	// candidateModuleKeysFrom (not raw grantedModules) so the baseline clock
+	// module can carry the bar for a principal with no department grants — a
+	// person the roster knows but no module owns still clocks in (decision D2),
+	// and an empty bottom bar over a drawer that lists Clock was the defect.
+	// For anyone with a real work module nothing changes: clock's priority (10)
+	// never beats it to activeModuleKey.
+	active := activeModuleKey(grants, narrowOfferToTicks(candidateModuleKeysFrom(grants, grantedModules, fromTicks), ticked))
 	if active == "" {
 		return []domain.BootstrapNavigationItem{}
 	}
-	return composeNavigationFromModules([]string{active}, grants, localeTag)
+	return composeNavigationFromModulesScope([]string{active}, scope, localeTag)
 }
 
 // grantsHavePermission reports whether ANY of the principal's active grant roles holds
 // the permission. Mirrors how routePermissions is evaluated, so a nav item and its route
 // agree on who may reach it.
+// navScope is who the principal is, for nav composition.
+//
+// `held` is the person's RESOLVED permission set -- what their ticks actually grant. When it
+// is nil the role map answers, which is the pre-cutover behaviour and the fallback for
+// anyone the backfill has not reached.
+//
+// This is the seam that makes a tick move the phone. The nav filter used to ask the ROLE map
+// whether a module's items were permitted, so unticking a module removed the ability in
+// 0.02s and left the icon on the bar for ever. Asking the person's own permissions instead
+// means the existing filter does the work: a module whose every item is gated away is
+// already dropped, so an unticked module disappears without changing WHICH modules are
+// offered -- no operator gains a module, and nobody loses a permission.
+type navScope struct {
+	grants []domain.GrantSummary
+	held   map[string]struct{}
+}
+
+func scopeOf(grants []domain.GrantSummary) navScope { return navScope{grants: grants} }
+
+func (s navScope) has(permission string) bool {
+	if permission == "" {
+		return true
+	}
+	if s.held != nil {
+		_, ok := s.held[permission]
+		return ok
+	}
+	return grantsHavePermission(s.grants, permission)
+}
+
+func (s navScope) hasAny(required []string) bool {
+	if len(required) == 0 {
+		return true
+	}
+	for _, permission := range required {
+		if s.has(permission) {
+			return true
+		}
+	}
+	return false
+}
+
 func grantsHavePermission(grants []domain.GrantSummary, permission string) bool {
 	if permission == "" {
 		return true
@@ -425,20 +596,31 @@ func grantsHaveAnyPermission(grants []domain.GrantSummary, required []string) bo
 // permittedContributions returns the module's nav items this principal may actually
 // reach. A module whose every item is gated away is not renderable for them.
 func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) []moduleNavContribution {
+	return permittedContributionsIn(def, scopeOf(grants))
+}
+
+func permittedContributionsIn(def moduleDefinition, scope navScope) []moduleNavContribution {
+	grants := scope.grants
 	contributions := def.contributions
 	if usesVerificationReviewLens(grants) {
 		contributions = def.reviewContributions
 	}
 	out := make([]moduleNavContribution, 0, len(contributions))
 	for _, contrib := range contributions {
-		if !grantsHavePermission(grants, contrib.requiredPermission) {
+		if !scope.has(contrib.requiredPermission) {
 			continue
 		}
-		if !grantsHaveAnyPermission(grants, contrib.requiredAnyPermission) {
+		if !scope.hasAny(contrib.requiredAnyPermission) {
 			continue
 		}
-		if contrib.excludedPermission != "" && grantsHavePermission(grants, contrib.excludedPermission) {
+		if contrib.excludedPermission != "" && scope.has(contrib.excludedPermission) {
 			continue
+		}
+		if contrib.hrefIfRole != "" && hasRole(grants, contrib.hrefRole) {
+			contrib.href = contrib.hrefIfRole
+			if contrib.labelKeyIfRole != "" {
+				contrib.labelKey = contrib.labelKeyIfRole
+			}
 		}
 		out = append(out, contrib)
 	}
@@ -457,6 +639,20 @@ func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) 
 //     "weighing", etc.), and modulesFor will compose per-feature verification modules for each.
 //   - Single-module verifier (0-1 verify duties): return ["verification"] for the generic module.
 func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) []string {
+	return candidateModuleKeysFrom(grants, grantedModules, false)
+}
+
+// candidateModuleKeysFrom is the same resolution with one extra fact: whether the keys it was
+// handed are the person's OWN TICKS rather than a department grant.
+//
+// When they are, they ARE the answer, for leadership too. That is the whole point of the
+// per-person model, and leadership is exactly where it was still missing: the branch below
+// returns a curated per-ROLE list and never looks at the keys, so a CEO or a director kept
+// every module on their phone no matter what was unticked -- the same defect the operator had,
+// one layer over, and equally invisible to a re-login.
+//
+// A standalone verifier stays exempt: her modules are the features her verify DUTIES name.
+func candidateModuleKeysFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) []string {
 	if isStandaloneVerifierPrincipal(grants) {
 		// Every standalone verifier is scoped to the feature(s) their verify duties name,
 		// or -- for a coarse department-level "verification" grant / no duties at all --
@@ -469,9 +665,51 @@ func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) 
 		return normalized
 	}
 	if !isLeadershipPrincipal(grants) {
-		return grantedModules
+		// Clock In / Out is offered to EVERY non-verifier principal regardless
+		// of department grants (decision D2: everyone clocks in). Appended
+		// rather than seeded so a department grant row is never required.
+		return appendMissing(append([]string(nil), grantedModules...), clockModuleKey)
 	}
-	return leadershipModuleKeys(grants)
+	return appendMissing(leadershipModuleKeys(grants), clockModuleKey)
+}
+
+// narrowOfferToTicks intersects the modules a principal is OFFERED with the modules they are
+// ticked for. It can only ever remove.
+//
+// Both halves are load-bearing, and each alone is wrong:
+//
+//   - Replacing the offer with the ticks WIDENS it. The role mapping is a superset by
+//     construction, so against the real STG roster that put Health on twenty operators'
+//     phones and moved 31 bars in total.
+//   - Leaving the offer alone and relying on the permission filter cannot reliably REMOVE.
+//     Permissions are shared between modules -- untick Vaccination and task.execute is still
+//     granted by Preventive Care -- so the module keeps a permitted item and stays.
+//
+// Intersecting does both: an unticked module leaves the bar, and a module the person was
+// never offered cannot arrive. `ticked` nil means this person has no stored rows, and
+// nothing is narrowed.
+func narrowOfferToTicks(offered, ticked []string) []string {
+	if ticked == nil {
+		return offered
+	}
+	keep := make(map[string]struct{}, len(ticked))
+	for _, k := range ticked {
+		keep[k] = struct{}{}
+	}
+	out := make([]string, 0, len(offered))
+	for _, k := range offered {
+		// The clock module is BASELINE (decision D2): mandatory attendance is
+		// not tick-revocable, so the intersection never removes it. Ticks
+		// still govern its Team page via ClockPresenceRead.
+		if k == clockModuleKey {
+			out = append(out, k)
+			continue
+		}
+		if _, ok := keep[k]; ok {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 // usesVerificationReviewLens selects the cross-module evidence workspace by authority,
@@ -531,14 +769,14 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 		// Not an early return any more: the approvals offer below is keyed on a PERMISSION and
 		// must apply to the CEO too. Returning here would have made the one module the CEO most
 		// obviously owns the one module the CEO could not see.
-		keys = appendMissing(keys, "vaccination", "weighing", "counts", "feed_direction", "aas_health", "milk", "breeding")
+		keys = appendMissing(keys, "vaccination", "weighing", "counts", "feed_direction", "aas_health", "milk", "pc_care", "breeding")
 	}
 	// PC Director / Park Head: preventive-care specialty verticals.
 	// Growth Director is a separate specialty and may be held alongside them, so the sets are
 	// unioned rather than returned early. appendMissing keeps the result duplicate-free: a
 	// principal holding BOTH would otherwise contribute "weighing" twice and render it twice.
 	if hasRole(grants, permissions.RolePCDirector) || hasRole(grants, permissions.RoleParkHead) {
-		keys = appendMissing(keys, "vaccination", "weighing", "aas_health")
+		keys = appendMissing(keys, "vaccination", "weighing", "aas_health", "pc_care")
 	}
 	if hasRole(grants, permissions.RoleGrowthDirector) {
 		keys = appendMissing(keys, "weighing")
@@ -574,6 +812,14 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	// The CEO tier reaches this through ceo_internal, which carries the same permission directly.
 	if grantsHavePermission(grants, permissions.CountsApproveAccess) {
 		keys = appendMissing(keys, "approvals")
+	}
+	// Toxin is offered the SAME per-person way (maintainer decision 2026-08-25): the
+	// permission rides the toxin_tester role granted to named individuals (and
+	// ceo_internal), so a bare park_head/pc_director/growth_director job offers nothing.
+	// Unlike counts.write above, no JOB role carries toxin.read, so the permission IS the
+	// per-person fact here.
+	if grantsHavePermission(grants, permissions.ToxinRead) {
+		keys = appendMissing(keys, "toxin")
 	}
 	// Herd Operations (Counts) capture is offered the SAME per-person way as approvals above, and
 	// for the same reason (maintainer decision 2026-08-07, extending "rbac per person, not per
@@ -646,11 +892,19 @@ func canViewProtocolAdherenceCard(grants []domain.GrantSummary) bool {
 }
 
 func canExecuteVaccination(grants []domain.GrantSummary, grantedModules []string) bool {
-	return hasPermission(grants, permissions.TaskExecute) && canUseModule(grants, grantedModules, "vaccination")
+	return canExecuteVaccinationFrom(grants, grantedModules, false)
+}
+
+func canExecuteVaccinationFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.TaskExecute) && canUseModuleFrom(grants, grantedModules, "vaccination", fromTicks)
 }
 
 func canExecuteWeighing(grants []domain.GrantSummary, grantedModules []string) bool {
-	return hasPermission(grants, permissions.WeighingExecute) && canUseModule(grants, grantedModules, "weighing")
+	return canExecuteWeighingFrom(grants, grantedModules, false)
+}
+
+func canExecuteWeighingFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.WeighingExecute) && canUseModuleFrom(grants, grantedModules, "weighing", fromTicks)
 }
 
 // canOverseeWeighingOperators gates the read-only Operators surface -- weighing shed tasks
@@ -658,15 +912,43 @@ func canExecuteWeighing(grants []domain.GrantSummary, grantedModules []string) b
 // surface from a role name; the write path still requires the caller to be the shed's assignee,
 // so this flag widens what is visible and never what is recordable.
 func canOverseeWeighingOperators(grants []domain.GrantSummary, grantedModules []string) bool {
-	return hasPermission(grants, permissions.WeighingOverseeOperators) && canUseModule(grants, grantedModules, "weighing")
+	return canOverseeWeighingOperatorsFrom(grants, grantedModules, false)
+}
+
+func canOverseeWeighingOperatorsFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.WeighingOverseeOperators) && canUseModuleFrom(grants, grantedModules, "weighing", fromTicks)
 }
 
 func canUseVerificationVideoControls(grants []domain.GrantSummary) bool {
 	return isLeadershipPrincipal(grants)
 }
 
+// canExecutePCCare mirrors canExecuteWeighing: it decides which face the four PC Care category
+// tabs show. TRUE renders the operator scan worklist; FALSE renders the read-only monitor list.
+func canExecutePCCare(grants []domain.GrantSummary, grantedModules []string) bool {
+	return canExecutePCCareFrom(grants, grantedModules, false)
+}
+
+func canExecutePCCareFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.PCCareExecute) && canUseModuleFrom(grants, grantedModules, "pc_care", fromTicks)
+}
+
+// canPlanPCCare gates the "Plan a care task" wizard entry on the monitor list (CEO-only via
+// pc_care.plan, the weighing.plan precedent). The write path is still gated server-side.
+func canPlanPCCare(grants []domain.GrantSummary, grantedModules []string) bool {
+	return canPlanPCCareFrom(grants, grantedModules, false)
+}
+
+func canPlanPCCareFrom(grants []domain.GrantSummary, grantedModules []string, fromTicks bool) bool {
+	return hasPermission(grants, permissions.PCCarePlan) && canUseModuleFrom(grants, grantedModules, "pc_care", fromTicks)
+}
+
 func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {
-	for _, key := range candidateModuleKeys(grants, grantedModules) {
+	return canUseModuleFrom(grants, grantedModules, module, false)
+}
+
+func canUseModuleFrom(grants []domain.GrantSummary, grantedModules []string, module string, fromTicks bool) bool {
+	for _, key := range candidateModuleKeysFrom(grants, grantedModules, fromTicks) {
 		if key == module {
 			return true
 		}
@@ -696,9 +978,16 @@ func countAvailableModules(grants []domain.GrantSummary, modules []string) int {
 
 // activeModuleKey picks the default module for a principal: the lowest-priority
 // available module with at least one permitted item. Returns "" when none is renderable.
+//
+// The baseline clock module is EXCLUDED from that contest even though its drawer
+// priority is 0 (top row, maintainer ask 2026-08-28): the day still opens on the
+// person's WORK module — attendance is one tap away in the drawer, not the
+// landing screen. Clock wins only when no work module renders at all (the
+// department-less-person bar floor, decision D2).
 func activeModuleKey(grants []domain.GrantSummary, grantedModules []string) string {
 	best := ""
 	bestPriority := 0
+	clockRenderable := false
 	for _, key := range grantedModules {
 		def, ok := moduleNavRegistry[key]
 		if !ok || def.status != moduleStatusAvailable {
@@ -707,10 +996,17 @@ func activeModuleKey(grants []domain.GrantSummary, grantedModules []string) stri
 		if len(permittedContributions(def, grants)) == 0 {
 			continue
 		}
+		if def.key == clockModuleKey {
+			clockRenderable = true
+			continue
+		}
 		if best == "" || def.priority < bestPriority {
 			best = def.key
 			bestPriority = def.priority
 		}
+	}
+	if best == "" && clockRenderable {
+		return clockModuleKey
 	}
 	return best
 }
@@ -732,7 +1028,7 @@ func normalizeModuleFeatureKey(key string) string {
 // builtVerifiableFeatures lists the shipped feature modules a verifier's [Verify, Alerts]
 // bar can be scoped to, in drawer priority order. Only "available" (built) modules are
 // eligible -- verifiers review evidence for shipped features, not roadmap ones.
-var builtVerifiableFeatures = []string{"vaccination", "weighing", "counts"}
+var builtVerifiableFeatures = []string{"vaccination", "weighing", "counts", "pc_care"}
 
 // verifierFeatureKeys resolves a verifier's grantedModules (from ListGrantedModuleKeys)
 // into the feature keys their per-module [Verify, Alerts] bar is built for.
@@ -809,6 +1105,7 @@ func verificationModuleForFeature(featureKey string, grants []domain.GrantSummar
 		"counts":         "module.counts",
 		"feed_direction": "module.feed_direction",
 		"aas_health":     "module.health",
+		"pc_care":        "module.pc_care",
 	}
 	labelKey, ok := labelKeys[normalized]
 	if !ok {
@@ -924,6 +1221,15 @@ func verificationModuleForFeature(featureKey string, grants []domain.GrantSummar
 // composed synthetically (verificationModuleForFeature) rather than looked up in the registry.
 // For a single-module verifier, the generic "verification" module from the registry is used.
 func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapModule {
+	return modulesForFrom(grants, grantedModules, localeTag, false)
+}
+
+func modulesForFrom(grants []domain.GrantSummary, grantedModules []string, localeTag string, fromTicks bool) []domain.BootstrapModule {
+	return modulesForScope(scopeOf(grants), grantedModules, localeTag, fromTicks, nil)
+}
+
+func modulesForScope(scope navScope, grantedModules []string, localeTag string, fromTicks bool, ticked []string) []domain.BootstrapModule {
+	grants := scope.grants
 	// Standalone verifier: ALWAYS compose per-feature verification modules (one drawer
 	// entry per feature, each with its own [Verify, Alerts, You] bar) rather than looking
 	// up registry modules. This applies uniformly regardless of how many verify duties the
@@ -950,10 +1256,28 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 				out = append(out, module)
 			}
 		}
+		// Clock In / Out is the baseline attendance module for EVERY app
+		// principal (decision D2) — the standalone verifier clocks in too. It
+		// stays LAST here even though its drawer priority is 0 for everyone
+		// else: the verifier surface serves visible_navigation ==
+		// modules[0].NavItems (her bar IS her first verify module), and
+		// prepending clock would break that served contract.
+		if def, ok := moduleNavRegistry[clockModuleKey]; ok {
+			items := composeNavigationFromModulesScope([]string{def.key}, scope, localeTag)
+			if len(items) > 0 {
+				out = append(out, domain.BootstrapModule{
+					Key:      def.key,
+					Label:    localizedBootstrapLabel(localeTag, def.labelKey),
+					Href:     def.landingHref,
+					Status:   def.status,
+					NavItems: items,
+				})
+			}
+		}
 		return out
 	}
 
-	keys := candidateModuleKeys(grants, grantedModules)
+	keys := narrowOfferToTicks(candidateModuleKeysFrom(grants, grantedModules, fromTicks), ticked)
 
 	// Standard path: look up modules in the registry (for operators and leadership).
 	available := make([]moduleDefinition, 0, len(keys))
@@ -963,7 +1287,7 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 		if !ok || def.status != moduleStatusAvailable || seen[def.key] {
 			continue
 		}
-		if len(permittedContributions(def, grants)) == 0 {
+		if len(permittedContributionsIn(def, scope)) == 0 {
 			continue
 		}
 		seen[def.key] = true
@@ -980,7 +1304,7 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 
 	out := make([]domain.BootstrapModule, 0, len(available)+len(soonModuleKeys))
 	for _, def := range available {
-		items := composeNavigationFromModules([]string{def.key}, grants, localeTag)
+		items := composeNavigationFromModulesScope([]string{def.key}, scope, localeTag)
 		// Land on the first page this principal may actually open. The declared
 		// landingHref can be gated away (an Operator holds Counts but not the census
 		// page at /counts), and landing them on a route that 403s would be a
@@ -1041,6 +1365,10 @@ func navItemsContainHref(items []domain.BootstrapNavigationItem, href string) bo
 // deduping by shared_key and ordering by priority, and dropping items whose
 // requiredPermission this principal does not hold.
 func composeNavigationFromModules(modules []string, grants []domain.GrantSummary, localeTag string) []domain.BootstrapNavigationItem {
+	return composeNavigationFromModulesScope(modules, scopeOf(grants), localeTag)
+}
+
+func composeNavigationFromModulesScope(modules []string, scope navScope, localeTag string) []domain.BootstrapNavigationItem {
 	// Collect all contributions, tracking which shared_key we've seen
 	collected := make([]moduleNavContribution, 0)
 	seenSharedKey := make(map[string]bool)
@@ -1051,7 +1379,7 @@ func composeNavigationFromModules(modules []string, grants []domain.GrantSummary
 		if !ok {
 			continue
 		}
-		for _, contrib := range permittedContributions(def, grants) {
+		for _, contrib := range permittedContributionsIn(def, scope) {
 			if contrib.shared_key != "" {
 				// Shared item: keep the first module's version; skip duplicates
 				if !seenSharedKey[contrib.shared_key] {
@@ -1109,7 +1437,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.overview":         "Overview",
 		"nav.calendar":         "Calendar",
 		"nav.alerts":           "Alerts",
-		"nav.drives":           "Drives",
+		"nav.drives":           "Drive",
+		"nav.stock":            "Stock",
 		"nav.birth":            "Birth",
 		"nav.death":            "Death",
 		"nav.shifting":         "Shifting",
@@ -1118,6 +1447,11 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.colostrum":        "Colostrum",
 		"nav.feed_direction":   "Feed Direction",
 		"nav.feed_packing":     "Feed Packing",
+		"nav.feed_wastage":     "Feed Wastage",
+		"nav.pc_deworming":     "Deworming",
+		"nav.pc_ticks":         "Ticks Removal",
+		"nav.pc_hoof_trimming": "Hoof Trimming",
+		"nav.pc_hair_trimming": "Hair Trimming",
 		"nav.feed_transport":   "Feed Transport",
 		"nav.birth_death":      "Birth/Death",
 		"nav.approval":         "Approval",
@@ -1131,17 +1465,21 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.my_work":          "My work",
 		"nav.tasks":            "Tasks",
 		"nav.operators":        "Operators",
-		"nav.weights":          "Weights",
-		"nav.growth":           "Growth",
 
 		"module.vaccination":    "Vaccination",
 		"module.weighing":       "Weighing",
 		"module.counts":         "Herd Operations",
 		"module.feed_direction": "Feed",
+		"module.pc_care":        "Preventive Care",
 		"module.breeding":       "Breeding",
 		"module.health":         "Health",
 		"module.milk":           "Milk",
 		"module.approvals":      "Approvals",
+		"module.toxin":          "Toxin",
+		"nav.toxin":             "Tests",
+		"module.clock":          "Clock In / Out",
+		"nav.clock":             "My Clock",
+		"nav.clock_team":        "Team",
 		"queue.assigned":        "Assigned work",
 		"queue.shifting":        "Shifting",
 		"queue.proof_review":    "Proof review",
@@ -1151,6 +1489,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.calendar":         "कैलेंडर",
 		"nav.alerts":           "अलर्ट",
 		"nav.drives":           "ड्राइव",
+		"nav.stock":            "स्टॉक",
 		"nav.birth":            "जन्म",
 		"nav.death":            "मृत्यु",
 		"nav.shifting":         "शिफ्टिंग",
@@ -1159,6 +1498,11 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.colostrum":        "खीस",
 		"nav.feed_direction":   "फ़ीड दिशा",
 		"nav.feed_packing":     "फ़ीड पैकिंग",
+		"nav.feed_wastage":     "फ़ीड बर्बादी",
+		"nav.pc_deworming":     "डीवर्मिंग",
+		"nav.pc_ticks":         "किलनी हटाना",
+		"nav.pc_hoof_trimming": "खुर की कटाई",
+		"nav.pc_hair_trimming": "बालों की कटाई",
 		"nav.feed_transport":   "फ़ीड परिवहन",
 		"nav.birth_death":      "जन्म/मृत्यु",
 		"nav.approval":         "अनुमोदन",
@@ -1172,17 +1516,21 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.my_work":          "मेरा काम",
 		"nav.tasks":            "कार्य",
 		"nav.operators":        "ऑपरेटर",
-		"nav.weights":          "वज़न",
-		"nav.growth":           "वृद्धि",
 
 		"module.vaccination":    "टीकाकरण",
 		"module.weighing":       "वजन",
 		"module.counts":         "झुंड संचालन",
 		"module.feed_direction": "फ़ीड",
+		"module.pc_care":        "निवारक देखभाल",
 		"module.breeding":       "प्रजनन",
 		"module.health":         "स्वास्थ्य",
 		"module.milk":           "दूध",
 		"module.approvals":      "अनुमोदन",
+		"module.toxin":          "टॉक्सिन",
+		"nav.toxin":             "जाँच",
+		"module.clock":          "हाज़िरी",
+		"nav.clock":             "मेरी हाज़िरी",
+		"nav.clock_team":        "टीम",
 		"queue.assigned":        "सौंपा गया काम",
 		"queue.shifting":        "शिफ्टिंग",
 		"queue.proof_review":    "प्रूफ समीक्षा",
@@ -1191,7 +1539,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.overview":         "ಅವಲೋಕನ",
 		"nav.calendar":         "ಕ್ಯಾಲೆಂಡರ್",
 		"nav.alerts":           "ಎಚ್ಚರಿಕೆಗಳು",
-		"nav.drives":           "ಡ್ರೈವ್‌ಗಳು",
+		"nav.drives":           "ಡ್ರೈವ್",
+		"nav.stock":            "ಸ್ಟಾಕ್",
 		"nav.birth":            "ಜನನ",
 		"nav.death":            "ಮರಣ",
 		"nav.shifting":         "ಸ್ಥಳಾಂತರ",
@@ -1200,6 +1549,11 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.colostrum":        "ಗಿಣ್ಣು ಹಾಲು",
 		"nav.feed_direction":   "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"nav.feed_packing":     "ಆಹಾರ ಪ್ಯಾಕಿಂಗ್",
+		"nav.feed_wastage":     "ಆಹಾರ ವ್ಯರ್ಥ",
+		"nav.pc_deworming":     "ಜಂತುಹುಳು ನಿವಾರಣೆ",
+		"nav.pc_ticks":         "ಉಣ್ಣಿ ತೆಗೆಯುವಿಕೆ",
+		"nav.pc_hoof_trimming": "ಗೊರಸು ಕತ್ತರಿಸುವಿಕೆ",
+		"nav.pc_hair_trimming": "ಕೂದಲು ಕತ್ತರಿಸುವಿಕೆ",
 		"nav.feed_transport":   "ಆಹಾರ ಸಾಗಣೆ",
 		"nav.birth_death":      "ಜನನ/ಮರಣ",
 		"nav.approval":         "ಅನುಮೋದನೆ",
@@ -1213,17 +1567,21 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.my_work":          "ನನ್ನ ಕೆಲಸ",
 		"nav.tasks":            "ಕಾರ್ಯಗಳು",
 		"nav.operators":        "ಆಪರೇಟರ್‌ಗಳು",
-		"nav.weights":          "ತೂಕ",
-		"nav.growth":           "ಬೆಳವಣಿಗೆ",
 
 		"module.vaccination":    "ಲಸಿಕೆ",
 		"module.weighing":       "ತೂಕ",
 		"module.counts":         "ಹಿಂಡು ಕಾರ್ಯಾಚರಣೆ",
 		"module.feed_direction": "ಆಹಾರ",
+		"module.pc_care":        "ತಡೆಗಟ್ಟುವ ಆರೈಕೆ",
 		"module.breeding":       "ಸಂತಾನೋತ್ಪತ್ತಿ",
 		"module.health":         "ಆರೋಗ್ಯ",
 		"module.milk":           "ಹಾಲು",
 		"module.approvals":      "ಅನುಮೋದನೆ",
+		"module.toxin":          "ಟಾಕ್ಸಿನ್",
+		"nav.toxin":             "ಪರೀಕ್ಷೆಗಳು",
+		"module.clock":          "ಹಾಜರಾತಿ",
+		"nav.clock":             "ನನ್ನ ಹಾಜರಾತಿ",
+		"nav.clock_team":        "ತಂಡ",
 		"queue.assigned":        "ನಿಯೋಜಿಸಿದ ಕೆಲಸ",
 		"queue.shifting":        "ಸ್ಥಳಾಂತರ",
 		"queue.proof_review":    "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
@@ -1232,7 +1590,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.overview":         "అవలోకనం",
 		"nav.calendar":         "క్యాలెండర్",
 		"nav.alerts":           "అలర్ట్లు",
-		"nav.drives":           "డ్రైవ్‌లు",
+		"nav.drives":           "డ్రైవ్",
+		"nav.stock":            "స్టాక్",
 		"nav.birth":            "జననం",
 		"nav.death":            "మరణం",
 		"nav.shifting":         "షిఫ్టింగ్",
@@ -1241,6 +1600,11 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.colostrum":        "జున్నుపాలు",
 		"nav.feed_direction":   "ఫీడ్ దిశ",
 		"nav.feed_packing":     "ఫీడ్ ప్యాకింగ్",
+		"nav.feed_wastage":     "ఫీడ్ వృథా",
+		"nav.pc_deworming":     "నట్టల నివారణ",
+		"nav.pc_ticks":         "గోమార్ల తొలగింపు",
+		"nav.pc_hoof_trimming": "గిట్టల కత్తిరింపు",
+		"nav.pc_hair_trimming": "వెంట్రుకల కత్తిరింపు",
 		"nav.feed_transport":   "ఫీడ్ రవాణా",
 		"nav.birth_death":      "జననం/మరణం",
 		"nav.approval":         "ఆమోదం",
@@ -1254,17 +1618,21 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.my_work":          "నా పని",
 		"nav.tasks":            "పనులు",
 		"nav.operators":        "ఆపరేటర్లు",
-		"nav.weights":          "బరువులు",
-		"nav.growth":           "పెరుగుదల",
 
 		"module.vaccination":    "టీకా",
 		"module.weighing":       "బరువు",
 		"module.counts":         "మంద కార్యకలాపాలు",
 		"module.feed_direction": "ఫీడ్",
+		"module.pc_care":        "నివారణ సంరక్షణ",
 		"module.breeding":       "సంతానోత్పత్తి",
 		"module.health":         "ఆరోగ్యం",
 		"module.milk":           "పాలు",
 		"module.approvals":      "ఆమోదం",
+		"module.toxin":          "టాక్సిన్",
+		"nav.toxin":             "పరీక్షలు",
+		"module.clock":          "హాజరు",
+		"nav.clock":             "నా హాజరు",
+		"nav.clock_team":        "బృందం",
 		"queue.assigned":        "కేటాయించిన పని",
 		"queue.shifting":        "షిఫ్టింగ్",
 		"queue.proof_review":    "ప్రూఫ్ సమీక్ష",
@@ -1398,6 +1766,12 @@ func verificationCategoryForFeature(normalizedFeatureKey string) string {
 		// every open and the verifier's Health tab was dead. Lands on Adults (PageOrder 1); Kids
 		// sits beside it in the queue's page filter.
 		return "health_adults"
+	case "pc_care":
+		// NOT "pc_care_proof" -- no such category exists. PC Care registers pc_deworming /
+		// pc_ticks_removal / pc_hoof_trimming / pc_hair_trimming (bootstrap/api.go); the
+		// verifier's PC tab lands on Deworming (PageOrder 1) and the other three sit beside it
+		// in the queue's page filter.
+		return "pc_deworming"
 	case "milk":
 		// NOT "milk_proof" -- no such category exists. Milk registers milk_preparation and
 		// milk_feeding (bootstrap/api.go); the fallback below invented a name no producer writes,

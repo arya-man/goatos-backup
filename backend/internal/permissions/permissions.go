@@ -56,8 +56,21 @@ const (
 	// this role ALONE authorizes reaching the approvals routes and nothing else, which is the
 	// intended fail-closed shape.
 	RoleCountsApprover = "counts_approver"
-	RoleOperator       = "operator"
-	RoleCEOInternal    = "ceo_internal"
+	// RoleToxinTester is a PER-PERSON authority grant, the counts_approver shape exactly
+	// (maintainer decision 2026-08-25): the named people who know how to run the SHF 001-A
+	// aflatoxin strip test hold it alongside their job role. Today: the two named park
+	// heads in perPersonGrants (backend/cmd/seed-stg-login-grants/approvers.go). It is
+	// NEVER attached to the park_head/director JOB — a future holder of those jobs
+	// inherits no toxin authority by holding the job.
+	//
+	// It carries ToxinRead + ToxinExecute ONLY. ToxinVerdict is deliberately absent: the
+	// tester runs the test, and the reviewer of the test must not be the tester
+	// (separation of duty, same reasoning as the verifier lock — except here the
+	// reviewer is CEO/CXO by maintainer decision, not the tenant verifier).
+	// Catalog row: migration 000214.
+	RoleToxinTester = "toxin_tester"
+	RoleOperator    = "operator"
+	RoleCEOInternal = "ceo_internal"
 	// RoleProcurementManager runs the vendor register.
 	//
 	// Unlike RoleCountsApprover, this IS a job rather than a per-person authority: running the
@@ -68,6 +81,24 @@ const (
 	//
 	// Catalog row: migration 000156 (tier 'manager', vertical 'procurement').
 	RoleProcurementManager = "procurement_manager"
+	// RoleProcurementDirector owns the PROCUREMENT vertical on admin-web and additionally reads
+	// the Feed chain (maintainer decision 2026-08-21: "when he logs in he should see only the
+	// Procurement and Feed modules in web").
+	//
+	// Like RoleProcurementManager this is a JOB, not a per-person authority: running the
+	// procurement desk at director tier is somebody's role, and a future holder inherits it by
+	// being granted this key. Admin-web is its ONLY surface: it deliberately holds NO AppBootstrap,
+	// so granting it changes nothing on the phone — the current holder's mobile access continues
+	// to come from the feed_director grant he holds alongside it.
+	//
+	// The Feed half is READ-ONLY oversight (config/dispatch/packing/wastage/transport reads).
+	// Authoring the ration grid (feed_config.write), the projected-count exception verdicts
+	// (feed_direction.oversee) and the M1 double-verify duty (verification.act) stay with
+	// RoleFeedDirector — this role watches the feed chain, it does not run it.
+	//
+	// Catalog row: migration 000180 (tier 'director', vertical 'procurement', is_legacy like the
+	// other live name_director keys).
+	RoleProcurementDirector = "procurement_director"
 
 	GoatRead          = "goat.read"
 	GoatWriteIdentity = "goat.write_identity"
@@ -85,6 +116,14 @@ const (
 	// Maintainer decision 2026-08-12: ceo_internal ONLY. Not operator, not park_head, and not
 	// counts_approver (approving a movement someone else raised is not the same authority as
 	// unilaterally reclassifying a pen).
+	//
+	// Maintainer decision 2026-08-14 WIDENS WHAT IT COVERS, not who holds it: it now also gates the
+	// census-slice correction (/admin/goats/census-slice/*), which fixes a wrongly recorded breed or
+	// sex on one Counts Breakdown row. Same shape and therefore same authority -- many animals, one
+	// click, applied immediately with no approval and no proof, reached from the same screen. The
+	// holder set is unchanged (ceo_internal), so this grants nothing to anyone new; it is one
+	// permission for "bulk corrections made from the Counts census" rather than two names for one
+	// kind of power.
 	GoatReclassifyShedStage = "goat.reclassify_shed_stage"
 	// HealthRead renders backend-owned disease-course work. HealthReport RAISES a sick-goat
 	// report from the field; HealthDiagnose is the clinical authority over the configured
@@ -229,11 +268,24 @@ const (
 	// Whoever holds this may only LOOK: the weighing write still requires the caller to be the
 	// shed's assignee, so this capability never widens what anyone can record.
 	WeighingOverseeOperators = "weighing.oversee_operators"
-	CalendarRead             = "calendar.read"
-	CalendarAction           = "calendar.action"
-	ProcurementRead          = "procurement.read"
-	ProcurementWrite         = "procurement.write"
-	ProcurementReview        = "procurement.review"
+	// PC Care (module_key pc_care, maintainer decision 2026-08-21): deworming, ticks removal,
+	// hoof trimming and hair trimming, planned per pen per business date with named assignees.
+	// The four capabilities mirror weighing's split exactly and must not be collapsed:
+	//   PCCarePlan    -- plan/cancel a task (CEO-only, the weighing.plan precedent);
+	//   PCCareMonitor -- read-only oversight of planned tasks;
+	//   PCCareExecute -- work an ASSIGNED task (scan, record, submit). The permission alone
+	//                    never authorizes a write: the service also requires membership in
+	//                    pc_care_task_assignees, because assignment is per PERSON per task;
+	//   PCCareOverseeOperators -- browse other assignees' tasks, READ-ONLY (weighing twin).
+	PCCarePlan             = "pc_care.plan"
+	PCCareMonitor          = "pc_care.monitor"
+	PCCareExecute          = "pc_care.execute"
+	PCCareOverseeOperators = "pc_care.oversee_operators"
+	CalendarRead           = "calendar.read"
+	CalendarAction         = "calendar.action"
+	ProcurementRead        = "procurement.read"
+	ProcurementWrite       = "procurement.write"
+	ProcurementReview      = "procurement.review"
 	// VendorRead gates the procurement VENDOR REGISTER (/procurement/vendors): the farm's
 	// counterparty contact book -- livestock agents and stockists, transport, feed, manure, pellet
 	// factories, labour, insurance, test labs and site trades.
@@ -260,6 +312,63 @@ const (
 	// grant change rather than a schema, API and UI change -- and because the redaction path has to
 	// be built and tested from the start to be trustworthy at all. Do not fold it into VendorRead.
 	VendorFinanceRead = "procurement.vendor.finance.read"
+	// SalesRead gates the SALES module (/sales, backend /sales/*): the ledger of what
+	// the farm actually sold -- live animals and manure across CBE and CPT -- plus the demand
+	// pipelines and evidence panels behind it.
+	//
+	// It is NOT a reuse of ProcurementRead or VendorRead: those gate the BUYING side (intake loads
+	// and the supplier contact book), while this is the SELLING side -- revenue, buyer names and
+	// realized prices, which are commercial facts a field operator working an arriving load has no
+	// need to see.
+	SalesRead = "sales.read"
+	// SalesWrite gates recording a sale (POST /sales/deals). Kept separate from SalesRead so a
+	// read-only oversight tier is expressible without a schema change.
+	SalesWrite = "sales.write"
+	// FeedPurchaseRead gates the FEED PURCHASE LEDGER (/procurement/feed-purchases, backend
+	// /procurement/feed-purchases*): what feed the farm bought, from whom, at what landed cost, and
+	// whether it has been paid for.
+	//
+	// It is the BUYING side of the feed chain, so it lives with procurement rather than with the
+	// feed execution permissions -- but it is NOT a reuse of ProcurementRead, which seven roles
+	// including operator and park_head hold for the source-entry intake screens they work. This
+	// ledger carries supplier prices and payment state, the same class of commercial fact that
+	// earned VendorRead its own permission.
+	FeedPurchaseRead = "feed.purchase.read"
+	// FeedPurchaseWrite gates recording a purchased load (POST /procurement/feed-purchases). Kept
+	// separate from FeedPurchaseRead so a read-only oversight tier -- the Feed Director watching
+	// what the stock cards are built from -- is expressible without a schema change.
+	FeedPurchaseWrite = "feed.purchase.write"
+	// ToxinRead gates the toxin module's task reads (GET /app/toxin/tasks*): the aflatoxin
+	// strip-test tasks born one-per-purchased-feed-load (maintainer decision 2026-08-25).
+	// Held per person via RoleToxinTester, plus RoleCEOInternal (founder visibility).
+	ToxinRead = "toxin.read"
+	// ToxinExecute gates the step work: completing a step video and submitting the strip
+	// reading (POST /app/toxin/tasks/{task_id}/steps/{step_no}/complete, .../submit).
+	// Steps are person-independent among holders — any ToxinExecute holder may complete
+	// the next open step. Also ORed into the /app/proofs upload routes, the same lever
+	// weighing.execute needed (see the createProofUpload comment in routes.go).
+	ToxinExecute = "toxin.execute"
+	// ToxinVerdict gates the toxin accept/reject (POST /toxin/tasks/{task_id}/verdict and
+	// the GET /toxin/review tab). MAINTAINER DECISION 2026-08-25: toxin review belongs to
+	// CEO/CXO ALONE — it is deliberately NOT the tenant verifier's verification.verdict,
+	// and this module is deliberately NOT a generic Verification category, so the
+	// 2026-08-03 verifier verdict-exclusivity lock stands untouched. Granted ONLY to
+	// RoleCEOInternal. Never grant it to RoleVerifier (the verifier must not see toxin
+	// work at all) and never to RoleToxinTester (the tester must not review their own
+	// test). TestToxinVerdictIsCEOOnly pins all three edges.
+	ToxinVerdict = "toxin.verdict"
+	// ClockPresenceRead gates the CROSS-PERSON attendance reads of the Clock
+	// In / Out module (docs/features/clock-in-out/plan.md): the phone Team
+	// presence board (GET /app/clock/presence*) and the admin-web People/HRMS
+	// clock tab (GET /admin/workforce/clock-entries*). Maintainer decision
+	// 2026-08-28: leadership/CXO-only — granted to RoleCEOInternal here and to
+	// named individuals via per-person ticks, never to a field job.
+	//
+	// PUNCHING is deliberately NOT behind this permission. Everyone with an
+	// app login clocks in (decision D2), so POST /app/clock/in|out and
+	// GET /app/clock/status ride AppBootstrap — the "any authenticated app
+	// user" permission — exactly like device registration.
+	ClockPresenceRead = "clock.presence.read"
 	RosterRead        = "roster.read"
 	RosterManage      = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
@@ -420,6 +529,16 @@ const (
 	// the generation result. A future capture surface needs its own write permission, and reusing
 	// this one for it would silently turn every reader into a recorder.
 	FeedPackingRead = "feed_packing.read"
+	// FeedWastageRead gates the Feed WASTAGE worklist (/feed-wastage/worklist): the per-pen daily
+	// list of EXPERIMENT pens owing a leftover-feed video (maintainer decision 2026-08-18).
+	//
+	// Its own permission for the same forward-looking reason FeedPackingRead is not ProtocolRead:
+	// each feed surface's audience must stay independently expressible. Granted exactly where
+	// FeedPackingRead is granted — the operator who films the leftover, the park head who runs the
+	// ground, the Feed Director who owns the chain, and RoleCEOInternal (founder/builder visibility
+	// invariant). READ-ONLY; the completion write rides FeedDirectionComplete, and the verifier's
+	// measured value rides VerificationVerdict on the producer's own route.
+	FeedWastageRead = "feed_wastage.read"
 	// FeedDirectionRead gates the feed-DIRECTION read surface (/feed-direction/preview,
 	// /feed-direction/generation-preview, and the counts-projection exception list).
 	//
@@ -446,6 +565,29 @@ const (
 	// Monitoring: "Any feeding that happened late, in the wrong quantity, or to the wrong cohort
 	// must be flagged, investigated, and corrected immediately"). No role loses anything.
 	FeedDirectionOversee = "feed_direction.oversee"
+	// HerdSignalsRead gates the herd-signals READ surface (GET /herd-signals/live,
+	// /herd-signals/tags/{tag_id}/timeline, /herd-signals/gateways, /herd-signals/insights):
+	// the BLE ear-tag telemetry live/inventory view. Read-only; granted alongside GoatRead
+	// wherever the founder/builder visibility invariant applies (RoleCEOInternal), since this
+	// is a new module with no other role wired to it yet.
+	HerdSignalsRead = "herd_signals.read"
+	// HerdSignalsIngest gates POST /herd-signals/packets, the gateway device ingest endpoint.
+	// Deliberately separate from HerdSignalsRead: reading the live view is not the same
+	// authority as writing raw telemetry into it, and ingest is a machine/service credential's
+	// permission, not an operator's.
+	HerdSignalsIngest = "herd_signals.ingest"
+	// HerdSignalsMap gates the herd-signals MAPPING WRITES (POST /herd-signals/tag-mappings,
+	// /herd-signals/tag-mappings/replace, /herd-signals/tag-mappings/unmap): deciding WHICH
+	// ANIMAL a BLE tag belongs to.
+	//
+	// Deliberately separate from HerdSignalsRead, and it is not a formality. Reading the live
+	// dashboard observes what the tags report; a mapping write decides whose body every
+	// animal-attributed number downstream -- the per-animal baseline, the movement patterns, the
+	// vaccination/feed/weighing/health correlations -- is about, and it starts that animal's
+	// monitoring period. A wrong mapping does not produce a wrong pixel, it produces a confident
+	// claim about the wrong goat. Also separate from HerdSignalsIngest, which is a device
+	// credential's permission and has no business deciding animal identity.
+	HerdSignalsMap = "herd_signals.map"
 	// FeedDirectionComplete is the operator WRITE twin FeedPackingRead's comment anticipated: it gates
 	// POST /feed-direction/complete, where an operator records that one shed-session's feed direction
 	// was carried out (with optional video proof). It is deliberately separate from the feed reads --
@@ -516,6 +658,69 @@ const (
 	// module's queue, oversight watches ALL of them) and never inferred from a role string --
 	// callers must be checked for this permission, not for RoleCEOInternal/RolePCDirector by name.
 	VerificationOversee = "verification.oversee"
+
+	// VerificationFilterByCaptureDate gates the CAPTURE-DATE RANGE picker on /verify, on every
+	// page of the verifier's workspace (maintainer decision 2026-08-17).
+	//
+	// It is SPLIT OUT of VerificationOversee because the two are different rules that the
+	// 2026-08-12 incident happened to bundle. That incident was about CROSS-MODULE chrome
+	// rendering for every role: module chips let a caller reshape the queue across modules she has
+	// no duty in, and they stay leadership-only. A date range crosses no module boundary -- it
+	// narrows the caller's OWN queue to the days she is working -- so the verifier holds this one
+	// while VerificationOversee stays with leadership.
+	//
+	// Held by RoleVerifier, RolePCDirector and RoleCEOInternal. It adds NO verdict authority, no
+	// cross-module reach, and no analytics: it only filters rows the holder could already see.
+	VerificationFilterByCaptureDate = "verification.filter_capture_date"
+	// VerificationEvidenceTimeline gates the VIDEO LOG on /verify: for ONE business day, per shed,
+	// the time each proof was uploaded (feed distribution's three, feed packing's one, feed
+	// transport's one, and the vaccination/weighing/birth/death/shifting proofs beside them).
+	// Maintainer decision 2026-08-14.
+	//
+	// It is a SEPARATE capability from VerificationOversee, and the difference is the whole point.
+	// Oversight is the cross-module BACKLOG chrome -- module chips, a historical capture-date range,
+	// the analytics aggregate -- which the 2026-08-12 STG incident deliberately took away from the
+	// verifier because it was confusing furniture on her working queue. This is one day's arrival
+	// times for a shed. Granting it does NOT hand a caller the module chips, the date-range picker,
+	// or the analytics drawer; those stay on VerificationOversee.
+	//
+	// Granted to RoleVerifier ALONGSIDE RoleCEOInternal and the four directors. That is deliberate
+	// and it is the one place this constant departs from VerificationOversee's "the verifier works
+	// ONE module's queue, oversight watches ALL of them" line: the video log is CROSS-MODULE for
+	// her too, because the question it answers is "what arrived from this shed today", and a shed's
+	// day is feed AND vaccination AND a death together. That line governs VERDICT authority and
+	// queue chrome; this grants neither -- it is a read-only arrival log with no verdict entry
+	// point, no filter that reshapes her queue, and no act/close capability. A verifier still
+	// cannot decide an item outside her duty modules, because VerificationVerdict is unchanged.
+	//
+	// Never confuse this with VerificationReview: review is the QUEUE (items, media, verdicts) and
+	// is what a caller needs to open /verify at all. A principal could hold this and not review, in
+	// which case they see arrival times and can open nothing -- so it is always granted with review,
+	// never instead of it.
+	VerificationEvidenceTimeline = "verification.evidence_timeline"
+
+	// VerificationSampling gates the RANDOMIZATION section on /verify: per verification category,
+	// the PERCENTAGE of that category's proof videos the verifier actually has to watch, and the
+	// day's progress against that share (maintainer decision 2026-08-26).
+	//
+	// CEO-ONLY, and narrower than every other verification capability on purpose. It is not
+	// oversight (RolePCDirector holds VerificationOversee and does NOT hold this): oversight WATCHES
+	// the verification workload, this DECIDES how much of it a human is required to watch at all.
+	// A director who could lower his own module's percentage would be setting the depth of the check
+	// on work his own department produces, which is the same separation of duty that keeps
+	// VerificationVerdict off every leadership role.
+	//
+	// It is one capability for the READ and the WRITE, unlike the review/verdict split, because
+	// there is nothing here to read except the setting itself and how it is going -- a caller who
+	// may not set the percentage has no use for a panel whose whole content is that percentage.
+	// This is the DATA gate; the randomization control in the /verify page contract is the matching
+	// UI gate, and both key on this constant rather than on a role string.
+	//
+	// It carries NO verdict authority: the CEO still cannot approve or reject an item, and lowering
+	// a percentage never decides one. It changes which items reach a verifier, and the ones it
+	// waives are settled by the closeout stage as APPROVALS with no verifier attached
+	// (verification_items.auto_resolution = 'not_sampled'), so they can never be counted as her work.
+	VerificationSampling = "verification.sampling"
 )
 
 var rolePermissions = map[string]map[string]struct{}{
@@ -543,6 +748,15 @@ var rolePermissions = map[string]map[string]struct{}{
 		// work it checks.
 		VerificationReview:  {},
 		VerificationVerdict: {},
+		// The VIDEO LOG (maintainer decision 2026-08-14): one day, per shed, when each proof
+		// arrived. Deliberately granted to the verifier even though VerificationOversee is not --
+		// see that constant and VerificationEvidenceTimeline for why the two are separate. This
+		// adds no verdict authority and no queue-reshaping filter.
+		VerificationEvidenceTimeline: {},
+		// The capture-date range on her own queue (maintainer decision 2026-08-17). Deliberately
+		// granted even though VerificationOversee is not -- see that constant for why the two are
+		// separate. It reshapes nothing across modules and adds no authority.
+		VerificationFilterByCaptureDate: {},
 	},
 	RoleParkHead: {
 		GoatRead:      {},
@@ -562,6 +776,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// record a shed-session as fed. They still hold no feed_config.* grant: executing a ration is
 		// not authoring one.
 		FeedPackingRead:       {},
+		FeedWastageRead:       {},
 		FeedDirectionRead:     {},
 		FeedDirectionComplete: {},
 		FeedTransportRead:     {},
@@ -599,9 +814,20 @@ var rolePermissions = map[string]map[string]struct{}{
 		// capability instead of an inference over grant shape. See VerificationOversee's doc
 		// comment.
 		VerificationOversee: {},
+		// Leadership keeps the date range it already had, now under its own capability.
+		VerificationFilterByCaptureDate: {},
+		// The VIDEO LOG (maintainer decision 2026-08-14): one day, per shed, when each proof
+		// arrived. See VerificationEvidenceTimeline -- a separate capability from the oversight
+		// chrome above, held here because leadership must see every built surface.
+		VerificationEvidenceTimeline: {},
 		// Clinical authority over the configured disease course (maintainer decision 2026-07-30);
 		// raising a report is HealthReport, which every field tier holds.
 		HealthRead: {}, HealthReport: {}, HealthDiagnose: {},
+		// PC Care (maintainer decision 2026-08-21): the PC Director owns the module — read-only
+		// monitoring, browsing other assignees' tasks, and executing tasks they are themselves
+		// assigned to (like the Growth Director weighs their own sheds). NOT PCCarePlan:
+		// planning a PC Care task is CEO-only, the weighing.plan precedent.
+		PCCareMonitor: {}, PCCareExecute: {}, PCCareOverseeOperators: {},
 	},
 	// RoleGrowthDirector runs Weighing and ONLY Weighing. The role key existed with no entry in
 	// this map, which meant every RoleHasPermission check returned false and a growth_director
@@ -675,12 +901,19 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
 		GoatRead: {}, SOPRead: {}, TaskRead: {}, TaskAssign: {},
 		FeedConfigRead: {}, FeedConfigWrite: {},
-		FeedDirectionRead: {}, FeedDirectionOversee: {}, FeedPackingRead: {},
+		FeedDirectionRead: {}, FeedDirectionOversee: {}, FeedPackingRead: {}, FeedWastageRead: {},
 		// The transport worklist READ (maintainer decision 2026-08-05). Paired deliberately with
 		// the absence of FeedDirectionComplete below: the director sees every page of the feed
 		// chain including the daily transport tasks, and still cannot record one as done.
 		FeedTransportRead: {},
-		CalendarRead:      {}, CalendarAction: {},
+		// The feed PURCHASE ledger, READ only (maintainer decision 2026-08-24). The director owns
+		// what the farm feeds and is accountable for the stock cards on /feed/analytics, which are
+		// built from these loads -- so being unable to see what was bought would leave that
+		// accountability without its input. Recording a purchase stays on the procurement desk,
+		// which is why FeedPurchaseWrite is deliberately absent: the same read/write split that
+		// keeps this role out of FeedDirectionComplete above.
+		FeedPurchaseRead: {},
+		CalendarRead:     {}, CalendarAction: {},
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},
@@ -740,6 +973,32 @@ var rolePermissions = map[string]map[string]struct{}{
 		// health_director are separate departments and merging them is prohibited. Vaccination
 		// protocol authoring stays on /config with ProtocolWrite, which this role does not hold.
 		HealthConfigRead: {}, HealthConfigWrite: {},
+		// CONFIRMING A DIAGNOSIS (maintainer decision 2026-08-14).
+		//
+		// The health SOP engine (backend/internal/health/diagnosis) is ADVISORY: it returns a
+		// ranked proposal and a human confirms every Problem before a course opens. That
+		// confirmation is the Health Director's defining job -- DIRECTOR_ENGINE.md puts "confirm
+		// or override Problems" on this desk and nowhere else -- and it is the control that keeps
+		// the engine advisory rather than autonomous.
+		//
+		// Before this grant the ONLY holders of HealthDiagnose were pc_director and
+		// ceo_internal, so a PREVENTIVE CARE director was confirming Health diagnoses. That is
+		// the cross-department merge this file forbids two comments above, and it was live.
+		// Whether pc_director KEEPS HealthDiagnose is a separate maintainer decision and is
+		// deliberately NOT changed here.
+		//
+		// HealthRead comes with it because HealthDiagnose is unusable without it: the work list
+		// and the case detail (GET /app/health/work-items) are gated on HealthRead, so a
+		// confirmer who cannot read the queue cannot see what they are confirming. It is also
+		// what makes the weekly override review possible -- authoring the rulebook while blind
+		// to the work done under it leaves the improvement loop with no input.
+		//
+		// Two are deliberately WITHHELD. HealthExecute: separation of duty -- the manager treats
+		// from the card and this desk judges the result, so the same person must not both
+		// confirm a diagnosis and record having administered it. HealthReport: DIRECTOR_ENGINE.md
+		// says this role "does not fill the form or walk every animal"; raising a sick-goat
+		// report stays with the field tiers that hold HealthReport.
+		HealthRead: {}, HealthDiagnose: {},
 		// CountsAlertsRead opens ONLY the Counts Alerts inbox (GET /app/counts/alerts) -- see its
 		// doc comment above. It is deliberately NOT CountsRead/CountsWrite: COUNTS IS AN OFF
 		// FEATURE and granting either of those would switch it on for this role.
@@ -773,11 +1032,59 @@ var rolePermissions = map[string]map[string]struct{}{
 		AdminWebBootstrap: {},
 		VendorRead:        {}, VendorWrite: {}, VendorFinanceRead: {},
 		ProcurementRead: {},
+		// The feed purchase ledger and its entry form: buying feed is this desk's job, and the
+		// vendors it is bought from are already in this role's register.
+		FeedPurchaseRead: {}, FeedPurchaseWrite: {},
+	},
+	// RoleProcurementDirector: the Procurement vertical in full, plus read-only Feed oversight
+	// (maintainer decision 2026-08-21). See the constant's doc comment for the split with
+	// RoleFeedDirector.
+	//
+	// What it gets, and why:
+	//   - The whole procurement suite: source-entry intake (read/write/review), the vendor
+	//     register including payment instruments, and the sales ledger including record-sale.
+	//     A director of the desk decides arrivals and HF evidence, so ProcurementReview is held
+	//     where RoleProcurementManager deliberately does not hold it.
+	//   - Feed READS only: the dispatch sheet, packing worklist, wastage and transport worklists
+	//     — the oversight half of the feed chain. NOT FeedConfigRead: the authored ration grid
+	//     (/feed/config) is hidden from this workspace by the same 2026-08-21 decision, and its
+	//     leaf/page are withheld in procurement_director_lens.go.
+	//   - LocationsRead: park/shed selectors on those screens.
+	//   - SOPRead: the /feed/sops module-surface renders the sop-library contract over
+	//     /admin/sops, which is gated on sop.read.
+	//
+	// What it deliberately does NOT get:
+	//   - AppBootstrap: admin-web only; the phone surface stays whatever the person's other
+	//     grants provide.
+	//   - FeedConfigWrite / FeedDirectionOversee / FeedDirectionComplete / VerificationAct:
+	//     running the feed chain is RoleFeedDirector's job.
+	//   - Any vaccination, weighing, counts, goat, calendar, roster or health permission —
+	//     the admin-web workspace for this role is Procurement + Feed and nothing else
+	//     (procurement_director_lens.go is the nav half of that decision).
+	RoleProcurementDirector: {
+		AdminWebBootstrap: {},
+		LocationsRead:     {}, SOPRead: {},
+		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
+		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
+		SalesRead: {}, SalesWrite: {},
+		FeedDirectionRead: {}, FeedPackingRead: {}, FeedWastageRead: {}, FeedTransportRead: {},
+		// The feed purchase ledger in full (maintainer decision 2026-08-24). This is a BUYING
+		// surface, so it sits inside this director's desk rather than being one of the read-only
+		// feed oversight grants above.
+		FeedPurchaseRead: {}, FeedPurchaseWrite: {},
 	},
 	RoleCountsApprover: {
 		CountsApproveAccess:    {},
 		CountsApproveLifecycle: {},
 		CountsApproveShifting:  {},
+	},
+	// Per-person testing authority ONLY: read the toxin task list and do the step work.
+	// Deliberately NO ToxinVerdict (the tester must not review their own test), no
+	// bootstrap, no other module — a holder renders it through their real job role's
+	// AppBootstrap, the same fail-closed shape as RoleCountsApprover above.
+	RoleToxinTester: {
+		ToxinRead:    {},
+		ToxinExecute: {},
 	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, CalendarRead: {}, ProcurementRead: {}, ProcurementWrite: {},
@@ -791,6 +1098,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// authoring the ration grid (feed_config.write) stays with the CEO/CXO tier and is NOT added.
 		ProtocolRead:          {},
 		FeedPackingRead:       {},
+		FeedWastageRead:       {},
 		FeedDirectionRead:     {},
 		FeedDirectionComplete: {},
 		FeedTransportRead:     {},
@@ -798,9 +1106,27 @@ var rolePermissions = map[string]map[string]struct{}{
 		// See VaccinationAlertsRead doc comment above: this is the operator's Alerts
 		// tab feed only, NOT the shared ObligationRead/VaccinationRead admin bundle.
 		VaccinationAlertsRead: {},
+		// PC Care (maintainer decision 2026-08-21): operators execute assigned tasks. The
+		// permission opens the module's tabs; the WRITE additionally requires being named in
+		// pc_care_task_assignees for that specific task.
+		PCCareExecute: {},
 	},
 	RoleCEOInternal: {
-		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
+		// Toxin (maintainer decisions 2026-08-25 and 2026-08-26): CEO/CXO WATCHES and JUDGES;
+		// they never run the test. Read shows the tasks (the phone card is not tappable and
+		// no step opens a camera), and verdict is the accept/reject that only this role can
+		// cast — the verdict deliberately does NOT ride verification.verdict, so the tenant
+		// verifier never sees toxin work.
+		//
+		// ToxinExecute is DELIBERATELY ABSENT and must not be added back. The people who run
+		// the strip test are the named park heads holding RoleToxinTester; a CEO who could
+		// also execute would be accepting their own test, which is the separation this
+		// module exists to keep. Pinned by TestToxinExecuteIsTesterOnlyAndNeverCEO.
+		ToxinRead: {}, ToxinVerdict: {},
+		// Clock In / Out presence oversight (maintainer decision 2026-08-28):
+		// the CEO/CXO sees who is working; everyone else only punches.
+		ClockPresenceRead: {},
+		GoatRead:          {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
 		// The ONLY holder of the whole-pen cohort reclassification. See the constant's doc comment:
 		// it applies immediately, with no approval and no proof, and flips kid/adult for the whole
 		// pen. It is granted here and nowhere else.
@@ -819,7 +1145,11 @@ var rolePermissions = map[string]map[string]struct{}{
 		// scan screen. Holding execute put a scannable surface in front of a planner who is assigned
 		// no sheds, and the submit would be refused anyway because the write requires the caller to
 		// be the shed's assignee. Reopen/close authority is WeighingMonitor and is unaffected.
-		CalendarRead: {}, CalendarAction: {},
+		// PC Care (maintainer decision 2026-08-21): the CEO plans and monitors, exactly the
+		// weighing shape — and for the same reason NOT PCCareExecute.
+		PCCarePlan:    {},
+		PCCareMonitor: {},
+		CalendarRead:  {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		CountsWrite:            {},
@@ -833,17 +1163,37 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedConfigRead:       {},
 		FeedConfigWrite:      {},
 		FeedPackingRead:      {},
+		FeedWastageRead:      {},
 		FeedDirectionRead:    {},
 		FeedDirectionOversee: {},
 		FeedTransportRead:    {},
-		VerificationReview:   {},
-		VerificationAct:      {},
+		// Herd Signals (BLE ear-tag telemetry): founder/builder visibility invariant, same as
+		// every other built module above. Ingest is a device/service credential's permission,
+		// not something the CEO account itself is expected to call, but is granted here too so
+		// the CEO account can never be locked out of exercising the whole module end to end.
+		HerdSignalsRead:    {},
+		HerdSignalsIngest:  {},
+		HerdSignalsMap:     {},
+		VerificationReview: {},
+		VerificationAct:    {},
 		// Founder/builder visibility invariant, and the tenant-wide oversight filters (module
 		// chips, capture-date range) on /verify -- CEO/CxO is exactly one of the two roles that
 		// receives the unrestricted, cross-category branch of resolveVerifierCategories. See
 		// VerificationOversee's doc comment.
 		VerificationOversee: {},
-		HealthRead:          {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
+		// Leadership keeps the date range it already had, now under its own capability.
+		VerificationFilterByCaptureDate: {},
+		// The VIDEO LOG on /verify (maintainer decision 2026-08-14), same founder/builder
+		// visibility invariant. See VerificationEvidenceTimeline: a separate capability from the
+		// oversight chrome above, and the verifier holds it too.
+		VerificationEvidenceTimeline: {},
+		// The RANDOMIZATION section on /verify (maintainer decision 2026-08-26): how much of each
+		// module's proof video the verifier is required to watch. Held by ceo_internal and by NO
+		// other role -- not even RolePCDirector, who holds VerificationOversee. See
+		// VerificationSampling for why watching the workload and setting the depth of the check are
+		// different authorities.
+		VerificationSampling: {},
+		HealthRead:           {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
 		// The authored treatment rulebook (/health/config). Part of the founder/builder visibility
 		// invariant above: the platform-owner cohort holds the grants for every built visible
 		// module, so a founder is never locked out of a screen they are expected to operate.
@@ -852,6 +1202,12 @@ var rolePermissions = map[string]map[string]struct{}{
 		// instruments. Founder/builder visibility invariant: the platform-owner cohort holds the
 		// grants for every built visible module.
 		VendorRead: {}, VendorWrite: {}, VendorFinanceRead: {},
+		// The sales module (/sales): ledger, overview and record-sale. Same
+		// founder/builder visibility invariant.
+		SalesRead: {}, SalesWrite: {},
+		// The feed purchase ledger (/procurement/feed-purchases): what feed was bought, at what
+		// landed cost, from whom. Same founder/builder visibility invariant.
+		FeedPurchaseRead: {}, FeedPurchaseWrite: {},
 	},
 }
 

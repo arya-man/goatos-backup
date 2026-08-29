@@ -198,6 +198,24 @@ data class CountsDestinationShedDto(
     @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
     @SerialName("management_stages") val managementStages: List<String> = emptyList(),
+    /**
+     * The tag a movement into this pen would stamp, for the raise form's TAG TOGGLE. Blank when the
+     * pen cannot supply one — then [destinationStageReason] carries the farm-worded explanation.
+     *
+     * Backend-resolved and rendered VERBATIM. Do NOT derive it from [managementStages]: that is the
+     * residents' raw list, not the resolved answer, and the rules behind the answer (the pen's own
+     * authored tag first, then residents; blank for a mixed or empty pen; never a clinical state)
+     * live on the server.
+     */
+    @SerialName("destination_stage") val destinationStage: String = "",
+    /**
+     * Why "use destination tag" is unavailable for this pen, shown under the greyed-out option. Blank
+     * when [destinationStage] is set — exactly one of the two is ever non-empty.
+     *
+     * Never compose this on-device from a blank tag: a blank tag does not say WHY it is blank, and
+     * the operator is owed the reason.
+     */
+    @SerialName("destination_stage_reason") val destinationStageReason: String = "",
 )
 
 @Serializable
@@ -205,6 +223,52 @@ data class CountsDestinationParkDto(
     @SerialName("park_id") val parkId: String = "",
     @SerialName("name") val name: String = "",
     @SerialName("sheds") val sheds: List<CountsDestinationShedDto> = emptyList(),
+    /**
+     * Where a newborn recorded in THIS park may be placed. Backend-owned and rendered verbatim.
+     *
+     * Do NOT re-derive it by filtering [sheds] on `destinationStage`: the mode also governs whether
+     * the birth WRITE accepts a freely chosen pen, so a locally computed answer could offer a pen
+     * the server then refuses.
+     */
+    @SerialName("birth_placement") val birthPlacement: CountsBirthPlacementDto = CountsBirthPlacementDto(),
+)
+
+/**
+ * The newborn-placement contract for one park (maintainer decision 2026-08-20).
+ *
+ * [mode] is `automatic` (one kid pen — shown read-only, not chosen), `choose` (several kid pens —
+ * the picker offers only these), or `record_later` (no kid pen — the operator picks freely and the
+ * kid's care steps carry "Record shed").
+ *
+ * The default is `record_later` with no pens, which is what a payload cached by a build that
+ * predates this field decodes to: the safe reading, because it falls back to the full shed cascade
+ * the form already renders rather than showing an empty picker.
+ */
+@Serializable
+data class CountsBirthPlacementDto(
+    @SerialName("mode") val mode: String = MODE_RECORD_LATER,
+    /** Farm-worded copy shown above the placement field. Rendered VERBATIM. */
+    @SerialName("notice") val notice: String = "",
+    @SerialName("pens") val pens: List<CountsBirthPlacementPenDto> = emptyList(),
+) {
+    companion object {
+        const val MODE_AUTOMATIC = "automatic"
+        const val MODE_CHOOSE = "choose"
+        const val MODE_RECORD_LATER = "record_later"
+    }
+}
+
+/**
+ * One kid pen. Carries its whole operational location, so the form never joins
+ * [shedName] and [partitionLabel] itself — that hand-rolled composition is what once rendered
+ * `Godel 1 1` on the weighing screens.
+ */
+@Serializable
+data class CountsBirthPlacementPenDto(
+    @SerialName("shed_id") val shedId: String = "",
+    @SerialName("shed_name") val shedName: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
 )
 
 @Serializable
@@ -234,9 +298,13 @@ data class CountsShiftingDestinationsResponseDto(
  *  - `source_park_id` / `source_shed_id` — the animal's CURRENT location is fetched with the
  *    animal and shown read-only, so there is nothing for the operator to type and nothing for the
  *    client to assert. The server reads the source from the animal itself.
- *  - `management_stage_mode` / `target_management_stage` — the movement adopts the DESTINATION
- *    SHED's cohort, resolved server-side at raise time. The operator is not asked, so the client
- *    sends nothing. These are not optional-and-ignored: the server rejects them as unknown fields.
+ *  - `target_management_stage` — the client never names a cohort. Even now that the operator picks
+ *    a MODE (see [stageMode]), the server still resolves the actual tag itself from the destination
+ *    catalog, so a phone can neither invent a cohort nor name one the relocation would refuse at
+ *    the second gate. This is not optional-and-ignored: the server rejects it as an unknown field.
+ *  - `management_stage_mode` — the STORED column name. The request field is `stage_mode`; they are
+ *    deliberately different names for different things (what the raiser chose vs. what was
+ *    recorded), and sending the column name is rejected as an unknown field.
  *
  * `priority` and `category` are now always sent EXPLICITLY (`normal`/`emergency` and
  * `routine`/`pregnancy`/`medical`/`quarantine`), because the screen defaults them visibly. A
@@ -249,6 +317,16 @@ data class CountsShiftingEventRequestDto(
     @SerialName("destination_partition_label") val destinationPartitionLabel: String? = null,
     @SerialName("priority") val priority: String = "",
     @SerialName("category") val category: String = "",
+    /**
+     * The raiser's TAG TOGGLE: `"destination_stage"` (the animals adopt the destination pen's tag)
+     * or `"keep_current"` (they keep the tag they already carry).
+     *
+     * Always sent EXPLICITLY, like `priority` and `category`, because the screen shows the choice
+     * visibly — a form that displays a selected toggle must send what it displays rather than rely
+     * on a server default that could change. A present-but-invalid value is rejected server-side
+     * with `invalid_stage_mode` rather than silently rewritten.
+     */
+    @SerialName("stage_mode") val stageMode: String = "",
     @SerialName("proof_ref") val proofRef: String? = null,
     /**
      * The raiser's optional note on why the animals are moving. Null (not "") when the operator

@@ -72,13 +72,14 @@ func TestWeighingLeadershipTargetsAreAppResolvable(t *testing.T) {
 		t.Fatalf("HandleEvent: %v", err)
 	}
 
-	// Routes.WEIGHING / WEIGHING_TASK / WEIGHING_SHED / WEIGHING_VIDEOS, the weighing entries of
-	// AppNavHost.pushTargetDestinations.
+	// Routes.WEIGHING / WEIGHING_TASK / WEIGHING_SHED / WEIGHING_ALERTS, the weighing entries of
+	// AppNavHost.pushTargetDestinations. /weighing/videos is retired (2026-08-28) and must not
+	// be emitted any more.
 	hosted := map[string]bool{
 		"/weighing":        true,
 		"/weighing/task":   true,
 		"/weighing/shed":   true,
-		"/weighing/videos": true,
+		"/weighing/alerts": true,
 	}
 	for _, notif := range queue.queued {
 		target := notif.Context["target"]

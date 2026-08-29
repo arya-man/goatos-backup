@@ -536,10 +536,10 @@ Logging / GMP.
 
 1. **CORS origin restriction** (implemented in `alloy-config.alloy`): the
    `faro.receiver` is configured to reject CORS preflight and cross-origin
-   requests from any origin except `https://stg.dashboard.mesha.sg`. Browsers
+   requests from any origin except `https://dashboard.mesha.sg`. Browsers
    enforce this; non-browser clients may bypass it, but the first-line filter
-   reduces naive attacks. If the stg domain changes, update both the Alloy
-   config and the admin-web Faro SDK configuration.
+   reduces naive attacks. If the public dashboard domain changes, update both
+   the Alloy config and the admin-web Faro SDK configuration.
 
 2. **Rate limiting** (required, out of scope for this pass): a Cloud Armor
    policy must be added to the Grafana Alloy Cloud Run service's load

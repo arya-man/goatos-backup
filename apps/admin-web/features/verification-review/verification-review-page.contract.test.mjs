@@ -44,13 +44,31 @@ test("the module-chip row is gated on oversightFiltersEnabled", () => {
   );
 });
 
-test("the capture-date range picker is gated on oversightFiltersEnabled", () => {
+// The capture-date picker was SPLIT OUT of the oversight capability (maintainer decision
+// 2026-08-17). The 2026-08-12 incident was about CROSS-MODULE chrome -- module chips let a caller
+// reshape the queue across modules she has no duty in, and those stay leadership-only (the test
+// above still pins that). A date range crosses no module boundary: it narrows the caller's own
+// queue to the days she is working. Without it the verifier's board is pinned to a date she cannot
+// change, which on real data is an empty screen sitting on top of a full backlog.
+test("the capture-date range picker is gated on its OWN control, not on oversight", () => {
   const filterRow = source.match(/<div className="vr-frow">([\s\S]*?)\{sheds\.length \? \(/);
   assert.ok(filterRow, "expected the vr-frow filter row to precede the shed filter block");
   assert.match(
     filterRow[1],
-    /\{oversightFiltersEnabled \? \(\s*<ActionsDateFilter/,
-    "ActionsDateFilter must only render when oversightFiltersEnabled is true",
+    /\{captureDateFilterEnabled \? \(\s*<ActionsDateFilter/,
+    "ActionsDateFilter must render on captureDateFilterEnabled, which the verifier holds",
+  );
+  assert.doesNotMatch(
+    filterRow[1],
+    /oversightFiltersEnabled \? \(\s*<ActionsDateFilter/,
+    "the date picker must NOT be re-gated on the leadership oversight capability",
+  );
+  // The two must stay DISTINCT contract controls, or a future change to one visibility rule
+  // silently moves the other -- which is how the date picker ended up leadership-only to begin with.
+  assert.match(
+    source,
+    /controlEnabled\(pageContract, "capture_date_filter", false\)/,
+    "the picker must read its own backend control",
   );
 });
 
@@ -193,4 +211,185 @@ test("backlog trajectory is computed over the same series the chart renders", ()
   assert.match(analytics, /const arrived14d = dailyVolume\.reduce\(\(total, day\) => total \+ day\.arrived, 0\)/);
   assert.match(analytics, /const verdicts14d = dailyVolume\.reduce\(\(total, day\) => total \+ day\.verdicts, 0\)/);
   assert.match(analytics, /const netChange = arrived14d - verdicts14d/);
+});
+
+// ===== Video Log (maintainer decision 2026-08-14) =====
+//
+// The video log is gated on a DIFFERENT capability from the oversight chrome above:
+// permissions.VerificationEvidenceTimeline, which RoleVerifier holds and VerificationOversee is
+// not. These pins exist so a later "simplification" onto oversight_analytics -- which would silently
+// take the panel away from the verifier -- fails here instead of shipping. The backend halves are
+// TestVerifyPageVideoLogControlIsCapabilityGated (adminui/app) and
+// TestVerificationVideoLogRouteIsTimelineCapabilityNotOversight (permissions).
+test("the video log is gated on its own video_log control, not on oversight", () => {
+  assert.match(
+    source,
+    /const videoLogEnabled = controlEnabled\(pageContract, "video_log", false\)/,
+    'videoLogEnabled must come from controlEnabled(pageContract, "video_log", ...)',
+  );
+  // The trigger button is as gated as the data behind it.
+  assert.match(
+    source,
+    /\{videoLogEnabled \? \(\s*<VideoLogPanel/,
+    "the video log panel (button + drawer) must only render when videoLogEnabled is true",
+  );
+  const gatedBlock = source.match(/\{videoLogEnabled \? \([\s\S]*?\) : null\}/);
+  assert.ok(gatedBlock && gatedBlock[0].includes("<VideoLog"), "the video log data must render inside the gated panel");
+  // The two panels must stay on separate flags. If the video log ever renders under
+  // oversightAnalyticsEnabled, the verifier loses it. Checked against the EXTRACTED analytics block
+  // rather than a spanning regex, which would run past that block's end into this one.
+  const analyticsBlock = source.match(/\{oversightAnalyticsEnabled \? \([\s\S]*?\) : null\}/);
+  assert.ok(analyticsBlock, "the oversight-analytics gated block must still be present");
+  assert.ok(
+    !analyticsBlock[0].includes("<VideoLog"),
+    "the video log must NOT be nested inside the oversight-analytics gate — that would withdraw it from the verifier",
+  );
+});
+
+test("the video log renders only backend-composed location and label copy", () => {
+  const videoLog = readFileSync(fileURLToPath(new URL("./video-log.tsx", import.meta.url)), "utf8");
+  // Operational location convention: the composed display is the only string a screen may render.
+  // Joining shed_label and partition_label locally is the OL-3/OL-7 defect class.
+  assert.ok(
+    !/shed_label\s*\+|\$\{[^}]*shed_label[^}]*\}\s*-/.test(videoLog),
+    "location display must come from operational_location_display, never a local shed+partition join",
+  );
+  assert.match(
+    videoLog,
+    /const display = shed\.operational_location_display/,
+    "the summary row must render the backend-composed operational_location_display",
+  );
+  // A shed key carries "#", so it must be encoded before entering a query value.
+  assert.match(
+    videoLog,
+    /encodeURIComponent\(shed\.shed_key\)/,
+    "shed_key contains '#' and must be URL-encoded into the href, or the panel opens with no shed selected",
+  );
+  // Feed transport writes no subject label on purpose; a placeholder would read as missing data.
+  assert.match(
+    videoLog,
+    /row\.subject_label \? <div className="small">\{row\.subject_label\}<\/div> : null/,
+    "an absent subject label must render nothing, never a placeholder",
+  );
+});
+
+// The day picker defaults to TODAY and expresses that default by ABSENCE (maintainer request
+// 2026-08-15). Writing today's date into the URL would freeze a shared link on the day it was
+// copied, which is the same trap ActionsDateFilter avoids for the queue's own dates.
+test("the video log day filter defaults to today and writes today as an absent param", () => {
+  const filter = readFileSync(fileURLToPath(new URL("./video-log-date-filter.tsx", import.meta.url)), "utf8");
+  assert.match(
+    filter,
+    /if \(nextFrom === today\) next\.delete\(VIDEO_LOG_DATE_KEY\)/,
+    "selecting today must DELETE the day param, so a bookmark keeps meaning 'today'",
+  );
+  // A single day, never a range: arrival times would otherwise be ambiguous about their day.
+  assert.match(filter, /from=\{selected\}\s*\n\s*to=\{selected\}/, "the video log picker must select ONE day (from === to)");
+  // The rendered day comes from the backend response, never a client guess that could drift from
+  // the rows below it.
+  const videoLog = readFileSync(fileURLToPath(new URL("./video-log.tsx", import.meta.url)), "utf8");
+  assert.match(videoLog, /day=\{day\}/, "the picker must show the day the backend actually rendered");
+  assert.match(
+    videoLog,
+    /business_date: day/,
+    "the rendered day must be destructured from the backend response",
+  );
+});
+
+// The panel must SURVIVE its own navigations (reported 2026-08-15: changing the day closed the
+// drawer). The trigger opens it with a hash (#vi_video_log=open), which is client-local state, so
+// any href or router call that rebuilds only the query string drops it. Every in-panel navigation
+// therefore has to carry the panel key in the QUERY.
+test("video log navigations keep the panel open", () => {
+  const filter = readFileSync(fileURLToPath(new URL("./video-log-date-filter.tsx", import.meta.url)), "utf8");
+  assert.match(
+    filter,
+    /next\.set\(VIDEO_LOG_PANEL_SELECTION_KEY, VIDEO_LOG_PANEL_ID\)/,
+    "the day picker must re-assert the panel key, or picking a date closes the drawer",
+  );
+  // Both the shed drill-down and the back link rebuild the query, so both need it too.
+  const shedHref = source.match(/shedHrefTemplate=\{hrefWith\(sp, \{[\s\S]*?\}\)\}/);
+  assert.ok(shedHref, "expected the shed href template");
+  assert.match(shedHref[0], /VIDEO_LOG_PANEL_SELECTION_KEY\]: VIDEO_LOG_PANEL_ID/, "shed links must keep the panel open");
+  const backHref = source.match(/backHref=\{hrefWith\(sp, \{[\s\S]*?\}\)\}/);
+  assert.ok(backHref, "expected the back href");
+  assert.match(backHref[0], /VIDEO_LOG_PANEL_SELECTION_KEY\]: VIDEO_LOG_PANEL_ID/, "the back link must keep the panel open");
+});
+
+// The CSV is built from the SAME payload the table renders, so the file and the screen cannot
+// disagree, and it must not execute as a formula when opened in a spreadsheet.
+test("the video log CSV is safe and screen-faithful", () => {
+  const csv = readFileSync(fileURLToPath(new URL("./video-log-csv-button.tsx", import.meta.url)), "utf8");
+  assert.match(csv, /\/\^\[=\+\\-@\]\/\.test\(raw\)/, "CSV cells must be guarded against spreadsheet formula injection");
+  assert.match(csv, /replace\(\/"\/g, '""'\)/, "CSV cells must escape embedded quotes per RFC 4180");
+  const action = readFileSync(fileURLToPath(new URL("./video-log-export-action.ts", import.meta.url)), "utf8");
+  // The export is one row per PROOF: the screen rowspans a work item's proofs and a CSV cannot.
+  assert.match(action, /row\.proofs\.map\(\(proof\) => \[/, "the export must emit one row per video");
+  // WHOLE DAY, not the current view (maintainer, 2026-08-15).
+  assert.match(action, /allSheds: true/, "the export must ask for every shed, not the selected one");
+  // Park MUST be in the file: shed names repeat across parks, so location alone renders two
+  // different sheds identically — the OL-1 collision the location convention exists to prevent.
+  assert.match(action, /row\.park_label \?\? ""/, "each export row must carry its park to disambiguate repeated shed names");
+  assert.match(action, /row\.operational_location_display \?\? ""/, "each export row must carry its backend-composed location");
+});
+
+// Panel filters (maintainer request 2026-08-15): park, shed and search.
+test("the video log filter row is backend-labelled and URL-driven", () => {
+  const videoLog = readFileSync(fileURLToPath(new URL("./video-log.tsx", import.meta.url)), "utf8");
+  // Park options come from the DAY's own sheds, keyed by park ID. Keying on the label is the OL-1
+  // merge one level up — park names are as repeatable as shed names.
+  assert.match(videoLog, /const id = shed\.park_id \?\? ""/, "park options must be keyed by park id, never by label");
+  // Sheds are grouped by park for the same reason the queue's picker groups them: shed names repeat.
+  assert.match(videoLog, /<optgroup key=\{park\} label=\{park\}>/, "the shed picker must group by park");
+  // Filtering happens over the ALREADY-FETCHED day, so the option lists keep every park and shed the
+  // day holds. Filtering server-side would collapse the options to whatever is already selected.
+  assert.match(videoLog, /parkFilter \? sheds\.filter\(/, "park must narrow the fetched day, not re-query it");
+  assert.match(videoLog, /needle\s*$/m, "search must be a normalised needle over the fetched rows");
+});
+
+test("applying a video log filter keeps the panel open", () => {
+  // The filter form rebuilds the query, so it must re-assert the panel key exactly as the day
+  // picker and the shed links do — otherwise Apply closes the drawer it was submitted from.
+  const form = source.match(/filterHiddenInputs=\{[\s\S]*?<\/>/);
+  assert.ok(form, "expected the filter hidden inputs block");
+  assert.match(
+    form[0],
+    /name=\{VIDEO_LOG_PANEL_SELECTION_KEY\} value=\{VIDEO_LOG_PANEL_ID\}/,
+    "the filter form must carry the panel key, or Apply closes the drawer",
+  );
+  const clear = source.match(/clearHref=\{hrefWith\(sp, \{[\s\S]*?\}\)\}/);
+  assert.ok(clear && clear[0].includes("VIDEO_LOG_PANEL_SELECTION_KEY]: VIDEO_LOG_PANEL_ID"), "Clear must keep the panel open");
+});
+
+// Closing must actually close (reported 2026-08-15: the X did nothing).
+//
+// closeHref is what the overlay writes when it cannot simply pop history — a deep link, or any URL
+// reached by a real navigation. A closeHref that still carries the panel's own selection key writes
+// a URL that says "open", and the hook reopens from it immediately. Both panels must strip their
+// own key.
+test("each panel's closeHref strips its own selection key", () => {
+  const analytics = source.match(/closeHref=\{hrefWith\(sp, \{ \[ANALYTICS_PANEL_SELECTION_KEY\]: null \}\)\}/);
+  assert.ok(analytics, "the analytics closeHref must delete ANALYTICS_PANEL_SELECTION_KEY");
+  const videoLog = source.match(/closeHref=\{hrefWith\(sp, \{[\s\S]*?\}\)\}/g)?.find((m) => m.includes("VIDEO_LOG_PANEL_SELECTION_KEY]: null"));
+  assert.ok(videoLog, "the video log closeHref must delete VIDEO_LOG_PANEL_SELECTION_KEY");
+});
+
+// The reason the above silently failed: a constant exported from a "use client" module reaches a
+// Server Component as a client-reference proxy, not the string — so the CLIENT hook read the URL
+// key correctly and opened, while the SERVER-built closeHref deleted a key it never matched. These
+// param modules must stay server-safe, or the same defect returns with no error to point at it.
+test("panel param modules are server-safe", () => {
+  for (const name of ["video-log-params.ts", "analytics-panel-params.ts", "actions-date-params.ts"]) {
+    const text = readFileSync(fileURLToPath(new URL(`./${name}`, import.meta.url)), "utf8");
+    assert.ok(!/^\s*["']use client["']/m.test(text), `${name} must NOT be a client module — the server page imports its constants`);
+  }
+  // And the page must import them from those modules, never from the client panels.
+  assert.ok(
+    !/import \{[^}]*ANALYTICS_PANEL_SELECTION_KEY[^}]*\} from "\.\/analytics-panel"/.test(source),
+    "the page must import the analytics panel constants from analytics-panel-params, not the client component",
+  );
+  assert.ok(
+    !/import \{[^}]*VIDEO_LOG_PANEL_SELECTION_KEY[^}]*\} from "\.\/video-log-panel"/.test(source),
+    "the page must import the video log constants from video-log-params, not the client component",
+  );
 });

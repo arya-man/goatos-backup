@@ -29,6 +29,10 @@ type fakeConfig struct {
 	stages        []domain.AnimalStage
 	stagesErr     error
 	gotStagesTn   string
+	discardErr    error
+	discardedID   string
+	replacedID    string
+	replaceErr    error
 }
 
 func (f *fakeConfig) CreateDefinition(_ context.Context, in domain.NewDefinition) (string, error) {
@@ -48,6 +52,17 @@ func (f *fakeConfig) GetVersion(context.Context, string, string) (domain.Version
 }
 func (f *fakeConfig) PublishVersion(context.Context, string, string, *string, ...string) error {
 	return f.publishErr
+}
+func (f *fakeConfig) DiscardVersion(_ context.Context, _ string, versionID string) error {
+	f.discardedID = versionID
+	return f.discardErr
+}
+func (f *fakeConfig) ReplaceDraftVersion(_ context.Context, _ domain.NewVersion, replacesVersionID string) (string, error) {
+	f.replacedID = replacesVersionID
+	if f.replaceErr != nil {
+		return "", f.replaceErr
+	}
+	return "version-replacement", nil
 }
 func (f *fakeConfig) ListConfigs(_ context.Context, _ string, category string) ([]domain.ConfigListItem, error) {
 	f.gotListCat = category
@@ -336,5 +351,86 @@ func TestCreateDefinitionEmptyBody(t *testing.T) {
 	rec := serve(NewHandler(&fakeConfig{}), http.MethodPost, "/protocols", "")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty body: want 400, got %d", rec.Code)
+	}
+}
+
+// TestDiscardVersionRefusesPublished proves the handler maps a not-draft refusal to
+// 409 rather than a generic error. The restriction itself lives in SQL; this asserts
+// the caller is told WHY, because a 500 would send someone looking for an outage.
+func TestDiscardVersionRefusesPublished(t *testing.T) {
+	fake := &fakeConfig{discardErr: ports.ErrVersionNotDraft}
+	rec := serve(NewHandler(fake), http.MethodPost, "/protocols/versions/ver-1/discard", "")
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+	if !strings.Contains(rec.Body.String(), "version_not_draft") {
+		t.Fatalf("body = %s, want version_not_draft", rec.Body.String())
+	}
+}
+
+// TestDiscardVersionDeletesDraft proves the success path answers 204 and passes the
+// version id straight through.
+func TestDiscardVersionDeletesDraft(t *testing.T) {
+	fake := &fakeConfig{}
+	rec := serve(NewHandler(fake), http.MethodPost, "/protocols/versions/draft-9/discard", "")
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if fake.discardedID != "draft-9" {
+		t.Fatalf("discarded %q, want draft-9", fake.discardedID)
+	}
+}
+
+// A JSON STRING is not an object, and the difference is invisible until a real request is
+// made: the admin-web wrapper stringified the body itself while the shared client stringifies
+// too, so the backend was handed `"{\"protocol_id\":...}"` and every save and publish failed
+// to decode. Asserting the shape at the boundary is what catches that class of bug.
+func TestReplaceDraftVersionRejectsADoubleEncodedBody(t *testing.T) {
+	fake := &fakeConfig{}
+	doubleEncoded, err := json.Marshal(`{"protocol_id":"p-1","scope_type":"tenant","effective_from":"2026-06-01T00:00:00Z","rule_dsl":{}}`)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	rec := serve(NewHandler(fake), http.MethodPost, "/protocols/versions/draft-9/replace", string(doubleEncoded))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d for a body that is a JSON string", rec.Code, http.StatusBadRequest)
+	}
+	if fake.replacedID != "" {
+		t.Fatalf("a draft was replaced from an undecodable body: %q", fake.replacedID)
+	}
+}
+
+// The success path: the replacement id comes back, and the version being replaced is the one
+// named in the path.
+func TestReplaceDraftVersionSwapsTheNamedDraft(t *testing.T) {
+	fake := &fakeConfig{}
+	body := `{"protocol_id":"p-1","scope_type":"tenant","effective_from":"2026-06-01T00:00:00Z","rule_dsl":{"ruleset_family":"vaccination.matrix"}}`
+	rec := serve(NewHandler(fake), http.MethodPost, "/protocols/versions/draft-9/replace", body)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d body = %s, want %d", rec.Code, rec.Body.String(), http.StatusCreated)
+	}
+	if fake.replacedID != "draft-9" {
+		t.Fatalf("replaced %q, want draft-9", fake.replacedID)
+	}
+	if !strings.Contains(rec.Body.String(), "version-replacement") {
+		t.Fatalf("body = %s, want the replacement id", rec.Body.String())
+	}
+}
+
+// Replacing something that is not a draft is a conflict, not a second draft.
+func TestReplaceDraftVersionRefusesPublished(t *testing.T) {
+	fake := &fakeConfig{replaceErr: ports.ErrVersionNotDraft}
+	body := `{"protocol_id":"p-1","scope_type":"tenant","effective_from":"2026-06-01T00:00:00Z","rule_dsl":{}}`
+	rec := serve(NewHandler(fake), http.MethodPost, "/protocols/versions/ver-1/replace", body)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+	if !strings.Contains(rec.Body.String(), "version_not_draft") {
+		t.Fatalf("body = %s, want version_not_draft", rec.Body.String())
 	}
 }

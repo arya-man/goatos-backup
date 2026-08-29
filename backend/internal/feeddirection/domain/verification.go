@@ -50,6 +50,31 @@ const (
 // (FeedPackingVerificationHandler) filters verdict events on module + ref_type. This writes to a
 // SEPARATE table (feed_packing_completions); it is NOT the old instant feed_direction_session_completions
 // path, which is left inert.
+// Feed WASTAGE verification gate coordinates (maintainer decision, 2026-08-18). Feed Wastage is a
+// daily EXPERIMENT-pen task: each pen on a hand-authored feed experiment owes ONE wastage video per
+// feed day. The operator films the leftover feed and submits; the verifier watches the clip, RECORDS
+// the leftover weight she can read in it (the measurement rides the producer's own route, declared
+// to clients via the category's MeasurementCorrection spec), and approves -- or rejects for a
+// re-shoot when the value is not readable.
+//
+// Same (vertical, module) as distribution/packing/transport -- all are the "feed" module -- but a
+// DISTINCT category and ref_type so the four feed gates never cross-fire. The consumer
+// (FeedWastageVerificationHandler) filters verdict events on module + ref_type.
+const (
+	VerificationCategoryWastage = "feed_wastage"
+	VerificationRefTypeWastage  = "feed_wastage_completion"
+
+	// WastageStatusPendingVerification is operator-completed-but-not-yet-verified: the video is
+	// stored, a verification item is queued, and NOTHING is completed yet.
+	WastageStatusPendingVerification = "pending_verification"
+	// WastageStatusCompleted is verifier-approved: the pen's wastage for that feed day is done NOW
+	// and feed.wastage.completed is emitted.
+	WastageStatusCompleted = "completed"
+	// WastageStatusRework is verifier-rejected: the operator re-records and re-submits, which
+	// returns the row to pending_verification.
+	WastageStatusRework = "rework"
+)
+
 const (
 	VerificationCategoryPacking = "feed_packing"
 	VerificationRefTypePacking  = "feed_packing_completion"

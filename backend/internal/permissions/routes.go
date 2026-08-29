@@ -21,6 +21,7 @@ var protectedRoutes = []Route{
 	{OperationID: "getGoatTimeline", Method: "GET", Pattern: "/goats/{goat_id}/timeline", Permissions: []string{GoatRead}},
 	{OperationID: "getHerdRegisterSummary", Method: "GET", Pattern: "/herd-register/summary", Permissions: []string{CountsRead}},
 	{OperationID: "getCountsBreakdown", Method: "GET", Pattern: "/counts/breakdown", Permissions: []string{CountsRead}},
+	{OperationID: "getHerdAnalytics", Method: "GET", Pattern: "/counts/herd-analytics", Permissions: []string{CountsRead}},
 	{OperationID: "getMilkPreparation", Method: "GET", Pattern: "/counts/milk-preparation", Permissions: []string{CountsRead}},
 	{OperationID: "getAppCountsMilkPreparation", Method: "GET", Pattern: "/app/counts/milk-preparation", Permissions: []string{CountsWrite}},
 	{OperationID: "resolveIdentifier", Method: "GET", Pattern: "/identifiers/{type}/{value}/resolve", Permissions: []string{GoatRead}},
@@ -31,6 +32,17 @@ var protectedRoutes = []Route{
 	{OperationID: "commitAdminGoatBulkImport", Method: "POST", Pattern: "/admin/goats/bulk-commit", Permissions: []string{GoatWriteIdentity}},
 	{OperationID: "moveGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/move", Permissions: []string{GoatWriteIdentity}},
 	{OperationID: "exitGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/exit", Permissions: []string{GoatWriteIdentity}},
+	// Sale allocation: tag real animals to a recorded sale and exit them as sold.
+	//
+	// The two WRITES carry GoatWriteIdentity because that is exactly what they do -- the
+	// confirm applies the same canonical exit as the single-goat route above, so it can
+	// hold no weaker permission than that route does. Reading the picker is the same
+	// authority as reading the herd.
+	{OperationID: "listSaleLocations", Method: "GET", Pattern: "/admin/goats/sale-locations", Permissions: []string{GoatRead}},
+	{OperationID: "listSaleCandidates", Method: "GET", Pattern: "/admin/goats/sale-candidates", Permissions: []string{GoatRead}},
+	{OperationID: "getSaleAllocation", Method: "GET", Pattern: "/admin/goats/sale-allocations/{sales_deal_id}", Permissions: []string{GoatRead}},
+	{OperationID: "previewSaleAllocation", Method: "POST", Pattern: "/admin/goats/sale-allocations/preview", Permissions: []string{GoatWriteIdentity}},
+	{OperationID: "confirmSaleAllocation", Method: "POST", Pattern: "/admin/goats/sale-allocations/confirm", Permissions: []string{GoatWriteIdentity}},
 	{OperationID: "criticalDeathExitGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/critical-death-exit", Permissions: []string{GoatWriteHealth}},
 	{OperationID: "stageGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/stage", Permissions: []string{GoatWriteIdentity}},
 	// Whole-pen cohort reclassification. CEO-only, and the PREVIEW is gated identically to the
@@ -38,6 +50,8 @@ var protectedRoutes = []Route{
 	// who may not perform the action needs to enumerate.
 	{OperationID: "previewReclassifyShedStage", Method: "POST", Pattern: "/admin/goats/shed-stage/preview", Permissions: []string{GoatReclassifyShedStage}},
 	{OperationID: "commitReclassifyShedStage", Method: "POST", Pattern: "/admin/goats/shed-stage/commit", Permissions: []string{GoatReclassifyShedStage}},
+	{OperationID: "previewCorrectCensusSlice", Method: "POST", Pattern: "/admin/goats/census-slice/preview", Permissions: []string{GoatReclassifyShedStage}},
+	{OperationID: "commitCorrectCensusSlice", Method: "POST", Pattern: "/admin/goats/census-slice/commit", Permissions: []string{GoatReclassifyShedStage}},
 	{OperationID: "healthGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/health", Permissions: []string{GoatWriteHealth}},
 	{OperationID: "reproductiveGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/reproductive", Permissions: []string{GoatWriteHealth}},
 	{OperationID: "identityGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/identity", Permissions: []string{GoatWriteIdentity}},
@@ -108,12 +122,48 @@ var protectedRoutes = []Route{
 	{OperationID: "listOperatorDevices", Method: "GET", Pattern: "/admin/operators/{operator_id}/devices", Permissions: []string{OperatorsManageDevice}},
 	{OperationID: "revokeOperatorDevice", Method: "POST", Pattern: "/admin/operators/{operator_id}/devices/{device_id}/revoke", Permissions: []string{OperatorsManageDevice}},
 
+	// People/HRMS directory (admin-web /people). The create is the in-app
+	// onboarding write (Firebase account + grant + allowlist), so it carries the
+	// high-privilege OperatorsWrite (ceo_internal today), while the directory
+	// read shares the OperatorsRead the admin tiers already hold.
+	{OperationID: "listWorkforcePeople", Method: "GET", Pattern: "/admin/workforce/people", Permissions: []string{OperatorsRead}},
+	{OperationID: "createWorkforcePerson", Method: "POST", Pattern: "/admin/workforce/people", Permissions: []string{OperatorsWrite}},
+
+	// The per-person access editor (maintainer decision 2026-08-24). READING it is
+	// OperatorsRead, the same as the directory row it opens from. WRITING it is
+	// OperatorsManageCapability -- deliberately NOT OperatorsWrite, which creates a
+	// person: adding a colleague and deciding what every colleague may do are
+	// different authorities, and this one can grant every other permission in the
+	// catalog, including itself.
+	{OperationID: "getWorkforcePersonAccess", Method: "GET", Pattern: "/admin/workforce/people/{person_id}/access", Permissions: []string{OperatorsRead}},
+	{OperationID: "saveWorkforcePersonAccess", Method: "PUT", Pattern: "/admin/workforce/people/{person_id}/access", Permissions: []string{OperatorsManageCapability}},
+	// The designation defaults an editor applies before saving. Gated on the WRITE
+	// permission, not the read: it is only useful to someone about to change access,
+	// and it describes what a grant would contain.
+	{OperationID: "getDesignationDefaults", Method: "GET", Pattern: "/admin/workforce/designations/{code}/defaults", Permissions: []string{OperatorsManageCapability}},
+
 	{OperationID: "appMe", Method: "GET", Pattern: "/app/me", Permissions: []string{AppBootstrap}},
 	{OperationID: "appBootstrap", Method: "GET", Pattern: "/app/bootstrap", Permissions: []string{AppBootstrap}},
 	{OperationID: "adminWebBootstrap", Method: "GET", Pattern: "/admin-web/bootstrap", Permissions: []string{AdminWebBootstrap}},
 	{OperationID: "registerAppDevice", Method: "POST", Pattern: "/app/devices/register", Permissions: []string{AppBootstrap}},
 	{OperationID: "heartbeatAppDevice", Method: "POST", Pattern: "/app/devices/{device_id}/heartbeat", Permissions: []string{AppBootstrap}},
 	{OperationID: "deregisterAppDevice", Method: "POST", Pattern: "/app/devices/{device_id}/deregister", Permissions: []string{AppBootstrap}},
+	// Clock In / Out (docs/features/clock-in-out/plan.md). Punching and own
+	// status are for EVERY app principal (decision D2) — the AppBootstrap gate,
+	// exactly like device registration above. The mock-location refusal is a
+	// payload gate inside the service (422 mock_location_detected), not a
+	// permission.
+	{OperationID: "recordAppClockIn", Method: "POST", Pattern: "/app/clock/in", Permissions: []string{AppBootstrap}},
+	{OperationID: "recordAppClockOut", Method: "POST", Pattern: "/app/clock/out", Permissions: []string{AppBootstrap}},
+	{OperationID: "getAppClockStatus", Method: "GET", Pattern: "/app/clock/status", Permissions: []string{AppBootstrap}},
+	// Cross-person presence reads are leadership-only (ClockPresenceRead,
+	// maintainer decision 2026-08-28): the phone Team page and its drill-down,
+	// and the admin-web People/HRMS clock tab — one permission, both surfaces
+	// (role-scoped-UI-is-capability-gated rule).
+	{OperationID: "listAppClockPresence", Method: "GET", Pattern: "/app/clock/presence", Permissions: []string{ClockPresenceRead}},
+	{OperationID: "getAppClockPresencePerson", Method: "GET", Pattern: "/app/clock/presence/{workforce_member_id}", Permissions: []string{ClockPresenceRead}},
+	{OperationID: "listAdminClockEntries", Method: "GET", Pattern: "/admin/workforce/clock-entries", Permissions: []string{ClockPresenceRead}},
+	{OperationID: "getAdminClockEntry", Method: "GET", Pattern: "/admin/workforce/clock-entries/{clock_entry_id}", Permissions: []string{ClockPresenceRead}},
 	// Mobile live remote-config poll (docs/mobile/backend-driven-config.md): ETag/revision +
 	// cache_policy, presentation feature flags/owned-module registry, and bounded client runtime
 	// knobs. Same AppBootstrap "any authenticated app principal" gate as /app/bootstrap.
@@ -162,11 +212,24 @@ var protectedRoutes = []Route{
 	// state weighing hit above. Adding health.execute here keeps each role scoped to the one
 	// module it owns; handing it task.execute instead would carry vaccination SOP submission with
 	// it, which is the privilege escalation this route shape exists to avoid.
-	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
-	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
-	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
-	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
-	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete}},
+	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
+	{OperationID: "listUploadedProofs", Method: "GET", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
+	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
+	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
+	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute, HealthExecute, FeedDirectionComplete, PCCareExecute, ToxinExecute}},
+	// downloadProof stays on task.read ALONE, and that is correct for every module whose
+	// evidence it serves -- including toxin, where it reads like a gap and is not. A reviewer
+	// checking the toxin block in RoleCEOInternal sees ToxinRead/ToxinVerdict and concludes the
+	// CEO cannot fetch the strip photo it is judging; that block is an ADDITION to the role,
+	// which already carries task.read among ~80 permissions as the founder-visibility role.
+	// Asserted, not asserted-in-prose, by TestToxinReviewerReachesProofMedia: every holder of
+	// toxin.verdict must authorize here, so a future verdict holder without task.read is caught.
+	//
+	// The one real edge, deliberately left: toxin_tester holds no task.read and cannot call
+	// this. Nothing needs it today -- no toxin screen resolves a server proof URL, the phone
+	// renders its own local capture and only ever WRITES proof_ref. A tester surface that must
+	// show a previous attempt gets ToxinRead added here, the way the upload routes above
+	// already OR in ToxinExecute.
 	{OperationID: "downloadProof", Method: "GET", Pattern: "/app/proofs/{proof_id}/download", Permissions: []string{TaskRead}},
 	{OperationID: "recordAppAnalyticsEvent", Method: "POST", Pattern: "/app/analytics/events", Permissions: []string{AppBootstrap}},
 	{OperationID: "recordAppScanCapture", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-captures", Permissions: []string{TaskExecute}},
@@ -202,6 +265,48 @@ var protectedRoutes = []Route{
 	{OperationID: "updateProcurementVendor", Method: "PUT", Pattern: "/procurement/vendors/{vendor_id}", Permissions: []string{VendorWrite}},
 	{OperationID: "updateProcurementVendorStatus", Method: "POST", Pattern: "/procurement/vendors/{vendor_id}/status", Permissions: []string{VendorWrite}},
 	{OperationID: "listProcurementVendorCatalog", Method: "GET", Pattern: "/procurement/vendor-catalog", Permissions: []string{VendorRead}},
+	// The ACTIVE register as a bounded picklist, for any screen that must name a counterparty --
+	// today Sales, which maps every deal to a vendor. It deliberately returns only id/name/type
+	// labels and truncation metadata, so SalesRead may use this picker without inheriting the full
+	// procurement vendor register gated above by VendorRead.
+	{OperationID: "listProcurementVendorOptions", Method: "GET", Pattern: "/procurement/vendor-options", AnyPermissions: []string{VendorRead, SalesRead}},
+
+	// FEED PURCHASES (/procurement/feed-purchases on admin-web). Gated on the dedicated
+	// FeedPurchaseRead/FeedPurchaseWrite rather than ProcurementRead: the ledger carries supplier
+	// prices and payment state -- see FeedPurchaseRead's doc comment. The options route is a GET
+	// that serves the ENTRY FORM's vocabulary, so it sits on the read permission: a principal who
+	// may see the ledger may see which feeds and farms it is keyed by.
+	{OperationID: "listFeedPurchases", Method: "GET", Pattern: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseRead}},
+	{OperationID: "createFeedPurchase", Method: "POST", Pattern: "/procurement/feed-purchases", Permissions: []string{FeedPurchaseWrite}},
+	{OperationID: "getFeedPurchaseOptions", Method: "GET", Pattern: "/procurement/feed-purchase-options", Permissions: []string{FeedPurchaseRead}},
+
+	// TOXIN (maintainer decision 2026-08-25): the aflatoxin strip-test module. The task
+	// list and detail are ToxinRead; the step work is ToxinExecute; the verdict routes are
+	// ToxinVerdict — CEO/CXO ONLY, deliberately not verification.verdict, so the tenant
+	// verifier can never reach toxin work. Patterns must stay byte-identical to
+	// toxin/adapters/http.Register.
+	{OperationID: "listToxinTasks", Method: "GET", Pattern: "/app/toxin/tasks", Permissions: []string{ToxinRead}},
+	{OperationID: "getToxinTask", Method: "GET", Pattern: "/app/toxin/tasks/{task_id}", Permissions: []string{ToxinRead}},
+	{OperationID: "completeToxinStep", Method: "POST", Pattern: "/app/toxin/tasks/{task_id}/steps/{step_no}/complete", Permissions: []string{ToxinExecute}},
+	{OperationID: "submitToxinReading", Method: "POST", Pattern: "/app/toxin/tasks/{task_id}/submit", Permissions: []string{ToxinExecute}},
+	{OperationID: "listToxinReview", Method: "GET", Pattern: "/toxin/review", Permissions: []string{ToxinVerdict}},
+	{OperationID: "recordToxinVerdict", Method: "POST", Pattern: "/toxin/tasks/{task_id}/verdict", Permissions: []string{ToxinVerdict}},
+
+	// SALES (/sales on admin-web). Gated on the dedicated SalesRead/SalesWrite rather
+	// than ProcurementRead: sales is the SELLING side -- revenue, buyer names, realized prices --
+	// see SalesRead's doc comment.
+	{OperationID: "listSalesOverview", Method: "GET", Pattern: "/sales/overview", Permissions: []string{SalesRead}},
+	{OperationID: "listSalesDeals", Method: "GET", Pattern: "/sales/deals", Permissions: []string{SalesRead}},
+	{OperationID: "createSalesDeal", Method: "POST", Pattern: "/sales/deals", Permissions: []string{SalesWrite}},
+	{OperationID: "listSalesBuyerLeads", Method: "GET", Pattern: "/sales/buyer-leads", Permissions: []string{SalesRead}},
+	{OperationID: "createSalesBuyerLead", Method: "POST", Pattern: "/sales/buyer-leads", Permissions: []string{SalesWrite}},
+	{OperationID: "setSalesBuyerLeadStatus", Method: "POST", Pattern: "/sales/buyer-leads/{lead_id}/status", Permissions: []string{SalesWrite}},
+	{OperationID: "listSalesFpoLeads", Method: "GET", Pattern: "/sales/fpo-leads", Permissions: []string{SalesRead}},
+	{OperationID: "createSalesFpoLead", Method: "POST", Pattern: "/sales/fpo-leads", Permissions: []string{SalesWrite}},
+	{OperationID: "setSalesFpoLeadStatus", Method: "POST", Pattern: "/sales/fpo-leads/{lead_id}/status", Permissions: []string{SalesWrite}},
+	{OperationID: "createSalesMarketBenchmark", Method: "POST", Pattern: "/sales/market-benchmarks", Permissions: []string{SalesWrite}},
+	{OperationID: "createSalesSoldTags", Method: "POST", Pattern: "/sales/sold-tags", Permissions: []string{SalesWrite}},
+	{OperationID: "createSalesWeightCheck", Method: "POST", Pattern: "/sales/weight-checks", Permissions: []string{SalesWrite}},
 	// Procurement command-lens data is served by the TOP-LEVEL command screens via ?domain=procurement,
 	// not nested /procurement/source-entry/* routes. Those nested lens routes are intentionally not registered.
 
@@ -213,6 +318,8 @@ var protectedRoutes = []Route{
 	{OperationID: "addProtocolRule", Method: "POST", Pattern: "/protocols/versions/{version_id}/rules", Permissions: []string{ProtocolWrite}},
 	{OperationID: "getProtocolVersion", Method: "GET", Pattern: "/protocols/versions/{version_id}", Permissions: []string{ProtocolRead}},
 	{OperationID: "publishProtocolVersion", Method: "POST", Pattern: "/protocols/versions/{version_id}/publish", Permissions: []string{ProtocolPublish}},
+	{OperationID: "discardProtocolVersion", Method: "POST", Pattern: "/protocols/versions/{version_id}/discard", Permissions: []string{ProtocolWrite}},
+	{OperationID: "replaceProtocolDraftVersion", Method: "POST", Pattern: "/protocols/versions/{version_id}/replace", Permissions: []string{ProtocolWrite}},
 	{OperationID: "vaccinationImpactPreview", Method: "POST", Pattern: "/protocols/vaccination/impact-preview", Permissions: []string{ProtocolRead}},
 	{OperationID: "runVaccinationManualCampaign", Method: "POST", Pattern: "/vaccination/manual-campaigns", Permissions: []string{VaccinationCampaign}},
 	{OperationID: "listActionCenterObligations", Method: "GET", Pattern: "/action-center/obligations", Permissions: []string{ObligationRead}},
@@ -307,6 +414,19 @@ var protectedRoutes = []Route{
 	// never finish, and closing may strand not-accepted buckets.
 	{OperationID: "appCloseWeighingScope", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close", Permissions: []string{WeighingMonitor}},
 	{OperationID: "appCloseWeighingCampaign", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/close", Permissions: []string{WeighingMonitor}},
+	// THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17). She watches
+	// the proof video and fixes the number the operator typed, in kg, on the screen
+	// where she watches it.
+	//
+	// VerificationVerdict, deliberately -- NOT a weighing capability. This is the
+	// verifier-exclusive capability that owns approve/reject (2026-08-03 verdict
+	// exclusivity), so the one person who judges the evidence is the one person who
+	// may correct what it shows. Gating it on WeighingMonitor instead would hand the
+	// operator's recorded weight to every director and the CEO, which is the exact
+	// separation-of-duty inversion that lock exists to prevent; gating it on
+	// WeighingExecute would let the operator who typed the wrong number overwrite it
+	// with no second check at all.
+	{OperationID: "appCorrectWeighingObservationWeight", Method: "POST", Pattern: "/app/weighing/observations/{observation_id}/weight-correction", Permissions: []string{VerificationVerdict}},
 	// PHASE 2 Calendar / Control Tower weighing process state (read-only).
 	{OperationID: "getWeighingProcessState", Method: "GET", Pattern: "/weighing/process-state", Permissions: []string{WeighingMonitor}},
 	// The weighing module's OWN lifecycle alerts feed. AnyPermissions, never
@@ -410,7 +530,34 @@ var protectedRoutes = []Route{
 	// recording what WAS fed belongs to backend/internal/feed. No route here needs an
 	// Idempotency-Key because no route here has a side effect to replay.
 	{OperationID: "getFeedDirectionPreview", Method: "GET", Pattern: "/feed-direction/preview", Permissions: []string{FeedDirectionRead}},
+	// Herd Signals (BLE ear-tag telemetry, backend/internal/herdsignals): ingest is the gateway
+	// device's own write, separate from every operator/admin read below it.
+	{OperationID: "ingestHerdSignalPackets", Method: "POST", Pattern: "/herd-signals/packets", Permissions: []string{HerdSignalsIngest}},
+	{OperationID: "listHerdSignalsLive", Method: "GET", Pattern: "/herd-signals/live", Permissions: []string{HerdSignalsRead}},
+	{OperationID: "getHerdSignalsTagTimeline", Method: "GET", Pattern: "/herd-signals/tags/{tag_id}/timeline", Permissions: []string{HerdSignalsRead}},
+	{OperationID: "listHerdSignalsGateways", Method: "GET", Pattern: "/herd-signals/gateways", Permissions: []string{HerdSignalsRead}},
+	{OperationID: "getHerdSignalsInsights", Method: "GET", Pattern: "/herd-signals/insights", Permissions: []string{HerdSignalsRead}},
+	// The mapping WRITES. HerdSignalsMap, never HerdSignalsRead: deciding which animal a tag
+	// belongs to is not the same authority as looking at the dashboard -- it is the decision
+	// every animal-attributed number in the module depends on, and it starts that animal's
+	// monitoring period.
+	{OperationID: "bindHerdSignalTagMapping", Method: "POST", Pattern: "/herd-signals/tag-mappings", Permissions: []string{HerdSignalsMap}},
+	{OperationID: "replaceHerdSignalTagMapping", Method: "POST", Pattern: "/herd-signals/tag-mappings/replace", Permissions: []string{HerdSignalsMap}},
+	{OperationID: "unmapHerdSignalTagMapping", Method: "POST", Pattern: "/herd-signals/tag-mappings/unmap", Permissions: []string{HerdSignalsMap}},
+	// Gateway heartbeat: a DEVICE write, same credential class as packet ingest, so it carries
+	// HerdSignalsIngest rather than an operator permission.
+	{OperationID: "recordHerdSignalGatewayHeartbeat", Method: "POST", Pattern: "/herd-signals/heartbeats", Permissions: []string{HerdSignalsIngest}},
+	{OperationID: "exportHerdSignalsCsv", Method: "GET", Pattern: "/herd-signals/export.csv", Permissions: []string{HerdSignalsRead}},
+	{OperationID: "getHerdSignalsTagActivity", Method: "GET", Pattern: "/herd-signals/tags/{tag_id}/activity", Permissions: []string{HerdSignalsRead}},
+	{OperationID: "getFeedAnalyticsDirected", Method: "GET", Pattern: "/feed-analytics/directed", Permissions: []string{FeedDirectionRead}},
+	{OperationID: "getFeedAnalyticsExecution", Method: "GET", Pattern: "/feed-analytics/execution", Permissions: []string{FeedDirectionRead}},
+	{OperationID: "getFeedAnalyticsExperiment", Method: "GET", Pattern: "/feed-analytics/experiment", Permissions: []string{FeedDirectionRead}},
+	{OperationID: "getFeedAnalyticsStock", Method: "GET", Pattern: "/feed-analytics/stock", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedPackingWorklist", Method: "GET", Pattern: "/feed-packing/worklist", Permissions: []string{FeedPackingRead}},
+	// Which of a pen-session's proof slots are already recorded, by any operator. A READ on the
+	// feed-direction surface, so it takes the direction read permission -- not the completion write
+	// twin: seeing that a slot is done is not authority to complete anything.
+	{OperationID: "getFeedDistributionCaptures", Method: "GET", Pattern: "/feed-direction/distribution/captures", Permissions: []string{FeedDirectionRead}},
 	// The pre-gate instant completion (POST /feed-direction/complete) is intentionally absent: its
 	// route is unregistered and its store unwired, because completing at operator submit bypasses the
 	// verifier gate. Do not re-add it here.
@@ -420,6 +567,14 @@ var protectedRoutes = []Route{
 	// (route_not_registered) any route not in this table, so an unregistered write path is unreachable.
 	{OperationID: "completeFeedDistributionSession", Method: "POST", Pattern: "/feed-direction/distribution/complete", Permissions: []string{FeedDirectionComplete}},
 	{OperationID: "completeFeedPackingSession", Method: "POST", Pattern: "/feed-direction/packing/complete", Permissions: []string{FeedDirectionComplete}},
+	// Feed WASTAGE (maintainer decision 2026-08-18): the per-pen experiment worklist read, the
+	// operator's completion write (same write twin as packing/distribution), and the VERIFIER'S
+	// measurement write. The measurement rides VerificationVerdict — the verifier-exclusive
+	// capability that owns approve/reject — mirroring the weighing weight-correction route: the
+	// person who judges the evidence is the person who records what it shows.
+	{OperationID: "getFeedWastageWorklist", Method: "GET", Pattern: "/feed-wastage/worklist", Permissions: []string{FeedWastageRead}},
+	{OperationID: "completeFeedWastage", Method: "POST", Pattern: "/feed-direction/wastage/complete", Permissions: []string{FeedDirectionComplete}},
+	{OperationID: "recordFeedWastageMeasurement", Method: "POST", Pattern: "/feed-direction/wastage/{completion_id}/measurement", Permissions: []string{VerificationVerdict}},
 	// Daily feed transport. The LIST is a read and gates on its own read permission; only the
 	// SUBMIT keeps the write twin (maintainer decision 2026-08-05). Both were FeedDirectionComplete,
 	// which meant looking at the transport worklist required the authority to record that transport
@@ -427,6 +582,28 @@ var protectedRoutes = []Route{
 	// execute grant. See FeedTransportRead.
 	{OperationID: "listFeedTransportTasks", Method: "GET", Pattern: "/feed-transport/tasks", Permissions: []string{FeedTransportRead}},
 	{OperationID: "submitFeedTransportTask", Method: "POST", Pattern: "/feed-transport/tasks/{task_id}/submit", Permissions: []string{FeedDirectionComplete}},
+
+	// PC Care (module_key pc_care, maintainer decision 2026-08-21): deworming / ticks removal /
+	// hoof trimming / hair trimming, planned per pen per day with named assignees. Planner
+	// writes and the planner vocabulary are PCCarePlan (CEO-only, the weighing.plan precedent);
+	// the monitor list admits the read-only oversight capabilities too; the operator surfaces
+	// gate on PCCareExecute — and every WRITE additionally requires task-assignee membership,
+	// enforced in the service (the permission alone is never write authority).
+	{OperationID: "appPCCarePlannerCatalog", Method: "GET", Pattern: "/app/pc-care/planner/catalog", AnyPermissions: []string{PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appPCCarePlannerParkSheds", Method: "GET", Pattern: "/app/pc-care/planner/parks/{park_id}/sheds", Permissions: []string{PCCarePlan}},
+	{OperationID: "appCreatePCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks", Permissions: []string{PCCarePlan}},
+	{OperationID: "appCancelPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/cancel", Permissions: []string{PCCarePlan}},
+	{OperationID: "appListPCCareTasks", Method: "GET", Pattern: "/app/pc-care/tasks", AnyPermissions: []string{PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appPCCareWorklist", Method: "GET", Pattern: "/app/pc-care/worklist", Permissions: []string{PCCareExecute}},
+	{OperationID: "appGetPCCareTask", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
+	// The peer-visibility poll: which animals are scanned and which video slots each already
+	// holds, by ANY assignee. A READ — seeing that a slot is done is not authority to record.
+	{OperationID: "appPCCareTaskCaptures", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/captures", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appPCCareTaskRoster", Method: "GET", Pattern: "/app/pc-care/tasks/{task_id}/roster", AnyPermissions: []string{PCCareExecute, PCCarePlan, PCCareMonitor, PCCareOverseeOperators}},
+	{OperationID: "appScanPCCareAnimal", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/animals", Permissions: []string{PCCareExecute}},
+	{OperationID: "appRegisterPCCareSlotProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},
+	{OperationID: "appRegisterPCCareTaskProof", Method: "PUT", Pattern: "/app/pc-care/tasks/{task_id}/proofs/{slot}", Permissions: []string{PCCareExecute}},
+	{OperationID: "appSubmitPCCareTask", Method: "POST", Pattern: "/app/pc-care/tasks/{task_id}/submit", Permissions: []string{PCCareExecute}},
 
 	// Authored feed configuration (/feed-config/*), the surface behind the Feed Config screen.
 	//
@@ -463,6 +640,11 @@ var protectedRoutes = []Route{
 	// Retiring a feed item removes it from every future feed sheet, so it carries the same write
 	// permission as authoring a rate -- it changes what animals are fed, not merely what a screen shows.
 	{OperationID: "setFeedConfigFeedItemStatus", Method: "POST", Pattern: "/feed-config/feed-items/status", Permissions: []string{FeedConfigWrite}},
+	// Declaring a feed on a session's recipe is the write that decides WHETHER a feed is served at
+	// all -- generation walks these slots, so a feed with a grid quantity but no slot is never looked
+	// up. Same authority as rewriting the grid, and for a stronger reason: this one can put a feed in
+	// front of every animal in the park, or take it away from all of them.
+	{OperationID: "setFeedConfigSessionTemplateItem", Method: "POST", Pattern: "/feed-config/session-template-items", Permissions: []string{FeedConfigWrite}},
 	{OperationID: "upsertFeedConfigShedFactor", Method: "POST", Pattern: "/feed-config/shed-factors", Permissions: []string{FeedConfigWrite}},
 	// Atomic multi-item enrolment of ONE pen. Same permission as the single-cell write -- it is the
 	// same authored surface -- but its own route because it carries an all-or-nothing guarantee.
@@ -529,6 +711,21 @@ var protectedRoutes = []Route{
 	// A verifier holds verification.review/verdict but NOT verification.oversee, so this route
 	// 403s for her even though she can read the plain queue. See permissions.VerificationOversee.
 	{OperationID: "getVerificationOversightAnalytics", Method: "GET", Pattern: "/verification/oversight-analytics", Permissions: []string{VerificationOversee}},
+	// The VIDEO LOG: one business day, per shed, the time each proof was uploaded. Gated on
+	// verification.evidence_timeline -- a DIFFERENT capability from verification.oversee above, and
+	// deliberately so: the verifier holds this one and not that one. See
+	// permissions.VerificationEvidenceTimeline for why the two are separate and what each does not
+	// carry. The read is additionally park-clamped for a caller whose grant is park-scoped, exactly
+	// like the queue read.
+	{OperationID: "getVerificationVideoLog", Method: "GET", Pattern: "/verification/video-log", Permissions: []string{VerificationEvidenceTimeline}},
+	// RANDOMIZATION (maintainer decision 2026-08-26): per category, what percentage of that
+	// category's proof videos the verifier must watch, and how the day is going against that share.
+	// Read and write are gated on the SAME capability, verification.sampling, which is CEO-only --
+	// narrower than verification.oversee, which RolePCDirector also holds. There is nothing on this
+	// panel to read except the setting itself, so a caller who may not set it has no use for it.
+	// See permissions.VerificationSampling.
+	{OperationID: "getVerificationSampling", Method: "GET", Pattern: "/verification/sampling", Permissions: []string{VerificationSampling}},
+	{OperationID: "setVerificationSamplingPolicy", Method: "PUT", Pattern: "/verification/sampling/{category}", Permissions: []string{VerificationSampling}},
 
 	// HR roster: staff positions (concept #2), leave/absence (#3), temporary
 	// task coverage (#4), and the vaccination-ownership resolution read.
@@ -652,6 +849,48 @@ func AuthorizeRoute(route Route, roles []string) bool {
 		return false
 	}
 	return true
+}
+
+// AuthorizePermissionSet is AuthorizeRoute against a principal's RESOLVED permission
+// set rather than their roles. It is the per-person half of the 2026-08-24 access
+// rewrite: the ~95 route rules are unchanged, and only the SOURCE of the answer moved
+// from a hardcoded role map to the person's own stored module rows.
+//
+// AdminOnly is deliberately NOT expressible here. That flag short-circuits to a
+// product-ADMIN ROLE check and ignores the permission lists entirely, so a permission
+// set cannot answer it; the caller must keep using the role path for those routes.
+// Returning false instead would silently 403 every admin-only route.
+func AuthorizePermissionSet(route Route, held []string) (allowed bool, decidable bool) {
+	if route.AdminOnly {
+		return false, false
+	}
+	if len(route.Permissions) == 0 && len(route.AnyPermissions) == 0 {
+		return false, true
+	}
+	set := make(map[string]struct{}, len(held))
+	for _, p := range held {
+		set[p] = struct{}{}
+	}
+	// Permissions is ANDed, AnyPermissions is ORed -- the same shape AuthorizeRoute
+	// applies, so the two paths cannot disagree about what a route wants.
+	for _, required := range route.Permissions {
+		if _, ok := set[required]; !ok {
+			return false, true
+		}
+	}
+	if len(route.AnyPermissions) > 0 {
+		any := false
+		for _, candidate := range route.AnyPermissions {
+			if _, ok := set[candidate]; ok {
+				any = true
+				break
+			}
+		}
+		if !any {
+			return false, true
+		}
+	}
+	return true, true
 }
 
 func ProtectedRoutes() []Route {

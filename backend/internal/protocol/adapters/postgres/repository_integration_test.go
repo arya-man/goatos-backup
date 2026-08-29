@@ -199,6 +199,16 @@ func TestProtocolCreateWritesAreIdempotentAndAudited(t *testing.T) {
 		t.Fatalf("version conflict err=%v, want ErrIdempotencyConflict", err)
 	}
 
+	// One draft per scope is now a database rule, so the first draft has to stop being a
+	// draft before a second version can be created here. Retiring it keeps what this test is
+	// actually about -- that the backend allocates the next version number itself -- since
+	// allocation counts every version, whatever its status.
+	if _, err := pool.Exec(ctx, `
+UPDATE protocol_versions SET status = 'retired'
+WHERE tenant_id = $1::uuid AND protocol_version_id = $2::uuid`, testTenantID, versionID); err != nil {
+		t.Fatalf("retire first draft: %v", err)
+	}
+
 	autoVersionID, err := repo.CreateVersion(ctx, domain.NewVersion{
 		TenantID:       testTenantID,
 		ProtocolID:     protocolID,
@@ -226,9 +236,11 @@ WHERE tenant_id = $1::uuid
 		t.Fatalf("backend allocated version = %d, want 2", allocatedVersion)
 	}
 
+	// Rules attach to the draft, which is now the backend-allocated one: the first version
+	// was retired above so a second could be created at all.
 	ruleInput := domain.NewRule{
 		TenantID:          testTenantID,
-		ProtocolVersionID: versionID,
+		ProtocolVersionID: autoVersionID,
 		DoseCode:          "PPR-1",
 		Sequence:          1,
 		TriggerType:       "post_arrival",
@@ -269,7 +281,8 @@ SELECT
   (SELECT count(*) FROM idempotency_keys WHERE idempotency_key IN ($4, $5, $6))`,
 		testTenantID,
 		protocolID,
-		versionID,
+		// The rule count is read against the version the rule was attached to.
+		autoVersionID,
 		testTenantID+":protocol.definition.create:def-key-0001",
 		testTenantID+":protocol.version.create:version-key-0001",
 		testTenantID+":protocol.rule.create:rule-key-0001",
@@ -1168,5 +1181,229 @@ WHERE tenant_id = $1::uuid AND event_type = 'vaccination.capacity.changed' AND a
 	}
 	if n := countFor(parkFuture); n != 1 {
 		t.Fatalf("after replay, vaccination.capacity.changed rows for park with future work = %d, want 1", n)
+	}
+}
+
+// TestDiscardVersionRemovesADraftThatHasRules exercises the case every fake-backed
+// test missed: a draft with rules attached.
+//
+// protocol_rules_version_tenant_fk carries no ON DELETE CASCADE, so the original
+// single-statement delete raised a foreign-key violation and the endpoint answered
+// 500 for exactly the drafts anyone would want to discard -- an authored one. Only a
+// real database can catch that, which is why this test is here rather than beside the
+// handler tests.
+func TestDiscardVersionRemovesADraftThatHasRules(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	actorID := "90000000-0000-4000-8000-000000000101"
+
+	protocolID, err := repo.CreateDefinition(ctx, domain.NewDefinition{
+		TenantID: testTenantID, Code: "vaccination.discard.rules", Name: "Discard With Rules",
+		Category: "vaccination", Status: "draft", CreatedBy: &actorID, IdempotencyKey: "discard-def-1",
+	})
+	if err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+	versionID, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID: testTenantID, ProtocolID: protocolID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"ruleset_family":"vaccination.matrix"}`),
+		ProofPolicy:   []byte(`{"required_proofs":["video"]}`),
+		DraftedBy:     &actorID, IdempotencyKey: "discard-version-1",
+	})
+	if err != nil {
+		t.Fatalf("create version: %v", err)
+	}
+	if _, err := repo.CreateRule(ctx, domain.NewRule{
+		TenantID: testTenantID, ProtocolVersionID: versionID, DoseCode: "discard_probe", Sequence: 1,
+		TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7, Repeat: "none", CatchUp: "immediate",
+		EligibilityJSON: []byte(`{}`), IdempotencyKey: "discard-rule-1",
+	}); err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+
+	var rules int
+	if err := pool.QueryRow(ctx, `select count(*) from protocol_rules where protocol_version_id = $1`, versionID).Scan(&rules); err != nil {
+		t.Fatalf("count rules: %v", err)
+	}
+	if rules != 1 {
+		t.Fatalf("rules before discard = %d, want 1", rules)
+	}
+
+	if err := repo.DiscardVersion(ctx, testTenantID, versionID); err != nil {
+		t.Fatalf("discard a draft that has rules: %v", err)
+	}
+
+	var versions int
+	if err := pool.QueryRow(ctx, `select count(*) from protocol_versions where protocol_version_id = $1`, versionID).Scan(&versions); err != nil {
+		t.Fatalf("count versions: %v", err)
+	}
+	if versions != 0 {
+		t.Fatalf("version rows after discard = %d, want 0", versions)
+	}
+	if err := pool.QueryRow(ctx, `select count(*) from protocol_rules where protocol_version_id = $1`, versionID).Scan(&rules); err != nil {
+		t.Fatalf("count rules after: %v", err)
+	}
+	if rules != 0 {
+		t.Fatalf("rule rows after discard = %d, want 0", rules)
+	}
+}
+
+// TestDiscardVersionRefusesAPublishedVersionAndKeepsItsRules proves the draft-only
+// predicate holds in SQL: the published row AND its rules survive untouched, so no
+// caller can erase what a farm was told to do.
+func TestDiscardVersionRefusesAPublishedVersionAndKeepsItsRules(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	actorID := "90000000-0000-4000-8000-000000000101"
+
+	protocolID, err := repo.CreateDefinition(ctx, domain.NewDefinition{
+		TenantID: testTenantID, Code: "vaccination.discard.published", Name: "Discard Published",
+		Category: "vaccination", Status: "draft", CreatedBy: &actorID, IdempotencyKey: "discard-def-2",
+	})
+	if err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+	versionID, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID: testTenantID, ProtocolID: protocolID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"ruleset_family":"vaccination.matrix"}`),
+		ProofPolicy:   []byte(`{"required_proofs":["video"]}`),
+		DraftedBy:     &actorID, IdempotencyKey: "discard-version-2",
+	})
+	if err != nil {
+		t.Fatalf("create version: %v", err)
+	}
+	if _, err := repo.CreateRule(ctx, domain.NewRule{
+		TenantID: testTenantID, ProtocolVersionID: versionID, DoseCode: "keep_me", Sequence: 1,
+		TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7, Repeat: "none", CatchUp: "immediate",
+		EligibilityJSON: []byte(`{}`), IdempotencyKey: "discard-rule-2",
+	}); err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+	if err := repo.PublishVersion(ctx, testTenantID, versionID, &actorID, "discard-publish-2"); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	if err := repo.DiscardVersion(ctx, testTenantID, versionID); !errors.Is(err, ports.ErrVersionNotDraft) {
+		t.Fatalf("discard published err = %v, want ErrVersionNotDraft", err)
+	}
+
+	var versions, rules int
+	if err := pool.QueryRow(ctx, `select count(*) from protocol_versions where protocol_version_id = $1`, versionID).Scan(&versions); err != nil {
+		t.Fatalf("count versions: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `select count(*) from protocol_rules where protocol_version_id = $1`, versionID).Scan(&rules); err != nil {
+		t.Fatalf("count rules: %v", err)
+	}
+	if versions != 1 || rules != 1 {
+		t.Fatalf("after a refused discard: versions=%d rules=%d, want 1 and 1", versions, rules)
+	}
+}
+
+// Saving an edited plan is a REPLACE: the draft on screen becomes a new draft and the old row
+// goes. Both halves have to happen in one transaction, because one draft per plan is enforced
+// in the database -- create-then-discard is refused outright, and discard-then-create destroys
+// the farm's work whenever the create then fails.
+func TestReplaceDraftVersionSwapsTheDraftAndIsIdempotent(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	actorID := "90000000-0000-4000-8000-000000000101"
+
+	protocolID, err := repo.CreateDefinition(ctx, domain.NewDefinition{
+		TenantID: testTenantID, Code: "vaccination.replace.draft", Name: "Replace Draft",
+		Category: "vaccination", Status: "draft", CreatedBy: &actorID, IdempotencyKey: "replace-def-1",
+	})
+	if err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+	original, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID: testTenantID, ProtocolID: protocolID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"ruleset_family":"vaccination.matrix"}`),
+		ProofPolicy:   []byte(`{"required_proofs":["video"]}`),
+		DraftedBy:     &actorID, IdempotencyKey: "replace-version-1",
+	})
+	if err != nil {
+		t.Fatalf("create version: %v", err)
+	}
+	if _, err := repo.CreateRule(ctx, domain.NewRule{
+		TenantID: testTenantID, ProtocolVersionID: original, DoseCode: "replace_probe", Sequence: 1,
+		TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7, Repeat: "none", CatchUp: "immediate",
+		EligibilityJSON: []byte(`{}`), IdempotencyKey: "replace-rule-1",
+	}); err != nil {
+		t.Fatalf("create rule: %v", err)
+	}
+
+	edited := domain.NewVersion{
+		TenantID: testTenantID, ProtocolID: protocolID, ScopeType: "tenant", Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"ruleset_family":"vaccination.matrix","edited":true}`),
+		ProofPolicy:   []byte(`{"required_proofs":["video"]}`),
+		DraftedBy:     &actorID, IdempotencyKey: "replace-swap-1",
+	}
+	replacement, err := repo.ReplaceDraftVersion(ctx, edited, original)
+	if err != nil {
+		t.Fatalf("replace draft: %v", err)
+	}
+	if replacement == original {
+		t.Fatal("replace returned the same version id")
+	}
+
+	// Exactly one draft, and it is the replacement. Anything else means the invariant this
+	// call exists to satisfy was broken by the call itself.
+	var drafts int
+	var draftID string
+	if err := pool.QueryRow(ctx, `
+SELECT count(*), coalesce(max(protocol_version_id::text), '')
+FROM protocol_versions
+WHERE tenant_id = $1::uuid AND protocol_id = $2::uuid AND status = 'draft'`,
+		testTenantID, protocolID).Scan(&drafts, &draftID); err != nil {
+		t.Fatalf("count drafts: %v", err)
+	}
+	if drafts != 1 || draftID != replacement {
+		t.Fatalf("drafts = %d (id %s), want exactly the replacement %s", drafts, draftID, replacement)
+	}
+	// The old draft's rules went with it: they described a plan that no longer exists.
+	var orphanRules int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM protocol_rules WHERE protocol_version_id = $1::uuid`, original).Scan(&orphanRules); err != nil {
+		t.Fatalf("count orphan rules: %v", err)
+	}
+	if orphanRules != 0 {
+		t.Fatalf("old draft left %d rules behind", orphanRules)
+	}
+
+	// A retry cannot tell whether the first attempt committed -- the id it holds is already
+	// gone. Replaying the same key must return the same replacement, not fail.
+	replayed, err := repo.ReplaceDraftVersion(ctx, edited, original)
+	if err != nil {
+		t.Fatalf("replay replace: %v", err)
+	}
+	if replayed != replacement {
+		t.Fatalf("replay returned %s, want the original replacement %s", replayed, replacement)
+	}
+
+	// And a replace aimed at something that is not a draft is refused rather than quietly
+	// creating a second one.
+	if _, err := pool.Exec(ctx,
+		`UPDATE protocol_versions SET status = 'published' WHERE protocol_version_id = $1::uuid`, replacement); err != nil {
+		t.Fatalf("publish replacement: %v", err)
+	}
+	edited.IdempotencyKey = "replace-swap-2"
+	if _, err := repo.ReplaceDraftVersion(ctx, edited, replacement); !errors.Is(err, ports.ErrVersionNotDraft) {
+		t.Fatalf("replace of a published version err = %v, want ErrVersionNotDraft", err)
 	}
 }

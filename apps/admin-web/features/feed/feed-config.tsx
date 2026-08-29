@@ -22,6 +22,7 @@ import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedPager } from "./feed-pager";
 import { FeedFaroView } from "./feed-faro-view";
 import { isConfiguredZero } from "./feed-quantity";
+import { FeedItemsTable } from "./feed-items-table";
 import { RationGridTable } from "./ration-grid-table";
 import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope";
 import {
@@ -30,6 +31,7 @@ import {
   saveFeedItem,
   saveRationRate,
   saveSchedule,
+  saveSessionFeed,
   setExperimentShedStatus,
   setFeedItemStatus,
 } from "./feed-config-actions";
@@ -39,8 +41,8 @@ import {
   ExperimentPenEnroller,
   ExperimentShedSwitch,
   FeedItemCreator,
-  FeedItemStatusSwitch,
   ScheduleEditor,
+  SessionFeedsCell,
 } from "./feed-config-editor";
 import { experimentEnrollerScopeKey } from "./experiment-enroller-scope";
 
@@ -460,7 +462,7 @@ export async function FeedConfigPage({
   const sessionCols = tableLabels(pageContract, "session-template");
   const scheduleCols = tableLabels(pageContract, "schedule-config");
   const experimentCols = tableLabels(pageContract, "experiment-config");
-  const feedItemCols = tableLabels(pageContract, "feed-items");
+  const feedItemsTable = table(pageContract, "feed-items");
 
   const shedNameById = new Map(locations.sheds.map((shed) => [shed.id, shed.name]));
   // The park being read, by name. Live data from the locations master — never composed from a code
@@ -755,6 +757,11 @@ export async function FeedConfigPage({
           fields={filterFields}
           pageContract={pageContract}
           deferApply
+          telemetry={{
+            eventPrefix: "feed_config_filter_apply",
+            surface: "ration_grid",
+            route: PAGE_PATH,
+          }}
         >
         {/* The grid is passed to the bar so ONE pending state drives both the bar's busy ring and
             these rows being held back. They stay readable while the new page is fetched — the old
@@ -834,81 +841,24 @@ export async function FeedConfigPage({
           role="group"
           aria-label={copy(pageContract, "section.feed_items.aria")}
         >
-          <table className="feed-table" aria-label={copy(pageContract, "table.feed_items.aria")}>
-            <thead>
-              <tr>
-                {feedItemCols.map((col) => (
-                  <th key={col}>{col}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {(feedItems?.items ?? []).length === 0 ? (
-                <tr>
-                  <td colSpan={feedItemCols.length}>
-                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-                      {!feedItemsResult || feedItemsResult.ok
-                        ? copy(pageContract, "empty.feed_items")
-                        : copy(pageContract, "state.feed_items_unavailable")}
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                (feedItems?.items ?? []).map((row) => (
-                  <tr key={row.feed_item_id}>
-                    <td>{row.feed_item}</td>
-                    {/* An unset attribute renders as the contract's placeholder, never as 0 and
-                        never as a blank cell. Both of those would read as a measured value: a 0
-                        claims someone measured none, and an empty cell reads as one too on a table
-                        whose other columns are numbers. */}
-                    <td className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>
-                      {row.energy_kcal_per_kg ?? copy(pageContract, "label.placeholder")}
-                    </td>
-                    <td className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>
-                      {row.dry_matter_factor ?? copy(pageContract, "label.placeholder")}
-                    </td>
-                    <td className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>
-                      {row.wastage_factor ?? copy(pageContract, "label.placeholder")}
-                    </td>
-                    <td className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>
-                      {row.display_order}
-                    </td>
-                    {/* The status cell carries BOTH the state and the control that changes it. The
-                        chip resolves its label through the page contract rather than printing
-                        row.status: that column holds storage vocabulary, and the retired value in
-                        particular reads as a property of the item rather than as the thing it
-                        actually means, which is that the item is on no feed sheet. */}
-                    <td>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
-                        <span
-                          className={row.status === "active" ? "tag t-ok" : "tag t-mut"}
-                          title={copy(
-                            pageContract,
-                            row.status === "active" ? "label.feed_item_active_note" : "label.feed_item_retired_note",
-                          )}
-                        >
-                          {copy(
-                            pageContract,
-                            row.status === "active" ? "label.feed_item_active" : "label.feed_item_retired",
-                          )}
-                        </span>
-                        {/* Offers the OPPOSITE of the current state, so the control always names the
-                            change it makes rather than the state it is in — the same rule the
-                            experiment pen switch follows. */}
-                        <FeedItemStatusSwitch
-                          pageContract={pageContract}
-                          action={setFeedItemStatus}
-                          feedItemId={row.feed_item_id}
-                          feedItemLabel={row.feed_item}
-                          targetStatus={row.status === "active" ? "retired" : "active"}
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+          {/* Headless table, same contract-driven column model as the ration grid above. The status
+              cell is edited IN PLACE — double-click swaps the chip for a picker of the backend's
+              `feed_item_status` vocabulary and the choice applies at once — which replaced the old
+              confirm-then-apply retire/restore button. */}
+          <FeedItemsTable
+            contract={feedItemsTable}
+            pageContract={pageContract}
+            rows={feedItems?.items ?? []}
+            ariaLabel={copy(pageContract, "table.feed_items.aria")}
+            statusAction={setFeedItemStatus}
+            empty={
+              <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
+                {!feedItemsResult || feedItemsResult.ok
+                  ? copy(pageContract, "empty.feed_items")
+                  : copy(pageContract, "state.feed_items_unavailable")}
+              </div>
+            }
+          />
         </div>
       </section>
 
@@ -965,6 +915,11 @@ export async function FeedConfigPage({
           fields={experimentFilterFields}
           pageContract={pageContract}
           deferApply
+          telemetry={{
+            eventPrefix: "feed_config_filter_apply",
+            surface: "experiment_config",
+            route: PAGE_PATH,
+          }}
         >
         <div
           className="bd feed-scroll"
@@ -1230,6 +1185,20 @@ export async function FeedConfigPage({
                       title={copy(pageContract, "label.session_split_note")}
                     >
                       {row.split_fraction}
+                    </td>
+                    {/* The recipe. Cells are rendered POSITIONALLY against the contract's column
+                        list, so this sits between split_fraction and status exactly as the contract
+                        orders them — a column added to one side only shifts every header sideways,
+                        which is what TestFeedTableColumnsAreExact pins. */}
+                    <td style={{ whiteSpace: "normal" }}>
+                      <SessionFeedsCell
+                        pageContract={pageContract}
+                        action={saveSessionFeed}
+                        parkId={row.park_id}
+                        sessionNo={row.session_no}
+                        items={row.items ?? []}
+                        catalogItems={catalogItems}
+                      />
                     </td>
                     <td>
                       <span className={row.status === "active" ? "tag t-ok" : "tag t-mut"}>{row.status}</span>

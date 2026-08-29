@@ -263,6 +263,14 @@ Explicit exceptions:
   are pre-contract auth surfaces. They render before the user can reliably fetch
   `/admin-web/bootstrap`, so their Google/session error text remains local until
   an unauthenticated auth-copy endpoint exists.
+- `features/vaccination-plan/` and the two `/vaccination/plan` route files render
+  local copy for now. The page contract for `vaccination-plan` exists, but the copy
+  it carries is the deleted `/config` screen's (capacity fields, rule-editor
+  labels) — inherited when that screen was removed, and describing a different
+  surface. Wiring this console's 51 strings through those keys would pin the wrong
+  vocabulary in place, so the copy migration is deliberately a separate change:
+  author keys against what THIS screen says, then remove this exception. Until
+  then the wording lives beside the mock it was approved against.
 - `components/admin-shell.tsx` has a contract-unavailable emergency screen. It
   is intentionally local because the contract request failed; using backend copy
   there would create a circular dependency.
@@ -439,3 +447,23 @@ GET /admin-web/bootstrap available through generated client
 ## Full-screen drive detail route (2026-07-14)
 
 `/calendar/drive/[eventId]` is a new full-screen route (owner-directed replacement for the calendar drive drawer). It has no backend page contract yet, so its structural literals (breadcrumb crumbs, roster column headers) remain a documented local exception. It is allow-listed in `apps/admin-web/scripts/check-ui-contract-literals.mjs` (`app/(admin)/calendar/drive/`). Fold into a backend page contract when the detail surface stabilizes.
+
+## Herd Signals feature (2026-08-23)
+
+`/herd-signals` is a new BLE ear-tag monitoring surface (Live Monitor, Animals, Gateways,
+Alerts, Tag Mapping, Insights). It has a backend `AdminWebPageContract` for `herd-signals`
+(`requireAdminWebPageContract("herd-signals")`) and already sources `page.title`/`page.subtitle`
+through it, but the bulk of this feature's structural copy — tab labels/icons, table column
+headers, KPI card labels, mapping/gateway/insights table copy, filter labels, drawer copy — was
+built directly against the mock (`mock/herd-signals-mock.html`, the design authority for this
+surface) without being wired through `AdminWebPageContract.copy`/`option_groups` first. This is a
+pre-existing gap across the whole feature (`apps/admin-web/features/herd-signals/`), not
+something introduced by any single change to it, and it is out of proportion to fix as a
+side-effect of an unrelated change (see the 2026-08-23 IA-guard / park-scope fix and
+request-plan-fanout restructuring, which is what actually motivated running this guard's full
+scan for the first time — it was previously masked because `check-ia-guard.mjs` failed first in
+the `&&` chain and short-circuited every guard after it, including this one).
+`apps/admin-web/features/herd-signals/` is allow-listed in
+`apps/admin-web/scripts/check-ui-contract-literals.mjs`. Fold this feature's structural copy into
+the `herd-signals` backend page contract before it is treated as feature-complete; this exception
+covers the existing debt only, not new literals added after 2026-08-23.

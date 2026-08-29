@@ -186,7 +186,7 @@ func (r *Repository) transitionMilkPreparationVerdict(ctx context.Context, in do
 UPDATE milk_preparation_completions
 SET status = $3,
     verified_by = CASE WHEN $3 = 'completed' THEN nullif($4::text, '')::uuid ELSE NULL END,
-    verified_at = CASE WHEN $3 = 'completed' THEN $5 ELSE NULL END,
+    verified_at = CASE WHEN $3 = 'completed' THEN $5::timestamptz ELSE NULL END,
     rework_reason = CASE WHEN $3 = 'rework' THEN nullif($6, '') ELSE NULL END,
     row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = $1::uuid AND completion_id = $2::uuid AND status = 'pending_verification'
@@ -230,4 +230,31 @@ RETURNING park_id::text, preparation_date::text, current_attempt_no`,
 		return false, fmt.Errorf("counts: commit milk preparation verdict: %w", err)
 	}
 	return true, nil
+}
+
+// VerifiedUHTConsumption reads the accepted attempt's UHT-milk answer for a COMPLETED
+// preparation, joining the completion to the exact attempt the verifier approved
+// (current_attempt_no) so a reworked earlier attempt's litres can never leak out.
+func (r *Repository) VerifiedUHTConsumption(ctx context.Context, tenantID, completionID string) (domain.MilkPreparationUHTConsumption, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	out := domain.MilkPreparationUHTConsumption{TenantID: tenantID, CompletionID: completionID}
+	err := r.pool.QueryRow(ctx, `
+SELECT c.park_id::text, c.preparation_date::text, c.current_attempt_no,
+       COALESCE((a.answers->>'uht_milk_quantity_litres')::float8, 0)
+FROM milk_preparation_completions c
+JOIN milk_preparation_proof_attempts a
+  ON a.tenant_id = c.tenant_id
+ AND a.completion_id = c.completion_id
+ AND a.attempt_no = c.current_attempt_no
+WHERE c.tenant_id = $1::uuid AND c.completion_id = $2::uuid AND c.status = 'completed'`,
+		tenantID, completionID).
+		Scan(&out.ParkID, &out.PreparationDate, &out.AttemptNo, &out.UHTMilkQuantityLitres)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.MilkPreparationUHTConsumption{}, false, nil
+	}
+	if err != nil {
+		return domain.MilkPreparationUHTConsumption{}, false, fmt.Errorf("counts: read verified UHT consumption: %w", err)
+	}
+	return out, true, nil
 }

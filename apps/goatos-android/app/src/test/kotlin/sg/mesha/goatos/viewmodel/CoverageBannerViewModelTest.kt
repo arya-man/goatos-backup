@@ -203,7 +203,7 @@ private class FakeCoverageRepository : RosterRepository {
 
     override fun observeCoverage(): Flow<MyCoverageResponseDto?> = coverageFlow
 
-    override suspend fun refreshTimetable(centerId: String, limit: Int?): Boolean = true // unused in coverage tests
+    override suspend fun refreshTimetable(centerId: String, limit: Int?): Result<Unit> = Result.success(Unit) // unused in coverage tests
 
     override suspend fun refreshCoverage(): Boolean {
         if (shouldRefreshFail) return false // simulate a network failure: cache is kept

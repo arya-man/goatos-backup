@@ -33,15 +33,21 @@ import (
 	pubsubpublisher "github.com/vgoats/goatos/backend/internal/outbox/adapters/publisher/pubsub"
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	outboxports "github.com/vgoats/goatos/backend/internal/outbox/ports"
+	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
+	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
+	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
+	toxinpg "github.com/vgoats/goatos/backend/internal/toxin/adapters/postgres"
+	toxinapp "github.com/vgoats/goatos/backend/internal/toxin/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
+	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
@@ -175,6 +181,11 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		weighingVerificationBridge := weighingverificationbridge.New(
 			verificationpg.NewRepository(pool, pgCfg.QueryTimeout),
 		)
+		verificationService := verificationapp.NewService(verificationpg.NewRepository(pool, pgCfg.QueryTimeout), nil)
+		if err := pccareverificationbridge.RegisterCategories(verificationService); err != nil {
+			return nil, nil, fmt.Errorf("register pc care verification categories: %w", err)
+		}
+		pcCareVerificationBridge := pccareverificationbridge.New(verificationService)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 		obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -193,16 +204,25 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
 		notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 		notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
+		// The afternoon feed correction's packing reopen: DOWNWARD push to the packer whose bag was
+		// taken back, carrying the old-vs-new quantities (feed.packing.reopened; maintainer decision
+		// 2026-08-29).
+		notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
 		countsapp.NewProjectionInputHandler(countsService).Register(bus)
 		// Shifting + feed verification appliers: the ONE shared registration (see bootstrap/api.go and
 		// cmd/domain-event-consumer). In local eventbus mode this in-process bus IS the delivery, so
 		// without these a verifier approval never applies locally either.
-		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, weighingRepo, weighingVerificationBridge, logger)
+		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsMilkPreparationRepo, weighingRepo, weighingVerificationBridge, pccarepg.NewRepository(pool, pgCfg.QueryTimeout), logger)
+		pccareapp.NewPCCarePendingVerificationHandler(pcCareVerificationBridge, logger).Register(bus)
 		// Birth/death workflow consumers: in local eventbus mode this in-process bus IS the delivery,
 		// so without these an approved birth/death opens no follow-up work locally.
 		eventwiring.RegisterWorkflowConsumers(bus,
 			eventwiring.NewWorkflowConsumerService(pool, pgCfg.QueryTimeout, logger), logger)
 		healthapp.NewDeathLifecycleHandler(healthRepo).Register(bus)
+		// Toxin task creation (maintainer decision 2026-08-25): in local eventbus mode this
+		// in-process bus IS the delivery, so without this a recorded feed purchase never gets its
+		// aflatoxin test task locally. The durable twin is cmd/domain-event-consumer.
+		toxinapp.NewFeedPurchaseRecordedHandler(toxinpg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
 		logger.Info("outbox_relay_eventbus_dispatcher_ready")
 		return eventbuspublisher.New(bus), nil, nil
 	case outboxpublisher.KindPubSub:

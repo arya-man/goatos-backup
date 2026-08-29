@@ -30,6 +30,7 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.CalendarRepository
 import sg.mesha.goatos.core.data.CalendarScheduleQuery
+import sg.mesha.goatos.core.network.isConnectivityFailure
 import sg.mesha.goatos.core.network.dto.CalendarDateMarkerDto
 import sg.mesha.goatos.core.network.dto.CalendarEventDto
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
@@ -202,6 +203,7 @@ class CalendarViewModel @Inject constructor(
         _refreshError.value = null
         analytics.track(AnalyticsEvents.CALENDAR_REFRESH_ATTEMPTED)
         val filters = _monthFilters.value
+        refreshMonthSchedule(filters)
 
         val requests = listOf(
             async {
@@ -286,7 +288,10 @@ class CalendarViewModel @Inject constructor(
     }
 
     private fun activateMonth() {
-        val filters = _monthFilters.value
+        refreshMonthSchedule(_monthFilters.value)
+    }
+
+    private fun refreshMonthSchedule(filters: CalendarMonthFilters) {
         val range = monthRange(filters)
         _monthQuery.value = CalendarScheduleQuery(
             parkId = filters.parkId,
@@ -295,6 +300,7 @@ class CalendarViewModel @Inject constructor(
             status = filters.status,
             dateFrom = range.dateFrom,
             dateTo = range.dateTo,
+            refreshNonce = _monthQuery.value.refreshNonce + 1,
         )
     }
 
@@ -311,7 +317,6 @@ class CalendarViewModel @Inject constructor(
         trackFilterChange("shed", previous.shedId, filters.shedId)
         trackFilterChange("vaccine", previous.vaccine, filters.vaccine)
         trackFilterChange("status", previous.status, filters.status)
-        activateMonth()
         refresh()
     }
 
@@ -349,7 +354,7 @@ class CalendarViewModel @Inject constructor(
                 vaccine = filters.vaccine,
                 limit = CALENDAR_PAGE_SIZE,
             )
-            _offline.value = result.isFailure
+            _offline.value = result.exceptionOrNull().isConnectivityFailure()
             if (result.isSuccess) {
                 analytics.track(AnalyticsEvents.CALENDAR_REFRESH_SUCCEEDED)
             } else {
@@ -378,7 +383,7 @@ class CalendarViewModel @Inject constructor(
             vaccine = filters.vaccine,
             limit = CALENDAR_PAGE_SIZE,
         )
-        _offline.value = result.isFailure
+        _offline.value = result.exceptionOrNull().isConnectivityFailure()
         if (result.isSuccess) {
             analytics.track(AnalyticsEvents.CALENDAR_LOAD_MORE_SUCCEEDED)
         } else {
@@ -438,8 +443,9 @@ class CalendarViewModel @Inject constructor(
             errorMessage = refreshError?.takeIf {
                 week.data == null && month.data == null && selectedDay.data == null
             }?.let { "Calendar could not load. Check your connection and try again." },
-            segments = segments,
-            selectedSegmentId = resolvedSegmentId,
+            segments = emptyList(),
+            selectedSegmentId = WEEK_SEGMENT,
+            taskListOnly = true,
             weekDays = buildWeekDays(week.data?.dateMarkers.orEmpty(), currentSelectedDay, today),
             weekItems = dayItems.map { it.toCalendarItem() },
             weekEmptyLabel = presentation?.emptyState?.okMessage?.ifBlank { base.weekEmptyLabel } ?: base.weekEmptyLabel,

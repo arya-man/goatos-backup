@@ -52,7 +52,7 @@ class TelemetryWatchdogTest {
     }
 
     @Test
-    fun `arming and never disarming emits both the dead-control event and a non-fatal`() = runTest {
+    fun `arming and never disarming emits the dead-control event and breadcrumb`() = runTest {
         val analytics = RecordingWatchdogAnalytics()
         val crashReporter = RecordingWatchdogCrashReporter()
         val watchdog = DeadControlWatchdog(
@@ -68,10 +68,8 @@ class TelemetryWatchdogTest {
         advanceUntilIdle()
 
         assertEquals(listOf(INTENT_EVENT, DEAD_CONTROL_EVENT), analytics.events.map { it.first })
-        assertEquals(1, crashReporter.recorded.size)
-        val (throwable, message) = crashReporter.recorded.single()
-        assertTrue(throwable is DeadControlException)
-        assertEquals("dead-control watchdog fired: $DEAD_CONTROL_EVENT", message)
+        assertEquals(listOf("dead-control watchdog fired: $DEAD_CONTROL_EVENT"), crashReporter.logs)
+        assertTrue(crashReporter.recorded.isEmpty())
     }
 
     @Test
@@ -99,12 +97,13 @@ class TelemetryWatchdogTest {
         advanceTimeBy(timeoutMs)
         advanceUntilIdle()
 
-        // Repeated intents, but exactly one dead-control report — not two.
+        // Repeated intents, but exactly one dead-control signal — not two.
         assertEquals(
             listOf(INTENT_EVENT, INTENT_EVENT, DEAD_CONTROL_EVENT),
             analytics.events.map { it.first },
         )
-        assertEquals(1, crashReporter.recorded.size)
+        assertEquals(listOf("dead-control watchdog fired: $DEAD_CONTROL_EVENT"), crashReporter.logs)
+        assertTrue(crashReporter.recorded.isEmpty())
     }
 
     @Test
@@ -150,12 +149,15 @@ private class RecordingWatchdogAnalytics : AnalyticsPort {
 
 private class RecordingWatchdogCrashReporter : CrashReporter {
     val recorded = mutableListOf<Pair<Throwable, String?>>()
+    val logs = mutableListOf<String>()
 
     override fun recordException(throwable: Throwable, message: String?) {
         recorded.add(throwable to message)
     }
 
-    override fun log(message: String) {}
+    override fun log(message: String) {
+        logs += message
+    }
 
     override fun setCustomKey(key: String, value: String) {}
 }

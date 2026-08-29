@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"strconv"
 	"strings"
 	"time"
 
@@ -25,7 +24,7 @@ type Service struct {
 }
 
 type exportReader interface {
-	ExportCSV(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, writer io.Writer) error
+	ExportCSV(ctx context.Context, tenantID string, parkIDs []string, shedLocationIDs []string, periodStart, periodEnd time.Time, writer io.Writer) error
 }
 
 func NewService(repo ports.Repository) *Service {
@@ -932,15 +931,22 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	}
 	cmd.TenantID = actor.TenantID
 	cmd.RecordedBy = actor.UserID
-	if !isPositiveFinite(cmd.WeightKg) || cmd.AnimalCount <= 0 {
+	if !isPositiveFinite(cmd.WeightKg) {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
-	cmd.AverageWeightKg = cmd.WeightKg / float64(cmd.AnimalCount)
+	// THE OPERATOR NO LONGER SUPPLIES THE HEAD COUNT (maintainer decision
+	// 2026-08-24, superseding the operator-entered count half of the 2026-08-03
+	// lump-sum contract). The client-sent animal_count / average_weight_kg are
+	// carried through UNCHANGED so an older APK's replay fingerprint stays
+	// byte-identical, but the repository ignores both: it snapshots the bucket's
+	// resident head count from the herd register inside the submit transaction
+	// and derives the average from that snapshot. The snapshot is frozen on the
+	// row forever — no later census change and no verifier edit moves it.
 	cmd.ProofArtifactIDs = normalizeProofArtifactIDs(cmd.ProofArtifactID, cmd.ProofArtifactIDs)
 	if len(cmd.ProofArtifactIDs) > 0 {
 		cmd.ProofArtifactID = cmd.ProofArtifactIDs[0]
 	}
-	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || !isPositiveFinite(cmd.AverageWeightKg) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
+	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
 	if len(cmd.ProofArtifactIDs) < 1 || len(cmd.ProofArtifactIDs) > domain.MaxShedProofArtifacts {
@@ -1032,37 +1038,20 @@ func (s *Service) reviseVerificationRound(ctx context.Context, tenantID string, 
 // from the campaign-shed bucket (repo.CampaignShedLocation) and is "" only when that lookup found
 // nothing, in which case the label degrades to its old shed-less form rather than printing a
 // UUID or an empty separator (LOCKED SPEC section 5: never render an id as a label).
+//
+// The composition itself lives in domain.CorrectedSubjectLabel because the VERIFIER'S
+// weight correction has to recompose the very same sentence after it replaces the
+// weight. Two copies of it would drift, and the drifted one would be the label the
+// verifier reads on a corrected item.
 func individualSubjectLabel(obs domain.Observation, shedDisplay string) string {
-	parts := make([]string, 0, 3)
-	if shed := strings.TrimSpace(shedDisplay); shed != "" {
-		parts = append(parts, shed)
-	}
-	if tag := strings.TrimSpace(obs.ScannedIdentifier); tag != "" {
-		parts = append(parts, "Tag "+tag)
-	}
-	parts = append(parts, formatWeightKg(obs.WeightKg))
-	return strings.Join(parts, " · ")
+	return domain.CorrectedSubjectLabel(domain.VerificationRefTypeAnimal, shedDisplay, obs.ScannedIdentifier, obs.WeightKg, 0)
 }
 
 // lumpSumSubjectLabel names the shed it weighed. It used to open with the hardcoded word "Whole
 // shed", which reads as a scope ("the whole shed was weighed at once") but was doing double duty
 // as the shed's NAME -- and so every lump-sum row in every shed rendered identically.
 func lumpSumSubjectLabel(obs domain.Observation, shedDisplay string) string {
-	head := strings.TrimSpace(shedDisplay)
-	if head == "" {
-		head = "Whole shed"
-	}
-	label := head + " · " + formatWeightKg(obs.WeightKg)
-	if obs.AnimalCount > 0 {
-		label += " · " + strconv.Itoa(obs.AnimalCount) + " goats"
-	}
-	return label
-}
-
-// formatWeightKg always carries the unit -- a bare number on a verification screen is the
-// exact ambiguity this change exists to remove.
-func formatWeightKg(weightKg float64) string {
-	return strconv.FormatFloat(weightKg, 'f', 1, 64) + " kg"
+	return domain.CorrectedSubjectLabel(domain.VerificationRefTypeShed, shedDisplay, "", obs.WeightKg, obs.AnimalCount)
 }
 
 func (s *Service) enqueueVerification(ctx context.Context, tenantID, parkID, campaignID, campaignShedID, operatorID string, obs domain.Observation, mediaRefs []string, label, shedLocationID string) error {
@@ -1367,9 +1356,8 @@ func (s *Service) GetWeightHistory(ctx context.Context, actor domain.Actor, park
 }
 
 // growthDefaultPeriodDays is the reporting window used when the caller supplies neither `from`
-// nor `to`. 90 days matches the horizon MaxWeightHistoryWeighDays already uses for the sibling
-// weight-history chart, so the two CEO-tier weighing reads default to the same lookback.
-const growthDefaultPeriodDays = 90
+// nor `to`: the last week, matching the Weights screen's default filter.
+const growthDefaultPeriodDays = domain.ShedWeightsDefaultPeriodDays
 
 // GetLeadershipGrowthADG serves the herd-level ADG (Average Daily Gain) read model for one park.
 //
@@ -1381,7 +1369,7 @@ const growthDefaultPeriodDays = 90
 // Requires WeighingMonitor, park-scoped exactly like GetWeightHistory: a park-scoped monitor may
 // only request a park inside their own grant, and a tenant-wide monitor may request any park in
 // the tenant.
-func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.GrowthADG, error) {
+func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.GrowthADG, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.GrowthADG{}, ports.ErrForbidden
 	}
@@ -1443,7 +1431,7 @@ func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor
 		return domain.GrowthADG{}, scopeErr
 	}
 
-	return s.repo.GetLeadershipGrowthADG(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive)
+	return s.repo.GetLeadershipGrowthADG(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex)
 }
 
 // resolveMonitorParkScope turns an OPTIONAL park_id into the concrete park list a
@@ -1506,7 +1494,7 @@ func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Acto
 
 // GetWeightDemographics serves the breed / sex / stage breakdown on the Weights
 // screen. Same capability and scope rules as the other leadership reads.
-func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.WeightDemographics, error) {
+func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.WeightDemographics, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.WeightDemographics{}, ports.ErrForbidden
 	}
@@ -1518,7 +1506,7 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 	if scopeErr != nil {
 		return domain.WeightDemographics{}, scopeErr
 	}
-	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive)
+	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex)
 }
 
 // GetShedWeights serves the admin-web "Kids — Weights" screen: one row per shed
@@ -1526,7 +1514,7 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 //
 // Same capability and scope rules as GetLeadershipGrowthADG — this is a leadership
 // read of the same estate, so it must not be reachable on a weaker check.
-func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.ShedWeights, error) {
+func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.ShedWeights, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.ShedWeights{}, ports.ErrForbidden
 	}
@@ -1547,7 +1535,7 @@ func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID
 	if windowErr != nil {
 		return domain.ShedWeights{}, windowErr
 	}
-	return s.shedWeightsFor(ctx, actor, parkID, periodStart, periodEndExclusive)
+	return s.shedWeightsFor(ctx, actor, parkID, periodStart, periodEndExclusive, sex)
 }
 
 // resolveWeighingWindow turns optional business dates into the half-open
@@ -1593,13 +1581,19 @@ func (s *Service) resolveWeighingWindow(fromBusinessDate, toBusinessDate string)
 	return periodStart, periodEndInclusive.AddDate(0, 0, 1), nil
 }
 
-func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID string, periodStart, periodEndExclusive time.Time) (domain.ShedWeights, error) {
-	parkIDs, scopeErr := s.resolveMonitorParkScope(ctx, actor, parkID)
+func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID string, periodStart, periodEndExclusive time.Time, sex string) (domain.ShedWeights, error) {
+	// The SELECTION is authorization-checked through the same helper (it rejects a park the actor
+	// may not see), and the SCOPE is resolved separately with no filter. The park dropdown is built
+	// from the scope, so choosing CPT no longer removes CBE from the list.
+	if _, scopeErr := s.resolveMonitorParkScope(ctx, actor, parkID); scopeErr != nil {
+		return domain.ShedWeights{}, scopeErr
+	}
+	scopeParkIDs, scopeErr := s.resolveMonitorParkScope(ctx, actor, "")
 	if scopeErr != nil {
 		return domain.ShedWeights{}, scopeErr
 	}
 
-	out, err := s.repo.GetShedWeights(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive)
+	out, err := s.repo.GetShedWeights(ctx, actor.TenantID, scopeParkIDs, parkID, periodStart, periodEndExclusive, sex)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}
@@ -1684,9 +1678,13 @@ func (s *Service) ExportCampaignCSV(ctx context.Context, actor domain.Actor, cam
 	return s.repo.ExportCampaignCSV(ctx, actor.TenantID, campaignID, writer)
 }
 
-// ExportCSV exports the current leadership weighing window as CSV.
+// ExportCSV exports the selected leadership weighing window as CSV.
 // The default is 36 inclusive business dates: today plus the previous 35 days.
-func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate string, writer io.Writer) error {
+// The Weights page's download drawer sends an explicit range; anything up to a
+// year is served, because the export exists to reconcile past periods. parkID
+// optionally narrows to one authorized park; shedLocationIDs optionally narrow
+// to selected shed locations within that scope.
+func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusinessDate, toBusinessDate, parkID string, shedLocationIDs []string, writer io.Writer) error {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return ports.ErrForbidden
 	}
@@ -1700,11 +1698,23 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusines
 	if err != nil {
 		return ports.ErrInvalidArgument
 	}
-	if from.After(to) || to.Sub(from) > 35*24*time.Hour {
+	if from.After(to) || to.Sub(from) > 366*24*time.Hour {
 		return ports.ErrInvalidArgument
 	}
 
-	parkIDs, err := s.resolveMonitorParkScope(ctx, actor, "")
+	sheds := make([]string, 0, len(shedLocationIDs))
+	for _, shedID := range shedLocationIDs {
+		shedID = strings.TrimSpace(shedID)
+		if shedID == "" {
+			continue
+		}
+		if !uuidutil.IsUUIDString(shedID) {
+			return ports.ErrInvalidArgument
+		}
+		sheds = append(sheds, shedID)
+	}
+
+	parkIDs, err := s.resolveMonitorParkScope(ctx, actor, strings.TrimSpace(parkID))
 	if err != nil {
 		return err
 	}
@@ -1712,7 +1722,7 @@ func (s *Service) ExportCSV(ctx context.Context, actor domain.Actor, fromBusines
 	if !ok {
 		return ports.ErrNotFound
 	}
-	return reader.ExportCSV(ctx, actor.TenantID, parkIDs, from, to.AddDate(0, 0, 1), writer)
+	return reader.ExportCSV(ctx, actor.TenantID, parkIDs, sheds, from, to.AddDate(0, 0, 1), writer)
 }
 
 func exportBusinessDateOrDefault(value string, fallback time.Time) (time.Time, error) {

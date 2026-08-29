@@ -8,11 +8,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
+import sg.mesha.goatos.core.database.outbox.OutboxEntity
+import sg.mesha.goatos.core.database.outbox.OutboxOpType
+import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.dto.ScanCaptureDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
+import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationDecision
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventPayloadDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
 import java.io.IOException
@@ -38,6 +48,7 @@ class SyncRepositoryTest {
         store: OutboxStore = FakeOutboxStore(),
         api: ScriptedAppApi = ScriptedAppApi(),
         online: Boolean = true,
+        weighingTransitionEpochDao: sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochDao? = null,
     ): DefaultSyncRepository {
         val engine = SyncEngine(
             store = store,
@@ -45,6 +56,7 @@ class SyncRepositoryTest {
             connectivityGate = { online },
             dispatchers = unconfinedDispatchers,
             clock = { 0L },
+            weighingTransitionEpochDao = weighingTransitionEpochDao,
         )
         return DefaultSyncRepository(
             store = store,
@@ -54,6 +66,25 @@ class SyncRepositoryTest {
             dispatchers = unconfinedDispatchers,
             clock = { 0L },
         )
+    }
+
+    /** In-memory stand-in for the Room DAO, sufficient for asserting epoch-advance timing. */
+    private class FakeWeighingTransitionEpochDao : sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochDao {
+        private val rows = mutableMapOf<String, sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity>()
+        val upsertCalls = mutableListOf<sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity>()
+
+        override suspend fun get(scopeId: String): String? = rows[scopeId]?.epoch
+
+        override suspend fun upsert(row: sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity) {
+            rows[row.scopeId] = row
+            upsertCalls += row
+        }
+
+        override suspend fun insertIfAbsent(row: sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity) {
+            rows.putIfAbsent(row.scopeId, row)
+        }
+
+        override suspend fun pruneOutsideNewest(keep: Int) = Unit
     }
 
     private fun submitRequest(key: String) = SubmitTaskRequestDto(sopVersionId = "sop-1", idempotencyKey = key)
@@ -92,6 +123,260 @@ class SyncRepositoryTest {
         assertEquals(1, repo.observeStatus().value.items.size)
     }
 
+    /**
+     * DEVICE-PROVEN DEFECT: a submit op whose only outbox row already reached a TERMINAL failure
+     * (dead-letter conflict OR attempt-exhausted) permanently blocked ALL future submits of the
+     * same task, because submit idempotency keys are stable per task ("milk-feeding-submit:
+     * <taskId>"-shaped) and the unique index on [sg.mesha.goatos.core.database.outbox.OutboxEntity.idempotencyKey]
+     * silently dropped a fresh enqueue under that key — no new row, no drain, no POST, no error
+     * surfaced. A fresh user tap must re-open the SAME row (same idempotencyKey, so server-side
+     * replay stays idempotent) back to PENDING with a reset attempt budget and the new payload, and
+     * the drain loop must actually pick it up and send it.
+     */
+    @Test
+    fun `re-enqueuing a key whose row is a terminal dead-letter reopens it and drains`() = runBlocking {
+        val store = FakeOutboxStore()
+        val api = ScriptedAppApi()
+        val repo = repository(store = store, api = api)
+        val deadRow = OutboxEntity(
+            id = "row-1",
+            opType = OutboxOpType.SHED_SUBMIT.name,
+            groupKey = "shed-1",
+            idempotencyKey = "key-1",
+            payloadJson = "{}",
+            requestFingerprint = "stale-fingerprint",
+            status = OutboxStatus.FAILED.name,
+            attemptCount = DEFAULT_MAX_ATTEMPTS,
+            maxAttempts = DEFAULT_MAX_ATTEMPTS,
+            conflict = false,
+            createdAt = 0L,
+            updatedAt = 0L,
+            nextAttemptAt = Long.MAX_VALUE,
+            lastError = "network unreachable",
+        )
+        store.insert(deadRow)
+
+        val result = repo.enqueueShedSubmit(
+            taskId = "task-1",
+            groupKey = "shed-1",
+            idempotencyKey = "key-1",
+            request = submitRequest("key-1"),
+        )
+
+        assertTrue("re-enqueue over a dead-letter row must succeed, not be silently dropped", result is AppResult.Ok)
+        assertEquals("row-1", (result as AppResult.Ok).value)
+        assertEquals("exactly one outbox row must exist — reopened in place, never a duplicate", 1, store.snapshot().size)
+        assertTrue(
+            "the actual network call must have fired: a reopened row must be drain-eligible",
+            api.submitCalls.any { it.first == "task-1" },
+        )
+        val status = repo.observeStatus().value
+        assertEquals(SyncItemStatus.SUCCEEDED, status.items.first().status)
+    }
+
+    @Test
+    fun `re-enqueuing a dead-letter conflict row with a NEW payload reopens with the new payload`() = runBlocking {
+        val store = FakeOutboxStore()
+        val api = ScriptedAppApi()
+        val repo = repository(store = store, api = api)
+        val deadRow = OutboxEntity(
+            id = "row-1",
+            opType = OutboxOpType.SHED_SUBMIT.name,
+            groupKey = "shed-1",
+            idempotencyKey = "key-1",
+            payloadJson = "{\"stale\":true}",
+            requestFingerprint = "stale-fingerprint",
+            status = OutboxStatus.FAILED.name,
+            attemptCount = 1,
+            maxAttempts = DEFAULT_MAX_ATTEMPTS,
+            conflict = true, // definitive server rejection — never auto-retried, only a fresh submit re-arms it
+            createdAt = 0L,
+            updatedAt = 0L,
+            nextAttemptAt = Long.MAX_VALUE,
+            lastError = "422 validation failed",
+        )
+        store.insert(deadRow)
+
+        val result = repo.enqueueShedSubmit(
+            taskId = "task-1",
+            groupKey = "shed-1",
+            idempotencyKey = "key-1",
+            request = submitRequest("key-1-corrected"),
+        )
+
+        assertTrue("a corrected resubmit over a conflict row must succeed, never a stale IdempotencyKeyConflict", result is AppResult.Ok)
+        val reopened = store.snapshot().single()
+        assertEquals("key-1", reopened.idempotencyKey) // SAME key — server-side replay stays idempotent
+        assertTrue("the corrected payload must replace the stale one", reopened.payloadJson.contains("key-1-corrected"))
+        assertEquals(SyncItemStatus.SUCCEEDED, repo.observeStatus().value.items.first().status)
+    }
+
+    @Test
+    fun `re-enqueuing a failed proof upload refreshes payload and group instead of conflicting`() = runBlocking {
+        val store = FakeOutboxStore()
+        val api = ScriptedAppApi()
+        val repo = repository(store = store, api = api, online = false)
+        val failedRow = OutboxEntity(
+            id = "proof-row-1",
+            opType = OutboxOpType.PROOF_UPLOAD.name,
+            groupKey = "feed-dist:old-slot-group",
+            idempotencyKey = "proof-upload:proof-1",
+            payloadJson = "{\"localFilePath\":\"/old/file.mp4\"}",
+            requestFingerprint = "stale-fingerprint",
+            status = OutboxStatus.FAILED.name,
+            attemptCount = 1,
+            maxAttempts = DEFAULT_MAX_ATTEMPTS,
+            conflict = false,
+            createdAt = 0L,
+            updatedAt = 0L,
+            nextAttemptAt = Long.MAX_VALUE,
+            lastError = "Idempotency key already belongs to a different queued write.",
+        )
+        store.insert(failedRow)
+
+        val result = repo.enqueueProofUpload(
+            groupKey = "feed-dist:shared-group",
+            idempotencyKey = "proof-upload:proof-1",
+            request = ProofUploadRequestDto(
+                proofType = "video",
+                mimeType = "video/mp4",
+                scopeType = "shed",
+                scopeId = "shed-1",
+                subjectType = "shed",
+                subjectId = "shed-1",
+            ),
+            localFilePath = "/new/file.mp4",
+            durationMs = 1200L,
+        )
+
+        assertTrue("failed proof re-enqueue must reuse the existing row, not surface a stale conflict", result is AppResult.Ok)
+        assertEquals("proof-row-1", (result as AppResult.Ok).value)
+        val reopened = store.snapshot().single()
+        assertEquals("feed-dist:shared-group", reopened.groupKey)
+        assertEquals(OutboxStatus.QUEUED.name, reopened.status)
+        assertTrue("new proof payload must replace stale local file path", reopened.payloadJson.contains("/new/file.mp4"))
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // WEIGHING_SCOPE_SUBMIT outbox path (weighing-durable-state item 3): the same durable-
+    // enqueue guarantees every other outbox op has already had proven above, plus the
+    // submit-specific "epoch only advances on SUCCEEDED, never optimistically at enqueue" rule
+    // that only this op type carries (see SyncEngine.reconcileFeatureSuccess).
+    // ---------------------------------------------------------------------------------------
+
+    private fun scopeSubmitRequest(vararg tags: String) = WeighingScopeSubmitRequestDto(tags.toList())
+
+    @Test
+    fun `enqueueWeighingScopeSubmit produces exactly one durable outbox row keyed by its idempotency key`() = runBlocking {
+        val repo = repository()
+        assertEquals(0, repo.observeStatus().value.items.size)
+
+        val result = repo.enqueueWeighingScopeSubmit(
+            campaignId = "campaign-1",
+            campaignShedId = "shed-1",
+            groupKey = "shed-1",
+            idempotencyKey = "submit-key-1",
+            request = scopeSubmitRequest("tag-1", "tag-2"),
+        )
+
+        assertTrue("enqueue must succeed", result is AppResult.Ok)
+        val status = repo.observeStatus().value
+        assertEquals("exactly one outbox row for one submit", 1, status.items.size)
+        assertEquals("submit-key-1", status.items.single().idempotencyKey)
+        assertEquals(
+            "the fake api's default submitWeighingScope succeeds, so drain should terminalize it",
+            SyncItemStatus.SUCCEEDED,
+            status.items.single().status,
+        )
+    }
+
+    @Test
+    fun `re-invoking enqueueWeighingScopeSubmit with the SAME idempotency key never creates a duplicate outbox row`() = runBlocking {
+        val store = FakeOutboxStore()
+        val repo = repository(store = store)
+        val request = scopeSubmitRequest("tag-1")
+
+        val first = repo.enqueueWeighingScopeSubmit(
+            campaignId = "campaign-1",
+            campaignShedId = "shed-1",
+            groupKey = "shed-1",
+            idempotencyKey = "submit-key-1",
+            request = request,
+        )
+        val second = repo.enqueueWeighingScopeSubmit(
+            campaignId = "campaign-1",
+            campaignShedId = "shed-1",
+            groupKey = "shed-1",
+            idempotencyKey = "submit-key-1",
+            request = request,
+        )
+
+        val firstId = (first as AppResult.Ok).value
+        val secondId = (second as AppResult.Ok).value
+        assertEquals("re-enqueuing the same key must return the SAME outbox row id, not mint a new one", firstId, secondId)
+        assertEquals(1, repo.observeStatus().value.items.size)
+    }
+
+    @Test
+    fun `the local transition epoch advances ONLY after the submit reaches SUCCEEDED, never optimistically at enqueue`() = runBlocking {
+        val epochDao = FakeWeighingTransitionEpochDao()
+        val store = FakeOutboxStore()
+        // start OFFLINE: enqueue must queue, not drain, so the "at enqueue" moment is observable
+        // in isolation. repository()'s `online` is fixed at construction, so this test builds the
+        // engine/repo pair directly instead, letting it flip online mid-run and drive an explicit
+        // drain -- the same way SyncWorker triggers a real pass once connectivity returns.
+        val online = booleanArrayOf(false)
+        val engine = SyncEngine(
+            store = store,
+            api = ScriptedAppApi(),
+            connectivityGate = { online[0] },
+            dispatchers = unconfinedDispatchers,
+            clock = { 0L },
+            weighingTransitionEpochDao = epochDao,
+        )
+        val liveRepo = DefaultSyncRepository(
+            store = store,
+            engine = engine,
+            connectivityGate = { online[0] },
+            appScope = CoroutineScope(Dispatchers.Unconfined),
+            dispatchers = unconfinedDispatchers,
+            clock = { 0L },
+        )
+
+        liveRepo.enqueueWeighingScopeSubmit(
+            campaignId = "campaign-1",
+            campaignShedId = "shed-1",
+            groupKey = "shed-1",
+            idempotencyKey = "submit-key-1",
+            request = scopeSubmitRequest("tag-1"),
+        )
+
+        assertEquals(
+            "the row must be QUEUED, not yet drained, while offline",
+            SyncItemStatus.QUEUED,
+            liveRepo.observeStatus().value.items.single().status,
+        )
+        assertTrue(
+            "enqueue itself must NOT advance the epoch -- only a SUCCEEDED drain may",
+            epochDao.upsertCalls.isEmpty(),
+        )
+
+        online[0] = true
+        engine.drainOnce()
+
+        assertEquals(
+            "after a successful drain the row is SUCCEEDED",
+            SyncItemStatus.SUCCEEDED,
+            liveRepo.observeStatus().value.items.single().status,
+        )
+        assertEquals(
+            "the epoch must advance exactly once, only now that the submit is SUCCEEDED",
+            1,
+            epochDao.upsertCalls.size,
+        )
+        assertEquals("submit:campaign-1:shed-1", epochDao.upsertCalls.single().scopeId)
+    }
+
     @Test
     fun `enqueueVerificationVerdict is durable and drains against the fake api`() = runBlocking {
         val api = ScriptedAppApi().apply { submitVerificationVerdictFn = { _, _, _ -> VerificationVerdictResponseDto() } }
@@ -109,6 +394,67 @@ class SyncRepositoryTest {
         assertEquals(1, status.items.size)
         assertEquals(SyncItemStatus.SUCCEEDED, status.items.first().status)
         assertEquals(1, api.verdictCalls.size)
+    }
+
+    @Test
+    fun `verification review events survive failed upload and retry exactly once`() = runBlocking {
+        val store = FakeOutboxStore()
+        var now = 0L
+        var fail = true
+        var successfulPosts = 0
+        val api = ScriptedAppApi().apply {
+            recordVerificationReviewEventsFn = { request ->
+                if (fail) throw IOException("offline")
+                successfulPosts += 1
+                VerificationReviewEventBatchResponseDto(inserted = request.events.size)
+            }
+        }
+        val engine = SyncEngine(
+            store = store,
+            api = api,
+            connectivityGate = { true },
+            dispatchers = unconfinedDispatchers,
+            clock = { now },
+        )
+        val repo = DefaultSyncRepository(
+            store = store,
+            engine = engine,
+            connectivityGate = { true },
+            appScope = CoroutineScope(Dispatchers.Unconfined),
+            dispatchers = unconfinedDispatchers,
+            clock = { now },
+        )
+        val event = VerificationReviewEventRequestDto(
+            itemId = "item-1",
+            proofId = "proof-1",
+            sessionId = "session-1",
+            eventType = "video_play",
+            occurredAt = "2026-08-12T05:30:00Z",
+            payload = VerificationReviewEventPayloadDto(videoDurationMs = 25_000L),
+            clientEventId = "client-event-1",
+        )
+        val request = VerificationReviewEventBatchRequestDto(events = listOf(event))
+
+        val result = repo.enqueueVerificationReviewEvents(
+            groupKey = "verification-review:item-1",
+            idempotencyKey = "verification-review:${event.clientEventId}",
+            request = request,
+        )
+
+        assertTrue(result is AppResult.Ok)
+        assertEquals(OutboxOpType.VERIFICATION_REVIEW_EVENTS.name, store.snapshot().single().opType)
+        assertEquals(OutboxStatus.FAILED.name, store.snapshot().single().status)
+        assertEquals(1, api.reviewEventCalls.size)
+        assertEquals(0, successfulPosts)
+
+        fail = false
+        now = 60_000L
+        repo.triggerDrain()
+
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.snapshot().single().status)
+        assertEquals(2, api.reviewEventCalls.size)
+        assertEquals(1, successfulPosts)
+        assertEquals(listOf(event.clientEventId), api.reviewEventCalls.map { it.events.single().clientEventId }.distinct())
     }
 
     @Test

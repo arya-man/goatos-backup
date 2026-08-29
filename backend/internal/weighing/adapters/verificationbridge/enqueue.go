@@ -18,6 +18,11 @@ type verificationCreator interface {
 	// MarkVerdictApplied is verification's ack seam. Same reason as the withdraw seam above:
 	// weighing tells verification something happened rather than reaching into its tables.
 	MarkVerdictApplied(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string, appliedByModule string) (int, error)
+	// RelabelItemBySource is verification's relabel seam, used after the verifier corrects a
+	// weight: the subject label states the weight, so the label has to be recomposed or the
+	// queue keeps advertising the number that was just replaced. Same reason as the seams
+	// above -- weighing hands verification the new sentence rather than writing its table.
+	RelabelItemBySource(ctx context.Context, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel string) (int, error)
 }
 
 type Enqueuer struct {
@@ -31,6 +36,29 @@ func New(v verificationCreator) *Enqueuer {
 var _ weighingapp.VerificationEnqueuer = (*Enqueuer)(nil)
 var _ weighingapp.VerificationWithdrawer = (*Enqueuer)(nil)
 var _ weighingapp.VerificationApplyAcker = (*Enqueuer)(nil)
+var _ weighingapp.VerificationRelabeler = (*Enqueuer)(nil)
+
+// RelabelWeighingVerification restates the verification item's subject label after
+// the VERIFIER corrects the weight it names.
+//
+// The label is composed at enqueue and carries the weight itself ("Godel 1 - Part 3
+// · Tag 9010 · 120.0 kg"), so a corrected observation whose item is not relabelled
+// leaves the verifier reading the number she just replaced. RefID is the observation
+// id -- the same id EnqueueWeighingVerification put in Source.RefID.
+func (e *Enqueuer) RelabelWeighingVerification(ctx context.Context, tenantID, refType, observationID, subjectLabel string) error {
+	if observationID == "" || subjectLabel == "" {
+		return nil
+	}
+	_, err := e.verification.RelabelItemBySource(
+		ctx,
+		tenantID,
+		weighingdomain.VerificationModuleWeighing,
+		refType,
+		observationID,
+		subjectLabel,
+	)
+	return err
+}
 
 // AckWeighingVerificationApplied reports that weighing's verdict applier has written the
 // verifier's decision onto the observation itself. Until this lands, the item reads as

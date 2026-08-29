@@ -1471,6 +1471,37 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 		}
 	}
 
+	// The probe loop below scores every candidate day WITHOUT holding the day's lock, then the
+	// claim after it re-checks the winner while holding it. A concurrent worker can fill the last
+	// slot in between, and the re-check then selects nothing. Returning that empty selection drops
+	// the obligation silently -- no batch, no error, no later date -- so a losing worker simply
+	// loses its work. Instead the day is struck off and the remaining feasible days are re-probed,
+	// which is what the overflow is for. The loop terminates because `exhausted` only grows and the
+	// probe range is finite.
+	exhausted := make(map[string]struct{})
+	for {
+		bestDate, selectedIDs, shotClaims, release, err := s.claimBestUnbatchedDriveDate(
+			ctx, tenantID, now, rows, targetIDs, plannedDate, planner, ruleVaccineID, parkID, latest, session, exhausted)
+		if err != nil {
+			return bestDate, nil, nil, noopRelease, err
+		}
+		if bestDate == nil {
+			return plannedDate, nil, nil, noopRelease, nil
+		}
+		if len(selectedIDs) > 0 {
+			return bestDate, selectedIDs, shotClaims, release, nil
+		}
+		if err := release(ctx); err != nil {
+			return bestDate, nil, nil, noopRelease, err
+		}
+		exhausted[businessDate(*bestDate).Format("2006-01-02")] = struct{}{}
+	}
+}
+
+// claimBestUnbatchedDriveDate scores every feasible day not already struck off, then re-checks and
+// claims the winner under its own lock. A nil date means no day is left to try; a non-nil date with
+// an empty selection means the winner was filled by someone else between scoring and claiming.
+func (s *SweeperService) claimBestUnbatchedDriveDate(ctx context.Context, tenantID string, now time.Time, rows []domain.UnbatchedDue, targetIDs []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, ruleVaccineID RuleVaccineIdentity, parkID string, latest time.Time, session *SweepSession, exhausted map[string]struct{}) (*time.Time, []string, []shotCapReservation, func(context.Context) error, error) {
 	var bestDate *time.Time
 	var bestIDs []string
 	bestScore := unbatchedDriveDateScore{inWindowAnimals: -1, animals: -1, obligations: -1}
@@ -1482,6 +1513,10 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 		}
 	}
 	for probe := probeStart; !probe.After(latest); {
+		if _, struckOff := exhausted[probe.Format("2006-01-02")]; struckOff {
+			probe = probe.AddDate(0, 0, 1)
+			continue
+		}
 		if len(session.unbatchedObligationsFeasibleOnDateForVaccine(now, probe, rows, planner, ruleVaccineID)) > 0 {
 			day := probe
 			visitRelease, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, &day, planner.MaxShotsPerAnimalPerDrive, session)
@@ -1534,7 +1569,7 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 		probe = probe.AddDate(0, 0, 1)
 	}
 	if bestDate == nil || len(bestIDs) == 0 {
-		return plannedDate, nil, nil, noopRelease, nil
+		return nil, nil, nil, noopRelease, nil
 	}
 
 	visitRelease, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, bestDate, planner.MaxShotsPerAnimalPerDrive, session)

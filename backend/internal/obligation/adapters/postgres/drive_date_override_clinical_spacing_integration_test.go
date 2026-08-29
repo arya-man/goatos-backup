@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
@@ -30,22 +32,21 @@ func TestDriveDateOverrideAutoShiftsLiveVaccineNearOverlappingLiveObligation(t *
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
 
 	if _, err := pool.Exec(ctx, `
-UPDATE protocol_rules
-SET vaccine_code = CASE WHEN rule_id = $2::uuid THEN 'PPR' ELSE 'SHEEP_POX' END,
-    vaccine_type = 'live',
-    pathogen_class = 'viral',
-    course_type = 'single',
-    min_gap_days = 0
-WHERE tenant_id = $1::uuid AND rule_id = ANY($4::uuid[]);
-
 INSERT INTO protocol_rule_dimensions (
-  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code
+  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code,
+  vaccine_type, pathogen_class, min_gap_days, vaccine_json
 ) VALUES
-  ($1, $5, $2, 'vaccination', 'clinical-ppr', 'ppr_adult_w1', 'PPR'),
-  ($1, $6, $3, 'vaccination', 'clinical-sheep-pox', 'sheep_pox_adult_w1', 'SHEEP_POX')
+  ($1, $4, $2, 'vaccination', 'clinical-ppr', 'ppr_adult_w1', 'PPR',
+   'live', 'viral', 0, '{"course_type":"single"}'::jsonb),
+  ($1, $5, $3, 'vaccination', 'clinical-sheep-pox', 'sheep_pox_adult_w1', 'SHEEP_POX',
+   'live', 'viral', 0, '{"course_type":"single"}'::jsonb)
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SET
-  vaccine_code = EXCLUDED.vaccine_code`,
-		tenantID, pprVersion.ruleID, poxVersion.ruleID, []string{pprVersion.ruleID, poxVersion.ruleID}, pprVersion.versionID, poxVersion.versionID); err != nil {
+  vaccine_code = EXCLUDED.vaccine_code,
+  vaccine_type = EXCLUDED.vaccine_type,
+  pathogen_class = EXCLUDED.pathogen_class,
+  min_gap_days = EXCLUDED.min_gap_days,
+  vaccine_json = EXCLUDED.vaccine_json`,
+		tenantID, pprVersion.ruleID, poxVersion.ruleID, pprVersion.versionID, poxVersion.versionID); err != nil {
 		t.Fatalf("seed clinical rule metadata: %v", err)
 	}
 
@@ -58,10 +59,10 @@ ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SE
 INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 VALUES ($1, $2, 'CSP-A', 'Clinical Spacing Operator A', 'active', 'operator', $3);
 INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from, status)
-VALUES ($2, 'clinical_spacing_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
+VALUES ($2, 'clinical_spacing_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01', 'active');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_spacing_operator_a', 'manager', 'friday', 50, 'active', '2026-01-01')`,
-		operatorA, tenantID, cbePark); err != nil {
+		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
 		t.Fatalf("seed operator: %v", err)
 	}
 
@@ -120,22 +121,21 @@ func TestDriveDateOverrideOverflowUsesOnlyClinicallySafeDates(t *testing.T) {
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatA, goatB)
 
 	if _, err := pool.Exec(ctx, `
-UPDATE protocol_rules
-SET vaccine_code = CASE WHEN rule_id = $2::uuid THEN 'PPR' ELSE 'BLUE_TONGUE' END,
-    vaccine_type = CASE WHEN rule_id = $2::uuid THEN 'live' ELSE 'killed' END,
-    pathogen_class = 'viral',
-    course_type = CASE WHEN rule_id = $2::uuid THEN 'single' ELSE 'booster' END,
-    min_gap_days = 0
-WHERE tenant_id = $1::uuid AND rule_id = ANY($4::uuid[]);
-
 INSERT INTO protocol_rule_dimensions (
-  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code
+  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code,
+  vaccine_type, pathogen_class, min_gap_days, vaccine_json
 ) VALUES
-  ($1, $5, $2, 'vaccination', 'clinical-overflow-ppr', 'ppr_adult_w1', 'PPR'),
-  ($1, $6, $3, 'vaccination', 'clinical-overflow-bt', 'blue_tongue_adult_w1', 'BLUE_TONGUE')
+  ($1, $4, $2, 'vaccination', 'clinical-overflow-ppr', 'ppr_adult_w1', 'PPR',
+   'live', 'viral', 0, '{"course_type":"single"}'::jsonb),
+  ($1, $5, $3, 'vaccination', 'clinical-overflow-bt', 'blue_tongue_adult_w1', 'BLUE_TONGUE',
+   'killed', 'viral', 0, '{"course_type":"booster"}'::jsonb)
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SET
-  vaccine_code = EXCLUDED.vaccine_code`,
-		tenantID, pprVersion.ruleID, blueTongueVersion.ruleID, []string{pprVersion.ruleID, blueTongueVersion.ruleID}, pprVersion.versionID, blueTongueVersion.versionID); err != nil {
+  vaccine_code = EXCLUDED.vaccine_code,
+  vaccine_type = EXCLUDED.vaccine_type,
+  pathogen_class = EXCLUDED.pathogen_class,
+  min_gap_days = EXCLUDED.min_gap_days,
+  vaccine_json = EXCLUDED.vaccine_json`,
+		tenantID, pprVersion.ruleID, blueTongueVersion.ruleID, pprVersion.versionID, blueTongueVersion.versionID); err != nil {
 		t.Fatalf("seed clinical rule metadata: %v", err)
 	}
 
@@ -147,10 +147,10 @@ ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SE
 INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 VALUES ($1, $2, 'CSO-A', 'Clinical Spill Operator A', 'active', 'operator', $3);
 INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from, status)
-VALUES ($2, 'clinical_spill_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
+VALUES ($2, 'clinical_spill_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01', 'active');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_spill_operator_a', 'manager', 'friday', 1, 'active', '2026-01-01')`,
-		operatorA, tenantID, cbePark); err != nil {
+		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
 		t.Fatalf("seed operator: %v", err)
 	}
 
@@ -222,8 +222,17 @@ VALUES ($2, $1, 'center', $3, 'clinical_spill_operator_a', 'manager', 'friday', 
 	if got := driveAssignmentRowsForRule(t, ctx, pool, wantOverflow, pprVersion.ruleID); len(got) != 0 {
 		t.Fatalf("clearing override stranded far overflow row on %s: %+v", wantOverflow.Format("2006-01-02"), got)
 	}
-	if got := driveAssignmentRowsForRule(t, ctx, pool, source, pprVersion.ruleID); len(got) != 1 || got[0].animalCount != 2 {
-		t.Fatalf("clearing override restored source rows = %+v, want one row with two animals", got)
+	// Clearing re-plans against the ORIGINAL date's real capacity rather than restoring the
+	// seeded row verbatim: the one operator available on the source date has a cap of 1, so the
+	// second animal comes back unassigned and flagged for a capacity decision instead of being
+	// silently re-booked over that cap. What must hold is that both animals come back.
+	restoredSource := driveAssignmentRowsForRule(t, ctx, pool, source, pprVersion.ruleID)
+	restoredAnimals := 0
+	for _, row := range restoredSource {
+		restoredAnimals += row.animalCount
+	}
+	if restoredAnimals != 2 {
+		t.Fatalf("clearing override restored %d animals on the source date, want both: %+v", restoredAnimals, restoredSource)
 	}
 }
 
@@ -247,19 +256,18 @@ func TestDriveDateOverrideEditDoesNotSelfConflictWithPriorOverrideRows(t *testin
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
 
 	if _, err := pool.Exec(ctx, `
-UPDATE protocol_rules
-SET vaccine_code = 'PPR',
-    vaccine_type = 'live',
-    pathogen_class = 'viral',
-    course_type = 'single',
-    min_gap_days = 0
-WHERE tenant_id = $1::uuid AND rule_id = $2::uuid;
-
 INSERT INTO protocol_rule_dimensions (
-  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code
-) VALUES ($1, $3, $2, 'vaccination', 'clinical-edit-ppr', 'ppr_adult_w1', 'PPR')
+  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code,
+  vaccine_type, pathogen_class, min_gap_days, vaccine_json
+) VALUES
+  ($1, $3, $2, 'vaccination', 'clinical-edit-ppr', 'ppr_adult_w1', 'PPR',
+   'live', 'viral', 0, '{"course_type":"single"}'::jsonb)
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SET
-  vaccine_code = EXCLUDED.vaccine_code`,
+  vaccine_code = EXCLUDED.vaccine_code,
+  vaccine_type = EXCLUDED.vaccine_type,
+  pathogen_class = EXCLUDED.pathogen_class,
+  min_gap_days = EXCLUDED.min_gap_days,
+  vaccine_json = EXCLUDED.vaccine_json`,
 		tenantID, pprVersion.ruleID, pprVersion.versionID); err != nil {
 		t.Fatalf("seed PPR metadata: %v", err)
 	}
@@ -272,10 +280,10 @@ ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SE
 INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 VALUES ($1, $2, 'CSE-A', 'Clinical Edit Operator A', 'active', 'operator', $3);
 INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from, status)
-VALUES ($2, 'clinical_edit_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
+VALUES ($2, 'clinical_edit_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01', 'active');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_edit_operator_a', 'manager', 'friday', 50, 'active', '2026-01-01')`,
-		operatorA, tenantID, cbePark); err != nil {
+		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
 		t.Fatalf("seed operator: %v", err)
 	}
 
@@ -335,22 +343,21 @@ func TestDriveDateOverrideDoesNotExcludeSeparateFutureSameVaccineBooster(t *test
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
 
 	if _, err := pool.Exec(ctx, `
-UPDATE protocol_rules
-SET vaccine_code = 'PPR',
-    vaccine_type = 'live',
-    pathogen_class = 'viral',
-    course_type = 'single',
-    min_gap_days = 28
-WHERE tenant_id = $1::uuid AND rule_id = ANY($4::uuid[]);
-
 INSERT INTO protocol_rule_dimensions (
-  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code
+  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code,
+  vaccine_type, pathogen_class, min_gap_days, vaccine_json
 ) VALUES
-  ($1, $5, $2, 'vaccination', 'clinical-future-ppr-primary', 'ppr_adult_w1', 'PPR'),
-  ($1, $6, $3, 'vaccination', 'clinical-future-ppr-booster', 'ppr_adult_w2', 'PPR')
+  ($1, $4, $2, 'vaccination', 'clinical-future-ppr-primary', 'ppr_adult_w1', 'PPR',
+   'live', 'viral', 28, '{"course_type":"single"}'::jsonb),
+  ($1, $5, $3, 'vaccination', 'clinical-future-ppr-booster', 'ppr_adult_w2', 'PPR',
+   'live', 'viral', 28, '{"course_type":"single"}'::jsonb)
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SET
-  vaccine_code = EXCLUDED.vaccine_code`,
-		tenantID, primaryVersion.ruleID, boosterVersion.ruleID, []string{primaryVersion.ruleID, boosterVersion.ruleID}, primaryVersion.versionID, boosterVersion.versionID); err != nil {
+  vaccine_code = EXCLUDED.vaccine_code,
+  vaccine_type = EXCLUDED.vaccine_type,
+  pathogen_class = EXCLUDED.pathogen_class,
+  min_gap_days = EXCLUDED.min_gap_days,
+  vaccine_json = EXCLUDED.vaccine_json`,
+		tenantID, primaryVersion.ruleID, boosterVersion.ruleID, primaryVersion.versionID, boosterVersion.versionID); err != nil {
 		t.Fatalf("seed PPR metadata: %v", err)
 	}
 
@@ -363,10 +370,10 @@ ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SE
 INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 VALUES ($1, $2, 'CSF-A', 'Clinical Future Operator A', 'active', 'operator', $3);
 INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from, status)
-VALUES ($2, 'clinical_future_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
+VALUES ($2, 'clinical_future_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01', 'active');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_future_operator_a', 'manager', 'friday', 50, 'active', '2026-01-01')`,
-		operatorA, tenantID, cbePark); err != nil {
+		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
 		t.Fatalf("seed operator: %v", err)
 	}
 
@@ -415,22 +422,21 @@ func TestDriveDateOverrideEditDoesNotExcludeSeparateFutureSameVaccineBooster(t *
 	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
 
 	if _, err := pool.Exec(ctx, `
-UPDATE protocol_rules
-SET vaccine_code = 'PPR',
-    vaccine_type = 'live',
-    pathogen_class = 'viral',
-    course_type = 'single',
-    min_gap_days = 28
-WHERE tenant_id = $1::uuid AND rule_id = ANY($4::uuid[]);
-
 INSERT INTO protocol_rule_dimensions (
-  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code
+  tenant_id, protocol_version_id, rule_id, category, selector_key, dose_code, vaccine_code,
+  vaccine_type, pathogen_class, min_gap_days, vaccine_json
 ) VALUES
-  ($1, $5, $2, 'vaccination', 'clinical-editfuture-ppr-primary', 'ppr_adult_w1', 'PPR'),
-  ($1, $6, $3, 'vaccination', 'clinical-editfuture-ppr-booster', 'ppr_adult_w2', 'PPR')
+  ($1, $4, $2, 'vaccination', 'clinical-editfuture-ppr-primary', 'ppr_adult_w1', 'PPR',
+   'live', 'viral', 28, '{"course_type":"single"}'::jsonb),
+  ($1, $5, $3, 'vaccination', 'clinical-editfuture-ppr-booster', 'ppr_adult_w2', 'PPR',
+   'live', 'viral', 28, '{"course_type":"single"}'::jsonb)
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SET
-  vaccine_code = EXCLUDED.vaccine_code`,
-		tenantID, primaryVersion.ruleID, boosterVersion.ruleID, []string{primaryVersion.ruleID, boosterVersion.ruleID}, primaryVersion.versionID, boosterVersion.versionID); err != nil {
+  vaccine_code = EXCLUDED.vaccine_code,
+  vaccine_type = EXCLUDED.vaccine_type,
+  pathogen_class = EXCLUDED.pathogen_class,
+  min_gap_days = EXCLUDED.min_gap_days,
+  vaccine_json = EXCLUDED.vaccine_json`,
+		tenantID, primaryVersion.ruleID, boosterVersion.ruleID, primaryVersion.versionID, boosterVersion.versionID); err != nil {
 		t.Fatalf("seed PPR metadata: %v", err)
 	}
 
@@ -444,10 +450,10 @@ ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE SE
 INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint, primary_location_id)
 VALUES ($1, $2, 'CEF-A', 'Clinical Edit Future Operator A', 'active', 'operator', $3);
 INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from, status)
-VALUES ($2, 'clinical_edit_future_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01');
+VALUES ($2, 'clinical_edit_future_operator_a', 'vaccination', 'execute', 'vaccination.drive.execute', '2026-01-01', 'active');
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, week_off_weekday, vaccination_daily_animal_cap, status, valid_from)
 VALUES ($2, $1, 'center', $3, 'clinical_edit_future_operator_a', 'manager', 'friday', 50, 'active', '2026-01-01')`,
-		operatorA, tenantID, cbePark); err != nil {
+		pgx.QueryExecModeSimpleProtocol, operatorA, tenantID, cbePark); err != nil {
 		t.Fatalf("seed operator: %v", err)
 	}
 

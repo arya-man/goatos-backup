@@ -7,7 +7,9 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -24,16 +26,20 @@ import sg.mesha.goatos.capture.FakeProofCaptureSource
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
+import sg.mesha.goatos.core.data.FeedRepository
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.feature.feed.FeedDistributionEvent
 import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
+import sg.mesha.goatos.core.network.dto.FeedDistributionCapturedSlotDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -64,6 +70,7 @@ class FeedDistributionCompleteViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
             photoCaptureSource = photoSource,
             proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -94,13 +101,140 @@ class FeedDistributionCompleteViewModelTest {
         )
         // Assert the ROW, not the flag. The flag stays true even when the row is gone -- which is
         // why the defect looked fine on screen and the proof was simply missing underneath.
-        val survivingRows = proofCaptureRepository.observeProofs("any", null).first()
+        val survivingRows = proofCaptureRepository.allRows()
         assertEquals(
             "the existing proof row must survive a cancelled retake -- discarding it first is what lost it",
             1,
             survivingRows.size,
         )
         assertEquals("/proof/feed-weight.jpg", survivingRows.first().localUri)
+    }
+
+    @Test
+    fun `missing proof upload outbox marks feed video failed and records failure event`() = runTest(dispatcher) {
+        val proofCaptureRepository = FakeProofCaptureRepository().apply {
+            omitNextOutboxItem = true
+        }
+        val analytics = FakeAnalyticsPort()
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(
+                mutableListOf(CapturedVideo(localUri = "/proof/feed.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+            ),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                ),
+            ),
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.RecordFeedVideo)
+        advanceUntilIdle()
+
+        assertEquals(FeedDistributionProofStatus.FAILED, viewModel.state.value.videoStatus)
+        assertEquals(false, viewModel.state.value.submitEnabled)
+        assertEquals(
+            true,
+            analytics.events.any {
+                it.first == "feed_distribution_failure" &&
+                    it.second["kind"] == "feed_video" &&
+                    it.second["reason"] == "missing_upload_outbox"
+            },
+        )
+    }
+
+    @Test
+    fun `missing proof upload outbox marks feed weight photo failed and records failure event`() = runTest(dispatcher) {
+        val proofCaptureRepository = FakeProofCaptureRepository().apply {
+            omitNextOutboxItem = true
+        }
+        val analytics = FakeAnalyticsPort()
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(
+                mutableListOf(CapturedPhoto(localUri = "/proof/feed-weight.jpg", capturedAtMs = 1L)),
+            ),
+            proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                ),
+            ),
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.TakeFeedWeightPhoto)
+        advanceUntilIdle()
+
+        assertEquals(FeedDistributionProofStatus.FAILED, viewModel.state.value.feedWeightPhotoStatus)
+        assertEquals(
+            true,
+            analytics.events.any {
+                it.first == "feed_distribution_failure" &&
+                    it.second["kind"] == "feed_weight_photo" &&
+                    it.second["reason"] == "missing_upload_outbox"
+            },
+        )
+    }
+
+    @Test
+    fun `missing proof upload outbox marks water video failed and records failure event`() = runTest(dispatcher) {
+        val proofCaptureRepository = FakeProofCaptureRepository().apply {
+            omitNextOutboxItem = true
+        }
+        val analytics = FakeAnalyticsPort()
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(
+                mutableListOf(CapturedVideo(localUri = "/proof/water.mp4", startedAtMs = 1L, endedAtMs = 2L)),
+            ),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                ),
+            ),
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.RecordWaterVideo)
+        advanceUntilIdle()
+
+        assertEquals(FeedDistributionProofStatus.FAILED, viewModel.state.value.waterVideoStatus)
+        assertEquals(
+            true,
+            analytics.events.any {
+                it.first == "feed_distribution_failure" &&
+                    it.second["kind"] == "water_video" &&
+                    it.second["reason"] == "missing_upload_outbox"
+            },
+        )
     }
 
     @Test
@@ -123,6 +257,7 @@ class FeedDistributionCompleteViewModelTest {
             proofCaptureSource = videoSource,
             photoCaptureSource = photoSource,
             proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -170,6 +305,267 @@ class FeedDistributionCompleteViewModelTest {
         assertEquals("proof-outbox-3", syncRepository.lastWaterProofOutboxItemId)
     }
 
+    @Test
+    fun `distribution proof uploads share completion outbox group so completion waits behind proofs`() = runTest(dispatcher) {
+        val syncRepository = RecordingFeedDistributionSyncRepository()
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = syncRepository,
+            proofCaptureSource = FakeProofCaptureSource(
+                mutableListOf(
+                    CapturedVideo(localUri = "/proof/feed.mp4", startedAtMs = 1L, endedAtMs = 2L),
+                    CapturedVideo(localUri = "/proof/water.mp4", startedAtMs = 3L, endedAtMs = 4L),
+                ),
+            ),
+            photoCaptureSource = FakePhotoCaptureSource(
+                mutableListOf(CapturedPhoto(localUri = "/proof/feed-weight.jpg", capturedAtMs = 3L)),
+            ),
+            proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 3",
+                ),
+            ),
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.TakeFeedWeightPhoto)
+        viewModel.onEvent(FeedDistributionEvent.RecordFeedVideo)
+        viewModel.onEvent(FeedDistributionEvent.RecordWaterVideo)
+        advanceUntilIdle()
+
+        val sessionGroup = "feed-dist:2026-08-12:shed-1:part 3:1:normal"
+        assertEquals(
+            listOf(
+                sessionGroup,
+                sessionGroup,
+                sessionGroup,
+            ),
+            proofCaptureRepository.captureCalls.map { it.uploadGroupKey },
+        )
+        assertEquals(
+            "completion must share the proof upload lane so it cannot close before a required proof drains",
+            1,
+            proofCaptureRepository.captureCalls.map { it.uploadGroupKey }.distinct().size,
+        )
+
+        syncRepository.setItemStatus("proof-outbox-1", SyncItemStatus.SUCCEEDED)
+        syncRepository.setItemStatus("proof-outbox-2", SyncItemStatus.SUCCEEDED)
+        syncRepository.setItemStatus("proof-outbox-3", SyncItemStatus.SUCCEEDED)
+        advanceUntilIdle()
+        viewModel.onEvent(FeedDistributionEvent.MarkDone)
+        advanceUntilIdle()
+
+        assertEquals(sessionGroup, syncRepository.lastCompletionGroupKey)
+    }
+
+    /**
+     * THREE operators, one pen-session: the phone that shot nothing must still be able to submit.
+     *
+     * A pen-session's three proofs may be split across three phones (maintainer decision
+     * 2026-08-14). Each phone holds one of three local outbox ids, so before the shared read every
+     * phone failed submit at `FEED_DISTRIBUTION_SUBMIT_BLOCKED` and the pen could never close.
+     *
+     * This drives the hardest version: THIS phone captured NOTHING. It must adopt all three
+     * teammates' server proof ids, enable submit, and send those ids -- not local outbox references
+     * it does not have.
+     */
+    @Test
+    fun `a pen-session split across three operators is submittable from a phone that shot nothing`() = runTest(dispatcher) {
+        val syncRepository = RecordingFeedDistributionSyncRepository()
+        val teammates = FakeSplitFeedRepository(
+            listOf(
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_feed_weight_photo",
+                    proofRef = "server-proof-weight",
+                    capturedAt = "2026-08-14T03:44:56Z",
+                ),
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_video",
+                    proofRef = "server-proof-feed-video",
+                    capturedAt = "2026-08-14T03:45:26Z",
+                ),
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_water_video",
+                    proofRef = "server-proof-water-video",
+                    capturedAt = "2026-08-14T03:45:47Z",
+                ),
+            ),
+        )
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = syncRepository,
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "2",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "experiment",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-14",
+                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 8",
+                ),
+            ),
+        )
+        runCurrent()
+
+        // The shared read must be asked for THIS PEN, never the shed as a whole -- otherwise a
+        // sibling pen's work would be claimed as this one's.
+        assertEquals(1, teammates.queries.size)
+        assertEquals("Part 8", teammates.queries.single().partitionLabel)
+        assertEquals(2, teammates.queries.single().sessionNo)
+
+        // All three slots read as done even though this phone captured nothing.
+        assertEquals(true, viewModel.state.value.feedWeightPhotoCaptured)
+        assertEquals(true, viewModel.state.value.videoCaptured)
+        assertEquals(true, viewModel.state.value.waterVideoCaptured)
+        assertEquals(true, viewModel.state.value.submitEnabled)
+
+        viewModel.onEvent(FeedDistributionEvent.MarkDone)
+        runCurrent()
+
+        assertEquals(1, syncRepository.completionEnqueueCount)
+        // The SERVER proof ids travel, because there is no local outbox row to resolve.
+        assertEquals("server-proof-weight", syncRepository.lastFeedWeightProofRef)
+        assertEquals("server-proof-feed-video", syncRepository.lastDistributionProofRef)
+        assertEquals("server-proof-water-video", syncRepository.lastWaterProofRef)
+        assertEquals(null, syncRepository.lastFeedWeightProofOutboxItemId)
+    }
+
+    /**
+     * A network blip during screen entry must NOT read as "no teammate proofs". The failed shape
+     * observed on-device: operator A uploads a proof, operator B opens (or re-enters) the screen
+     * while WiFi blips, the captures read fails, and B's screen stays stale claiming the slot is
+     * free. The read must distinguish failure (null) from empty and retry until it gets an answer.
+     */
+    @Test
+    fun `a failed teammate-captures read retries instead of treating the blip as no proofs`() = runTest(dispatcher) {
+        val teammates = FakeSplitFeedRepository(
+            listOf(
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_feed_weight_photo",
+                    proofRef = "server-proof-weight",
+                    capturedAt = "2026-08-15T02:04:00Z",
+                ),
+            ),
+        ).apply { failuresBeforeSuccess = 2 }
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "experiment",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-15",
+                ),
+            ),
+        )
+        // Drain only the retry ladder (2s + 5s + 10s = 17s), never advanceUntilIdle -- the periodic
+        // 30s server-poll loop is bounded but still spans ~24h of virtual time.
+        runCurrent()
+        advanceTimeBy(17_000L)
+        runCurrent()
+
+        // Two failures then a success: three reads total, and the slot still hydrates.
+        assertEquals(3, teammates.queries.size)
+        assertEquals(true, viewModel.state.value.feedWeightPhotoCaptured)
+    }
+
+    /**
+     * Manual Sync must re-fetch teammate/server proof slots, not only drain the local outbox.
+     * The stale shape: operator opens the screen at 1/3 slots, teammates upload the other two
+     * while it stays open, operator taps Sync — before the fix the screen kept showing 1/3
+     * until back/reopen, because refreshTeammateCaptures() ran on init only.
+     */
+    @Test
+    fun `tapping Sync re-fetches teammate captures and unlocks submit with server refs`() = runTest(dispatcher) {
+        val syncRepository = RecordingFeedDistributionSyncRepository()
+        val teammates = FakeSplitFeedRepository(
+            listOf(
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_feed_weight_photo",
+                    proofRef = "server-proof-weight",
+                    capturedAt = "2026-08-14T03:44:56Z",
+                ),
+            ),
+        )
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = syncRepository,
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "2",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "experiment",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-14",
+                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 8",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        // Opened at 1/3: only the weight photo exists server-side.
+        assertEquals(true, viewModel.state.value.feedWeightPhotoCaptured)
+        assertEquals(false, viewModel.state.value.videoCaptured)
+        assertEquals(false, viewModel.state.value.submitEnabled)
+
+        // Teammates upload the remaining two slots while the screen stays open.
+        teammates.slots = teammates.slots + listOf(
+            FeedDistributionCapturedSlotDto(
+                fieldKey = "feed_distribution_video",
+                proofRef = "server-proof-feed-video",
+                capturedAt = "2026-08-14T03:45:26Z",
+            ),
+            FeedDistributionCapturedSlotDto(
+                fieldKey = "feed_distribution_water_video",
+                proofRef = "server-proof-water-video",
+                capturedAt = "2026-08-14T03:45:47Z",
+            ),
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.SyncNow)
+        advanceUntilIdle()
+
+        assertEquals(true, viewModel.state.value.videoCaptured)
+        assertEquals(true, viewModel.state.value.waterVideoCaptured)
+        assertEquals(true, viewModel.state.value.submitEnabled)
+
+        viewModel.onEvent(FeedDistributionEvent.MarkDone)
+        advanceUntilIdle()
+
+        assertEquals(1, syncRepository.completionEnqueueCount)
+        assertEquals("server-proof-feed-video", syncRepository.lastDistributionProofRef)
+        assertEquals("server-proof-water-video", syncRepository.lastWaterProofRef)
+    }
+
     /**
      * Re-entering the screen on a PARTITIONED pen must rehydrate an already-captured proof from
      * Room. The view model is scoped to its nav back stack entry, so leaving the screen clears all
@@ -182,6 +578,68 @@ class FeedDistributionCompleteViewModelTest {
      * UNDIVIDED shed, where both sides collapse to "whole" — which is why the case above passes
      * and this one did not.
      */
+    /**
+     * When a teammate re-captures a slot (uploads a different proof), the client must detect
+     * the change and update the preview. The re-capture detection: server returns a DIFFERENT
+     * proofRef for the same field_key. The client must OVERWRITE the previous ref and fetch
+     * the new preview URL. Local captures always resist overwrite.
+     */
+    @Test
+    fun `teammate re-capture overwrites adopted proof ref and updates preview URL`() = runTest(dispatcher) {
+        val teammates = FakeSplitFeedRepository(
+            listOf(
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_video",
+                    proofRef = "server-proof-feed-video-v1",
+                    capturedAt = "2026-08-14T03:45:26Z",
+                    mimeType = "video/mp4",
+                ),
+            ),
+        )
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-14",
+                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 1",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        // Initial read: v1 proof is adopted, preview URL is fetched
+        assertEquals(true, viewModel.state.value.videoCaptured)
+        assertEquals("https://stg.example.com/proofs/server-proof-feed-video-v1/download?token=xyz", viewModel.state.value.videoRemoteUrl)
+
+        // Teammate re-captures: server now returns v2
+        teammates.slots = listOf(
+            FeedDistributionCapturedSlotDto(
+                fieldKey = "feed_distribution_video",
+                proofRef = "server-proof-feed-video-v2",
+                capturedAt = "2026-08-14T04:00:00Z",
+                mimeType = "video/mp4",
+            ),
+        )
+
+        // Manual sync re-fetches teammate captures
+        viewModel.onEvent(FeedDistributionEvent.SyncNow)
+        advanceUntilIdle()
+
+        // State must reflect the NEW ref and fetch its preview URL
+        assertEquals("https://stg.example.com/proofs/server-proof-feed-video-v2/download?token=xyz", viewModel.state.value.videoRemoteUrl)
+    }
+
     @Test
     fun `captured proof rehydrates when the screen is reopened on a partitioned pen`() = runTest(dispatcher) {
         val syncRepository = RecordingFeedDistributionSyncRepository()
@@ -198,6 +656,7 @@ class FeedDistributionCompleteViewModelTest {
                 mutableListOf(CapturedPhoto(localUri = "/proof/feed-weight.jpg", capturedAtMs = 3L)),
             ),
             proofCaptureRepository = proofCaptureRepository,
+            feedRepository = FakeSplitFeedRepository(emptyList()),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
             appContext = ApplicationProvider.getApplicationContext(),
@@ -227,6 +686,286 @@ class FeedDistributionCompleteViewModelTest {
         assertEquals(true, reopened.state.value.videoCaptured)
         assertEquals("/proof/feed.mp4", reopened.state.value.videoPreviewPath)
     }
+
+    // --- New observability events (feed-distribution proof flow) ---
+
+    @Test
+    fun `split-operator submit fires submit_sources with all three server_ref`() = runTest(dispatcher) {
+        val syncRepository = RecordingFeedDistributionSyncRepository()
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val teammates = FakeSplitFeedRepository(
+            listOf(
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_feed_weight_photo",
+                    proofRef = "server-proof-weight",
+                    capturedAt = "2026-08-14T03:44:56Z",
+                ),
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_video",
+                    proofRef = "server-proof-feed-video",
+                    capturedAt = "2026-08-14T03:45:26Z",
+                ),
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_water_video",
+                    proofRef = "server-proof-water-video",
+                    capturedAt = "2026-08-14T03:45:47Z",
+                ),
+            ),
+        )
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = syncRepository,
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "2",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "experiment",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-14",
+                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 8",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals(true, viewModel.state.value.submitEnabled)
+
+        viewModel.onEvent(FeedDistributionEvent.MarkDone)
+        advanceUntilIdle()
+
+        val submitSources = analytics.events.last { it.name == "feed_distribution_submit_sources" }
+        assertEquals("server_ref", submitSources.props["feed_weight_source"])
+        assertEquals("server_ref", submitSources.props["feed_video_source"])
+        assertEquals("server_ref", submitSources.props["water_video_source"])
+        assertEquals("submitted", submitSources.props["result"])
+    }
+
+    @Test
+    fun `a failed teammate-captures read emits failed then retry_exhausted without clearing status`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val teammates = FakeSplitFeedRepository(emptyList()).apply { failuresBeforeSuccess = 99 }
+        FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "experiment",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-15",
+                ),
+            ),
+        )
+        // Same bounded window as the sibling retry test: drain only the retry ladder, never
+        // advanceUntilIdle -- that would also drain the 24h-spanning server-poll loop, whose ticks
+        // emit later success/failure reads that would corrupt "last event" assertions here.
+        runCurrent()
+        advanceTimeBy(17_000L)
+        runCurrent()
+
+        val reads = analytics.events.filter { it.name == "feed_distribution_teammate_captures_read" }
+        assertEquals("retry_exhausted", reads.last().props["result"])
+        assertEquals(true, reads.none { it.props["result"] == "success_empty" || it.props["result"] == "success_slots" })
+    }
+
+    @Test
+    fun `an empty teammate-captures read fires success_empty and no proof_adopted event`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val teammates = FakeSplitFeedRepository(emptyList())
+        FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+
+        val reads = analytics.events.filter { it.name == "feed_distribution_teammate_captures_read" }
+        assertEquals(true, reads.any { it.props["result"] == "success_empty" })
+        assertEquals(true, analytics.events.none { it.name == "feed_distribution_teammate_proof_adopted" })
+    }
+
+    @Test
+    fun `a locally-captured slot resists a teammate ref and does not overwrite local state`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val photoSource = FakePhotoCaptureSource(
+            mutableListOf(CapturedPhoto(localUri = "/proof/feed-weight.jpg", capturedAtMs = 3L)),
+        )
+        val teammates = FakeSplitFeedRepository(
+            listOf(
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_feed_weight_photo",
+                    proofRef = "server-proof-weight",
+                    capturedAt = "2026-08-14T03:44:56Z",
+                ),
+            ),
+        )
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = photoSource,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                ),
+            ),
+        )
+        // This phone captures the weight photo FIRST.
+        viewModel.onEvent(FeedDistributionEvent.TakeFeedWeightPhoto)
+        runCurrent()
+        assertEquals(true, viewModel.state.value.feedWeightPhotoCaptured)
+        assertEquals("/proof/feed-weight.jpg", viewModel.state.value.feedWeightPhotoPreviewPath)
+
+        // Construction's own init-time refresh (before this phone captured anything) legitimately
+        // adopts the teammate's ref once; clear that history so the assertion below is scoped to
+        // the SyncNow tap under test, which is what must never re-adopt over the local capture.
+        analytics.events.clear()
+
+        // A teammate's server ref for the SAME slot must not overwrite the local capture.
+        viewModel.onEvent(FeedDistributionEvent.SyncNow)
+        runCurrent()
+
+        assertEquals("/proof/feed-weight.jpg", viewModel.state.value.feedWeightPhotoPreviewPath)
+        assertEquals(
+            true,
+            analytics.events.none {
+                it.name == "feed_distribution_teammate_proof_adopted" && it.props["kind"] == "feed_weight_photo"
+            },
+        )
+    }
+
+    @Test
+    fun `feed video playback failure re-signs the same teammate proof ref`() = runTest(dispatcher) {
+        val teammates = FakeSplitFeedRepository(
+            listOf(
+                FeedDistributionCapturedSlotDto(
+                    fieldKey = "feed_distribution_video",
+                    proofRef = "server-proof-feed-video",
+                    capturedAt = "2026-08-14T03:45:26Z",
+                ),
+            ),
+        )
+        teammates.downloadUrls += "https://stg.example.com/proofs/server-proof-feed-video/download?token=old"
+        teammates.downloadUrls += "https://stg.example.com/proofs/server-proof-feed-video/download?token=fresh"
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = teammates,
+            analytics = NoopAnalytics(),
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                    FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL to "Part 3",
+                ),
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals(
+            "https://stg.example.com/proofs/server-proof-feed-video/download?token=old",
+            viewModel.state.value.videoRemoteUrl,
+        )
+
+        viewModel.onEvent(FeedDistributionEvent.FeedVideoPlaybackFailed)
+        advanceUntilIdle()
+
+        assertEquals(listOf("server-proof-feed-video", "server-proof-feed-video"), teammates.downloadProofIds)
+        assertEquals(
+            "https://stg.example.com/proofs/server-proof-feed-video/download?token=fresh",
+            viewModel.state.value.videoRemoteUrl,
+        )
+    }
+
+    @Test
+    fun `a teammate submitting while the screen is open flips it read-only via server_poll`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val feedRepository = object : FeedRepository by FakeSplitFeedRepository(emptyList()) {
+            var statusToReturn: String? = "open"
+            override suspend fun fetchDirectionSessionStatus(
+                parkId: String,
+                shedId: String,
+                partitionLabel: String,
+                workflow: String,
+                sessionNo: Int,
+                targetDate: String,
+            ): String? = statusToReturn
+        }
+        val viewModel = FeedDistributionCompleteViewModel(
+            syncRepository = RecordingFeedDistributionSyncRepository(),
+            proofCaptureSource = FakeProofCaptureSource(mutableListOf()),
+            photoCaptureSource = FakePhotoCaptureSource(mutableListOf()),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            feedRepository = feedRepository,
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            appContext = ApplicationProvider.getApplicationContext(),
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    FeedDistributionCompleteViewModel.ARG_PARK_ID to "park-1",
+                    FeedDistributionCompleteViewModel.ARG_SHED_ID to "shed-1",
+                    FeedDistributionCompleteViewModel.ARG_SESSION_NO to "1",
+                    FeedDistributionCompleteViewModel.ARG_WORKFLOW to "normal",
+                    FeedDistributionCompleteViewModel.ARG_TARGET_DATE to "2026-08-12",
+                    FeedDistributionCompleteViewModel.ARG_LIFECYCLE_STATUS to "open",
+                ),
+            ),
+        )
+        runCurrent()
+        assertEquals(false, viewModel.state.value.alreadySubmitted)
+
+        // Teammate submits elsewhere; the next periodic 30s server poll (not a manual Sync tap)
+        // must observe it, without advancing through all MAX_SERVER_STATUS_POLLS iterations.
+        feedRepository.statusToReturn = "pending_verification"
+        advanceTimeBy(30_001L)
+        runCurrent()
+
+        assertEquals(true, viewModel.state.value.alreadySubmitted)
+        val statusChange = analytics.events.last { it.name == "feed_distribution_live_status_changed" }
+        assertEquals("server_poll", statusChange.props["source"])
+        assertEquals("editable", statusChange.props["previous"])
+        assertEquals("readonly", statusChange.props["next"])
+    }
 }
 
 private class RecordingFeedDistributionSyncRepository : SyncRepository {
@@ -242,6 +981,13 @@ private class RecordingFeedDistributionSyncRepository : SyncRepository {
         private set
     var lastWaterProofOutboxItemId: String? = null
         private set
+    var lastCompletionGroupKey: String? = null
+        private set
+
+    // Server proof ids for slots recorded on ANOTHER operator's phone.
+    var lastFeedWeightProofRef: String? = null
+    var lastDistributionProofRef: String? = null
+    var lastWaterProofRef: String? = null
 
     override fun observeStatus(): MutableStateFlow<SyncStatus> = status
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> = items.getOrPut(itemId) { MutableStateFlow(null) }
@@ -285,14 +1031,21 @@ private class RecordingFeedDistributionSyncRepository : SyncRepository {
         sessionNo: Int,
         targetDate: String,
         workflow: String,
-        distributionProofOutboxItemId: String,
-        feedWeightProofOutboxItemId: String,
-        waterProofOutboxItemId: String,
+        distributionProofOutboxItemId: String?,
+        feedWeightProofOutboxItemId: String?,
+        waterProofOutboxItemId: String?,
+        feedWeightProofRef: String?,
+        distributionProofRef: String?,
+        waterProofRef: String?,
     ): AppResult<String> {
         completionEnqueueCount += 1
+        lastCompletionGroupKey = groupKey
         lastFeedWeightProofOutboxItemId = feedWeightProofOutboxItemId
         lastDistributionProofOutboxItemId = distributionProofOutboxItemId
         lastWaterProofOutboxItemId = waterProofOutboxItemId
+        lastFeedWeightProofRef = feedWeightProofRef
+        lastDistributionProofRef = distributionProofRef
+        lastWaterProofRef = waterProofRef
         return AppResult.Ok("completion-item-1")
     }
 
@@ -319,6 +1072,7 @@ private class RecordingFeedDistributionSyncRepository : SyncRepository {
         decision: String,
         reason: String?,
         rowVersion: Int,
+        measurement: VerificationVerdictMeasurementDto?,
     ): AppResult<String> = error("unused")
 
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")

@@ -40,7 +40,10 @@ import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.forms.ProofPolicy
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachOutcome
+import sg.mesha.goatos.core.data.weighing.IndividualProofAttachStatus
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
 import sg.mesha.goatos.core.data.weighing.WeighingCsvExportRow
 import sg.mesha.goatos.core.data.weighing.parseWeighingExportCsv
@@ -114,7 +117,7 @@ class WeighingViewModel @Inject constructor(
     private val crashReporter: CrashReporter,
     private val repeatSeedStore: WeighingRepeatSeedStore,
     private val exportFileWriter: sg.mesha.goatos.export.WeighingExportFileWriter,
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     private val campaignId = savedStateHandle.get<String>(Routes.WEIGHING_CAMPAIGN_ARG).orEmpty()
     private val workGroupId = savedStateHandle.get<String>(Routes.WEIGHING_WORK_GROUP_ARG).orEmpty()
@@ -141,8 +144,13 @@ class WeighingViewModel @Inject constructor(
         ?.let { weighingScopeKey(campaignId, workGroupId, campaignShedId) }
     private val scanInput = MutableStateFlow("")
     private val weightInput = MutableStateFlow("")
-    private val animalCountInput = MutableStateFlow("")
-    private val animalWeightInputs = MutableStateFlow<Map<String, String>>(emptyMap())
+    // Restored from SavedStateHandle so typed-but-unsubmitted per-animal weights survive a
+    // process death mid-scan -- see KEY_ANIMAL_WEIGHT_INPUT_IDS/VALUES in the companion object
+    // for why SavedStateHandle (not Room) is the right durability layer for this map.
+    private val animalWeightInputs = MutableStateFlow(restoreAnimalWeightInputs(savedStateHandle))
+    // The row itself (rosterWindow/scannedRows data) is NOT Bundle-safe, so only the animal id is
+    // persisted; it is re-resolved against scopeState/scannedRows once those are live again (see
+    // the restoreSelectedRow() call in init below).
     private val selectedRow = MutableStateFlow<WeighingRosterRowEntity?>(null)
     private val scannedRows = MutableStateFlow<List<WeighingRosterRowEntity>>(emptyList())
     // Track which animals have experienced server-side weight write conflicts. Used to display
@@ -163,6 +171,9 @@ class WeighingViewModel @Inject constructor(
     // (<= 5 shed videos, or that shed's per-animal captures). They do NOT accumulate across a
     // shift; a new bucket gets a new ViewModel and new empty collections.
     private val reportedProofUploadTrouble = mutableSetOf<String>() // mobile-guard:ignore: per-scope ViewModel, dies with the bucket; <= one shed's captures
+
+    // mobile-guard:ignore: same per-scope lifetime and bound as reportedProofUploadTrouble above.
+    private val reportedIndividualProofAttachOutcomes = mutableSetOf<String>() // mobile-guard:ignore: per-scope ViewModel, dies with the bucket; <= one shed's captures
 
     // mobile-guard:ignore: same per-scope lifetime as reportedProofUploadTrouble above.
     private val proofUploadAttempts = mutableMapOf<String, Int>() // mobile-guard:ignore: per-scope ViewModel, dies with the bucket; <= one shed's captures
@@ -402,14 +413,45 @@ class WeighingViewModel @Inject constructor(
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /**
+     * True once THIS scope's own submit has reached the outbox and not (yet, or ever) failed --
+     * i.e. QUEUED, IN_FLIGHT or SUCCEEDED. Backed by the durable outbox row `submitIndividualScope`
+     * itself enqueues (see [sg.mesha.goatos.core.data.weighing.WeighingRepository.findPendingSubmit],
+     * which resolves the outbox by (groupKey, opType) identity -- NOT by re-deriving today's
+     * idempotency key, which rotates the moment this same row reaches SUCCEEDED and would then
+     * miss it), never a transient
+     * VM-only flag -- so a fresh VM re-entering an already-submitted scope (killed process, or the
+     * operator simply navigating back in) renders read-only from a Room read, not from something
+     * this VM instance remembered doing itself. A FAILED submit is intentionally NOT read-only: the
+     * operator can still fix and retry it.
+     *
+     * Nullable to avoid race: initialized as null, set to true/false after first refreshScopeSubmitted()
+     * completes. The UI state only sets isReadOnly = true when this is non-null and true, preventing
+     * the transient "editable" state that occurred when the screen rendered before the async refresh
+     * completed. This also prevents the hole where outbox row pruning (if it occurs after SUCCEEDED)
+     * would revert scopeSubmitted to false even though the backend knows the scope is submitted.
+     */
+    private val scopeSubmitted = MutableStateFlow<Boolean?>(null)
+
+    private suspend fun refreshScopeSubmitted() {
+        if (scopeKey == null) {
+            scopeSubmitted.value = false  // Not a scoped session; mark refreshed
+            return
+        }
+        val result = repository.findPendingSubmit(campaignId, campaignShedId)
+        val status = (result as? AppResult.Ok)?.value?.status
+        scopeSubmitted.value = status == SyncItemStatus.SUCCEEDED ||
+            status == SyncItemStatus.IN_FLIGHT ||
+            status == SyncItemStatus.QUEUED
+    }
+
     private val weightState: StateFlow<WeighingWeightState> =
-        combine(weightInput, animalCountInput, animalWeightInputs, updatingWeightAnimalIds) {
+        combine(weightInput, animalWeightInputs, updatingWeightAnimalIds) {
                 weight,
-                animalCount,
                 animalWeights,
                 updatingAnimalIds,
             ->
-            WeighingWeightState(weight, animalCount, animalWeights, updatingAnimalIds)
+            WeighingWeightState(weight, animalWeights, updatingAnimalIds)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingWeightState())
 
     private val formState: StateFlow<WeighingFormState> =
@@ -417,7 +459,6 @@ class WeighingViewModel @Inject constructor(
             WeighingFormState(
                 scan,
                 weights.weight,
-                weights.animalCount,
                 weights.animalWeights,
                 weights.updatingAnimalIds,
                 selected,
@@ -1003,7 +1044,6 @@ class WeighingViewModel @Inject constructor(
             scope.toUiState(
                 scan = form.scan,
                 weight = form.weight,
-                animalCount = form.animalCount,
                 animalWeights = form.animalWeights,
                 updatingAnimalIds = form.updatingAnimalIds,
                 selected = form.selected,
@@ -1035,6 +1075,22 @@ class WeighingViewModel @Inject constructor(
                     uiState.copy(showSubmitConfirmation = confirming)
                 }
             }
+            .let { base ->
+                // isReadOnly folded in the SAME way showSubmitConfirmation is above: it is a
+                // durable, Room-observed signal (the outbox row behind the scope's own submit --
+                // see refreshScopeSubmitted()), not a transient VM flag, so a re-entered screen
+                // (fresh VM, fresh process) renders read-only from the FIRST emission rather than
+                // only after some later user action re-derives it. scopeSubmitted is nullable to
+                // avoid the race where the screen renders editable before refreshScopeSubmitted()
+                // completes: we only update isReadOnly once submitted is non-null (after first refresh).
+                combine(base, scopeSubmitted) { uiState, submitted ->
+                    if (submitted != null) {
+                        uiState.copy(isReadOnly = submitted)
+                    } else {
+                        uiState
+                    }
+                }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingUiState())
 
     init {
@@ -1047,6 +1103,7 @@ class WeighingViewModel @Inject constructor(
         )
         if (scopeKey != null) {
             refreshScope()
+            viewModelScope.launch { refreshScopeSubmitted() }
             viewModelScope.launch {
                 val profile = runCatching {
                     // exception:exempt cached profile fetch; best-effort, null is acceptable fallback
@@ -1055,9 +1112,17 @@ class WeighingViewModel @Inject constructor(
                 currentPrincipalId = profile?.operatorId?.takeIf { it.isNotBlank() }
                 restoreLumpSumInputDraft()
             }
+            // A recreated process (killed while the submit confirmation was showing) restores the
+            // dialog too, instead of leaving it silently gone with no way back short of re-scanning
+            // every animal. confirmSubmitIndividualScope() recomputes identifiers fresh either way
+            // (see its comment), so re-arming here only needs to reopen the gate.
+            if (savedStateHandle.get<ArrayList<String>>(KEY_SUBMIT_PENDING_IDENTIFIERS) != null) {
+                showSubmitConfirmation.value = true
+            }
             viewModelScope.launch {
                 scanCaptureRepository.observeScannedTags(scopeKey, WEIGHING_SCAN_FIELD_KEY).collect { scans ->
                     scannedRows.value = scans.map { unknownWeighingRow(scopeKey, it.tag, it.capturedAtMs) }
+                    restoreSelectedRowIfNeeded()
                 }
             }
             viewModelScope.launch {
@@ -1072,6 +1137,7 @@ class WeighingViewModel @Inject constructor(
             viewModelScope.launch {
                 scopeState.collect {
                     publishActiveProofs(scopeKey, rawProofs.value)
+                    restoreSelectedRowIfNeeded()
                 }
             }
         } else {
@@ -1108,6 +1174,16 @@ class WeighingViewModel @Inject constructor(
         val syncStatuses = syncRepository?.observeStatus()
         if (syncStatuses != null) viewModelScope.launch {
             syncStatuses.collect { status ->
+                // Live re-check when THIS scope's own submit row changed status (not on every
+                // outbox emission app-wide -- that fired a Room query on every unrelated write in
+                // every other feature's queue). Still reactive to a reconcile/retry/failure that
+                // lands while this screen sits open, just scoped to the row that can actually
+                // change scopeSubmitted's answer.
+                if (scopeKey != null &&
+                    status.items.any { it.opType == WEIGHING_SCOPE_SUBMIT_OP && it.groupKey == campaignShedId }
+                ) {
+                    refreshScopeSubmitted()
+                }
                 val conflictedKeys = status.items
                     .filter { it.opType == WEIGHING_ANIMAL_OBSERVATION_OP && it.conflict }
                     .map { it.idempotencyKey }
@@ -1651,15 +1727,55 @@ class WeighingViewModel @Inject constructor(
         saveLumpSumInputDraft()
     }
 
-    fun onAnimalCountInputChange(value: String) {
-        animalCountInput.value = sanitizeWeighingAnimalCountInput(value)
-        saveLumpSumInputDraft()
-    }
-
     fun onAnimalWeightInputChange(animalId: String, value: String) {
         if (animalId.isBlank()) return
         val filtered = sanitizeWeighingWeightInput(value)
-        animalWeightInputs.value = animalWeightInputs.value + (animalId to filtered)
+        setAnimalWeightInput(animalId, filtered)
+    }
+
+    /** Sets (or, when [value] is blank, effectively leaves) a typed weight and persists it. */
+    private fun setAnimalWeightInput(animalId: String, value: String) {
+        animalWeightInputs.value = animalWeightInputs.value + (animalId to value)
+        persistAnimalWeightInputs()
+    }
+
+    /** Removes a typed weight (after it has been committed to Room) and persists the removal. */
+    private fun clearAnimalWeightInput(animalId: String) {
+        animalWeightInputs.value = animalWeightInputs.value - animalId
+        persistAnimalWeightInputs()
+    }
+
+    /**
+     * Mirrors [animalWeightInputs] into [savedStateHandle] as parallel id/value lists -- see
+     * [restoreAnimalWeightInputs] for why parallel lists rather than a single Map entry.
+     */
+    private fun persistAnimalWeightInputs() {
+        val snapshot = animalWeightInputs.value
+        savedStateHandle[KEY_ANIMAL_WEIGHT_INPUT_IDS] = ArrayList(snapshot.keys)
+        savedStateHandle[KEY_ANIMAL_WEIGHT_INPUT_VALUES] = ArrayList(snapshot.values)
+    }
+
+    private fun persistSelectedRow(animalId: String?) {
+        if (animalId.isNullOrBlank()) {
+            savedStateHandle.remove<String>(KEY_SELECTED_ROW_ANIMAL_ID)
+        } else {
+            savedStateHandle[KEY_SELECTED_ROW_ANIMAL_ID] = animalId
+        }
+    }
+
+    /**
+     * Re-selects the row a prior process held selected, once durable roster/scan state
+     * ([scopeState]/[scannedRows]) is live again -- [selectedRow] itself cannot be put in
+     * SavedStateHandle (not Bundle-safe), only the id survives, so this re-resolves the full row.
+     * Safe to call repeatedly; it is a no-op once a row is already selected or nothing was saved.
+     */
+    private fun restoreSelectedRowIfNeeded() {
+        if (selectedRow.value != null) return
+        val savedAnimalId = savedStateHandle.get<String>(KEY_SELECTED_ROW_ANIMAL_ID) ?: return
+        val row = scopeState.value?.rosterWindow?.firstOrNull {
+            it.animalId == savedAnimalId || it.id == savedAnimalId
+        } ?: scannedRows.value.firstOrNull { it.animalId == savedAnimalId }
+        if (row != null) selectedRow.value = row
     }
 
     fun selectAnimal(animalId: String) {
@@ -1669,6 +1785,7 @@ class WeighingViewModel @Inject constructor(
             ?.firstOrNull { it.animalId == animalId || it.id == animalId }
             ?: return
         selectedRow.value = row
+        persistSelectedRow(row.animalId)
         scanInput.value = row.primaryTag
         message.value = "Selected ${row.displayAnimalId}. Enter weight, then capture video."
     }
@@ -1698,18 +1815,41 @@ class WeighingViewModel @Inject constructor(
                 tag = animalId,
                 capturedAtMs = System.currentTimeMillis(),
             )
-        animalWeightInputs.value = animalWeightInputs.value + (animalId to sanitizedWeight)
+        setAnimalWeightInput(animalId, sanitizedWeight)
         selectedRow.value = row
+        persistSelectedRow(row.animalId)
         recordIndividualRow(key, row, useGlobalBusyGate = false)
     }
 
-    fun submitIndividualScope(onSubmitted: () -> Unit) {
-        if (category == PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
+    /**
+     * The scope's ready-to-submit identifiers, recomputed FRESH from durable, Room-observed
+     * state (`scopeState`/`scannedRows`/`state.visibleRows`) every time it's called -- never
+     * cached. This is what [confirmSubmitIndividualScope] now calls instead of trusting a
+     * previously-stashed list, so a confirm can never silently no-op just because a stashed
+     * value went missing (see that function's comment for why that used to happen).
+     *
+     * Returns null when the scope is not submittable.
+     */
+    private fun computeSubmittableIdentifiers(): List<String>? {
+        val snapshot = submitReadinessSnapshot()
+        return snapshot.submittedIdentifiers.takeIf { snapshot.ready }
+    }
+
+    private fun submitReadinessSnapshot(): SubmitReadinessSnapshot {
         val drafts = scopeState.value?.individualDrafts.orEmpty()
-        val scannedIdentifiers = scannedRows.value
+        val visibleRows = state.value.visibleRows
+        val localScannedRows = scannedRows.value
+        // A fresh install can hydrate already-captured weighing rows from the server without any
+        // local scan-capture rows. The UI renders those rows as ready from the weighing scope cache,
+        // so the submit gate must use the same source of truth instead of requiring local scan
+        // history that may not exist on this device.
+        val scannedIdentifiers = visibleRows
             .map { it.animalId }
+            .ifEmpty {
+                localScannedRows.map { it.animalId }
+            }
             .distinct()
-        val readyVisibleRows = state.value.visibleRows
+        val readyVisibleRows = visibleRows
             .filter { row ->
                 scannedIdentifiers.contains(row.animalId) &&
                     row.weightSaved &&
@@ -1733,16 +1873,29 @@ class WeighingViewModel @Inject constructor(
                 null
             }
         }.plus(readyVisibleRows).distinct()
-        if (
-            scannedIdentifiers.isEmpty() ||
-            submittedIdentifiers.size != scannedIdentifiers.size ||
-            submittedIdentifiers.size != readyVisibleRows.size ||
-            submittedIdentifiers.any { it !in scannedIdentifiers }
-        ) {
+        val ready = scannedIdentifiers.isNotEmpty() &&
+            submittedIdentifiers.size == scannedIdentifiers.size &&
+            submittedIdentifiers.size == readyVisibleRows.size &&
+            submittedIdentifiers.none { it !in scannedIdentifiers }
+        return SubmitReadinessSnapshot(
+            submittedIdentifiers = submittedIdentifiers,
+            ready = ready,
+            visibleRowCount = visibleRows.size,
+            scannedRowCount = localScannedRows.size,
+            readyVisibleRowCount = readyVisibleRows.size,
+            pairedDraftCount = pairedDrafts.size,
+        )
+    }
+
+    fun submitIndividualScope(onSubmitted: () -> Unit) {
+        if (category == PER_SHED_PARTITION_CATEGORY || actionInFlight.value || scopeSubmitted.value == true) return
+        val submittedIdentifiers = computeSubmittableIdentifiers()
+        if (submittedIdentifiers == null) {
             message.value = "Every scanned RFID in this shed needs saved weight and synced video before submit."
             analytics.track(
                 AnalyticsEvents.SUBMIT_BLOCKED,
                 weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
+                    submitReadinessSnapshot().analyticsProps() +
                     (AnalyticsEvents.Params.REASON to "scope_incomplete"),
             )
             return
@@ -1753,18 +1906,44 @@ class WeighingViewModel @Inject constructor(
             AnalyticsEventsWeighing.WEIGHING_SUBMIT_CONFIRMATION_OPENED,
             weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
         )
-        submitPendingIdentifiers = submittedIdentifiers
+        // Durable across process death via SavedStateHandle -- kept ONLY as a hint for
+        // `confirmSubmitIndividualScope` to prefer (skipping a redundant recompute); it is never
+        // the sole source of truth the way it used to be (see that function).
+        savedStateHandle[KEY_SUBMIT_PENDING_IDENTIFIERS] = ArrayList(submittedIdentifiers)
+        // NOT durable: a lambda cannot survive process death (SavedStateHandle only stores Bundle-
+        // compatible values). `confirmSubmitIndividualScope` no longer treats its absence as a
+        // reason to silently skip the submit -- see the comment there.
         submitPendingCallback = onSubmitted
     }
 
-    private var submitPendingIdentifiers: List<String>? = null
     private var submitPendingCallback: (() -> Unit)? = null
 
     fun confirmSubmitIndividualScope() {
-        val identifiers = submitPendingIdentifiers ?: return
-        val callback = submitPendingCallback ?: return
+        // ONLY proceeds when the gate is actually open -- mirrors SubmitViewModel.confirmSubmit's
+        // gate-first contract instead of trusting a stashed identifier list to prove it.
+        if (!showSubmitConfirmation.value) return
+        // RECOMPUTE, never trust a stash. The identifiers used to live ONLY in a plain `var`
+        // (`submitPendingIdentifiers`) set once in submitIndividualScope() and read here with
+        // `?: return` -- silently doing nothing if it had gone missing. A killed-and-recreated
+        // process is exactly the case where that happens: the VM comes back with
+        // `showSubmitConfirmation` reset and no memory of which identifiers were armed, so if the
+        // recomposed dialog's Confirm ever reached this function the tap did precisely nothing --
+        // no error, no submit, no sign anything was wrong. Recomputing from the same durable,
+        // Room-observed state `submitIndividualScope` used closes that gap: the identifiers can
+        // never be null while the gate is legitimately open.
+        val identifiers = computeSubmittableIdentifiers()
+        if (identifiers == null) {
+            // The scope stopped being submittable between arm and confirm (e.g. a proof upload
+            // regressed) -- close the dialog and say so, rather than either submitting a stale
+            // list or silently doing nothing.
+            showSubmitConfirmation.value = false
+            savedStateHandle.remove<ArrayList<String>>(KEY_SUBMIT_PENDING_IDENTIFIERS)
+            message.value = "Every scanned RFID in this shed needs saved weight and synced video before submit."
+            return
+        }
+        val callback = submitPendingCallback
         showSubmitConfirmation.value = false
-        submitPendingIdentifiers = null
+        savedStateHandle.remove<ArrayList<String>>(KEY_SUBMIT_PENDING_IDENTIFIERS)
         submitPendingCallback = null
         actionInFlight.value = true
         analytics.track(
@@ -1789,6 +1968,7 @@ class WeighingViewModel @Inject constructor(
                     )
                 ) {
                     is AppResult.Ok -> {
+                        refreshScopeSubmitted()
                         analytics.track(
                             AnalyticsEvents.WEIGHING_SUBMIT_SUCCESS,
                             weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
@@ -1797,7 +1977,23 @@ class WeighingViewModel @Inject constructor(
                             AnalyticsEventsWeighing.WEIGHING_SUBMIT_SUCCEEDED,
                             weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
                         )
-                        callback()
+                        // The write is now DURABLY QUEUED (outbox), not yet server-confirmed --
+                        // WeighingRepository.submitIndividualScope enqueues instead of calling the
+                        // network directly, so the sync engine retries it independently even if
+                        // this VM/process dies before it drains. If the navigation callback itself
+                        // didn't survive (process death between arm and confirm), the submit still
+                        // happened; only the auto-navigate is skipped, never the write.
+                        if (callback != null) {
+                            callback()
+                        } else {
+                            // No navigation callback (process death between arm and confirm), but
+                            // submit succeeded so provide user feedback via message channel
+                            message.value = "Submitted"
+                            crashReporter.recordException(
+                                IllegalStateException("weighing submit confirmed with no navigation callback"),
+                                "weighing individual scope submit succeeded without a live callback",
+                            )
+                        }
                     }
                     is AppResult.Err -> {
                         // Show the SERVER's reason when it has one. A rework bounce ("a video was
@@ -1830,7 +2026,7 @@ class WeighingViewModel @Inject constructor(
 
     fun dismissSubmitConfirmation() {
         showSubmitConfirmation.value = false
-        submitPendingIdentifiers = null
+        savedStateHandle.remove<ArrayList<String>>(KEY_SUBMIT_PENDING_IDENTIFIERS)
         submitPendingCallback = null
         analytics.track(
             AnalyticsEventsWeighing.WEIGHING_SUBMIT_CONFIRMATION_CANCELLED,
@@ -1843,6 +2039,11 @@ class WeighingViewModel @Inject constructor(
         row: WeighingRosterRowEntity,
         useGlobalBusyGate: Boolean = true,
     ) {
+        // Defense in depth behind the UI's own canRecordIndividual/canRecordShedPartition gate
+        // (WeighingScreen.kt): the durable read-only signal is checked here too, so a stray call
+        // reaching this function some other way (e.g. a queued composable callback) cannot write
+        // into an already-submitted scope.
+        if (scopeSubmitted.value == true) return
         val weightKg = parsePositiveWeighingWeight(animalWeightInputs.value[row.animalId])
             ?: parsePositiveWeighingWeight(weightInput.value)
             ?: return
@@ -1883,18 +2084,33 @@ class WeighingViewModel @Inject constructor(
                         // Clear any previous conflict for this animal (re-capture after failure)
                         conflictedAnimalIds.value = conflictedAnimalIds.value - row.animalId
 
+                        val scannedIdentifier = row.primaryTag.ifBlank { row.animalId }
                         if (proof != null) {
-                            repository.attachIndividualProof(key, row.animalId, proof.id, proof.serverProofId)
+                            reportIndividualProofAttachOutcome(
+                                result = repository.attachIndividualProof(key, scannedIdentifier, proof.id, proof.serverProofId),
+                                proofCaptureId = proof.id,
+                                serverProofId = proof.serverProofId,
+                                scannedIdentifier = scannedIdentifier,
+                                source = "capture_save",
+                                recoveredByRfid = false,
+                            )
                         } else {
                             val restoredProofCaptureId = recorded.value.proofCaptureId
                             val restoredServerProofId = recorded.value.serverProofId
                             if (!restoredProofCaptureId.isNullOrBlank() && !restoredServerProofId.isNullOrBlank()) {
-                            repository.attachIndividualProof(
-                                key,
-                                row.animalId,
-                                restoredProofCaptureId,
-                                restoredServerProofId,
-                            )
+                                reportIndividualProofAttachOutcome(
+                                    result = repository.attachIndividualProof(
+                                        key,
+                                        scannedIdentifier,
+                                        restoredProofCaptureId,
+                                        restoredServerProofId,
+                                    ),
+                                    proofCaptureId = restoredProofCaptureId,
+                                    serverProofId = restoredServerProofId,
+                                    scannedIdentifier = scannedIdentifier,
+                                    source = "capture_save_restored_proof",
+                                    recoveredByRfid = false,
+                                )
                             }
                         }
                         // Do NOT show the success message yet - it's only queued locally. The outbox
@@ -1917,10 +2133,10 @@ class WeighingViewModel @Inject constructor(
                         scanCaptureRepository.markLocalScanSynced(
                             taskId = key,
                             fieldKey = WEIGHING_SCAN_FIELD_KEY,
-                            tag = row.animalId,
+                            tag = scannedIdentifier,
                         )
                         weightInput.value = ""
-                        animalWeightInputs.value = animalWeightInputs.value - row.animalId
+                        clearAnimalWeightInput(row.animalId)
                         scanInput.value = ""
                         recorded.value
                     }
@@ -1945,8 +2161,9 @@ class WeighingViewModel @Inject constructor(
     fun recordShedPartition(onSubmitted: () -> Unit = {}) {
         val key = scopeKey ?: return
         val weightKg = parsePositiveWeighingWeight(weightInput.value) ?: return
-        val animalCount = parsePositiveWeighingAnimalCount(animalCountInput.value) ?: return
-        val averageWeightKg = weightKg / animalCount
+        // No animal count: the head count is snapshotted from the herd register by
+        // the backend at submit (maintainer decision 2026-08-24), so the phone
+        // sends only the total weight and the videos.
         val activeProofs = activeWeighingProofs(observedProofs.value, scopeState.value)
         val syncedProof = activeProofs
             .filter { it.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY }
@@ -1970,7 +2187,6 @@ class WeighingViewModel @Inject constructor(
         val lumpSumProps = weighingCaptureProps(PER_SHED_PARTITION_CATEGORY) +
             mapOf(
                 AnalyticsEvents.Params.WEIGHT_KG to weightKg.toString(),
-                AnalyticsEvents.Params.ANIMAL_COUNT to animalCount.toString(),
                 AnalyticsEvents.Params.PROOF_CAPTURED to "true",
                 AnalyticsEvents.Params.PROOF_UPLOADED to "true",
                 AnalyticsEvents.Params.PROOF_ID to syncedProof.id,
@@ -1982,8 +2198,6 @@ class WeighingViewModel @Inject constructor(
             try {
                 val resultJson = buildJsonObject {
                     put("total_weight_kg", weightKg)
-                    put("animal_count", animalCount)
-                    put("average_weight_kg", averageWeightKg)
                     put("category", PER_SHED_PARTITION_CATEGORY)
                     put("expected_location_id", expectedLocationId)
                     put("expected_location_label", expectedLocationLabel.ifBlank { routeTitle })
@@ -2002,7 +2216,7 @@ class WeighingViewModel @Inject constructor(
                 )) {
                     is AppResult.Ok -> {
                         repository.attachShedPartitionProof(key, syncedProof.id, syncedProof.serverProofId, syncedProofIds)
-                        lumpSumDrafts.remove(lumpSumDraftKey(key))
+                        clearLumpSumInputDraft(lumpSumDraftKey(key))
                         message.value = "Lump-sum weighing submitted."
                         analytics.track(
                             AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
@@ -2113,29 +2327,44 @@ class WeighingViewModel @Inject constructor(
 
     fun replaceShedVideo(proofId: String) = captureShedVideo(replacingProofId = proofId)
 
+    // Durable across process death via SavedStateHandle -- NOT the file-scope `mutableMapOf` this
+    // replaced. A process-wide static map neither survives a killed process (the operator's
+    // half-typed lump-sum weight/count silently vanished) nor scopes cleanly to one VM instance
+    // (every WeighingViewModel in the process shared the same map, so its entries outlived the
+    // screen that wrote them). SavedStateHandle is this VM's own Bundle -- durable across process
+    // death, and gone for good once this destination is popped, exactly matching the draft's
+    // actual lifetime.
     private fun saveLumpSumInputDraft() {
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY) return
         val weight = weightInput.value
-        val animalCount = animalCountInput.value
         val draftKey = lumpSumDraftKey(key)
-        if (weight.isBlank() && animalCount.isBlank()) {
-            lumpSumDrafts.remove(draftKey)
+        if (weight.isBlank()) {
+            clearLumpSumInputDraft(draftKey)
         } else {
-            lumpSumDrafts[draftKey] = LumpSumInputDraft(weight, animalCount)
+            savedStateHandle[lumpSumWeightKey(draftKey)] = weight
         }
     }
 
     private fun restoreLumpSumInputDraft() {
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY) return
-        val draft = lumpSumDrafts[lumpSumDraftKey(key)] ?: return
-        if (weightInput.value.isBlank()) weightInput.value = draft.weightInput
-        if (animalCountInput.value.isBlank()) animalCountInput.value = draft.animalCountInput
+        val draftKey = lumpSumDraftKey(key)
+        val draftWeight = savedStateHandle.get<String>(lumpSumWeightKey(draftKey)) ?: return
+        if (weightInput.value.isBlank()) weightInput.value = draftWeight
+    }
+
+    private fun clearLumpSumInputDraft(draftKey: String) {
+        savedStateHandle.remove<String>(lumpSumWeightKey(draftKey))
+        // The animal-count draft key is gone with the count input itself (the head
+        // count is a backend register snapshot since 2026-08-24); stale entries from
+        // an older build simply age out with the destination.
     }
 
     private fun lumpSumDraftKey(scope: String): String =
         listOf(tenantId.ifBlank { "unknown_tenant" }, currentPrincipalId ?: "unknown_principal", scope).joinToString(":")
+
+    private fun lumpSumWeightKey(draftKey: String): String = "weighing.lumpSum.weight:$draftKey"
 
     private fun captureShedVideo(replacingProofId: String?) {
         val key = scopeKey ?: return
@@ -2259,7 +2488,11 @@ class WeighingViewModel @Inject constructor(
                         )
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_SUCCEEDED,
-                            shedVideoActionProps(shedVideoAction, replacingProofId ?: proof.value.id),
+                            shedVideoActionProps(
+                                action = shedVideoAction,
+                                proofId = proof.value.id,
+                                replacedProofId = replacingProofId,
+                            ),
                         )
                     }
                     is AppResult.Err -> {
@@ -2316,10 +2549,10 @@ class WeighingViewModel @Inject constructor(
      * only UI was the word "uploading". Diagnosis needed the server log and manual DB forensics.
      *
      * A proof row that is still non-terminal but already carries a `lastError` IS a retry — that
-     * is the signal that was invisible. Emitting it (once per DISTINCT failure, keyed by proof id
-     * + message, so a Room re-emission of the same state does not inflate the funnel) plus a
-     * Crashlytics non-fatal on the terminal FAILED state gives enough context to diagnose from a
-     * dashboard: which lane (shed vs per-animal), which campaign shed, which attempt, what cause.
+     * is the signal that was invisible. Emitting it once per DISTINCT failure, keyed by proof id
+     * + message, so a Room re-emission of the same state does not inflate the funnel, gives enough
+     * context to diagnose from a dashboard: which lane (shed vs per-animal), which campaign shed,
+     * which attempt, what cause.
      *
      * Goat identifiers are livestock data and are safe to carry; no token or credential is ever
      * put in props, and the reason string is truncated like every other reason field here.
@@ -2343,16 +2576,125 @@ class WeighingViewModel @Inject constructor(
                 put(AnalyticsEvents.Params.REASON, reason.take(MAX_ANALYTICS_REASON_CHARS))
             }
             if (terminal) {
-                crashReporter.recordException(
-                    IllegalStateException(reason),
-                    "weighing proof upload failed",
-                )
+                crashReporter.log("weighing proof upload failed: ${reason.take(MAX_ANALYTICS_REASON_CHARS)}")
                 analytics.track(AnalyticsEvents.WEIGHING_PROOF_UPLOAD_FAILED, props)
             } else {
                 analytics.track(AnalyticsEvents.WEIGHING_PROOF_UPLOAD_RETRY, props)
             }
         }
     }
+
+    private fun reportIndividualProofAttachOutcome(
+        result: AppResult<IndividualProofAttachOutcome>,
+        proofCaptureId: String,
+        serverProofId: String?,
+        scannedIdentifier: String,
+        source: String,
+        recoveredByRfid: Boolean,
+    ) {
+        when (result) {
+            is AppResult.Ok -> reportIndividualProofAttachOutcome(
+                outcome = result.value,
+                proofCaptureId = proofCaptureId,
+                serverProofId = serverProofId,
+                scannedIdentifier = scannedIdentifier,
+                source = source,
+                recoveredByRfid = recoveredByRfid,
+            )
+            is AppResult.Err -> {
+                val props = individualProofAttachProps(
+                    status = IndividualProofAttachStatus.ENQUEUE_FAILED,
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                    scannedIdentifier = scannedIdentifier,
+                    source = source,
+                    reason = result.message,
+                )
+                if (reportedIndividualProofAttachOutcomes.add("attach_err|$proofCaptureId|$serverProofId|$scannedIdentifier|${result.message}")) {
+                    analytics.track(AnalyticsEventsWeighing.WEIGHING_OBSERVATION_ENQUEUE_FAILED, props)
+                    crashReporter.recordException(
+                        result.cause ?: IllegalStateException("weighing proof attach failed"),
+                        "weighing proof attach failed",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun reportIndividualProofAttachOutcome(
+        outcome: IndividualProofAttachOutcome,
+        proofCaptureId: String,
+        serverProofId: String?,
+        scannedIdentifier: String,
+        source: String,
+        recoveredByRfid: Boolean,
+    ) {
+        val effectiveProofCaptureId = outcome.proofCaptureId.ifBlank { proofCaptureId }
+        val effectiveServerProofId = outcome.serverProofId?.takeIf(String::isNotBlank) ?: serverProofId
+        val effectiveScannedIdentifier = outcome.scannedIdentifier.ifBlank { scannedIdentifier }
+        val props = individualProofAttachProps(
+            status = outcome.status,
+            proofCaptureId = effectiveProofCaptureId,
+            serverProofId = effectiveServerProofId,
+            scannedIdentifier = effectiveScannedIdentifier,
+            source = source,
+            reason = outcome.reason,
+        )
+
+        fun reportOnce(event: String, suffix: String, block: () -> Unit = {}) {
+            val signature = "$event|$effectiveProofCaptureId|$effectiveServerProofId|$effectiveScannedIdentifier|$suffix"
+            if (!reportedIndividualProofAttachOutcomes.add(signature)) return
+            analytics.track(event, props)
+            block()
+        }
+
+        when (outcome.status) {
+            IndividualProofAttachStatus.ATTACHED,
+            IndividualProofAttachStatus.ALREADY_QUEUED -> if (recoveredByRfid) {
+                reportOnce(
+                    AnalyticsEventsWeighing.WEIGHING_ORPHAN_SYNCED_PROOF_RECOVERED,
+                    outcome.status.name,
+                )
+            }
+            IndividualProofAttachStatus.NO_OBSERVATION -> reportOnce(
+                AnalyticsEventsWeighing.WEIGHING_PROOF_ATTACH_NO_OBSERVATION,
+                outcome.reason.orEmpty(),
+            )
+            IndividualProofAttachStatus.ENQUEUE_FAILED -> reportOnce(
+                AnalyticsEventsWeighing.WEIGHING_OBSERVATION_ENQUEUE_FAILED,
+                outcome.reason.orEmpty(),
+            ) {
+                crashReporter.recordException(
+                    IllegalStateException("weighing observation enqueue failed"),
+                    "weighing observation enqueue failed",
+                )
+            }
+            IndividualProofAttachStatus.ALREADY_ACCEPTED -> Unit
+        }
+    }
+
+    private fun individualProofAttachProps(
+        status: IndividualProofAttachStatus,
+        proofCaptureId: String,
+        serverProofId: String?,
+        scannedIdentifier: String,
+        source: String,
+        reason: String?,
+    ): Map<String, String> =
+        weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
+            buildMap {
+                put(AnalyticsEvents.Params.PROOF_ID, proofCaptureId)
+                put(AnalyticsEvents.Params.STATUS, status.name.lowercase())
+                put(AnalyticsEvents.Params.SOURCE, source)
+                put(AnalyticsEventsWeighing.Params.RFID, scannedIdentifier)
+                serverProofId?.takeIf(String::isNotBlank)?.let {
+                    put(AnalyticsEventsWeighing.Params.SERVER_PROOF_ID, it)
+                    put(AnalyticsEvents.Params.PROOF_STATE, "server_synced")
+                }
+                reason?.takeIf(String::isNotBlank)?.let {
+                    put(AnalyticsEvents.Params.REASON, it.take(MAX_ANALYTICS_REASON_CHARS))
+                }
+            }
 
     private fun weighingCaptureProps(captureCategory: String): Map<String, String> =
         buildMap {
@@ -2413,12 +2755,17 @@ class WeighingViewModel @Inject constructor(
         )
     }
 
-    private fun shedVideoActionProps(action: String, proofId: String?): Map<String, String> =
+    private fun shedVideoActionProps(
+        action: String,
+        proofId: String?,
+        replacedProofId: String? = null,
+    ): Map<String, String> =
         buildMap {
             put(AnalyticsEvents.Params.CATEGORY, action)
             put(AnalyticsEvents.Params.ITEM_ID, scopeKey.orEmpty())
             put(AnalyticsEvents.Params.SHED_ID, campaignShedId)
             proofId?.let { put(AnalyticsEvents.Params.PROOF_ID, it) }
+            replacedProofId?.let { put(AnalyticsEvents.Params.REPLACED_PROOF_ID, it) }
         }
 
     override fun onCleared() {
@@ -2515,6 +2862,7 @@ class WeighingViewModel @Inject constructor(
                 val reworkRow = unknownWeighingRow(key, normalizedTag)
                 trackWeighingScan(normalizedTag, reworkRow, "accepted", "rework_rescan")
                 selectedRow.value = reworkRow
+                persistSelectedRow(reworkRow.animalId)
                 captureVideoForRow(key, reworkRow)
                 return@launch
             }
@@ -2547,6 +2895,7 @@ class WeighingViewModel @Inject constructor(
             }
             val row = unknownWeighingRow(key, normalizedTag)
             selectedRow.value = row
+            persistSelectedRow(row.animalId)
             message.value = "RFID captured. Record video, then enter weight."
             trackWeighingScan(normalizedTag, row, "accepted", "accepted")
             captureVideoForRow(key, row)
@@ -2769,7 +3118,6 @@ class WeighingViewModel @Inject constructor(
     private fun WeighingScopeState?.toUiState(
         scan: String,
         weight: String,
-        animalCount: String,
         animalWeights: Map<String, String>,
         updatingAnimalIds: Set<String>,
         selected: WeighingRosterRowEntity?,
@@ -2798,7 +3146,6 @@ class WeighingViewModel @Inject constructor(
                 hasScope = true,
                 scanInput = scan,
                 weightInput = weight,
-                animalCountInput = animalCount,
                 selectedAnimalId = selected?.animalId,
                 selectedAnimalLabel = selected?.displayAnimalId,
                 message = currentMessage,
@@ -2816,7 +3163,6 @@ class WeighingViewModel @Inject constructor(
         val scope = this ?: return WeighingUiState(
             scanInput = scan,
             weightInput = weight,
-            animalCountInput = animalCount,
             message = currentMessage,
             assignments = availableAssignments
                 .filter { selectedParkId == null || it.parkId == selectedParkId }
@@ -2866,7 +3212,6 @@ class WeighingViewModel @Inject constructor(
             selectedAnimalLabel = selected?.displayAnimalId,
             scanInput = scan,
             weightInput = weight,
-            animalCountInput = animalCount,
             message = currentMessage,
             actionInFlight = busy,
             category = category,
@@ -2920,11 +3265,11 @@ class WeighingViewModel @Inject constructor(
             val draftProofId = draft?.proofCaptureId?.takeIf { it.isNotBlank() }
             val proof = proofs
                 .filter { it.fieldKey == INDIVIDUAL_PROOF_FIELD_KEY }
-                .filter { it.matchesAnimalProof(row.animalId, draftProofId) }
+                .filter { it.matchesAnimalProof(row.animalId, draftProofId, draft?.capturedAtMs) }
                 .maxByOrNull { it.capturedAtMs }
                 ?: autoProofs.value[row.animalId]
             val proofStatus = when {
-                proof == null && !draft?.proofCaptureId.isNullOrBlank() && draft?.syncedToBackend == true ->
+                proof == null && draft != null && !draft.proofCaptureId.isNullOrBlank() && draft.syncedToBackend ->
                     sg.mesha.goatos.feature.scan.ProofUploadStatus.SYNCED
                 else -> when (proof?.syncStatus) {
                 CaptureSyncStatus.SYNCED -> sg.mesha.goatos.feature.scan.ProofUploadStatus.SYNCED
@@ -3002,16 +3347,27 @@ class WeighingViewModel @Inject constructor(
         scope: WeighingScopeState?,
     ): List<ProofCaptureRow> {
         val activeIds = sessionProofIds.value.toMutableSet()
+        val openIndividualDrafts = scope?.individualDrafts.orEmpty()
+            .filterNot { it.syncedToBackend }
+            .filter { it.scannedIdentifier.isNotBlank() }
+            .associate { it.scannedIdentifier to it.capturedAtMs }
         scope?.individualDrafts.orEmpty()
             .mapNotNullTo(activeIds) { it.proofCaptureId?.takeIf(String::isNotBlank) }
-        // A shed video is revived only while this scope still holds an OPEN round. Reviving
-        // every synced shed proof brought back ones a reopen had superseded, which filled the
-        // 5-video cap with dead clips and blocked the operator from filming the new one.
         val hasOpenShedRound = scope?.shedDrafts.orEmpty().isNotEmpty()
+        val latestLocalShedProofId = if (hasOpenShedRound) {
+            null
+        } else {
+            proofs
+                .filter { it.syncStatus == CaptureSyncStatus.SYNCED && it.belongsToThisShedScope() }
+                .maxByOrNull { it.capturedAtMs }
+                ?.id
+        }
         return proofs.filter { proof ->
             proof.syncStatus != CaptureSyncStatus.SYNCED ||
                 proof.id in activeIds ||
-                (hasOpenShedRound && proof.belongsToThisShedScope())
+                (hasOpenShedRound && proof.belongsToThisShedScope()) ||
+                proof.matchesOpenIndividualDraft(openIndividualDrafts) ||
+                proof.id == latestLocalShedProofId
         }
     }
 
@@ -3031,19 +3387,41 @@ class WeighingViewModel @Inject constructor(
             subjectId == expectedLocationId &&
             expectedLocationId.isNotBlank()
 
+    private fun ProofCaptureRow.matchesOpenIndividualDraft(openIndividualDrafts: Map<String, Long>): Boolean =
+        fieldKey == INDIVIDUAL_PROOF_FIELD_KEY &&
+            rfidTag?.let { tag ->
+                openIndividualDrafts[tag]?.let { draftCapturedAtMs ->
+                    isCompatibleWithWeighingDraft(draftCapturedAtMs)
+                }
+            } == true
+
     private suspend fun publishActiveProofs(scope: String, proofs: List<ProofCaptureRow>) {
-        val activeProofs = activeWeighingProofs(proofs, scopeState.value)
+        val scopeSnapshot = scopeState.value
+        val activeProofs = activeWeighingProofs(proofs, scopeSnapshot)
         reportProofUploadTrouble(activeProofs)
         observedProofs.value = activeProofs
         val shedProofIds = syncedShedProofIds(activeProofs)
+        val draftProofIds = scopeSnapshot?.individualDrafts.orEmpty()
+            .mapNotNull { it.proofCaptureId?.takeIf(String::isNotBlank) }
+            .toSet()
         activeProofs.forEach { proof ->
             val serverProofId = proof.serverProofId?.takeIf { it.isNotBlank() } ?: return@forEach
             when (proof.fieldKey) {
                 INDIVIDUAL_PROOF_FIELD_KEY -> {
-                    val animalId = proof.caption?.takeIf { it.isNotBlank() }
+                    val animalId = proof.rfidTag?.takeIf { it.isNotBlank() }
+                        ?: proof.caption?.takeIf { it.isNotBlank() }
                         ?: proof.subjectId?.takeIf { it.isNotBlank() }
                         ?: return@forEach
-                    repository.attachIndividualProof(scope, animalId, proof.id, serverProofId)
+                    reportIndividualProofAttachOutcome(
+                        result = repository.attachIndividualProof(scope, animalId, proof.id, serverProofId),
+                        proofCaptureId = proof.id,
+                        serverProofId = serverProofId,
+                        scannedIdentifier = animalId,
+                        source = "active_proof_publish",
+                        recoveredByRfid = proof.syncStatus == CaptureSyncStatus.SYNCED &&
+                            proof.rfidTag == animalId &&
+                            proof.id !in draftProofIds,
+                    )
                 }
                 SHED_PARTITION_PROOF_FIELD_KEY -> repository.attachShedPartitionProof(
                     scope,
@@ -3056,13 +3434,14 @@ class WeighingViewModel @Inject constructor(
     }
 
     private fun proofForAnimal(animalId: String): ProofCaptureRow? {
-        val draftProofId = scopeState.value?.individualDrafts
+        val draft = scopeState.value?.individualDrafts
             ?.firstOrNull { it.scannedIdentifier == animalId }
+        val draftProofId = draft
             ?.proofCaptureId
             ?.takeIf { it.isNotBlank() }
         return observedProofs.value
             .filter { it.fieldKey == INDIVIDUAL_PROOF_FIELD_KEY }
-            .filter { it.matchesAnimalProof(animalId, draftProofId) }
+            .filter { it.matchesAnimalProof(animalId, draftProofId, draft?.capturedAtMs) }
             .maxByOrNull { it.capturedAtMs }
             ?: autoProofs.value[animalId]
     }
@@ -3077,12 +3456,19 @@ class WeighingViewModel @Inject constructor(
     //
     // Ownership is the caption/subject match. Upload status is rendered separately (uploading /
     // synced / failed) and must not decide whether the proof is FOUND.
-    private fun ProofCaptureRow.matchesAnimalProof(animalId: String, draftProofId: String?): Boolean =
+    private fun ProofCaptureRow.matchesAnimalProof(animalId: String, draftProofId: String?, draftCapturedAtMs: Long?): Boolean =
         if (draftProofId != null) {
             id == draftProofId
+        } else if (syncStatus == CaptureSyncStatus.SYNCED) {
+            rfidTag == animalId &&
+                (draftCapturedAtMs == null || isCompatibleWithWeighingDraft(draftCapturedAtMs))
         } else {
             rfidTag == animalId || caption == animalId || caption?.endsWith(" · $animalId") == true || subjectId == animalId
         }
+
+    private fun ProofCaptureRow.isCompatibleWithWeighingDraft(draftCapturedAtMs: Long): Boolean =
+        capturedStartMs in
+            (draftCapturedAtMs - WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS)..(draftCapturedAtMs + WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS)
 
     private fun weighingIndividualProofCaption(row: WeighingRosterRowEntity): String =
         weighingIndividualProofTitle(row)
@@ -3144,6 +3530,17 @@ class WeighingViewModel @Inject constructor(
         @JvmStatic
         internal var scanScopePrefixOverride: Boolean? = null
 
+        const val KEY_SUBMIT_PENDING_IDENTIFIERS = "weighing.submitPendingIdentifiers"
+        // Durable across process death via SavedStateHandle -- same reasoning as the lump-sum
+        // draft above: the roster window this map can hold typed-but-unsubmitted weights for is
+        // capped at ROSTER_WINDOW_SIZE (20) visible rows, and every entry is removed from the map
+        // the moment recordIndividualRow() successfully commits it to Room (see that function),
+        // so the steady-state size is a handful of in-progress entries, not the whole scope's
+        // roster. That keeps it well within Bundle size limits, unlike the Room-backed
+        // individualDrafts table which stores the COMMITTED, already-submitted captures.
+        const val KEY_ANIMAL_WEIGHT_INPUT_IDS = "weighing.animalWeightInputs.ids"
+        const val KEY_ANIMAL_WEIGHT_INPUT_VALUES = "weighing.animalWeightInputs.values"
+        const val KEY_SELECTED_ROW_ANIMAL_ID = "weighing.selectedRow.animalId"
         const val ROSTER_WINDOW_SIZE = 20
         const val LIST_PREFETCH_DISTANCE = 3
         const val ROSTER_SYNC_MAX_ROWS = MAX_SCOPE_HYDRATION_ROWS
@@ -3281,7 +3678,6 @@ private fun String.toWeighingReadMessage(): String {
 private data class WeighingFormState(
     val scan: String = "",
     val weight: String = "",
-    val animalCount: String = "",
     val animalWeights: Map<String, String> = emptyMap(),
     val updatingAnimalIds: Set<String> = emptySet(),
     val selected: WeighingRosterRowEntity? = null,
@@ -3292,7 +3688,6 @@ private data class WeighingFormState(
 
 private data class WeighingWeightState(
     val weight: String = "",
-    val animalCount: String = "",
     val animalWeights: Map<String, String> = emptyMap(),
     val updatingAnimalIds: Set<String> = emptySet(),
 )
@@ -3334,24 +3729,26 @@ internal fun sanitizeWeighingWeightInput(value: String): String =
         candidate.all { it.isDigit() || it == '.' } && candidate.count { it == '.' } <= 1
     }.orEmpty()
 
-internal fun sanitizeWeighingAnimalCountInput(value: String): String =
-    value.take(6).takeIf { candidate -> candidate.all(Char::isDigit) }.orEmpty()
-
 internal fun parsePositiveWeighingWeight(value: String?): Double? =
     value?.toDoubleOrNull()?.takeIf { it.isFinite() && it > 0.0 }
 
-internal fun parsePositiveWeighingAnimalCount(value: String?): Int? =
-    value?.toIntOrNull()?.takeIf { it > 0 }
+/**
+ * Reconstructs the typed-but-unsubmitted per-animal weight map from [SavedStateHandle], parallel
+ * ArrayList<String> under [WeighingViewModel.Companion.KEY_ANIMAL_WEIGHT_INPUT_IDS] /
+ * [WeighingViewModel.Companion.KEY_ANIMAL_WEIGHT_INPUT_VALUES] rather than a single Bundle of
+ * Map<String, String> -- SavedStateHandle/Bundle has no direct Map<String, String> putter, and
+ * parallel lists round-trip through Bundle without a custom Parcelable.
+ */
+internal fun restoreAnimalWeightInputs(savedStateHandle: SavedStateHandle): Map<String, String> {
+    val ids = savedStateHandle.get<ArrayList<String>>(WeighingViewModel.KEY_ANIMAL_WEIGHT_INPUT_IDS).orEmpty()
+    val values = savedStateHandle.get<ArrayList<String>>(WeighingViewModel.KEY_ANIMAL_WEIGHT_INPUT_VALUES).orEmpty()
+    if (ids.isEmpty() || ids.size != values.size) return emptyMap()
+    return ids.zip(values).toMap()
+}
 
 private fun normalizeFreeFlowTag(tag: String): String =
     tag.filter { it.isLetterOrDigit() }.lowercase()
 
-private data class LumpSumInputDraft(
-    val weightInput: String,
-    val animalCountInput: String,
-)
-
-private val lumpSumDrafts = mutableMapOf<String, LumpSumInputDraft>()
 
 /**
  * The business week the planner catalog is read for.
@@ -3375,6 +3772,8 @@ private data class WeighingWeek(
 // sync port hands ViewModels a String opType precisely so `:app` never depends on core-database's
 // Room types (module boundary: feature-*/:app -> core-*, never straight to Room).
 private const val WEIGHING_ANIMAL_OBSERVATION_OP = "WEIGHING_ANIMAL_OBSERVATION"
+private const val WEIGHING_SCOPE_SUBMIT_OP = "WEIGHING_SCOPE_SUBMIT"
+private const val WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS = 30 * 60 * 1000L
 
 
 private const val WEIGHING_BUSINESS_ZONE = "Asia/Kolkata"
@@ -3627,6 +4026,23 @@ private fun String.isExpectedWeighingCaptureState(): Boolean =
     equals("missing_video", ignoreCase = true) ||
         equals("cancelled", ignoreCase = true) ||
         equals("capture_cancelled", ignoreCase = true)
+
+private data class SubmitReadinessSnapshot(
+    val submittedIdentifiers: List<String>,
+    val ready: Boolean,
+    val visibleRowCount: Int,
+    val scannedRowCount: Int,
+    val readyVisibleRowCount: Int,
+    val pairedDraftCount: Int,
+) {
+    fun analyticsProps(): Map<String, String> = mapOf(
+        AnalyticsEventsWeighing.Params.VISIBLE_ROW_COUNT to visibleRowCount.toString(),
+        AnalyticsEventsWeighing.Params.SCANNED_ROW_COUNT to scannedRowCount.toString(),
+        AnalyticsEventsWeighing.Params.READY_VISIBLE_ROW_COUNT to readyVisibleRowCount.toString(),
+        AnalyticsEventsWeighing.Params.PAIRED_DRAFT_COUNT to pairedDraftCount.toString(),
+        AnalyticsEventsWeighing.Params.SUBMIT_READY_IDENTIFIER_COUNT to submittedIdentifiers.size.toString(),
+    )
+}
 
 /** Reason CODES for ending a task. The backend owns the sentence that is recorded. */
 private const val CLOSE_REASON_ALL_ACCEPTED = "all_buckets_accepted"

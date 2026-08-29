@@ -15,6 +15,22 @@ var (
 	ErrIdempotencyConflict = errors.New("verification: idempotency key reused with different payload")
 )
 
+// ErrMeasurementRequired is returned when an approval would be irreversible but the producer's
+// required measurement has not been recorded yet. It stays conflict-comparable so existing verdict
+// write refusal handling remains fail-closed.
+type ErrMeasurementRequired struct {
+	Category string
+}
+
+func (e *ErrMeasurementRequired) Error() string {
+	if e.Category == "" {
+		return "verification: required measurement missing"
+	}
+	return "verification: required measurement missing for " + e.Category
+}
+
+func (e *ErrMeasurementRequired) Is(target error) bool { return target == ErrConflict }
+
 // ErrBatchNotFullyVerified is CloseVaccinationBatch's specific refusal when at least one animal in
 // the drive is still pending or was rejected: leadership cannot sign off on a drive with unverified
 // work. Blocking names the animals still standing between the batch and closure (verification_items
@@ -101,6 +117,34 @@ type ListQueueParams struct {
 	// This is the DATA gate; oversight_filters in the /verify page contract is the matching UI
 	// gate. Both must hold for the same rule -- the gate guards data, not pixels.
 	OversightFiltersEnabled bool
+	// CaptureDateFilterEnabled reports whether the caller may narrow the queue to a
+	// CAPTURE-DATE RANGE (BusinessDateFrom/BusinessDateTo).
+	//
+	// It is SPLIT OUT of OversightFiltersEnabled (maintainer decision 2026-08-17) because the two
+	// answer different questions. The 2026-08-12 incident was about CROSS-MODULE chrome leaking to
+	// every role: module chips let a verifier reshape the queue across modules she has no duty in,
+	// and that stays oversight-only. A date range does not cross a module boundary at all -- it
+	// narrows the caller's OWN queue to the days she is working -- so the verifier gets it while
+	// NavigationModule stays clamped for her.
+	//
+	// Held by permissions.VerificationFilterByCaptureDate. Same contract as its sibling: this is
+	// the DATA gate, capture_date_filter in the /verify page contract is the matching UI gate, and
+	// a caller without it is IGNORED rather than 403'd so a stale bookmark degrades to her normal
+	// queue instead of taking the board down.
+	CaptureDateFilterEnabled bool
+	// SamplingApplied narrows the page to the items the RANDOMIZATION policy DREW for review
+	// (maintainer decision 2026-08-26): at 40% on feed packing, four of every ten of that day's
+	// packing videos reach the verifier and the rest are settled by the policy without her.
+	//
+	// It is set for a WORKING VERIFIER and left false for leadership oversight, which must keep
+	// seeing every video -- the CEO who sets the percentage cannot be shown a queue narrowed by his
+	// own setting, or he could not audit what the policy waived. The handler derives it from the
+	// caller's grants (absence of permissions.VerificationOversee), never from a role string.
+	//
+	// Default false is the safe direction on purpose: every other caller of ListQueue -- leadership
+	// review, closure candidates, the awaiting-application view -- keeps its current, unnarrowed
+	// result without opting out.
+	SamplingApplied bool
 }
 
 // Repository is the Verification module's persistence boundary. Adapters own the outbox insert for
@@ -154,10 +198,106 @@ type Repository interface {
 	// See the adapter for why a verdict needs an ack at all (the applier runs on the durable bus,
 	// so the verdict's submission and its application are different moments).
 	MarkVerdictApplied(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string, appliedByModule string) (int, error)
+	// RelabelItemBySource replaces the backend-composed subject label on the item raised for one
+	// source record, because the producing module changed the fact the label states.
+	//
+	// It exists for the verifier's weighing weight correction: subject_label is composed at enqueue
+	// and carries the weight ("Godel 1 - Part 3 · Tag 9010 · 120.0 kg"), so once that weight is
+	// corrected the queue would otherwise keep advertising the number that was just replaced --
+	// the verifier reading her own correction back as if it never happened.
+	//
+	// Like the retire and receipt seams it decides NOTHING: it rewrites display copy the producing
+	// module already owns, never status, verdict, or media, and it is not reachable from the
+	// verifier-facing HTTP surface. Items in every status are relabelled, decided ones included: an
+	// approved item's label must still name the weight the row actually holds.
+	RelabelItemBySource(ctx context.Context, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel string) (int, error)
 	// OversightAnalytics computes the CEO/PC-Director oversight aggregate (KPI strip, pending
 	// backlog by module, per-verifier last-14-day activity). Bounded, tenant-scoped aggregate SQL
 	// only -- see domain.OversightAnalytics's doc comment.
 	OversightAnalytics(ctx context.Context, tenantID string) (domain.OversightAnalytics, error)
+	// VideoLogShedSummary lists one row per operational location that had proof arrive on the
+	// requested business day. Bounded by the day; see domain.VideoLog for why the log is two levels.
+	VideoLogShedSummary(ctx context.Context, params VideoLogParams) ([]domain.VideoLogShed, error)
+	// VideoLogShedRows returns ONE operational location's work for that day with every proof and its
+	// arrival time. The bool reports TRUNCATION -- more work existed than Limit allowed -- so a
+	// caller never presents a partial day as a complete one.
+	VideoLogShedRows(ctx context.Context, params VideoLogParams) ([]domain.VideoLogRow, bool, error)
+
+	// -- Randomized verification sampling (maintainer decision 2026-08-26) --
+
+	// ListSamplingPolicies returns the standing per-category percentage in force ON a business
+	// date: the newest row on or before it, so a past day keeps the percentage it actually ran at.
+	// A category with no row is absent and resolves to domain.DefaultSamplePercent.
+	ListSamplingPolicies(ctx context.Context, tenantID, businessDate string) ([]SamplingPolicyRow, error)
+	// UpsertSamplingPolicy writes one category's percentage for one business date. Naturally
+	// idempotent -- the primary key is exactly that triple.
+	UpsertSamplingPolicy(ctx context.Context, in domain.SetSamplingPolicy) error
+	// ListSamplingDayStats is the Randomization panel's whole-day aggregate per category. Never a
+	// page-local recount; see the adapter's projection-review marker.
+	ListSamplingDayStats(ctx context.Context, tenantID, businessDate string) (map[string]domain.SamplingDayStats, error)
+	// SettleUnsampledItems approves the pending items of CLOSED business days the policy did not
+	// draw, emitting the ordinary approved event so every producer applies as it does for a human
+	// verdict. Returns how many it settled this call.
+	SettleUnsampledItems(ctx context.Context, in SettleUnsampledParams) (int, error)
+}
+
+// SamplingPolicyRow is one stored sampling policy resolved for a business date.
+type SamplingPolicyRow struct {
+	Category string
+	Percent  int
+	// EffectiveBusinessDate is the day the standing row was written for (YYYY-MM-DD), which is
+	// normally EARLIER than the day being asked about -- a percentage set last week is still the
+	// one in force today.
+	EffectiveBusinessDate string
+	SetBy                 *string
+	// SetByName is the backend-owned display label for SetBy, empty when it resolves to nobody.
+	SetByName string
+	SetAt     time.Time
+}
+
+// SettleUnsampledParams bounds one closeout pass.
+type SettleUnsampledParams struct {
+	TenantID string
+	// Before is the caller's business-day start: only CLOSED days are settled, because the
+	// percentage stays editable for the whole of the current day.
+	Before time.Time
+	// WaivableCategories is the registry-derived allowlist. A category whose approve must carry a
+	// measurement is never in it, so an empty list settles NOTHING rather than everything.
+	WaivableCategories []string
+	// Limit bounds one pass; the stage runs on a cadence, so a large backlog drains over several
+	// ticks instead of one unbounded transaction.
+	Limit int
+}
+
+// VideoLogParams scopes a video-log read. Both levels take the same params so the summary and the
+// detail can never disagree about which day, park, or authorization scope they describe.
+type VideoLogParams struct {
+	TenantID string
+	// BusinessDate is YYYY-MM-DD in Asia/Kolkata, already validated by the app layer. It is bound
+	// as ::date and the repository cuts the half-open instant range from it.
+	BusinessDate string
+	// ScopeRestricted/ParkIDs are the AUTHORIZATION clamp, exactly as ListQueueParams uses them: a
+	// caller whose verification.evidence_timeline grant is park-scoped sees only those parks. This
+	// is separate from ParkID below, which is the caller's own chosen filter -- conflating the two
+	// would let a filter widen a scope.
+	ScopeRestricted bool
+	ParkIDs         []string
+	// ParkID is the caller's optional park filter.
+	ParkID string
+	// ShedID selects the operational location for the DETAIL level. It carries the same composite
+	// "<shed_uuid>#<normalized partition>" form the queue's shed filter uses, so the video log and
+	// the page's existing shed dropdown speak one vocabulary. Empty means summary only.
+	ShedID string
+	// AllSheds asks for the whole day's work across EVERY shed in scope, for the CSV export.
+	//
+	// It is the one caller allowed to read the day at row grain, and it is never used to render a
+	// screen -- the panel stays two-level precisely because a park-day can carry several hundred
+	// items. When set, ShedID is ignored and each row carries its own shed identity, or a line in
+	// the file could not say where its video came from.
+	AllSheds bool
+	// Limit bounds the row read. A vaccination drive raises one item per animal, so neither a
+	// shed's day nor a park's day is inherently small.
+	Limit int
 }
 
 // ReviewEventRepository is the video-review-analytics ingest + read boundary

@@ -142,6 +142,7 @@ func TestSeedGuardedPublishRefusesUserMatrixUnderSameProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
+	defer func() { _ = tx.Rollback(ctx) }()
 	versionID, rerr := reconcileSeedMatrixDraftVersion(ctx, tx, tenantID, seedProtocolID, correctDSL, sopVersionID, seedActorID)
 	if rerr != nil {
 		_ = tx.Rollback(ctx)
@@ -265,6 +266,7 @@ func TestSeedMatrixReconcilePublishReplayDoesNotChurn(t *testing.T) {
 		if err != nil {
 			t.Fatalf("round %d begin: %v", round, err)
 		}
+		defer func() { _ = tx.Rollback(ctx) }()
 		versionID, rerr := reconcileSeedMatrixDraftVersion(ctx, tx, tenantID, seedProtocolID, correctDSL, sopVersionID, seedActorID)
 		if rerr != nil {
 			_ = tx.Rollback(ctx)

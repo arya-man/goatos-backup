@@ -38,13 +38,33 @@ type Service interface {
 	// session to pending_verification. Separate from CompleteSession (the old instant path, now inert) and
 	// from CompleteDistribution.
 	CompletePacking(ctx context.Context, in app.CompletePackingInput) (ports.CompletePackingResult, error)
+	// WastageWorklist serves the per-pen Feed Wastage view (EXPERIMENT pens only, one row per pen
+	// per feed day — maintainer decision 2026-08-18).
+	WastageWorklist(ctx context.Context, q domain.WastageQuery) (domain.WastagePage, error)
+	// CompleteWastage is the verifier-gated feed WASTAGE completion: ONE mandatory wastage video
+	// flips the pen-day to pending_verification.
+	CompleteWastage(ctx context.Context, in app.CompleteWastageInput) (ports.CompleteWastageResult, error)
 	ListTransportTasks(ctx context.Context, in app.ListTransportTasksInput) (ports.FeedTransportTaskPage, error)
 	SubmitTransport(ctx context.Context, in app.SubmitTransportInput) (ports.SubmitTransportResult, error)
+	// ListPenSessionCaptures reports which of a pen-session's proof slots are ALREADY recorded, by
+	// any operator, with the server proof id of each. Read-only; it gates nothing.
+	ListPenSessionCaptures(ctx context.Context, in app.PenSessionCapturesInput) (app.PenSessionCapturesResult, error)
+	// DirectedAnalytics is the Feed Analytics windowed rollup of the frozen sheet
+	// (directed kg, head-days, per-head grams) — read-only, normal workflow only.
+	DirectedAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.DirectedAnalytics, error)
+	ExecutionAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.ExecutionAnalytics, error)
+	ExperimentAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.ExperimentAnalytics, error)
+	StockAnalytics(ctx context.Context, in app.DirectedAnalyticsInput) (domain.StockAnalytics, error)
 }
 
 type Handler struct {
 	service Service
 	log     *slog.Logger
+	// wastageMeasurer is the OPTIONAL verifier's measurement write (maintainer decision
+	// 2026-08-18). Deliberately NOT part of Service: recording the measured leftover is the
+	// verifier's act, and the route that serves it must not be able to reach the operator writes.
+	// A deployment that has not wired it answers 404 on the route.
+	wastageMeasurer WastageMeasurer
 }
 
 func NewHandler(service Service, log *slog.Logger) *Handler {
@@ -53,7 +73,14 @@ func NewHandler(service Service, log *slog.Logger) *Handler {
 
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /feed-direction/preview", h.GetPreview)
+	mux.HandleFunc("GET /feed-analytics/directed", h.GetDirectedAnalytics)
+	mux.HandleFunc("GET /feed-analytics/execution", h.GetExecutionAnalytics)
+	mux.HandleFunc("GET /feed-analytics/experiment", h.GetExperimentAnalytics)
+	mux.HandleFunc("GET /feed-analytics/stock", h.GetStockAnalytics)
 	mux.HandleFunc("GET /feed-packing/worklist", h.GetPackingWorklist)
+	// Which of a pen-session's proof slots are already recorded, by ANY operator. Read-only; it is
+	// what lets three people split one pen-session's three proofs.
+	mux.HandleFunc("GET /feed-direction/distribution/captures", h.GetDistributionCaptures)
 	// The verifier-gated feed DISTRIBUTION completion. Separate route from POST /feed-direction/complete
 	// (the old instant path).
 	mux.HandleFunc("POST /feed-direction/distribution/complete", h.PostCompleteDistribution)
@@ -62,6 +89,11 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /feed-direction/packing/complete", h.PostCompletePacking)
 	mux.HandleFunc("GET /feed-transport/tasks", h.GetTransportTasks)
 	mux.HandleFunc("POST /feed-transport/tasks/{task_id}/submit", h.PostTransportSubmit)
+	// Feed WASTAGE (maintainer decision, 2026-08-18): the per-pen experiment worklist, the
+	// verifier-gated completion, and the verifier's measurement write.
+	mux.HandleFunc("GET /feed-wastage/worklist", h.GetWastageWorklist)
+	mux.HandleFunc("POST /feed-direction/wastage/complete", h.PostCompleteWastage)
+	mux.HandleFunc("POST /feed-direction/wastage/{completion_id}/measurement", h.PostWastageMeasurement)
 }
 
 type transportTaskDTO struct {
@@ -109,9 +141,13 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, scope.Status, codedError{Code: scope.Code, Message: scope.Message}, nil)
 		return
 	}
+	actorFilter := actor
+	if httpmiddleware.HasTenantWideCapability(httpmiddleware.AuthGrantsFromContext(r.Context()), tenant, permissions.FeedTransportRead) {
+		actorFilter = ""
+	}
 	page, err := h.service.ListTransportTasks(r.Context(), app.ListTransportTasksInput{
 		TenantID:          tenant,
-		ActorID:           actor,
+		ActorID:           actorFilter,
 		Date:              r.URL.Query().Get("business_date"),
 		ParkID:            scope.ParkID,
 		ShedID:            r.URL.Query().Get("shed_id"),
@@ -571,6 +607,7 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 		AuthorizedParkIDs: parkScope.ParkIDs,
 		TargetDate:        targetDate,
 		ShedID:            strings.TrimSpace(query.Get("shed_id")),
+		PartitionLabel:    strings.TrimSpace(query.Get("partition_label")),
 		SessionNo:         sessionNo,
 		Workflow:          strings.TrimSpace(query.Get("workflow")),
 		Status:            status,
@@ -638,6 +675,8 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 		ParkID:            parkScope.ParkID,
 		AuthorizedParkIDs: parkScope.ParkIDs,
 		TargetDate:        targetDate,
+		ShedID:            strings.TrimSpace(query.Get("shed_id")),
+		PartitionLabel:    strings.TrimSpace(query.Get("partition_label")),
 		SessionNo:         sessionNo,
 		Workflow:          strings.TrimSpace(query.Get("workflow")),
 		Status:            status,
@@ -672,17 +711,30 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
 	case errors.Is(err, ports.ErrIdempotencyConflict),
 		errors.Is(err, ports.ErrDistributionAlreadyRecorded),
-		errors.Is(err, ports.ErrPackingAlreadyRecorded):
+		errors.Is(err, ports.ErrPackingAlreadyRecorded),
+		errors.Is(err, ports.ErrWastageAlreadyRecorded):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, err.Error(), nil)
-	case errors.Is(err, ports.ErrDistributionProofRequired):
-		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
-			codedError{Code: "proof_required", Message: err.Error()}, nil)
-	case errors.Is(err, ports.ErrWaterProofRequired):
+	// Every mandatory distribution capture answers the same way, listed together so a fourth proof
+	// cannot be added to the service and silently fall through to the 500 default -- which is what
+	// happened to the feed-weight photo, telling an operator who had not taken it yet that the
+	// server was broken. The message names which capture is missing; the code stays one value so a
+	// client can branch on "you still owe a capture" without parsing prose.
+	case errors.Is(err, ports.ErrFeedWeightProofRequired),
+		errors.Is(err, ports.ErrDistributionProofRequired),
+		errors.Is(err, ports.ErrWaterProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrPackingProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
 			codedError{Code: "proof_required", Message: err.Error()}, nil)
+	case errors.Is(err, ports.ErrWastageProofRequired):
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			codedError{Code: "proof_required", Message: err.Error()}, nil)
+	case errors.Is(err, ports.ErrWastageNotExperimentPen):
+		// A caller error, not an outage: the pen is not on that day's experiment sheet, so no
+		// wastage task exists for it. The code lets a client render the business sentence.
+		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity,
+			codedError{Code: "not_experiment_pen", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrTransportProofRequired):
 		httpresponse.WriteError(w, r, h.log, http.StatusUnprocessableEntity, codedError{Code: "proof_required", Message: err.Error()}, nil)
 	case errors.Is(err, ports.ErrTransportAssignedToAnotherOperator), errors.Is(err, ports.ErrTransportTaskNotActionable):
@@ -691,6 +743,8 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, op s
 		errors.Is(err, app.ErrDistributionEnqueuerNotWired),
 		errors.Is(err, ports.ErrPackingStoreUnavailable),
 		errors.Is(err, app.ErrPackingEnqueuerNotWired),
+		errors.Is(err, ports.ErrWastageStoreUnavailable),
+		errors.Is(err, app.ErrWastageEnqueuerNotWired),
 		errors.Is(err, app.ErrTransportEnqueuerNotWired):
 		// A wiring/deployment fault, not a client error: 500.
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, op, err)

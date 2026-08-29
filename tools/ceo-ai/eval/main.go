@@ -111,7 +111,7 @@ const maxRateLimitRetries = 3
 
 func runLive(qs []GoldenQuestion, cfg liveConfig) Report {
 	ctx := context.Background()
-	client := AssistantClient{URL: cfg.assistantURL, Bearer: cfg.bearer, Timeout: cfg.timeout}
+	client := AssistantClient{URL: cfg.assistantURL, Bearer: cfg.bearer, Tenant: cfg.tenant, Timeout: cfg.timeout}
 	oracle := OracleRunner{DSN: cfg.dsn, TenantID: cfg.tenant, Timeout: cfg.timeout}
 
 	var results []Result

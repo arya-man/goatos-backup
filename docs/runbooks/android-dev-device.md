@@ -14,6 +14,19 @@ tools/dev/android-dev-run.sh --no-clear    # keep app data (skip pm clear)
 
 ## Prerequisites
 
+0. Android CLI is bootstrapped by the repo helper. The Make targets below run it
+   first, and direct script callers should do the same:
+
+   ```bash
+   bash tools/dev/ensure-android-cli.sh
+   ```
+
+   If `android` is missing, the helper installs Google's user-local Android CLI,
+   runs `android update`, `android init`, and `android skills add --all`, which
+   installs the official Android CLI and Android skills for Codex, Claude, and
+   other detected agents. See `docs/mobile/android-cli-and-journeys.md` for the
+   Journey/testing policy.
+
 1. Local backend up on `:8080` — `make dev-local-service-start` (check: `curl -s -o /dev/null -w '%{http_code}' localhost:8080/readyz` → `204`).
 2. Either a physical device connected by **USB** with USB debugging authorized,
    or one AVD configured in Android Studio Device Manager. A missing USB phone is

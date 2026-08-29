@@ -15,9 +15,10 @@
 // apps/admin-web/lib/api/server.ts (`apiClientOptions` / `ServerConfig.traceparent`) and
 // packages/api-client/src/index.ts (the @goatos/api-client getTraceHeaders hook) — so the RUM trace and
 // the backend's otelhttp span chain onto one trace end to end.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { faro, getWebInstrumentations, initializeFaro } from "@grafana/faro-web-sdk";
 import { TracingInstrumentation } from "@grafana/faro-web-tracing";
+import { usePathname } from "next/navigation";
 
 const FARO_APP_NAME = "mesha-admin-web";
 
@@ -80,6 +81,8 @@ function initFaro(): void {
  * (app/layout.tsx) so it captures every route from the first paint.
  */
 export function FaroProvider(): null {
+  const pathname = usePathname() ?? "/";
+  const [routeKey, setRouteKey] = useState(pathname);
   // Mirrors the Faro-recommended Next.js App Router pattern: guarded by `typeof window` and
   // `faro.api` above, so this is a no-op during SSR and idempotent across client re-renders.
   // Runs in an effect (commit phase), not the render body, so it stays safe under React
@@ -91,21 +94,55 @@ export function FaroProvider(): null {
   const previousPathname = useRef<string | undefined>(undefined);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    let routeReadTimer: number | undefined;
+    const readRoute = (): void => {
+      routeReadTimer = undefined;
+      setRouteKey(`${window.location.pathname}${window.location.search}`);
+    };
+    const scheduleRouteRead = (): void => {
+      if (routeReadTimer !== undefined) {
+        window.clearTimeout(routeReadTimer);
+      }
+      routeReadTimer = window.setTimeout(readRoute, 0);
+    };
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+    window.history.pushState = function pushState(...args) {
+      const result = originalPushState.apply(this, args);
+      scheduleRouteRead();
+      return result;
+    };
+    window.history.replaceState = function replaceState(...args) {
+      const result = originalReplaceState.apply(this, args);
+      scheduleRouteRead();
+      return result;
+    };
+    scheduleRouteRead();
+    window.addEventListener("popstate", scheduleRouteRead);
+    return () => {
+      if (routeReadTimer !== undefined) {
+        window.clearTimeout(routeReadTimer);
+      }
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
+      window.removeEventListener("popstate", scheduleRouteRead);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!faro.api) {
       return;
     }
-    const recordView = () => {
-      const pathname = window.location.pathname;
-      if (previousPathname.current === pathname) {
-        return;
-      }
-      faro.api?.setView({ name: pathname });
-      previousPathname.current = pathname;
-    };
-    recordView();
-    window.addEventListener("popstate", recordView);
-    return () => window.removeEventListener("popstate", recordView);
-  }, []);
+    const viewName = pathname;
+    const route = routeKey;
+    if (previousPathname.current === route) {
+      return;
+    }
+    faro.api?.setView({ name: viewName });
+    faro.api?.pushEvent("admin_route_view", { route });
+    previousPathname.current = route;
+  }, [pathname, routeKey]);
 
   return null;
 }

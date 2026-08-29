@@ -23,6 +23,53 @@ import sg.mesha.goatos.core.network.dto.CalendarFilterOptionsDto
 class CalendarSchedulePagingTest {
 
     @Test
+    fun `refresh nonce revalidates a fresh month cache without changing its Room scope`() = runTest {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, GoatDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            var requestCount = 0
+            val api = Proxy.newProxyInstance(
+                AppApi::class.java.classLoader,
+                arrayOf(AppApi::class.java),
+            ) { proxy, method, args ->
+                when (method.name) {
+                    "listCalendarVaccinationEvents" -> {
+                        requestCount++
+                        CalendarEventListResponseDto(
+                            items = listOf(CalendarEventDto(eventId = "event-$requestCount", title = "Drive $requestCount")),
+                        )
+                    }
+                    "toString" -> "CalendarRefreshApiTestProxy"
+                    "hashCode" -> System.identityHashCode(proxy)
+                    "equals" -> proxy === args?.firstOrNull()
+                    else -> error("unexpected AppApi method ${method.name}")
+                }
+            } as AppApi
+            val repository = DefaultCalendarRepository(
+                api = api,
+                dao = database.calendarCacheDao(),
+                database = database,
+                clock = { 1_000L },
+            )
+            val query = CalendarScheduleQuery(dateFrom = "2026-07-01", dateTo = "2026-07-31")
+
+            repository.schedule(query).asSnapshot()
+            repository.schedule(query).asSnapshot()
+            assertEquals("fresh cache should normally skip a second request", 1, requestCount)
+
+            val forced = query.copy(refreshNonce = 1)
+            assertEquals("refresh generation must not fork the Room cache", query.roomKey(), forced.roomKey())
+            repository.schedule(forced).asSnapshot()
+
+            assertEquals("explicit refresh must call the API inside the cache TTL", 2, requestCount)
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
     fun `month collection pages by 20 and requests options only on refresh`() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val database = Room.inMemoryDatabaseBuilder(context, GoatDatabase::class.java)

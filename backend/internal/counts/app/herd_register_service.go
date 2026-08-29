@@ -26,7 +26,12 @@ type HerdRegisterService struct {
 	// implementing ports.Repository. Without it, ListAlerts fails closed with
 	// ErrAlertsUnavailable. See alerts.go.
 	alerts ports.AlertsRepository
-	now    func() time.Time
+	// herdAnalytics is the OPTIONAL reader behind Counts -> Herd Analytics, resolved by
+	// type assertion exactly like alerts above so adding the read cannot break every
+	// fake implementing ports.Repository. Without it, GetHerdAnalytics fails closed with
+	// ErrHerdAnalyticsUnavailable. See herd_analytics.go.
+	herdAnalytics ports.HerdAnalyticsRepository
+	now           func() time.Time
 }
 
 // NewHerdRegisterService creates a new herd register service.
@@ -41,11 +46,14 @@ func NewHerdRegisterService(repo ports.Repository) *HerdRegisterService {
 	if store, ok := repo.(ports.AlertsRepository); ok {
 		service.alerts = store
 	}
+	if store, ok := repo.(ports.HerdAnalyticsRepository); ok {
+		service.herdAnalytics = store
+	}
 	return service
 }
 
 type MilkFeedingProofValidator interface {
-	ValidateMilkFeedingProofs(ctx context.Context, tenantID, parkID string, proofs []domain.MilkPreparationStepProof) error
+	ValidateMilkFeedingProofs(ctx context.Context, tenantID, taskID string, proofs []domain.MilkPreparationStepProof) error
 }
 
 type MilkFeedingVerificationEnqueueRequest struct {
@@ -200,7 +208,7 @@ func (s *HerdRegisterService) SubmitMilkFeeding(ctx context.Context, in domain.M
 		return domain.MilkFeedingSubmissionResult{}, err
 	}
 	steps := in.Proofs.OrderedStepProofs()
-	if err := s.milkFeedingProofs.ValidateMilkFeedingProofs(ctx, in.TenantID, in.ParkID, steps); err != nil {
+	if err := s.milkFeedingProofs.ValidateMilkFeedingProofs(ctx, in.TenantID, in.TaskID, steps); err != nil {
 		return domain.MilkFeedingSubmissionResult{}, err
 	}
 	if in.SubmittedAt.IsZero() {

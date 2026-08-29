@@ -4,6 +4,234 @@
  */
 
 export interface paths {
+    "/herd-signals/packets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest a batch of BLE ear-tag packets from one gateway.
+         * @description Gateway device write path (backend/internal/herdsignals). Never anonymous: requires the herd_signals.ingest permission. Packet insert, gateway last_seen_at upsert, activity-window rollup (60s/300s/3600s tiers), and tag_latest state recompute all happen in ONE transaction. Idempotent: a replayed packet (same tenant, tag, received_at, motion_count) is silently deduplicated and does not double-count. Out-of-order safe: the "latest" snapshot only advances when a packet's seen_at is strictly newer than the currently stored last_seen_at for that tag.
+         */
+        post: operations["ingestHerdSignalPackets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live tag status, tag-first (an unmapped tag is the normal case, not a degraded one).
+         * @description Every packet-derived field (id, MAC, gateway, RSSI/signal, battery, temperature, motion count and deltas, movement_state, pattern_state, last_seen_at, sensor bits) renders for a tag with no animal mapped behind it. Only goat_id/display_id/park/shed/location are animal-derived and may be null. `summary` is a whole-filter server-side aggregate over the same tenant-scoped query as `items` -- never summed from the returned page.
+         */
+        get: operations["listHerdSignalsLive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/tags/{tag_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bucketed motion history for one tag.
+         * @description Bucket tier auto-selects from the range (<=1h -> 60s, <=24h -> 300s, >24h -> 3600s) unless `bucket_seconds` is given, in which case it must be one of 60/300/3600 or the request is rejected. The response is DENSE: a window with no packets is an explicit gap (`is_gap: true`), which must never collapse with a window that received packets but had zero movement (`packet_count > 0`, `motion_delta: 0`) -- that distinction is the whole product requirement. Bounded to at most 2000 buckets per request.
+         */
+        get: operations["getHerdSignalsTagTimeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/gateways": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gateway registration, location, and coverage health. */
+        get: operations["listHerdSignalsGateways"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/insights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 12 backend-computed insight cards (direct/derived/correlated/inferred signal types).
+         * @description Must not error when zero tags are mapped (the STG day-one state): the direct/derived cards (tags_live_now, weak_signal_tags, battery_attention, missing_signal, unmapped_smart_tags, shed_signal_coverage) still compute from packet-derived data alone. The four correlated cards (post_vaccination_movement_watch, health_case_activity_trend, feed_activity, weight_activity) return an honest zero/empty result rather than an error when no tags are mapped. Label/unit/signal_type/formula/caveat text is backend-owned copy; render it verbatim.
+         */
+        get: operations["getHerdSignalsInsights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/tag-mappings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bind a BLE tag to an animal.
+         * @description Requires herd_signals.map -- NOT the read permission. Deciding which animal a tag belongs to is a different authority from reading the dashboard: it decides whose body every animal-attributed number downstream is about.
+         *     Claims the tag's id (and its MAC, when the tag reports a distinct one) as active, smart-tag-capable goat_identifiers rows for the animal, in ONE transaction. Values are normalised with the identity module's canonical normalizer, so a lowercase device MAC matches an uppercase-stored identifier.
+         *     ANIMAL MONITORING STARTS HERE. The mapping instant is stamped on the identifier and denormalised onto the tag's live row; everything the tag emitted earlier stays visible as device telemetry but can never enter this animal's baseline, pattern window, or correlations.
+         */
+        post: operations["bindHerdSignalTagMapping"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/tag-mappings/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace an animal's smart tag with a new one, atomically.
+         * @description Requires herd_signals.map. Re-tagging is the real-world case -- a tag falls off, a replacement goes on -- and both halves commit together or neither does, so the animal is never left carrying two live smart tags (ambiguous telemetry) or none (silently unmonitored).
+         *     The new tag starts a NEW monitoring period and the old tag's period ends, so nothing the replacement emitted while it sat unused can be attributed to this animal.
+         */
+        post: operations["replaceHerdSignalTagMapping"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/tag-mappings/unmap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Release a tag's binding with no replacement.
+         * @description Requires herd_signals.map. For a tag that was lost, an animal that was sold, or a mapping made in error.
+         *     RELEASES THE WHOLE BINDING, not the value you name. A map claims one identifier per value the tag reports -- its printed id AND its MAC -- so tag_id and tag_mac here IDENTIFY the animal, and every identifier of that animal's live smart tag is released in the one transaction. Unmapping by id and unmapping by MAC do the same complete thing. A partial release would leave the animal pinned to a binding no read path can see and no endpoint can release, which makes it impossible to ever re-tag through the product.
+         *     The tag returns to unmapped and its packets keep flowing as device telemetry: nothing is deleted and its stored history stays intact, it simply stops being attributed to an animal. Its monitoring period ends, so no further animal-attributed value is produced for it -- not a zero, not a default. A later map to the same animal starts a NEW monitoring period: the tag was off the animal in between.
+         *     There is no "mark as smart tag" counterpart anywhere in this API. Every tag the gateway reports is already a smart tag; smart_tag_capable is an internal consequence of binding, never a user action.
+         */
+        post: operations["unmapHerdSignalTagMapping"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/heartbeats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a gateway heartbeat (sta_gw_hb).
+         * @description Gateway DEVICE write path: requires herd_signals.ingest, the same credential class as packet ingest, never an operator permission.
+         *     The gateway emits this state message roughly every five minutes carrying no device rows at all, and it was previously discarded. Without it "gateway up but hearing no tags" (a dead antenna, a misaimed unit, an empty shed) is indistinguishable from "gateway down" -- two situations that demand opposite responses. It advances last_heartbeat_at, which is deliberately separate from last_seen_at: either kind of message proves we heard something, only a heartbeat proves the gateway itself is alive.
+         *     A ticks_cnt that goes BACKWARDS is a reboot, handled like a reset motion counter or a decreasing pkt_sn: re-anchor and count the reboot, never record a negative.
+         */
+        post: operations["recordHerdSignalGatewayHeartbeat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/export.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The current live view as a CSV file, honouring every filter the list honours.
+         * @description Streams the SAME filtered, keyset-ordered result as GET /herd-signals/live, through the same filter builder and the same per-page enrichment, so what downloads is what the operator is looking at -- not a second query that agrees with the screen by coincidence. Chunked: 500 rows are read, written and released at a time, so peak memory is one page regardless of how many tags match. Capped at 100000 rows, and a capped file says so in its last line rather than reading as complete data. An absent reading is an EMPTY cell, never a zero. `Tag Temperature (C)` is the tag housing's own reading -- the tag has no animal-contact sensor and reports no other temperature.
+         */
+        get: operations["exportHerdSignalsCsv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/herd-signals/tags/{tag_id}/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Farm records for this tag's mapped animal, to overlay on its movement history.
+         * @description Returns the recorded farm activity for the animal this tag is mapped to (and for its shed, where the record is shed-grain), so the records and the movement history can be read SIDE BY SIDE.
+         *     A marker is CORRELATION IN TIME AND NOTHING MORE. A feed marker means feed was directed to the shed this animal is in, never that this animal took any of it. A vaccination marker beside a movement change means the two fall in the same window, never that one caused the other and never that anything is wrong. A health-case or treatment marker is a record a person made, never a diagnosis and never something inferred from motion. Each event carries a `grain` saying which of these it is; a client must not present a shed-grain or scanned-identifier record as an observation of one animal.
+         *     MONITORING BOUNDARY (migration 000196): an animal's history with a tag starts at the instant the tag was mapped to it; everything earlier is device telemetry. `from` is clamped UP to that instant before any record is read, and the returned `from` is the EFFECTIVE window so a client can see the clamp happened. A tag with no animal behind it has no farm activity at all -- an empty `events` with a `reason`, never an error.
+         *     Bounded: at most 31 days per request and at most 500 events; `truncated` says when the window holds more than were returned.
+         */
+        get: operations["getHerdSignalsTagActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/tasks/review-fanouts/retry": {
         parameters: {
             query?: never;
@@ -219,7 +447,7 @@ export interface paths {
         };
         /**
          * Export recent leadership-visible Weighing rows as CSV.
-         * @description Streams a CSV attachment across the caller's WeighingMonitor park scope. The default window is today plus the previous 35 business dates (36 inclusive dates). Pending video verification is included and reported in `video_verification_status`; it is not filtered out.
+         * @description Streams a CSV attachment across the caller's WeighingMonitor park scope, optionally narrowed to one park and selected shed locations. The default window is today plus the previous 35 business dates (36 inclusive dates); an explicit range up to 366 days is served. Columns follow the operations Weight-check sheet, minus its video-link column: date, rfid, rfid_2, old_id, old_id_suffix, breed, gender, park, shed, type, count, operator, approval, verified_weight_kg. Pending video verification is included and reported in `approval` (approved / rejected / pending); it is not filtered out.
          */
         get: operations["exportWeighingCsv"];
         put?: never;
@@ -396,7 +624,7 @@ export interface paths {
         };
         /**
          * Get CEO-tier ADG (Average Daily Gain) / growth aggregate for a park or the herd.
-         * @description Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional; when omitted, the response aggregates across every park the caller is authorized to monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 90 days ending today when omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh.
+         * @description Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional; when omitted, the response aggregates across every park the caller is authorized to monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 15 days ending today when omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh.
          */
         get: operations["appGetWeighingLeadershipGrowth"];
         put?: never;
@@ -416,7 +644,7 @@ export interface paths {
         };
         /**
          * Get CEO-tier ADG (Average Daily Gain) / growth aggregate for a park or the herd.
-         * @description Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional; when omitted, the response aggregates across every park the caller is authorized to monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 90 days ending today when omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh.
+         * @description Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional; when omitted, the response aggregates across every park the caller is authorized to monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 15 days ending today when omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh.
          */
         get: operations["adminGetWeighingLeadershipGrowth"];
         put?: never;
@@ -436,7 +664,7 @@ export interface paths {
         };
         /**
          * Latest weight per shed, across both ways of weighing, plus the whole-filter rollup.
-         * @description Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 28 days ending today.
+         * @description Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 15 days ending today.
          *
          *     GRAIN: one row per SHED, not per campaign bucket -- a shed weighed in consecutive campaigns reports its most recent weigh only. `summary` is a WHOLE-FILTER aggregate and never changes with paging.
          *
@@ -460,7 +688,7 @@ export interface paths {
         };
         /**
          * Latest weight per shed, across both ways of weighing, plus the whole-filter rollup.
-         * @description Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 28 days ending today.
+         * @description Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 15 days ending today.
          *
          *     GRAIN: one row per SHED, not per campaign bucket -- a shed weighed in consecutive campaigns reports its most recent weigh only. `summary` is a WHOLE-FILTER aggregate and never changes with paging.
          *
@@ -484,7 +712,7 @@ export interface paths {
         };
         /**
          * Average weight by breed, sex and management stage.
-         * @description Requires WeighingMonitor, park-scoped like the other leadership reads.
+         * @description Requires WeighingMonitor, park-scoped like the other leadership reads. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 15 days ending today.
          *
          *     This is the ONE weighing read that resolves a scanned tag to its animal (maintainer decision 2026-08-07), because breed, sex and stage exist only on the animal. Read-only, this reporting path only, never a gate on capture: a tag that resolves to nothing is counted in `unresolved_animals`, not rejected.
          *
@@ -508,7 +736,7 @@ export interface paths {
         };
         /**
          * Growth Director widgets for the admin-web Weights screen.
-         * @description Requires WeighingMonitor, park-scoped exactly like the other Weights-screen reads. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 28 days ending today.
+         * @description Requires WeighingMonitor, park-scoped exactly like the other Weights-screen reads. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 15 days ending today.
          *
          *     Served by its OWN read-only reporting module, not by weighing: weighing is isolated from the herd, while these widgets resolve scanned tags to breed and sex through the herd register and read the feed-direction sheet. This read gates nothing — a tag that resolves to no animal is counted and reported, never rejected.
          *
@@ -608,6 +836,30 @@ export interface paths {
         put?: never;
         /** Close every verified open scope in one Weighing campaign. */
         post: operations["closeWeighingCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/observations/{observation_id}/weight-correction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Correct the recorded weight on one weighing observation.
+         * @description The VERIFIER's correction of the number an operator typed, made while she watches the proof video (maintainer decision 2026-08-17). The corrected value REPLACES the recorded one: on an individual capture it replaces that one animal's weight, and on a lump-sum capture it replaces the shed total, optionally with a corrected head count, and the stored average is recomputed from both.
+         *
+         *     Authorization is `verification.verdict` -- the verifier-exclusive capability that owns approve/reject -- so the person who judges the evidence is the person who may fix what it shows. It is deliberately NOT tied to her verdict: she may correct before deciding or after, including on an item she already approved, until the bucket is closed.
+         *
+         *     The observation id and ref type are the values the verification item already carries in `source.ref_id` and `source.ref_type`; clients echo them rather than composing an address of their own.
+         */
+        post: operations["correctWeighingObservationWeight"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1009,6 +1261,46 @@ export interface paths {
         put?: never;
         /** Publish a protocol version. */
         post: operations["publishProtocolVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/protocols/versions/{version_id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discard a draft protocol version.
+         * @description Permanently deletes a DRAFT version and its rules. A published or retired version can never be discarded -- it is part of the tenant's history -- and that restriction is enforced in SQL, so it holds for every caller. A draft has never reached the field, so nothing downstream references it.
+         */
+        post: operations["discardProtocolVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/protocols/versions/{version_id}/replace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace a draft protocol version with an edited one, atomically.
+         * @description Swaps the named draft for the supplied one in a single transaction: the old draft and its derived rules are removed and the replacement is created together, so nothing ever observes two drafts for one plan and a failure anywhere leaves the original untouched. This is what saving an edited plan does. Doing it as two calls cannot work: creating first is refused by the one-draft-per-scope rule, and discarding first destroys the farm's work if the create then fails.
+         */
+        post: operations["replaceProtocolDraftVersion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1464,6 +1756,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/feed-analytics/directed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Windowed rollup of directed feed for the Feed Analytics page.
+         * @description Aggregates the FROZEN feed sheet (`feed_direction_issue_rows`) over a business-date window: per-day totals and per-(day, feed item) series of DIRECTED kg, head-days, and grams per head per day. Normal workflow only -- experiment sheets author absolute kg with informational head counts and are served by their own read.
+         *
+         *     DIRECTED, NOT CONSUMED. Every figure is what the sheet instructed, never a measured weight; completions carry proofs, not kg. Clients render the word "directed".
+         *
+         *     Head-days count each pen-grain (shed, partition, shed tag, breed) ONCE per feed day -- never once per session or per feed-item cell. A per-item figure divides by the heads whose sheet carried that item; the day figure divides by the day's distinct heads.
+         *
+         *     Blocked cells (`quantity_kg` null on the sheet) contribute nothing and are not counted here; config gaps surface on the Feed Direction screen instead. A day with no issued sheet is ABSENT from `days`, never fabricated as zero.
+         */
+        get: operations["getFeedAnalyticsDirected"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-analytics/execution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-day execution adherence for the Feed Analytics page.
+         * @description Status counts per business date across the three proof-gated feed stages -- packing and distribution pen-session completions (verified / awaiting verdict / rework) and transport shed tasks (completed / open / awaiting verdict / rework) -- plus the daily median submit-to-verdict latency of packing and distribution verdicts, bucketed by the Asia/Kolkata date the verdict landed. STATUS COUNTS ONLY: completions carry proofs, never kg, so execution is judged on whether work was proved and verified, not on quantity.
+         */
+        get: operations["getFeedAnalyticsExecution"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-analytics/experiment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Experiment feed-item kg series plus one day's per-pen wastage.
+         * @description The experiment workflow's authored kg per (feed day, feed item) — the farm reads this screen in feed items (masoor, bhusa), never trial-arm labels — plus ONE selected day's per-pen leftover-feed (wastage) table. Experiment rations are ABSOLUTE shed/pen totals -- head counts on those sheet rows are informational, so no per-head figure exists here and none may be derived by a client.
+         */
+        get: operations["getFeedAnalyticsExperiment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-analytics/stock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Feed stock positions and daily expenditure for the Feed Analytics page.
+         * @description Per-farm, per-feed-item stock cards from the bootstrapped purchase ledger (feed_purchases, one-time sheet import; entry screens arrive with the Procurement vertical) plus the window's daily expenditure series.
+         *
+         *     STOCK DEPLETES AT SHEET LOCK: balance = (purchased - consumed-at-import snapshot) - directed kg of LOCKED sheets from the bootstrap cutoff onward, both workflows. Days left divides the balance by the item's average directed kg over its 3 most recent locked feed days (a short window so a ration-regime change moves days-left immediately); a negative balance is served as-is, saying the ledger is missing a load. Expenditure prices each (day, item)'s directed kg at the item's most recent load rate on or before that day. Empty arrays mean the ledger is not bootstrapped for this tenant.
+         */
+        get: operations["getFeedAnalyticsStock"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-direction/preview": {
         parameters: {
             query?: never;
@@ -1484,6 +1864,32 @@ export interface paths {
          *     Paging is by SHED, so a shed's rows never straddle a page boundary and every `session_total_kg` is complete. `summary` is PAGE-SCOPED and declares so in `summary.scope`; it is not a park total.
          */
         get: operations["getFeedDirectionPreview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-direction/distribution/captures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Proof slots already recorded for one pen-session, by any operator.
+         * @description Which of a pen-session's three proof slots (feed weight photo, feed-distribution video, water-distribution video) have ALREADY been recorded, and the server `proof_ref` of each.
+         *
+         *     A pen-session's three proofs may be shot by THREE DIFFERENT operators on three phones (maintainer decision 2026-08-14). Before this read a proof was discoverable only on the device that shot it, so the others could not tell a slot was done, and no single phone held all three references -- the pen could not be submitted at all. Clients render "already recorded" from this and send the returned `proof_ref` for slots they did not shoot.
+         *
+         *     Read-only: it changes no completion state and gates nothing, and a client that ignores it behaves exactly as before. It deliberately returns NO media url and NO uploader name -- the footage stays a verifier surface, so this adds no way to view another operator's media.
+         *
+         *     `partition_label` is part of the IDENTITY, not decoration: omitting it on a partitioned shed answers for the shed as a whole and would tell an operator standing in one pen that another pen's work is theirs.
+         */
+        get: operations["getFeedDistributionCaptures"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1555,11 +1961,15 @@ export interface paths {
         put?: never;
         /**
          * Submit one shed-session's feed distribution for verifier approval.
-         * @description The verifier-GATED feed DISTRIBUTION completion (maintainer decision, 2026-07-26), entirely separate from `POST /feed-direction/complete` (feed PACKING, which is unchanged: instant, optional-video, no verifier). The operator submits TWO mandatory proofs -- a feed-distribution VIDEO (`distribution_proof_ref`) and a water-distribution proof (`water_proof_ref`, which may be a photo OR a video) -- which writes a `pending_verification` row and enqueues ONE verification item carrying both proofs. NOTHING is completed here.
+         * @description The verifier-GATED feed DISTRIBUTION completion (maintainer decision, 2026-07-26), entirely separate from `POST /feed-direction/complete` (feed PACKING, which is unchanged: instant, optional-video, no verifier). The operator submits THREE mandatory proofs -- a feed-weight PHOTO (`feed_weight_proof_ref`, which must come from the live in-app camera), a feed-distribution VIDEO (`distribution_proof_ref`) and a water-distribution VIDEO (`water_proof_ref`) -- which writes a `pending_verification` row and enqueues ONE verification item carrying all three proofs. NOTHING is completed here.
+         *
+         *     The capture KIND is part of the contract, not a client preference: a still frame where a clip was promised leaves the verifier something they cannot judge. The weight photo additionally demands a live capture, because a gallery pick is a photo of a scale from some other day and only a live one ties the reading to this pen's feed.
+         *
+         *     The three proofs may be captured by THREE DIFFERENT operators on three different phones (maintainer decision, 2026-08-14). Read `GET /feed-direction/distribution/captures` to learn which slots a pen-session already has and each one's server proof id, then send those ids here -- a phone that shot none of them can still submit.
          *
          *     The session is `completed` only when a verifier APPROVES the item; a rejection bounces it to `rework` for a re-shoot, and re-submitting returns it to `pending_verification`. After verifier approval the `/feed-direction/preview` rows for that shed-session report `completed: true`.
          *
-         *     Both proofs are MANDATORY: a request missing `distribution_proof_ref` or `water_proof_ref` is rejected `422 proof_required` before any state changes -- there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the shed-session natural key.
+         *     All three proofs are MANDATORY: a request missing any of `feed_weight_proof_ref`, `distribution_proof_ref` or `water_proof_ref` -- or carrying one of the wrong capture kind -- is rejected `422 proof_required` before any state changes, because there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the shed-session natural key.
          */
         post: operations["completeFeedDistribution"];
         delete?: never;
@@ -1590,6 +2000,82 @@ export interface paths {
          *     This is a SEPARATE record from the old instant `POST /feed-direction/complete` path (now inert) and from the distribution gate. The packing video is MANDATORY: a request missing `packing_proof_ref` is rejected `422 proof_required` before any state changes -- there is nothing for a verifier to approve. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the shed-session natural key.
          */
         post: operations["completeFeedPacking"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-wastage/worklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-pen Feed Wastage worklist for one park and one feed day.
+         * @description Feed Wastage (maintainer decision 2026-08-18) is a daily task on EXPERIMENT pens only: each pen on a hand-authored feed experiment owes ONE leftover-feed video per feed day. The rows are DERIVED from the day's frozen EXPERIMENT sheet — the same rows the packing worklist reads — so a pen appears here if and only if the experiment sheet covers it, and there is no second planner to drift from.
+         *
+         *     The grain is the PEN-DAY. There is deliberately NO session: packing and distribution are per-bag work (morning and evening are two bags, two videos), but wastage is what is LEFT OVER after the day's feeding, measured once. One pen, one feed day, one video, one recorded value.
+         *
+         *     `lifecycle_status` and `completed` report the pen-day's verification state, recorded through `POST /feed-direction/wastage/complete`. `wastage_kg` is the VERIFIER'S measured leftover weight, present only once she has recorded one ("0" is a real measurement — an empty trough).
+         *
+         *     `items` is a page of SHEDS; `summary` covers the WHOLE filtered worklist and is invariant to `limit`/`offset`.
+         */
+        get: operations["getFeedWastageWorklist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-direction/wastage/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit one experiment pen's daily wastage video for verifier review.
+         * @description The verifier-GATED feed WASTAGE completion (maintainer decision 2026-08-18). The operator submits ONE mandatory wastage VIDEO (`wastage_proof_ref`) — the leftover feed in the pen — which writes a `pending_verification` row and enqueues ONE verification item carrying the video. NOTHING is completed here.
+         *
+         *     The grain is the PEN-DAY: no `session_no` (wastage is measured once per day) and no `workflow` (the server stamps `experiment` — wastage exists only for experiment pens). A completion naming a pen the day's experiment sheet does not cover is rejected `422 not_experiment_pen`: it would be work no worklist line ever matches.
+         *
+         *     The verifier watches the clip. When she can read the leftover weight in it she RECORDS that weight (her own route, declared to clients by the item's `measurement_correction` block) and APPROVES; when she cannot, she REJECTS and this pen-day bounces to `rework` for a re-shoot. Re-submitting returns it to `pending_verification`.
+         *
+         *     The wastage video is MANDATORY: a request missing `wastage_proof_ref` is rejected `422 proof_required` before any state changes. Idempotent on the `Idempotency-Key` header (an exact replay returns the original result and runs no side effects; the same key with a different payload is `409`) and on the pen-day natural key.
+         */
+        post: operations["completeFeedWastage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-direction/wastage/{completion_id}/measurement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record the leftover feed weight the VERIFIER reads off a wastage video.
+         * @description The VERIFIER'S measurement (maintainer decision 2026-08-18), the second producer-owned measurement route after the weighing weight correction. She watches the pen's wastage video and records the leftover weight she can see, in kg; a later entry REPLACES the value. ZERO IS VALID — an empty trough is a real, good measurement — so clients must keep a blank field distinct from an explicit 0 and never coerce one into the other.
+         *
+         *     It is deliberately SEPARATE from her verdict: she records the value and then approves the video on the ordinary verdict route; when she cannot read a value at all, she rejects for a re-shoot and records nothing. Recording never changes the completion's status.
+         *
+         *     ONE route serves her phone and her admin-web drawer. Authorization is the verifier-exclusive `verification.verdict` capability, so the person who judges the evidence is the person who records what it shows. The `completion_id` comes from the verification item's own `measurement_correction.observation_id` (which echoes `source.ref_id`); clients never compose that address themselves.
+         */
+        post: operations["recordFeedWastageMeasurement"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1630,6 +2116,241 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/pc-care/planner/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * PC Care planner vocabulary (parks, assignable operators, categories).
+         * @description PC Care (maintainer decision 2026-08-21) is the planner-assigned deworming / ticks removal / hoof trimming / hair trimming module, plus the kernel-created inventory_vaccine director stock check. The catalog is the park-grain create-wizard vocabulary: every park the planner may pick, the assignable operator roster, and only human-plannable categories. Kernel-owned inventory_vaccine tasks are visible on monitor/worklist reads, but are not offered by this create wizard. Planning is CEO-only (pc_care.plan, the weighing.plan precedent).
+         */
+        get: operations["appPCCarePlannerCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/planner/parks/{park_id}/sheds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One keyset page of a park's pens for the PC Care create wizard.
+         * @description Pens come from the shed_partitions CATALOG (an undivided shed is one whole-shed row), each decorated with any existing live task for the chosen category+date so the wizard greys a taken pen instead of letting the create collide.
+         */
+        get: operations["appPCCarePlannerParkSheds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Flat PC Care task list for plan/monitor/oversee holders. */
+        get: operations["appListPCCareTasks"];
+        put?: never;
+        /**
+         * Plan one PC Care task (CEO-only).
+         * @description Creates ONE task per (category, pen, planned business date) with one or MORE assigned operators — multi-operator by design, deliberately unlike weighing's one-operator-per-bucket. A live task already covering that pen-day answers 409 task_already_planned.
+         */
+        post: operations["appCreatePCCareTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel an unsubmitted PC Care task (CEO-only). */
+        post: operations["appCancelPCCareTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/worklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The operator's assigned PC Care tasks for one category tab and one day. */
+        get: operations["appPCCareWorklist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One PC Care task with its backend-owned expected slot contract.
+         * @description expected_slots is the BACKEND-OWNED proof contract for the task's category (one video for deworming/ticks removal; before/during/after for the trimming categories). capture_mode is the BACKEND-OWNED capture flow: scan_record (deworming/ticks removal — scan a tag and the recorder opens immediately) or roster_pick (the trimming categories — tap an RFID off the pen roster and the screen walks the animal's slots). Clients branch on both verbatim and never hardcode a category-to-slot or category-to-mode map.
+         */
+        get: operations["appGetPCCareTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The roster-pick tap list — RFIDs of animals currently in the task's pen.
+         * @description Read-only, for capture_mode roster_pick (the trimming categories). Lists the active RFIDs of alive animals resident in the task's shed, narrowed to the task's pen when it has a partition. Tapping one records a normal free-flow scan; this list never gates what a scan may store. Keyset-paged on identifier value.
+         */
+        get: operations["appPCCareTaskRoster"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/captures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The peer-visibility poll — scanned animals and their slot states, by any assignee.
+         * @description Read-only. It is what lets several assigned phones split one task's videos: each slot carries who captured it ("Captured by X") so peers see each other's work. Keyset-paged over one task's animal rows.
+         */
+        get: operations["appPCCareTaskCaptures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/animals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Scan one RFID into the task (verbatim, free-flow).
+         * @description The tag is stored VERBATIM — no herd lookup. The ONE business rule is that a tag cannot be scanned twice into the same task (409 duplicate_scan). Only an ASSIGNEE of the task may scan (403 task_not_assigned); a locked task answers 409 task_locked.
+         */
+        post: operations["appScanPCCareAnimal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Attach one slot's live-camera video to one scanned animal.
+         * @description slot is one of the task category's expected_slots field keys. Any ASSIGNEE may fill any slot on any scanned animal; pre-submit a re-record REPLACES the slot's clip (the phone retires the old clip only after the new one is uploaded). The proof must be a completed, tenant-owned, in-app-camera VIDEO.
+         */
+        put: operations["appRegisterPCCareSlotProof"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/proofs/{slot}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Attach one task-level proof to an inventory vaccine stock-check task.
+         * @description Used by inventory_vaccine tasks, where the director proves fridge stock for the whole task rather than scanning individual animals. The slot is the backend-owned stock_fridge_photo or stock_fridge_video proof slot, and the proof must be a completed, tenant-owned, in-app-camera photo or video.
+         */
+        put: operations["appRegisterPCCareTaskProof"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/pc-care/tasks/{task_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit the whole task for verifier review (any assignee).
+         * @description Refused until every scanned animal carries its full slot set (422 proof_incomplete) and while no animal is scanned (422 no_animals). For inventory_vaccine, refused until the task-level stock_fridge_photo and stock_fridge_video proofs are present; the task has no animal rows. On success the task flips to pending_verification, locks for every assignee, and ONE verification item carries the animal clips or fridge stock proof. Verifier approve completes the task; reject returns it for rework.
+         */
+        post: operations["appSubmitPCCareTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/feed-config/ration-rates": {
         parameters: {
             query?: never;
@@ -1648,6 +2369,26 @@ export interface paths {
          * @description Authors grams_per_head for one (park, ration_group, shed_tag, feed_item) key. The write is NEVER destructive: if a row is already in force from an earlier business day it is CLOSED (valid_to set) and a new row is opened, so the previous rate survives as history. A re-edit on the SAME business day corrects the open row in place, because a window closed on the day it opened cannot satisfy valid_to > valid_from. Re-authoring the identical value writes nothing and reports outcome "unchanged". The response names which of the four happened. grams_per_head is REQUIRED and is validated, not defaulted: absent fails the request (absence of a rate means "not configured", a blocking state -- it must never be filled in as 0), an explicit 0 is accepted as a real authored value, and a negative or over-precise value is rejected with a field error rather than clamped or rounded. Requires an Idempotency-Key: an exact replay returns the original result with idempotent_replay=true and re-runs no side effect, and reusing the key with a different payload is a 409.
          */
         post: operations["upsertFeedConfigRationRate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/source-entry/loads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List procurement source-entry loads.
+         * @description One bounded page of source-entry loads for leadership and operator follow-up. This is the read side for supplier warmup, source health, pre-dispatch, in-transit, arrival review, accepted intake, rejected, deferred, and blocked load states. `expected_count` is the planned animals on each load; do not treat a single page as a company total when `next_cursor` is present.
+         */
+        get: operations["listProcurementSourceEntryLoads"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1727,6 +2468,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/vendor-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The ACTIVE vendor register as a bounded picklist.
+         * @description Every screen that must name a counterparty reads this: today the Sales record-sale drawer, which maps each deal to a vendor (maintainer decision 2026-08-27).
+         *
+         *     Deliberately NOT a mode of `GET /procurement/vendors`. It is ACTIVE-ONLY, because an inactive, negotiating or banned vendor must not be offerable as the buyer of a NEW sale; it is UNPAGED, because a dropdown that stops at page one silently hides buyers; and it carries identity and location only, never the payment instruments `procurement.vendor.finance.read` guards.
+         *
+         *     It is one bounded query, never a paged full walk. A register larger than the cap sets `truncated: true` rather than silently offering a partial list.
+         */
+        get: operations["listProcurementVendorOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/vendor-catalog": {
         parameters: {
             query?: never;
@@ -1741,6 +2506,368 @@ export interface paths {
         get: operations["listProcurementVendorCatalog"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/feed-purchases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the feed purchase ledger.
+         * @description Every recorded feed load, newest purchase date first. `total`, `quantity_kg` and `spend_rupees` are WHOLE-FILTER aggregates over the same predicate as the rows, never page sums; the client derives its page count and header figures from them.
+         *
+         *     Rows carry `entry_source`: `sheet_import` for history bootstrapped from the legacy Feed DB sheet, `app` for a load recorded on this screen. These are the same purchases the stock and days-left cards on Feed Analytics are counted from.
+         */
+        get: operations["listFeedPurchases"];
+        put?: never;
+        /**
+         * Record a purchased feed load.
+         * @description Records one feed purchase. The `Idempotency-Key` header is REQUIRED: an exact replay returns the originally recorded purchase with no new side effects, and the same key replayed with different fields is rejected with 409 `idempotency_conflict`, so a retried submit can never record the same load twice -- which on this ledger would also double the farm's available stock.
+         *
+         *     `feed_item` must resolve to an ACTIVE feed catalog item; an unknown feed is rejected with 400 `feed_item_not_in_catalog` rather than invented into the catalog. `batch_no` is optional: leave it out and the next number for that farm and feed is assigned inside the write transaction. `purchase_date` may not be in the future (IST business day), because stock the farm does not have yet must not deplete a feed sheet.
+         */
+        post: operations["createFeedPurchase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/feed-purchase-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The backend-owned vocabulary behind the record-purchase form.
+         * @description Farms, the ACTIVE feed catalog, the payment-state vocabulary, and the suppliers this tenant has already bought feed from. The feed list is exactly the set the write path accepts, so the form cannot offer a feed whose submit would be refused. `vendors` is a suggestion list, not a closed vocabulary -- a new supplier must be enterable on the first load bought from them.
+         */
+        get: operations["getFeedPurchaseOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/toxin/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the tester's toxin test tasks.
+         * @description The aflatoxin strip-test rounds for this tenant, keyset-paged. `status_counts` are WHOLE-TENANT aggregates over the same vocabulary as `status`, never page sums. `status` accepts a comma-separated list; absent means every status.
+         */
+        get: operations["listToxinTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/toxin/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One toxin test round with its live 7-step state.
+         * @description The guided flow: every step with its backend-composed state (done / available / waiting / locked), the strip reading guide, and the outcome vocabulary. Step states are gated on the SERVER clock; clients render them verbatim and never derive their own wait logic.
+         */
+        get: operations["getToxinTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/toxin/tasks/{task_id}/steps/{step_no}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete one video step of the toxin procedure.
+         * @description Records the step's in-app-camera video proof. The `Idempotency-Key` header is REQUIRED. The server refuses out-of-order steps, an unfinished wait gate (409 with the unlock instant on the step state), the wait row itself, and step 7 -- the reading goes through submit.
+         */
+        post: operations["completeToxinStep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/toxin/tasks/{task_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit the strip reading (step 7) with its photo.
+         * @description Records the strip photo and the reading. The `Idempotency-Key` header is REQUIRED. Negative and Positive move the round to pending_review; an Invalid strip cancels the round and mints a fresh retest task for the same load in the same transaction.
+         */
+        post: operations["submitToxinReading"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/toxin/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The CEO/CXO toxin review list.
+         * @description Same page shape as the tester's list, defaulting to status=pending_review. CEO/CXO ONLY (toxin.verdict) -- deliberately not the generic Verification queue and never visible to the tenant verifier.
+         */
+        get: operations["listToxinReview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/toxin/tasks/{task_id}/verdict": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept or reject a submitted toxin test (CEO/CXO only).
+         * @description Accept closes the round. Reject REQUIRES a reason (400 reject_reason_required without one), cancels the round, and mints a fresh retest task for the same load. The `Idempotency-Key` header is REQUIRED, `row_version` fences the write (409 version_conflict on a stale value), and a round not awaiting review answers 409 test_not_awaiting_review.
+         */
+        post: operations["recordToxinVerdict"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The whole sales page in one read.
+         * @description Whole-filter aggregates for the sales board: headline summary, monthly series, price bands, buyer board, demand pipelines, sale evidence and market benchmarks. Only deals with status `Deal Closed` count toward the summary, monthly, price-band and buyer blocks; the pipelines and evidence panels summarise their own tables.
+         *
+         *     The farm filter applies to the blocks whose source carries a farm (deals, buyer leads, sold tags); the FPO pipeline, weight audit and market benchmarks are company-wide because their source records no farm.
+         */
+        get: operations["listSalesOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/deals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the sales ledger.
+         * @description Every recorded deal in every status, newest sale first. `total` is the WHOLE-FILTER count, not the page length; the client derives the page count from it.
+         */
+        get: operations["listSalesDeals"];
+        put?: never;
+        /**
+         * Record a sale.
+         * @description Records one deal into the ledger with status `Deal Closed`. The `Idempotency-Key` header is REQUIRED: an exact replay returns the originally recorded deal with no new side effects, and the same key replayed with different fields is rejected with 409 `idempotency_conflict`, so a retried submit can never record a sale twice. Farm and product type are validated against their closed vocabularies and rejected -- never silently rewritten -- when unrecognised.
+         */
+        post: operations["createSalesDeal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/buyer-leads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the buyer demand pipeline.
+         * @description Buyer leads newest first, plus the whole-filter total and the tenant's existing call-status vocabulary (`status_options`) for the status picker. Statuses are free text bucketed by exact string on the overview, so the picker offers the stored spellings rather than inventing a new vocabulary that would fragment the pipeline chart.
+         */
+        get: operations["listSalesBuyerLeads"];
+        put?: never;
+        /**
+         * Record a buyer lead.
+         * @description Records one buyer lead into the demand pipeline. Same idempotency contract as recording a sale: the `Idempotency-Key` header is required, an exact replay returns the original lead, and a same-key/different-payload replay is rejected 409.
+         */
+        post: operations["createSalesBuyerLead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/buyer-leads/{lead_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update a buyer lead's call status.
+         * @description Sets one lead's call status. An empty `call_status` clears it back to "not yet called". Same idempotency contract as the other sales writes.
+         */
+        post: operations["setSalesBuyerLeadStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/fpo-leads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One page of the farmer-group pipeline.
+         * @description Farmer-group (FPO) leads newest first, plus the whole-filter total and the stored call-status vocabulary. Company-wide -- the source carries no farm.
+         */
+        get: operations["listSalesFpoLeads"];
+        put?: never;
+        /**
+         * Record a farmer-group lead.
+         * @description Records one farmer-group lead. Same idempotency contract as the other sales writes.
+         */
+        post: operations["createSalesFpoLead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/fpo-leads/{lead_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update a farmer-group lead's call status.
+         * @description Sets one farmer group's call status. An empty `call_status` clears it back to "not yet called". Same idempotency contract as the other sales writes.
+         */
+        post: operations["setSalesFpoLeadStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/market-benchmarks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a market quote.
+         * @description Records one comparable market quote for the Market check panel. Same idempotency contract as the other sales writes.
+         */
+        post: operations["createSalesMarketBenchmark"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/sold-tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a sold-animal tag list.
+         * @description Records the tag list handed over at one sale -- up to 200 animals in ONE atomic batch: the whole list commits or none of it does. Same idempotency contract as the other sales writes; an exact replay reports the original batch size without inserting anything.
+         */
+        post: operations["createSalesSoldTags"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/weight-checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a weight check.
+         * @description Records one video-vs-book weight audit row for the Weight check panel. Same idempotency contract as the other sales writes.
+         */
+        post: operations["createSalesWeightCheck"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1869,6 +2996,29 @@ export interface paths {
          * @description Authors the direction, correction, and transport times for one (park, workflow). The clock is per-workflow because the normal and experiment workflows genuinely run on different cutoffs; a single global time would issue one of them at the wrong hour every day. correction_time is when approved emergency-shifting corrections are BATCHED and the amended direction is reissued -- a fixed time rather than fire-on-approval, so a shed receives at most one amended direction per day instead of several racing ones. Times are LOCAL Asia/Kolkata wall-clock values ("07:00" or "07:00:00") with no offset; a value carrying an offset is rejected. Ordering is enforced (correction may equal but not precede direction; transport may not precede correction). transport_time may be sent as null to record "no declared cutoff", but a present-but-malformed value is REJECTED rather than dropped to null. Effective-dated and idempotent on the same terms as the ration-rate write.
          */
         post: operations["upsertFeedConfigSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-config/session-template-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Declare a feed on one feeding session's recipe, or withdraw it.
+         * @description THIS IS THE WRITE THAT DECIDES WHETHER A FEED REACHES AN ANIMAL. Generation walks a session's declared slots and looks each one up in the ration grid, so a feed with a grid quantity but no slot is never looked up: it is absent from the row, the summary, the totals and the packing worklist, and no gap is raised. Authoring grams for an undeclared feed therefore looks entirely correct on screen and feeds nobody.
+         *     Declaring REFUSES with 409 `slot_rates_incomplete` when the feed has no ration rate in every cell of the park. A declared slot is priced for EVERY shed, and a missing rate is BLOCKED rather than zero, so serving it would take those sheds' whole sheets down at the next issue. The write fails closed instead of silently authoring the missing quantities, because declaring a feed and setting its quantities are different decisions.
+         *     Withdrawing CLOSES the row rather than deleting it, so sheets already issued from it stay explainable. A slot declared and withdrawn on the same business day is retired in place, since the schema rules out a same-day window and no sheet was issued from it.
+         *     A declare that is already in force returns `unchanged`; a withdrawal of a feed the session does not serve is 404 `slot_not_declared` rather than a silent success, because the author may be looking at the wrong session. Idempotent on the same terms as every other feed-config write.
+         */
+        post: operations["setFeedConfigSessionTemplateItem"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2187,6 +3337,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/roster/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workforce coverage rows for leadership roster coverage questions. */
+        get: operations["adminRosterCoverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/vaccination/obligations/{obligation_id}/reschedule": {
         parameters: {
             query?: never;
@@ -2341,6 +3508,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/counts/herd-analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Herd composition now, beside month-by-month births, exits and pen movements.
+         * @description The Counts leadership read. Composition series are the CURRENT live herd (canonical goats, merged identities excluded) — the same population `/counts/breakdown` reports, so the two screens cannot disagree about the denominator. Flow figures are counted off the canonical row that recorded each event: an animal's own origin columns for a birth, its own exit columns for a death/sale/other exit, and an APPLIED shifting event for a movement, dated the day the operator completed it. Buckets are `Asia/Kolkata` calendar months, never UTC and never a rolling day window, and a month with no activity is returned as an explicit zero rather than omitted. `totals` are whole-window rollups over exactly the requested days and must be read from the response, never re-derived from `months`. The `months` SERIES is bucketed by business month, so a window whose edge falls mid-month produces a partial first or last bucket.
+         */
+        get: operations["getHerdAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/counts/milk-preparation": {
         parameters: {
             query?: never;
@@ -2349,8 +3536,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get today's per-shed milk preparation direction from the canonical live herd.
-         * @description Returns one bounded page at physical park x shed x milk cohort grain for K1, K2 and K3, plus a whole-scope summary invariant to limit/offset. Quantities are exact integer millilitres. This is a current live-herd direction only: it accepts no historical date and therefore never presents today's animal locations as a past plan. K0 colostrum and ICU or other clinical feeding are excluded until an approved quantity rule exists; they are not represented as zero.
+         * Get one business day's per-shed milk preparation direction from the canonical live herd.
+         * @description Returns one bounded page at physical park x shed x milk cohort grain for K1, K2 and K3, plus a whole-scope summary invariant to limit/offset. Quantities are exact integer millilitres. preparation_date selects the business day (IST); absent means today. A past day replays that day's completion/verification overlay and K3 weaning window against the CURRENT herd placement, so it answers "was that day's preparation submitted?" and clients must render past days read-only rather than as a faithful historical head count. K0 colostrum and ICU or other clinical feeding are excluded until an approved quantity rule exists; they are not represented as zero.
          */
         get: operations["getMilkPreparation"];
         put?: never;
@@ -2369,8 +3556,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get today's operator Milk Preparation farm worklist and direction.
-         * @description Operator-authorized form of the current-day Milk Preparation read. farm_tasks is the bounded actionable farm_day worklist; items remains the paged internal milk-cohort direction. Summary and farm_tasks cover the whole selected scope and never depend on the requested item page.
+         * Get one business day's operator Milk Preparation farm worklist and direction.
+         * @description Operator-authorized form of the Milk Preparation read. preparation_date selects the business day (IST); absent means today, and past days are read-only review of that day's submission state. farm_tasks is the bounded actionable farm_day worklist; items remains the paged internal milk-cohort direction. Summary and farm_tasks cover the whole selected scope and never depend on the requested item page.
          */
         get: operations["getAppCountsMilkPreparation"];
         put?: never;
@@ -2594,6 +3781,75 @@ export interface paths {
          * @description Server-computed aggregates rendered ABOVE the /verify queue table when the caller's page contract carries the oversight_analytics control: a KPI strip (videos waiting, oldest pending age, review speed, estimated days to clear the backlog, per-module median review latency, reject rate), pending backlog by module, and per-verifier last-14-day activity plus a watch-integrity aggregate. Gated on permissions.VerificationOversee -- the SAME capability as the oversight_analytics/oversight_filters page-contract controls, never a role string. A verifier who holds verification.review/verdict but not verification.oversee receives 403 here even though she can read the plain queue. All numbers are bounded, tenant-scoped aggregate reads, never a client-side mega-fetch or per-verifier fan-out.
          */
         get: operations["getVerificationOversightAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/verification/sampling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * CEO-only randomization - how much of each module's proof is reviewed.
+         * @description The RANDOMIZATION section on /verify (maintainer decision 2026-08-26). For one Asia/Kolkata business day it returns every registered verification category with the sampling percentage in force that day, and how the day is going against it: how many videos were captured, how many of them were DRAWN for the verifier, how many of those she has decided, and how many the policy settled without her.
+         *     Gated on permissions.verification.sampling, which is CEO-ONLY and narrower than verification.oversee -- the PC Director holds oversight and receives 403 here. Oversight WATCHES the verification workload; this DECIDES how much of it a human must watch, and a director setting that for his own department's work is the separation of duty that keeps verdict authority off leadership. The same capability gates the matching randomization control in the /verify page contract.
+         *     Captured, selected, reviewed and auto_accepted are NOT disjoint and must not be summed: selected is a subset of captured and reviewed is a subset of selected. progress_percent is backend-owned so no surface derives its own completion number -- at 40% sampling, all 40% reviewed is 100%.
+         */
+        get: operations["getVerificationSampling"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/verification/sampling/{category}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set one category's verification sampling percentage.
+         * @description Records the share of this category's proof videos the verifier must watch, effective from TODAY's Asia/Kolkata business day. Earlier days keep the percentage they actually ran at, so a change never rewrites what she already owed.
+         *     The effective date is the SERVER's and is not accepted from the client -- a caller that could name its own date could retroactively change a day the verifier has already worked.
+         *     The setting takes effect IMMEDIATELY on the current day. The draw is deterministic per item, so raising the percentage only ADDS videos to her queue; it can never retract one she is already holding or has already reviewed.
+         *     A category whose approve must CARRY a measurement (feed packing's packed quantities, feed wastage's leftover weight) is refused with 422 sampling_not_available: there the verifier is the data source rather than a spot check, so every video has to be watched. Those rows are returned by the GET with waivable=false and a locked_reason to render.
+         *     sample_percent is 0..100 inclusive. A value outside that range is REFUSED, never clamped -- an author who typed 140 is told, not quietly given 100. Absent is likewise an error, because 0 is a real setting ("review none of this category today") and must not be what a missing field means.
+         */
+        put: operations["setVerificationSamplingPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/verification/video-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-shed video arrival log for one business day.
+         * @description For ONE Asia/Kolkata business day, which sheds had proof arrive and at what time each proof was uploaded -- feed distribution's three captures, feed packing's one, feed transport's one, and the vaccination, weighing, birth, death and shifting proofs beside them. Maintainer decision 2026-08-14.
+         *     Gated on permissions.verification.evidence_timeline, which is a DIFFERENT capability from verification.oversee: the VERIFIER holds this one and not that one, so she sees the video log while the module chips, the capture-date range picker and the oversight analytics stay leadership-only. The log is cross-module for every caller who holds the capability, because the question is "what arrived from this shed today" and a shed's day spans modules. It grants no verdict authority and reshapes no queue. A caller whose grant is park-scoped is clamped to their parks, exactly as on the queue read.
+         *     TWO LEVELS, both bounded. Without shed_id the response carries the day's per-shed summary (counts, first and last arrival, which modules contributed) and an empty rows array. With shed_id it additionally carries that one location's work in full. A flat list of every proof for a day is deliberately not offered: a vaccination drive raises one item per animal, so a park-day can hold several hundred items before any feed work is counted.
+         *     Times are when the SERVER accepted the upload (proof_artifacts.uploaded_at), not a device capture time -- no per-proof capture timestamp exists in the schema, and inventing one from the registration time would present a guess as a fact. registered_at is exposed alongside so a reader can see real upload lag.
+         */
+        get: operations["getVerificationVideoLog"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3244,10 +4500,464 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/clock/in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clock in for today's IST business day.
+         * @description Records the day's clock-in with the punch capture (location, integrity, battery, offline state). Device identity comes from the X-GoatOS-* headers. A payload admitting a mock-provided fix or an installed mock-location app is refused 422 mock_location_detected. One pair per business day: a second clock-in is refused 409 already_clocked_in.
+         */
+        post: operations["recordAppClockIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/clock/out": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Clock out of today's IST business day.
+         * @description Closes today's open entry and stamps the backend-owned worked_minutes. Refused 409 not_clocked_in when today has no open clock-in and 409 already_clocked_out when the day is already closed. The same mock-location gate as clock-in applies.
+         */
+        post: operations["recordAppClockOut"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/clock/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Today's clock state, recent days, and the shell reminder banner. */
+        get: operations["getAppClockStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/clock/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The leadership presence board — the whole roster's day.
+         * @description One row per ACTIVE workforce member for the selected date (LEFT JOIN to that day's entry), so never-punched people appear under not_clocked_in. Summary tiles are whole-filter aggregates, never page math. Leadership only (clock.presence.read).
+         */
+        get: operations["listAppClockPresence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/clock/presence/{workforce_member_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One person's day in full — both punches, device, integrity, recent days. */
+        get: operations["getAppClockPresencePerson"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        HerdSignalMovementState: "moving" | "low" | "quiet" | "not_moving" | "stale";
+        /** @enum {string} */
+        HerdSignalMappingState: "mapped" | "unmapped" | "conflict";
+        /** @enum {string} */
+        HerdSignalPatternState: "no_movement" | "quiet_watch" | "inactive" | "missing" | "spike" | "recovered" | "normal";
+        /**
+         * @description Accepted values for the `pattern` QUERY parameter. A superset of HerdSignalPatternState: every real pattern state, plus the `not_normal` sentinel that selects the whole alerting partition server-side (pattern_state other than normal/no_movement, OR weak signal, OR low/critical battery, OR abnormal sensor, OR mapping conflict).
+         *     Deliberately a SEPARATE enum from HerdSignalPatternState so a row's pattern_state stays the set of states a tag can actually be in -- no tag is ever IN state "not_normal". The Alerts view needs the partition selected in the query rather than filtered from a fetched page, because a page of rows is not the fleet.
+         * @enum {string}
+         */
+        HerdSignalPatternFilter: "no_movement" | "quiet_watch" | "inactive" | "missing" | "spike" | "recovered" | "normal" | "not_normal";
+        /** @enum {string} */
+        HerdSignalTone: "strong" | "ok" | "weak";
+        /**
+         * @description Composed from an absolute voltage band plus the tag's own voltage trend (maintainer decision, replacing a removed remaining-life estimate -- the tag reports voltage only). healthy >= 3.00V; watch is 2.80-2.99V OR voltage falling against the tag's own history; low < 2.80V; critical < 2.60V, or the tag went quiet (missing signal) after voltage was falling (critical-on-silence -- INFERRED, never a claim the tag is dead). All thresholds PROVISIONAL pending vendor confirmation.
+         * @enum {string}
+         */
+        HerdSignalBatteryState: "healthy" | "watch" | "low" | "critical";
+        /** @enum {string} */
+        HerdSignalBatteryTrendDirection: "stable" | "falling";
+        /** @description Compact voltage trend: a direction plus the two endpoint readings that justify it. Absent/null when there is not enough history to say anything -- coin-cell voltage is noisy and temperature-sensitive, so a direction is never invented from two adjacent packets. NEVER a remaining-life estimate in any unit (days/weeks/months/years) -- the only acceptable durability statement is a vendor claim, quoted as a vendor claim, and it belongs in docs, not here. */
+        HerdSignalBatteryTrend: {
+            direction: components["schemas"]["HerdSignalBatteryTrendDirection"];
+            /** @description The trend window in days (PROVISIONAL default 30). */
+            window_days: number;
+            /** @description First battery_mv reading in the window. */
+            first_mv: number;
+            /** Format: date-time */
+            first_at: string;
+            /** @description Last (most recent) battery_mv reading in the window. */
+            last_mv: number;
+            /** Format: date-time */
+            last_at: string;
+        };
+        /**
+         * @description Computed "ok"/"abnormal" summary of temperature_sensor_ok/accelerometer_sensor_ok. Never the raw device sensor_state bitfield.
+         * @enum {string}
+         */
+        HerdSignalSensorState: "ok" | "abnormal";
+        /** @description Whole-filter server-side aggregate; never derived from the returned page. */
+        HerdSignalsSummary: {
+            tags_seen: number;
+            mapped_animals: number;
+            unmapped_tags: number;
+            moving: number;
+            quiet: number;
+            not_moving: number;
+            stale: number;
+            weak_signal: number;
+            low_battery: number;
+            sensor_abnormal: number;
+        };
+        HerdSignalItem: {
+            tag_id: string;
+            tag_mac: string;
+            /** Format: uuid */
+            goat_id: string | null;
+            display_id: string | null;
+            /** @description Most recent active ear-tag value (non-BLE). */
+            animal_identifier_1?: string | null;
+            /** @description Second most recent active ear-tag value (non-BLE). */
+            animal_identifier_2?: string | null;
+            /** Format: uuid */
+            park_id: string | null;
+            park_name: string | null;
+            /** Format: uuid */
+            shed_id: string | null;
+            shed_name: string | null;
+            partition_label: string | null;
+            operational_location_display: string | null;
+            gateway_id: string | null;
+            /** Format: date-time */
+            last_seen_at: string | null;
+            rssi_dbm: number | null;
+            signal_state: components["schemas"]["HerdSignalTone"] | null;
+            /** @description Direct reading (voltage in mV). Must stay first among the battery fields. */
+            battery_mv: number | null;
+            battery_state: components["schemas"]["HerdSignalBatteryState"] | null;
+            battery_trend: components["schemas"]["HerdSignalBatteryTrend"] | null;
+            /** @description Measured at the tag's own sensor housing, never the animal's body temperature. */
+            tag_temperature_c: number | null;
+            /** Format: int64 */
+            motion_count: number | null;
+            /**
+             * Format: int64
+             * @description 15-minute window delta.
+             */
+            motion_delta: number | null;
+            /**
+             * Format: int64
+             * @description Real 1-hour (3600s-tier) delta -- distinct from motion_delta.
+             */
+            motion_delta_1h: number | null;
+            motion_window_seconds: number | null;
+            movement_state: components["schemas"]["HerdSignalMovementState"] | null;
+            pattern_state: components["schemas"]["HerdSignalPatternState"] | null;
+            /**
+             * Format: int64
+             * @description Per-animal p75 24h baseline delta (300s tier).
+             */
+            baseline_delta: number | null;
+            sensor_state: components["schemas"]["HerdSignalSensorState"] | null;
+            temperature_sensor_ok: boolean | null;
+            accelerometer_sensor_ok: boolean | null;
+            mapping_state: components["schemas"]["HerdSignalMappingState"];
+            /** @description True when motion_delta is a reconnect TOTAL across a reception gap (maintainer decision on offline behaviour: the gateway does not buffer through a WAN outage, so a gap this long means nothing was received, and the delta on reconnect is a total with unknown time distribution), not this window's own movement. Render distinctly, never as an ordinary delta. */
+            gap_delta: boolean;
+            /** @description User ID of the operator who bound this tag to an identifier (mapping provenance). */
+            mapped_by?: string | null;
+            /**
+             * Format: date-time
+             * @description Server timestamp when this tag was bound to an identifier (mapping provenance).
+             */
+            mapped_at?: string | null;
+        };
+        HerdSignalsLiveResponse: {
+            summary: components["schemas"]["HerdSignalsSummary"];
+            items: components["schemas"]["HerdSignalItem"][];
+            next_cursor: string | null;
+        };
+        HerdSignalTimelineBucket: {
+            /** Format: date-time */
+            bucket_start: string;
+            bucket_seconds: number;
+            /** Format: int64 */
+            first_motion_count: number | null;
+            /** Format: int64 */
+            last_motion_count: number | null;
+            /** Format: int64 */
+            motion_delta: number | null;
+            packet_count: number;
+            avg_rssi_dbm: number | null;
+            min_rssi_dbm: number | null;
+            max_rssi_dbm: number | null;
+            /** @description True when the window has NO packets. Never collapsed with packet_count>0/motion_delta=0. */
+            is_gap: boolean;
+            /** @description True only on a RECONNECT bucket: packets WERE received, and motion_delta is a TOTAL across a prior reception gap with unknown time distribution. Distinct from BOTH is_gap (no packets) and an ordinary zero delta (packets received, no movement) -- a client must be able to render all three as different facts. */
+            gap_delta: boolean;
+        };
+        HerdSignalTimelineResponse: {
+            buckets: components["schemas"]["HerdSignalTimelineBucket"][];
+        };
+        /**
+         * @description Computed "online"/"offline" from last_seen_at freshness, not the raw stored gateway status text.
+         * @enum {string}
+         */
+        HerdGatewayStatus: "online" | "offline";
+        /** @enum {string} */
+        HerdGatewayNetworkMode: "wifi" | "ble" | "wifi_ble";
+        HerdGateway: {
+            gateway_id: string;
+            label: string | null;
+            park_name: string | null;
+            shed_name: string | null;
+            partition_label: string | null;
+            operational_location_display: string | null;
+            network_mode: components["schemas"]["HerdGatewayNetworkMode"] | null;
+            wifi_mac: string | null;
+            ble_mac: string | null;
+            status: components["schemas"]["HerdGatewayStatus"];
+            /** Format: date-time */
+            last_seen_at: string | null;
+            tags_seen_recently: number | null;
+            weak_tags: number | null;
+            unmapped_tags: number | null;
+            /** @description Count of unique tags seen by this gateway in the last 15 minutes. */
+            tags_seen_in_window: number | null;
+            /** @description Count of tags with measurable motion in the last 15 minutes. */
+            distinct_motion_deltas: number | null;
+            /** @description Total packet count received by this gateway in the last 15 minutes. */
+            packets_received_in_window: number | null;
+        };
+        HerdGatewaysResponse: {
+            gateways: components["schemas"]["HerdGateway"][];
+        };
+        /** @enum {string} */
+        HerdSignalType: "direct" | "derived" | "correlated" | "inferred";
+        /** @description Label/formula/caveat are backend-owned copy; render verbatim (AGENTS.md backend-owns-labels rule). */
+        HerdInsightCard: {
+            key: string;
+            label: string;
+            value: (string | number) | null;
+            unit: string | null;
+            signal_type: components["schemas"]["HerdSignalType"];
+            formula: string;
+            caveat: string | null;
+        };
+        HerdInsightsResponse: {
+            cards: components["schemas"]["HerdInsightCard"][];
+        };
+        /** @enum {string} */
+        HerdSignalActivityEventKind: "vaccination" | "feed_given" | "weighing" | "treatment" | "hoof_trimming" | "shed_move";
+        /**
+         * @description What the underlying record is actually about. `animal`: the source row names this animal. `shed`: the source row names the SHED this animal is in -- every animal there shares the record and it says nothing about this one individually. `scanned_identifier`: the source row names a raw scanned string matching this tag's id or MAC, with no animal resolution anywhere in the chain (weighing and PC-care both record this way and this read never resolves a scan to an animal in either direction).
+         * @enum {string}
+         */
+        HerdSignalActivityGrain: "animal" | "shed" | "scanned_identifier";
+        HerdSignalActivityEvent: {
+            kind: components["schemas"]["HerdSignalActivityEventKind"];
+            /** Format: date-time */
+            at: string;
+            /** @description Backend-owned short label; render verbatim. */
+            label: string;
+            grain: components["schemas"]["HerdSignalActivityGrain"];
+            /**
+             * Format: int64
+             * @description Motion delta in the 2-hour window before this event.
+             */
+            motion_delta_before_2h?: number | null;
+            /**
+             * Format: int64
+             * @description Motion delta in the 2-hour window after this event.
+             */
+            motion_delta_after_2h?: number | null;
+            /**
+             * Format: int64
+             * @description Percentage change in motion delta between before and after windows.
+             */
+            motion_change_percent?: number | null;
+            /** @description True when the before window contains gaps or reconnect deltas; motion_delta_before_2h may not be distributed uniformly. */
+            before_window_incomplete: boolean;
+            /** @description True when the after window contains gaps or reconnect deltas; motion_delta_after_2h may not be distributed uniformly. */
+            after_window_incomplete: boolean;
+        };
+        HerdSignalActivityUnavailableKind: {
+            kind: components["schemas"]["HerdSignalActivityEventKind"];
+            reason: string;
+        };
+        /**
+         * @description Why `events` is empty for a STRUCTURAL reason -- never set merely because the window held no records. `tag_not_mapped_to_animal`: no animal is behind this tag, so there is no farm activity to show (not zero events for an animal -- no animal). `monitoring_boundary_unknown`: the tag resolves to an animal but carries no mapping instant, so the read fails closed rather than attributing a whole record history to a boundary it cannot state. `window_entirely_before_monitoring_start`: the requested window ends before the tag was mapped to the animal.
+         * @enum {string}
+         */
+        HerdSignalActivityReason: "tag_not_mapped_to_animal" | "monitoring_boundary_unknown" | "window_entirely_before_monitoring_start";
+        HerdSignalActivityResponse: {
+            tag_id: string;
+            /**
+             * Format: date-time
+             * @description The EFFECTIVE window start actually read, after clamping to monitoring_since.
+             */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /**
+             * Format: date-time
+             * @description When this tag became this animal's tag. Null for an unmapped tag.
+             */
+            monitoring_since: string | null;
+            /** @description Ordered by `at` ascending. Never null. */
+            events: components["schemas"]["HerdSignalActivityEvent"][];
+            /** @description Kinds with no source in this deployment, so a client hides that chip instead of showing one that can never light up. Empty today -- all six kinds have a real source. */
+            unavailable_kinds: components["schemas"]["HerdSignalActivityUnavailableKind"][];
+            reason: components["schemas"]["HerdSignalActivityReason"] | null;
+            /** @description True when the window holds more events than the 500-event cap returned. */
+            truncated: boolean;
+            /** @description Backend-owned copy stating what a marker does and does not mean. Render verbatim beside the overlay; it is the reason the claim boundary travels with the data. */
+            correlation_note: string;
+        };
+        HerdSignalsIngestPacket: {
+            tag_id: string;
+            tag_mac: string;
+            rssi_dbm?: number | null;
+            battery_mv?: number | null;
+            tag_temperature_c?: number | null;
+            /**
+             * Format: int64
+             * @description Cumulative on the tag.
+             */
+            motion_count?: number | null;
+            sensor_state?: number | null;
+            temperature_sensor_ok?: boolean | null;
+            accelerometer_sensor_ok?: boolean | null;
+            raw_adv?: string | null;
+            /**
+             * Format: int64
+             * @description The GATEWAY scan report's sequence number, carried through per packet. The only packet-loss instrument this protocol offers: a forward jump means reports that were never delivered, and a DECREASE means the gateway rebooted (re-anchor, never a negative loss). Optional -- older firmware and replay paths omit it, and a packet without one is still real sensor data that simply cannot contribute to loss counts.
+             */
+            pkt_sn?: number | null;
+            /** Format: date-time */
+            seen_at: string;
+            /**
+             * Format: date-time
+             * @description This PACKET's own gateway-clock timestamp, uncorrected (a real gateway has been observed running a constant +02:30:00 ahead of IST -- a timezone misconfiguration). Optional: falls back to the envelope's gateway_seen_at (relay time) when absent. Diagnostic only -- never used for ordering or gap detection, which use seen_at (server-relevant capture time) exclusively.
+             */
+            gateway_seen_at?: string | null;
+        };
+        HerdSignalsIngestRequest: {
+            gateway_id: string;
+            /** Format: date-time */
+            gateway_seen_at: string;
+            packets: components["schemas"]["HerdSignalsIngestPacket"][];
+        };
+        HerdSignalsIngestResponse: {
+            accepted: number;
+            stored: number;
+            latest_updated: number;
+            trace_id: string;
+        };
+        HerdSignalsBindTagMappingRequest: {
+            /** Format: uuid */
+            goat_id: string;
+            /** @description The tag's printed/reported id. Normalised (trimmed, uppercased) before it is claimed. */
+            tag_id: string;
+            /** @description Optional. When the tag reports a MAC distinct from its id, that value is claimed as its own identifier row too -- the read path matches a packet by tag id OR MAC while a single identifier row carries one value, so claiming only one would leave half the tag's packets resolving to no animal. */
+            tag_mac?: string;
+            /**
+             * @description Slot the tag is bound in. Defaults to animal_identifier_2 -- a smart tag is normally the second thing an animal carries.
+             * @enum {string}
+             */
+            identifier_type?: "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
+        };
+        HerdSignalsReplaceTagMappingRequest: {
+            /** Format: uuid */
+            goat_id: string;
+            new_tag_id: string;
+            new_tag_mac?: string;
+            /** @enum {string} */
+            identifier_type?: "animal_identifier_1" | "animal_identifier_2" | "temporary_tag";
+        };
+        HerdSignalsUnmapTagMappingRequest: {
+            tag_id: string;
+            /** @description Optional. Either value on its own identifies the binding and releases all of it, so this is never required to fully unmap a tag that claimed both. */
+            tag_mac?: string;
+        };
+        HerdSignalsTagMappingResponse: {
+            /** Format: uuid */
+            goat_id: string;
+            /** @description The normalised tag id now bound. */
+            tag_id: string;
+            tag_mac: string | null;
+            /** @description The identifier rows now carrying this binding. Never null. */
+            identifier_ids: string[];
+            /** @enum {string} */
+            mapping_state: "mapped" | "unmapped";
+            /**
+             * Format: date-time
+             * @description The instant animal monitoring starts for this tag. Null means unmapped, in which case NO animal-attributed value may be produced for the tag -- not a zero, not a default. Baselines, pattern windows and correlations never look back past this instant.
+             */
+            monitoring_since: string | null;
+            /** @description Identifiers whose smart-tag binding this write ENDED -- the replaced tag on a replace, the unmarked identifier on an unmark. Never null. */
+            unbound_identifier_ids: string[];
+        };
+        HerdSignalsGatewayHeartbeatRequest: {
+            gateway_id: string;
+            /** @description The gateway's own state name. Optional, but when present it must be the heartbeat state (sta_gw_hb): an unrecognised future state must not be allowed to assert proof of life by accident. */
+            state?: string;
+            /**
+             * Format: int64
+             * @description Gateway uptime tick counter. A value that goes backwards is a reboot, never a negative.
+             */
+            ticks_cnt?: number | null;
+        };
+        HerdSignalsGatewayHeartbeatResponse: {
+            gateway_id: string;
+            /** Format: date-time */
+            last_heartbeat_at: string;
+            /** @description True when ticks_cnt went backwards against the stored value. */
+            reboot_detected: boolean;
+            trace_id: string;
+        };
         CeoConversationCreateRequest: {
             /** @description Optional initial title; when omitted the backend derives one. */
             title?: string;
@@ -3622,6 +5332,22 @@ export interface components {
             /** @description False means retired: still rendered on a vendor that carries it, never offered for a new row. */
             is_active: boolean;
         };
+        /** @description One selectable counterparty. Identity and location only -- never payment instruments. */
+        ProcurementVendorOption: {
+            /** Format: uuid */
+            vendor_id: string;
+            business_name: string;
+            /** @description What the register calls this counterparty (Sheep Agent, Manure Agent, ...). */
+            record_type: string;
+            /** @description Empty when the register carries no city for this vendor. */
+            city: string;
+            state: string;
+        };
+        ProcurementVendorOptions: {
+            vendors: components["schemas"]["ProcurementVendorOption"][];
+            /** @description True when the active register holds more vendors than one bounded read returns, so the picker can send the person to the Vendors page to search rather than imply a buyer they cannot find does not exist. */
+            truncated: boolean;
+        };
         ProcurementVendorCatalog: {
             record_types: components["schemas"]["ProcurementVendorCatalogEntry"][];
             breeds: components["schemas"]["ProcurementVendorCatalogEntry"][];
@@ -3629,6 +5355,533 @@ export interface components {
             cities: components["schemas"]["ProcurementVendorCatalogEntry"][];
             statuses: components["schemas"]["ProcurementVendorCatalogEntry"][];
             feeds: components["schemas"]["ProcurementVendorCatalogEntry"][];
+        };
+        /** @description One buyer lead in the demand pipeline. */
+        SalesBuyerLead: {
+            /** Format: uuid */
+            lead_id: string;
+            /** @description YYYY-MM-DD when known. */
+            recorded_date?: string | null;
+            farm?: string | null;
+            buyer_name: string;
+            buyer_place?: string | null;
+            animal_type?: string | null;
+            breed?: string | null;
+            /** @description Null means not yet called; the overview reports that bucket as "uncontacted". */
+            call_status?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description One page of the buyer pipeline plus whole-filter total and status vocabulary. */
+        SalesBuyerLeadPage: {
+            leads: components["schemas"]["SalesBuyerLead"][];
+            /** @description Whole-filter count */
+            total: number;
+            /** @description The tenant's stored call-status vocabulary, for the status picker. */
+            status_options: string[];
+        };
+        /** @description Records one buyer lead. Optional text sent as "" is stored as not set. */
+        SalesBuyerLeadWrite: {
+            /** @description Optional YYYY-MM-DD. */
+            recorded_date?: string;
+            /**
+             * @description Optional farm.
+             * @enum {string}
+             */
+            farm?: "" | "CBE" | "CPT";
+            buyer_name: string;
+            buyer_place?: string;
+            animal_type?: string;
+            breed?: string;
+            /** @description Optional; empty means not yet called. */
+            call_status?: string;
+        };
+        /** @description One farmer-group (FPO) lead. */
+        SalesFpoLead: {
+            /** Format: uuid */
+            lead_id: string;
+            fpo_name: string;
+            crops?: string | null;
+            district?: string | null;
+            taluk?: string | null;
+            state?: string | null;
+            call_status?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description One page of the farmer-group pipeline plus whole-filter total and status vocabulary. */
+        SalesFpoLeadPage: {
+            leads: components["schemas"]["SalesFpoLead"][];
+            total: number;
+            status_options: string[];
+        };
+        /** @description Records one farmer-group lead. */
+        SalesFpoLeadWrite: {
+            fpo_name: string;
+            crops?: string;
+            district?: string;
+            taluk?: string;
+            state?: string;
+            call_status?: string;
+        };
+        /** @description Sets one lead's call status; empty clears it back to "not yet called". */
+        SalesLeadStatusWrite: {
+            call_status: string;
+        };
+        /** @description Records one comparable market quote. */
+        SalesBenchmarkWrite: {
+            market?: string;
+            category?: string;
+            breed: string;
+            source?: string;
+            ex_farm_rate?: string;
+            transport_rate?: string;
+            landing_cost_per_kg?: number | null;
+            market_price_per_kg?: number | null;
+        };
+        /** @description One animal in a handed-over tag list. */
+        SalesSoldTagRow: {
+            animal_label: string;
+            tag_number?: string;
+            weight_kg?: number | null;
+        };
+        /** @description Records the tag list handed over at one sale, as one atomic batch. */
+        SalesSoldTagsWrite: {
+            /** @enum {string} */
+            farm?: "" | "CBE" | "CPT";
+            rows: components["schemas"]["SalesSoldTagRow"][];
+        };
+        SalesSoldTagsResult: {
+            /** @description How many animals landed in the roster. */
+            recorded: number;
+        };
+        /** @description Records one video-vs-book weight audit row. */
+        SalesWeightCheckWrite: {
+            tag_number?: string;
+            book_weight_kg: number;
+            video_weight_kg: number;
+            /** @default false */
+            farm_born: boolean;
+        };
+        SalesRecorded: {
+            recorded: boolean;
+        };
+        /** @description One purchased feed load -- one Purchase row of the legacy Feed DB sheet, or one load recorded on /procurement/feed-purchases. */
+        FeedPurchase: {
+            /** Format: uuid */
+            feed_purchase_id: string;
+            /**
+             * Format: date
+             * @description The business date the load was bought, never a timestamp.
+             */
+            purchase_date: string;
+            /** @enum {string} */
+            farm: "CBE" | "CPT";
+            /** @description The FEED CATALOG's label, not the typed one, so one feed reads with one spelling. */
+            feed_item: string;
+            /** @description The load's number within this farm and feed, counting from 1. */
+            batch_no: number;
+            quantity_kg: number;
+            feed_cost?: number | null;
+            transport_cost?: number | null;
+            loading_cost?: number | null;
+            unloading_cost?: number | null;
+            /** @description The landed cost. Null when no cost was entered at all -- a load whose cost is not yet known is a real state, and a zero would report a free load. */
+            total_cost?: number | null;
+            /** @description DERIVED from total_cost / quantity_kg, never entered, so it cannot drift from its own total. */
+            per_kg_cost?: number | null;
+            vendor: string;
+            payment_released?: number | null;
+            /** @enum {string} */
+            payment_status: "Paid" | "Pending";
+            /**
+             * @description How the row arrived: bootstrapped sheet history, or recorded in the app. The ledger shows the difference rather than presenting history as something a person typed here.
+             * @enum {string}
+             */
+            entry_source: "sheet_import" | "app";
+            /** Format: date-time */
+            created_at: string;
+        };
+        FeedPurchasePage: {
+            purchases: components["schemas"]["FeedPurchase"][];
+            /** @description The WHOLE-FILTER count, not the page length. Pagination changes rows only, never this number. */
+            total: number;
+            /** @description Whole-filter kilograms bought, over the same predicate as the rows. */
+            quantity_kg: number;
+            /** @description Whole-filter landed cost, over the same predicate as the rows. */
+            spend_rupees: number;
+            /** @description The page size actually applied, after clamping. */
+            limit: number;
+            /** @description The offset actually applied. Echoed so the client can render the page number. */
+            offset: number;
+        };
+        /**
+         * @description Record-purchase body, carrying the same fields the legacy sheet's Purchase row keeps. Farm and payment status are closed vocabularies validated server-side and rejected -- never silently defaulted -- when unrecognised.
+         *
+         *     Every optional money field is nullable so "not entered" stays distinct from "entered as 0": a zero transport cost is a real recorded fact, and coercing a blank box into it would invent that fact. total_cost may be omitted when the split parts are supplied; the backend sums them and derives per-kg cost itself.
+         */
+        FeedPurchaseWrite: {
+            /**
+             * Format: date
+             * @description May not be in the future (IST business day).
+             */
+            purchase_date: string;
+            /** @enum {string} */
+            farm: "CBE" | "CPT";
+            /** @description Must resolve to an ACTIVE feed catalog item; an unknown feed is rejected, never created. */
+            feed_item: string;
+            /** @description Omit to have the next number for this farm and feed assigned inside the write transaction. Supply one only to record a load out of order. */
+            batch_no?: number | null;
+            /** @description Required and must be more than zero. */
+            quantity_kg: number;
+            feed_cost?: number | null;
+            transport_cost?: number | null;
+            loading_cost?: number | null;
+            unloading_cost?: number | null;
+            total_cost?: number | null;
+            vendor: string;
+            payment_released?: number | null;
+            /** @enum {string} */
+            payment_status: "Paid" | "Pending";
+        };
+        /** @description The backend-owned vocabulary the record-purchase form renders. */
+        FeedPurchaseOptions: {
+            farms: ("CBE" | "CPT")[];
+            /** @description The ACTIVE feed catalog -- exactly the set the write path accepts. */
+            feed_items: {
+                /** @description The normalized matching key. A join key, never display copy. */
+                key: string;
+                /** @description The catalog label to render and to send back as feed_item. */
+                label: string;
+            }[];
+            payment_statuses: ("Paid" | "Pending")[];
+            /** @description Suppliers already bought from, most recent first. A suggestion list, not a closed vocabulary. */
+            vendors: string[];
+        };
+        /** @description One aflatoxin strip-test round for one purchased feed load. All visible copy (status_chip, context_line, outcome_label, origin_line, cancel_reason) is BACKEND-OWNED farm wording; clients render it verbatim. */
+        ToxinTask: {
+            /** Format: uuid */
+            task_id: string;
+            /** Format: uuid */
+            feed_purchase_id?: string;
+            /** @description Which testing round this is for the load, counting from 1. */
+            round_no: number;
+            /**
+             * @description Why this round exists. A raw token; render origin_line, never this.
+             * @enum {string}
+             */
+            origin: "purchase" | "invalid_retest" | "rejected_retest";
+            /** @description Backend-composed retest explanation. Absent on round 1. */
+            origin_line?: string;
+            farm_label: string;
+            feed_item_label: string;
+            vendor?: string;
+            batch_no?: number;
+            /**
+             * Format: date
+             * @description The load's purchase business date, never a timestamp.
+             */
+            purchase_date: string;
+            quantity_kg?: number;
+            /** @enum {string} */
+            status: "in_progress" | "pending_review" | "accepted" | "cancelled";
+            /** @description Backend-owned chip copy, including live wait countdown wording. */
+            status_chip: string;
+            /**
+             * @description The recorded reading token. Absent until step 7; render outcome_label.
+             * @enum {string}
+             */
+            outcome?: "negative" | "positive" | "invalid";
+            /** @description Farm-worded reading ("Negative", "Positive", "Invalid strip"). */
+            outcome_label?: string;
+            /** @description Proof reference of the final strip photo. Absent until step 7. */
+            strip_photo_ref?: string;
+            submitted_by?: string;
+            /** Format: date-time */
+            submitted_at?: string;
+            /** Format: date-time */
+            reviewed_at?: string;
+            /** @description The reject reason recorded at review, when one exists. */
+            review_reason?: string;
+            /** @description Backend-owned farm copy stored on a cancelled round. */
+            cancel_reason?: string;
+            steps_done: number;
+            steps_total: number;
+            /**
+             * Format: int64
+             * @description Optimistic-concurrency fence carried back on the verdict write.
+             */
+            row_version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** @description Backend-composed card subtitle -- feed, vendor, load and date in one line. */
+            context_line: string;
+            /** @description Whether THIS caller may run the test. A property of the CALLER, not the round: a CEO/CXO reads the same row with can_execute false and renders a non-tappable watch-only card, while a named tester gets true and the card opens the step flow. The step-completion routes enforce toxin.execute independently; this field only keeps a client from offering an action the server would refuse. */
+            can_execute: boolean;
+        };
+        /** @description One procedure step with its live state, composed against the SERVER clock. Clients render states verbatim and never derive their own wait-gate logic. */
+        ToxinStep: {
+            step_no: number;
+            /** @enum {string} */
+            kind: "video" | "wait" | "photo_reading";
+            title: string;
+            instruction: string;
+            /** @enum {string} */
+            state: "done" | "available" | "waiting" | "locked";
+            /** @description The wait row's duration. Present on kind wait only. */
+            wait_minutes?: number;
+            /**
+             * Format: date-time
+             * @description When a waiting step unlocks, on the server clock. Present while state is waiting.
+             */
+            available_at?: string;
+            /** @description The completed step's proof reference. Present when state is done. */
+            proof_ref?: string;
+            completed_by?: string;
+            /** Format: date-time */
+            completed_at?: string;
+        };
+        ToxinTaskPage: {
+            tasks: components["schemas"]["ToxinTask"][];
+            /** @description Keyset cursor for the next page. Absent on the last page. */
+            next_cursor?: string;
+            /** @description WHOLE-TENANT counts per status, never page-local sums. */
+            status_counts: {
+                [key: string]: number;
+            };
+            /** @description The list's selectable slices in display order, with backend-owned labels. Rendered verbatim; the client sends back only `key`. Served on the app task list, absent on the review list. */
+            filters?: components["schemas"]["ToxinTaskFilter"][];
+        };
+        ToxinTaskFilter: {
+            /** @enum {string} */
+            key: "all" | "pending" | "completed";
+            /** @description Backend-owned chip copy, rendered VERBATIM. */
+            label: string;
+            /** @description WHOLE-TENANT count of rounds in this slice, never a page-local sum. */
+            count: number;
+            /** @description Whether this chip is the slice the response was served for. */
+            selected: boolean;
+            /** @description Backend-owned copy for when THIS slice has no rows, rendered verbatim. Carried per slice because "nothing here" means something different in each. */
+            empty_message: string;
+        };
+        ToxinTaskDetail: components["schemas"]["ToxinTask"] & {
+            steps: components["schemas"]["ToxinStep"][];
+            /** @description Backend-owned lines explaining how to read the strip. */
+            reading_guide: string[];
+            /** @description The reading vocabulary the submit accepts, with farm-worded labels. */
+            outcome_options: {
+                value: string;
+                label: string;
+            }[];
+        };
+        ToxinStepCompleteRequest: {
+            /** @description The step's uploaded in-app-camera video proof reference. */
+            proof_ref: string;
+        };
+        ToxinSubmitRequest: {
+            /** @enum {string} */
+            outcome: "negative" | "positive" | "invalid";
+            /** @description The final strip photo's proof reference. */
+            strip_photo_ref: string;
+        };
+        ToxinVerdictRequest: {
+            /** @enum {string} */
+            decision: "accept" | "reject";
+            /** @description REQUIRED when rejecting (400 reject_reason_required without one). */
+            reason?: string;
+            /**
+             * Format: int64
+             * @description The row_version the reviewer loaded; a stale value answers 409 version_conflict.
+             */
+            row_version: number;
+        };
+        /** @description One row of the sales ledger -- one sheet row, or one deal recorded in the app. */
+        SalesDeal: {
+            /** Format: uuid */
+            deal_id: string;
+            /**
+             * Format: date
+             * @description The business date the sale happened, never a timestamp.
+             */
+            sale_date: string;
+            /** @enum {string} */
+            farm: "CBE" | "CPT";
+            /** @description The source sheet's own sale reference. It repeats and is never a key. */
+            source_sales_id?: number | null;
+            source_purchase_id?: number | null;
+            buyer_name: string;
+            buyer_place?: string | null;
+            /**
+             * Format: uuid
+             * @description The procurement vendor register row this sale was made to, as an OPAQUE reference -- deliberately not a foreign key, mirroring goat_sale_allocations.sales_deal_id. Null on the imported sheet history, which predates the register. buyer_name stays the snapshot of what the buyer was called at the time of sale.
+             */
+            buyer_vendor_id?: string | null;
+            /** @enum {string} */
+            product_type: "Sheep" | "Goat" | "Manure";
+            breed: string;
+            /** @description Authoritative animal count when recorded; otherwise male_count + female_count applies. */
+            animal_count?: number | null;
+            male_count?: number | null;
+            female_count?: number | null;
+            total_weight_kg?: number | null;
+            advance_amount?: number | null;
+            sales_value: number;
+            /** @enum {string} */
+            status: "Deal Closed" | "Deal Failed" | "In Discussion" | "Advance Paid";
+            feedback?: string | null;
+            comments?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        SalesDealPage: {
+            deals: components["schemas"]["SalesDeal"][];
+            /** @description The WHOLE-FILTER count, not the page length. Pagination changes rows only, never this number. */
+            total: number;
+            /** @description The page size actually applied, after clamping. */
+            limit: number;
+            /** @description The offset actually applied. Echoed so the client can render the page number. */
+            offset: number;
+        };
+        /** @description Record-sale body. Farm and product type are closed vocabularies validated server-side and rejected -- never silently defaulted -- when unrecognised. The recorded deal always lands with status `Deal Closed`. */
+        SalesDealWrite: {
+            /** Format: date */
+            sale_date: string;
+            /** @enum {string} */
+            farm: "CBE" | "CPT";
+            /** @enum {string} */
+            product_type: "Sheep" | "Goat" | "Manure";
+            breed: string;
+            buyer_name: string;
+            buyer_place?: string;
+            /**
+             * Format: uuid
+             * @description REQUIRED. The vendor register row being sold to -- the farm does not sell to a name typed into a box. Rejected when absent or not a uuid; only the shape is checked server-side, because the sales module reads no procurement table.
+             */
+            buyer_vendor_id: string;
+            animal_count?: number | null;
+            male_count?: number | null;
+            female_count?: number | null;
+            total_weight_kg?: number | null;
+            /** @description Required and must be more than zero. */
+            sales_value: number;
+            advance_amount?: number | null;
+            comments?: string;
+        };
+        /** @description Headline figures over CLOSED deals in the farm scope. */
+        SalesOverviewSummary: {
+            revenue: number;
+            /** @description Closed Sheep + Goat revenue. Manure is excluded here and carried separately. */
+            live_revenue: number;
+            deals: number;
+            animals: number;
+            sheep: number;
+            goats: number;
+            live_weight_kg: number;
+            /** @description Closed live revenue over closed live weight, both ranging over the same deals; 0 when no weighed live sales exist. */
+            realized_price_per_kg: number;
+            manure_kg: number;
+            manure_revenue: number;
+            /** @description Earliest closed sale date in scope (YYYY-MM-DD); empty when none. */
+            period_from: string;
+            /** @description Latest closed sale date in scope (YYYY-MM-DD); empty when none. */
+            period_to: string;
+        };
+        /** @description One month with at least one closed deal. Months derive from sale_date. */
+        SalesOverviewMonthly: {
+            /** @description YYYY-MM */
+            month: string;
+            sheep_revenue: number;
+            goat_revenue: number;
+            manure_revenue: number;
+            sheep_count: number;
+            goat_count: number;
+            manure_kg: number;
+        };
+        /** @description Realized price per kg for one (live product type, breed), over closed deals with weight and value recorded. Ordered by average price, highest first. */
+        SalesPriceBand: {
+            /** @enum {string} */
+            product_type: "Sheep" | "Goat";
+            breed: string;
+            deals: number;
+            animals: number;
+            weight_kg: number;
+            revenue: number;
+            avg_price_per_kg: number;
+            min_price_per_kg: number;
+            max_price_per_kg: number;
+        };
+        /** @description One buyer's closed-deal history, ordered by revenue. Top 25 buyers only; share_pct is against whole-filter revenue. */
+        SalesBuyer: {
+            buyer_name: string;
+            buyer_place: string;
+            /** @description Sorted set of product types this buyer has bought. */
+            product_types: string[];
+            deals: number;
+            animals: number;
+            revenue: number;
+            share_pct: number;
+        };
+        SalesStatusCount: {
+            /** @description The recorded call status; a lead never contacted reports as "uncontacted". */
+            status: string;
+            count: number;
+        };
+        SalesPlaceCount: {
+            place: string;
+            count: number;
+        };
+        SalesBuyerPipeline: {
+            total: number;
+            statuses: components["schemas"]["SalesStatusCount"][];
+            top_places: components["schemas"]["SalesPlaceCount"][];
+        };
+        SalesFPOPipeline: {
+            total: number;
+            statuses: components["schemas"]["SalesStatusCount"][];
+            districts: components["schemas"]["SalesPlaceCount"][];
+        };
+        SalesTagTypeCount: {
+            label: string;
+            count: number;
+        };
+        SalesTagRoster: {
+            total: number;
+            /** @description Distinct sale references the tag rows point back at, never the row count. */
+            sales_count: number;
+            by_type: components["schemas"]["SalesTagTypeCount"][];
+        };
+        /** @description Video weight vs book weight, bucketed by absolute gap into three disjoint ranges. */
+        SalesWeightAudit: {
+            total: number;
+            within_0_3_kg: number;
+            within_1_kg: number;
+            over_1_kg: number;
+            max_gap_kg: number;
+        };
+        SalesMarketBenchmark: {
+            market?: string | null;
+            category?: string | null;
+            breed: string;
+            source?: string | null;
+            ex_farm_rate?: string | null;
+            transport_rate?: string | null;
+            landing_cost_per_kg?: number | null;
+            /** @description Parsed out of the market text at import time, never at read time. */
+            market_price_per_kg?: number | null;
+        };
+        /** @description The whole sales page contract, all blocks whole-filter aggregates. */
+        SalesOverview: {
+            summary: components["schemas"]["SalesOverviewSummary"];
+            monthly: components["schemas"]["SalesOverviewMonthly"][];
+            price_bands: components["schemas"]["SalesPriceBand"][];
+            buyers: components["schemas"]["SalesBuyer"][];
+            buyer_pipeline: components["schemas"]["SalesBuyerPipeline"];
+            fpo_pipeline: components["schemas"]["SalesFPOPipeline"];
+            tag_roster: components["schemas"]["SalesTagRoster"];
+            weight_audit: components["schemas"]["SalesWeightAudit"];
+            market_benchmarks: components["schemas"]["SalesMarketBenchmark"][];
         };
         FeedConfigRationGroupPage: {
             items: components["schemas"]["FeedConfigRationGroup"][];
@@ -3684,6 +5937,24 @@ export interface components {
             display_order: number;
             /** @enum {string} */
             status: "active" | "retired";
+            /** @description The feeds this session actually serves, in packing order. THIS IS WHAT DECIDES WHETHER A FEED REACHES AN ANIMAL: generation walks these slots and looks each one up in the ration grid, so a feed with a grid quantity but no slot here is never looked up and is absent from the sheet, the summary, the totals and the packing worklist without raising a gap. Never null -- a session that declares nothing is an empty list, which is a real and blocking state rather than missing data. */
+            items: components["schemas"]["FeedConfigSessionTemplateItem"][];
+        };
+        FeedConfigSessionTemplateItem: {
+            /** Format: uuid */
+            session_template_item_id: string;
+            session_no: number;
+            /** @description Packing order within the session. Derived by the backend on declare (appended to the end) rather than chosen by the author, so declaring a feed never renumbers slots packers already know. */
+            slot_no: number;
+            feed_item: string;
+        };
+        SetFeedConfigSessionTemplateItemRequest: {
+            /** Format: uuid */
+            park_id: string;
+            session_no: number;
+            feed_item: string;
+            /** @description true puts the feed on this session's recipe; false withdraws it. Required rather than defaulted, because the two directions are opposite feeding decisions and neither is a safe guess. There is no quantity field: grams live in the ration grid, keyed by ration group and shed tag, because one slot feeds every group in the park at a different rate. */
+            declared: boolean;
         };
         FeedDirectionItemQuantity: {
             feed_item: string;
@@ -3712,6 +5983,356 @@ export interface components {
             code: "no_ration_rate" | "unknown_shed_tag" | "unknown_ration_group" | "no_session_template";
             /** @description The exact missing coordinate in human-readable form. A gap an operator cannot locate is a gap they cannot close. */
             detail: string;
+        };
+        /** @description One feed day of the normal workflow across every feed item. */
+        FeedAnalyticsDirectedDay: {
+            /** Format: date */
+            feed_day: string;
+            /** @description Summed resolved quantity as a decimal string. "0" means every resolved cell authored zero -- blocked cells contribute nothing and are never coerced to zero. */
+            directed_kg: string;
+            /**
+             * Format: int64
+             * @description Distinct pen-grain heads that day; experiment pens excluded.
+             */
+            head_days: number;
+            /** @description directed_kg x 1000 / head_days, one decimal; empty when head_days is zero. */
+            per_head_grams: string;
+        };
+        /** @description One (feed day, feed item) of the normal workflow. */
+        FeedAnalyticsDirectedItem: {
+            /** Format: date */
+            feed_day: string;
+            feed_item_label: string;
+            feed_item_key: string;
+            directed_kg: string;
+            /**
+             * Format: int64
+             * @description Heads in pens whose sheet carried THIS item that day, pen-grain counted once.
+             */
+            head_days: number;
+            per_head_grams: string;
+        };
+        /** @description The Feed Analytics directed rollup. DIRECTED kg only -- the sheet's instruction, not a measured weight. */
+        FeedAnalyticsDirectedResponse: {
+            /**
+             * Format: date
+             * @description The served window start after clamping (92-day cap, most recent kept).
+             */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            days: components["schemas"]["FeedAnalyticsDirectedDay"][];
+            items: components["schemas"]["FeedAnalyticsDirectedItem"][];
+        };
+        /** @description One business date of proof-gated feed execution statuses. */
+        FeedAnalyticsExecutionDay: {
+            /** Format: date */
+            date: string;
+            /** Format: int64 */
+            packing_verified: number;
+            /** Format: int64 */
+            packing_awaiting: number;
+            /** Format: int64 */
+            packing_rework: number;
+            /** Format: int64 */
+            distribution_verified: number;
+            /** Format: int64 */
+            distribution_awaiting: number;
+            /** Format: int64 */
+            distribution_rework: number;
+            /** Format: int64 */
+            transport_completed: number;
+            /** Format: int64 */
+            transport_open: number;
+            /** Format: int64 */
+            transport_awaiting_verdict: number;
+            /** Format: int64 */
+            transport_rework: number;
+            /**
+             * Format: int64
+             * @description Median submit-to-verdict latency of verdicts landing that IST date; null when none landed.
+             */
+            median_verify_latency_minutes?: number | null;
+        };
+        /** @description One MEASURED BAG: what the frozen sheet directed a pen-session to pack for one feed item against what the verifier entered off the packing video (blind per-item entry, maintainer decision 2026-08-21). EVERY measured bag is listed, ordered by absolute difference descending (maintainer decision 2026-08-24) -- a bag that matched is evidence too, because the verifier entered it without seeing the sheet. Every measured bag is listed and the difference is reported as it stands; `exceeds_tolerance` is the backend's judgement of whether it missed the sheet by more than the packing tolerance, in either direction (maintainer decision 2026-08-24, superseding the no-tolerance-flag decision made earlier the same day). LEADERSHIP-ONLY: the verifier never sees the planned figures, so this comparison must never be rendered on a verifier surface. */
+        FeedAnalyticsPackingVarianceRow: {
+            /** Format: date */
+            feed_day: string;
+            /**
+             * Format: date
+             * @description `feed_day` minus one: the day the bag was actually weighed out. Packing runs on day P for the feed day P+1, and this table is about packing, so clients label the row by this date. Derived server-side so no client repeats IST day arithmetic.
+             */
+            packing_day: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            /** @description The pen ("2", "Part 3"); absent for an undivided shed. */
+            partition_label?: string;
+            /** @description Backend-composed shed+pen label; render verbatim, never compose on the client. */
+            operational_location_display: string;
+            /** Format: int32 */
+            session_no: number;
+            /** @description The sheet's session name ("Morning"); absent when the frozen row is gone. */
+            session_label?: string;
+            workflow: string;
+            feed_item_key: string;
+            feed_item_label: string;
+            /** @description The bag's breed, or "Mixed" when its sheet rows disagree; empty when the sheet row is gone. */
+            breed_label: string;
+            /** @description The frozen sheet's summed quantity as a decimal string; EMPTY when the sheet carried no resolved quantity for this item -- blank and zero are never conflated. */
+            planned_kg: string;
+            /** @description The verifier's entered reading. "0" is a real observation. */
+            verified_kg: string;
+            /** @description verified minus the resolved planned quantity (0 when unresolved), signed. */
+            variance_kg: string;
+            /** @description True when this bag sits further from the sheet than the packing tolerance allows, in EITHER direction — packing too much and packing too little are both a bag that does not match. Decided by the backend from the same constant the packed-vs-given trend uses, so the table and the trend can never disagree about what counts as the same reading. A variance that cannot be read is false, never true: an unreadable number is a gap in the data, not a breach. */
+            exceeds_tolerance: boolean;
+        };
+        /** @description One day of target-vs-actual feed totals over the same comparison rows the table shows. `actual_kg` is EMPTY on a day with no packing readings at all, so the chart draws a gap rather than a plunge to zero. */
+        FeedAnalyticsConsumptionTrendDay: {
+            /** Format: date */
+            feed_day: string;
+            /**
+             * Format: date
+             * @description `feed_day` minus one, so the trend's axis matches the table above it.
+             */
+            packing_day: string;
+            target_kg: string;
+            actual_kg: string;
+            /** Format: int64 */
+            variance_rows: number;
+            /** Format: int64 */
+            compared_rows: number;
+        };
+        FeedAnalyticsExecutionResponse: {
+            /** Format: date */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            days: components["schemas"]["FeedAnalyticsExecutionDay"][];
+            consumption_trend: components["schemas"]["FeedAnalyticsConsumptionTrendDay"][];
+            /** @description Whether a further page of measured bags exists past the rows returned. `packing_variance` is a PAGE (see `variance_limit` / `variance_offset`); every other array and figure in this payload is a whole-window aggregate and is unaffected by paging. */
+            packing_variance_has_more: boolean;
+            /** @description Every measured packing bag in the window, ordered by absolute difference descending. Always present; empty only when no verified packing reading exists in the served scope. */
+            packing_variance: components["schemas"]["FeedAnalyticsPackingVarianceRow"][];
+            /**
+             * Format: date
+             * @description The single business day the completion arm describes.
+             */
+            completion_day: string;
+            /** @description Whether a further page of pen-sessions exists past the rows returned. `distribution_completions` is a PAGE (see `completion_limit` / `completion_offset`); `completion_totals` is not and stays a whole-day figure. */
+            distribution_completions_has_more: boolean;
+            /** @description One PAGE of the pen-sessions the frozen sheet directed on `completion_day`, with their feed-distribution proof state -- INCLUDING the pen-sessions nobody touched, which carry status `not_started`. Always present; empty when no sheet was issued for that day. */
+            distribution_completions: components["schemas"]["FeedAnalyticsDistributionCompletionRow"][];
+            completion_totals: components["schemas"]["FeedAnalyticsCompletionTotals"];
+            /** @description The (farm, shed) vocabulary present on that day, so the screen's selects offer exactly the places that exist. Unnarrowed by the completion filters themselves -- a select whose options are narrowed by its own current value cannot be widened back. */
+            completion_filter_options: components["schemas"]["FeedAnalyticsCompletionFilterOption"][];
+        };
+        /** @description The four-bucket census of `completion_day` at the selected FARM/SHED scope. It deliberately ignores `completion_status`, and it is never the page: a tile counting only the page would say "3 not fed" when the day had eleven, and one following the status filter would zero the other three tiles and throw away the comparison the reader came for. */
+        FeedAnalyticsCompletionTotals: {
+            /** Format: int64 */
+            not_started: number;
+            /** Format: int64 */
+            pending_verification: number;
+            /** Format: int64 */
+            rework: number;
+            /** Format: int64 */
+            completed: number;
+        };
+        /** @description One selectable place. The farm travels with the shed because shed NAMES repeat across farms (Castro, Gandhi, Godel 1 and Yashoda each exist in both), so a bare name is neither a safe key nor a readable label. */
+        FeedAnalyticsCompletionFilterOption: {
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+        };
+        /** @description ONE pen-session of one feed day: what the frozen sheet directed, and what evidence came back for it. The grain is the pen-session -- (feed day, park, shed, partition, session, workflow) -- which is exactly the completion's natural key and exactly the unit the three proofs prove. A shed-level row would let one pen's video read as the whole shed's work. */
+        FeedAnalyticsDistributionCompletionRow: {
+            /** Format: date */
+            feed_day: string;
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            /** @description The pen inside the shed ("2", "Part 3"); absent for an undivided shed. */
+            partition_label?: string;
+            /** @description The backend-composed shed+pen label ("Godel 1 - Part 3"), rendered verbatim. Clients compose no location text of their own. */
+            operational_location_display: string;
+            /** Format: int32 */
+            session_no: number;
+            /** @description The sheet's own session name ("Morning"). */
+            session_label?: string;
+            /** @enum {string} */
+            workflow: "normal" | "experiment";
+            /**
+             * @description `not_started` -- the sheet directed this pen-session and NO completion exists, so nobody submitted anything. `pending_verification` -- proofs submitted, awaiting a verdict. `rework` -- the verifier REJECTED the proofs; work was done and filmed, and must be re-shot. `completed` -- the verifier approved.
+             *
+             *     Four buckets, not the three the operator app uses: that vocabulary folds `rework` into "pending" because from the phone both mean "my turn again", but on a leadership screen the same fold makes a bounced video indistinguishable from a pen nobody went to.
+             * @enum {string}
+             */
+            status: "not_started" | "pending_verification" | "rework" | "completed";
+            /** @description The operator who submitted the completion; empty when nothing was submitted or the principal does not resolve to a workforce member. An id is never rendered in its place. */
+            submitted_by_name: string;
+            /** Format: date-time */
+            submitted_at: string | null;
+            verified_by_name: string;
+            /** Format: date-time */
+            verified_at: string | null;
+            /** @description The verifier's rejection sentence; present only on a `rework` row. */
+            rework_reason?: string;
+            /** @description ALWAYS exactly three entries, in the order they are shot on the ground. A proof that was never recorded is an entry with an empty `proof_ref`, never an absent entry. */
+            proofs: components["schemas"]["FeedAnalyticsDistributionProofSlot"][];
+        };
+        /**
+         * @description ONE of a pen-session's three proofs as the COMPLETION recorded it (migration 000151): the weighed feed before it goes out, the feed going out, and the water. The reference comes from the completion row, never from the phone's capture key -- the completion is what a verifier acts on, so its three references are the only ones that answer what the pen was judged on.
+         *
+         *     Provenance is per SLOT and never taken from whoever submitted: the three may be shot by THREE DIFFERENT PEOPLE on three phones (maintainer decision 2026-08-14).
+         */
+        FeedAnalyticsDistributionProofSlot: {
+            /** @enum {string} */
+            field_key: "feed_distribution_feed_weight_photo" | "feed_distribution_video" | "feed_distribution_water_video";
+            /** @description The server proof id; empty when this slot was never recorded. */
+            proof_ref: string;
+            /**
+             * Format: date-time
+             * @description When that upload finished; null when the slot is empty or the artifact is gone.
+             */
+            uploaded_at: string | null;
+            /** @description Display name of whoever uploaded THIS proof. Empty when unresolvable. */
+            uploaded_by_name: string;
+            mime_type: string;
+        };
+        /** @description One (feed day, feed item) of authored absolute kg across every experiment pen. */
+        FeedAnalyticsExperimentItem: {
+            /** Format: date */
+            feed_day: string;
+            feed_item_label: string;
+            feed_item_key: string;
+            /** @description Authored TOTAL kg as a decimal string -- never multiplied by heads. */
+            kg: string;
+        };
+        FeedAnalyticsExperimentResponse: {
+            /** Format: date */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            items: components["schemas"]["FeedAnalyticsExperimentItem"][];
+            /**
+             * Format: date
+             * @description Echo of the business day the wastage_pens table describes.
+             */
+            wastage_day: string;
+            /** @description The selected day's per-pen leftover-feed table, derived from that day's experiment sheet — a pen with no video yet still lists, with blank status and kg. Experiment-only by definition — wastage exists on no other workflow. */
+            wastage_pens: components["schemas"]["FeedAnalyticsExperimentWastagePen"][];
+        };
+        /** @description One experiment pen's leftover-feed state for the selected day. wastage_kg is the VERIFIER's recorded value — blank until she records one; "0" is a real measurement (an empty trough), so blank and zero are never conflated. */
+        FeedAnalyticsExperimentWastagePen: {
+            /** Format: uuid */
+            shed_id: string;
+            /** @description Disambiguates the pen under a tenant-wide read — shed names repeat across parks. */
+            park_label: string;
+            shed_name: string;
+            /** @description The pen ("1", "Part 3"); empty for an undivided shed. */
+            partition_label: string;
+            /** @description Backend-composed shed+pen label ("Castro 1", "Godel 2 - Part 1"); render verbatim. */
+            operational_location_display: string;
+            /** @description Blank when no video was submitted yet, else pending_verification | rework | completed. */
+            lifecycle_status: string;
+            /** @description Verifier-recorded leftover kg as a decimal string; blank until recorded. */
+            wastage_kg: string;
+        };
+        /** @description One FARM's current stock position for one feed item, off the purchase ledger. Each farm keeps its own physical store, so there is deliberately no tenant-wide combined balance (maintainer decision 2026-08-21) — under an all-parks scope every card names its farm. */
+        FeedAnalyticsStockItem: {
+            /** @description The farm whose store this position describes (e.g. CBE, CPT). */
+            farm_label: string;
+            feed_item_label: string;
+            feed_item_key: string;
+            /** @description May be negative -- the ledger is missing a load, never clamped. */
+            balance_kg: string;
+            /** @description Average directed kg over the item's 3 most recent locked feed days; empty when never directed. */
+            avg_daily_kg: string;
+            /** Format: int64 */
+            days_left?: number | null;
+            /** Format: int64 */
+            latest_batch_no: number;
+            low_stock: boolean;
+        };
+        /** @description One (farm, Mesha concentrate) row of the Stock tab's per-farm purchase/consumption table. Covers the four in-house Mesha concentrate feeds only (maintainer decision 2026-08-21). Consumption figures come from LOCKED GoatOS feed sheets. */
+        FeedAnalyticsStockFarmItem: {
+            farm_label: string;
+            feed_item_label: string;
+            feed_item_key: string;
+            /** @description When the latest load actually started being consumed under first-in-first-out — the first locked feed day whose cumulative directed kg exceeds every earlier load's net kg, never before the load's own depletion date. Buying a load does not start consuming it; empty means the earlier stock is still being fed (or the item was never directed). */
+            last_load_consumption_from: string;
+            /** @description Average directed kg over the farm's 3 most recent locked feed days for the item (same semantics as the stock card, scoped to the farm); empty when never directed. */
+            avg_daily_kg: string;
+            /** @description Seven times avg_daily_kg, showing the stock required for one week at the current farm/item consumption rate; empty when never directed. */
+            weekly_required_kg: string;
+            /** Format: int64 */
+            last_load_batch_no: number;
+            /** Format: date */
+            last_load_date: string;
+            last_load_quantity_kg: string;
+            last_load_vendor: string;
+            /** @description Latest load total cost from the feed purchase ledger. */
+            last_load_total_cost: string;
+            /** @description Latest load per-kg cost from the feed purchase ledger. */
+            last_load_per_kg_cost: string;
+            /** @description Displayed current stock from the canonical purchase ledger after consumed-at-import and locked-sheet depletion. */
+            ledger_stock_kg: string;
+        };
+        FeedAnalyticsExpenditureDay: {
+            /** Format: date */
+            feed_day: string;
+            /** @description Directed kg priced at each item's most recent load rate on or before the day. */
+            rupees: string;
+        };
+        /** @description Rupee totals over the standing leadership periods, each ending yesterday and priced like the daily series (most recent load rate per item). "0" when nothing priced. */
+        FeedAnalyticsSpendSummary: {
+            /** @description Rolling 7 IST days ending yesterday. */
+            last_7_days: string;
+            /** @description The 1st of the current IST month through yesterday. */
+            this_month: string;
+            /** @description Rolling 92 days through yesterday. */
+            three_months: string;
+            /** @description Jan 1 of the current IST year through yesterday. */
+            this_year: string;
+        };
+        FeedAnalyticsStockResponse: {
+            /** Format: date */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            items: components["schemas"]["FeedAnalyticsStockItem"][];
+            /** @description Per-farm Mesha-concentrate purchase/consumption rows, ordered by feed item then farm. */
+            farm_items: components["schemas"]["FeedAnalyticsStockFarmItem"][];
+            /** @description Next-7-days feed requirement and cost, one row per (farm, feed item), ordered by farm then feed item. Keyed on what the farm actually FEEDS -- sheet-directed feeds and externally-tracked feeds alike -- so this list is wider than `farm_items`, which covers the four Mesha concentrates only. Always present, possibly empty. */
+            forecast: components["schemas"]["FeedAnalyticsStockForecastItem"][];
+            expenditure: components["schemas"]["FeedAnalyticsExpenditureDay"][];
+            spend: components["schemas"]["FeedAnalyticsSpendSummary"];
+        };
+        /** @description One farm's requirement for one feed over the next 7 days, at the CURRENT feeding rate. Quantities are kg and money is rupees, both as decimal strings; an empty string means the figure is unavailable for this row rather than zero -- `stock_kg` and the cost fields are empty when the purchase ledger carries no load for this farm and feed, and a never-purchased feed still reports its requirement. */
+        FeedAnalyticsStockForecastItem: {
+            farm_label: string;
+            feed_item_label: string;
+            feed_item_key: string;
+            /** @description Average fed kg per day over the three most recent days this feed was fed. */
+            avg_daily_kg: string;
+            /** @description `avg_daily_kg` x 7. */
+            required_kg: string;
+            /** @description Current ledger balance for this farm and feed; empty when never purchased here. */
+            stock_kg: string;
+            /** @description `required_kg` - `stock_kg`, floored at zero; empty when `stock_kg` is. */
+            shortfall_kg: string;
+            /** @description The farm's most recent load rate for this feed; empty when never purchased here. */
+            per_kg_cost: string;
+            /** @description `required_kg` x `per_kg_cost` -- the week's feed bill at the current rate. */
+            required_cost: string;
         };
         /** @description ONE ROW PER OPERATIONAL LOCATION PER SESSION -- one pen, one feeding instruction. A pen holding several breeds or management stages is ONE row whose descriptive columns list every value present (` + `-joined) and whose quantities are summed, never several rows an operator has to re-add at the pen door. The packing worklist is built at the same grain, so a row and the bag packed for it always describe the same pen. */
         FeedDirectionRow: {
@@ -3956,6 +6577,29 @@ export interface components {
             /** @description False on an idempotent replay or when the shed-session was already completed by an earlier request -- the original completion is returned and no new side effects ran. */
             applied: boolean;
         };
+        FeedDistributionCapturesResponse: {
+            /** @description At most one entry per proof slot -- the slot's CURRENT proof. A slot re-recorded several times reports only its latest upload, never one entry per take. */
+            items: components["schemas"]["FeedDistributionCapturedSlot"][];
+        };
+        /** @description One already-recorded proof slot. Carries no media url and no uploader name by design: the operator's need is "this slot is done, and here is the reference I can submit with", and the footage itself stays a verifier surface. */
+        FeedDistributionCapturedSlot: {
+            /**
+             * @description The slot this proof fills.
+             * @enum {string}
+             */
+            field_key: "feed_distribution_feed_weight_photo" | "feed_distribution_video" | "feed_distribution_water_video";
+            /**
+             * Format: uuid
+             * @description The SERVER proof id, not a device-local reference -- this is what lets a phone that did not shoot the proof name it when submitting the completion.
+             */
+            proof_ref: string;
+            /**
+             * Format: date-time
+             * @description When the upload completed.
+             */
+            captured_at: string;
+            mime_type?: string;
+        };
         FeedDistributionCompleteRequest: {
             /**
              * Format: uuid
@@ -4133,6 +6777,290 @@ export interface components {
             limit: number;
             offset: number;
             has_more: boolean;
+        };
+        FeedWastageRow: {
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            /** @description The pen this wastage task is for ("1", "Part 3"), absent for an undivided shed. Part of the row's identity: one pen's video must never close another pen's task. Clients MUST render shed + partition together. */
+            partition_label?: string;
+            /** @description Backend-composed physical location label. Render verbatim. */
+            operational_location_display: string;
+            /**
+             * @description Always `experiment` — wastage exists only for experiment pens.
+             * @enum {string}
+             */
+            workflow: "experiment";
+            /** @description The pen's authored trial group. Farm copy; render verbatim. */
+            experiment_arm: string;
+            /**
+             * Format: int64
+             * @description The pen's projected head count — context, never a gate or a quantity.
+             */
+            head_count: number;
+            /**
+             * @description The pen-day's verification-lifecycle bucket. `rework` merges into `pending`, because a bounced pen is the operator's to act on again.
+             * @enum {string}
+             */
+            lifecycle_status: "pending" | "pending_verification" | "completed";
+            completed: boolean;
+            /** @description Why this pen came back to the operator, present only while it is in rework (surfacing above as `lifecycle_status: pending`). Backend-composed farm copy; render verbatim. */
+            rework_reason?: string;
+            /** @description The VERIFIER'S recorded leftover weight in kg, as an exact decimal string, present only once she has recorded one. "0" is a real measurement (an empty trough), a different statement from the field being absent (not yet measured). */
+            wastage_kg?: string;
+        };
+        FeedWastageWorklistSummary: {
+            /** @description Experiment pens owing a wastage video on this feed day, across the WHOLE filtered scope — invariant to `limit`/`offset`. The three buckets below are disjoint and sum to this figure. */
+            total_pens: number;
+            /** @description Pens with no submitted video yet, or bounced back for a re-shoot. */
+            pending_pens: number;
+            /** @description Pens with a submitted video awaiting the verifier. */
+            in_review_pens: number;
+            /** @description Verifier-approved pens. */
+            completed_pens: number;
+        };
+        /**
+         * @description A PC Care work category (maintainer decision 2026-08-21).
+         * @enum {string}
+         */
+        PCCareCategory: "deworming" | "ticks_removal" | "hoof_trimming" | "hair_trimming" | "inventory_vaccine";
+        /** @description One expected proof slot for a task's category — the BACKEND-OWNED slot contract. The min_duration_hint_seconds on the trimming "during" clip is recorder guidance, never a client-enforced cap. */
+        PCCareSlot: {
+            /** @enum {string} */
+            field_key: "video" | "before_video" | "during_video" | "after_video" | "stock_fridge_photo" | "stock_fridge_video";
+            label: string;
+            /** @description Backend-owned farm copy saying what this video must show, rendered verbatim. */
+            description?: string;
+            min_duration_hint_seconds?: number;
+        };
+        PCCareTask: {
+            /** Format: uuid */
+            task_id: string;
+            category: components["schemas"]["PCCareCategory"];
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** @description Shed UUID for shed-scoped categories. EMPTY for per-vaccine inventory_vaccine stock tasks - fridge stock has no shed (maintainer decision 2026-08-27). */
+            shed_id: string;
+            shed_label: string;
+            partition_label?: string;
+            /** @description The vaccine a per-vaccine inventory_vaccine task covers ("FMD", "ET+TT"). Absent for shed-scoped categories. */
+            vaccine_label?: string;
+            /** @description Backend-owned card headline, rendered verbatim - the pen display for shed-scoped tasks, the vaccine label for per-vaccine stock tasks. */
+            task_label: string;
+            /** @description Backend-composed pen display ("Castro - 2"), rendered verbatim. Empty for per-vaccine stock tasks, which have no operational location. */
+            operational_location_display: string;
+            /** Format: date */
+            planned_business_date: string;
+            /** Format: date */
+            due_business_date: string;
+            /** @enum {string} */
+            work_state: "scheduled" | "delayed" | "completed" | "closed" | "canceled";
+            /** @enum {string} */
+            status: "open" | "pending_verification" | "completed" | "rework";
+            /** @description The verifier's rejection sentence, rendered verbatim (backend-owned copy). */
+            rework_reason?: string;
+            row_version: number;
+            /** Format: date-time */
+            submitted_at?: string;
+            assignee_user_ids: string[];
+            assignee_names: string[];
+            animal_count: number;
+            /**
+             * @description Backend-owned capture flow for this task's category. scan_record — scanning a tag opens the video recorder immediately. roster_pick — the screen lists the pen's resident RFIDs (GET .../roster) and tapping one records that animal. task_proof — the task is satisfied by one task-level proof instead of animal rows.
+             * @enum {string}
+             */
+            capture_mode: "scan_record" | "roster_pick" | "task_proof";
+            expected_slots: components["schemas"]["PCCareSlot"][];
+            /** @description Vaccine/count lines for inventory_vaccine fridge stock tasks. */
+            inventory_requirements?: components["schemas"]["PCCareInventoryRequirement"][];
+            /** @description Task-level proof rows for inventory_vaccine fridge stock tasks. */
+            task_proofs?: components["schemas"]["PCCareTaskProof"][];
+        };
+        PCCareInventoryRequirement: {
+            vaccine_label: string;
+            required_doses: number;
+            source_batch_ids?: string[];
+        };
+        PCCareTaskProof: {
+            /** @enum {string} */
+            slot_key: "stock_fridge_photo" | "stock_fridge_video";
+            proof_ref: string;
+            /** Format: uuid */
+            captured_by?: string;
+            captured_by_name?: string;
+            /** Format: date-time */
+            captured_at?: string;
+        };
+        /** @description One keyset page of the RFIDs of animals currently resident in a task's pen — the roster-pick capture mode's tap list. Identifiers are verbatim; the list never gates a scan. */
+        PCCareTaskRoster: {
+            identifiers: string[];
+            next_cursor?: string;
+        };
+        PCCareTaskPage: {
+            items: components["schemas"]["PCCareTask"][];
+            next_cursor: string;
+        };
+        PCCareAnimalSlot: {
+            field_key: string;
+            proof_ref?: string;
+            /** Format: uuid */
+            captured_by?: string;
+            captured_by_name?: string;
+            /** Format: date-time */
+            captured_at?: string;
+        };
+        PCCareAnimalRow: {
+            /** Format: uuid */
+            animal_row_id: string;
+            scanned_identifier: string;
+            /** Format: uuid */
+            scanned_by?: string;
+            scanned_by_name?: string;
+            /** Format: date-time */
+            scanned_at: string;
+            slots: components["schemas"]["PCCareAnimalSlot"][];
+        };
+        PCCareCapturesResponse: {
+            animals: components["schemas"]["PCCareAnimalRow"][];
+            next_cursor?: string;
+        };
+        PCCarePlannerCatalog: {
+            parks: {
+                /** Format: uuid */
+                park_id: string;
+                park_label: string;
+            }[];
+            operators: {
+                /** Format: uuid */
+                user_id: string;
+                display_name: string;
+                /** @description Empty means every park (a cross-park director). */
+                park_ids: string[];
+            }[];
+            categories: {
+                key: components["schemas"]["PCCareCategory"];
+                label: string;
+            }[];
+        };
+        PCCarePlannerSheds: {
+            sheds: {
+                /** Format: uuid */
+                shed_id: string;
+                shed_label: string;
+                partition_label?: string;
+                /** @description Backend-composed pen display, rendered verbatim. */
+                operational_location_display: string;
+                /** @description Non-empty when a live task already covers this pen for the chosen category+date. */
+                existing_task_id?: string;
+            }[];
+            next_cursor?: string;
+        };
+        PCCareCreateTaskRequest: {
+            category: components["schemas"]["PCCareCategory"];
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            shed_id: string;
+            partition_label?: string;
+            /** Format: date */
+            planned_business_date: string;
+            assignee_user_ids: string[];
+        };
+        PCCareScanRequest: {
+            /** @description The tag exactly as scanned. Stored verbatim; never resolved against the herd. */
+            scanned_identifier: string;
+        };
+        PCCareScanResponse: {
+            /** Format: uuid */
+            animal_row_id: string;
+        };
+        PCCareSlotProofRequest: {
+            /** @description The server proof id from the /app/proofs pipeline (completed, in-app-camera video). */
+            proof_ref: string;
+        };
+        PCCareSubmitResponse: {
+            /** Format: uuid */
+            task_id: string;
+            /** @enum {string} */
+            status: "open" | "pending_verification" | "completed" | "rework";
+            row_version: number;
+            animal_count: number;
+        };
+        FeedWastageWorklistPage: {
+            items: components["schemas"]["FeedWastageRow"][];
+            summary: components["schemas"]["FeedWastageWorklistSummary"];
+            lifecycle: components["schemas"]["FeedDirectionLifecycle"];
+            filters: components["schemas"]["FeedDirectionFilterOptions"];
+            /** Format: date */
+            target_date: string;
+            limit: number;
+            offset: number;
+            has_more: boolean;
+        };
+        FeedWastageCompleteRequest: {
+            /**
+             * Format: uuid
+             * @description The park the shed belongs to. Optional: when omitted the server resolves the tenant's default park, matching the read routes. Exactly one park per completion.
+             */
+            park_id?: string;
+            /** Format: uuid */
+            shed_id: string;
+            /** @description The PEN whose leftover was filmed ("2", "Part 3"). Omit or send "" for an undivided shed. Part of the completion's IDENTITY: a partitioned shed has one wastage task PER PEN. */
+            partition_label?: string;
+            /**
+             * Format: date
+             * @description The feed day, as an India business-calendar date (Asia/Kolkata). A date, never an instant.
+             */
+            target_date: string;
+            /** @description MANDATORY. The server-minted `proof_id` of the wastage VIDEO. A blank value is rejected `422 proof_required`. The bytes live in GCS; only the reference is recorded. */
+            wastage_proof_ref: string;
+        };
+        FeedWastageCompleteResponse: {
+            /** Format: uuid */
+            completion_id: string;
+            /**
+             * @description `pending_verification` on a fresh submit or a rework re-submit; `completed` when the pen-day had already been verifier-approved. Never `completed` on a first submit.
+             * @enum {string}
+             */
+            status: "pending_verification" | "completed";
+            /** @description True when this call flipped the pen-day into pending_verification and enqueued a verification item. False on an idempotent replay or an already-pending/already-completed no-op. */
+            newly_pending: boolean;
+        };
+        FeedWastageMeasurementRequest: {
+            /**
+             * Format: double
+             * @description The leftover feed weight the verifier reads off the video, in kg. ZERO IS VALID (an empty trough). Clients must never coerce a blank field into 0 — blank means she has not typed a value, and is refused as `missing_wastage`, never sent as a number she never entered.
+             */
+            wastage_kg: number;
+            /** @description Derived, not random, so a double-tap is ONE write. Include the value in the key — recording 3 kg and then 3.5 kg are two different acts. The `Idempotency-Key` header is the fallback when this field is absent. */
+            idempotency_key?: string;
+        };
+        FeedWastageMeasurementResult: {
+            /** Format: uuid */
+            completion_id: string;
+            /**
+             * Format: double
+             * @description The value AFTER this entry.
+             */
+            wastage_kg: number;
+            /**
+             * Format: double
+             * @description What the row held immediately before this entry. Absent on a first entry — a wastage measurement is born on the verifier's screen, so there is no operator original to preserve.
+             */
+            previous_wastage_kg?: number;
+            /** Format: uuid */
+            recorded_by: string;
+            /** Format: date-time */
+            recorded_at: string;
+            /** @description The recomposed verifier-facing label for this pen-day, carrying the recorded value. The server also pushes it onto the verification item, so the queue stops advertising the bare pen. */
+            subject_label: string;
+        };
+        FeedWastageMeasurementResponse: {
+            wastage_measurement: components["schemas"]["FeedWastageMeasurementResult"];
         };
         FeedConfigSessionTemplatePage: {
             items: components["schemas"]["FeedConfigSessionTemplate"][];
@@ -4636,7 +7564,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             drive_name: string;
             expected_count: number;
@@ -5121,7 +8049,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display: string;
         };
         EvidenceRef: {
@@ -5281,7 +8209,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label for shed_id. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label for shed_id. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string | null;
             /** Format: uuid */
             cohort_id: string | null;
@@ -5385,7 +8313,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display: string;
             total_animals: number;
         };
@@ -5585,7 +8513,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string | null;
             stage?: string | null;
             lifecycle_status?: string | null;
@@ -5797,7 +8725,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display: string;
             expected: string;
             actual: string;
@@ -5927,7 +8855,7 @@ export interface components {
             partition_label: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display: string;
             animalStage: string;
             /** @description Number of distinct current-drive animals represented by this aggregated execution row. */
@@ -5971,6 +8899,13 @@ export interface components {
             sopTaskRowVersion?: number;
             /** Format: uuid */
             completionId?: string;
+            /** @description Backend-owned gate: true iff tapping this card may open the scan/capture flow. CORE INVARIANT — only a FINAL SUBMIT locks the card (false); partial review/proof/verification state never locks while openCount > 0. */
+            operatorCanContinue: boolean;
+            /**
+             * @description Why operatorCanContinue is false, or "none" when it is true.
+             * @enum {string}
+             */
+            operatorLockedReason: "none" | "final_submitted" | "assigned_elsewhere" | "scheduled_later";
         };
         VaccinationProjectionFreshness: {
             /** Format: int64 */
@@ -5995,6 +8930,43 @@ export interface components {
             totalCount: number;
             nextCursor?: string;
             freshness?: components["schemas"]["VaccinationProjectionFreshness"];
+            /** @description Authoritative per-card summaries (status, counts, vaccine groups) keyed by execution card ID. Page-independent: computed from all rows matching the query, not from paginated subsets. Ensures correct status when rows straddle page boundaries. */
+            cardSummaries?: {
+                [key: string]: components["schemas"]["ShedCardSummary"];
+            };
+        };
+        VaccineGroupSummary: {
+            /** @description Display label for the vaccine group */
+            label: string;
+            /** @description True if all animals done and none pending redo */
+            full: boolean;
+        };
+        ShedCardSummary: {
+            /** Format: uuid */
+            shedId: string;
+            /** @description Partition identifier if present (null for "whole" shed) */
+            partitionLabel?: string | null;
+            /** Format: uuid */
+            taskId?: string | null;
+            /** Format: uuid */
+            batchId?: string | null;
+            /** Format: uuid */
+            driveId?: string | null;
+            /**
+             * @description Authoritative card status computed from all rows. Client maps: rejected→SENT_BACK, overdue→DELAYED, completed→DONE, due→PENDING
+             * @enum {string}
+             */
+            status: "due" | "overdue" | "missed" | "blocked" | "rejected" | "in_progress" | "proof_pending" | "verification_pending" | "completed";
+            /** @description Max doneCount across all rows for this card */
+            doneCount: number;
+            /** @description Max targetCount across all rows for this card */
+            targetCount: number;
+            /** @description Max openCount across all rows for this card */
+            openCount: number;
+            /** @description True if any row has work sent back (rejected/deferred) */
+            needsRedo: boolean;
+            /** @description Per-vaccine group summaries for this card */
+            vaccineGroups: components["schemas"]["VaccineGroupSummary"][];
         };
         VaccinationOperationsProtocol: {
             /** Format: uuid */
@@ -6120,7 +9092,7 @@ export interface components {
             tag1?: string;
             /** @description Second physical tag (animal_identifier_2) when the animal carries two. */
             tag2?: string;
-            /** @description Farm-readable OPERATIONAL location — park, physical shed, and partition when the shed has one ("Castro - 2", "Godel 1 - Part 3"). Never the bare parent shed name for an animal standing in a partition, and never the "whole" matching sentinel. Backend-composed via oploc.Display(); clients render verbatim. */
+            /** @description Farm-readable OPERATIONAL location — park, physical shed, and partition when the shed has one ("Castro 2", "Godel 1 - Part 3"). Never the bare parent shed name for an animal standing in a partition, and never the "whole" matching sentinel. Backend-composed via oploc.Display(); clients render verbatim. */
             operational_location_display: string;
             parkName: string;
             /** @description Physical shed name. Not a ground location on its own when a partition exists. */
@@ -6158,7 +9130,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** @description Dose rule identifier (e.g., et_tt_adult_w1) or human label. */
             doseRule: string;
@@ -6223,7 +9195,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** @description Dose rule identifier or human label. */
             doseRule: string;
@@ -6739,6 +9711,25 @@ export interface components {
             };
             sop_version_id?: string | null;
         };
+        ReplaceProtocolDraftVersionRequest: {
+            protocol_id: string;
+            scope_type: string;
+            scope_id?: string | null;
+            version_label?: string;
+            /** Format: date-time */
+            effective_from: string;
+            /** Format: date-time */
+            effective_to?: string | null;
+            /** @description Protocol rule DSL. */
+            rule_dsl: {
+                [key: string]: unknown;
+            };
+            /** @description Proof policy DSL. */
+            proof_policy?: {
+                [key: string]: unknown;
+            };
+            sop_version_id?: string | null;
+        };
         CreateProtocolVersionResponse: {
             protocol_version_id: string;
         };
@@ -6839,6 +9830,10 @@ export interface components {
             /** @description Stable stage code (e.g. K1, K2) authored against in rule_dsl.eligibility.animal_stage. */
             stage_code: string;
             name: string;
+            /** @description "kid" or "adult", or "" for a tag the farm has not classified. The band is a property OF the tag rather than of the animal's birthday, so an animal INHERITS it when its pen is retagged: moving a pen from a kid cohort to an adult one makes those animals adults. A picker offering this vocabulary should show the band, because that consequence is not obvious from the tag name alone. */
+            age_band: string;
+            /** @description False for a CLINICAL tag (ICU, Quarantine). Those describe an animal's medical state, belong to the clinical flows, and are rejected by every write that assigns a cohort — so an assigning picker must not offer them and then fail. Always emitted: an absent field would read as "assignable", which is the wrong default for a safety-bearing value. */
+            assignable_as_cohort: boolean;
             min_age_days?: number | null;
             max_age_days?: number | null;
             sort_order: number;
@@ -7200,7 +10195,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** @description Assigned operator-capacity animals for this operator/date/shed/partition row. */
             animals: number;
@@ -7258,7 +10253,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** @description Backend-resolved assignee name, carried ON the bucket so a client never has to join it against a separately paged operator vocabulary. Empty WITH a non-empty operator_user_id is a roster gap, not "not assigned". */
             operator_display_name: string;
@@ -7475,6 +10470,8 @@ export interface components {
         GrowthDirectorFeedVsGrowthShed: {
             /** Format: uuid */
             location_id: string;
+            /** @description The PEN within location_id, blank for an undivided shed. Half of this row's identity, not decoration: the row grain is one pen, so a partitioned shed returns up to ten rows under ONE location_id and location_id alone identifies none of them. */
+            partition_label: string;
             shed_display_name: string;
             /** Format: double */
             feed_g_per_head_per_day: number | null;
@@ -7550,7 +10547,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing label for this shed option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing label for this shed option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             kid_count: number;
             /** @description True when an open weighing task already claims this shed on the requested weigh date. Absent/false means the shed is free on that date. */
@@ -7611,7 +10608,7 @@ export interface components {
             expected_location_label: string;
             /** @description Raw stored partition label for expected_location_id ('1', 'Part 3'). Null or absent means non-partitioned. */
             expected_location_partition_label?: string | null;
-            /** @description User-facing label for expected_location_id. No partition -> bare shed name; numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing label for expected_location_id. No partition -> bare shed name; numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             expected_operational_location_display?: string;
             /** @enum {string} */
             status: "pending" | "weighed" | "unavailable" | "missed" | "canceled" | "closed_by_override";
@@ -7622,7 +10619,7 @@ export interface components {
             current_location_label?: string;
             /** @description Raw stored partition label for current_location_id ('1', 'Part 3'). Null or absent means non-partitioned. */
             current_location_partition_label?: string | null;
-            /** @description User-facing label for current_location_id. No partition -> bare shed name; numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing label for current_location_id. No partition -> bare shed name; numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             current_operational_location_display?: string;
             current_lifecycle_status?: string;
             seq: number;
@@ -7685,8 +10682,16 @@ export interface components {
             /** Format: uuid */
             campaign_shed_id: string;
             weight_kg: number;
+            /**
+             * @deprecated
+             * @description IGNORED since 2026-08-24. The server derives the average from the snapshotted head count. Accepted only so installed clients that still send it keep working.
+             */
             average_weight_kg?: number;
-            animal_count: number;
+            /**
+             * @deprecated
+             * @description IGNORED since 2026-08-24 (maintainer decision): the head count is snapshotted server-side from the herd register inside the submit transaction and frozen on the observation forever. Accepted only so installed clients that still send it keep working. A bucket whose register census is zero refuses the submit with 422 `shed_count_unavailable`.
+             */
+            animal_count?: number;
             /** Format: uuid */
             proof_artifact_id?: string;
             proof_artifact_ids?: string[];
@@ -7830,6 +10835,73 @@ export interface components {
             close: components["schemas"]["WeighingCloseResult"];
             trace_id?: string;
         };
+        WeighingWeightCorrectionRequest: {
+            /**
+             * @description The observation grain, echoed from the verification item's `source.ref_type`.
+             * @enum {string}
+             */
+            ref_type: "weighing_observation" | "weighing_shed_observation";
+            /**
+             * Format: double
+             * @description The corrected weight in kg. One animal's weight for an individual capture, the whole shed total for a lump-sum one. Rounded to three decimals, the scale the column stores.
+             */
+            weight_kg: number;
+            /**
+             * @deprecated
+             * @description NOT EDITABLE since 2026-08-24 (maintainer decision): the lump-sum head count is snapshotted from the herd register at submit and frozen, so any non-zero value is refused (422 `animal_count_not_applicable`) on BOTH grains rather than ignored -- silently dropping it would report an edit that never happened. Kept on the wire only so installed clients that still offer count editing get an honest refusal.
+             */
+            animal_count?: number;
+            /** @description The verifier's own words. Optional -- the video is the evidence. */
+            reason?: string;
+            /** @description Falls back to the `Idempotency-Key` header. An exact replay returns the original result with no second write; the same key carrying a different weight is refused. */
+            idempotency_key?: string;
+        };
+        WeighingWeightCorrectionResponse: {
+            weight_correction: components["schemas"]["WeighingWeightCorrectionResult"];
+            trace_id?: string;
+        };
+        /** @description The readback of one correction, carrying BOTH the new values and what they replaced: the client that just sent it needs the new number to render, and the audit trail needs the old one to be legible without a second read. */
+        WeighingWeightCorrectionResult: {
+            /** Format: uuid */
+            observation_id: string;
+            /** @enum {string} */
+            ref_type: "weighing_observation" | "weighing_shed_observation";
+            /** Format: uuid */
+            campaign_id: string;
+            /** @description The bucket to refresh once the correction lands. */
+            campaign_shed_id: string;
+            /**
+             * Format: double
+             * @description The weight AFTER the correction.
+             */
+            weight_kg: number;
+            /** @description The head count after the correction. Lump-sum only. */
+            animal_count?: number;
+            /**
+             * Format: double
+             * @description Recomputed from the corrected total and count, so the shed's average cannot disagree with the shed's own total. Lump-sum only.
+             */
+            average_weight_kg?: number;
+            /**
+             * Format: double
+             * @description What the row held immediately before this correction.
+             */
+            previous_weight_kg: number;
+            previous_animal_count?: number;
+            /**
+             * Format: double
+             * @description What the OPERATOR originally recorded, preserved across every later correction. Equal to `previous_weight_kg` on a first correction only.
+             */
+            operator_weight_kg: number;
+            operator_animal_count?: number;
+            reason?: string;
+            /** Format: uuid */
+            corrected_by: string;
+            /** @description The recomposed verifier-facing sentence carrying the corrected weight. The backend pushes it onto the verification item so the queue stops advertising the number that was just replaced; clients render it verbatim. */
+            subject_label: string;
+            /** Format: date-time */
+            corrected_at: string;
+        };
         WeighingProcessStateDayMarker: {
             /** Format: date */
             business_date: string;
@@ -7868,7 +10940,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing label for this shed option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing label for this shed option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** Format: uuid */
             park_id: string;
@@ -7930,18 +11002,22 @@ export interface components {
         WeighingGrowthHeadline: {
             /** @enum {string} */
             status: "ok" | "insufficient_data";
-            median_adg_g_per_day?: number | null;
-            previous_median_adg_g_per_day?: number | null;
+            /** @description The farm's daily gain: the ANIMAL-WEIGHTED MEAN grams/day over every animal weighed twice in the period (each animal once, at the median of its own pairs) PLUS every whole-shed pen weighed twice, each contributing its average-weight movement once per animal it holds. This is the SAME statistic gain_by_breed/gain_by_sex/gain_by_stage report per dimension, so a page filtered to one sex shows the identical number in the headline and in the chart. Null when status is insufficient_data. */
+            average_adg_g_per_day?: number | null;
+            previous_average_adg_g_per_day?: number | null;
             /** @enum {string} */
             previous_status: "ok" | "insufficient_data";
-            /** @description median_adg_g_per_day - previous_median_adg_g_per_day. Null whenever either side is null. */
+            /** @description average_adg_g_per_day - previous_average_adg_g_per_day. Null whenever either side is null. */
             delta_g_per_day?: number | null;
             positive_adg_percent?: number | null;
             /** @description Count of qualifying PAIRS with ADG < 0 across the whole period. */
             negative_adg_count: number;
             /** @description Count of ANIMALS whose most recent pair is negative. */
             losing_animal_count: number;
+            /** @description Qualifying scanned consecutive-weigh PAIRS in the period. Denominator of the pair-based statistics above, NOT of average_adg_g_per_day -- see headline_animals. */
             pair_count: number;
+            /** @description How many kids average_adg_g_per_day speaks for: animals weighed twice plus every animal in the whole-shed pens that moved. This is the count to print beside the gain. */
+            headline_animals: number;
             rejected_observation_count: number;
             unverified_observation_count: number;
         };
@@ -7961,6 +11037,8 @@ export interface components {
             display_name: string;
             partition_label?: string;
             operational_location_display: string;
+            /** @description The park's SHORT CODE (CBE, CPT) when it has one, falling back to its full name -- the same convention the shed-weights rows use, so both series of the gain chart name a park identically. Required rather than optional: 39 shed names exist in BOTH parks, so a row without it names two different sheds at once. */
+            park_name: string;
             /** @description Animal count. */
             n: number;
             median_weight_kg: number;
@@ -8004,6 +11082,7 @@ export interface components {
         WeighingGrowthLosingAnimal: {
             scanned_identifier: string;
             shed_display_name: string;
+            operational_location_display: string;
             previous_weight_kg: number;
             latest_weight_kg: number;
             adg_g_per_day: number;
@@ -8032,6 +11111,40 @@ export interface components {
              */
             median_gain_g_per_day: number;
         };
+        /** @description How many animals of one breed fell into each daily-gain band. The four counts are DISJOINT: an animal at 260 g/day is counted in above_250_g_per_day only, every animal lands in exactly one band, and the four add up to animals -- so they may be read as a distribution. A homogeneous-breed whole-shed weigh contributes ALL of its animals to the ONE band its own average-weight change falls into. There is ONE grain: the Weights page's `sex` filter narrows the whole read, so these rows already describe the kids the caller asked for. */
+        WeighingWeightGainThresholdBucket: {
+            label: string;
+            /** @description Animals of this breed with a computable gain, individually weighed twice plus the animals of any homogeneous-breed whole-shed weigh. The denominator the four bands partition, so a share may be taken row-locally. */
+            animals: number;
+            /** @description 180 g/day or less. The leftover band, so no animal with a gain falls outside the four. */
+            at_or_below_180_g_per_day: number;
+            /** @description Greater than 180 and up to 200 g/day. */
+            band_180_to_200_g_per_day: number;
+            /** @description Greater than 200 and up to 250 g/day. */
+            band_200_to_250_g_per_day: number;
+            /** @description Strictly greater than 250 g/day. */
+            above_250_g_per_day: number;
+        };
+        WeighingShedCompositionChip: {
+            /** @description Breed label from the herd register, or Unknown breed when unresolved. */
+            breed?: string;
+            /** @description Sex label from the herd register, or unknown sex when unresolved. */
+            sex?: string;
+            /** @description Animals in this breed+sex cohort. */
+            animals: number;
+        };
+        WeighingShedComposition: {
+            /** Format: uuid */
+            location_id: string;
+            partition_label?: string;
+            /**
+             * @description Whether chips came from the actual scanned tags or the live shed cohort for a whole-shed weigh.
+             * @enum {string}
+             */
+            source: "scanned_tags" | "live_shed_cohort";
+            total_animals: number;
+            chips: components["schemas"]["WeighingShedCompositionChip"][];
+        };
         WeighingWeightDemographicsResponse: {
             /** @description Per-animal weighs only; a whole-shed total cannot be split by breed. */
             by_breed: components["schemas"]["WeighingWeightDemographicBucket"][];
@@ -8043,12 +11156,16 @@ export interface components {
             gain_by_breed: components["schemas"]["WeighingWeightGainBucket"][];
             gain_by_sex: components["schemas"]["WeighingWeightGainBucket"][];
             gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
+            /** @description How many animals of each breed clear 180 / 200 / 250 g per day. Same same-animal population as gain_by_breed; the marks are cumulative. */
+            gain_thresholds_by_breed: components["schemas"]["WeighingWeightGainThresholdBucket"][];
             resolved_animals: number;
             /** @description Scanned tags with no animal in the herd register. Real weighs, reported not dropped. */
             unresolved_animals: number;
             lump_sum_animals: number;
             /** @description Animals in whole-shed weighs whose shed holds more than one stage, so no stage row claims them. */
             lump_sum_unattributed_animals: number;
+            /** @description Breed+sex chips keyed by location_id + partition_label for the weighed shed rows. Mixed sheds are listed as multiple chips; clients must not split one whole-shed average across them. */
+            shed_composition: components["schemas"]["WeighingShedComposition"][];
         };
         /** @description ONE operational shed's most recent weigh. Grain is the physical shed partition, not the campaign bucket. */
         WeighingShedWeightsRow: {
@@ -8082,7 +11199,7 @@ export interface components {
             bucket_status: "pending" | "in_progress" | "completed" | "canceled";
             /**
              * Format: double
-             * @description How fast this shed's AVERAGE weight is moving, for whole-shed sheds weighed more than once in the window. NOT per-animal growth: a shed's population changes between weighs, so if the lightest animals leave the average rises while no animal gained a gram. Measured across the full span, because consecutive pairs at this grain are unusably noisy (the same shed produced 45 g/day one week and 391 the next).
+             * @description How fast this shed's AVERAGE weight is moving, for whole-shed sheds weighed more than once in the window. NOT per-animal growth: a shed's population changes between weighs, so if the lightest animals leave the average rises while no animal gained a gram. Measured from the first accepted weigh date in the selected window to the latest accepted weigh date in that same window.
              */
             shed_average_gain_g_per_day?: number;
             /** @description The span that gain was measured over, so a short-span figure can be discounted rather than hidden. */
@@ -8114,6 +11231,13 @@ export interface components {
             by_load: components["schemas"]["WeighingLoadGainBucket"][];
             /** @description Weighed sheds carrying no load tag, or more than one. Returned so the gap between the load chart and the shed table reads as unmapped rather than as missing weighing data. */
             load_unattributed_sheds: number;
+            /** @description Distinct business dates in the selected window where at least one live lump-sum weighing was accepted. */
+            lump_weighing_dates: string[];
+            /**
+             * Format: date
+             * @description Business date (Asia/Kolkata) of the most recent weigh of ANY kind -- individual or whole-shed -- inside the queried range; absent when nothing was weighed. The Weights page opens on the last two lump_weighing_dates, and closing that window on the later of them dropped every kid weighed on a later day that happened to carry no whole-shed weigh. The window START comes from lump_weighing_dates; the END comes from this.
+             */
+            latest_weighing_date?: string;
             /** Format: date */
             period_start: string;
             /** Format: date */
@@ -8136,11 +11260,26 @@ export interface components {
             average_weight_kg: number;
             /**
              * Format: double
-             * @description Each shed's last-two-weighs movement, blended by head count. Absent when no shed in the load was weighed twice — a load with a single weigh has a weight but no growth, and 0 would read as flat. This is shed-average movement, NOT per-animal growth: a shed's population changes between weighs, so if the lightest animals leave the average rises while no animal gained a gram.
+             * @description Each shed's selected-window movement, blended by head count. Absent when no shed in the load was weighed twice inside the selected date range -- a load with a single visible weigh has a weight but no growth, and 0 would read as flat. This is shed-average movement, NOT per-animal growth: a shed's population changes between weighs, so if the lightest animals leave the average rises while no animal gained a gram.
              */
             gain_g_per_day?: number;
             /** @description Widest span any contributing shed was measured over, so a figure drawn from two days can be discounted on sight rather than hidden. */
             gain_span_days?: number;
+            /** @description Where this load's weighed animals actually are -- one entry per contributing operational shed row, park included. Aggregated over the same key set the figures above blend, so the animal counts sum to `animals` and the entry count equals `sheds`. Ordered park, then shed. */
+            placements: components["schemas"]["WeighingLoadPlacement"][];
+        };
+        /** @description One operational shed a procurement load's weighed animals sit in. The grain is (shed, partition) -- the measured row -- while the load TAG itself is authored at physical-shed grain, so a partition here says where the weighed animals are, never that the tag was authored per pen. */
+        WeighingLoadPlacement: {
+            /** @description Park short code (CBE, CPT) when it has one, falling back to the full name -- the same rule the shed table's park_name follows. */
+            park_name: string;
+            /** @description Shed name from the locations register, never the weighing bucket's planning label. */
+            shed_display_name: string;
+            /** @description Human partition label ('Part 3'), absent for an undivided shed. */
+            partition_label?: string;
+            /** @description Backend-composed park-local shed label; clients render it verbatim. */
+            operational_location_display: string;
+            /** @description Head count at this shed row's latest weigh -- the same figure that weights it inside the load's blended average. */
+            animals: number;
         };
         /** @description CEO-tier ADG / growth read model for a park or the herd. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh, and no target/benchmark ADG value is included anywhere. */
         WeighingGrowthADGResponse: {
@@ -8194,7 +11333,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             animals: number;
             due: number;
@@ -8251,7 +11390,7 @@ export interface components {
             shed_name: string;
             /** @description Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'. */
             partition_label: string;
-            /** @description Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Empty if not shed-scoped. */
+            /** @description Backend-composed display label combining shed name and partition ("Castro 2" or "Godel 1 - Part 3"). Empty if not shed-scoped. */
             operational_location_display: string;
         };
         VaccinationPassportHistoryItem: {
@@ -8275,7 +11414,7 @@ export interface components {
             shed_name: string;
             /** @description Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'. */
             partition_label: string;
-            /** @description Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Empty if not available. */
+            /** @description Backend-composed display label combining shed name and partition ("Castro 2" or "Godel 1 - Part 3"). Empty if not available. */
             operational_location_display: string;
         };
         LastAcceptedVaccinationDose: {
@@ -8296,7 +11435,7 @@ export interface components {
             shed_name?: string;
             /** @description Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'. */
             partition_label?: string;
-            /** @description Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Bare shed name for non-partitioned sheds. Empty if location unknown. */
+            /** @description Backend-composed display label combining shed name and partition ("Castro 2" or "Godel 1 - Part 3"). Bare shed name for non-partitioned sheds. Empty if location unknown. */
             operational_location_display?: string;
             next_due: components["schemas"]["VaccinationPassportDue"] | null;
             open_obligations: components["schemas"]["VaccinationPassportDue"][];
@@ -8343,6 +11482,27 @@ export interface components {
         };
         MyCoverageResponse: {
             coverage: components["schemas"]["MyCoverage"];
+            trace_id: string;
+        };
+        Coverage: {
+            /** Format: uuid */
+            position_id: string;
+            covered_position_code: string;
+            covered_position_title?: string | null;
+            /** Format: uuid */
+            covering_member_id?: string | null;
+            covering_member_name?: string | null;
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            /** @enum {string} */
+            source: "leave" | "week_off" | "escalation";
+            escalation_state?: string | null;
+            status: string;
+        };
+        CoverageListResponse: {
+            items: components["schemas"]["Coverage"][];
             trace_id: string;
         };
         RescheduleObligationRequest: {
@@ -8454,7 +11614,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label for currentLocationId. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label for currentLocationId. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string | null;
             breed?: string | null;
             sex: string;
@@ -8486,7 +11646,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string | null;
             /** @description Raw goats.management_stage. Free text with no CHECK constraint — near-duplicate source labels are reported verbatim, not normalized. */
             management_stage: string;
@@ -8520,7 +11680,7 @@ export interface components {
             park_id: string;
             /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
             partition_label?: string | null;
-            /** @description User-facing location label for this operational location. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label for this operational location. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string | null;
         };
         CountsBreakdownFacets: {
@@ -8549,6 +11709,88 @@ export interface components {
             /** Format: date-time */
             projected_at: string;
         };
+        /** @description One composition bar. `key` is the raw stored value and is empty for an unassigned bucket; the client renders its own contract copy for that case rather than inventing a label here. */
+        HerdAnalyticsSeriesPoint: {
+            key: string;
+            label: string;
+            /** Format: int64 */
+            count: number;
+        };
+        /** @description One India-calendar month of herd movement. net_change is births minus every exit, so the flow figures and the net always reconcile without the client re-deriving one. */
+        HerdAnalyticsMonth: {
+            /** @description IST calendar month key, "2026-08". */
+            month: string;
+            /** @description Farm-readable month, "Aug 2026". */
+            label: string;
+            /** Format: int64 */
+            births: number;
+            /** Format: int64 */
+            deaths: number;
+            /** Format: int64 */
+            sold: number;
+            /**
+             * Format: int64
+             * @description Culled, transferred or lost — carried so net_change reconciles honestly.
+             */
+            other_exits: number;
+            /**
+             * Format: int64
+             * @description Applied shifting events completed in this month.
+             */
+            movements: number;
+            /**
+             * Format: int64
+             * @description Head count those movements carried.
+             */
+            animals_moved: number;
+            /** Format: int64 */
+            net_change: number;
+        };
+        HerdAnalyticsTotals: {
+            /**
+             * Format: int64
+             * @description Census AS OF NOW, not a window figure.
+             */
+            live_animals: number;
+            /**
+             * Format: int64
+             * @description kids + adults always equals live_animals exactly; an animal with an unknown age band counts as an adult rather than falling out of both buckets.
+             */
+            kids: number;
+            /** Format: int64 */
+            adults: number;
+            /** Format: int64 */
+            births: number;
+            /** Format: int64 */
+            deaths: number;
+            /** Format: int64 */
+            sold: number;
+            /** Format: int64 */
+            other_exits: number;
+            /** Format: int64 */
+            movements: number;
+            /** Format: int64 */
+            animals_moved: number;
+            /** Format: int64 */
+            net_change: number;
+        };
+        HerdAnalyticsResponse: {
+            /** Format: date */
+            window_from: string;
+            /** Format: date */
+            window_to: string;
+            totals: components["schemas"]["HerdAnalyticsTotals"];
+            months: components["schemas"]["HerdAnalyticsMonth"][];
+            breed: components["schemas"]["HerdAnalyticsSeriesPoint"][];
+            /** @description Management stage (the pen tag) read RAW, exactly as Counts Breakdown reports it. */
+            stage: components["schemas"]["HerdAnalyticsSeriesPoint"][];
+            sex: components["schemas"]["HerdAnalyticsSeriesPoint"][];
+            /** @description Two points, kid and adult, partitioning live_animals exactly. */
+            age_band: components["schemas"]["HerdAnalyticsSeriesPoint"][];
+            park: components["schemas"]["HerdAnalyticsSeriesPoint"][];
+            /** Format: date-time */
+            generated_at: string;
+        };
         MilkPreparationSession: {
             session_no: number;
             /** @description False for sessions not used by this cohort, such as K3 sessions 2 and 3. */
@@ -8569,7 +11811,7 @@ export interface components {
             shed_label: string;
             /** @description Raw stored partition label for the shed ('1', 'Part 3'). Empty or absent means the shed is non-partitioned. Never the literal string "whole". */
             partition_label?: string;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** @enum {string} */
             management_stage: "K1" | "K2" | "K3";
@@ -8816,6 +12058,34 @@ export interface components {
             mime_type?: string;
             duration_ms?: number;
         };
+        /** @description The correctable-measurement control for one verification item. Declared per category by the producing module at registration, so a phone and an admin-web drawer showing the same control cannot word it differently. Today only Weighing declares one: its proof shows a weight an operator typed, and the verifier may replace it. */
+        VerificationMeasurementCorrection: {
+            /** @description Echoed from the item's source.ref_type. Post it back verbatim on the producing module's correction route; do not infer it. */
+            ref_type: string;
+            /** @description Echoed from the item's source.ref_id — the record the correction addresses. */
+            observation_id: string;
+            /** @description Heading for the control. Rendered verbatim. */
+            title: string;
+            /** @description One sentence telling the verifier what the correction does. It says plainly that the value REPLACES the recorded one; render it, never paraphrase it. */
+            help: string;
+            /** @description Label for the number itself, unit included. Rendered verbatim. */
+            value_label: string;
+            /** @description Label for the separate save control that used to sit under the field. THAT CONTROL IS GONE (maintainer decision 2026-08-20): the verifier types the number and presses Approve, and the approve carries it. Kept on the wire so an installed APK built before that decision still renders its own button against the producing module's route, which is also still served. Do not build a new client that reads it. */
+            submit_label: string;
+            /** @description Keep Approve disabled until a number is entered. TRUE for feed wastage, where the operator submits a video only and the reading is born on the verifier's screen, so approving without one would complete a pen-day with no wastage recorded at all. FALSE for weighing, where the operator already recorded a weight and a blank field means "his weight is right" — the normal case, which stays a single tap. An item already measured through the producing module's own route is still approvable without a number. */
+            required_for_approve: boolean;
+            /** @description Label for an accompanying whole-number field (a lump-sum shed proof's head count). PRESENT ONLY on the ref types that carry one — absent means render the value field alone. An individual animal's proof carries no count, and the write path refuses one. */
+            count_label?: string;
+            /** @description The ordered per-item entry-box list for items whose approve carries one value PER FIELD (a feed packing item: one box per feed item of that pen-session, NAMES ONLY — the planned quantities are deliberately hidden so the verifier enters blind; maintainer decision 2026-08-21). Present and non-empty means render one labelled numeric box per field INSTEAD of the single value field, keep Approve disabled until every box is filled (required_for_approve is true for these categories), and send the verdict's measurement as `entries` echoing each field's key. Absent means the single-value contract. */
+            fields?: components["schemas"]["VerificationMeasurementField"][];
+        };
+        /** @description One per-item entry box on a verification item. */
+        VerificationMeasurementField: {
+            /** @description The producing module's stable token for this field (a normalized feed item key). Post it back VERBATIM as the entry's key; never parse or display it. */
+            key: string;
+            /** @description Backend-owned caption for the box ("Maize"). Rendered verbatim. */
+            label: string;
+        };
         VerificationQueueItem: {
             /** Format: uuid */
             item_id: string;
@@ -8828,6 +12098,12 @@ export interface components {
             subject_note?: string;
             /** @description What the reviewed work was EXPECTED to be, so the verifier can judge the proof against a standard rather than only confirming a video exists. Backend-composed label/value pairs attached by the PRODUCING module at enqueue time, in the producer's order; for a feed packing proof these carry the frozen ration for that pen-session and the head count it was computed from. Rendered VERBATIM: clients must not parse, reorder, or re-label them, and must not assume a fixed set of labels — a producer may add rows at any time. Always present; empty when the producer attached none. */
             context_rows?: components["schemas"]["VerificationContextRow"][];
+            /**
+             * @description Backend-owned declaration that this item carries a number the VERIFIER may correct while reviewing the proof, plus every word of that control's copy. Absent — the normal case — means the client renders no correction control at all.
+             *
+             *     It carries NO current value: the number is already in subject_label, which the producing module composes and the verifier is reading while she watches the video.
+             */
+            measurement_correction?: components["schemas"]["VerificationMeasurementCorrection"];
             status: components["schemas"]["VerificationItemStatus"];
             verdict_reason?: string;
             /** Format: uuid */
@@ -8838,7 +12114,7 @@ export interface components {
             shed_id?: string;
             /** @description Raw partition label ('1', 'Part 3') for sheds with partitions, or null/absent for non-partitioned sheds. Used alongside shed_label to identify operational location. */
             partition_label?: string;
-            /** @description Backend-owned composed display label for the operational location (shed + partition). Examples: 'Castro - 2', 'Godel 1 - Part 3', 'Yashoda' (when unpartitioned). Render this field verbatim; do NOT compose it on the client. */
+            /** @description Backend-owned composed display label for the operational location (shed + partition). Examples: 'Castro 2', 'Godel 1 - Part 3', 'Yashoda' (when unpartitioned). Render this field verbatim; do NOT compose it on the client. */
             operational_location_display?: string;
             /** @description Backend-owned display label for shed_id. Never a raw UUID. */
             shed_label?: string;
@@ -8976,6 +12252,24 @@ export interface components {
             /** @description Required (non-empty) when decision is rejected; 422 otherwise. */
             reason?: string;
             row_version: number;
+            measurement?: components["schemas"]["VerificationVerdictMeasurement"];
+        };
+        /** @description The number(s) the verifier read off the video, carried BY the approve (maintainer decision 2026-08-20, replacing the separate save step). Send it ONLY on an item whose measurement_correction block is present. Single-value items (weighing, wastage) send `value`; per-field items (measurement_correction.fields present — feed packing) send `entries` with one reading per declared field, every field filled. Absent is the normal weighing case: blank means the operator's recorded weight is right. IGNORED on a reject, because rejection sends the work back to be recorded again and a value written onto a record about to be redone is a number nobody will use. The record it lands on comes from the item's own source, never from this request. */
+        VerificationVerdictMeasurement: {
+            /** @description The single-value reading in the category's own unit (kg for weighing and wastage). ZERO IS VALID for wastage — an empty trough is a real measurement — so omit the whole block rather than sending 0 to mean "not entered". Omit on per-field items; the readings travel on entries. */
+            value?: number;
+            /** @description The accompanying whole-number field, allowed ONLY where the item's measurement_correction carries a count_label. NO category carries one today: the lump-sum weighing head count stopped being editable on 2026-08-24 (it is snapshotted from the herd register at submit and frozen), so its spec no longer declares a count_label. Sending a count where the item carries none is refused (`measurement_count_not_supported`) rather than dropped. */
+            count?: number;
+            /** @description The verifier's optional note on why the recorded number was wrong. */
+            reason?: string;
+            /** @description One reading per measurement_correction.fields entry, keys echoed VERBATIM. Every declared field must be present for the approve to land (422 measurement_required names the missing box); a key the item never declared is refused rather than dropped. ZERO IS VALID — "this item was not packed" is a real observation. */
+            entries?: components["schemas"]["VerificationVerdictMeasurementEntry"][];
+        };
+        VerificationVerdictMeasurementEntry: {
+            /** @description The field's key, echoed verbatim from measurement_correction.fields. */
+            key: string;
+            /** @description The reading for this field in the category's own unit (kg). */
+            value: number;
         };
         VerificationVerdictResponse: {
             item: components["schemas"]["VerificationQueueItem"];
@@ -9057,6 +12351,55 @@ export interface components {
             facts: components["schemas"]["VerificationItemReviewFactsEntry"][];
             trace_id: string;
         };
+        VerificationSamplingResponse: {
+            /**
+             * Format: date
+             * @description The Asia/Kolkata business day these rows describe.
+             */
+            business_date: string;
+            /** @description Every registered verification category, ordered by module then page. Always an array, never null. */
+            categories: components["schemas"]["VerificationSamplingCategory"][];
+            trace_id?: string;
+        };
+        VerificationSamplingCategory: {
+            /** @description The registry token. It is the row's identity on the write and is the ONE field here a renderer may not print -- it is config vocabulary, and the copy firewall bans it from visible UI. Every visible word comes from module_label / page_label. */
+            category: string;
+            /** @description The verifier-drawer module key ("feed_direction"), for linking to that queue. */
+            module_key: string;
+            /** @description Backend-owned module display copy ("Feed"). */
+            module_label: string;
+            /** @description Backend-owned page display copy ("Feed Packing"). */
+            page_label: string;
+            /** @description The share of this category's videos the verifier must watch on business_date. 100 when the CEO has never set one. */
+            sample_percent: number;
+            /** @description False where the verifier RECORDS the measured quantity rather than checking it, so the percentage is locked at 100 and the write is refused. */
+            waivable: boolean;
+            /** @description Backend-owned sentence saying WHY the row is locked, non-empty exactly when waivable is false. Clients render it verbatim; a disabled control with no reason is the defect this prevents. */
+            locked_reason?: string;
+            /**
+             * Format: date
+             * @description The business day the standing setting was written for -- normally EARLIER than business_date, since a percentage set last week is still the one in force today. Absent when no setting has ever been made.
+             */
+            effective_from?: string;
+            /** @description Backend-owned display name of whoever set the standing percentage. */
+            set_by_name?: string;
+            /** Format: date-time */
+            set_at?: string;
+            /** @description Every non-withdrawn item of this category captured on business_date. NOT disjoint from the three below -- selected is a subset of this, and reviewed a subset of selected. Do not add them. */
+            captured: number;
+            /** @description The subset drawn for review at that day's percentage -- the verifier's share. */
+            selected: number;
+            /** @description Drawn items a verifier has decided. Excludes items the policy settled, which carry no verifier and are never counted as her work. */
+            reviewed: number;
+            /** @description Items the policy settled because they were not drawn. Rises once the day closes and the closeout runs, so on the current day it is normally 0. */
+            auto_accepted: number;
+            /** @description How much of HER SHARE is done: reviewed / selected. At 40% sampling, reviewing all 40% reads 100. A day with nothing drawn reads 100, not 0 -- she owes nothing, and 0 would read as falling behind on work that does not exist. Backend-owned so no surface derives its own completion number. */
+            progress_percent: number;
+        };
+        SetVerificationSamplingPolicyRequest: {
+            /** @description The share of this category's videos the verifier must watch, from today onward. Out of range is refused rather than clamped; absent is an error, because 0 is a real setting. */
+            sample_percent: number;
+        };
         VerificationOversightAnalyticsResponse: {
             kpis: components["schemas"]["VerificationOversightKPIs"];
             pending_age_buckets: components["schemas"]["VerificationPendingAgeBuckets"];
@@ -9131,6 +12474,122 @@ export interface components {
             /** @description Items this verifier decided with no video_play telemetry event beforehand. */
             verdict_without_play_count: number;
         };
+        VerificationVideoLogResponse: {
+            /**
+             * Format: date
+             * @description The Asia/Kolkata day this log covers.
+             */
+            business_date: string;
+            /** @description One row per operational location that had proof arrive on the day, ordered by park then shed then partition. Always present, including when it is empty. */
+            sheds: components["schemas"]["VerificationVideoLogShed"][];
+            /** @description Echoes the requested shed_id. Absent when no shed was selected. */
+            selected_shed_id?: string;
+            /** @description Work in full, ordered by shed then earliest arrival. Populated for a selected shed, or for the whole day when all_sheds is set. EMPTY for the ordinary summary read -- that level deliberately does not carry every row. */
+            rows: components["schemas"]["VerificationVideoLogRow"][];
+            /** @description True when the selected shed held more work than limit allowed, so a partial day is never presented as a complete one. */
+            rows_truncated: boolean;
+            trace_id: string;
+        };
+        VerificationVideoLogShed: {
+            /** Format: uuid */
+            shed_id: string;
+            /** @description Composite "<shed_uuid>#<normalized partition>" identity for this location. Send it back as shed_id to open the detail; a bare shed uuid cannot distinguish partitions. */
+            shed_key: string;
+            /** @description Raw shed name. Carried for filtering; never rendered on its own. */
+            shed_label?: string;
+            /** @description Raw partition label ("Part 3"). Absent for a non-partitioned shed AND for weighing, shifting, birth and death items, whose producers do not record it. Never rendered on its own -- use operational_location_display. */
+            partition_label?: string;
+            /** @description The ONLY location string a screen may render, composed backend-side by oploc.Display() ("Godel 1 - Part 3", or "Yashoda" when unpartitioned). */
+            operational_location_display: string;
+            /** Format: uuid */
+            park_id?: string;
+            park_label?: string;
+            /** @description Every proof that arrived for this location on the day, across all modules. */
+            proof_count: number;
+            /** @description How many pieces of work those proofs belong to. Always <= proof_count; the gap is the multi-proof categories (feed distribution's three, death's two). */
+            item_count: number;
+            /** @description Proofs registered but not yet received. Included IN proof_count, not counted beside it. */
+            awaiting_upload_count: number;
+            /**
+             * Format: date-time
+             * @description Earliest arrival for this location on the day. Absent when nothing has landed.
+             */
+            first_upload_at?: string;
+            /**
+             * Format: date-time
+             * @description Latest arrival for this location on the day. Absent when nothing has landed.
+             */
+            last_upload_at?: string;
+            /** @description Backend-owned display labels of the modules that contributed ("Feed", "Vaccination"), sorted. A module the registry does not know is omitted rather than shown as a raw code. */
+            modules: string[];
+        };
+        VerificationVideoLogRow: {
+            /** Format: uuid */
+            item_id: string;
+            /** @description Raw source module code ("feed"). Carried for links only; never rendered as copy. */
+            module: string;
+            /** @description Backend-owned display label for module ("Feed"). */
+            module_label?: string;
+            /** @description The queue's own module-filter key for this module ("feed_direction" where module is "feed"), so a row can link back to the queue filtered to its module. */
+            nav_module?: string;
+            /** @description Raw category code ("feed_packing"). Never rendered as copy. */
+            category: string;
+            /** @description Backend-owned display label for category ("Feed packing"). */
+            category_label?: string;
+            /**
+             * @description Whether this work was about specific ANIMALS (vaccination's per-goat clip, weighing's individual observation, a birth/death workflow, a shed move) or about a LOCATION (feed distribution, packing, transport, a lump-sum weigh). Derived backend-side from the producer's declared source_ref_type, never parsed out of the label. A client uses it to decide which column an identity belongs in and must not re-derive it.
+             * @enum {string}
+             */
+            grain: "animal" | "shed";
+            /**
+             * Format: uuid
+             * @description The shed this work happened in.
+             */
+            shed_id?: string;
+            /** @description Raw shed name. Never rendered on its own. */
+            shed_label?: string;
+            /** @description Raw partition label. Never rendered on its own. */
+            partition_label?: string;
+            /** @description Backend-composed location for THIS row. Redundant while one shed's detail is on screen, and essential in the whole-day export, where a row could otherwise not say which shed its video came from. */
+            operational_location_display?: string;
+            /** @description Disambiguates the location in the whole-day export: shed NAMES repeat across parks, so a file carrying only the shed display renders two different sheds identically. */
+            park_label?: string;
+            /** @description The producing module's own composed description of the work ("Session 1 · Castro 2", "Godel 1 · Goat 4821 · PPR"). Rendered VERBATIM. Legitimately ABSENT for feed transport, whose producer writes no label because the shed header already names it -- render nothing there, not a placeholder. */
+            subject_label?: string;
+            /** @description The item's verdict state, so the log can show that an arrival was later rejected. The video log offers no verdict control; it is a read. */
+            status: string;
+            /** @description Backend-resolved display name of whoever captured the work. Absent when the id resolves to no active roster member; an unresolved id is dropped, never rendered raw. */
+            operator_name?: string;
+            /**
+             * Format: date-time
+             * @description The producing module's own anchor for the work, and what the business day is cut on. NOT the upload time. Approximate for shifting, birth and death, whose producers stamp the enqueue instant.
+             */
+            captured_at: string;
+            proofs: components["schemas"]["VerificationVideoLogProof"][];
+        };
+        VerificationVideoLogProof: {
+            /** Format: uuid */
+            proof_id: string;
+            /** @description 1-based position in the producing item's declared proof order. Feed distribution writes [weight photo, distribution video, water video] and the labels are positional against it. */
+            ordinal: number;
+            /** @description Backend-owned header for this proof ("Water distribution video"), resolved from the artifact's own metadata first and the category registry second. Never composed by a client. */
+            label?: string;
+            /**
+             * @description Feed distribution is the one category that mixes photo and video, so a screen must not call every proof on this log a video.
+             * @enum {string}
+             */
+            media_kind: "photo" | "video" | "attachment";
+            /**
+             * Format: date-time
+             * @description When the server accepted the bytes. ABSENT for a proof registered but never finished uploading -- a real state the log shows rather than hiding. Deliberately not a device capture time; no such column exists.
+             */
+            uploaded_at?: string;
+            /**
+             * Format: date-time
+             * @description When the client took an upload URL. On mobile the outbox registers at capture and retries the upload later, so the gap to uploaded_at is real upload lag.
+             */
+            registered_at: string;
+        };
         VerificationCloseSubmissionResponse: {
             items: components["schemas"]["VerificationQueueItem"][];
             trace_id: string;
@@ -9151,6 +12610,36 @@ export interface components {
             name: string;
             /** @description The park's active sheds, ordered by name. Always present; a park with no active sheds returns an empty array rather than null, and is still listed. */
             sheds: components["schemas"]["ShiftingDestinationShed"][];
+            birth_placement: components["schemas"]["BirthPlacement"];
+        };
+        /**
+         * @description Where a newborn recorded in THIS park may be placed (maintainer decision 2026-08-20).
+         *     The mode and the notice are backend-owned and are rendered verbatim. Clients must NOT re-derive the mode by filtering the park's sheds on destination_stage: the mode also governs whether the birth WRITE will accept a freely chosen pen, so a client that computed its own answer could offer a pen the birth then refuses with 400 invalid_newborn_placement.
+         */
+        BirthPlacement: {
+            /**
+             * @description automatic - the park has exactly ONE kid pen; the form shows it read-only and the operator does not choose. choose - the park has SEVERAL kid pens; the picker offers only these. record_later - the park has NO kid pen; the operator picks freely from the full shed cascade and the kid's care steps carry "Record shed".
+             * @enum {string}
+             */
+            mode: "automatic" | "choose" | "record_later";
+            /** @description Farm-worded copy shown above the placement field, rendered VERBATIM. Never blank - a record_later park still owes the operator the reason its kid pen is not set. */
+            notice: string;
+            /** @description The park's kid pens. Exactly one entry in automatic mode, several in choose mode, and EMPTY in record_later mode. */
+            pens: components["schemas"]["BirthPlacementPen"][];
+        };
+        /** @description One selectable newborn destination, carrying its whole operational location so the client never re-derives a display string from shed_id + partition_label. */
+        BirthPlacementPen: {
+            /**
+             * Format: uuid
+             * @description The PARENT physical shed's location id, never a partition-bearing alias.
+             */
+            shed_id: string;
+            /** @description The physical shed's display name ('Yashoda', 'Godel 1'). */
+            shed_name: string;
+            /** @description The pen's HUMAN label ('1', 'Part 3'), omitted for a genuinely non-partitioned shed. Never the normalized matching key, and never the literal 'whole'. */
+            partition_label?: string | null;
+            /** @description The backend-composed operator-facing label ('Yashoda 5', 'Godel 1 - Part 3'). Render this verbatim; do not join shed_name and partition_label on the client. */
+            operational_location_display: string;
         };
         ShiftingDestinationShed: {
             /**
@@ -9166,10 +12655,14 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing label for this destination option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing label for this destination option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display?: string;
             /** @description Live animal count for this operational location option (shed or partition), used to render dropdown option counts. */
             animal_count?: number;
+            /** @description The tag a movement into this pen would stamp when the raiser picks the "use destination tag" side of the raise form's tag toggle. Empty when the pen cannot supply one - then destination_stage_reason says why. Backend-resolved: the client must NOT derive this from management_stages, which is the residents' raw list rather than the resolved answer. */
+            destination_stage?: string;
+            /** @description Farm-worded reason the "use destination tag" option is unavailable for this pen, rendered VERBATIM under the greyed-out option. Empty when destination_stage is set; exactly one of the two is ever non-empty. One of "This destination has no tag set" (nothing authored, nothing living in it), "This destination holds a mix of tags" (several cohorts, no single answer), or "This destination's tag can only be set by the health team" (a clinical state such as ICU or Quarantine, which a movement may never assert). */
+            destination_stage_reason?: string;
         };
         RecordShiftingEventRequest: {
             /**
@@ -9202,10 +12695,15 @@ export interface components {
              */
             priority?: "high" | "low";
             /**
-             * @description Governing-doc taxonomy (Growth/Health/Breeding/Delivery). Omit to accept the declared default ('growth'). A present but unrecognized value is rejected.
+             * @description THE SHIFT TYPE, and since the 2026-08-20 rewrite the type DECIDES what happens to the animals' tag - the raiser no longer chooses. health takes the destination pen's tag on both legs (the one type allowed to stamp a clinical state - a health shift IS the health team acting, and the animal's vaccinations defer until the return leg). growth takes the destination tag FORWARD ONLY along the lifecycle ladder (one reverse edge, Pregnant to Non-Pregnant); a backward or sideways raise is rejected. breeding never changes the tag. delivery takes the destination tag except it never stamps the newborn stage (that tag belongs to the kids); into an empty untagged shed the mother keeps her tag and the shed adopts it. spacing moves the WHOLE source pen carrying its tag - the destination must carry the same tag or be empty (an empty pen adopts the tag); partial groups are rejected. flushing moves females onto flushing ration - empty or already-flushing destinations only. A raise a rule refuses is rejected at RAISE time with a farm-worded reason, before approval and before any video. Omit only from a legacy client (the stage_mode toggle then governs, unchanged). A present but unrecognized value is rejected.
              * @enum {string}
              */
-            category?: "growth" | "health" | "breeding" | "delivery";
+            category?: "growth" | "health" | "breeding" | "delivery" | "spacing" | "flushing";
+            /**
+             * @description LEGACY tag toggle, governing only a raise that omits category (a client predating the 2026-08-20 typed rewrite). When category is present the TYPE decides the tag and this field is ignored. 'destination_stage' makes the animals adopt the destination pen's tag; 'keep_current' leaves each animal on the tag it already carries. OMIT to accept the default, 'destination_stage'. A present but unrecognized value is rejected with invalid_stage_mode, never rewritten. The client sends only the MODE: the server still resolves the actual tag itself from the destination catalog, so a client can never name a cohort of its own (target_management_stage remains rejected as an unknown field).
+             * @enum {string}
+             */
+            stage_mode?: "destination_stage" | "keep_current";
             /** @description Optional free-text note from the operator raising the movement, explaining why the animals are being shifted. Shown to the park head deciding the approval and to the verifier reviewing the evidence. Blank or whitespace-only input normalizes to absent. A value longer than maxLength is rejected with comment_too_long, never truncated. */
             comment?: string;
             /** @description Optional reference to captured proof media for this movement. */
@@ -9510,10 +13008,14 @@ export interface components {
             farm_id?: string;
             farm_code?: string;
             /** Format: uuid */
-            park_id?: string;
+            park_id: string;
             park_code?: string;
-            /** Format: uuid */
-            shed_id?: string;
+            /**
+             * Format: uuid
+             * @description The pen the newborn is placed in. It must be one of the park's KID PENS - a pen whose configured tag is K0 - whenever that park has at least one, and a request naming any other pen is REJECTED with 400 invalid_newborn_placement rather than silently corrected (maintainer decision 2026-08-20). The kid pens a park offers are published per park on GET /app/counts/shifting/destinations as birth_placement.pens; resolve the placement there rather than filtering the shed list on destination_stage.
+             *     A park with NO kid pen configured accepts any active pen of that park: a birth is never lost over missing setup. The kid's care workflow then carries a "Record shed" step whose completion places the animal and tags that pen for kids, so the park's next birth places automatically.
+             */
+            shed_id: string;
             shed_code?: string;
             /** @description The pen within shed_id the newborn is placed into ('1', 'Part 3'), matching a row in shed_partitions for that shed. OPTIONAL and additive: omitting it keeps the previous behaviour exactly (the animal is placed at shed level with no goat_shed_partitions row), so clients that predate this field continue to work unchanged. When present it is validated against the shed's real partitions and a mismatch is rejected rather than stored, and it is persisted in the SAME transaction as the goat insert. Never the literal string "whole" - that is a matching sentinel, not a pen. */
             partition_label?: string | null;
@@ -9841,9 +13343,9 @@ export interface components {
             source_partition_label?: string | null;
             /** @description The pen this movement runs INTO. */
             destination_partition_label?: string | null;
-            /** @description Backend-composed operator-facing label for the source end ("Castro - 1"). Render this verbatim; do not rebuild it from shed name + partition on the client. Absent when the movement has no tracked origin. */
+            /** @description Backend-composed operator-facing label for the source end ("Castro 1"). Render this verbatim; do not rebuild it from shed name + partition on the client. Absent when the movement has no tracked origin. */
             source_operational_location_display?: string | null;
-            /** @description Backend-composed operator-facing label for the destination end ("Castro - 2"). Added 2026-08-06: this item previously shipped shed names only, so approve/execute rendered "Castro -> Castro" for a Castro 1 -> Castro 2 move while the Android DTO already declared the partition fields and deserialized them to null. */
+            /** @description Backend-composed operator-facing label for the destination end ("Castro 2"). Added 2026-08-06: this item previously shipped shed names only, so approve/execute rendered "Castro -> Castro" for a Castro 1 -> Castro 2 move while the Android DTO already declared the partition fields and deserialized them to null. */
             destination_operational_location_display?: string;
             /**
              * Format: uuid
@@ -9894,6 +13396,155 @@ export interface components {
             display_id: string;
             /** @description The animal's active primary ear-tag/RFID identifier, when it has one. This is the label physically attached to the animal, so it is what an operator actually reads in a shed. */
             tag?: string;
+        };
+        ClockLocation: {
+            /** @description captured | permission_missing | unavailable. */
+            status: string;
+            latitude?: number;
+            longitude?: number;
+            gps_accuracy_m?: number;
+            address?: string;
+        };
+        ClockIntegrity: {
+            mock_location: boolean;
+            mock_provider_packages?: string[];
+            developer_options_enabled?: boolean;
+        };
+        ClockPunchRequest: {
+            idempotency_key: string;
+            /** @description Device clock at tap time (RFC3339). */
+            captured_at: string;
+            /** @description True when captured without network and drained later. */
+            offline: boolean;
+            location: components["schemas"]["ClockLocation"];
+            integrity: components["schemas"]["ClockIntegrity"];
+            battery_pct?: number;
+            /** @description wifi | cellular when online; informational. */
+            network_kind?: string;
+        };
+        ClockFlag: {
+            key: string;
+            label: string;
+        };
+        ClockEntry: {
+            clock_entry_id: string;
+            workforce_member_id: string;
+            person_name: string;
+            role_hint?: string;
+            designation?: string;
+            park_id?: string;
+            park_label?: string;
+            department_label?: string;
+            business_date: string;
+            /** @description open | closed | auto_closed; empty for a not-clocked-in row. */
+            status: string;
+            clock_in_at: string;
+            /** @description Backend-composed IST time label ("08:12"). */
+            clock_in_label: string;
+            clock_out_at?: string;
+            clock_out_label?: string;
+            /** @description Backend-owned hours truth; absent while open and forever on auto_closed. */
+            worked_minutes?: number;
+            hours_label?: string;
+            /** @description The clock-in punch's reverse-geocoded address. */
+            location_label?: string;
+            /** @description Device model · app version at clock-in. */
+            device_label?: string;
+            flags: components["schemas"]["ClockFlag"][];
+        };
+        ClockPunchResponse: {
+            entry: components["schemas"]["ClockEntry"];
+            trace_id: string;
+        };
+        ClockStatusResponse: {
+            business_date: string;
+            /** @description not_clocked_in | clocked_in | clocked_out. */
+            state: string;
+            entry?: components["schemas"]["ClockEntry"];
+            /** @description Backend-owned shell reminder; empty means no banner. */
+            banner_text?: string;
+            /** @description Farm-worded refusal template; %s is the app label list. */
+            punch_refused_copy: string;
+            copy: {
+                [key: string]: string;
+            };
+            recent_entries: components["schemas"]["ClockEntry"][];
+            trace_id: string;
+        };
+        ClockPresenceSummary: {
+            working: number;
+            clocked_out: number;
+            not_clocked_in: number;
+            /** @description Counts flagged ENTRIES; overlaps the working/clocked_out buckets. */
+            flagged: number;
+        };
+        ClockPresenceRow: {
+            clock_entry_id?: string;
+            workforce_member_id: string;
+            person_name: string;
+            designation?: string;
+            park_label?: string;
+            /** @description working | clocked_out | not_clocked_in. */
+            bucket: string;
+            /** @description Backend-composed row line; empty for not clocked in. */
+            time_label: string;
+            /** @description The clock-in punch's captured address — where the person actually punched. The park column is their ASSIGNED park from the roster; empty for rows recorded before the location-mandatory rule. */
+            location_label?: string;
+            clock_in_at?: string;
+            clock_out_at?: string;
+            worked_minutes?: number;
+            flags: components["schemas"]["ClockFlag"][];
+        };
+        ClockFilterOption: {
+            id: string;
+            code: string;
+            label: string;
+        };
+        ClockPresenceResponse: {
+            business_date: string;
+            is_today: boolean;
+            summary: components["schemas"]["ClockPresenceSummary"];
+            rows: components["schemas"]["ClockPresenceRow"][];
+            next_cursor: string;
+            parks: components["schemas"]["ClockFilterOption"][];
+            designations: components["schemas"]["ClockFilterOption"][];
+            copy: {
+                [key: string]: string;
+            };
+            trace_id: string;
+        };
+        ClockEventDetail: {
+            clock_event_id: string;
+            event_type: string;
+            business_date: string;
+            captured_at: string;
+            recorded_at: string;
+            clock_skew_ms?: number;
+            location_status: string;
+            latitude?: number;
+            longitude?: number;
+            gps_accuracy_m?: number;
+            address?: string;
+            mock_location: boolean;
+            developer_options_enabled?: boolean;
+            device_model?: string;
+            app_version?: string;
+            os_version?: string;
+            network_type: string;
+            battery_pct?: number;
+        };
+        ClockPersonDayResponse: {
+            person_name: string;
+            designation?: string;
+            park_label?: string;
+            business_date: string;
+            entry?: components["schemas"]["ClockEntry"];
+            events: components["schemas"]["ClockEventDetail"][];
+            recent_days: components["schemas"]["ClockEntry"][];
+            copy: {
+                [key: string]: string;
+            };
+            trace_id: string;
         };
     };
     responses: {
@@ -10008,6 +13659,445 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    ingestHerdSignalPackets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HerdSignalsIngestRequest"];
+            };
+        };
+        responses: {
+            /** @description Packets accepted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalsIngestResponse"];
+                };
+            };
+            /** @description Invalid request body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listHerdSignalsLive: {
+        parameters: {
+            query?: {
+                /** @description Filters to animals resolved to this park. An unmapped tag has no park and never matches. */
+                park_id?: string;
+                /** @description Filters to animals resolved to this shed. An unmapped tag has no shed and never matches. */
+                shed_id?: string;
+                movement_state?: components["schemas"]["HerdSignalMovementState"];
+                mapping_state?: components["schemas"]["HerdSignalMappingState"];
+                pattern?: components["schemas"]["HerdSignalPatternFilter"];
+                /** @description Free-text search over display id, tag id, MAC, shed name, gateway id. */
+                q?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Live tag list with a whole-filter summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalsLiveResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getHerdSignalsTagTimeline: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                bucket_seconds?: 60 | 300 | 3600;
+            };
+            header?: never;
+            path: {
+                tag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dense bucketed motion history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalTimelineResponse"];
+                };
+            };
+            /** @description Missing from/to, to before from, unsupported bucket_seconds, or the range spans too many buckets at the requested resolution. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listHerdSignalsGateways: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Gateway list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdGatewaysResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getHerdSignalsInsights: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Insight cards. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdInsightsResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    bindHerdSignalTagMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HerdSignalsBindTagMappingRequest"];
+            };
+        };
+        responses: {
+            /** @description The binding now in force. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalsTagMappingResponse"];
+                };
+            };
+            /** @description Missing or malformed goat_id/tag_id, or an identifier_type outside the allowed set. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such animal in this tenant. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The tag value is already claimed by another animal, the animal already carries a live smart tag (use the replace endpoint), or the value is held by a non-active identifier. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    replaceHerdSignalTagMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HerdSignalsReplaceTagMappingRequest"];
+            };
+        };
+        responses: {
+            /** @description The new binding, and the identifiers whose binding this ended. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalsTagMappingResponse"];
+                };
+            };
+            /** @description Missing or malformed goat_id/new_tag_id, or an identifier_type outside the allowed set. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such animal in this tenant. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The animal has no live smart tag to replace, already carries exactly this tag, or the new tag value is claimed by another animal. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    unmapHerdSignalTagMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HerdSignalsUnmapTagMappingRequest"];
+            };
+        };
+        responses: {
+            /** @description The binding that was released. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalsTagMappingResponse"];
+                };
+            };
+            /** @description Missing tag_id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description That tag is not mapped to an animal. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    recordHerdSignalGatewayHeartbeat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HerdSignalsGatewayHeartbeatRequest"];
+            };
+        };
+        responses: {
+            /** @description Heartbeat recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalsGatewayHeartbeatResponse"];
+                };
+            };
+            /** @description Missing gateway_id, or a state that is not the gateway heartbeat state. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    exportHerdSignalsCsv: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                shed_id?: string;
+                movement_state?: components["schemas"]["HerdSignalMovementState"];
+                mapping_state?: components["schemas"]["HerdSignalMappingState"];
+                pattern?: components["schemas"]["HerdSignalPatternFilter"];
+                /** @description Free-text search over display id, tag id, MAC, shed name, gateway id. */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV file of the filtered live view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getHerdSignalsTagActivity: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+            };
+            header?: never;
+            path: {
+                tag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Farm-activity markers for the effective window. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdSignalActivityResponse"];
+                };
+            };
+            /** @description Missing from/to, to before from, or a range longer than 31 days. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such tag for this tenant. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     retrySOPReviewFanouts: {
         parameters: {
             query?: never;
@@ -10344,6 +14434,10 @@ export interface operations {
                 from?: string;
                 /** @description Inclusive Asia/Kolkata business date. Defaults to today. */
                 to?: string;
+                /** @description Optional park narrowing inside the caller's authorized monitor scope. */
+                park_id?: string;
+                /** @description Optional repeated shed location ids (the Weights table's location grain). Absent means every shed in scope. */
+                shed_id?: string[];
             };
             header?: never;
             path?: never;
@@ -10560,6 +14654,15 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            /** @description `shed_count_unavailable` — the herd register holds no animals for this shed/pen, so there is no head count to snapshot (the count is taken from the register at submit since 2026-08-24, never typed by the operator). The remedy is a register fix, then resubmit. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             500: components["responses"]["ServerError"];
         };
     };
@@ -10747,6 +14850,8 @@ export interface operations {
                 park_id?: string;
                 from?: string;
                 to?: string;
+                /** @description `male` or `female` to report on that half of the herd only; omitted means every kid. An unknown value is REJECTED rather than ignored, because silently widening a filter shows a reader more kids than the heading they are reading says. An individual weigh is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed shed is claimed by neither side rather than split. */
+                sex?: "male" | "female";
             };
             header?: never;
             path?: never;
@@ -10777,6 +14882,8 @@ export interface operations {
                 park_id?: string;
                 from?: string;
                 to?: string;
+                /** @description `male` or `female` to report on that half of the herd only; omitted means every kid. An unknown value is REJECTED rather than ignored, because silently widening a filter shows a reader more kids than the heading they are reading says. An individual weigh is claimed through the animal its scanned tag resolves to; a whole-shed weigh has no tag and is claimed only when the shed's own cohort is entirely that sex, so a mixed shed is claimed by neither side rather than split. */
+                sex?: "male" | "female";
             };
             header?: never;
             path?: never;
@@ -10960,6 +15067,42 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    correctWeighingObservationWeight: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The observation the verification item points at (`source.ref_id`). */
+                observation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WeighingWeightCorrectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Weight corrected, or the same correction idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingWeightCorrectionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -11658,6 +15801,65 @@ export interface operations {
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    discardProtocolVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: components["parameters"]["ProtocolVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Draft discarded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    replaceProtocolDraftVersion: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                version_id: components["parameters"]["ProtocolVersionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceProtocolDraftVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Draft replaced. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateProtocolVersionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -12593,6 +16795,192 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    getFeedAnalyticsDirected: {
+        parameters: {
+            query?: {
+                /** @description Narrow to one park. Absent means every park the caller is authorized for -- a park-scoped principal can never widen past their grant. */
+                park_id?: string;
+                /** @description Inclusive window start (Asia/Kolkata business date). Defaults to 29 days before `date_to`. The window is capped at 92 days, keeping the most recent days. */
+                date_from?: string;
+                /** @description Inclusive window end. Defaults to YESTERDAY: today's sheet is still being executed, so the backend owns the exclude-today rule rather than each client subtracting a day. */
+                date_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Day totals and per-item series, ordered by feed day ascending. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedAnalyticsDirectedResponse"];
+                };
+            };
+            /** @description Malformed date or park id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller lacks feed direction read for the requested scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getFeedAnalyticsExecution: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                date_from?: string;
+                /** @description Inclusive window end, defaulting to yesterday; window capped at 92 days. */
+                date_to?: string;
+                /** @description Mismatch rows per page (1-100); absent takes the contract default of 25. */
+                variance_limit?: number;
+                /** @description Mismatch rows to skip (0-5000). Out of range is rejected with 400 rather than clamped: silently serving page one under a deeper page's heading answers a different question than the URL asks. */
+                variance_offset?: number;
+                /** @description Optional mismatch-table farm label filter, applied before variance_limit/variance_offset so paging is over the narrowed result set. Authorization still comes from park_id and the caller's server-side park grants; this is a table display filter, not a scope grant. */
+                variance_park_label?: string;
+                /** @description Optional mismatch-table feed item key filter, applied before variance_limit/variance_offset so a matching item on a later unfiltered page is not hidden by client-side filtering. */
+                variance_feed_item_key?: string;
+                /** @description The SINGLE business day the `distribution_completions` arm describes, independent of the window above. Defaults to YESTERDAY (Asia/Kolkata) -- the same basis the rest of the page states. Today is deliberately not the default: mid-day, every pen-session not yet fed would list as untouched, reading as a failure rather than as work in progress. */
+                completion_day?: string;
+                /** @description Completion rows per page (1-100); absent takes the contract default of 10. */
+                completion_limit?: number;
+                /** @description Completion rows to skip (0-5000). Out of range is rejected with 400 rather than clamped, for the same reason as variance_offset. */
+                completion_offset?: number;
+                /** @description Optional completion-table farm filter, applied before completion_limit/completion_offset so paging is over the narrowed set. Authorization still comes from park_id and the caller's park grants; this is a display filter, not a scope grant. */
+                completion_park_id?: string;
+                /** @description Optional completion-table shed filter. Keyed by shed id, never by name: shed names repeat across farms, so a name filter would merge two real sheds. */
+                completion_shed_id?: string;
+                /**
+                 * @description Optional completion-table status filter. An unknown value is rejected with 400 rather than ignored: answering a filtered request with every row, under the heading of the filter the caller asked for, misstates the day.
+                 *
+                 *     It narrows the ROWS only. `completion_totals` deliberately ignores it, so the four counts keep describing the whole day at the selected place scope.
+                 */
+                completion_status?: "not_started" | "pending_verification" | "rework" | "completed";
+                /** @description Comma-separated arms to compute; omit for all. Each arm is several queries, so a page that needs one array from a second, differently-scoped read should ask for that arm alone. An unrequested arm comes back empty, NOT absent. An unknown name is rejected with 400 rather than ignored, because serving a payload without the array the caller asked for renders as "no data" on screen. */
+                sections?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-day status counts, ordered by date ascending. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedAnalyticsExecutionResponse"];
+                };
+            };
+            /** @description Malformed date or park id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller lacks feed direction read for the requested scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getFeedAnalyticsExperiment: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                date_from?: string;
+                /** @description Inclusive window end, defaulting to yesterday; window capped at 92 days. */
+                date_to?: string;
+                /** @description The single business day the per-pen wastage table describes, defaulting to TODAY (Asia/Kolkata) — wastage is collected live during the feed day, unlike the kg window which ends yesterday. */
+                wastage_day?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-(day, feed item) authored kg plus the selected day's per-pen wastage. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedAnalyticsExperimentResponse"];
+                };
+            };
+            /** @description Malformed date or park id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller lacks feed direction read for the requested scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getFeedAnalyticsStock: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                date_from?: string;
+                /** @description Inclusive expenditure-window end, defaulting to yesterday; capped at 92 days. */
+                date_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stock cards (all items) and the expenditure series for the window. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedAnalyticsStockResponse"];
+                };
+            };
+            /** @description Malformed date or park id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller lacks feed direction read for the requested scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     getFeedDirectionPreview: {
         parameters: {
             query: {
@@ -12633,6 +17021,39 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
+        };
+    };
+    getFeedDistributionCaptures: {
+        parameters: {
+            query: {
+                /** @description Optional; the server resolves the tenant's default park when omitted. */
+                park_id?: string;
+                shed_id: string;
+                /** @description The PEN inside the shed ("2", "Part 3"). Omit or send "" for an undivided shed. */
+                partition_label?: string;
+                /** @description A pen's morning and evening are separate bags; 0 matches no worklist line. */
+                session_no: number;
+                target_date: string;
+                workflow: "normal" | "experiment";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pen-session's already-recorded proof slots (at most one row per slot). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedDistributionCapturesResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getFeedPackingWorklist: {
@@ -12735,7 +17156,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
-            /** @description A mandatory proof is missing (`code: proof_required`): either the feed-distribution video or the water-distribution proof was blank. */
+            /** @description A mandatory proof is missing or is the wrong capture kind (`code: proof_required`): the feed-weight photo, the feed-distribution video, or the water-distribution video. The message names which one; the code is the same for all three. */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -12791,6 +17212,134 @@ export interface operations {
                 };
             };
             /** @description The mandatory packing video is missing (`code: proof_required`). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getFeedWastageWorklist: {
+        parameters: {
+            query: {
+                park_id: string;
+                /** @description The feed day, as an India business-calendar date (Asia/Kolkata). */
+                target_date: string;
+                shed_id?: string;
+                /** @description Narrow to one pen; only meaningful with shed_id. */
+                partition_label?: string;
+                /** @description Narrow to one verification-lifecycle bucket. Absent returns every status. Applied over the whole scope before paging, so a filtered page and its summary agree. */
+                status?: "pending" | "pending_verification" | "completed";
+                /** @description Number of SHEDS per page (not rows). Absent uses the server default (25); a PRESENT but out-of-range value is a 400, never silently clamped. */
+                limit?: components["parameters"]["FeedDirectionLimit"];
+                /** @description Shed offset. Bounded rather than growable: the paged set is the park's shed catalog, a small stable configuration list, so the offset cannot grow with herd size and a value past the maximum is rejected outright. */
+                offset?: components["parameters"]["FeedDirectionOffset"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the wastage worklist plus its lifecycle, or the sheet's pending/never-issued state with zero rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedWastageWorklistPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    completeFeedWastage: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedWastageCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description The pen-day is recorded pending_verification (or already held THIS SAME video). The wastage task is not done until a verifier approves. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedWastageCompleteResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description Either the `Idempotency-Key` was reused with a different payload, or this pen-day already holds a DIFFERENT wastage video. A pen-day accepts exactly ONE video, so a second, different one is a CONFLICT and not a replay — the client must treat this as TERMINAL and surface it, never retry it. A genuine re-send of the SAME `wastage_proof_ref` under a new key still returns `200`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The mandatory wastage video is missing (`code: proof_required`), or the pen is not on that day's experiment sheet (`code: not_experiment_pen`). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordFeedWastageMeasurement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                completion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedWastageMeasurementRequest"];
+            };
+        };
+        responses: {
+            /** @description The measurement is recorded and the queue item's label restated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedWastageMeasurementResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            /** @description The value is missing (`code: missing_wastage`) or out of range (`code: wastage_out_of_range` — 0 to 10000 kg). The message is the sentence to render. */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -12876,6 +17425,475 @@ export interface operations {
             };
         };
     };
+    appPCCarePlannerCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The planner vocabulary, filtered to the caller's authorized parks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCarePlannerCatalog"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appPCCarePlannerParkSheds: {
+        parameters: {
+            query: {
+                category: components["schemas"]["PCCareCategory"];
+                /** @description The planned business date (Asia/Kolkata). */
+                date: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                park_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of pens. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCarePlannerSheds"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appListPCCareTasks: {
+        parameters: {
+            query: {
+                /** @description The due business date (Asia/Kolkata). */
+                date: string;
+                park_id?: string;
+                category?: components["schemas"]["PCCareCategory"];
+                limit?: number;
+                /** @description Opaque keyset cursor returned as next_cursor by the previous page. */
+                cursor?: string;
+                /** @description Include open carry-over tasks due before the requested date, plus that day's rows. */
+                current_or_carry?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of tasks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareTaskPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appCreatePCCareTask: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PCCareCreateTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description The planned task. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareTask"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description A live task already covers this pen, category and date (task_already_planned) or the idempotency key was reused with a different request. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown category, no assignees, or a pen outside the shed's partition catalog. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appCancelPCCareTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task is canceled (idempotent — an already-terminal task is a no-op). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status: string;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appPCCareWorklist: {
+        parameters: {
+            query: {
+                category: components["schemas"]["PCCareCategory"];
+                date: string;
+                limit?: number;
+                /** @description Opaque keyset cursor returned as next_cursor by the previous page. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One bounded page of the caller's assigned tasks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareTaskPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appGetPCCareTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareTask"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appPCCareTaskRoster: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the pen's resident RFIDs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareTaskRoster"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appPCCareTaskCaptures: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of scanned animals with slot attribution. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareCapturesResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appScanPCCareAnimal: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PCCareScanRequest"];
+            };
+        };
+        responses: {
+            /** @description The durable scan row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareScanResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description Already scanned in this task (duplicate_scan) or the task is locked (task_locked). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appRegisterPCCareSlotProof: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+                animal_row_id: string;
+                slot: "video" | "before_video" | "during_video" | "after_video";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PCCareSlotProofRequest"];
+            };
+        };
+        responses: {
+            /** @description The slot's video reference is recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description The task is locked (task_locked). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The slot does not belong to this category (invalid_slot) or the proof could not be verified (invalid_proof / proof_required). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appRegisterPCCareTaskProof: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+                slot: "stock_fridge_photo" | "stock_fridge_video";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PCCareSlotProofRequest"];
+            };
+        };
+        responses: {
+            /** @description The task-level proof reference is recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description The task is locked (task_locked). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description The slot does not belong to this category (invalid_slot) or the proof could not be verified (invalid_proof / proof_required). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appSubmitPCCareTask: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The submit outcome (idempotent — a resend echoes the current state). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PCCareSubmitResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description Some animals still miss required videos (proof_incomplete) or none are scanned (no_animals). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
     listFeedConfigRationRates: {
         parameters: {
             query: {
@@ -12945,6 +17963,63 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listProcurementSourceEntryLoads: {
+        parameters: {
+            query?: {
+                /** @description Optional load status filter. */
+                status?: string;
+                /** @description Opaque keyset cursor from a previous response. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of source-entry loads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            load_id: string;
+                            tenant_id: string;
+                            source_party_id: string;
+                            source_party_name?: string;
+                            source_location_id?: string | null;
+                            source_location_code?: string | null;
+                            source_location_name?: string | null;
+                            expected_count: number;
+                            /** Format: date-time */
+                            purchase_date?: string | null;
+                            /** Format: date-time */
+                            planned_dispatch_at?: string | null;
+                            status: string;
+                            notes?: string;
+                            context?: {
+                                [key: string]: unknown;
+                            };
+                            /** Format: date-time */
+                            created_at: string;
+                            /** Format: date-time */
+                            updated_at: string;
+                            row_version: number;
+                        }[];
+                        next_cursor?: string | null;
+                        trace_id: string;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -13107,6 +18182,29 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    listProcurementVendorOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The active register, name-ordered. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcurementVendorOptions"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     listProcurementVendorCatalog: {
         parameters: {
             query?: never;
@@ -13127,6 +18225,643 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listFeedPurchases: {
+        parameters: {
+            query?: {
+                farm?: "all" | "CBE" | "CPT";
+                limit?: number;
+                /** @description Rows to skip. Bounded on purpose -- the ledger grows with loads bought, never with herd size. A request past the cap is REJECTED rather than clamped, so a page number never shows the wrong rows. */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the ledger plus its whole-filter aggregates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPurchasePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createFeedPurchase: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedPurchaseWrite"];
+            };
+        };
+        responses: {
+            /** @description The recorded purchase. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPurchase"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getFeedPurchaseOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The entry form's vocabularies. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPurchaseOptions"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listToxinTasks: {
+        parameters: {
+            query?: {
+                /** @description The list slice to serve, named by KEY. The backend owns which statuses each key means, so "pending" is one definition across every surface. Absent or unknown resolves to `all`, so a stale client sees its work rather than an empty screen. */
+                filter?: "all" | "pending" | "completed";
+                /** @description Comma-separated statuses (in_progress, pending_review, accepted, cancelled). Overrides `filter` when present; prefer `filter` in clients. */
+                status?: string;
+                limit?: number;
+                /** @description Keyset cursor from a previous page's next_cursor. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of toxin tasks plus whole-tenant status counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToxinTaskPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getToxinTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToxinTaskDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    completeToxinStep: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                task_id: string;
+                step_no: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToxinStepCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description The task detail after the step landed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToxinTaskDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    submitToxinReading: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToxinSubmitRequest"];
+            };
+        };
+        responses: {
+            /** @description The task detail after the reading landed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToxinTaskDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listToxinReview: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated statuses; absent means pending_review. */
+                status?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of tasks awaiting review plus whole-tenant status counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToxinTaskPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordToxinVerdict: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ToxinVerdictRequest"];
+            };
+        };
+        responses: {
+            /** @description The task detail after the verdict landed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToxinTaskDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSalesOverview: {
+        parameters: {
+            query?: {
+                /** @description Farm scope. Absent or `all` means the whole company; anything else is rejected. */
+                farm?: "all" | "CBE" | "CPT";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole page contract. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesOverview"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSalesDeals: {
+        parameters: {
+            query?: {
+                farm?: "all" | "CBE" | "CPT";
+                limit?: number;
+                /** @description Rows to skip. Bounded on purpose -- the ledger is an authored commercial record that grows with deals closed, never with herd size. A request past the cap is REJECTED rather than clamped, so a page number never shows the wrong rows. */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the ledger plus the whole-filter total. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDealPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createSalesDeal: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesDealWrite"];
+            };
+        };
+        responses: {
+            /** @description The recorded deal. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDeal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSalesBuyerLeads: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of buyer leads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesBuyerLeadPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createSalesBuyerLead: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesBuyerLeadWrite"];
+            };
+        };
+        responses: {
+            /** @description The recorded lead. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesBuyerLead"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setSalesBuyerLeadStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesLeadStatusWrite"];
+            };
+        };
+        responses: {
+            /** @description The updated lead. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesBuyerLead"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSalesFpoLeads: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of farmer-group leads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesFpoLeadPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createSalesFpoLead: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesFpoLeadWrite"];
+            };
+        };
+        responses: {
+            /** @description The recorded lead. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesFpoLead"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setSalesFpoLeadStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                lead_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesLeadStatusWrite"];
+            };
+        };
+        responses: {
+            /** @description The updated lead. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesFpoLead"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createSalesMarketBenchmark: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesBenchmarkWrite"];
+            };
+        };
+        responses: {
+            /** @description Recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesRecorded"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createSalesSoldTags: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesSoldTagsWrite"];
+            };
+        };
+        responses: {
+            /** @description How many animals were recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesSoldTagsResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createSalesWeightCheck: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesWeightCheckWrite"];
+            };
+        };
+        responses: {
+            /** @description Recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesRecorded"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -13354,6 +19089,38 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UpsertFeedConfigScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description The authored edit's outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setFeedConfigSessionTemplateItem: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetFeedConfigSessionTemplateItemRequest"];
             };
         };
         responses: {
@@ -13990,6 +19757,35 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    adminRosterCoverage: {
+        parameters: {
+            query?: {
+                scope_type?: string;
+                scope_id?: string;
+                active?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workforce coverage rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoverageListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     appRescheduleObligation: {
         parameters: {
             query?: never;
@@ -14304,11 +20100,41 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    getHerdAnalytics: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Live composition series plus the month-by-month flow series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdAnalyticsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     getMilkPreparation: {
         parameters: {
             query?: {
                 /** @description Optional park scope from the admin top bar. */
                 park_id?: string;
+                /** @description Business day (YYYY-MM-DD, IST) to render; absent means today. */
+                preparation_date?: string;
                 limit?: number;
                 /** @description Offset over the bounded physical shed x milk cohort grain set. */
                 offset?: number;
@@ -14338,6 +20164,8 @@ export interface operations {
         parameters: {
             query?: {
                 park_id?: string;
+                /** @description Business day (YYYY-MM-DD, IST) to render; absent means today. */
+                preparation_date?: string;
                 limit?: number;
                 offset?: number;
             };
@@ -14705,6 +20533,99 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVerificationSampling: {
+        parameters: {
+            query?: {
+                /** @description Asia/Kolkata calendar day, YYYY-MM-DD. Defaults to today. A future date is rejected (422 future_business_date) rather than answering about a different day than the one printed above the panel. */
+                business_date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every registered category's sampling percentage and that day's progress. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationSamplingResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setVerificationSamplingPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The registered verification category token, as returned by the GET. */
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetVerificationSamplingPolicyRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated category row, including the day's progress against the new share. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationSamplingCategory"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVerificationVideoLog: {
+        parameters: {
+            query?: {
+                /** @description Asia/Kolkata calendar day, YYYY-MM-DD. Defaults to today. A future date is rejected (422 future_business_date) rather than returning an empty log that reads as "nothing was filmed". */
+                business_date?: string;
+                /** @description Optional park filter, applied ON TOP of the caller's authorized park scope. */
+                park_id?: string;
+                /** @description Selects one operational location for the detail level. Carries the composite "<shed_uuid>#<normalized partition>" form the queue's shed filter uses -- a bare shed uuid cannot tell Castro 1 from Castro 2, and is accepted as "any partition of this shed". Use the shed_key returned on each summary row. */
+                shed_id?: string;
+                /** @description Whole-day EXPORT: returns rows for every shed in scope, each carrying its own location, instead of only the selected shed. Ignores shed_id. This is the one caller allowed to read the day at row grain and is intended for a CSV download, never for rendering a screen -- the panel stays two-level because a park-day can carry several hundred items. Bounded at 20000 rows, with rows_truncated set if the day exceeds that. */
+                all_sheds?: boolean;
+                /** @description Bounds the row read (default 200, maximum 500; for all_sheds the default and maximum are both 20000). When more work exists than the limit allows, rows_truncated is true so a partial day is never presented as a whole one. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The day's per-shed arrival summary, plus one shed's detail when requested. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationVideoLogResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -15853,6 +21774,151 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CeoMessageList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordAppClockIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClockPunchRequest"];
+            };
+        };
+        responses: {
+            /** @description The day entry this punch produced. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockPunchResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordAppClockOut: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClockPunchRequest"];
+            };
+        };
+        responses: {
+            /** @description The closed day entry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockPunchResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAppClockStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's clock state for today. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockStatusResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listAppClockPresence: {
+        parameters: {
+            query?: {
+                /** @description IST business date (YYYY-MM-DD); absent means today. */
+                date?: string;
+                park_id?: string;
+                /** @description Role-hint filter (operator, park_head, ...). */
+                designation?: string;
+                /** @description working | clocked_out | not_clocked_in | flagged. */
+                bucket?: string;
+                /** @description Person name search. */
+                q?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The presence page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockPresenceResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAppClockPresencePerson: {
+        parameters: {
+            query?: {
+                /** @description IST business date (YYYY-MM-DD); absent means today. */
+                date?: string;
+            };
+            header?: never;
+            path: {
+                workforce_member_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The person-day detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockPersonDayResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];

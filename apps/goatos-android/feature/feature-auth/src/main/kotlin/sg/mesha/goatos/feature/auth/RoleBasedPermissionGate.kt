@@ -215,7 +215,7 @@ fun RoleBasedPermissionGate(
                 onClick = {
                     if (canPrompt) {
                         onPermissionPrompted()
-                        permissionLauncher.launch(missingPermissions.toTypedArray())
+                        permissionLauncher.launch(requestPermissionsFor(missingPermissions).toTypedArray())
                     } else {
                         context.startActivity(appPermissionSettingsIntent(context.packageName))
                     }
@@ -234,8 +234,9 @@ fun RoleBasedPermissionGate(
  * Derive required permissions from the NavState and modules.
  *
  * Operator: the full proof/scan bundle up front: camera, microphone, precise
- * location, coarse location, BLE/Nearby Devices, notifications.
- * Verifier/Director/CEO: notifications only (for now)
+ * location, BLE/Nearby Devices, notifications.
+ * Verifier/Director/CEO: notifications + precise location (everyone clocks,
+ * and a clock punch requires a real fix — maintainer decision 2026-08-29).
  *
  * Uses module availability as the source, not hardcoded role strings.
  */
@@ -244,20 +245,24 @@ fun deriveRequiredPermissions(navState: NavState): List<String> {
     val isOperator = navState.featureFlags["vaccination_execute"] == true ||
             navState.featureFlags["weighing_execute"] == true
 
-    val required = mutableListOf<String>() // mobile-guard:ignore: function-local, at most 4 permission names, discarded on return
+    val required = mutableListOf<String>() // mobile-guard:ignore: function-local, at most 6 permission names, discarded on return
 
     // Always require notifications
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         required.add(AppPermission.NOTIFICATIONS.manifestPermission)
     }
 
+    // Everyone clocks (module clock, plan §9 D2) and a clock punch REQUIRES a real
+    // location fix (maintainer decision 2026-08-29) — so precise location is mandatory
+    // for EVERY role, not just operators. Without this, a leadership login's gate never
+    // asked for location and their clock-in was refused location_required.
+    required.add(Manifest.permission.ACCESS_FINE_LOCATION)
+
     if (isOperator) {
         // Operators record proof from the field. Ask for the same mandatory bundle the
         // capture gate enforces, before the operator enters Feed/Vaccination/Weighing.
         required.add(Manifest.permission.CAMERA)
         required.add(Manifest.permission.RECORD_AUDIO)
-        required.add(Manifest.permission.ACCESS_COARSE_LOCATION)
-        required.add(Manifest.permission.ACCESS_FINE_LOCATION)
 
         // Operator requires Android 12+ Nearby Devices permissions for RFID reader readiness and
         // future scan/pairing affordances.
@@ -287,3 +292,12 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     is ContextWrapper -> baseContext.findActivity()
     else -> null
 }
+
+internal fun requestPermissionsFor(missingPermissions: Collection<String>): List<String> = buildList {
+    missingPermissions.forEach { permission ->
+        if (permission == Manifest.permission.ACCESS_FINE_LOCATION) {
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        add(permission)
+    }
+}.distinct()

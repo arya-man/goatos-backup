@@ -26,10 +26,19 @@ type Service struct {
 	media    ports.MediaResolver
 	registry *domain.Registry
 	now      func() time.Time
+	// measurementAppliers holds the producing module that owns the WRITE for each category whose
+	// approve can carry a number. See measurement.go.
+	measurementAppliers map[string]MeasurementApplier
 }
 
 func NewService(repo ports.Repository, media ports.MediaResolver) *Service {
-	return &Service{repo: repo, media: media, registry: domain.NewRegistry(), now: time.Now}
+	return &Service{
+		repo:                repo,
+		media:               media,
+		registry:            domain.NewRegistry(),
+		now:                 time.Now,
+		measurementAppliers: map[string]MeasurementApplier{},
+	}
 }
 
 // RegisterCategory adds one plug-and-play category entry (composition-time wiring; see
@@ -41,6 +50,13 @@ func (s *Service) RegisterCategory(def domain.CategoryDefinition) error {
 // Categories lists every registered category (admin-web/mobile filter chips read this).
 func (s *Service) Categories() []domain.CategoryDefinition {
 	return s.registry.List()
+}
+
+// Category returns one registered category definition, for the wire layer to read a
+// per-item declaration off (today: the correctable-measurement copy). Missing is not
+// an error -- an item whose category is unregistered simply gets no declaration.
+func (s *Service) Category(category string) (domain.CategoryDefinition, bool) {
+	return s.registry.Get(category)
 }
 
 // CreateItem is the producer-facing API: any module (vaccination first; feed/diagnosis/death/
@@ -104,6 +120,18 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	params.BusinessDate = strings.TrimSpace(params.BusinessDate)
 	params.BusinessDateFrom = strings.TrimSpace(params.BusinessDateFrom)
 	params.BusinessDateTo = strings.TrimSpace(params.BusinessDateTo)
+	// The capture-date RANGE is gated separately from the cross-module chrome
+	// (permissions.VerificationFilterByCaptureDate): a verifier may narrow her own queue to the
+	// days she is working, which crosses no module boundary. See ports.ListQueueParams.
+	//
+	// EITHER capability satisfies it, deliberately. The range used to ride on oversight alone, so
+	// making the new capability the ONLY key would have silently REMOVED the range from any caller
+	// holding oversight without it -- a regression dressed as a refactor. Leadership holds both
+	// today; this keeps that true even if the grants drift apart later.
+	if !params.CaptureDateFilterEnabled && !params.OversightFiltersEnabled {
+		params.BusinessDateFrom = ""
+		params.BusinessDateTo = ""
+	}
 	if !params.OversightFiltersEnabled {
 		// The oversight-only query shape: a cross-module NavigationModule filter and a
 		// multi-day BusinessDateFrom/BusinessDateTo range. A caller without
@@ -112,8 +140,6 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 		// principal who does) must fall back to that caller's normal one-business-day queue
 		// rather than take the whole board down. See ports.ListQueueParams.OversightFiltersEnabled.
 		params.NavigationModule = ""
-		params.BusinessDateFrom = ""
-		params.BusinessDateTo = ""
 	}
 	if err := s.applyNavigationModuleFilter(&params); err != nil {
 		return QueueResult{}, err
@@ -542,6 +568,12 @@ func labelMedia(media []domain.MediaItem, def domain.CategoryDefinition) {
 // REQUIRES a non-empty reason: 422 Unprocessable (syntactically valid, fails the business rule), also
 // enforced at the storage layer (verification_items_reject_reason_check).
 func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.Item, error) {
+	return s.withVerdictLock(ctx, in.TenantID, in.ItemID, func(ctx context.Context) (domain.Item, error) {
+		return s.recordVerdict(ctx, in)
+	})
+}
+
+func (s *Service) recordVerdict(ctx context.Context, in domain.Verdict) (domain.Item, error) {
 	in.TenantID = strings.TrimSpace(in.TenantID)
 	in.ItemID = strings.TrimSpace(in.ItemID)
 	in.Decision = strings.TrimSpace(in.Decision)
@@ -571,6 +603,15 @@ func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.
 	// Reject/rework is deliberately NOT gated: when the proof is gone, sending the work back so the
 	// team records it again is the ONLY correct move left, and gating it would strand the verifier
 	// with an item she can neither approve nor return.
+	// A number is part of an APPROVE and nothing else. A reject sends the work back to be recorded
+	// again, so applying a reading to a record that is about to be redone would store a number
+	// nobody will use -- drop it here rather than let it reach a producer.
+	if in.Decision != domain.DecisionApproved {
+		in.Measurement = nil
+	}
+	if err := validateMeasurement(in.Measurement); err != nil {
+		return domain.Item{}, err
+	}
 	if in.Decision == domain.DecisionApproved {
 		itemForEvidence, err := s.repo.GetItem(ctx, in.TenantID, in.ItemID)
 		if err != nil {
@@ -578,6 +619,27 @@ func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.
 		}
 		if err := s.assertEvidenceApprovable(ctx, in.TenantID, itemForEvidence); err != nil {
 			return domain.Item{}, err
+		}
+		// Fence on the version SHE had on screen before anything is written. Applying her reading
+		// to a record someone else has already acted on is the failure this check exists to stop,
+		// and it must happen before the producer write, not after it.
+		if itemForEvidence.RowVersion != in.RowVersion {
+			return domain.Item{}, Conflict("row_version_conflict", "this item changed since it was loaded; refresh and try again")
+		}
+		applied, err := s.applyVerdictMeasurement(ctx, in, itemForEvidence)
+		if err != nil {
+			return domain.Item{}, err
+		}
+		// The producer's write relabels the item, which bumps row_version. The version she sent is
+		// now one behind through OUR write, not a competing verifier's, so the verdict carries the
+		// current one. Concurrency is still fenced: the verdict UPDATE also requires the item to be
+		// PENDING, so a verdict that landed in between still turns this into a conflict.
+		if applied {
+			current, err := s.repo.GetItem(ctx, in.TenantID, in.ItemID)
+			if err != nil {
+				return domain.Item{}, mapRepoErr(err)
+			}
+			in.RowVersion = current.RowVersion
 		}
 	}
 	item, err := s.repo.RecordVerdict(ctx, in)
@@ -588,6 +650,31 @@ func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.
 		s.autoCloseSubmissionWhenFullyApproved(ctx, in, item)
 	}
 	return item, nil
+}
+
+type verdictLocker interface {
+	WithVerdictLock(ctx context.Context, tenantID, itemID string, fn func(context.Context) error) error
+}
+
+func (s *Service) withVerdictLock(
+	ctx context.Context,
+	tenantID, itemID string,
+	fn func(context.Context) (domain.Item, error),
+) (domain.Item, error) {
+	locker, ok := s.repo.(verdictLocker)
+	if !ok {
+		return fn(ctx)
+	}
+	var out domain.Item
+	err := locker.WithVerdictLock(ctx, tenantID, itemID, func(ctx context.Context) error {
+		var err error
+		out, err = fn(ctx)
+		return err
+	})
+	if err != nil {
+		return domain.Item{}, err
+	}
+	return out, nil
 }
 
 // autoCloseSubmissionWhenFullyApproved closes the SHED as soon as its last animal is approved.
@@ -826,6 +913,8 @@ func mapRepoErr(err error) error {
 		return NotFound("item_not_found", "verification item not found")
 	case errors.As(err, &notVerified):
 		return Conflict("batch_not_fully_verified", batchNotFullyVerifiedMessage(notVerified.Blocking))
+	case isMeasurementRequired(err):
+		return Conflict("measurement_required", "Record the measurement before accepting this proof.")
 	case isAlreadyDecided(err):
 		// Terminal, not contended: retrying cannot help, so say the decision is final.
 		return Conflict("already_decided", "This proof already has a verdict and cannot be changed.")
@@ -888,6 +977,43 @@ func (s *Service) WithdrawItemsBySource(ctx context.Context, tenantID, sourceMod
 	return withdrawn, nil
 }
 
+// RelabelItemBySource is the producing module's RELABEL seam: the module that
+// raised the item tells verification that the fact its subject label states has
+// changed, so the label must be recomposed.
+//
+// It exists for the verifier's weighing weight correction -- see the repository
+// method for why a stale label is a real defect there and not cosmetics. Like the
+// retire and receipt seams it decides nothing, publishes nothing, and is not
+// reachable from the verifier-facing HTTP surface: a module may restate its own
+// item's copy, never anything about the decision.
+func (s *Service) RelabelItemBySource(ctx context.Context, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel string) (int, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	sourceModule = strings.TrimSpace(sourceModule)
+	sourceRefType = strings.TrimSpace(sourceRefType)
+	sourceRefID = strings.TrimSpace(sourceRefID)
+	subjectLabel = strings.TrimSpace(subjectLabel)
+	if !uuidutil.IsUUIDString(tenantID) {
+		return 0, BadRequest("invalid_tenant", "tenant_id must be a UUID")
+	}
+	if sourceModule == "" || sourceRefType == "" {
+		return 0, BadRequest("invalid_source_ref", "source module and ref_type are required")
+	}
+	if !uuidutil.IsUUIDString(sourceRefID) {
+		return 0, BadRequest("invalid_source_ref", "source ref_id must be a UUID")
+	}
+	// A blank label is not a relabel to an empty string -- it is a caller with
+	// nothing to say. Refusing it here keeps a producer bug from stripping the
+	// verifier's only identity line for that item.
+	if subjectLabel == "" {
+		return 0, BadRequest("invalid_subject_label", "subject_label is required")
+	}
+	relabelled, err := s.repo.RelabelItemBySource(ctx, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel)
+	if err != nil {
+		return 0, mapRepoErr(err)
+	}
+	return relabelled, nil
+}
+
 // MarkVerdictApplied is the producing module's APPLY-RECEIPT seam, the mirror of
 // the retire seam above: the module that raised the items tells verification that
 // its applier has written the verdict's outcome onto its own record, so the item
@@ -941,6 +1067,11 @@ func (s *Service) MarkVerdictApplied(
 func isAlreadyDecided(err error) bool {
 	decided := &ports.AlreadyDecidedError{}
 	return errors.As(err, &decided)
+}
+
+func isMeasurementRequired(err error) bool {
+	required := &ports.ErrMeasurementRequired{}
+	return errors.As(err, &required)
 }
 
 // OversightAnalytics returns the CEO/PC-Director oversight aggregate. The permission check

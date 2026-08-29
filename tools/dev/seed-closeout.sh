@@ -185,6 +185,39 @@ run_required_projectors() {
   run_go_cmd vaccination-eligibility-rollup-recompute -tenant-id "$tenant_id"
 }
 
+# Herd Signals projections (migration 000192): herd_signal_tag_latest and
+# herd_signal_activity_windows are both DERIVED from herd_signal_packets --
+# 000192 says so in its own comment ("Materialized from herd_signal_packets").
+# The operational-kernel-5k-50k-scale-envelope ADR requires a new projection
+# table to be rebuildable from canonical data through this closeout, so it is
+# registered here rather than existing only as a one-off script.
+#
+# The rebuild runs the REAL ingest service (backend/cmd/seed-herd-signals-oci
+# replays the capture through app.Service.IngestPackets). It must never be
+# replaced with SQL that re-derives movement/pattern state: a seed that computes
+# the classification itself agrees only with itself, and the previous hand-rolled
+# version had already invented a `stationary` state that is not in the vocabulary.
+#
+# Herd Signals is a local-capture dev feature today, so the rebuild is skipped
+# when the capture is not on this machine -- and the skip is PRINTED, never
+# silent. Point it at a specific capture with GOATOS_HERD_SIGNALS_CAPTURE_CSV.
+#
+# Partitioning and retention for these two tables are recorded in the Herd
+# Signals system-design document, not here; this is the rebuild path only.
+run_herd_signals_projections() {
+  if [ "${GOATOS_SEED_CLOSEOUT_RUN_HERD_SIGNALS:-1}" = "0" ]; then
+    echo "==> seed-closeout: skip herd-signals projections (GOATOS_SEED_CLOSEOUT_RUN_HERD_SIGNALS=0)"
+    return
+  fi
+  local csv="${GOATOS_HERD_SIGNALS_CAPTURE_CSV:-/Users/ravi/mesha/local-data/honeycomm-gateway-capture/decoded_ear_tags.csv}"
+  local gateway="${GOATOS_HERD_SIGNALS_GATEWAY_ID:-honeycomm-gateway-001}"
+  if [ "$dry_run" -eq 0 ] && [ ! -f "$csv" ]; then
+    echo "==> seed-closeout: skip herd-signals projections (capture not on this machine: ${csv})"
+    return
+  fi
+  run_go_cmd seed-herd-signals-oci -tenant-id "$tenant_id" -gateway-id "$gateway" -csv "$csv"
+}
+
 run_vaccination_drive_batching() {
   if [ "${GOATOS_SEED_CLOSEOUT_RUN_VACCINATION_SWEEPER:-1}" = "0" ]; then
     echo "==> seed-closeout: skip vaccination drive batching (GOATOS_SEED_CLOSEOUT_RUN_VACCINATION_SWEEPER=0)"
@@ -472,6 +505,7 @@ fi
 run_go_cmd seed-shed-profiles -tenant-id "$tenant_id"
 run_goat_shed_integrity_proof
 run_required_projectors
+run_herd_signals_projections
 run_vaccination_drive_batching
 run_expected_drive_schedule_proof
 assert_reminder_audience_resolves

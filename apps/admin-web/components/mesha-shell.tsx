@@ -6,6 +6,7 @@ import type { ElementType } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Banknote,
   Bell,
   BarChart3,
   CalendarDays,
@@ -20,6 +21,7 @@ import {
   MapPin,
   Milk,
   Moon,
+  Scale,
   Stethoscope,
   Sun,
   TowerControl,
@@ -30,15 +32,27 @@ import {
 } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { CEOAIChat, type CEOAIChatCopy } from "@/components/ceo-ai-chat";
+import { reportAdminPerformanceEvent } from "@/lib/performance-events";
 import { parkLabel, parseScope, scopeHref, type Park } from "@/lib/scope";
 import type { AdminWebBootstrapResponse } from "@/lib/api/server";
 
 type NavItem = AdminWebBootstrapResponse["navigation"]["primary"][number];
 type RouteLabelRule = AdminWebBootstrapResponse["route_labels"][number];
-type NavCounts = { actionCenter: number | null; pc: number | null };
 type TrailItem = { label: string; href: string };
+type PendingNavigationTiming = {
+  id: string;
+  from: string;
+  to: string;
+  source: string;
+  startedAt: number;
+  timedOut?: boolean;
+};
 
 const iconByToken: Record<string, ElementType> = {
+  // Sales is its own vertical in the backend nav contract (maintainer decision 2026-08-27); like
+  // `milk` and `wheat` below, the token must be registered here or the group silently falls back
+  // to the Control Tower icon.
+  banknote: Banknote,
   "bar-chart-3": BarChart3,
   "calendar-days": CalendarDays,
   "clipboard-check": ClipboardCheck,
@@ -47,6 +61,10 @@ const iconByToken: Record<string, ElementType> = {
   // Milk is its own vertical in the backend nav contract; without this token the group would
   // silently fall back to the Control Tower icon (the same defect `wheat` hit below).
   milk: Milk,
+  // Weighing's declared icon. Same latent fallback defect as `milk` and `wheat`: it was declared
+  // in the backend nav contract but never registered here, so the vertical rendered the Control
+  // Tower icon.
+  scale: Scale,
   // Health is a DISTINCT vertical from Preventive Care, so it gets its own icon rather than
   // sharing heart-pulse. It must never use the syringe/injection token, which belongs to the
   // Vaccination module under Preventive Care.
@@ -59,16 +77,6 @@ const iconByToken: Record<string, ElementType> = {
   workflow: Workflow,
   zap: Zap,
 };
-
-function visibleBadge(count: number | null | undefined): string | undefined {
-  return typeof count === "number" && count > 0 ? String(count) : undefined;
-}
-
-function badgeForKey(key: string, actionCenterBadge?: string, pcBadge?: string): string | undefined {
-  if (key === "action_center_open_work") return actionCenterBadge;
-  if (key === "pc_open_work") return pcBadge;
-  return undefined;
-}
 
 function shellCopy(contract: AdminWebBootstrapResponse, key: string): string {
   const value = contract.copy[key];
@@ -216,6 +224,20 @@ export function MeshaShell({
   const activeParkId = scope.parkId;
   const renderedScope = activeParkId ? { ...scope, mode: "park" as const, parkId: activeParkId } : scope;
   const activeParkLabel = parkScopeLabel(parks, activeParkId, contract);
+  // Pages that own a PARK CONTROL OF THEIR OWN, on the same `park` parameter. Two controls writing
+  // one value is the defect: the reader picks a park in the page's own filter bar, and the top bar
+  // still offers a second, identical choice that silently rewrites it. The page's control wins here
+  // because it sits with the filters it is used beside — period, mode, breed — and those are picked
+  // together in one pass.
+  //
+  // The top-bar control is HIDDEN on these routes (maintainer decision 2026-08-18, replacing the
+  // disabled-with-a-reason treatment that shipped first). A greyed-out chip still reads as a
+  // control and still shows a park name, so on a page whose own bar already carries the park it
+  // was a second, stale-looking answer to the same question sitting three inches above the real
+  // one. Nothing is lost by removing it: these pages own the park in their own filter bar, so the
+  // choice is still on screen, once.
+  const PAGES_OWNING_PARK_SCOPE = ["/counts/breakdown", "/weighing/weights"];
+  const lockTopBarParkSelector = PAGES_OWNING_PARK_SCOPE.includes(pathname);
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(false);
 
@@ -223,11 +245,12 @@ export function MeshaShell({
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
   const [routePending, setRoutePending] = useState(false);
-  const [navCounts, setNavCounts] = useState<NavCounts>({ actionCenter: null, pc: null });
   const [navTrail, setNavTrail] = useState<TrailItem[]>([]);
   const trailRef = useRef<TrailItem[]>([]);
   const pendingAnchorRef = useRef<HTMLAnchorElement | null>(null);
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingNavigationRef = useRef<PendingNavigationTiming | null>(null);
+  const prefetchedNavHrefsRef = useRef<Set<string>>(new Set());
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     for (const g of groups) {
@@ -254,9 +277,6 @@ export function MeshaShell({
     },
     [rail, router],
   );
-  const navCountsHref = scopeHref("/api/nav-counts", renderedScope);
-  const actionCenterBadge = visibleBadge(navCounts.actionCenter);
-  const pcBadge = visibleBadge(navCounts.pc);
   const currentPageLabel = labelForPath(pathname, contract);
   const parkScopeOption = contract.top_bar.scope_mode_toggle.find((option) => option.key === "park");
   const actor = contract.top_bar.role_preview;
@@ -316,7 +336,7 @@ export function MeshaShell({
     setRoutePending(false);
   }, []);
 
-  const startRoutePending = useCallback((anchor?: HTMLAnchorElement | null) => {
+  const startRoutePending = useCallback((anchor?: HTMLAnchorElement | null, toHref?: string, source = "unknown") => {
     pendingAnchorRef.current?.removeAttribute("data-route-pending");
     pendingAnchorRef.current?.removeAttribute("aria-busy");
     if (anchor) {
@@ -328,11 +348,67 @@ export function MeshaShell({
     }
     document.documentElement.classList.add("route-busy");
     setRoutePending(true);
+    const from = `${window.location.pathname}${window.location.search}`;
+    pendingNavigationRef.current = {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      from,
+      to: toHref ?? anchor?.href ?? "",
+      source,
+      startedAt: performance.now(),
+    };
+    reportAdminPerformanceEvent("admin_route_navigation_start", "admin_shell", from, {
+      navigation_id: pendingNavigationRef.current.id,
+      from,
+      to: pendingNavigationRef.current.to,
+      source,
+    });
     if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
-    pendingTimerRef.current = setTimeout(clearRoutePending, 8000);
+    pendingTimerRef.current = setTimeout(() => {
+      const pending = pendingNavigationRef.current;
+      if (pending) {
+        pending.timedOut = true;
+        reportAdminPerformanceEvent("admin_route_navigation_timeout", "admin_shell", from, {
+          navigation_id: pending.id,
+          from: pending.from,
+          to: pending.to,
+          source: pending.source,
+          timeout_ms: Math.round(performance.now() - pending.startedAt),
+        });
+      }
+      clearRoutePending();
+    }, 8000);
   }, [clearRoutePending]);
 
   useEffect(() => {
+    const pending = pendingNavigationRef.current;
+    if (pending) {
+      const committedAt = performance.now();
+      const route = searchKey ? `${pathname}?${searchKey}` : pathname;
+      if (pending.timedOut && pending.to !== route) {
+        pendingNavigationRef.current = null;
+      } else {
+        reportAdminPerformanceEvent("admin_route_navigation_commit", "admin_shell", route, {
+          navigation_id: pending.id,
+          from: pending.from,
+          to: pending.to,
+          source: pending.source,
+          commit_ms: Math.round(committedAt - pending.startedAt),
+        });
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => {
+            reportAdminPerformanceEvent("admin_route_navigation_render", "admin_shell", route, {
+              navigation_id: pending.id,
+              from: pending.from,
+              to: pending.to,
+              source: pending.source,
+              commit_ms: Math.round(committedAt - pending.startedAt),
+              render_ms: Math.round(performance.now() - pending.startedAt),
+            });
+          });
+        });
+        pendingNavigationRef.current = null;
+      }
+    }
     const id = window.setTimeout(clearRoutePending, 0);
     return () => window.clearTimeout(id);
   }, [pathname, searchKey, clearRoutePending]);
@@ -356,7 +432,7 @@ export function MeshaShell({
       // reads as a stuck full-page navigation when the payload finishes before React reports a route
       // change. Reserve it for actual path changes.
       if (nextUrl.pathname === window.location.pathname) return;
-      startRoutePending(anchor);
+      startRoutePending(anchor, `${nextUrl.pathname}${nextUrl.search}`, anchor.closest(".side") ? "sidebar" : "link");
       if (anchor.closest(".navback")) return;
 
       if (anchor.closest(".side")) {
@@ -383,25 +459,6 @@ export function MeshaShell({
     };
   }, [applyNavTrail, contract, popTrailForPath, startRoutePending]);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(navCountsHref, { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((payload: Partial<NavCounts> | null) => {
-        if (cancelled) return;
-        setNavCounts({
-          actionCenter: typeof payload?.actionCenter === "number" ? payload.actionCenter : null,
-          pc: typeof payload?.pc === "number" ? payload.pc : null,
-        });
-      })
-      .catch(() => {
-        if (!cancelled) setNavCounts({ actionCenter: null, pc: null });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [navCountsHref]);
-
   // All top-bar dropdowns (park scope, role/user) close together: clicking outside any
   // menu root or pressing Escape dismisses them, and opening one closes the others (handled per-button).
   function closeMenus() {
@@ -426,13 +483,17 @@ export function MeshaShell({
     };
   }, [scopeMenuOpen, roleMenuOpen]);
 
+  useEffect(() => {
+    if (lockTopBarParkSelector && scopeMenuOpen) {
+      const id = window.setTimeout(() => setScopeMenuOpen(false), 0);
+      return () => window.clearTimeout(id);
+    }
+  }, [lockTopBarParkSelector, scopeMenuOpen]);
+
   function toggleTheme() {
     const next = !document.documentElement.classList.contains("light");
     document.documentElement.classList.toggle("light", next);
     setIsLight(next);
-  }
-  function toggleGroup(id: string) {
-    setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
   }
   function toggleNav() {
     if (typeof window !== "undefined" && window.matchMedia("(max-width: 880px)").matches) {
@@ -447,16 +508,14 @@ export function MeshaShell({
     const dateScope = leaf.href === "/calendar" ? { asOf: null } : {};
     return scopeHref(leaf.href, renderedScope, dateScope, leaf.extra ?? {});
   }
-  const warmNavHrefs = useMemo(
-    () => [
-      ...primary.map((item) => navHref(item)),
-      ...groups.flatMap((group) => group.leaves.filter((item) => item.enabled).map((item) => navHref(item))),
-    ],
-    [groups, primary, renderedScope, searchKey],
-  );
-  useEffect(() => {
-    for (const href of warmNavHrefs) router.prefetch(href);
-  }, [router, warmNavHrefs]);
+  function prefetchNavHref(href: string): void {
+    if (prefetchedNavHrefsRef.current.has(href)) return;
+    prefetchedNavHrefsRef.current.add(href);
+    router.prefetch(href);
+    reportAdminPerformanceEvent("admin_route_prefetch_intent", "admin_shell", pathname, {
+      href,
+    });
+  }
   function navActive(leaf: NavItem): boolean {
     if (active !== leaf.href) return false;
     // Most routes have exactly one nav entry, so pathname alone decides. The verifier workspace is
@@ -511,6 +570,7 @@ export function MeshaShell({
         {/* Park / shed scope chip (mock .pscope). park_id is backend-honored; per-shed scope is NOT wired in
             this slice, so the label reads "· all sheds" and the menu disables shed selection with a reason —
             never a faked shed filter. The UI shows the human label; links write the backend-safe ?park=uuid. */}
+        {lockTopBarParkSelector ? null : (
         <div className="parksel" data-menu-root style={{ marginRight: 4 }}>
           <button
             type="button"
@@ -568,6 +628,7 @@ export function MeshaShell({
             <div className="pm-hint">{contract.top_bar.park_selector.hint}</div>
           </div>
         </div>
+        )}
         <button
           type="button"
           className="iconbtn"
@@ -625,7 +686,6 @@ export function MeshaShell({
         <aside className={`side ${navOpen ? "open" : ""}`} id="side">
           {primary.map((n) => {
             const Icon = iconByToken[n.icon] ?? TowerControl;
-            const badge = badgeForKey(n.badge_key, actionCenterBadge, pcBadge);
             if (!n.enabled) {
               return (
                 <span
@@ -637,7 +697,6 @@ export function MeshaShell({
                 >
                   <Icon className="ic" />
                   {n.label}
-                  {badge ? <span className="ct">{badge}</span> : null}
                 </span>
               );
             }
@@ -647,10 +706,11 @@ export function MeshaShell({
                 href={navHref(n)}
                 className={`nav ${navActive(n) ? "on" : ""}`}
                 onClick={() => setNavOpen(false)}
+                onFocus={() => prefetchNavHref(navHref(n))}
+                onMouseEnter={() => prefetchNavHref(navHref(n))}
               >
                 <Icon className="ic" />
                 {n.label}
-                {badge ? <span className="ct">{badge}</span> : null}
               </Link>
             );
           })}
@@ -658,7 +718,6 @@ export function MeshaShell({
           {groups.map((g) => {
             const GroupIcon = iconByToken[g.icon] ?? TowerControl;
             const open = openGroups[g.id];
-            const badge = badgeForKey(g.badge_key, actionCenterBadge, pcBadge);
             return (
               <div key={g.id}>
                 <div
@@ -676,7 +735,6 @@ export function MeshaShell({
                 >
                   <GroupIcon className="ic" />
                   {g.label}
-                  {badge ? <span className="gct">{badge}</span> : null}
                   <ChevronRight className="ic chev" />
                 </div>
                 <div className={`subnav ${open ? "open" : ""}`}>
@@ -697,11 +755,10 @@ export function MeshaShell({
                         href={navHref(l)}
                         className={`leaf ${navActive(l) ? "on" : ""}`}
                         onClick={() => setNavOpen(false)}
+                        onFocus={() => prefetchNavHref(navHref(l))}
+                        onMouseEnter={() => prefetchNavHref(navHref(l))}
                       >
                         {l.label}
-                        {badgeForKey(l.badge_key, actionCenterBadge, pcBadge) ? (
-                          <span className="lct">{badgeForKey(l.badge_key, actionCenterBadge, pcBadge)}</span>
-                        ) : null}
                       </Link>
                     ),
                   )}

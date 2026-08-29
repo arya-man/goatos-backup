@@ -319,6 +319,7 @@ class CalendarViewModelTest {
         )
         advanceUntilIdle()
 
+        val scheduleQuery = repo.scheduleQueries.last()
         assertEquals(
             CalendarScheduleQuery(
                 parkId = "CPT",
@@ -328,8 +329,9 @@ class CalendarViewModelTest {
                 dateFrom = "2026-07-01",
                 dateTo = "2026-07-31",
             ),
-            repo.scheduleQueries.last(),
+            scheduleQuery.copy(refreshNonce = 0),
         )
+        assertEquals(true, scheduleQuery.refreshNonce > 0)
         assertNotNull(repo.refreshCalls.lastOrNull {
             it.parkId == "CPT" &&
                 it.shedId == "shed-2" &&
@@ -338,6 +340,27 @@ class CalendarViewModelTest {
                 it.dateFrom == "2026-07-01" &&
                 it.dateTo == "2026-07-31"
         })
+    }
+
+    @Test
+    fun `week refresh and first month switch each revalidate the month pager`() = runTest(dispatcher) {
+        val repo = RecordingCalendarRepository()
+        val vm = CalendarViewModel(repo = repo, analytics = NoopAnalytics(), crashReporter = NoopCrashReporter())
+        backgroundScope.launch { vm.state.collect {} }
+        backgroundScope.launch { vm.monthItems.collect {} }
+        advanceUntilIdle()
+
+        val afterOpen = repo.scheduleQueries.last().refreshNonce
+        vm.refresh()
+        advanceUntilIdle()
+        val afterWeekRefresh = repo.scheduleQueries.last().refreshNonce
+
+        vm.onEvent(sg.mesha.goatos.feature.calendar.CalendarEvent.SelectSegment("month"))
+        advanceUntilIdle()
+        val afterFirstMonthSwitch = repo.scheduleQueries.last().refreshNonce
+
+        assertEquals(true, afterWeekRefresh > afterOpen)
+        assertEquals(true, afterFirstMonthSwitch > afterWeekRefresh)
     }
 }
 

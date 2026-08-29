@@ -784,6 +784,7 @@ func TestPublishVersionMatrixInheritsVersionEligibilityAndCanonicalizesAny(t *te
 		"lifecycle":                   []any{"alive"},
 		"health":                      []any{"*"},
 		"reproductive":                []any{"any"},
+		"procurement_purpose":         []any{"any"},
 		"exclude_reproductive_states": []any{"pregnant_late"},
 		"defer_states":                []any{"sick", "under_treatment", "recovering", "icu", "quarantine"},
 	}
@@ -810,7 +811,7 @@ func TestPublishVersionMatrixInheritsVersionEligibilityAndCanonicalizesAny(t *te
 		t.Fatalf("dimensions=%#v, want 1 wildcard sex row with inherited sheep/all/all", repo.dimensions)
 	}
 	for _, dim := range repo.dimensions {
-		if dim.Species != "sheep" || dim.AnimalStage != "all" || dim.Sex != "all" || dim.Breed != "all" {
+		if dim.Species != "sheep" || dim.AnimalStage != "all" || dim.Sex != "all" || dim.Breed != "all" || dim.ProcurementPurpose != "all" {
 			t.Fatalf("dimension did not inherit/canonicalize selectors: %#v", dim)
 		}
 	}
@@ -821,12 +822,13 @@ func TestPublishVersionMatrixInheritsVersionEligibilityAndCanonicalizesAny(t *te
 		t.Fatalf("derived eligibility json: %v", err)
 	}
 	for field, want := range map[string]string{
-		"species":      "sheep",
-		"animal_stage": "all",
-		"sex":          "all",
-		"breed":        "all",
-		"health":       "all",
-		"reproductive": "all",
+		"species":             "sheep",
+		"animal_stage":        "all",
+		"sex":                 "all",
+		"breed":               "all",
+		"health":              "all",
+		"reproductive":        "all",
+		"procurement_purpose": "all",
 	} {
 		values, err := rawSelectorValues(payload.Eligibility[field])
 		if err != nil || len(values) != 1 || values[0] != want {
@@ -969,6 +971,29 @@ func TestPublishVersionRejectsVaccinationComboCapBelowApprovedSessionSize(t *tes
 	}
 }
 
+func TestPublishVersionRejectsPurposePlanSecondWaveGapWithWrongType(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	dsl := validVaccinationMatrixRuleDSL()
+	dsl = strings.Replace(
+		dsl,
+		`"second_wave_after_days":28,"goat_second_wave":["Goat Pox"]`,
+		`"second_wave_after_days":28,"purpose_plans":{"breeding":{"first_wave":["ET+TT"],"second_wave_after_days":"28","goat_second_wave":["Goat Pox"]}},"goat_second_wave":["Goat Pox"]`,
+		1,
+	)
+	repo.version.RuleDsl = []byte(dsl)
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("publish invalid purpose gap err=%v, want ErrNotPublishable", err)
+	}
+	if repo.createRuleCalled || repo.publishCalled {
+		t.Fatalf("invalid purpose plan gap should not create rules or publish")
+	}
+}
+
 func validPublishVersion(status string) domain.Version {
 	return domain.Version{
 		ProtocolVersionID: "version-1",
@@ -1004,6 +1029,7 @@ type fakeProtocolRepo struct {
 	publishWithDerivedCalled    bool
 	publishedMatrixReplayCalled bool
 	publishCalls                int
+	discardCalls                int
 	createVersionCalled         bool
 	createRuleCalled            bool
 	createdRule                 domain.NewRule
@@ -1084,6 +1110,24 @@ func (f *fakeProtocolRepo) PublishVersion(context.Context, string, string, *stri
 	f.version.Status = "published"
 	return nil
 }
+
+// DiscardVersion mirrors the real repository: only a draft may be removed, so a
+// test that discards a published version sees the same refusal production would.
+func (f *fakeProtocolRepo) ReplaceDraftVersion(context.Context, domain.NewVersion, string) (string, error) {
+	if f.version.Status != "draft" {
+		return "", ports.ErrVersionNotDraft
+	}
+	return "version-replacement", nil
+}
+
+func (f *fakeProtocolRepo) DiscardVersion(context.Context, string, string) error {
+	if f.version.Status != "draft" {
+		return ports.ErrVersionNotDraft
+	}
+	f.discardCalls++
+	return nil
+}
+
 func (f *fakeProtocolRepo) PublishVersionWithDerivedRules(_ context.Context, _ string, _ domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, _ *string, capacity *domain.PublishedCapacity, _ string, _ ...string) error {
 	// Parity is verified in the same transaction as the publish: a mismatch rolls everything back, so
 	// on failure record no derived rules and leave the version draft.

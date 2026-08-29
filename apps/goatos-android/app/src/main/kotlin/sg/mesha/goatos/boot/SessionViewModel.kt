@@ -19,6 +19,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.auth.AuthRepository
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
@@ -31,6 +34,7 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.AuthSessionEventRequestDto
 import sg.mesha.goatos.feature.auth.LoginError
 import java.io.IOException
+import java.util.Base64
 import javax.inject.Inject
 
 /** Which credential path [SessionViewModel] routes sign-in through for the running flavor. */
@@ -56,6 +60,29 @@ internal fun authModeForFlavor(flavor: String): AuthMode =
  *  role until app data was cleared. Shared Firebase builds never use this replacement path. */
 internal fun devSessionNeedsRefresh(mode: AuthMode, persisted: String?, baked: String): Boolean =
     mode == AuthMode.DEV_BEARER && persisted != baked.takeIf { it.isNotBlank() }
+
+internal fun devSessionNeedsWipe(mode: AuthMode, persisted: String?, baked: String): Boolean =
+    mode == AuthMode.DEV_BEARER && when {
+        persisted.isNullOrBlank() -> false
+        baked.isBlank() -> true
+        persisted == baked -> false
+        else -> {
+            val persistedPrincipal = devBearerPrincipalKey(persisted)
+            val bakedPrincipal = devBearerPrincipalKey(baked)
+            persistedPrincipal == null || bakedPrincipal == null || persistedPrincipal != bakedPrincipal
+        }
+    }
+
+internal fun devBearerPrincipalKey(token: String): String? = runCatching {
+    val payload = token.split('.').getOrNull(1)?.takeIf { it.isNotBlank() } ?: return@runCatching null
+    val json = String(Base64.getUrlDecoder().decode(payload), Charsets.UTF_8)
+    val obj = Json.parseToJsonElement(json).jsonObject
+    val subject = obj["sub"]?.jsonPrimitive?.content?.trim().orEmpty()
+    val tenant = obj["tenant_id"]?.jsonPrimitive?.content?.trim().orEmpty()
+    if (subject.isBlank() || tenant.isBlank()) null else "$tenant:$subject"
+}.onFailure {
+    android.util.Log.w("SessionViewModel", "dev_bearer_principal_parse_failed")
+}.getOrNull()
 
 internal fun sessionIsAuthedForMode(mode: AuthMode, persisted: String?): Boolean =
     when (mode) {
@@ -126,12 +153,11 @@ class SessionViewModel @Inject constructor(
                 val baked = BuildConfig.DEV_BEARER_TOKEN
                 val persisted = sessionStore.currentToken()
                 if (devSessionNeedsRefresh(authMode, persisted, baked)) {
-                    // A different baked token means a different local principal. Use the same
-                    // authority-boundary wipe as an explicit logout: revoke the old device,
-                    // remove its Room/outbox/cache state, cancel its jobs, and generate a fresh
-                    // device identity before opening the new session. Replacing only the token
-                    // caused bootstrap to send the previous operator's device id as a verifier.
-                    logoutCoordinator.logout(signOutVendorAuth = authRepository::signOut)
+                    if (devSessionNeedsWipe(authMode, persisted, baked)) {
+                        // A different baked principal is a real authority boundary. Use the same
+                        // wipe as explicit logout before opening the new local E2E actor.
+                        logoutCoordinator.logout(signOutVendorAuth = authRepository::signOut)
+                    }
                     if (baked.isNotBlank()) {
                         sessionStore.setBearerToken(baked)
                         withContext(Dispatchers.IO) { syncJobsScheduler.scheduleAll() }

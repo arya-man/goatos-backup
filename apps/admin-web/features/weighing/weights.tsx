@@ -1,13 +1,17 @@
 import { redirect } from "next/navigation";
-import { Scale, TrendingDown, Warehouse } from "lucide-react";
+import { Gauge, TrendingDown, Warehouse } from "lucide-react";
 
-import { WeightBars } from "./weight-bars";
 import { GrowthDirectorSection } from "./growth-director";
+import { MetricChart, ShedMetricChart } from "./metric-chart";
+import { SegmentedLinks } from "@/components/segmented-links";
+import { GainThresholdBars, type GainThresholdRow } from "./gain-threshold-bars";
+import { WeightsExportControl, type WeightsExportShed } from "./weights-export";
 import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { istDayPlus, todayIso } from "@/lib/format";
+import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
+import { sharesOfWhole } from "@/lib/shares";
 import {
   firstAuthRequiredError,
   getGrowthDirector,
@@ -51,11 +55,18 @@ function hrefWith(searchParams: RouteSearchParams, updates: Record<string, strin
   return query ? `${PAGE_PATH}?${query}` : PAGE_PATH;
 }
 
-// The window the page lands on: the 30 days before today, inclusive of both ends (maintainer,
-// 2026-08-12). It replaces the fixed "Last 4 weeks / Last 12 weeks" select, which could only answer
-// the two questions someone thought of in advance — a reader comparing one drive week against
-// another had no way to ask.
-const DEFAULT_WINDOW_DAYS = 30;
+// Fallback window only. The real landing default is resolved below from the latest two lump-sum
+// weighing dates, because leadership reads this page as "latest available weigh minus the one
+// before it" rather than a clock-calendar fortnight. If that lookup cannot produce two dates, we
+// still need a stable page instead of an empty crash.
+const DEFAULT_WINDOW_DAYS = 15;
+const LATEST_LUMP_LOOKBACK_DAYS = 400;
+// Which view the gain-mark card is showing. Absent means the chart, so a shared link
+// that predates the toggle — or one copied from the default view — keeps meaning "chart".
+const GAIN_VIEW_PARAM = "gain_view";
+// Which kids the WHOLE PAGE counts (maintainer, 2026-08-26). Absent means all of them, so a link
+// that predates the Sex filter keeps meaning what it showed when it was written.
+const SEX_PARAM = "sex";
 const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -66,13 +77,53 @@ const BUSINESS_DAY = /^\d{4}-\d{2}-\d{2}$/;
  * hand-edited URL must not take the page down. A future end is clamped to today, because a weigh
  * cannot have happened tomorrow and the reads would return an empty span for it.
  */
-function selectedWindow(params: RouteSearchParams, today: string): { from: string; to: string } {
+function explicitWindow(params: RouteSearchParams, today: string): { from: string; to: string } | null {
   const rawFrom = one(params, WINDOW_FROM_PARAM)?.trim();
   const rawTo = one(params, WINDOW_TO_PARAM)?.trim();
   if (rawFrom && rawTo && BUSINESS_DAY.test(rawFrom) && BUSINESS_DAY.test(rawTo) && rawFrom <= rawTo) {
     return { from: rawFrom > today ? today : rawFrom, to: rawTo > today ? today : rawTo };
   }
-  return defaultWindow(today);
+  if (rawFrom || rawTo) return defaultWindow(today);
+  return null;
+}
+
+async function landingWindow(params: RouteSearchParams, today: string, parkID: string): Promise<{ from: string; to: string }> {
+  const selected = explicitWindow(params, today);
+  if (selected) return selected;
+
+  const lookback = {
+    from: istDayPlus(today, -(LATEST_LUMP_LOOKBACK_DAYS - 1)),
+    to: today,
+  };
+  // Deliberately UNFILTERED by sex: this call only asks WHEN the farm last weighed, and the answer
+  // must not move when a reader switches to Male — a window that jumped on every filter change
+  // would silently compare two different fortnights.
+  const result = await getShedWeights({
+    park_id: parkID || undefined,
+    ...lookback,
+  });
+  if (!result.ok) return defaultWindow(today);
+
+  const dates = [...new Set(result.data.lump_weighing_dates ?? [])].sort();
+  if (dates.length < 2) return defaultWindow(today);
+  // START from the lump dates, END from the last day the farm weighed ANYTHING.
+  //
+  // The two are different questions and were answered by one list. A shed-average movement needs two
+  // whole-shed weighs, so the START has to be the second-to-last of those. The END does not: on
+  // 25 Aug 2026 the farm scanned 199 kids across 17 sheds and no shed was weighed whole, so that day
+  // was absent from lump_weighing_dates entirely and a window closing on the later lump date shut
+  // one day early -- dropping every one of those kids from the KPIs, the gain charts and Fair fight,
+  // with the period label reading as if nothing had been missed.
+  //
+  // The backend owns the date (`latest_weighing_date`, whole-filter over both weighing grains); a max
+  // taken across the returned rows here would be the page deriving business truth from its own rows.
+  // An empty value falls back to the lump date, which is the behaviour this replaces.
+  const latest = result.data.latest_weighing_date ?? "";
+  const end = BUSINESS_DAY.test(latest) && latest > dates[dates.length - 1] ? latest : dates[dates.length - 1];
+  return {
+    from: dates[dates.length - 2],
+    to: end > today ? today : end,
+  };
 }
 
 function defaultWindow(today: string): { from: string; to: string } {
@@ -95,34 +146,102 @@ function modeTag(row: ShedWeightsRow, pageContract: AdminUiPageContract) {
     : { tone: "mut" as const, label: copy(pageContract, "value.weighing.lump") };
 }
 
-// One toggle per chart, rendered as links so the page stays a server component and
-// each chart's choice survives a reload and a shared URL. Defined at module scope:
-// declaring a component inside render recreates its type every pass.
-function MetricToggle({
-  param,
-  current,
-  params,
-  pageContract,
-}: {
-  param: string;
-  current: "weight" | "adg";
-  params: RouteSearchParams;
-  pageContract: AdminUiPageContract;
-}) {
-  return (
-    <span className="metricseg">
-      {(["adg", "weight"] as const).map((option) => (
-        <a
-          key={option}
-          className={option === current ? "on" : ""}
-          href={hrefWith(params, { [param]: option })}
-          aria-current={option === current ? "true" : undefined}
-        >
-          {copy(pageContract, option === "adg" ? "metric.gain" : "metric.weight")}
-        </a>
-      ))}
-    </span>
-  );
+function modeBarTag(row: ShedWeightsRow, pageContract: AdminUiPageContract) {
+  const mode = modeTag(row, pageContract);
+  return { modeLabel: mode.label, modeTone: mode.tone };
+}
+
+function workflowLabel(status: string, pageContract: AdminUiPageContract): string {
+  const key = `value.workflow.${status.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`;
+  const label = pageContract.copy[key];
+  if (label) return label;
+  return status
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+// One row of the full-width shed chart: a WeightBars bar plus the park it belongs to.
+type ShedChartBar = {
+  key: string;
+  park_name: string;
+  label: string;
+  value: number;
+  valueLabel?: string;
+  modeLabel?: string;
+  modeTone?: "info" | "mut";
+};
+
+function shedKey(locationID: string, partitionLabel?: string | null): string {
+  return `${locationID}|${partitionLabel ?? ""}`;
+}
+
+function compositionLabel(
+  chip: { breed?: string; sex?: string; animals: number },
+  pageContract: AdminUiPageContract,
+): string {
+  const breed = chip.breed?.trim() || copy(pageContract, "composition.unknown_breed");
+  const sex = chip.sex?.trim() || copy(pageContract, "composition.unknown_sex");
+  return `${breed} · ${sex}`;
+}
+
+function shedLabelWithComposition(
+  shedName: string,
+  composition:
+    | { source?: string; chips: readonly { breed?: string; sex?: string; animals: number }[] }
+    | undefined,
+  pageContract: AdminUiPageContract,
+): string {
+  const chips = composition?.chips ?? [];
+  if (chips.length === 0) return shedName;
+  const suffix = chips.map((chip) => compositionLabel(chip, pageContract).replaceAll(" · ", " - ")).join(", ");
+  return `${shedName} (${suffix})`;
+}
+
+/**
+ * The shed chart's two columns. With rows from more than one park, each park gets its
+ * own column (heading = park), so the two farms stop interleaving in one long list.
+ * With one park — the park filter, or a period only one park weighed in — the single
+ * park's list is split in half across both columns instead of leaving the right half
+ * of a full-width card empty; the list reads down the left column and continues down
+ * the right. Rows arrive pre-sorted (the gain chart alphabetically by shed/pen, the
+ * weight chart heaviest-first) and grouping preserves that order.
+ *
+ * Grouped by park NAME, not id, because the growth leaderboard rows carry no park id
+ * — the contract requires `park_name` on both series specifically so they name a
+ * park identically. Parks are unique by name within a tenant (unlike sheds, 39 of
+ * which exist in both parks), so name-grouping cannot merge two parks here.
+ */
+function shedChartColumns(
+  rows: readonly ShedChartBar[],
+): { heading: string; rows: ShedChartBar[] }[] {
+  const byPark = new Map<string, ShedChartBar[]>();
+  for (const row of rows) {
+    const list = byPark.get(row.park_name);
+    if (list) list.push(row);
+    else byPark.set(row.park_name, [row]);
+  }
+  // Sorted so the column order is stable across reloads and metric toggles — Map
+  // order would follow whichever park happens to hold the fastest pen today.
+  const parkNames = [...byPark.keys()].sort();
+  if (parkNames.length >= 2) {
+    return parkNames.map((name) => ({ heading: name, rows: byPark.get(name) as ShedChartBar[] }));
+  }
+  if (parkNames.length === 1) {
+    const all = byPark.get(parkNames[0]) as ShedChartBar[];
+    const half = Math.ceil(all.length / 2);
+    const right = all.slice(half);
+    // A one-row list gets one column: a second column holding an empty-state note
+    // would read as "this park has a problem", which is not what an empty slice means.
+    return right.length === 0
+      ? [{ heading: parkNames[0], rows: all }]
+      : [
+          { heading: parkNames[0], rows: all.slice(0, half) },
+          { heading: parkNames[0], rows: right },
+        ];
+  }
+  return [];
 }
 
 export async function WeighingWeightsPage({
@@ -135,6 +254,10 @@ export async function WeighingWeightsPage({
   const params = searchParams ?? {};
   const parkFilter = one(params, "park") ?? "";
   const modeFilter = one(params, "weighing") ?? "all";
+  // Only the two values the herd register carries are honoured; anything else falls back to every
+  // kid rather than emptying the page, because a hand-edited URL must not take the screen down.
+  const rawSex = one(params, SEX_PARAM);
+  const sexFilter = rawSex === "male" || rawSex === "female" ? rawSex : "";
   const limit = boundedLimit(one(params, "limit"));
   const offset = boundedOffset(one(params, "offset"));
   const losingOffset = boundedOffset(one(params, "losing_offset"));
@@ -150,13 +273,17 @@ export async function WeighingWeightsPage({
   // The window is business DAYS, not a clock offset: a weigh belongs to the Asia/Kolkata day it
   // happened on.
   const today = todayIso();
-  const window = selectedWindow(params, today);
+  const window = await landingWindow(params, today, parkFilter);
 
+  // EVERY read carries the Sex filter (maintainer, 2026-08-26). It is a page filter, not a card
+  // one: a page where the shed table counts every kid while the breed card counts the male half
+  // has no true number on it. That is also why this filter lives in the URL like Park and Period
+  // and costs a server render — unlike the grain switch it replaced, it changes what is fetched.
   const [weights, growth, demographics, growthDirector] = await Promise.all([
-    getShedWeights({ park_id: parkFilter || undefined, ...window }),
-    getWeighingGrowth({ park_id: parkFilter || undefined, ...window }),
-    getWeightDemographics({ park_id: parkFilter || undefined, ...window }),
-    getGrowthDirector({ park_id: parkFilter || undefined, ...window }),
+    getShedWeights({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined }),
+    getWeighingGrowth({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined }),
+    getWeightDemographics({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined }),
+    getGrowthDirector({ park_id: parkFilter || undefined, ...window, sex: sexFilter || undefined }),
   ]);
 
   if (firstAuthRequiredError(weights, growth, demographics, growthDirector))
@@ -171,14 +298,22 @@ export async function WeighingWeightsPage({
     );
   }
 
-  const { rows, summary, parks, period_start: periodStart, period_end: periodEnd } = weights.data;
+  const {
+    rows,
+    summary,
+    parks,
+    period_start: periodStart,
+    period_end: periodEnd,
+  } = weights.data;
 
   // Mode narrowing changes the TABLE and CHART only. The KPI cards keep reporting the backend's
   // whole-filter truth — recomputing a card from the visible slice is the capped read-time rollup
   // anti-pattern and would make the cards disagree with the table.
+  const weighedRows = rows.filter((row) => row.animals_weighed > 0);
   const visibleRows =
-    modeFilter === "all" ? rows : rows.filter((row) => row.weighing_category === modeFilter);
+    modeFilter === "all" ? weighedRows : weighedRows.filter((row) => row.weighing_category === modeFilter);
   const slice = visibleRows.slice(offset, offset + limit);
+  const visibleRowKeys = new Set(visibleRows.map((row) => shedKey(row.location_id, row.partition_label)));
 
   // Losing kids come from the growth read, which already computes "latest pair went down".
   // A growth failure must not take the whole page down: the weights half is independent.
@@ -190,41 +325,15 @@ export async function WeighingWeightsPage({
     parkFilter === "" && parks.length > 1
       ? await Promise.all(
           parks.map(async (park) => {
-            const result = await getWeighingGrowth({ park_id: park.park_id, ...window });
-            // Both ways of weighing count. A park is not "no data" because its kids
-            // were weighed as sheds rather than one by one — the weight moved either
-            // way, and a card that ignores half the estate reports a park with 140
-            // measured animals as unknown.
-            //
-            // Combined as a mean weighted by ANIMALS, so a 73-head shed moving 206
-            // g/day counts for more than one kid moving -60. The two inputs are not
-            // the same measurement: a per-kid figure is that animal growing, while a
-            // shed figure also moves when animals join or leave. The card names both
-            // in its subtitle rather than implying one.
-            const parts: Array<{ value: number; weight: number }> = [];
-            if (result.ok) {
-              for (const shed of result.data.shed_leaderboard) {
-                if (shed.adg_pair_count > 0) {
-                  parts.push({ value: shed.median_adg_g_per_day, weight: shed.adg_pair_count });
-                }
-              }
-            }
-            for (const row of rows) {
-              if (row.park_id === park.park_id && row.shed_average_gain_g_per_day != null) {
-                parts.push({
-                  value: row.shed_average_gain_g_per_day,
-                  weight: Math.max(row.animals_weighed, 1),
-                });
-              }
-            }
-            const totalWeight = parts.reduce((sum, part) => sum + part.weight, 0);
+            // The per-park gain cards carry the filter too. They were the one read that did not,
+            // and the page then showed a filtered headline above two unfiltered park cards — three
+            // numbers about three different populations, side by side, with nothing saying so.
+            const result = await getWeighingGrowth({ park_id: park.park_id, ...window, sex: sexFilter || undefined });
+            const headline = result.ok ? result.data.headline : null;
             return {
               name: park.name,
-              median:
-                totalWeight > 0
-                  ? parts.reduce((sum, part) => sum + part.value * part.weight, 0) / totalWeight
-                  : null,
-              animals: totalWeight,
+              median: headline?.average_adg_g_per_day ?? null,
+              animals: headline?.headline_animals ?? 0,
             };
           }),
         )
@@ -263,8 +372,8 @@ export async function WeighingWeightsPage({
       from: window.from,
       to: window.to,
       today,
-      // Landing on this window clears both parameters, so a shared link keeps meaning "the last 30
-      // days" rather than freezing on the month it was copied in. Named fields, never a spread of
+      // Landing on this window clears both parameters, so a shared link keeps meaning "the last 15
+      // days" rather than freezing on the fortnight it was copied in. Named fields, never a spread of
       // defaultWindow(): `{...{from,to}}` would silently overwrite the SELECTED window above with
       // the default and pin the page to 30 days whatever the reader picked.
       defaultFrom: defaultWindow(today).from,
@@ -280,55 +389,92 @@ export async function WeighingWeightsPage({
         rangeStartHint: copy(pageContract, "filter.period.range_start_hint"),
         rangeEndHint: copy(pageContract, "filter.period.range_end_hint"),
         rangeSeparator: copy(pageContract, "filter.period.range_separator"),
+        markerHint: copy(pageContract, "filter.period.lump_marker_hint"),
       },
+      markerFetchPath: `/api/weighing/lump-markers${parkFilter ? `?park_id=${encodeURIComponent(parkFilter)}` : ""}`,
     },
     {
+      // allowAll:false because this vocabulary ALREADY carries its own "All" (`weighing_mode`
+      // option `all`, which is also this filter's default value). With the bar's generic blank
+      // option added on top, the control listed "All" TWICE and the two did not agree: the real
+      // one shows every row, while the blank one set `weighing=` — a value no row's category
+      // matches — and silently halved the table. One "All", and it is the backend's.
       kind: "select",
       param: "weighing",
       label: copy(pageContract, "filter.weighing.label"),
       value: modeFilter,
+      allowAll: false,
       options: modeOptions.map((option) => ({ value: option.key, label: option.label })),
+    },
+    {
+      // The Sex filter governs the WHOLE page (maintainer, 2026-08-26): every KPI, the shed table,
+      // both leaderboards, the load chart and the breed gain card follow it, because a page whose
+      // cards disagree about which kids they counted has no true number on it.
+      //
+      // A whole-shed weigh carries no tag and is claimed only when its shed's cohort is entirely
+      // one sex, which is the farm's own rule for how those sheds are stocked; a shed the register
+      // shows as mixed is claimed by neither side rather than split.
+      kind: "select",
+      param: SEX_PARAM,
+      label: copy(pageContract, "filter.sex.label"),
+      value: sexFilter,
+      // allowAll:true, so the blank option IS "every kid" and clearing the filter is the same act
+      // as choosing it — there is no second spelling of the default to disagree with.
+      allowAll: true,
+      options: [
+        { value: "male", label: copy(pageContract, "view.sex.male") },
+        { value: "female", label: copy(pageContract, "view.sex.female") },
+      ],
     },
   ];
 
   const shedColumns = tableLabels(pageContract, "shed-weights");
   const losingColumns = tableLabels(pageContract, "losing-kids");
+  const placementColumns = tableLabels(pageContract, "load-placements");
 
+  const demo = demographics.ok ? demographics.data : null;
+  const compositionByShed = new Map(
+    (demo?.shed_composition ?? []).map((item) => [shedKey(item.location_id, item.partition_label), item]),
+  );
+
+  // Alphabetical by shed/pen, the SAME order the gain view uses (maintainer decision
+  // 2026-08-22, extended to Weight 2026-08-24). Both metrics are the same sheds, and the
+  // metric toggle is a reading preference: ranking one view heaviest-first and the other
+  // A→Z reshuffled every row under the reader's eyes on a toggle they expected to change
+  // only the bars. A stable order is also how an operator finds one specific pen at all —
+  // a rank tells them nothing about where "Castro 2" will be. Sorted AFTER the map,
+  // because the label the reader scans is composed there.
   const chartData = visibleRows
     .filter((row) => row.animals_weighed > 0)
     .slice()
-    .sort((a, b) => b.average_weight_kg - a.average_weight_kg)
-    .map((row) => ({
-      key: `${row.location_id}|${row.partition_label ?? ""}`,
-      label: row.operational_location_display || row.shed_display_name,
-      value: Number(row.average_weight_kg.toFixed(1)),
-    }));
-
-  const demo = demographics.ok ? demographics.data : null;
-  // The headline blends the same two inputs the per-park cards do, weighted by
-  // animals. Leaving it on per-animal pairs alone made it contradict its own park
-  // cards on screen — "all parks -60 g" sitting above "CPT 118 g" and "CBE 187 g".
-  const headlineParts: Array<{ value: number; weight: number }> = [];
-  if (growth.ok) {
-    for (const shed of growth.data.shed_leaderboard) {
-      if (shed.adg_pair_count > 0) {
-        headlineParts.push({ value: shed.median_adg_g_per_day, weight: shed.adg_pair_count });
-      }
-    }
-  }
-  for (const row of rows) {
-    if (row.shed_average_gain_g_per_day != null) {
-      headlineParts.push({
-        value: row.shed_average_gain_g_per_day,
-        weight: Math.max(row.animals_weighed, 1),
-      });
-    }
-  }
-  const headlineWeight = headlineParts.reduce((sum, part) => sum + part.weight, 0);
-  const headlineGain =
-    headlineWeight > 0
-      ? headlineParts.reduce((sum, part) => sum + part.value * part.weight, 0) / headlineWeight
-      : null;
+    .map((row) => {
+      const key = shedKey(row.location_id, row.partition_label);
+      const shedName = row.operational_location_display || row.shed_display_name;
+      return {
+        key,
+        // The park is carried as its own field, not a label prefix: the shed chart
+        // renders one column per park, and the column heading names the park once
+        // instead of every row repeating it. 39 shed names exist in BOTH parks, so
+        // the park must still travel with the row as data.
+        park_name: row.park_name,
+        label: shedLabelWithComposition(shedName, compositionByShed.get(key), pageContract),
+        value: Number(row.average_weight_kg.toFixed(1)),
+        ...modeBarTag(row, pageContract),
+      };
+    })
+    // `numeric` keeps "Castro 2" ahead of "Castro 10", same as the gain view.
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+  // The headline is the backend's park-level same-animal median. Do not average
+  // shed medians here: the median of medians is not the herd median and produced
+  // a visible 38 g card while the API/SQL truth was 120.8 g.
+  // The backend's ONE daily-gain number: the animal-weighted mean over kids weighed twice PLUS the
+  // whole-shed pens, which is the identical statistic the breed/sex/stage gain charts below report
+  // (maintainer decision 2026-08-26). It was the median of scanned pairs only, so this card and
+  // those charts described different herds -- filtered to Male the page showed 133 g here and 200 g
+  // there. `headline_animals`, not `pair_count`: the gain speaks for every kid behind it, and most
+  // of this farm's kids are weighed by the whole shed rather than one at a time.
+  const headlineGain = growth.ok ? (growth.data.headline.average_adg_g_per_day ?? null) : null;
+  const headlineWeight = growth.ok ? growth.data.headline.headline_animals : 0;
 
   // Daily gain per shed comes from the growth read's own shed leaderboard, which is already
   // restricted to per-animal sheds — a whole-shed total can never produce a per-kid gain.
@@ -338,9 +484,8 @@ export async function WeighingWeightsPage({
   // which population change also moves. Merging them silently would be the defect;
   // showing only the first would drop every whole-shed shed from a gain view they
   // now have real history for.
-  const gainChartData = [
-    ...(growth.ok ? growth.data.shed_leaderboard : [])
-      .filter((shed) => shed.adg_pair_count > 0)
+  const perAnimalGainRows = (growth.ok ? growth.data.shed_leaderboard : [])
+      .filter((shed) => shed.adg_pair_count > 0 && visibleRowKeys.has(shedKey(shed.location_id, shed.partition_label)))
       .map((shed) => ({
         // Keyed by location AND partition, because that is the grain the leaderboard is
         // grouped at (`GROUP BY location_id, partition_label` in growth.go). A partitioned
@@ -348,27 +493,89 @@ export async function WeighingWeightsPage({
         // -- so keying on location_id alone gave nine React children the same key, which is
         // a duplicate-key crash, not a cosmetic warning. Matches the sibling series below and
         // the shed-weights chart above, both of which already key on the pair.
-        key: `${shed.location_id}|${shed.partition_label ?? ""}`,
-        label: shed.display_name,
+        key: shedKey(shed.location_id, shed.partition_label),
+        // The park travels as a FIELD, never a label prefix (it used to be one): 39
+        // shed names exist in BOTH parks, so "Mandela 1 - Part 5" alone names two
+        // different pens — but the chart now renders one column per park and the
+        // column heading names the park once. `park_name` is required on both series
+        // by contract precisely so they group identically here: the row's OWN park,
+        // not the selected filter — a literal "All parks" here split the chart into a
+        // pseudo-park column of per-animal rows beside real CBE/CPT columns holding
+        // only the lump-sum sheds, so Castro never appeared under the All-parks view.
+        // `operational_location_display` is the canonical shed+pen string;
+        // `display_name` is the weighing bucket's free-text planning label, which has
+        // held "M1P5" and "C1" for sheds whose real names are "Mandela 1 - Part 5"
+        // and "Castro 1".
+        park_name: shed.park_name,
+        label: shedLabelWithComposition(
+          shed.operational_location_display || shed.display_name,
+          compositionByShed.get(shedKey(shed.location_id, shed.partition_label)),
+          pageContract,
+        ),
         value: Math.round(shed.median_adg_g_per_day),
-      })),
-    ...visibleRows
+        modeLabel: copy(pageContract, "value.weighing.individual"),
+        modeTone: "info" as const,
+      }));
+  const shedAverageGainRows = visibleRows
       .filter((row) => row.shed_average_gain_g_per_day != null)
       .map((row) => ({
-        key: `${row.location_id}|${row.partition_label ?? ""}-shed`,
-        // Park-qualified, and carrying the span it was measured over. Two parks both
-        // hold a "Castro 2", so an unqualified shed name puts two different sheds on
-        // the chart under one name. The span is on the label because a figure drawn
-        // from two days deserves to be discounted on sight — Channapatna's Castro 2
-        // reads +1,532 g/day over a 2-day gap, which is 1.5 kg per kid per day and
-        // impossible. It is shown rather than filtered: the number is real, its span
-        // is the reason not to trust it.
-        label: `${row.park_name} ${row.operational_location_display || row.shed_display_name} (shed avg, ${row.gain_span_days}d)`,
+        key: `${shedKey(row.location_id, row.partition_label)}-shed`,
+        park_name: row.park_name,
+        label: shedLabelWithComposition(
+          row.operational_location_display || row.shed_display_name,
+          compositionByShed.get(shedKey(row.location_id, row.partition_label)),
+          pageContract,
+        ),
         value: Math.round(row.shed_average_gain_g_per_day as number),
-      })),
-  ].sort((a, b) => b.value - a.value);
+        modeLabel: copy(pageContract, "value.weighing.lump"),
+        modeTone: "mut" as const,
+      }));
+  // A shed with ONE weigh in the window has NO daily gain — a gain needs two weighs, and a
+  // whole-shed weigh yields no per-animal gain at all. Such sheds used to appear here anyway,
+  // with a zero-length bar labelled in KILOGRAMS (their average weight) beside real g/day bars:
+  // two different measures on one axis, which is how "Castro 1 · 34.4 kg" came to sit in a
+  // daily-gain chart. They are not plotted here at all now. Nothing is lost — the Weight view
+  // shows every one of them, which is where a weight in kg belongs.
+  // Alphabetical by shed/pen, not ranked by gain (maintainer decision 2026-08-22): every park
+  // column keeps the same stable A→Z order so an operator can find a specific pen by name.
+  // `numeric` keeps "Castro 2" ahead of "Castro 10".
+  const gainChartData = [...perAnimalGainRows, ...shedAverageGainRows].sort(
+    (a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }),
+  );
 
   const hasAnyData = summary.animals_weighed > 0;
+
+  // The full-width shed chart's columns for both metrics, on ONE shared scale per metric:
+  // computed across every column's rows before the split, so a bar's length means the
+  // same thing whichever column it lands in.
+  const shedSeries = {
+    adg: {
+      data: gainChartData,
+      columns: shedChartColumns(gainChartData),
+      domain: {
+        lo: Math.min(0, ...gainChartData.map((bar) => bar.value)),
+        hi: Math.max(0, ...gainChartData.map((bar) => bar.value)),
+      },
+      emptyLabel: copy(pageContract, "empty.metric.no_gain"),
+      unit: "g",
+      chartLabel: copy(pageContract, "chart.gain.aria"),
+      size: gainChartData.length <= 8 ? ("short" as const) : ("tall" as const),
+      caption: copy(pageContract, "chart.gain.caption_shed"),
+    },
+    weight: {
+      data: chartData,
+      columns: shedChartColumns(chartData),
+      domain: {
+        lo: Math.min(0, ...chartData.map((bar) => bar.value)),
+        hi: Math.max(0, ...chartData.map((bar) => bar.value)),
+      },
+      emptyLabel: copy(pageContract, "empty.no_data.body"),
+      unit: "kg",
+      chartLabel: copy(pageContract, "chart.average.aria"),
+      size: chartData.length <= 8 ? ("short" as const) : ("tall" as const),
+      caption: copy(pageContract, "chart.average.caption"),
+    },
+  };
 
   // A dimension has a weight series and, separately, a gain series over the smaller
   // set of animals weighed twice. Selecting between them here keeps the two
@@ -381,6 +588,10 @@ export async function WeighingWeightsPage({
     kind === "weight"
       ? weightBuckets.map((b) => ({ key: b.label, label: b.label, value: Number(b.average_weight_kg.toFixed(1)) }))
       : gainBuckets.map((b) => ({ key: b.label, label: b.label, value: Math.round(b.median_gain_g_per_day) }));
+  const metricLabels = {
+    adg: copy(pageContract, "metric.gain"),
+    weight: copy(pageContract, "metric.weight"),
+  };
 
   // Growth per purchase load. The supplier is part of the label rather than a
   // separate chart: the load number alone means nothing to a reader, and the
@@ -393,31 +604,153 @@ export async function WeighingWeightsPage({
   // discounted on sight.
   const byLoad = weights.ok ? weights.data.by_load : [];
   const loadUnattributed = weights.ok ? weights.data.load_unattributed_sheds : 0;
-  const loadBars =
-    loadMetric === "weight"
-      ? byLoad
-          .slice()
-          .sort((a, b) => b.average_weight_kg - a.average_weight_kg)
-          .map((load) => ({
-            key: load.load_ref,
-            label: load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref,
-            value: Number(load.average_weight_kg.toFixed(1)),
-          }))
-      : byLoad
-          .filter((load) => load.gain_g_per_day != null)
-          .map((load) => ({
-            key: load.load_ref,
-            label: `${load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref} (${load.gain_span_days ?? 0}d)`,
-            value: Math.round(load.gain_g_per_day as number),
-          }));
+  const loadWeightBars = byLoad
+    .slice()
+    .sort((a, b) => b.average_weight_kg - a.average_weight_kg)
+    .map((load) => ({
+      key: load.load_ref,
+      label: load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref,
+      value: Number(load.average_weight_kg.toFixed(1)),
+    }));
+  const loadGainBars = byLoad
+    .filter((load) => load.gain_g_per_day != null)
+    .map((load) => ({
+      key: load.load_ref,
+      label: `${load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref} (${load.gain_span_days ?? 0}d)`,
+      value: Math.round(load.gain_g_per_day as number),
+    }));
+
+  // WHERE each load sits. Ordered by head count so the biggest placement reads first —
+  // the load chart's own order changes with the metric toggle, and a table that
+  // reshuffled underneath it would be harder to read, not easier.
+  //
+  // The park chips are the DISTINCT parks across the load's sheds: a load bought once
+  // and split across two parks is a real shape, and naming only the first would be a
+  // quiet lie. Shed labels are the backend-composed operational display, passed
+  // through as data.
+  const loadPlacementRows = byLoad
+    .filter((load) => (load.placements ?? []).length > 0)
+    .map((load) => {
+      const placements = load.placements ?? [];
+      return {
+        key: load.load_ref,
+        loadRef: load.load_ref,
+        ownerName: load.owner_name ?? "",
+        parks: [...new Set(placements.map((p) => p.park_name).filter(Boolean))],
+        sheds: placements.map((p) => ({
+          key: `${p.park_name}|${p.operational_location_display}`,
+          label: `${p.operational_location_display} · ${p.animals.toLocaleString("en-IN")}`,
+        })),
+        animals: load.animals,
+      };
+    })
+    .sort((a, b) => b.animals - a.animals);
+
+  // Row 2b — how many kids of each breed fall into each daily gain band.
+  //
+  // The four counts are DISJOINT (maintainer, 2026-08-24): a kid at 260 g/day is counted in
+  // the top band only, so the four add up to the row's own denominator. They are still
+  // rendered as four independent bars — each band's share is the fact, and no arithmetic
+  // ACROSS bands happens here: every count arrives from the backend already banded.
+  //
+  // The share is taken against the row's OWN backend-supplied denominator (kids of this breed
+  // with a second weigh), which is the exact key set the backend filtered — never against the
+  // page's animal total, which covers kids weighed once and would understate every breed.
+  const gainThresholdColumns = tableLabels(pageContract, "gain-thresholds");
+  // The four band columns, in contract order, paired with their colour step. The labels are
+  // the table contract's own, so the chart legend and the table header cannot drift into two
+  // spellings of one band. `under` is the slowest band and the only red one: it is not a step
+  // on the green growth ramp, it is the kids that are not growing.
+  const gainThresholdSteps = ["hi", "mid", "lo", "under"] as const;
+  // The page is ALREADY filtered by the time these rows arrive, so the card renders exactly what
+  // it was sent. Re-selecting by sex here would be a second implementation of one rule and the two
+  // would drift — and the rows carry BOTH kinds of weigh: the individually scanned kids plus every
+  // kid of a single-breed whole-shed weigh, banded by that shed's own average change.
+  const gainThresholdRows: GainThresholdRow[] = (demo?.gain_thresholds_by_breed ?? [])
+    .filter((row) => row.animals > 0)
+    .map((row) => {
+      const counts = [
+        row.above_250_g_per_day,
+        row.band_200_to_250_g_per_day,
+        row.band_180_to_200_g_per_day,
+        row.at_or_below_180_g_per_day,
+      ];
+      return {
+        key: row.label,
+        breed: row.label,
+        animals: row.animals,
+        marks: sharesOfWhole(counts, row.animals).map((pct, index) => ({
+          step: gainThresholdSteps[index],
+          // Column 0 is the breed and column 1 the head count, so the bands start at 2.
+          label: gainThresholdColumns[index + 2] ?? "",
+          count: counts[index],
+          pct,
+        })),
+      };
+    });
+  // Caption, head-count noun and empty line name the kids the page counted, so they follow the
+  // filter — a combined caption under Male would say the bands add up to the kids weighed twice
+  // when they add up to the male kids weighed twice. All backend-contract copy.
+  const gainCaption = copy(
+    pageContract,
+    sexFilter === "" ? "section.gain_thresholds.caption" : `section.gain_thresholds.caption_${sexFilter}`,
+  );
+  const gainKidsLabel = copy(
+    pageContract,
+    sexFilter === "" ? "value.gain_thresholds.kids" : `value.gain_thresholds.kids_${sexFilter}`,
+  );
+  const gainEmptyLabel = copy(
+    pageContract,
+    sexFilter === "" ? "empty.gain_thresholds.body" : `empty.gain_thresholds.${sexFilter}`,
+  );
+  // Chart first: the card exists to answer "is this breed growing", and six rows of
+  // figures answer that more slowly than six rows of bars. The exact counts are one
+  // click away and the chart carries them on hover, so nothing is hidden by the default.
+  const gainThresholdView = one(params, GAIN_VIEW_PARAM) === "table" ? "table" : "chart";
+
+  // The download drawer's shed list: every shed the page knows about, at the same
+  // location grain the backend filter takes. The park id travels with each shed so
+  // the list follows the drawer's own park select; parks are unique by name within
+  // a tenant, so the name→id hop cannot merge two parks.
+  const parkIdByName = new Map(parks.map((park) => [park.name, park.park_id]));
+  const exportShedsById = new Map<string, WeightsExportShed>();
+  for (const row of rows) {
+    if (exportShedsById.has(row.location_id)) continue;
+    exportShedsById.set(row.location_id, {
+      location_id: row.location_id,
+      label: row.operational_location_display || row.shed_display_name,
+      park_id: parkIdByName.get(row.park_name) ?? "",
+    });
+  }
+  const exportSheds = [...exportShedsById.values()].sort((a, b) => a.label.localeCompare(b.label));
 
   return (
     <div className="weights-page">
+      {/* The download opener rides at the far end of the filter bar, on the same line as the park
+          and period controls, rather than on a line of its own above them (maintainer, 2026-08-24).
+
+          The Sex control sits IN LINE with the filters, beside Weighing, and is shaped like the
+          fields next to it — but it is held in client state, not the URL: all three grains arrive
+          in one response, so it changes nothing the server has to fetch and must not cost a page
+          render. See gain-sex-scope. */}
       <WorklistFilters
         basePath={PAGE_PATH}
         pageParam="offset"
         fields={filterFields}
         pageContract={pageContract}
+        trailing={
+          <WeightsExportControl
+            pageContract={pageContract}
+            parks={parks.map((park) => ({ park_id: park.park_id, name: park.name }))}
+            sheds={exportSheds}
+            initialParkId={parkFilter}
+            initialFrom={window.from}
+            initialTo={window.to}
+            today={today}
+            openHref={hrefWith(params, { wt_export: "1" })}
+            closeHref={hrefWith(params, { wt_export: null })}
+          />
+        }
       />
 
       <p className="muted small" style={{ margin: "0 0 -4px" }}>
@@ -516,97 +849,171 @@ export async function WeighingWeightsPage({
         ))}
       </section>
 
-      {/* Row 1 — shed and breed side by side, equal width, fixed height with the
-          list scrolling inside so neither card grows with its row count. */}
-      <div className="grid g2">
-        <section className="card wchart" aria-label={copy(pageContract, "chart.average.aria")}>
-          <h2 className="h">
-            <Scale className="ic" size={15} aria-hidden />{" "}
-            {shedMetric === "adg" ? copy(pageContract, "chart.gain.title") : copy(pageContract, "chart.average.title")}
-            <MetricToggle param="shed_metric" current={shedMetric} params={params} pageContract={pageContract} />
-          </h2>
-          <p className="muted small">
-            {shedMetric === "adg"
-              ? copy(pageContract, "chart.gain.caption_shed")
-              : copy(pageContract, "chart.average.caption")}
-          </p>
-          <WeightBars
-            data={shedMetric === "adg" ? gainChartData : chartData}
-            emptyLabel={
-              shedMetric === "adg"
-                ? copy(pageContract, "empty.metric.no_gain")
-                : copy(pageContract, "empty.no_data.body")
-            }
-            unit={shedMetric === "adg" ? "g" : "kg"}
-            chartLabel={copy(pageContract, shedMetric === "adg" ? "chart.gain.aria" : "chart.average.aria")}
-            size="tall"
-          />
-        </section>
-        <section className="card wchart" aria-label={copy(pageContract, "chart.breed.aria")}>
-          <h2 className="h">
-            {copy(pageContract, "chart.breed.title")}
-            <MetricToggle param="breed_metric" current={breedMetric} params={params} pageContract={pageContract} />
-          </h2>
-          <p className="muted small">{copy(pageContract, "section.demographics.caption")}</p>
-          <WeightBars
-            data={dimensionBars(breedMetric, demo?.by_breed ?? [], demo?.gain_by_breed ?? [])}
-            emptyLabel={copy(pageContract, breedMetric === "adg" ? "empty.metric.no_gain" : "empty.demographics.body")}
-            unit={breedMetric === "adg" ? "g" : "kg"}
-            chartLabel={copy(pageContract, "chart.breed.aria")}
-            size="tall"
-          />
-        </section>
+      {/* Row 1 — the true growth charts. These sit before shed/scale movement because
+          their daily gain is same-tag-twice ADG, not lump-sum average movement. */}
+      <div className="grid g3">
+        <MetricChart
+          initialMetric={breedMetric}
+          labels={metricLabels}
+          title={{ adg: copy(pageContract, "chart.breed.title_gain"), weight: copy(pageContract, "chart.breed.title") }}
+          caption={copy(pageContract, "section.demographics.caption")}
+          series={{
+            adg: {
+              data: dimensionBars("adg", demo?.by_breed ?? [], demo?.gain_by_breed ?? []),
+              emptyLabel: copy(pageContract, "empty.metric.no_gain"),
+              unit: "g",
+              chartLabel: copy(pageContract, "chart.breed.aria"),
+            },
+            weight: {
+              data: dimensionBars("weight", demo?.by_breed ?? [], demo?.gain_by_breed ?? []),
+              emptyLabel: copy(pageContract, "empty.demographics.body"),
+              unit: "kg",
+              chartLabel: copy(pageContract, "chart.breed.aria"),
+            },
+          }}
+          size="short"
+        />
+        <MetricChart
+          initialMetric={sexMetric}
+          labels={metricLabels}
+          title={{ adg: copy(pageContract, "chart.sex.title_gain"), weight: copy(pageContract, "chart.sex.title") }}
+          series={{
+            adg: {
+              data: dimensionBars("adg", demo?.by_sex ?? [], demo?.gain_by_sex ?? []),
+              emptyLabel: copy(pageContract, "empty.metric.no_gain"),
+              unit: "g",
+              chartLabel: copy(pageContract, "chart.sex.aria"),
+            },
+            weight: {
+              data: dimensionBars("weight", demo?.by_sex ?? [], demo?.gain_by_sex ?? []),
+              emptyLabel: copy(pageContract, "empty.demographics.body"),
+              unit: "kg",
+              chartLabel: copy(pageContract, "chart.sex.aria"),
+            },
+          }}
+          size="short"
+        />
+        <MetricChart
+          initialMetric={stageMetric}
+          labels={metricLabels}
+          title={{ adg: copy(pageContract, "chart.stage.title_gain"), weight: copy(pageContract, "chart.stage.title") }}
+          series={{
+            adg: {
+              data: dimensionBars("adg", demo?.by_stage ?? [], demo?.gain_by_stage ?? []),
+              emptyLabel: copy(pageContract, "empty.metric.no_gain"),
+              unit: "g",
+              chartLabel: copy(pageContract, "chart.stage.aria"),
+            },
+            weight: {
+              data: dimensionBars("weight", demo?.by_stage ?? [], demo?.gain_by_stage ?? []),
+              emptyLabel: copy(pageContract, "empty.demographics.body"),
+              unit: "kg",
+              chartLabel: copy(pageContract, "chart.stage.aria"),
+            },
+          }}
+          size="short"
+        />
       </div>
 
-      {/* Row 2 — sex and stage. Few rows each, so a shorter box. */}
-      <div className="grid g2">
-        <section className="card wchart" aria-label={copy(pageContract, "chart.sex.aria")}>
-          <h2 className="h">
-            {copy(pageContract, "chart.sex.title")}
-            <MetricToggle param="sex_metric" current={sexMetric} params={params} pageContract={pageContract} />
-          </h2>
-          <WeightBars
-            data={dimensionBars(sexMetric, demo?.by_sex ?? [], demo?.gain_by_sex ?? [])}
-            emptyLabel={copy(pageContract, sexMetric === "adg" ? "empty.metric.no_gain" : "empty.demographics.body")}
-            unit={sexMetric === "adg" ? "g" : "kg"}
-            chartLabel={copy(pageContract, "chart.sex.aria")}
-            size="short"
+      {/* Row 2 — shed/partition chart. In gain mode this intentionally mixes two
+          operational signals, so each row carries a Per animal/Lump sum chip. */}
+      <ShedMetricChart
+        initialMetric={shedMetric}
+        labels={metricLabels}
+        title={{ adg: copy(pageContract, "chart.gain.title"), weight: copy(pageContract, "chart.average.title") }}
+        series={shedSeries}
+      />
+
+      {/* Row 2b — kids clearing each daily gain mark, by breed. A breed median says where the
+          middle kid sits; it cannot say how many of the breed are actually growing well, which
+          is the question this answers. Sits directly above the load chart because both read as
+          "who is growing", one by breed and one by supplier.
+
+          Every column header is the backend table contract's, and the caption says each kid is
+          counted once — the four bands are a real distribution that adds to the denominator. */}
+      <section className="card wtable" aria-label={copy(pageContract, "section.gain_thresholds.aria")}>
+        <h2 className="h">
+          <Gauge className="ic" size={15} aria-hidden /> {copy(pageContract, "section.gain_thresholds.title")}
+          {/* Top-right, and URL-driven like every other toggle on this page, so the choice
+              survives a reload and travels in a shared link. SegmentedLinks keeps the reader
+              beside the card instead of throwing them back to the top of a long page. */}
+          <SegmentedLinks
+            ariaLabel={copy(pageContract, "section.gain_thresholds.view_aria")}
+            current={gainThresholdView}
+            options={[
+              { value: "chart", label: copy(pageContract, "view.chart"), href: hrefWith(params, { [GAIN_VIEW_PARAM]: null }) },
+              { value: "table", label: copy(pageContract, "view.table"), href: hrefWith(params, { [GAIN_VIEW_PARAM]: "table" }) },
+            ]}
           />
-        </section>
-        <section className="card wchart" aria-label={copy(pageContract, "chart.stage.aria")}>
-          <h2 className="h">
-            {copy(pageContract, "chart.stage.title")}
-            <MetricToggle param="stage_metric" current={stageMetric} params={params} pageContract={pageContract} />
-          </h2>
-          <WeightBars
-            data={dimensionBars(stageMetric, demo?.by_stage ?? [], demo?.gain_by_stage ?? [])}
-            emptyLabel={copy(pageContract, stageMetric === "adg" ? "empty.metric.no_gain" : "empty.demographics.body")}
-            unit={stageMetric === "adg" ? "g" : "kg"}
-            chartLabel={copy(pageContract, "chart.stage.aria")}
-            size="short"
+        </h2>
+        <p className="muted small">{gainCaption}</p>
+        {gainThresholdView === "chart" ? (
+          <GainThresholdBars
+            rows={gainThresholdRows}
+            chartLabel={copy(pageContract, "chart.gain_thresholds.aria")}
+            emptyLabel={gainEmptyLabel}
+            kidsLabel={gainKidsLabel}
+            ofLabel={copy(pageContract, "value.gain_thresholds.of")}
           />
-        </section>
-      </div>
+        ) : gainThresholdRows.length === 0 ? (
+          <div className="empty">
+            <span className="muted small">{gainEmptyLabel}</span>
+          </div>
+        ) : (
+          <div className="tablewrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  {gainThresholdColumns.map((label, index) => (
+                    <th key={label} className={index >= 1 ? "num" : undefined}>
+                      {label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {gainThresholdRows.map((row) => (
+                  <tr key={row.key}>
+                    <td>
+                      <b>{row.breed}</b>
+                    </td>
+                    <td className="num">{row.animals.toLocaleString("en-IN")}</td>
+                    {row.marks.map((mark) => (
+                      <td key={mark.step} className="num">
+                        {mark.count.toLocaleString("en-IN")}{" "}
+                        <span className="muted">({mark.pct.toFixed(1)}%)</span>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {/* Row 3 — growth by purchase load, full width: the label carries both the load
           number and the supplier, which does not fit a half-width card. */}
-      <section className="card wchart" aria-label={copy(pageContract, "chart.load.aria")}>
-        <h2 className="h">
-          {loadMetric === "adg"
-            ? copy(pageContract, "chart.load.title")
-            : copy(pageContract, "chart.load.title_weight")}
-          <MetricToggle param="load_metric" current={loadMetric} params={params} pageContract={pageContract} />
-        </h2>
-        <p className="muted small">{copy(pageContract, "chart.load.caption")}</p>
-        <WeightBars
-          data={loadBars}
-          emptyLabel={
-            byLoad.length === 0
-              ? copy(pageContract, "empty.load.body")
-              : copy(pageContract, "empty.metric.no_gain")
-          }
-          unit={loadMetric === "adg" ? "g" : "kg"}
-          chartLabel={copy(pageContract, "chart.load.aria")}
+      <div>
+        <MetricChart
+          initialMetric={loadMetric}
+          labels={metricLabels}
+          title={{ adg: copy(pageContract, "chart.load.title"), weight: copy(pageContract, "chart.load.title_weight") }}
+          caption={copy(pageContract, "chart.load.caption")}
+          series={{
+            adg: {
+              data: loadGainBars,
+              emptyLabel: byLoad.length === 0 ? copy(pageContract, "empty.load.body") : copy(pageContract, "empty.metric.no_gain"),
+              unit: "g",
+              chartLabel: copy(pageContract, "chart.load.aria"),
+            },
+            weight: {
+              data: loadWeightBars,
+              emptyLabel: copy(pageContract, "empty.load.body"),
+              unit: "kg",
+              chartLabel: copy(pageContract, "chart.load.aria"),
+            },
+          }}
           size="short"
           wide
         />
@@ -615,6 +1022,57 @@ export async function WeighingWeightsPage({
             {loadUnattributed.toLocaleString("en-IN")} {copy(pageContract, "note.load.unmapped")}
           </p>
         ) : null}
+      </div>
+
+      {/* Row 3b — WHERE each load sits. The chart above says a supplier's stock is
+          growing; without this a reader cannot tell which park or shed grew it, and
+          cannot walk from a load bar down to the shed table.
+
+          Every row is rendered from the backend's own placement entries — the park
+          name, the shed label and the head count all arrive composed, so this never
+          re-derives an operational location client-side (AGENTS.md rule 5). The load
+          list is bounded by the authored tag estate, so it is not paged. */}
+      <section className="card wtable" aria-label={copy(pageContract, "section.load_placements.aria")}>
+        <h2 className="h">
+          <Warehouse className="ic" size={15} aria-hidden /> {copy(pageContract, "section.load_placements.title")}
+        </h2>
+        <p className="muted small">{copy(pageContract, "section.load_placements.caption")}</p>
+        {loadPlacementRows.length === 0 ? (
+          <div className="empty">
+            <span className="muted small">{copy(pageContract, "empty.load_placements.body")}</span>
+          </div>
+        ) : (
+          <div className="tablewrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  {placementColumns.map((label) => (
+                    <th key={label}>{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {loadPlacementRows.map((row) => (
+                  <tr key={row.key}>
+                    <td>
+                      <b>{row.loadRef}</b>
+                      {row.ownerName ? <div className="muted small">{row.ownerName}</div> : null}
+                    </td>
+                    <td>{row.parks.join(", ")}</td>
+                    <td>
+                      {row.sheds.map((shed) => (
+                        <Tag key={shed.key} tone="mut">
+                          {shed.label}
+                        </Tag>
+                      ))}
+                    </td>
+                    <td>{row.animals.toLocaleString("en-IN")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {demo ? (
@@ -647,7 +1105,12 @@ export async function WeighingWeightsPage({
           </div>
         ) : (
           <>
-            <div className="tablewrap">
+            <div
+              className="tablewrap"
+              tabIndex={0}
+              role="group"
+              aria-label={copy(pageContract, "section.sheds.aria")}
+            >
               <table className="tbl">
                 <thead>
                   <tr>
@@ -659,11 +1122,27 @@ export async function WeighingWeightsPage({
                 <tbody>
                   {slice.map((row) => {
                     const mode = modeTag(row, pageContract);
+                    const composition = compositionByShed.get(shedKey(row.location_id, row.partition_label));
                     return (
-                      <tr key={`${row.location_id}|${row.partition_label ?? ""}`}>
+                      <tr key={shedKey(row.location_id, row.partition_label)}>
                         <td>{row.park_name}</td>
                         <td>
                           <b>{row.operational_location_display || row.shed_display_name}</b>
+                          {composition?.chips.length ? (
+                            <span className="wcomp-chips" aria-label="Breed and sex composition">
+                              {composition.chips.map((chip, chipIndex) => (
+                                // breed|sex alone is NOT unique — the backend can emit two chips
+                                // for the same breed+sex (one per resident cohort), and Godel 1
+                                // - Part 7 really does carry "Osmanabadi - female" twice. The
+                                // list is render-only (never reordered or edited in place), so
+                                // the index disambiguates safely.
+                                <span className="wcomp-chip" key={`${chip.breed ?? ""}|${chip.sex ?? ""}|${chipIndex}`}>
+                                  {compositionLabel(chip, pageContract)}
+                                  <span>{chip.animals.toLocaleString("en-IN")}</span>
+                                </span>
+                              ))}
+                            </span>
+                          ) : null}
                         </td>
                         <td>
                           <Tag tone={mode.tone}>{mode.label}</Tag>
@@ -678,7 +1157,7 @@ export async function WeighingWeightsPage({
                             </span>
                           )}
                         </td>
-                        <td>{row.bucket_status}</td>
+                        <td>{workflowLabel(row.bucket_status, pageContract)}</td>
                       </tr>
                     );
                   })}
@@ -716,7 +1195,12 @@ export async function WeighingWeightsPage({
           </div>
         ) : (
           <>
-            <div className="tablewrap">
+            <div
+              className="tablewrap"
+              tabIndex={0}
+              role="group"
+              aria-label={copy(pageContract, "section.losing.aria")}
+            >
               <table className="tbl">
                 <thead>
                   <tr>
@@ -731,7 +1215,7 @@ export async function WeighingWeightsPage({
                       <td>
                         <b>{animal.scanned_identifier}</b>
                       </td>
-                      <td>{animal.shed_display_name}</td>
+                      <td>{animal.operational_location_display || animal.shed_display_name}</td>
                       <td className="num">{kg(animal.previous_weight_kg)} kg</td>
                       <td className="num">{kg(animal.latest_weight_kg)} kg</td>
                       <td className="num">
@@ -740,7 +1224,7 @@ export async function WeighingWeightsPage({
                         </Tag>
                       </td>
                       <td className="num">{Math.round(animal.days_between)}</td>
-                      <td className="num">{animal.latest_weigh_date}</td>
+                      <td className="num">{fmtDate(animal.latest_weigh_date)}</td>
                     </tr>
                   ))}
                 </tbody>

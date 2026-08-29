@@ -69,6 +69,7 @@ import sg.mesha.goatos.feature.counts.ShiftingStateTone
 import sg.mesha.goatos.feature.counts.ShiftingPreviousDateUi
 import sg.mesha.goatos.feature.counts.ShiftingAnimalUi
 import sg.mesha.goatos.feature.counts.ShiftingParkUi
+import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_KEEP_CURRENT
 import sg.mesha.goatos.feature.counts.ShiftingScreen
 import sg.mesha.goatos.feature.counts.ShiftingShedUi
 import sg.mesha.goatos.feature.counts.ShiftingUiState
@@ -518,7 +519,7 @@ class ScreenshotTest {
             state = ShiftingUiState(
                 animalQuery = animal.tag,
                 animalMatches = listOf(animal),
-                selectedAnimal = animal,
+                selectedAnimals = listOf(animal),
                 destinationParks = listOf(
                     ShiftingParkUi(
                         parkId = animal.parkId,
@@ -530,6 +531,74 @@ class ScreenshotTest {
                 ),
                 destinationParkId = animal.parkId,
             ),
+        )
+    }
+
+    /**
+     * The raise form showing the DESTINATION TAG as context (2026-08-20 rewrite: the TAG TOGGLE is
+     * retired -- the movement's category decides the tag on the backend, so the raiser is no
+     * longer asked). The pen's tag is still named under the destination picker, backend-owned and
+     * rendered verbatim, so the operator sees what the chosen pen is for.
+     */
+    @Test
+    fun shifting_tag_toggle_available() = shot("shifting_tag_toggle_available") {
+        ShiftingScreen(state = shiftingTagToggleState(destinationStage = "Mother"))
+    }
+
+    /**
+     * The same context on a pen that cannot supply a tag: the backend's farm-worded reason is
+     * rendered verbatim. The phone never composes the reason -- a blank tag does not say WHY it is
+     * blank, and the operator is owed that.
+     */
+    @Test
+    fun shifting_tag_toggle_unavailable() = shot("shifting_tag_toggle_unavailable") {
+        ShiftingScreen(
+            state = shiftingTagToggleState(
+                destinationStageReason = "This destination holds a mix of tags",
+            ),
+        )
+    }
+
+    /** A raise form with an animal picked and a destination pen selected, showing its tag context. */
+    private fun shiftingTagToggleState(
+        destinationStage: String = "",
+        destinationStageReason: String = "",
+    ): ShiftingUiState {
+        val animal = ShiftingAnimalUi(
+            goatId = "d8337607-6e21-41c9-a703-a7b73ae4e545",
+            displayId = "G-000326",
+            tag = "CBE-ASSUMED-RFID-00002",
+            parkId = "00000000-0000-4000-8000-000000003001",
+            shedId = "43071c6e-3b00-47a9-860c-1bbacb570575",
+            parkName = "Coimbatore",
+            shedName = "Castro",
+            partitionLabel = "1",
+            lifecycleStatus = "alive",
+        )
+        val destinationShedID = "43071c6e-3b00-47a9-860c-1bbacb570576"
+        return ShiftingUiState(
+            animalQuery = animal.tag,
+            animalMatches = listOf(animal),
+            selectedAnimals = listOf(animal),
+            destinationParks = listOf(
+                ShiftingParkUi(
+                    parkId = animal.parkId,
+                    name = animal.parkName,
+                    sheds = listOf(
+                        ShiftingShedUi(
+                            shedId = destinationShedID,
+                            name = "Castro - 2",
+                            partitionLabel = "2",
+                            operationalLocationDisplay = "Castro - 2",
+                            destinationStage = destinationStage,
+                            destinationStageReason = destinationStageReason,
+                        ),
+                    ),
+                ),
+            ),
+            destinationParkId = animal.parkId,
+            destinationShedId = destinationShedID,
+            destinationPartitionLabel = "2",
         )
     }
 
@@ -1046,6 +1115,12 @@ class ScreenshotTest {
                     // proves nothing. lifecycleStatus is "pending" -- IDENTICAL to Gandhi 1 below,
                     // which nobody has packed at all -- so the chip cannot tell the two apart and this
                     // golden is what proves an operator can.
+                    // The sentence is the SESSION-SPECIFIC one the backend composes since the
+                    // 2026-08-29 decision: the packed-against snapshot supplies the old numbers, the
+                    // corrected sheet the new, so the card says what changed instead of silently
+                    // showing a different quantity (the STG 2026-08-28 confusion). The generic
+                    // "quantities changed" fallback survives only for a pen-session the corrected
+                    // sheet no longer lists.
                     FeedPackingRowUi(
                         grainKey = "pack-3", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-3", sessionNo = 1,
                         shedLabel = "Castro - 2",
@@ -1053,8 +1128,9 @@ class ScreenshotTest {
                         workflow = "normal", experimentArm = "", headCount = 52,
                         items = feedItems(), totalKg = "17.8",
                         status = "ready", completed = false, lifecycleStatus = "pending",
-                        reworkReason = "Animals moved in or out of this pen, so the feed " +
-                            "quantities changed. Pack the new amounts and record a new video.",
+                        reworkReason = "Animals moved in or out of this pen after you packed. " +
+                            "This bag was 15 kg for 44 animals; it is now 17.8 kg for 52 animals. " +
+                            "Pack the new amounts and record a new video.",
                     ),
                     FeedPackingRowUi(
                         grainKey = "pack-4", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-3", sessionNo = 2,
@@ -1063,8 +1139,9 @@ class ScreenshotTest {
                         workflow = "normal", experimentArm = "", headCount = 52,
                         items = feedItems(), totalKg = "17.8",
                         status = "ready", completed = false, lifecycleStatus = "pending",
-                        reworkReason = "Animals moved in or out of this pen, so the feed " +
-                            "quantities changed. Pack the new amounts and record a new video.",
+                        reworkReason = "Animals moved in or out of this pen after you packed. " +
+                            "This bag was 15 kg for 44 animals; it is now 17.8 kg for 52 animals. " +
+                            "Pack the new amounts and record a new video.",
                     ),
                     FeedPackingRowUi(
                         grainKey = "pack-1", parkId = "park-1", parkLabel = "Channapatna", shedId = "shed-1", sessionNo = 1,

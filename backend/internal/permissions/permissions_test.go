@@ -466,6 +466,22 @@ func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 	}
 }
 
+func TestAppPCCareTaskProofRouteAuthorizeExecutor(t *testing.T) {
+	route, ok := Match("PUT", "/app/pc-care/tasks/994cecc6-310d-4405-8bde-66dbf2db7589/proofs/stock_fridge_video")
+	if !ok {
+		t.Fatal("pc-care task proof route is not registered")
+	}
+	if route.OperationID != "appRegisterPCCareTaskProof" {
+		t.Fatalf("operation_id=%q, want appRegisterPCCareTaskProof", route.OperationID)
+	}
+	if len(route.Permissions) != 1 || route.Permissions[0] != PCCareExecute {
+		t.Fatalf("permissions=%v, want [%s]", route.Permissions, PCCareExecute)
+	}
+	if !AuthorizeRoute(route, []string{RoleOperator}) {
+		t.Fatal("operator must authorize app pc-care task proof registration")
+	}
+}
+
 func TestProcurementBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 	routes := []struct {
 		method string
@@ -531,6 +547,7 @@ func TestVerificationQueueAndVerdictRoutesAreRegistered(t *testing.T) {
 		{"POST", "/verification/submissions/98000000-0000-4000-8000-000000000001/close", "closeVerificationSubmission", VerificationAct},
 		{"POST", "/verification/vaccination-batches/98000000-0000-4000-8000-000000000001/close", "closeVaccinationBatch", VerificationAct},
 		{"GET", "/verification/oversight-analytics", "getVerificationOversightAnalytics", VerificationOversee},
+		{"GET", "/verification/video-log", "getVerificationVideoLog", VerificationEvidenceTimeline},
 	} {
 		route, ok := Match(item.method, item.path)
 		if !ok {
@@ -567,6 +584,54 @@ func TestVerificationOversightAnalyticsRouteIsOverseeOnly(t *testing.T) {
 	}
 	if !RolesAuthorize([]string{RolePCDirector}, route.Permissions, route.AdminOnly) {
 		t.Fatal("pc_director must authorize the oversight-analytics route")
+	}
+}
+
+// TestVerificationVideoLogRouteIsTimelineCapabilityNotOversight pins the ONE thing that makes the
+// video log a separate capability instead of more oversight chrome: the VERIFIER reaches it and
+// still does not reach the oversight surfaces.
+//
+// The two assertions that matter are the pair. If a later change "simplifies" the video log onto
+// permissions.VerificationOversee, the first assertion fails (the verifier loses the panel she was
+// given on 2026-08-14). If it instead grants VerificationOversee to the verifier to make the video
+// log reachable, the second fails (she gains the module chips and capture-date range picker that
+// the 2026-08-12 STG incident deliberately removed). Neither shortcut can pass.
+func TestVerificationVideoLogRouteIsTimelineCapabilityNotOversight(t *testing.T) {
+	videoLog, ok := Match("GET", "/verification/video-log")
+	if !ok {
+		t.Fatal("getVerificationVideoLog route is not registered")
+	}
+	oversight, ok := Match("GET", "/verification/oversight-analytics")
+	if !ok {
+		t.Fatal("getVerificationOversightAnalytics route is not registered")
+	}
+
+	if !RolesAuthorize([]string{RoleVerifier}, videoLog.Permissions, videoLog.AdminOnly) {
+		t.Fatal("verifier MUST authorize the video-log route: it is the arrival log for the sheds she reviews (maintainer decision 2026-08-14)")
+	}
+	if RolesAuthorize([]string{RoleVerifier}, oversight.Permissions, oversight.AdminOnly) {
+		t.Fatal("verifier must still NOT authorize oversight-analytics — granting the video log must not widen her into the oversight chrome")
+	}
+
+	// Leadership holds both, per the founder/builder visibility invariant.
+	for _, role := range []string{RoleCEOInternal, RolePCDirector} {
+		if !RolesAuthorize([]string{role}, videoLog.Permissions, videoLog.AdminOnly) {
+			t.Fatalf("%s must authorize the video-log route", role)
+		}
+	}
+
+	// The three directors that hold no VerificationReview must not receive the video log either.
+	// Handing it to them would offer a panel whose only backing queue read 403s — the exact defect
+	// recorded on RolePCDirector's grant block when it held VerificationAct without Review.
+	for _, role := range []string{RoleGrowthDirector, RoleFeedDirector, RoleHealthDirector} {
+		if RolesAuthorize([]string{role}, videoLog.Permissions, videoLog.AdminOnly) {
+			t.Fatalf("%s must NOT authorize the video-log route: it does not hold verification.review, so it cannot open /verify at all", role)
+		}
+	}
+
+	// An operator captures the videos; she does not get the log of when they landed.
+	if RolesAuthorize([]string{RoleOperator}, videoLog.Permissions, videoLog.AdminOnly) {
+		t.Fatal("operator must NOT authorize the video-log route")
 	}
 }
 

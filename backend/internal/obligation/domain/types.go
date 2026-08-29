@@ -3,6 +3,8 @@ package domain
 
 import (
 	"errors"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,22 +21,106 @@ var ErrOperatorAssignmentConfigPresentButEmpty = errors.New("obligation: operato
 // NewObligation is the input to generate one obligation instance. IdempotencyKey is the
 // deterministic key that makes generation a no-op on replay.
 type NewObligation struct {
-	TenantID             string
-	ProtocolVersionID    string
-	RuleID               string
-	BatchID              *string
-	TargetType           string
-	TargetID             string
-	ScopeType            string
-	ScopeID              string
-	DueAt                time.Time
-	WindowStart          *time.Time
-	WindowEnd            *time.Time
-	Status               string
-	IdempotencyKey       string
+	TenantID          string
+	ProtocolVersionID string
+	RuleID            string
+	BatchID           *string
+	TargetType        string
+	TargetID          string
+	ScopeType         string
+	ScopeID           string
+	DueAt             time.Time
+	WindowStart       *time.Time
+	WindowEnd         *time.Time
+	Status            string
+	IdempotencyKey    string
+	// RuleIdentityKey names the RULE this obligation serves in business terms --
+	// vaccine|dose|sequence -- rather than the version UUID that happened to mint it. Publishing
+	// rewrites every rule row, so the version pointer changes while the animal's work does not;
+	// the identity is what stays still. At most one open obligation may exist per
+	// (target, identity, sequence), enforced by obligation_open_rule_identity_unique_idx.
+	RuleIdentityKey      string
 	GeneratedByTriggerID *string
 	Sequence             int32
+
+	// RepeatCycle records WHICH VACCINATION CAUSED this obligation, for a repeat dose.
+	//
+	// A repeat is anchored to when the previous dose was actually given, so its due date
+	// legitimately moves -- which is why the due date cannot be part of its identity. The
+	// cause can: one completed dose mints exactly one open successor. Nil for everything
+	// else, and the partial unique indexes apply only where it is set, so non-repeat work
+	// is untouched.
+	RepeatCycle *RepeatCycleSource
 }
+
+// RepeatCycleSource identifies the administration a repeat obligation descends from.
+//
+// Every writer uses ONE vocabulary: Source is always RepeatCycleSourceTrustedHistory and
+// SourceRef is always RepeatCycleRef(vaccine, administered-at, dose), whether the causing
+// dose was given inside Goat OS or arrived as accepted history. Do not "correct" a writer to
+// name the cause some other way, however natural it looks at that call site: the insert guard
+// compares Source and SourceRef literally and the source index keys on them, so a second
+// vocabulary means two open rows for one cycle, each invisible to the other. That was a real
+// defect here, found in review, not a hypothetical.
+//
+// AnchorObligationID is recorded when the cause happens to be an obligation in this system --
+// for the audit trail and for the stricter per-anchor index -- but it is never the identity.
+// History-driven cycles have no obligation row to point at and are identified by SourceRef
+// alone, which is why the two indexes are not interchangeable.
+type RepeatCycleSource struct {
+	Source             string
+	SourceRef          string
+	AnchorObligationID *string
+	AnchorAt           *time.Time
+	DueAt              *time.Time
+}
+
+// Repeat-cycle source kinds. Stored verbatim and half of the source-uniqueness key, so they
+// are constants rather than literals retyped at each call site.
+//
+// Only RepeatCycleSourceTrustedHistory is written by production code today -- see the type's
+// doc for why every writer shares it. The other two are the vocabulary this column would need
+// if a cause ever genuinely could not be expressed as an administration.
+// Valid reports whether the metadata identifies a cause. Source and SourceRef must BOTH
+// be present: a half-populated value looks anchored while being invisible to the partial
+// unique indexes (which key on source_ref, and treat a NULL source as distinct), so it
+// would silently reintroduce the very duplicates this metadata exists to prevent.
+func (r *RepeatCycleSource) Valid() bool {
+	return r != nil &&
+		strings.TrimSpace(r.Source) != "" &&
+		strings.TrimSpace(r.SourceRef) != ""
+}
+
+// RepeatCycleRef names the administration that causes a repeat cycle, by its own immutable
+// coordinates: which vaccine, given when, as which dose.
+//
+// Every writer of a repeat cycle must produce this same string for the same administration,
+// or the writers do not share an identity at all: the insert guard compares source and ref
+// literally, and the two partial unique indexes cannot collide across differing vocabularies.
+// One writer naming the cause by completed-obligation id and another naming it by
+// administration would leave two open rows for one cycle, each convinced it is the only one.
+//
+// The timestamp is truncated explicitly rather than relying on the layout: Go's RFC3339
+// constant happens to omit fractional seconds, but RFC3339Nano does not, and the SQL that
+// reconstructs this reference during repair formats whole seconds. Truncating here means a
+// later switch of layout cannot silently split one cause into two.
+func RepeatCycleRef(vaccineCode string, administeredAt time.Time, sequence int32) string {
+	code := strings.ToLower(strings.TrimSpace(vaccineCode))
+	if code == "" || administeredAt.IsZero() {
+		return ""
+	}
+	return strings.Join([]string{
+		code,
+		administeredAt.UTC().Truncate(time.Second).Format(time.RFC3339),
+		strconv.Itoa(int(sequence)),
+	}, "|")
+}
+
+const (
+	RepeatCycleSourceCompletedObligation = "completed_obligation"
+	RepeatCycleSourceTrustedHistory      = "trusted_history"
+	RepeatCycleSourceImportedHistory     = "imported_history"
+)
 
 // RecoveryReschedule replans a health-deferred obligation on recovery: align to a nearby planned
 // drive within the policy window, or due immediately for a micro-drive.
@@ -52,6 +138,14 @@ type ObligationRef struct {
 	Reason       string
 	DueAt        time.Time
 	RowVersion   int32
+	// IdempotencyKey is set only by lookups that find a row some OTHER way -- by its cause,
+	// say. Generation's reconciliation is all keyed, so a row located by cause is unreachable
+	// without carrying its key back.
+	IdempotencyKey string
+	// DateBlocked is set when a reconcile CLAIMED this obligation -- so no duplicate is written --
+	// but could not move it to the new due date, because obligation_instances_dup_guard already
+	// holds that key. The caller reports it; the date is stale until the collision clears.
+	DateBlocked bool
 }
 
 // DueObligation is a row from the due-window scan.

@@ -14,10 +14,31 @@ import { ActionsDateFilter } from "./actions-date-filter";
 // Server-safe module on purpose: a constant imported across the "use client" boundary arrives as a
 // client-reference proxy, not the string, and every date selection silently fell back to today.
 import { DATE_FROM_PARAM, DATE_TO_PARAM } from "./actions-date-params";
-import { ANALYTICS_PANEL_ID, ANALYTICS_PANEL_SELECTION_KEY, AnalyticsPanel } from "./analytics-panel";
+import { AnalyticsPanel } from "./analytics-panel";
+// Server-safe module on purpose: see analytics-panel-params.ts — importing these across the
+// "use client" boundary made closeHref unable to strip its own key, so the drawer would not close.
+import { ANALYTICS_PANEL_ID, ANALYTICS_PANEL_SELECTION_KEY } from "./analytics-panel-params";
 import { OversightAnalytics } from "./oversight-analytics";
+import { Randomization } from "./randomization";
+import { RandomizationPanel } from "./randomization-panel";
+// Server-safe module on purpose: see randomization-panel-params.ts.
+import { RANDOMIZATION_PANEL_ID, RANDOMIZATION_PANEL_SELECTION_KEY } from "./randomization-panel-params";
+import { VideoLogPanel } from "./video-log-panel";
+// Server-safe module on purpose: a constant imported across the "use client" boundary arrives as a
+// client-reference proxy, not the string, so vl_date/vl_shed silently never matched.
+import {
+  VIDEO_LOG_DATE_KEY,
+  VIDEO_LOG_PANEL_ID,
+  VIDEO_LOG_PANEL_SELECTION_KEY,
+  VIDEO_LOG_PARK_KEY,
+  VIDEO_LOG_QUERY_KEY,
+  VIDEO_LOG_SHED_KEY,
+  VIDEO_LOG_SHED_TOKEN,
+} from "./video-log-params";
+import { VideoLog } from "./video-log";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
 import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
+import { ToxinReviewScreen, toxinTabLabel } from "./toxin-review-section";
 
 const PATHNAME = "/verify";
 
@@ -25,7 +46,7 @@ const PATHNAME = "/verify";
 // feedback banner: all four describe the queue as it was BEFORE the change. Carrying a cursor
 // across a filter change is the worst of them — cursors are keyset positions in one filtered
 // sequence, so reusing one lands on an unrelated slice of the new queue.
-const RESET_ON_FILTER = { vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null };
+const RESET_ON_FILTER = { vi_row: null, vi_cursor: null, vi_trail: null, vi_open_first: null, va_status: null, va_code: null };
 
 
 export async function VerificationReviewPage({
@@ -55,8 +76,17 @@ export async function VerificationReviewPage({
   // whole pending backlog and had no way to narrow it.
   const today = todayIso();
   const dateRange = parseDateRange(sp, today);
-  const selectedId = one(sp, "vi_row");
   const trail = decodeTrail(one(sp, "vi_trail"));
+
+  // The TOXIN review tab (maintainer decision 2026-08-25). Gated on the backend-declared
+  // toxin_tab control (permissions.ToxinVerdict — CEO/CXO only; the verifier never holds it and
+  // never sees the chip). When active, the toxin screen replaces the verification queue entirely:
+  // toxin is deliberately NOT a verification category, so its rows never mix into this table.
+  const toxinTabEnabled = controlEnabled(pageContract, "toxin_tab", false);
+  const toxinActive = toxinTabEnabled && one(sp, "toxin") === "1";
+  if (toxinActive) {
+    return <ToxinReviewScreen searchParams={sp} pageContract={pageContract} />;
+  }
 
   // ONE read on the critical path. The staff roster the re-assign picker offers used to be fetched
   // here too -- listStaffPositions with limit 500, awaited alongside the queue on every load -- for
@@ -82,6 +112,7 @@ export async function VerificationReviewPage({
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
   const items = queue.ok ? queue.data.items : [];
+  const selectedId = one(sp, "vi_row") ?? (one(sp, "vi_open_first") === "1" ? items[0]?.item_id : undefined);
   // `?? []` is not defensive noise: admin-web and the API deploy separately, so a browser can hit a
   // backend one release behind that has no `modules` in its filter options. The contract declares
   // the field required, which means the generated type asserts it is there — the renderer must
@@ -145,12 +176,30 @@ export async function VerificationReviewPage({
   // verifier's original working-queue screen, commit 89b16c0fa / fe06be1ed) and stay available to
   // every role that can open this page.
   const oversightFiltersEnabled = controlEnabled(pageContract, "oversight_filters", false);
+  // Gates the CAPTURE-DATE RANGE picker. SPLIT OUT of oversightFiltersEnabled (maintainer decision
+  // 2026-08-17) and held by the verifier as well as leadership: the 2026-08-12 incident was about
+  // CROSS-MODULE chrome, and a date range crosses no module boundary -- it narrows the caller's own
+  // queue to the days she is working. Without it her board is pinned to a date she cannot change,
+  // which on real data is an empty screen sitting on top of a full backlog. The module chips above
+  // stay on the oversight capability. Backend half: permissions.VerificationFilterByCaptureDate +
+  // ports.ListQueueParams.CaptureDateFilterEnabled.
+  const captureDateFilterEnabled = controlEnabled(pageContract, "capture_date_filter", false);
   // Gates the CEO/PC-Director-only analytics section rendered ABOVE the queue table (KPI strip,
   // pending-by-module, per-verifier activity + watch integrity). Same capability
   // (permissions.VerificationOversee) as oversightFiltersEnabled above, but a DISTINCT contract
   // control -- see compileVerificationReviewControls's oversight_analytics doc comment for why
   // this is not folded into oversight_filters.
   const oversightAnalyticsEnabled = controlEnabled(pageContract, "oversight_analytics", false);
+  // Gates the VIDEO LOG panel (button + drawer). A DIFFERENT capability from the two above:
+  // permissions.VerificationEvidenceTimeline, which the verifier holds and VerificationOversee is
+  // not. Keeping it a distinct control is what lets her have this panel without the oversight
+  // chrome. See compileVerificationReviewControls's video_log doc comment.
+  const videoLogEnabled = controlEnabled(pageContract, "video_log", false);
+  // Gates the CEO-only RANDOMIZATION section: per module, the share of proof the verifier must
+  // review (maintainer decision 2026-08-26). Its own control, on permissions.VerificationSampling
+  // -- NARROWER than the oversight capability above, which the PC Director also holds. See
+  // compileVerificationReviewControls's randomization doc comment.
+  const randomizationEnabled = controlEnabled(pageContract, "randomization", false);
 
   // The mock's dot-legend pills (mock/verifier-web-mock.html .legend/.lg) need a live count per
   // status for the CURRENT feature+scope. This is the backend's own whole-filter aggregate
@@ -188,7 +237,10 @@ export async function VerificationReviewPage({
         {oversightAnalyticsEnabled ? (
           <AnalyticsPanel
             pageContract={pageContract}
-            closeHref={hrefWith(sp, {})}
+            // MUST drop the panel's own key. closeHref is what the overlay writes when it cannot
+            // simply pop history, so a href that still carries vi_analytics=open closes the drawer
+            // and immediately reopens it from the URL.
+            closeHref={hrefWith(sp, { [ANALYTICS_PANEL_SELECTION_KEY]: null })}
             initialOpen={one(sp, ANALYTICS_PANEL_SELECTION_KEY) === ANALYTICS_PANEL_ID}
           >
             <OversightAnalytics
@@ -209,6 +261,125 @@ export async function VerificationReviewPage({
               }
             />
           </AnalyticsPanel>
+        ) : null}
+        {/* The VIDEO LOG: one business day, per shed, when each proof arrived (maintainer decision
+            2026-08-14). A SECOND panel beside Analytics, not a tab inside it, because the two are
+            gated on DIFFERENT capabilities: this follows permissions.VerificationEvidenceTimeline,
+            which the VERIFIER holds, while Analytics follows VerificationOversee, which she does
+            not. Folding them together would have handed her the oversight chrome that the
+            2026-08-12 STG incident deliberately took away. */}
+        {videoLogEnabled ? (
+          <VideoLogPanel
+            pageContract={pageContract}
+            // MUST drop the panel key, and the panel's own filters with it.
+            //
+            // Every in-panel navigation (day, shed, Apply) re-asserts vi_video_log=open in the QUERY
+            // so the drawer survives it. That made a closeHref which preserved the whole query
+            // unable to close anything: the overlay wrote a URL that still said open and the hook
+            // reopened from it. Dropping the filters too means the next open starts on the day
+            // summary rather than silently restoring a shed the reader had already left.
+            closeHref={hrefWith(sp, {
+              [VIDEO_LOG_PANEL_SELECTION_KEY]: null,
+              [VIDEO_LOG_SHED_KEY]: null,
+              [VIDEO_LOG_PARK_KEY]: null,
+              [VIDEO_LOG_QUERY_KEY]: null,
+              [VIDEO_LOG_DATE_KEY]: null,
+            })}
+            initialOpen={one(sp, VIDEO_LOG_PANEL_SELECTION_KEY) === VIDEO_LOG_PANEL_ID}
+          >
+            <VideoLog
+              pageContract={pageContract}
+              // The panel's own day, independent of the queue's capture-date filter: the queue may
+              // be showing a range or the whole backlog, but a video log is always ONE day.
+              businessDate={one(sp, VIDEO_LOG_DATE_KEY) || undefined}
+              parkId={scope.parkId || undefined}
+              selectedShedKey={one(sp, VIDEO_LOG_SHED_KEY) || undefined}
+              parkFilter={one(sp, VIDEO_LOG_PARK_KEY) || undefined}
+              query={one(sp, VIDEO_LOG_QUERY_KEY) || undefined}
+              filterAction={PATHNAME}
+              // The filter form REPLACES the panel's own three params and keeps everything else --
+              // including the selected day and the panel key, without which Apply would close the
+              // drawer it was submitted from.
+              filterHiddenInputs={
+                <>
+                  {hiddenInputs(sp, [VIDEO_LOG_PARK_KEY, VIDEO_LOG_SHED_KEY, VIDEO_LOG_QUERY_KEY])}
+                  <input type="hidden" name={VIDEO_LOG_PANEL_SELECTION_KEY} value={VIDEO_LOG_PANEL_ID} />
+                </>
+              }
+              clearHref={hrefWith(sp, {
+                [VIDEO_LOG_PARK_KEY]: null,
+                [VIDEO_LOG_SHED_KEY]: null,
+                [VIDEO_LOG_QUERY_KEY]: null,
+                [VIDEO_LOG_PANEL_SELECTION_KEY]: VIDEO_LOG_PANEL_ID,
+              })}
+              basePath={PATHNAME}
+              today={today}
+              // The calendar's MECHANICS copy is shared with the queue's date filter — one
+              // vocabulary for one calendar. Only the FIELD label differs, and it must: the queue
+              // filters on capture date, while this picks the day whose arrivals are listed, so
+              // reusing "Capture date" here labelled the control with the wrong fact.
+              dateLabels={{
+                field: copy(pageContract, "video_log.day"),
+                today: copy(pageContract, "filter.date.today"),
+                single: copy(pageContract, "filter.date.single"),
+                range: copy(pageContract, "filter.date.range"),
+                aria: copy(pageContract, "filter.date.aria"),
+                previousMonth: copy(pageContract, "filter.date.previous_month"),
+                nextMonth: copy(pageContract, "filter.date.next_month"),
+                rangeStartHint: copy(pageContract, "filter.date.range_start_hint"),
+                rangeEndHint: copy(pageContract, "filter.date.range_end_hint"),
+                rangeSeparator: copy(pageContract, "filter.date.range_separator"),
+              }}
+              // An href TEMPLATE rather than a per-shed map: only the page knows the live search
+              // params, but only the component knows which sheds the day actually holds (they come
+              // from its own fetch). The component substitutes each shed's key into the token. A
+              // callback would be the obvious alternative and does not survive being passed as
+              // children of a client component.
+              // Both hrefs carry the panel key so the drawer SURVIVES the navigation. The trigger
+              // opens this panel with a hash (#vi_video_log=open) and a query-only href drops it,
+              // which closed the drawer on every shed click and every date change.
+              shedHrefTemplate={hrefWith(sp, {
+                [VIDEO_LOG_SHED_KEY]: VIDEO_LOG_SHED_TOKEN,
+                [VIDEO_LOG_PANEL_SELECTION_KEY]: VIDEO_LOG_PANEL_ID,
+              })}
+              backHref={hrefWith(sp, {
+                [VIDEO_LOG_SHED_KEY]: null,
+                [VIDEO_LOG_PANEL_SELECTION_KEY]: VIDEO_LOG_PANEL_ID,
+              })}
+              queueHrefs={
+                new Map(
+                  modules.map((option) => [
+                    option.key,
+                    hrefWith(sp, { nav_module: option.key, category: null, ...RESET_ON_FILTER }),
+                  ]),
+                )
+              }
+            />
+          </VideoLogPanel>
+        ) : null}
+        {/* RANDOMIZATION: how much of each module's proof the verifier is required to watch
+            (maintainer decision 2026-08-26). A THIRD panel, not a tab inside Analytics, because it
+            is gated on a THIRD capability: permissions.VerificationSampling is CEO-only, while
+            Analytics follows VerificationOversee, which the PC Director also holds. Folding them
+            together would hand a director the control over how deeply his own department's work is
+            checked. */}
+        {randomizationEnabled ? (
+          <RandomizationPanel
+            pageContract={pageContract}
+            // MUST drop the panel's own key: closeHref is what the overlay writes when it cannot
+            // pop history, and a href that still says open closes the drawer and immediately
+            // reopens it from the URL.
+            closeHref={hrefWith(sp, { [RANDOMIZATION_PANEL_SELECTION_KEY]: null })}
+            initialOpen={one(sp, RANDOMIZATION_PANEL_SELECTION_KEY) === RANDOMIZATION_PANEL_ID}
+          >
+            <Randomization
+              pageContract={pageContract}
+              // Saving a share redirects back here, so the return URL re-asserts the panel key in
+              // the QUERY -- otherwise the CEO would be dropped back on the queue with the drawer
+              // shut after every change.
+              returnTo={hrefWith(sp, { [RANDOMIZATION_PANEL_SELECTION_KEY]: RANDOMIZATION_PANEL_ID })}
+            />
+          </RandomizationPanel>
         ) : null}
       </div>
 
@@ -277,6 +448,24 @@ export async function VerificationReviewPage({
           </div>
         ) : null}
 
+        {/* The TOXIN chip — offered ONLY when the backend contract enables toxin_tab (CEO/CXO,
+            permissions.ToxinVerdict). A ?toxin=1 toggle: selecting it swaps this whole board for
+            the toxin review screen above. Styled as a .vr-lg chip so it sits in the same chip
+            vocabulary as the module row, in its own row because it is a different surface, not a
+            module of this queue. */}
+        {toxinTabEnabled ? (
+          <div className="vr-legend" role="group" aria-label={toxinTabLabel(pageContract)}>
+            <Link
+              href={hrefWith(sp, { toxin: "1", ...RESET_ON_FILTER })}
+              replace
+              scroll={false}
+              className="vr-lg"
+            >
+              {toxinTabLabel(pageContract)}
+            </Link>
+          </div>
+        ) : null}
+
         {/* The action-type select was REMOVED (maintainer decision 2026-08-07). The left nav
             already scopes this screen -- every leaf sets ?category= -- so the dropdown was a
             second, competing scope control for a choice the verifier had just made in the sidebar.
@@ -291,12 +480,13 @@ export async function VerificationReviewPage({
             between (Birth and Death have none, and an Apply button with nothing to apply is
             worse than no row). */}
         <div className="vr-frow">
-          {oversightFiltersEnabled ? (
+          {captureDateFilterEnabled ? (
             <ActionsDateFilter
               basePath={PATHNAME}
               from={dateRange.from}
               to={dateRange.to}
               today={today}
+              defaultFrom={businessDaysBefore(today, DEFAULT_QUEUE_WINDOW_DAYS)}
               labels={{
                 field: copy(pageContract, "filter.date"),
                 today: copy(pageContract, "filter.date.today"),
@@ -359,7 +549,7 @@ export async function VerificationReviewPage({
             {/* Deliberately does NOT clear `category`: that is the sidebar's selection, not a
                 filter the verifier set here. Clearing it stranded her on every module's queue at
                 once while the nav still highlighted the one she had picked. It DOES clear the
-                date pair, which returns the board to its today default. */}
+                date pair, which returns the board to its default recent window. */}
             <Link
               href={hrefWith(sp, {
                 shed_id: null,
@@ -492,7 +682,9 @@ export async function VerificationReviewPage({
 
       <VerificationReviewDrawer
         items={items}
-        initialSelectedId={selectedId}
+        initialSelectedId={selectedId ?? undefined}
+        nextCursor={queue.ok ? (queue.data.next_cursor ?? undefined) : undefined}
+        nextTrail={queue.ok && Boolean(queue.data.next_cursor) ? (encodeTrail([...trail, one(sp, "vi_cursor") ?? ""]) ?? undefined) : undefined}
         actionTypeLabels={Object.fromEntries(typeLabels)}
         searchParams={sp}
         feedback={feedback}
@@ -699,7 +891,37 @@ function parseDateRange(sp: RouteSearchParams, today: string): { from: string; t
   }
   const asOf = one(sp, "as_of")?.trim();
   if (asOf && BUSINESS_DAY.test(asOf) && asOf <= today) return { from: asOf, to: asOf };
-  return { from: today, to: today };
+  // Nothing named: open on the recent WINDOW, not on today alone -- see DEFAULT_QUEUE_WINDOW_DAYS.
+  return { from: businessDaysBefore(today, DEFAULT_QUEUE_WINDOW_DAYS), to: today };
+}
+
+/**
+ * How far back the board looks when the URL names no date at all.
+ *
+ * TODAY IS THE WRONG DEFAULT FOR A WORKING QUEUE (maintainer decision 2026-08-17). Proof arrives on
+ * the day it is captured and is reviewed later, so a queue pinned to today shows an empty board
+ * sitting on top of a full backlog -- observed on real data: 402 pending weighing proofs captured
+ * across the previous twelve days, and a board reading "No actions to review". The verifier had no
+ * control to change the date either, which is what made it a dead end rather than a wrong default.
+ *
+ * The backend already says this in ports.ListQueueParams.IsVerifierQueueRead: a verifier queue read
+ * "does NOT clamp to today -- it returns the full pending backlog ordered oldest-first". This page
+ * was overriding that with a today-to-today range of its own.
+ *
+ * A WINDOW rather than "no filter": the range still bounds the query (the read is keyset-paged and
+ * date-bounded, and an unbounded scan is exactly what the scale rules forbid), it is simply wide
+ * enough to hold work that is actually outstanding. Two weeks matches the per-verifier activity
+ * window the oversight analytics already report on.
+ */
+const DEFAULT_QUEUE_WINDOW_DAYS = 14;
+
+/** businessDaysBefore subtracts whole days from a YYYY-MM-DD business date, in date space only --
+ *  no clock, no zone arithmetic, so it cannot drift across the IST business-day boundary. */
+function businessDaysBefore(day: string, days: number): string {
+  const parsed = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return day;
+  parsed.setUTCDate(parsed.getUTCDate() - days);
+  return parsed.toISOString().slice(0, 10);
 }
 
 function verificationStatus(value: string | undefined): VerificationItemStatus | "all" {

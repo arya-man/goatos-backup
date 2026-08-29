@@ -18,8 +18,11 @@ test("weights page fetches growth director inside the existing Promise.all", () 
   assert.ok(promiseAll, "weights.tsx must keep a single Promise.all request plan");
   assert.match(
     promiseAll[0],
-    /getGrowthDirector\(\{ park_id: parkFilter \|\| undefined, \.\.\.window \}\)/,
-    "getGrowthDirector must ride the same park/period window as the other reads, inside Promise.all",
+    /getGrowthDirector\(\{ park_id: parkFilter \|\| undefined, \.\.\.window, sex: sexFilter \|\| undefined \}\)/,
+    // The Sex filter rides along too. It governs the WHOLE page, so a Growth Director block still
+    // reporting every kid under a Male page would put two populations side by side with nothing
+    // saying so -- the same defect the headline and the gain charts had.
+    "getGrowthDirector must ride the same park/period/sex filter as the other reads, inside Promise.all",
   );
 });
 
@@ -64,8 +67,13 @@ test("growth director copy keys match the backend-owned vocabulary", () => {
 test("growth director component has no literal visible copy", () => {
   // Every visible string must resolve through copy()/gd(). JSX text nodes that
   // contain letters (not interpolations, separators or entities) are the leak.
+  // Strip comments first and scan element text, not every TypeScript generic or
+  // arrow token that happens to sit between a ">" and a later "<".
+  const withoutComments = sectionSource
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "");
   const jsxTextLeaks = [];
-  for (const match of sectionSource.matchAll(/>([^<>{}]+)</g)) {
+  for (const match of withoutComments.matchAll(/<[A-Za-z][^>]*>([^<>{}]+)<\/[A-Za-z]/g)) {
     const text = match[1].trim();
     if (text && /[A-Za-z]{2,}/.test(text)) jsxTextLeaks.push(text);
   }

@@ -42,7 +42,10 @@
 //                   CASE statements that compose display strings must use or
 //                   reference oploc.Display() / PartitionLabel.render() /
 //                   operational_location_display(). Hand-rolled CASE duplicates
-//                   risk display-logic divergence: "Castro - Part 2" vs "Castro 2".
+//                   risk display-logic divergence: hand-rolled might produce
+//                   "Castro - 2" (wrong, dashed form for numeric partition) while
+//                   canonical produces "Castro 2" (correct, space form; farm's
+//                   physical naming).
 //   shed-name-keying
 //                   GROUP BY / map-key / list-key expressions must use shed_id,
 //                   never shed NAME. Names repeat across parks (two Castro, two
@@ -743,6 +746,21 @@ const CHECKS = [
 // Response schemas that legitimately carry a shed WITHOUT a partition. Each entry
 // states WHY, because "it was failing" is not a reason.
 const RESPONSE_PARTITION_EXEMPT = new Set([
+  // FeedAnalyticsCompletionFilterOption (2026-08-26) is a FILTER VOCABULARY entry, not a location
+  // where work happened: it is one selectable (farm, shed) pair for the completion table's Shed
+  // select, and the filter narrows by SHED on purpose -- a reader asking for Godel 1 wants all of
+  // Godel 1's pens, so a per-pen option list would be the wrong control. The pens themselves are
+  // rendered by FeedAnalyticsDistributionCompletionRow, which carries partition_label AND the
+  // composed operational_location_display. Adding a partition here would either invent a value the
+  // option does not have or split one shed into seven unselectable rows.
+  "FeedAnalyticsCompletionFilterOption",
+  // ShedCardSummary (2026-08-16) is a keyed AGGREGATE sidecar, not a rendered location row: it
+  // rides in a map keyed by card id alongside the execution rows, and DOES carry partition_label —
+  // but as card IDENTITY for keying/grain, not for display. The card header's location text is
+  // owned by the execution ROW contract, which carries the full partition + composed
+  // operational_location_display; the summary is never rendered as a location, so composing a
+  // second display string here would duplicate the row's authority (two writers to one label).
+  "ShedCardSummary",
   // CommandBoardShedVaccineCell arrived from main on 2026-08-07, after this rule existed. It is
   // a shed x vaccine matrix cell and its Go struct (vaccinationexecution/domain.
   // CommandBoardShedVaccineCell) carries no partition at that grain, so wiring one means changing
@@ -1197,8 +1215,10 @@ function selfTest() {
     ],
 
     // NEW CHECK FIXTURES: sql-display-drift (Defect #2 from 2026-08-06 partition sweep)
-    // Real defect: SIX copies of hand-rolled CASE over partition_label, one renders
-    // "Castro - Part 2" while oploc.Display() renders "Castro 2"
+    // Real defect: hand-rolled CASE might render "Castro - Part 2" (if partition_label
+    // is bare numeric "2", dashed form is wrong) while canonical renders "Castro 2"
+    // (space form for numeric; farm's physical naming) or "Castro - Part 3" (if
+    // partition_label is "Part 3", dash form is correct for worded partitions)
     [
       "backend/internal/obligation/queries.sql",
       `  CASE WHEN gsp.partition_label IS NOT NULL

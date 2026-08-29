@@ -66,13 +66,20 @@ dg_ensure_main_worktree() {
     canon="$(dg_canonical_checkout)" || return 1
     wt="${GOATOS_DOCS_GRAPH_MAIN_TREE:-$HOME/.cache/goatos-docs-graph/main-tree}"
     sha="$(git -C "$canon" rev-parse origin/main 2>/dev/null)" || return 1
+    if [ -e "$wt/.git" ] && ! git -C "$wt" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        rm -rf "$wt"
+    fi
     if [ ! -e "$wt/.git" ]; then
         mkdir -p "$(dirname "$wt")"
         git -C "$canon" worktree prune 2>/dev/null || true
         git -C "$canon" worktree add --force --detach "$wt" "$sha" >/dev/null 2>&1 || return 1
     else
         # Reset the managed tree hard to the target; discard anything local.
-        git -C "$wt" reset --hard "$sha" >/dev/null 2>&1 || return 1
+        git -C "$wt" reset --hard "$sha" >/dev/null 2>&1 || {
+            rm -rf "$wt"
+            git -C "$canon" worktree prune 2>/dev/null || true
+            git -C "$canon" worktree add --force --detach "$wt" "$sha" >/dev/null 2>&1 || return 1
+        }
         git -C "$wt" clean -fdq >/dev/null 2>&1 || true
     fi
     printf '%s\n' "$wt"

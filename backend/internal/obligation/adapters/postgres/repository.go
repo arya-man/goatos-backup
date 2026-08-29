@@ -329,24 +329,39 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 		return "", false, fmt.Errorf("obligation: scope id: %w", err)
 	}
 	id, err := r.queries.InsertObligationInstance(ctx, obligationdb.InsertObligationInstanceParams{
-		TenantID:             tenant,
-		ProtocolVersionID:    version,
-		RuleID:               rule,
-		BatchID:              pgconv.NullableUUID(in.BatchID),
-		TargetType:           in.TargetType,
-		TargetID:             target,
-		ScopeType:            in.ScopeType,
-		ScopeID:              scope,
-		DueAt:                pgconv.Timestamptz(in.DueAt),
-		WindowStart:          pgconv.NullableTimestamptz(in.WindowStart),
-		WindowEnd:            pgconv.NullableTimestamptz(in.WindowEnd),
-		Status:               in.Status,
-		IdempotencyKey:       in.IdempotencyKey,
-		GeneratedByTriggerID: pgconv.NullableUUID(in.GeneratedByTriggerID),
-		Sequence:             in.Sequence,
+		TenantID:                      tenant,
+		ProtocolVersionID:             version,
+		RuleID:                        rule,
+		BatchID:                       pgconv.NullableUUID(in.BatchID),
+		TargetType:                    in.TargetType,
+		TargetID:                      target,
+		ScopeType:                     in.ScopeType,
+		ScopeID:                       scope,
+		DueAt:                         pgconv.Timestamptz(in.DueAt),
+		WindowStart:                   pgconv.NullableTimestamptz(in.WindowStart),
+		WindowEnd:                     pgconv.NullableTimestamptz(in.WindowEnd),
+		Status:                        in.Status,
+		IdempotencyKey:                in.IdempotencyKey,
+		RuleIdentityKey:               pgconv.Text(in.RuleIdentityKey),
+		GeneratedByTriggerID:          pgconv.NullableUUID(in.GeneratedByTriggerID),
+		Sequence:                      in.Sequence,
+		RepeatCycleSource:             repeatText(in.RepeatCycle, func(r domain.RepeatCycleSource) string { return r.Source }),
+		RepeatCycleSourceRef:          repeatText(in.RepeatCycle, func(r domain.RepeatCycleSource) string { return r.SourceRef }),
+		RepeatCycleAnchorObligationID: repeatUUID(in.RepeatCycle),
+		RepeatCycleAnchorAt:           repeatTime(in.RepeatCycle, func(r domain.RepeatCycleSource) *time.Time { return r.AnchorAt }),
+		RepeatCycleDueAt:              repeatTime(in.RepeatCycle, func(r domain.RepeatCycleSource) *time.Time { return r.DueAt }),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
+		// Refused because something is already there. If that something is this rule's own work
+		// carried across a publish, it still answers to the key it was minted under; give it the
+		// one generation now owns so the row stays addressable.
+		r.adoptCarriedOverObligation(ctx, r.pool, tenant, in)
 		return "", false, nil // already generated for this idempotency key
+	}
+	if isRepeatCycleConflict(err) {
+		// A concurrent writer got there first, or this cause already has an open
+		// successor under a different idempotency key. Either way the cycle exists.
+		return "", false, nil
 	}
 	if err != nil {
 		return "", false, fmt.Errorf("obligation: insert instance: %w", err)
@@ -357,6 +372,199 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 // InsertDeferredObligation closes the split-write gap in generation: the row and its initial
 // deferred status event commit together. On a legacy replay where the row exists but the event
 // does not, the same transaction repairs the missing event before returning applied=false.
+// adoptCarriedOverObligation gives a carried-over row the idempotency key generation now owns.
+//
+// The key is derived from (tenant, protocol_version_id, rule_id, goat, due token, sequence), so a
+// row carried across a publish still holds the key it was minted under while its version and rule
+// point at the new plan. Every key-addressed operation the generator performs afterwards --
+// realign, defer, reopen, cancel-by-key -- would then look up a key that matches nothing, and the
+// obligation it just preserved becomes unreachable by the code that owns it.
+//
+// Rewriting the key here, at the moment the insert is refused, keeps the row and its address in
+// step. It is deliberately narrow: only a row already sitting at this exact identity is touched,
+// only when its key actually differs, and never when some other row already holds the new key --
+// that would be a genuine collision rather than a stale address, and unique_violation is the right
+// outcome for the caller to see rather than something to paper over.
+func (r *Repository) adoptCarriedOverObligation(ctx context.Context, q rowExecer, tenant pgtype.UUID, in domain.NewObligation) {
+	version, verr := pgconv.UUID(in.ProtocolVersionID)
+	rule, rerr := pgconv.UUID(in.RuleID)
+	target, terr := pgconv.UUID(in.TargetID)
+	if verr != nil || rerr != nil || terr != nil {
+		return
+	}
+	ref := pgtype.Text{}
+	if in.RepeatCycle.Valid() {
+		ref = pgtype.Text{String: in.RepeatCycle.SourceRef, Valid: true}
+	}
+	// Errors are deliberately not surfaced: this is an address repair on a row the caller already
+	// decided to keep. Failing the generation pass over it would turn a cosmetic staleness into an
+	// outage, and the next pass attempts the repair again.
+	_, _ = q.Exec(ctx, `
+UPDATE obligation_instances oi
+SET idempotency_key = $9,
+    row_version = oi.row_version + 1,
+    updated_at = now()
+WHERE oi.tenant_id = $1
+  AND oi.protocol_version_id = $2
+  AND oi.rule_id = $3
+  AND oi.target_type = $4
+  AND oi.target_id = $5
+  AND oi.idempotency_key <> $9
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND (
+    ($6::text IS NULL AND oi."sequence" = $7 AND oi.due_at = $8::timestamptz)
+    OR ($6::text IS NOT NULL
+        AND (oi.repeat_cycle_source_ref = $6::text
+          OR (oi.repeat_cycle_source_ref IS NULL AND oi."sequence" = $7)))
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances other
+    WHERE other.tenant_id = oi.tenant_id
+      AND other.idempotency_key = $9
+      AND other.obligation_id <> oi.obligation_id
+  )`, tenant, version, rule, in.TargetType, target, ref, in.Sequence, pgconv.Timestamptz(in.DueAt), in.IdempotencyKey)
+}
+
+// rowExecer is satisfied by *pgxpool.Pool and pgx.Tx, so the address repair can run inside or
+// outside an open transaction.
+type rowExecer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// suppressedObligation finds the row an insert was refused against.
+//
+// The guard suppresses for two different reasons, and only one of them is a key collision.
+// A repeat cycle is suppressed by its CAUSE, so the row already holding that cycle can sit
+// under an ENTIRELY DIFFERENT idempotency key -- a booster-minted successor, or the same
+// cycle on the due date it had before it moved. Looking only by the key we just computed
+// therefore finds nothing, and the caller reports a failure for an animal whose work exists
+// and is perfectly healthy.
+//
+// That mattered most for the deferred path, which is the sick-animal path: a held animal
+// whose repeat dose already existed failed its generation pass, every pass, for as long as
+// it stayed held.
+func (r *Repository) suppressedObligation(
+	ctx context.Context,
+	tx pgx.Tx,
+	qtx *obligationdb.Queries,
+	tenant pgtype.UUID,
+	in domain.NewObligation,
+) (string, string, error) {
+	existing, err := qtx.GetObligationByIdempotencyKey(ctx, obligationdb.GetObligationByIdempotencyKeyParams{
+		TenantID: tenant, IdempotencyKey: in.IdempotencyKey,
+	})
+	if err == nil {
+		return existing.ObligationID, existing.Status, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", "", err
+	}
+	if !in.RepeatCycle.Valid() {
+		// No cause to look up, but the insert was still suppressed by SOMETHING. Ask the guard's
+		// own predicate which row that was, rather than reporting the key miss as if nothing had
+		// blocked us -- after a carry-over the blocking row routinely carries a different key.
+		return r.obligationSuppressingInsert(ctx, tx, tenant, in, err)
+	}
+	version, verr := pgconv.UUID(in.ProtocolVersionID)
+	if verr != nil {
+		return "", "", verr
+	}
+	rule, rerr := pgconv.UUID(in.RuleID)
+	if rerr != nil {
+		return "", "", rerr
+	}
+	target, terr := pgconv.UUID(in.TargetID)
+	if terr != nil {
+		return "", "", terr
+	}
+	byCause, cerr := qtx.GetOpenObligationForRepeatCycle(ctx, obligationdb.GetOpenObligationForRepeatCycleParams{
+		TenantID:             tenant,
+		ProtocolVersionID:    version,
+		RuleID:               rule,
+		TargetType:           in.TargetType,
+		TargetID:             target,
+		Sequence:             in.Sequence,
+		RepeatCycleSourceRef: pgtype.Text{String: in.RepeatCycle.SourceRef, Valid: true},
+	})
+	if cerr != nil {
+		return r.obligationSuppressingInsert(ctx, tx, tenant, in, err)
+	}
+	return byCause.ObligationID, byCause.Status, nil
+}
+
+// obligationSuppressingInsert finds the row that actually suppressed the insert.
+//
+// InsertObligationInstance returns no rows when its NOT EXISTS guard matches an existing open
+// obligation, and that guard has two branches: a non-repeat one keyed on (sequence, due_at), and
+// a repeat one keyed on the CAUSE (repeat_cycle_source_ref) that deliberately ignores due_at,
+// because a repeat's due date moves with the dose before it.
+//
+// Looking the row up by idempotency key misses whenever the suppressing row was minted under a
+// different key -- which is routine after carry-over, since a rebound obligation keeps the key it
+// was created with while sitting at the new version's identity. Looking it up by (due_at,
+// sequence) misses whenever the repeat branch did the suppressing.
+//
+// So this mirrors the guard's own predicate rather than approximating it: whatever the insert
+// treated as "already there" is what gets returned. priorErr -- the original by-key miss -- is
+// returned unchanged when nothing matches, because that stays the honest description of what was
+// asked for.
+func (r *Repository) obligationSuppressingInsert(
+	ctx context.Context,
+	tx pgx.Tx,
+	tenant pgtype.UUID,
+	in domain.NewObligation,
+	priorErr error,
+) (string, string, error) {
+	if tx == nil {
+		return "", "", priorErr
+	}
+	version, verr := pgconv.UUID(in.ProtocolVersionID)
+	if verr != nil {
+		return "", "", priorErr
+	}
+	rule, rerr := pgconv.UUID(in.RuleID)
+	if rerr != nil {
+		return "", "", priorErr
+	}
+	target, terr := pgconv.UUID(in.TargetID)
+	if terr != nil {
+		return "", "", priorErr
+	}
+	ref := pgtype.Text{}
+	if in.RepeatCycle.Valid() {
+		ref = pgtype.Text{String: in.RepeatCycle.SourceRef, Valid: true}
+	}
+	var id, status string
+	// Ordered so the non-repeat exact match wins over a cause match when both exist, and by
+	// obligation_id after that, so the answer never depends on physical row order.
+	if err := tx.QueryRow(ctx, `
+SELECT obligation_id::text, status
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND protocol_version_id = $2
+  AND rule_id = $3
+  AND target_type = $4
+  AND target_id = $5
+  AND (
+    ($6::text IS NULL
+      AND "sequence" = $7
+      AND due_at = $8::timestamptz
+      AND status IN ('scheduled', 'due', 'in_progress', 'deferred'))
+    OR
+    ($6::text IS NOT NULL
+      AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      AND (repeat_cycle_source_ref = $6::text
+        OR (repeat_cycle_source_ref IS NULL AND "sequence" = $7)))
+  )
+ORDER BY (due_at = $8::timestamptz) DESC, obligation_id
+LIMIT 1`,
+		tenant, version, rule, in.TargetType, target, ref, in.Sequence, pgconv.Timestamptz(in.DueAt),
+	).Scan(&id, &status); err != nil {
+		return "", "", priorErr
+	}
+	return id, status, nil
+}
+
 func (r *Repository) InsertDeferredObligation(ctx context.Context, in domain.NewObligation, reason string, occurredAt time.Time) (string, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -396,32 +604,40 @@ func (r *Repository) InsertDeferredObligation(ctx context.Context, in domain.New
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := r.queries.WithTx(tx)
 	obligationID, err := qtx.InsertObligationInstance(ctx, obligationdb.InsertObligationInstanceParams{
-		TenantID:             tenant,
-		ProtocolVersionID:    version,
-		RuleID:               rule,
-		BatchID:              pgconv.NullableUUID(in.BatchID),
-		TargetType:           in.TargetType,
-		TargetID:             target,
-		ScopeType:            in.ScopeType,
-		ScopeID:              scope,
-		DueAt:                pgconv.Timestamptz(in.DueAt),
-		WindowStart:          pgconv.NullableTimestamptz(in.WindowStart),
-		WindowEnd:            pgconv.NullableTimestamptz(in.WindowEnd),
-		Status:               in.Status,
-		IdempotencyKey:       in.IdempotencyKey,
-		GeneratedByTriggerID: pgconv.NullableUUID(in.GeneratedByTriggerID),
-		Sequence:             in.Sequence,
+		TenantID:                      tenant,
+		ProtocolVersionID:             version,
+		RuleID:                        rule,
+		BatchID:                       pgconv.NullableUUID(in.BatchID),
+		TargetType:                    in.TargetType,
+		TargetID:                      target,
+		ScopeType:                     in.ScopeType,
+		ScopeID:                       scope,
+		DueAt:                         pgconv.Timestamptz(in.DueAt),
+		WindowStart:                   pgconv.NullableTimestamptz(in.WindowStart),
+		WindowEnd:                     pgconv.NullableTimestamptz(in.WindowEnd),
+		Status:                        in.Status,
+		IdempotencyKey:                in.IdempotencyKey,
+		RuleIdentityKey:               pgconv.Text(in.RuleIdentityKey),
+		GeneratedByTriggerID:          pgconv.NullableUUID(in.GeneratedByTriggerID),
+		Sequence:                      in.Sequence,
+		RepeatCycleSource:             repeatText(in.RepeatCycle, func(r domain.RepeatCycleSource) string { return r.Source }),
+		RepeatCycleSourceRef:          repeatText(in.RepeatCycle, func(r domain.RepeatCycleSource) string { return r.SourceRef }),
+		RepeatCycleAnchorObligationID: repeatUUID(in.RepeatCycle),
+		RepeatCycleAnchorAt:           repeatTime(in.RepeatCycle, func(r domain.RepeatCycleSource) *time.Time { return r.AnchorAt }),
+		RepeatCycleDueAt:              repeatTime(in.RepeatCycle, func(r domain.RepeatCycleSource) *time.Time { return r.DueAt }),
 	})
+	if isRepeatCycleConflict(err) {
+		return "", false, nil
+	}
 	applied := err == nil
 	if errors.Is(err, pgx.ErrNoRows) {
-		existing, lookupErr := qtx.GetObligationByIdempotencyKey(ctx, obligationdb.GetObligationByIdempotencyKeyParams{
-			TenantID: tenant, IdempotencyKey: in.IdempotencyKey,
-		})
+		existingID, existingStatus, lookupErr := r.suppressedObligation(ctx, tx, qtx, tenant, in)
 		if lookupErr != nil {
 			return "", false, fmt.Errorf("obligation: lookup deferred replay: %w", lookupErr)
 		}
-		obligationID = existing.ObligationID
-		if existing.Status != "deferred" {
+		obligationID = existingID
+		r.adoptCarriedOverObligation(ctx, tx, tenant, in)
+		if existingStatus != "deferred" {
 			if err := tx.Commit(ctx); err != nil {
 				return "", false, fmt.Errorf("obligation: commit deferred replay: %w", err)
 			}
@@ -1105,6 +1321,11 @@ FOR UPDATE OF oi`, tenant, obligation, authorizedParkIDs).Scan(
 			// Raced with a concurrent status transition between the lock read above and this update.
 			return "", false, ports.ErrNotFound
 		}
+		if isDuplicateGuardViolation(err) {
+			// The dup guard covers every status, so the occupant may be open work, a dose
+			// already given, or a canceled row. Whichever it is, that date is spoken for.
+			return "", false, ports.ErrDueDateTaken
+		}
 		if err != nil {
 			return "", false, fmt.Errorf("obligation: reschedule obligation: %w", err)
 		}
@@ -1281,6 +1502,23 @@ func (r *Repository) insertReworkObligationForMissed(
 		return "", fmt.Errorf("obligation: rework trigger id: %w", err)
 	}
 
+	// The rework row is the SAME cycle as the missed one -- same cause, new date -- so it
+	// inherits the missed row's repeat-cycle metadata. Without this it would be born with
+	// due-date identity, invisible to both partial indexes and to the repeat branch of the
+	// insert guard, and the next generation pass would compute the anchored row for that same
+	// cycle and land it beside the rework row. That is the duplicate this design removes,
+	// reachable through the ordinary reschedule path.
+	missedID, err := pgconv.UUID(missedObligationID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: rework missed obligation id: %w", err)
+	}
+	inherited, err := qtx.GetObligationRepeatCycle(ctx, obligationdb.GetObligationRepeatCycleParams{
+		TenantID: tenant, ObligationID: missedID,
+	})
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("obligation: read missed repeat cycle: %w", err)
+	}
+
 	newIdempotencyKey := "rescheduled_missed:" + missedObligationID + ":" + dueAt.UTC().Format(time.RFC3339Nano)
 	newID, err := qtx.InsertObligationInstance(ctx, obligationdb.InsertObligationInstanceParams{
 		TenantID:             tenant,
@@ -1298,6 +1536,13 @@ func (r *Repository) insertReworkObligationForMissed(
 		IdempotencyKey:       newIdempotencyKey,
 		GeneratedByTriggerID: trigger,
 		Sequence:             sequence,
+
+		RepeatCycleSource:             inherited.RepeatCycleSource,
+		RepeatCycleSourceRef:          inherited.RepeatCycleSourceRef,
+		RepeatCycleAnchorObligationID: inherited.RepeatCycleAnchorObligationID,
+		RepeatCycleAnchorAt:           inherited.RepeatCycleAnchorAt,
+		// The rework row's own due date, not the missed row's.
+		RepeatCycleDueAt: pgconv.Timestamptz(dueAt),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Convergent no-op (P2 fix): InsertObligationInstance's "WHERE NOT EXISTS" dedup guard (or,
@@ -1318,10 +1563,46 @@ func (r *Repository) insertReworkObligationForMissed(
 			Sequence:          sequence,
 			DueAt:             pgconv.Timestamptz(dueAt),
 		})
+		if errors.Is(lookupErr, pgx.ErrNoRows) && inherited.RepeatCycleSourceRef.Valid {
+			// The suppressing row is a sibling of the SAME repeat cycle sitting on a
+			// different due date, which the due-date lookup above cannot see. That is still
+			// an idempotent success -- the cycle exists and is open -- so find it by its
+			// cause instead of reporting an internal error to the operator rescheduling.
+			byCause, causeErr := qtx.GetOpenObligationForRepeatCycle(ctx, obligationdb.GetOpenObligationForRepeatCycleParams{
+				TenantID:             tenant,
+				ProtocolVersionID:    protocolVersion,
+				RuleID:               rule,
+				TargetType:           targetType,
+				TargetID:             target,
+				Sequence:             sequence,
+				RepeatCycleSourceRef: inherited.RepeatCycleSourceRef,
+			})
+			if causeErr == nil {
+				return byCause.ObligationID, nil
+			}
+		}
 		if lookupErr != nil {
 			return "", fmt.Errorf("obligation: insert rework obligation for missed %s: %w", missedObligationID, err)
 		}
 		return existing.ObligationID, nil
+	}
+	if isRepeatCycleConflict(err) {
+		// The indexes see races the NOT EXISTS guard cannot: a sibling committed between the
+		// two, or two rows sharing an anchor whose refs differ after a plan edit changed the
+		// rule's vaccine. The cycle exists either way, so this is the same idempotent success
+		// as the guard's own refusal -- not a 500 in the face of the person rescheduling.
+		byCause, causeErr := qtx.GetOpenObligationForRepeatCycle(ctx, obligationdb.GetOpenObligationForRepeatCycleParams{
+			TenantID:             tenant,
+			ProtocolVersionID:    protocolVersion,
+			RuleID:               rule,
+			TargetType:           targetType,
+			TargetID:             target,
+			Sequence:             sequence,
+			RepeatCycleSourceRef: inherited.RepeatCycleSourceRef,
+		})
+		if causeErr == nil {
+			return byCause.ObligationID, nil
+		}
 	}
 	if err != nil {
 		return "", fmt.Errorf("obligation: insert rework obligation for missed %s: %w", missedObligationID, err)
@@ -1442,6 +1723,13 @@ func (r *Repository) CancelOpenObligationByIdempotencyKey(ctx context.Context, t
 	if strings.TrimSpace(reason) == "" {
 		reason = "superseded"
 	}
+	hasOpen, err := r.openObligationExistsForIdempotencyKey(ctx, tenant, idempotencyKey)
+	if err != nil {
+		return "", false, err
+	}
+	if !hasOpen {
+		return "", false, nil
+	}
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -1493,9 +1781,10 @@ RETURNING oi.obligation_id::text, COALESCE(target.batch_id::text, ''), target.ta
 		// overwrites) any pre-existing cancel_repair.release_qty so repeated cancels on the same batch
 		// never double-count: pending_release already reflects everything released so far across
 		// defer/shift/cancel/missed repairs, so (reserved.qty - pending_release) shrinks toward zero.
+		// projection-review: membership=obligation_instances rows still attached to THIS batch with status <> 'canceled', matching the single canceled obligation removed above; group_key=batch_id (one locked batch row repaired inside the cancel transaction); join_cardinality=correlated subqueries over the batch's own live obligations and jsonb cell ledger, no selector/dimension table joins and no fan-out; pagination=n/a (single-batch transactional repair, not a paged read model); scope=the batch's own scope_type/scope_id remains unchanged and downstream park/shed resolution still uses the explicit scope matrix
 		if _, err := tx.Exec(ctx, `
-WITH reserved AS (
-  SELECT COALESCE(SUM(quantity), 0)::numeric AS qty
+	WITH reserved AS (
+	  SELECT COALESCE(SUM(quantity), 0)::numeric AS qty
   FROM inventory_stock_movements
   WHERE tenant_id = $1
     AND batch_id = $2::uuid
@@ -1520,11 +1809,11 @@ repair AS (
   WHERE tenant_id = $1
     AND batch_id = $2::uuid
 )
-UPDATE obligation_batches ob
-SET estimated_targets = COALESCE((
-      SELECT count(DISTINCT live.target_id)::int
-      FROM obligation_instances live
-      WHERE live.tenant_id = ob.tenant_id
+	UPDATE obligation_batches ob
+	SET estimated_targets = COALESCE((
+	      SELECT count(DISTINCT live.target_id)::int
+	      FROM obligation_instances live
+	      WHERE live.tenant_id = ob.tenant_id
         AND live.batch_id = ob.batch_id
         AND live.status <> 'canceled'
     ), 0),
@@ -1634,9 +1923,758 @@ WHERE ob.tenant_id = $1
 	return obligationID, true, nil
 }
 
+func (r *Repository) openObligationExistsForIdempotencyKey(ctx context.Context, tenant pgtype.UUID, idempotencyKey string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM obligation_instances
+  WHERE tenant_id = $1
+    AND idempotency_key = $2
+    AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+)`, tenant, idempotencyKey).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("obligation: read key cancel open existence: %w", err)
+	}
+	return exists, nil
+}
+
 // CancelOpenVaccinationObligationsForGoatExceptVersions cancels open vaccination work whose protocol
 // version is no longer effective for the goat after a recheck. Terminal and in-progress work are left
 // untouched; each changed row gets the same cancellation status event and outbox used by SM-3.
+// GoatsWithVaccinationObligationsOutsideVersions returns which of the given animals still hold
+// open vaccination work under a protocol version that is no longer effective for them.
+//
+// A plan replacement retires the old version in the same transaction that publishes the new one,
+// but the retired version's already-generated obligations stay open and keep appearing on
+// operators' lists forever, beside the replacement plan's own work. The per-animal generation
+// path already supersedes them; the tenant-wide scan did not, which is the path that actually
+// runs after a publish.
+//
+// This is the cheap pre-filter for that: one query per page instead of one cancel per animal,
+// so the common case -- nothing to supersede -- costs a single indexed read.
+// OpenObligationForRepeatCycle finds the open row that already holds a repeat cycle, by its
+// CAUSE rather than its idempotency key.
+//
+// Generation needs this when its own insert is refused: the refusal can mean "this key is
+// taken", which a key lookup resolves, or it can mean "another writer already created this
+// cycle under a different key" -- a booster-minted successor, or a rescheduled missed dose --
+// which a key lookup cannot see at all. Without this the caller cannot tell the two apart and
+// keeps trying new keys against a guard that will refuse every one of them.
+func (r *Repository) OpenObligationForRepeatCycle(ctx context.Context, tenantID, protocolVersionID, ruleID, targetType, targetID string, sequence int32, sourceRef string) (domain.ObligationRef, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if strings.TrimSpace(sourceRef) == "" {
+		return domain.ObligationRef{}, false, nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	version, err := pgconv.UUID(protocolVersionID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: protocol version id: %w", err)
+	}
+	rule, err := pgconv.UUID(ruleID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: rule id: %w", err)
+	}
+	target, err := pgconv.UUID(targetID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: target id: %w", err)
+	}
+	row, err := r.queries.GetOpenObligationForRepeatCycle(ctx, obligationdb.GetOpenObligationForRepeatCycleParams{
+		TenantID:             tenant,
+		ProtocolVersionID:    version,
+		RuleID:               rule,
+		TargetType:           targetType,
+		TargetID:             target,
+		Sequence:             sequence,
+		RepeatCycleSourceRef: pgtype.Text{String: sourceRef, Valid: true},
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ObligationRef{}, false, nil
+	}
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: open obligation for repeat cycle: %w", err)
+	}
+	return domain.ObligationRef{
+		ObligationID:   row.ObligationID,
+		Status:         row.Status,
+		DueAt:          row.DueAt.Time,
+		IdempotencyKey: row.IdempotencyKey,
+	}, true, nil
+}
+
+// reconcileAddressOnly gives an obligation the version, rule and key generation now owns, without
+// touching its due date.
+//
+// Used when the date cannot move. Attempted in two steps because the identity columns are part of
+// obligation_instances_dup_guard and the key is not: if moving version and rule collides too, the
+// key alone still moves, and the key is what every follow-up addresses the row by.
+//
+// A row that ends up with neither is reported as DateBlocked with its EXISTING key in the ref, so
+// the caller can address it by what it actually holds rather than by what generation wished it
+// held.
+func (r *Repository) reconcileAddressOnly(
+	ctx context.Context,
+	tenant pgtype.UUID,
+	in domain.NewObligation,
+	ref domain.ObligationRef,
+) (domain.ObligationRef, bool, error) {
+	ref.DateBlocked = true
+
+	version, verr := pgconv.UUID(in.ProtocolVersionID)
+	rule, rerr := pgconv.UUID(in.RuleID)
+	if verr == nil && rerr == nil {
+		if _, err := r.pool.Exec(ctx, `
+UPDATE obligation_instances
+SET protocol_version_id = $2, rule_id = $3, idempotency_key = $4,
+    row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1 AND obligation_id = $5::uuid`,
+			tenant, version, rule, in.IdempotencyKey, ref.ObligationID); err == nil {
+			ref.IdempotencyKey = in.IdempotencyKey
+			return ref, true, nil
+		}
+	}
+
+	// Version and rule could not move either. The key still can: it is unique on its own, not part
+	// of the duplicate guard, and it is the address that matters most.
+	if _, err := r.pool.Exec(ctx, `
+UPDATE obligation_instances
+SET idempotency_key = $2, row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1 AND obligation_id = $3::uuid`,
+		tenant, in.IdempotencyKey, ref.ObligationID); err == nil {
+		ref.IdempotencyKey = in.IdempotencyKey
+		return ref, true, nil
+	}
+
+	// Neither moved. Hand back the key the row actually holds so the caller addresses it correctly
+	// instead of by a key that matches nothing.
+	var existing string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT idempotency_key FROM obligation_instances WHERE tenant_id = $1 AND obligation_id = $2::uuid`,
+		tenant, ref.ObligationID).Scan(&existing); err == nil {
+		ref.IdempotencyKey = existing
+	}
+	return ref, true, nil
+}
+
+// CancelDuplicateOpenObligations closes specific obligations through the same path every other
+// cancellation uses.
+//
+// The duplicate cleanup previously flipped status with raw SQL, which is the wrong tool for
+// closing clinical work: no status event, no outbox record, no batch repair, no reason on the row.
+// A vaccination that vanishes from a drive with no trace of why is worse than the duplicate it was
+// meant to fix.
+//
+// Cancellation is per-animal because the primitive is: the batch recompute and the outbox payload
+// are both scoped to one goat. The ids are grouped here rather than at the call site so callers
+// cannot get that grouping wrong.
+func (r *Repository) CancelDuplicateOpenObligations(ctx context.Context, tenantID string, obligationIDs []string, reason string, occurredAt time.Time) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if len(obligationIDs) == 0 {
+		return 0, nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "duplicate_open_obligation_resolved"
+	}
+
+	byGoat := map[string][]string{}
+	rows, err := r.pool.Query(ctx, `
+SELECT obligation_id::text, target_id::text
+FROM obligation_instances
+WHERE tenant_id = $1 AND obligation_id = ANY($2::uuid[]) AND target_type = 'goat'`, tenant, obligationIDs)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: group duplicates by animal: %w", err)
+	}
+	for rows.Next() {
+		var id, goatID string
+		if err := rows.Scan(&id, &goatID); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("obligation: scan duplicate: %w", err)
+		}
+		byGoat[goatID] = append(byGoat[goatID], id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("obligation: group duplicates by animal: %w", err)
+	}
+
+	// One transaction per ANIMAL, not per row, and only for animals a human has already been shown
+	// and chosen to clean up. The cancellation primitive's batch recompute and outbox payload are
+	// both goat-scoped, so batching across animals would mean reimplementing it -- the exact
+	// duplication that let the raw-SQL version skip the audit trail in the first place.
+	total := 0
+	for goatID, ids := range byGoat {
+		// scale-guard:ignore: bounded to the duplicate animals an operator explicitly resolved; the cancel primitive is goat-scoped
+		tx, err := r.pool.Begin(ctx)
+		if err != nil {
+			return total, fmt.Errorf("obligation: begin duplicate cancel: %w", err)
+		}
+		qtx := r.queries.WithTx(tx)
+		// scale-guard:ignore: bounded to the duplicate animals an operator explicitly resolved; the cancel primitive is goat-scoped
+		canceled, err := tx.Query(ctx, `
+UPDATE obligation_instances oi
+SET status = 'canceled',
+    row_version = oi.row_version + 1,
+    updated_at = now()
+WHERE oi.tenant_id = $1
+  AND oi.obligation_id = ANY($2::uuid[])
+  AND oi.status IN ('scheduled', 'due', 'deferred')
+RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenant, ids)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			return total, fmt.Errorf("obligation: cancel duplicates for %s: %w", goatID, err)
+		}
+		n, err := recordCanceledObligationRows(ctx, tx, qtx, tenant, tenantID, goatID, reason, occurredAt, canceled,
+			map[string]any{"resolution": "keep-earliest"}, "obligation.CancelDuplicateOpenObligations")
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			return total, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return total, fmt.Errorf("obligation: commit duplicate cancel: %w", err)
+		}
+		total += n
+	}
+	return total, nil
+}
+
+// ReconcileOpenObligationForRuleIdentity moves the animal's EXISTING work for a rule instead of
+// writing a second row beside it.
+//
+// A rule's content can be unchanged while the date an animal owes it moves, because the due date
+// is computed from the ANIMAL's history as well as the rule -- a dose recorded late, a correction
+// applied afterwards. Generation used to answer that by inserting, since its key includes the due
+// date, and the animal ended up owing the same dose twice. Double-booking medical work is worse
+// than the churn this whole change set removes.
+//
+// So the lookup is by IDENTITY -- (target, rule identity, sequence) -- deliberately ignoring the
+// version, the rule UUID and the due date, because none of those say whether this is the same
+// piece of work. What is found is updated in place: same obligation_id, so the task, batch, proof
+// and the row on an operator's phone all survive; new due date, new version and rule pointers, and
+// the idempotency key generation now owns.
+//
+// Returns found=false when the animal has no open work under this identity, which is generation's
+// signal to insert. Terminal rows are invisible here: completed and canceled work is history, and
+// a missed dose must be free to mint its successor.
+func (r *Repository) ReconcileOpenObligationForRuleIdentity(
+	ctx context.Context,
+	tenantID string,
+	in domain.NewObligation,
+	occurredAt time.Time,
+) (domain.ObligationRef, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if strings.TrimSpace(in.RuleIdentityKey) == "" {
+		return domain.ObligationRef{}, false, nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	version, err := pgconv.UUID(in.ProtocolVersionID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: version id: %w", err)
+	}
+	rule, err := pgconv.UUID(in.RuleID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: rule id: %w", err)
+	}
+	target, err := pgconv.UUID(in.TargetID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: target id: %w", err)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+
+	if ref, ok, err := r.reconciledRuleIdentityNoop(ctx, tenant, in); err != nil {
+		return domain.ObligationRef{}, false, err
+	} else if ok {
+		return ref, true, nil
+	}
+	if ref, ok, err := r.reconcileRuleIdentityAddressOnlyNoop(ctx, tenant, version, rule, target, in); err != nil {
+		return domain.ObligationRef{}, false, err
+	} else if ok {
+		return ref, true, nil
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: begin identity reconcile: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var (
+		ref              domain.ObligationRef
+		priorDue         time.Time
+		priorVersionID   string
+		priorRuleID      string
+		priorKey         string
+		priorWindowStart pgtype.Timestamptz
+		priorWindowEnd   pgtype.Timestamptz
+	)
+	err = tx.QueryRow(ctx, `
+SELECT obligation_id::text, status, due_at, row_version,
+       protocol_version_id::text, rule_id::text, idempotency_key,
+       window_start, window_end
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND target_type = $2
+  AND target_id = $3
+  AND rule_identity_key = $4
+  AND "sequence" = $5
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+FOR UPDATE`, tenant, in.TargetType, target, in.RuleIdentityKey, in.Sequence).
+		Scan(&ref.ObligationID, &ref.Status, &priorDue, &ref.RowVersion, &priorVersionID, &priorRuleID, &priorKey, &priorWindowStart, &priorWindowEnd)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Nothing carries the label. Before concluding the animal owes nothing under this rule,
+		// look for work that PREDATES the label: rows written before rule_identity_key existed,
+		// or rows the backfill deliberately left alone because their group was ambiguous.
+		//
+		// Those rows are invisible to the unique index, which only covers labelled rows, so
+		// inserting beside them is exactly the double-booking this design exists to prevent --
+		// and it would happen on precisely the animals whose data is already worst.
+		return r.reconcileUnlabelledWork(ctx, tx, tenant, in, occurredAt)
+	}
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read identity reconcile target: %w", err)
+	}
+	ref.DueAt = priorDue
+	if ref.Status != "in_progress" &&
+		priorVersionID == in.ProtocolVersionID &&
+		priorRuleID == in.RuleID &&
+		priorKey == in.IdempotencyKey &&
+		priorDue.Equal(in.DueAt) &&
+		timestamptzEqualEffectiveWindowStart(priorWindowStart, in.WindowStart, in.DueAt) &&
+		timestamptzEqualPtr(priorWindowEnd, in.WindowEnd) {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit identity reconcile noop: %w", err)
+		}
+		return ref, true, nil
+	}
+
+	// An operator part-way through a drive keeps the DATE of the dose they are physically
+	// administering; moving it underneath them is not a reconciliation, it is a surprise.
+	//
+	// Its ADDRESS still moves. Everything generation does after this -- defer, reopen, realign,
+	// cancel-by-key -- addresses the row by the key it just computed, so a row left holding the
+	// key it was minted under becomes unreachable and those follow-ups fail with "not found",
+	// taking the whole goat's pass down. Skipping the date is the intent; skipping the identity
+	// pointers was a bug.
+	if ref.Status == "in_progress" {
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_instances
+SET protocol_version_id = $2,
+    rule_id = $3,
+    idempotency_key = $4,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1 AND obligation_id = $5::uuid`,
+			tenant, version, rule, in.IdempotencyKey, ref.ObligationID); err != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: identity reconcile in-flight address: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit identity reconcile: %w", err)
+		}
+		return ref, true, nil
+	}
+
+	dueMoved := !priorDue.Equal(in.DueAt)
+	if _, err := tx.Exec(ctx, `
+UPDATE obligation_instances
+SET protocol_version_id = $2,
+    rule_id = $3,
+    idempotency_key = $4,
+    due_at = $5::timestamptz,
+    -- The window moves WITH the due date. Keeping the old one while the date moves can leave
+    -- window_end before window_start, which the table rejects outright -- and a window that no
+    -- longer contains its own due date would be wrong even where the constraint allowed it.
+    window_start = COALESCE($6::timestamptz, $5::timestamptz),
+    window_end = $7::timestamptz,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1 AND obligation_id = $8::uuid`,
+		tenant, version, rule, in.IdempotencyKey, pgconv.Timestamptz(in.DueAt),
+		pgconv.NullableTimestamptz(in.WindowStart), pgconv.NullableTimestamptz(in.WindowEnd),
+		ref.ObligationID); err != nil {
+		// obligation_instances_dup_guard spans EVERY status, terminal ones included, so the key
+		// this row would move to can be occupied by its own canceled or completed twin -- exactly
+		// what a resolved duplicate leaves behind. The move is impossible; the claim is not.
+		//
+		// Leaving the row where it is and still reporting it found is the honest outcome: the
+		// animal keeps one open obligation for this dose, generation writes no second one, and the
+		// date simply does not move this pass. Failing the animal instead would take down a whole
+		// tenant's run over a row that is already correct in every way that matters.
+		if isDuplicateGuardViolation(err) {
+			// The date cannot move -- the key it would move to is held by another row, usually this
+			// obligation's own canceled or completed twin. The ADDRESS still must, or every
+			// key-addressed follow-up generation performs next (defer, reopen, realign,
+			// cancel-by-key) looks up a key nothing holds and fails the animal.
+			//
+			// The failed statement aborted the transaction, so this runs on a fresh one.
+			return r.reconcileAddressOnly(ctx, tenant, in, ref)
+		}
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: identity reconcile: %w", err)
+	}
+
+	// A moved date is a real event in the animal's record, not a silent edit. Recorded as
+	// event_type='scheduled' with the reason in the payload, which is this table's existing
+	// convention for a reschedule -- the reason belongs in the payload, not in a new event type
+	// every caller downstream would have to learn.
+	if dueMoved {
+		obligationUUID, convErr := pgconv.UUID(ref.ObligationID)
+		if convErr != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: reconciled obligation id: %w", convErr)
+		}
+		payload, _ := json.Marshal(map[string]string{
+			"reason":   "rule_identity_reconciled",
+			"from_due": priorDue.UTC().Format(time.RFC3339),
+			"to_due":   in.DueAt.UTC().Format(time.RFC3339),
+		})
+		eventKey := ref.ObligationID + ":rule_identity_reconciled:" + in.DueAt.UTC().Format(time.RFC3339Nano)
+		if _, err := tx.Exec(ctx, `
+INSERT INTO obligation_status_events (
+  tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key
+) VALUES ($1, $2, 'scheduled', $3, $4::jsonb, $5)
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
+			tenant, obligationUUID, occurredAt, payload, eventKey); err != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: identity reconcile event: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit identity reconcile: %w", err)
+	}
+	ref.DueAt = in.DueAt
+	return ref, true, nil
+}
+
+// ManualVaccineAnchorsForGoat returns open manual-campaign obligations for the
+// same animal and vaccine family. Vaccination generation treats this as the
+// animal's base date for that family, suppressing DOB/arrival/calendar rows that
+// would otherwise be regenerated before the anchor has been completed.
+func (r *Repository) ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, goatID string, vaccineCodes []string) (map[string]domain.ObligationRef, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	normalizedCodes := make([]string, 0, len(vaccineCodes)*2)
+	seenCodes := map[string]bool{}
+	for _, code := range vaccineCodes {
+		code = strings.TrimSpace(code)
+		if code == "" {
+			continue
+		}
+		for _, candidate := range []string{code, strings.ReplaceAll(code, "+", "_")} {
+			if candidate == "" || seenCodes[candidate] {
+				continue
+			}
+			seenCodes[candidate] = true
+			normalizedCodes = append(normalizedCodes, candidate)
+		}
+	}
+	if len(normalizedCodes) == 0 {
+		return nil, nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	goat, err := pgconv.UUID(goatID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: goat id: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT ON (d.vaccine_code)
+       d.vaccine_code,
+       oi.obligation_id::text,
+       oi.status,
+       oi.due_at,
+       oi.row_version,
+       oi.idempotency_key
+FROM obligation_instances oi
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.protocol_version_id = oi.protocol_version_id
+ AND pr.rule_id = oi.rule_id
+JOIN protocol_rule_dimensions d
+  ON d.tenant_id = oi.tenant_id
+ AND d.rule_id = oi.rule_id
+WHERE oi.tenant_id = $1
+  AND oi.target_type = 'goat'
+  AND oi.target_id = $2
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+  AND pr.trigger_type = 'manual_campaign'
+  AND d.category = 'vaccination'
+  AND d.vaccine_code = ANY($3::text[])
+ORDER BY d.vaccine_code, oi.due_at ASC, oi.created_at ASC, oi.obligation_id ASC`, tenant, goat, normalizedCodes)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: find manual vaccine anchors: %w", err)
+	}
+	defer rows.Close()
+	anchors := map[string]domain.ObligationRef{}
+	for rows.Next() {
+		var (
+			code string
+			ref  domain.ObligationRef
+		)
+		if err := rows.Scan(&code, &ref.ObligationID, &ref.Status, &ref.DueAt, &ref.RowVersion, &ref.IdempotencyKey); err != nil {
+			return nil, fmt.Errorf("obligation: scan manual vaccine anchor: %w", err)
+		}
+		anchors[code] = ref
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: read manual vaccine anchors: %w", err)
+	}
+	return anchors, nil
+}
+
+// reconcileUnlabelledWork adopts an animal's pre-label work for this rule, or refuses to guess.
+//
+// Exactly one open row for this rule and sequence is unambiguous: it is the work this rule already
+// created for this animal, and labelling it brings it under the invariant instead of leaving it
+// outside where a second row could be written beside it. More than one is the 561-group case seen
+// in real staging data, and that is not a decision a generation pass may make.
+func (r *Repository) reconcileUnlabelledWork(
+	ctx context.Context,
+	tx pgx.Tx,
+	tenant pgtype.UUID,
+	in domain.NewObligation,
+	occurredAt time.Time,
+) (domain.ObligationRef, bool, error) {
+	target, err := pgconv.UUID(in.TargetID)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: target id: %w", err)
+	}
+
+	// Matched through lineage rather than by rule_id: the animal's row points at whichever
+	// version minted it, and lineage is what says two rule rows are the same rule.
+	rows, err := tx.Query(ctx, `
+SELECT oi.obligation_id::text, oi.status, oi.due_at, oi.row_version
+FROM obligation_instances oi
+JOIN protocol_rule_lineage l
+  ON l.tenant_id = oi.tenant_id AND l.rule_id = oi.rule_id
+WHERE oi.tenant_id = $1
+  AND oi.target_type = $2
+  AND oi.target_id = $3
+  AND oi."sequence" = $4
+  AND oi.rule_identity_key IS NULL
+  AND l.identity_key = $5
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+ORDER BY oi.due_at, oi.obligation_id
+FOR UPDATE`, tenant, in.TargetType, target, in.Sequence, in.RuleIdentityKey)
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read unlabelled work: %w", err)
+	}
+	var found []domain.ObligationRef
+	for rows.Next() {
+		var ref domain.ObligationRef
+		if err := rows.Scan(&ref.ObligationID, &ref.Status, &ref.DueAt, &ref.RowVersion); err != nil {
+			rows.Close()
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: scan unlabelled work: %w", err)
+		}
+		found = append(found, ref)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read unlabelled work: %w", err)
+	}
+
+	switch len(found) {
+	case 0:
+		return domain.ObligationRef{}, false, nil
+	case 1:
+		// Adopt it: label it and reconcile it in the same transaction, so it leaves this branch
+		// under the invariant rather than beside it.
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_instances SET rule_identity_key = $2 WHERE tenant_id = $1 AND obligation_id = $3::uuid`,
+			tenant, in.RuleIdentityKey, found[0].ObligationID); err != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: label adopted work: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit adopted label: %w", err)
+		}
+		// Re-entering with the label in place keeps ONE code path deciding what reconciliation
+		// means -- date, window, address and the event that records the move.
+		return r.ReconcileOpenObligationForRuleIdentity(ctx, in.TenantID, in, occurredAt)
+	default:
+		ids := make([]string, 0, len(found))
+		for _, ref := range found {
+			ids = append(ids, ref.ObligationID)
+		}
+		return domain.ObligationRef{}, false, fmt.Errorf("%w: target %s, identity %q, sequence %d, obligations [%s]",
+			ports.ErrAmbiguousOpenWork, in.TargetID, in.RuleIdentityKey, in.Sequence, strings.Join(ids, ", "))
+	}
+}
+
+// CarryOverUnchangedVaccinationObligations rebinds open vaccination work from a retired protocol
+// version to whichever effective version carries the same rule, for every rule whose business
+// identity AND content are unchanged. Callers normally pass a single effective version per park;
+// the pairing is by rule identity rather than by version, so more than one is handled without the
+// result depending on argument order.
+//
+// This is the mechanism behind "adding a sixth vaccine must not reschedule the other five"
+// (docs/preventive-care-vaccination/additive-publish.md). It is an UPDATE, never a
+// delete-and-insert: the obligation_id survives, so the task, batch, verification item and the
+// row on an operator's phone all keep pointing at the same thing across a publish.
+//
+// due_at and status are deliberately absent from the SET clause. If a due date ought to move then
+// the rule's content changed, this pairing does not match, and the caller's cancel-and-regenerate
+// path is the correct one.
+//
+// A rule with no lineage row -- every rule written before the lineage table existed -- never
+// pairs, so it falls back to that same previous behaviour rather than carrying over content
+// nothing has verified.
+func (r *Repository) CarryOverUnchangedVaccinationObligations(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if len(goatIDs) == 0 || len(effectiveVersionIDs) == 0 {
+		return 0, nil
+	}
+	if _, err := pgconv.UUID(tenantID); err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+
+	// DISTINCT ON keeps the pairing deterministic: a plan that (wrongly) carries two rules with
+	// the same identity and content would otherwise rebind to whichever row the planner reached
+	// first, making the result depend on physical row order. Ordering by rule_id makes the choice
+	// stable within a version, though not across a re-publish, which mints fresh rule ids -- a
+	// duplicate-rule plan is an authoring error caught at publish, and this only bounds the damage
+	// rather than pretending to resolve it.
+	tag, err := r.pool.Exec(ctx, `
+WITH effective_rule AS (
+  SELECT DISTINCT ON (identity_key, content_fingerprint)
+         identity_key, content_fingerprint, protocol_version_id, rule_id
+  FROM protocol_rule_lineage
+  WHERE tenant_id = $1::uuid
+    AND protocol_version_id = ANY($3::uuid[])
+  ORDER BY identity_key, content_fingerprint, rule_id
+)
+UPDATE obligation_instances oi
+SET protocol_version_id = er.protocol_version_id,
+    rule_id = er.rule_id,
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM protocol_rule_lineage retired
+JOIN effective_rule er
+  ON er.identity_key = retired.identity_key
+ AND er.content_fingerprint = retired.content_fingerprint
+JOIN protocol_versions pv
+  ON pv.tenant_id = retired.tenant_id
+ AND pv.protocol_version_id = retired.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+WHERE oi.tenant_id = $1::uuid
+  AND oi.target_type = 'goat'
+  AND oi.target_id = ANY($2::uuid[])
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND NOT (oi.protocol_version_id = ANY($3::uuid[]))
+  AND pd.category = 'vaccination'
+  AND retired.tenant_id = oi.tenant_id
+  AND retired.protocol_version_id = oi.protocol_version_id
+  AND retired.rule_id = oi.rule_id
+  -- A rebind changes protocol_version_id and rule_id, and BOTH are key columns in three
+  -- different unique indexes. A collision on any of them raises 23505 and aborts the whole
+  -- tenant-wide generation pass, so each one is checked first and the row left behind for the
+  -- supersede path instead.
+  --
+  -- 1. obligation_instances_dup_guard: (tenant, version, rule, target, due_at), spanning every
+  --    status including terminal ones.
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances clash
+    WHERE clash.tenant_id = oi.tenant_id
+      AND clash.protocol_version_id = er.protocol_version_id
+      AND clash.rule_id = er.rule_id
+      AND clash.target_type = oi.target_type
+      AND clash.target_id = oi.target_id
+      AND clash.due_at IS NOT DISTINCT FROM oi.due_at
+      AND clash.obligation_id <> oi.obligation_id
+  )
+  -- 2. obligation_repeat_cycle_open_source_unique_idx: keyed on the CAUSE, and deliberately
+  --    free of due_at -- a repeat's due date moves with the dose before it. So two rows can
+  --    share a cause at DIFFERENT due dates and collide here while passing the check above.
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances clash
+    WHERE oi.repeat_cycle_source_ref IS NOT NULL
+      AND clash.tenant_id = oi.tenant_id
+      AND clash.protocol_version_id = er.protocol_version_id
+      AND clash.rule_id = er.rule_id
+      AND clash.target_type = oi.target_type
+      AND clash.target_id = oi.target_id
+      AND clash.repeat_cycle_source IS NOT DISTINCT FROM oi.repeat_cycle_source
+      AND clash.repeat_cycle_source_ref = oi.repeat_cycle_source_ref
+      AND clash.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      AND clash.obligation_id <> oi.obligation_id
+  )
+  -- 3. obligation_repeat_cycle_open_anchor_unique_idx: (tenant, rule, anchor). It does not
+  --    include the version, so moving rule_id alone is enough to land on an occupied key.
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances clash
+    WHERE oi.repeat_cycle_anchor_obligation_id IS NOT NULL
+      AND clash.tenant_id = oi.tenant_id
+      AND clash.rule_id = er.rule_id
+      AND clash.repeat_cycle_anchor_obligation_id = oi.repeat_cycle_anchor_obligation_id
+      AND clash.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      AND clash.obligation_id <> oi.obligation_id
+  )`, tenantID, goatIDs, effectiveVersionIDs)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: carry over unchanged vaccination obligations: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+func (r *Repository) GoatsWithVaccinationObligationsOutsideVersions(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) ([]string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if len(goatIDs) == 0 {
+		return nil, nil
+	}
+	if effectiveVersionIDs == nil {
+		effectiveVersionIDs = []string{}
+	}
+	if _, err := pgconv.UUID(tenantID); err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT oi.target_id::text
+FROM obligation_instances oi
+JOIN protocol_versions pv
+  ON pv.tenant_id = oi.tenant_id
+ AND pv.protocol_version_id = oi.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+WHERE oi.tenant_id = $1::uuid
+  AND oi.target_type = 'goat'
+  AND oi.target_id = ANY($2::uuid[])
+  AND oi.status IN ('scheduled', 'due', 'deferred')
+  AND pd.category = 'vaccination'
+  AND NOT (oi.protocol_version_id = ANY($3::uuid[]))`, tenantID, goatIDs, effectiveVersionIDs)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: goats with non-effective vaccination obligations: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("obligation: scan non-effective goat: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -1693,6 +2731,62 @@ RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenantID, go
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("obligation: commit version-except cancel: %w", err)
+	}
+	return count, nil
+}
+
+func (r *Repository) CancelOpenVaccinationObligationsForExitedGoats(ctx context.Context, tenantID, reason string, occurredAt time.Time) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "ineligible_after_exit"
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: begin exited vaccination cancel tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	rows, err := tx.Query(ctx, `
+UPDATE obligation_instances oi
+SET status = 'canceled',
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM goats g
+JOIN protocol_versions pv
+  ON pv.tenant_id = g.tenant_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+WHERE oi.tenant_id = $1::uuid
+  AND oi.target_type = 'goat'
+  AND oi.target_id = g.goat_id
+  AND oi.status IN ('scheduled', 'due', 'deferred')
+  AND g.tenant_id = oi.tenant_id
+  AND g.lifecycle_status NOT IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND pv.protocol_version_id = oi.protocol_version_id
+  AND pd.category = 'vaccination'
+RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenant)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: cancel exited vaccination obligations: %w", err)
+	}
+	count, err := recordCanceledObligationRows(ctx, tx, qtx, tenant, tenantID, "exited_goats_bulk", reason, occurredAt, rows, map[string]any{
+		"scope": "exited_goats",
+	}, "obligation.CancelOpenVaccinationObligationsForExitedGoats")
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit exited vaccination cancel: %w", err)
 	}
 	return count, nil
 }
@@ -1905,9 +2999,8 @@ INSERT INTO obligation_status_events (
 			return 0, fmt.Errorf("obligation: bulk insert cancel events: %w", err)
 		}
 	}
-	// Insert outbox events per obligation (separate table, kept per-record for transaction atomicity)
-	for _, id := range ids {
-		if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, id, obligationCanceledEventType, "canceled", occurredAt, outboxExtra, producer); err != nil {
+	if len(ids) > 0 {
+		if err := insertCanceledObligationLifecycleOutboxBatch(ctx, tx, tenantID, ids, occurredAt, outboxExtra, producer); err != nil {
 			return 0, err
 		}
 	}
@@ -2112,7 +3205,7 @@ WITH candidates AS (
          CASE
            WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')::text
            WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(shed.name, '')::text || ' - ' || initcap(gsp.partition_label)
-           WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' - Part ' || gsp.partition_label
+           WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' ' || gsp.partition_label
            ELSE COALESCE(shed.name, '')::text || ' - ' || gsp.partition_label
          END::text AS shed_name,
          oi.target_id AS target_id_key,
@@ -3819,15 +4912,16 @@ SELECT ob.batch_id::text,
        ob.estimated_targets,
        COUNT(oi.obligation_id)::bigint AS attached_obligations,
        (ob.sop_task_id IS NOT NULL) AS has_sop_task,
-       EXISTS (
-         SELECT 1
-         FROM inventory_stock_movements ism
-         WHERE ism.tenant_id = ob.tenant_id
-           AND ism.batch_id = ob.batch_id
-           AND ism.movement_type = 'reserve'
-       ) AS has_stock_reservation,
-       (ob.context ? 'stock_block') AS stock_blocked,
-       COALESCE(ob.context #>> '{stock_block,item_id}', '') AS stock_block_item_id
+	       EXISTS (
+	         SELECT 1
+	         FROM inventory_stock_movements ism
+	         WHERE ism.tenant_id = ob.tenant_id
+	           AND ism.batch_id = ob.batch_id
+	           AND ism.movement_type = 'reserve'
+	       ) AS has_stock_reservation,
+	       -- projection-review: membership=planned obligation_batches for one protocol_version whose attached obligation_instances remain open and still need finalization; group_key=batch_id (one row per planned batch); join_cardinality=obligation_instances joins 1:N but the aggregate groups by batch_id and COUNTs obligation_id after the open-status filter, while reserve state uses EXISTS semijoins so stock movements cannot fan out counts; pagination=keyset over created_at plus batch_id with caller-carried cursor, so every page is bounded and no UI-local page determines finalization totals; scope=batch scope_type and scope_id as stored on obligation_batches, no hierarchy coalesce
+	       (ob.context ? 'stock_block') AS stock_blocked, -- projection-review: membership=planned obligation_batches for one protocol_version whose attached obligation_instances remain open and still need finalization; group_key=batch_id (one row per planned batch); join_cardinality=obligation_instances joins one-to-many but the aggregate groups by batch_id and COUNTs obligation_id after the open-status filter, while reserve state uses EXISTS semijoins so stock movements cannot fan out counts; pagination=keyset over created_at plus batch_id with caller-carried cursor, so every page is bounded and no UI-local page determines finalization totals; scope=batch scope_type and scope_id as stored on obligation_batches, no hierarchy coalesce
+	       COALESCE(ob.context #>> '{stock_block,item_id}', '') AS stock_block_item_id_marker /* projection-review: membership=planned_batches; group_key=batch_id; join_cardinality=batch_to_open_obligations_grouped; pagination=keyset_cursor; scope=batch_scope */
 FROM obligation_batches ob
 JOIN obligation_instances oi
   ON oi.tenant_id = ob.tenant_id
@@ -3863,8 +4957,8 @@ GROUP BY ob.tenant_id, ob.batch_id, ob.scope_type, ob.scope_id, ob.planned_date,
        )
      )
    )
-ORDER BY ob.created_at ASC, ob.batch_id ASC
-LIMIT $7`, tenant, version, needsTask, needsStock, afterCreatedAt, afterBatchID, limit)
+	ORDER BY ob.created_at ASC, ob.batch_id ASC -- projection-review: membership=planned obligation_batches for one protocol_version whose attached obligation_instances remain open and still need finalization; group_key=batch_id one row per planned batch; join_cardinality=obligation_instances joins one-to-many but grouping by batch_id and counting obligation_id keeps the batch grain while reserve checks use EXISTS semijoins; pagination=keyset over created_at plus batch_id with caller-carried cursor and LIMIT; scope=batch scope_type and scope_id as stored on obligation_batches with no hierarchy coalesce
+	LIMIT $7`, tenant, version, needsTask, needsStock, afterCreatedAt, afterBatchID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list planned batch finalization: %w", err)
 	}
@@ -3898,12 +4992,123 @@ LIMIT $7`, tenant, version, needsTask, needsStock, afterCreatedAt, afterBatchID,
 	return out, nil
 }
 
+// projection-review: membership=planned obligation_batches for one protocol_version whose attached obligation_instances remain open and still need finalization; group_key=batch_id (one row per planned batch); join_cardinality=obligation_instances joins 1:N but the aggregate groups by batch_id and COUNTs obligation_id after the open-status filter, while reserve state uses EXISTS semijoins so stock movements cannot fan out counts; pagination=keyset over created_at plus batch_id with caller-carried cursor, so every page is bounded and no UI-local page determines finalization totals; scope=batch scope_type and scope_id as stored on obligation_batches, no hierarchy coalesce
 func timestamptzValue(v pgtype.Timestamptz) *time.Time {
 	if !v.Valid {
 		return nil
 	}
 	t := v.Time
 	return &t
+}
+
+func timestamptzEqualTime(v pgtype.Timestamptz, t time.Time) bool {
+	return v.Valid && v.Time.Equal(t)
+}
+
+func timestamptzEqualPtr(v pgtype.Timestamptz, t *time.Time) bool {
+	if !v.Valid {
+		return t == nil
+	}
+	return t != nil && v.Time.Equal(*t)
+}
+
+func timestamptzEqualEffectiveWindowStart(v pgtype.Timestamptz, windowStart *time.Time, dueAt time.Time) bool {
+	if windowStart != nil {
+		return timestamptzEqualPtr(v, windowStart)
+	}
+	return v.Valid && v.Time.Equal(dueAt)
+}
+
+func (r *Repository) reconciledRuleIdentityNoop(ctx context.Context, tenant pgtype.UUID, in domain.NewObligation) (domain.ObligationRef, bool, error) {
+	var (
+		ref         domain.ObligationRef
+		versionID   string
+		ruleID      string
+		key         string
+		windowStart pgtype.Timestamptz
+		windowEnd   pgtype.Timestamptz
+	)
+	err := r.pool.QueryRow(ctx, `
+SELECT obligation_id::text, status, due_at, row_version,
+       protocol_version_id::text, rule_id::text, idempotency_key,
+       window_start, window_end
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND target_type = $2
+  AND target_id = $3::uuid
+  AND rule_identity_key = $4
+  AND "sequence" = $5
+  AND status = $6
+  AND protocol_version_id = $7::uuid
+  AND rule_id = $8::uuid
+  AND idempotency_key = $9
+  AND due_at = $10::timestamptz
+  AND window_start IS NOT DISTINCT FROM COALESCE($11::timestamptz, $10::timestamptz)
+  AND window_end IS NOT DISTINCT FROM $12::timestamptz
+  AND status IN ('scheduled', 'due')
+LIMIT 1`,
+		tenant, in.TargetType, in.TargetID, in.RuleIdentityKey, in.Sequence, in.Status,
+		in.ProtocolVersionID, in.RuleID, in.IdempotencyKey, pgconv.Timestamptz(in.DueAt),
+		pgconv.NullableTimestamptz(in.WindowStart), pgconv.NullableTimestamptz(in.WindowEnd),
+	).Scan(&ref.ObligationID, &ref.Status, &ref.DueAt, &ref.RowVersion, &versionID, &ruleID, &key, &windowStart, &windowEnd)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ObligationRef{}, false, nil
+	}
+	if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read identity reconcile noop: %w", err)
+	}
+	if versionID != in.ProtocolVersionID || ruleID != in.RuleID || key != in.IdempotencyKey ||
+		!timestamptzEqualEffectiveWindowStart(windowStart, in.WindowStart, in.DueAt) ||
+		!timestamptzEqualPtr(windowEnd, in.WindowEnd) {
+		return domain.ObligationRef{}, false, nil
+	}
+	return ref, true, nil
+}
+
+func (r *Repository) reconcileRuleIdentityAddressOnlyNoop(
+	ctx context.Context,
+	tenant pgtype.UUID,
+	version pgtype.UUID,
+	rule pgtype.UUID,
+	target pgtype.UUID,
+	in domain.NewObligation,
+) (domain.ObligationRef, bool, error) {
+	var ref domain.ObligationRef
+	err := r.pool.QueryRow(ctx, `
+UPDATE obligation_instances
+SET protocol_version_id = $7::uuid,
+    rule_id = $8::uuid,
+    idempotency_key = $9,
+    row_version = row_version + 1,
+    updated_at = now()
+WHERE tenant_id = $1
+  AND target_type = $2
+  AND target_id = $3
+  AND rule_identity_key = $4
+  AND "sequence" = $5
+  AND status IN ('scheduled', 'due', 'deferred')
+  AND due_at = $6::timestamptz
+  AND window_start IS NOT DISTINCT FROM COALESCE($10::timestamptz, $6::timestamptz)
+  AND window_end IS NOT DISTINCT FROM $11::timestamptz
+  AND (
+    protocol_version_id <> $7::uuid OR
+    rule_id <> $8::uuid OR
+    idempotency_key <> $9
+  )
+RETURNING obligation_id::text, status, due_at, row_version`,
+		tenant, in.TargetType, target, in.RuleIdentityKey, in.Sequence, pgconv.Timestamptz(in.DueAt),
+		version, rule, in.IdempotencyKey, pgconv.NullableTimestamptz(in.WindowStart), pgconv.NullableTimestamptz(in.WindowEnd),
+	).Scan(&ref.ObligationID, &ref.Status, &ref.DueAt, &ref.RowVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ObligationRef{}, false, nil
+	}
+	if err != nil {
+		if isDuplicateGuardViolation(err) {
+			return domain.ObligationRef{}, false, nil
+		}
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: identity reconcile address-only noop: %w", err)
+	}
+	return ref, true, nil
 }
 
 func obligationUUIDs(values []string) ([]pgtype.UUID, error) {
@@ -5307,6 +6512,97 @@ ON CONFLICT DO NOTHING`,
 	return nil
 }
 
+func insertCanceledObligationLifecycleOutboxBatch(ctx context.Context, tx pgx.Tx, tenantID string, obligationIDs []string, occurredAt time.Time, extra map[string]any, producer string) error {
+	if len(obligationIDs) == 0 {
+		return nil
+	}
+	eventIDs := make([]string, 0, len(obligationIDs))
+	aggregateIDs := make([]string, 0, len(obligationIDs))
+	payloads := make([]string, 0, len(obligationIDs))
+	headers := make([]string, 0, len(obligationIDs))
+	idempotencyKeys := make([]string, 0, len(obligationIDs))
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	occurred := occurredAt.UTC().Format(time.RFC3339Nano)
+	for _, obligationID := range obligationIDs {
+		idempotencyKey := obligationCanceledEventType + ":" + obligationID
+		eventID := platformoutbox.DeterministicUUID(obligationCanceledEventType + ":" + tenantID + ":" + obligationID)
+		payload := map[string]any{
+			"tenant_id":     tenantID,
+			"obligation_id": obligationID,
+			"status":        "canceled",
+		}
+		for k, v := range extra {
+			if v != nil {
+				payload[k] = v
+			}
+		}
+		envelope, err := json.Marshal(map[string]any{
+			"event_id":       eventID,
+			"event_type":     obligationCanceledEventType,
+			"schema_version": obligationMissedSchemaVersion,
+			"schema_ref":     obligationMissedSchemaRef,
+			"aggregate_type": "obligation_instance",
+			"aggregate_id":   obligationID,
+			"occurred_at":    occurred,
+			"recorded_at":    now,
+			"producer": map[string]any{
+				"service": "goatos-api",
+				"module":  "obligation",
+				"version": nil,
+			},
+			"idempotency_key": idempotencyKey,
+			"actor": map[string]any{
+				"actor_type": "system_rule",
+				"actor_id":   nil,
+				"actor_ref":  nil,
+			},
+			"subject_type": "obligation_instance",
+			"subject_id":   obligationID,
+			"visibility_scope": map[string]any{
+				"tenant_id": tenantID,
+			},
+			"evidence_refs": []map[string]string{{
+				"evidence_type": "obligation_status_event",
+				"evidence_id":   obligationID + ":canceled",
+			}},
+			"payload":  payload,
+			"trace_id": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("obligation: %s envelope: %w", obligationCanceledEventType, err)
+		}
+		header, err := json.Marshal(map[string]any{
+			"producer":        producer,
+			"schema_version":  obligationMissedSchemaVersion,
+			"obligation_id":   obligationID,
+			"idempotency_key": idempotencyKey,
+		})
+		if err != nil {
+			return fmt.Errorf("obligation: %s headers: %w", obligationCanceledEventType, err)
+		}
+		eventIDs = append(eventIDs, eventID)
+		aggregateIDs = append(aggregateIDs, obligationID)
+		payloads = append(payloads, string(envelope))
+		headers = append(headers, string(header))
+		idempotencyKeys = append(idempotencyKeys, idempotencyKey)
+	}
+	_, err := tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) SELECT
+  $1::uuid, event_id::uuid, $2, $3, 'obligation_instance', aggregate_id::uuid,
+  $4, payload::jsonb, headers::jsonb, idempotency_key, idempotency_key, 'pending', now()
+FROM UNNEST($5::text[], $6::text[], $7::text[], $8::text[], $9::text[]) AS t(event_id, aggregate_id, payload, headers, idempotency_key)
+ON CONFLICT DO NOTHING`,
+		tenantID, obligationCanceledEventType, obligationMissedSchemaVersion, obligationMissedTopic,
+		eventIDs, aggregateIDs, payloads, headers, idempotencyKeys)
+	if err != nil {
+		return fmt.Errorf("obligation: %s outbox batch: %w", obligationCanceledEventType, err)
+	}
+	return nil
+}
+
 // rowVersion mirrors the versioned key MarkCompleted now uses for its own "completed" idempotency
 // reservation: a bare obligationID key would ON CONFLICT DO NOTHING away every completed-outbox
 // event after the FIRST for an obligation that is later reopened and re-completed (rework), so
@@ -6258,4 +7554,63 @@ func (r *Repository) ResolveShedLocation(ctx context.Context, tenantID, shedID s
 		return oploc.OperationalLocation{}, fmt.Errorf("obligation: resolve shed location: %w", err)
 	}
 	return loc, nil
+}
+
+// repeatText, repeatUUID and repeatTime map an optional RepeatCycleSource onto the nullable
+// columns. Nil stays NULL, which is what keeps the two partial unique indexes -- and the
+// repeat branch of the insert's duplicate guard -- inert for every non-repeat obligation.
+// repeatCycleIndexes are the partial unique indexes that enforce one OPEN successor per
+// cause. A row they reject is a row some other writer already created for that same cause,
+// which is the outcome we wanted -- so it is a no-op, never an error.
+var repeatCycleIndexes = []string{
+	"obligation_repeat_cycle_open_anchor_unique_idx",
+	"obligation_repeat_cycle_open_source_unique_idx",
+}
+
+// isDuplicateGuardViolation reports a collision with obligation_instances_dup_guard --
+// one row per (tenant, version, rule, target, due date), across all statuses.
+func isDuplicateGuardViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return false
+	}
+	return pgErr.ConstraintName == "obligation_instances_dup_guard"
+}
+
+func isRepeatCycleConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return false
+	}
+	for _, idx := range repeatCycleIndexes {
+		if pgErr.ConstraintName == idx {
+			return true
+		}
+	}
+	return false
+}
+
+func repeatText(rc *domain.RepeatCycleSource, pick func(domain.RepeatCycleSource) string) pgtype.Text {
+	if !rc.Valid() {
+		return pgtype.Text{}
+	}
+	value := strings.TrimSpace(pick(*rc))
+	if value == "" {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: value, Valid: true}
+}
+
+func repeatUUID(rc *domain.RepeatCycleSource) pgtype.UUID {
+	if !rc.Valid() || rc.AnchorObligationID == nil {
+		return pgtype.UUID{}
+	}
+	return pgconv.NullableUUID(rc.AnchorObligationID)
+}
+
+func repeatTime(rc *domain.RepeatCycleSource, pick func(domain.RepeatCycleSource) *time.Time) pgtype.Timestamptz {
+	if !rc.Valid() {
+		return pgtype.Timestamptz{}
+	}
+	return pgconv.NullableTimestamptz(pick(*rc))
 }

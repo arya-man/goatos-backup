@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -27,13 +28,18 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.FeedRepository
+import sg.mesha.goatos.core.network.dto.FeedDistributionCapturedSlotDto
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
+import sg.mesha.goatos.core.data.FeedPenSessionCaptureQuery
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.feature.feed.feedSessionCanCapture
 import sg.mesha.goatos.feature.feed.FeedDistributionEvent
 import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
 import sg.mesha.goatos.feature.feed.FeedDistributionResultUi
@@ -42,6 +48,10 @@ import sg.mesha.goatos.feature.feed.FeedDistributionUiState
 import java.util.Locale
 import java.util.EnumSet
 import java.util.UUID
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.LocalDate
 import javax.inject.Inject
 
 /**
@@ -64,6 +74,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val proofCaptureSource: ProofCaptureSource,
     private val photoCaptureSource: PhotoCaptureSource,
     private val proofCaptureRepository: ProofCaptureRepository,
+    private val feedRepository: FeedRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     @ApplicationContext private val appContext: Context,
@@ -82,6 +93,15 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val parkLabel: String = savedStateHandle.get<String>(ARG_PARK_LABEL).orEmpty()
     private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
 
+    // The row's backend-owned lifecycle bucket AT THE MOMENT the row was tapped — a FIRST-PAINT hint
+    // only. [observeLiveLifecycleStatus] supersedes it with the Room-backed live value the moment
+    // Room has one, so a status change while this screen stays open (verifier decides elsewhere, or
+    // a reinstall lost the local draft for work already submitted) flips this screen to read-only
+    // live rather than on next entry only. Mirrors FeedPackingCompleteViewModel's same-shaped gate
+    // (STG 2026-08-09).
+    private val lifecycleStatusHint: String = savedStateHandle.get<String>(ARG_LIFECYCLE_STATUS).orEmpty()
+    private val alreadySubmitted: Boolean = !feedSessionCanCapture(lifecycleStatusHint, isToday = true)
+
     // The shed-session partitions ordering for the proof uploads and completion, so all three
     // proof items drain before the gated completion references them.
     private val groupKey = feedCaptureGroupKey("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate)
@@ -96,6 +116,13 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private val feedWeightPhotoProofRowId = DraftOutboxItemId(savedStateHandle, KEY_FEED_WEIGHT_PHOTO_PROOF_ROW_ID)
     private val videoProofRowId = DraftOutboxItemId(savedStateHandle, KEY_VIDEO_PROOF_ROW_ID)
     private val waterVideoProofRowId = DraftOutboxItemId(savedStateHandle, KEY_WATER_VIDEO_PROOF_ROW_ID)
+
+    // SERVER proof ids for slots ANOTHER operator recorded. A pen-session's three proofs may be
+    // split across three phones (maintainer decision 2026-08-14); a slot shot elsewhere has no local
+    // outbox row here, so its server id is what this phone submits with.
+    private val feedWeightRemoteRef = DraftOutboxItemId(savedStateHandle, KEY_FEED_WEIGHT_REMOTE_REF)
+    private val videoRemoteRef = DraftOutboxItemId(savedStateHandle, KEY_VIDEO_REMOTE_REF)
+    private val waterVideoRemoteRef = DraftOutboxItemId(savedStateHandle, KEY_WATER_VIDEO_REMOTE_REF)
     private var completeEnqueueInFlight = false
     private val syncedProofAnalytics: MutableSet<ProofSlot> =
         EnumSet.noneOf(ProofSlot::class.java) // mobile-guard:ignore bounded by ProofSlot enum.
@@ -111,6 +138,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             videoStatus = videoProofItemId.value?.let { FeedDistributionProofStatus.QUEUED } ?: FeedDistributionProofStatus.EMPTY,
             waterVideoCaptured = waterVideoProofItemId.value != null,
             waterVideoStatus = waterVideoProofItemId.value?.let { FeedDistributionProofStatus.QUEUED } ?: FeedDistributionProofStatus.EMPTY,
+            alreadySubmitted = alreadySubmitted,
         ),
     )
     val state: StateFlow<FeedDistributionUiState> = _state.asStateFlow()
@@ -121,14 +149,99 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private var feedVideoStatusJob: Job? = null
     private var waterVideoStatusJob: Job? = null
     init {
-        analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_OPENED)
+        analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_OPENED, distributionEventProps(action = ACTION_DETAIL_OPENED))
         recomputeCanComplete()
         observeSyncStatus()
         observeDurableProofs()
+        refreshTeammateCaptures(source = "open")
         outboxItemId.value?.let(::observeOutboxItem)
         feedWeightPhotoProofItemId.value?.let { observeProofItem(ProofSlot.FEED_WEIGHT_PHOTO, it) }
         videoProofItemId.value?.let { observeProofItem(ProofSlot.FEED_VIDEO, it) }
         waterVideoProofItemId.value?.let { observeProofItem(ProofSlot.WATER_VIDEO, it) }
+        observeLiveLifecycleStatus()
+    }
+
+    /** See [FeedPackingCompleteViewModel.observeLiveLifecycleStatus] — the same shaped gate for the
+     *  feed-direction shed-session table. A `null` emission (no cached row yet) is ignored so the
+     *  screen keeps [lifecycleStatusHint] rather than forcing itself editable. */
+    private fun observeLiveLifecycleStatus() {
+        viewModelScope.launch {
+            feedRepository.observeDirectionSessionStatus(shedId, partitionLabel, workflow, sessionNo)
+                .collect { liveStatus -> applyLiveStatus(liveStatus, source = "room") }
+        }
+        startServerStatusPolling()
+    }
+
+    /** Shared by the Room-backed observer above and the SERVER poll below — both feed the same
+     *  read-only gate. `null` (no answer yet / poll failed) is ignored: this must never flip
+     *  editable -> locked on a guess, and never flips locked -> editable at all.
+     *
+     *  [source] names the trigger (`room`/`server_poll`/`sync_tap`) for
+     *  [AnalyticsEvents.FEED_DISTRIBUTION_LIVE_STATUS_CHANGED], fired only on an actual
+     *  editable<->readonly flip. */
+    private fun applyLiveStatus(liveStatus: String?, source: String) {
+        if (liveStatus == null) return
+        val previouslyReadOnly = _state.value.alreadySubmitted
+        val nowReadOnly = !feedSessionCanCapture(liveStatus, isToday = true)
+        _state.update { it.copy(alreadySubmitted = nowReadOnly) }
+        if (previouslyReadOnly != nowReadOnly) {
+            analytics.track(
+                AnalyticsEvents.FEED_DISTRIBUTION_LIVE_STATUS_CHANGED,
+                mapOf(
+                    AnalyticsEvents.Params.SOURCE to source,
+                    AnalyticsEvents.Params.PREVIOUS to if (previouslyReadOnly) "readonly" else "editable",
+                    AnalyticsEvents.Params.NEXT to if (nowReadOnly) "readonly" else "editable",
+                    AnalyticsEvents.Params.STATUS to liveStatus,
+                ),
+            )
+        }
+        // Persist SERVER-sourced status into Room so the live observer emits and the screen
+        // survives process death offline. Room-sourced emissions are already in Room — writing
+        // them back would fire a spurious table-wide invalidation on every emission.
+        if (source != "room") {
+            viewModelScope.launch {
+                feedRepository.persistDirectionSessionStatus(shedId, partitionLabel, workflow, sessionNo, liveStatus)
+            }
+        }
+    }
+
+    /**
+     * Periodic SERVER read of this shed-session's lifecycle status while the screen stays open, so a
+     * TEAMMATE'S submit on another phone flips this screen read-only without back/reopen.
+     * [observeDirectionSessionStatus] above only changes when THIS phone's own worklist sync writes a
+     * fresh Room row — a teammate's submit elsewhere never touches this phone's cache while the
+     * screen sits open, which is exactly the gap this closes. Reuses the existing
+     * `GET /feed-direction/preview` read via [FeedRepository.fetchDirectionSessionStatus] (no new
+     * backend endpoint).
+     *
+     * Bounded at [MAX_SERVER_STATUS_POLLS] rather than a bare `while (isActive)`: a truly unbounded
+     * delay-loop started from `init` would make ANY `advanceUntilIdle()` in a test hang forever
+     * (the virtual-time scheduler keeps advancing as long as a delayed task keeps re-scheduling
+     * itself). [MAX_SERVER_STATUS_POLLS] * [SERVER_STATUS_POLL_INTERVAL_MS] is ~24h — far longer than
+     * any real feed-capture session; a screen left open longer than that still gets a fresh read the
+     * next time the operator taps Sync (see [syncNow]).
+     */
+    private fun startServerStatusPolling() {
+        viewModelScope.launch {
+            repeat(MAX_SERVER_STATUS_POLLS) {
+                delay(SERVER_STATUS_POLL_INTERVAL_MS)
+                pollServerStatusOnce(source = "server_poll")
+                // A teammate can upload a slot WHILE this screen sits open; without this the
+                // screen only learns on reopen/Sync (field bug 2026-08-15: X5 uploaded the weight
+                // photo, the other phones' open screens stayed blank until re-entry).
+                refreshTeammateCaptures(source = "server_poll")
+            }
+        }
+    }
+
+    /** A poll failure (offline/timeout/5xx) is swallowed and leaves state exactly as it was — see
+     *  [applyLiveStatus]'s null-is-unknown contract. */
+    private suspend fun pollServerStatusOnce(source: String) {
+        if (shedId.isBlank() || workflow.isBlank() || targetDate.isBlank() || sessionNo < 1) return
+        val status = runCatching { // exception:exempt expected poll failure (offline/timeout/5xx); see pollServerStatusOnce kdoc — null-is-unknown is the contract, not an error to record
+            feedRepository.fetchDirectionSessionStatus(parkId, shedId, partitionLabel, workflow, sessionNo, targetDate)
+        }.getOrNull()
+        applyLiveStatus(status, source)
     }
 
     fun onEvent(event: FeedDistributionEvent) {
@@ -139,6 +252,8 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             FeedDistributionEvent.MarkDone -> markDone()
             FeedDistributionEvent.SyncNow -> syncNow()
             FeedDistributionEvent.Back -> analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_BACK_TAPPED)
+            FeedDistributionEvent.FeedVideoPlaybackFailed -> refreshTeammatePreviewUrl(ProofSlot.FEED_VIDEO)
+            FeedDistributionEvent.WaterVideoPlaybackFailed -> refreshTeammatePreviewUrl(ProofSlot.WATER_VIDEO)
         }
     }
 
@@ -148,7 +263,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         if (replacing) trackReuploadTapped(ProofSlot.FEED_WEIGHT_PHOTO)
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED,
-            mapOf(AnalyticsEvents.Params.KIND to "feed_weight_photo"),
+            distributionEventProps(ProofSlot.FEED_WEIGHT_PHOTO, ACTION_RECORD_PROOF),
         )
         _state.update {
             it.copy(
@@ -159,6 +274,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
+            var captureThrew = false
             val captured = try {
                 photoCaptureSource.capturePhoto(
                     PhotoCaptureContext(
@@ -167,31 +283,31 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     ),
                 )
             } catch (error: Exception) {
+                captureThrew = true
                 crashReporter.recordException(error, "feed distribution feed weight photo capture failed")
+                trackCaptureFailure("feed_weight_photo", "camera_exception")
                 null
             }
             if (captured == null) {
-                _state.update { it.copy(isCapturingFeedWeightPhoto = false) }
-                return@launch
-            }
-            // The old row is discarded only ONCE NEW MEDIA IS IN HAND. Discarding before the camera
-            // ran meant a cancelled capture, a failed camera or a black preview deleted a good proof
-            // and left the slot empty -- the "proof disappeared" loop again. The camera is the step
-            // that fails; nothing is destroyed until it has succeeded.
-            if (replacing && !discardExistingProof(ProofSlot.FEED_WEIGHT_PHOTO)) {
+                if (!captureThrew) trackCaptureFailure("feed_weight_photo", "camera_returned_null")
                 _state.update {
                     it.copy(
                         isCapturingFeedWeightPhoto = false,
-                        feedWeightPhotoStatus = FeedDistributionProofStatus.FAILED,
-                        feedWeightPhotoMessage = PROOF_FAILED,
+                        feedWeightPhotoStatus = if (replacing) it.feedWeightPhotoStatus else FeedDistributionProofStatus.FAILED,
+                        feedWeightPhotoMessage = if (replacing) it.feedWeightPhotoMessage else PROOF_FAILED,
                     )
                 }
                 return@launch
             }
+            // Build the evidence slot for re-capture. captureReplacingLatest ensures
+            // the old row is only removed after the new capture succeeds (Manohar ordering).
+            val slot = EvidenceSlot(
+                identity = buildFeedEvidenceSlotIdentity("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate),
+                fieldKey = FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO,
+            )
             when (
-                val result = proofCaptureRepository.capture(
-                    taskId = groupKey,
-                    fieldKey = FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO,
+                val result = proofCaptureRepository.captureReplacingLatest(
+                    slot = slot,
                     subject = ProofSubject.SHED,
                     subjectId = shedId,
                     localUri = captured.localUri,
@@ -204,13 +320,20 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     capturedByPrincipalId = null,
                     proofPolicy = feedShedProofPolicy(captured.captureSource),
                     awaitUploadEnqueue = true,
-                    uploadGroupKey = groupKey,
+                    uploadGroupKey = proofUploadGroupKey(ProofSlot.FEED_WEIGHT_PHOTO),
                 )
             ) {
                 is AppResult.Ok -> {
                     val proofOutboxId = result.value.outboxItemId
                     if (proofOutboxId.isNullOrBlank()) {
-                        _state.update { it.copy(isCapturingFeedWeightPhoto = false, feedWeightPhotoMessage = PROOF_FAILED) }
+                        trackCaptureFailure("feed_weight_photo", "missing_upload_outbox")
+                        _state.update {
+                            it.copy(
+                                isCapturingFeedWeightPhoto = false,
+                                feedWeightPhotoStatus = FeedDistributionProofStatus.FAILED,
+                                feedWeightPhotoMessage = PROOF_FAILED,
+                            )
+                        }
                         return@launch
                     }
                     feedWeightPhotoProofItemId.value = proofOutboxId
@@ -218,7 +341,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     observeProofItem(ProofSlot.FEED_WEIGHT_PHOTO, proofOutboxId)
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,
-                        mapOf(AnalyticsEvents.Params.KIND to "feed_weight_photo"),
+                        distributionEventProps(
+                            ProofSlot.FEED_WEIGHT_PHOTO,
+                            ACTION_CAPTURED,
+                            mapOf(PARAM_PROOF_ID to result.value.id, PARAM_OUTBOX_ITEM_ID to proofOutboxId),
+                        ),
                     )
                     _state.update {
                         it.copy(
@@ -236,7 +363,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed distribution feed weight photo enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
-                        mapOf(AnalyticsEvents.Params.REASON to result.message),
+                        distributionEventProps(ProofSlot.FEED_WEIGHT_PHOTO, ACTION_CAPTURE_FAILED, mapOf(AnalyticsEvents.Params.REASON to result.message)),
                     )
                     _state.update {
                         it.copy(
@@ -251,14 +378,14 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     }
 
     /** MANDATORY feed-distribution video from the LIVE in-app camera. It enqueues a PROOF_UPLOAD on
-     *  the shed-session group so it drains before the completion. */
+     *  this slot's own upload group; completion still waits by resolving the returned outbox id. */
     private fun captureFeedVideo() {
         if (_state.value.isCapturingVideo || _state.value.isFinalSubmitted || shedId.isBlank()) return
         val replacing = _state.value.videoCaptured
         if (replacing) trackReuploadTapped(ProofSlot.FEED_VIDEO)
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED,
-            mapOf(AnalyticsEvents.Params.KIND to "feed_video"),
+            distributionEventProps(ProofSlot.FEED_VIDEO, ACTION_RECORD_PROOF),
         )
         _state.update {
             it.copy(
@@ -269,34 +396,35 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
+            var captureThrew = false
             val captured = try {
                 proofCaptureSource.captureVideo(feedVideoContext())
             } catch (error: Exception) {
+                captureThrew = true
                 crashReporter.recordException(error, "feed distribution video capture failed")
+                trackCaptureFailure("feed_video", "camera_exception")
                 null
             }
             if (captured == null) {
-                _state.update { it.copy(isCapturingVideo = false) }
-                return@launch
-            }
-            // The old row is discarded only ONCE NEW MEDIA IS IN HAND. Discarding before the camera
-            // ran meant a cancelled capture, a failed camera or a black preview deleted a good proof
-            // and left the slot empty -- the "proof disappeared" loop again. The camera is the step
-            // that fails; nothing is destroyed until it has succeeded.
-            if (replacing && !discardExistingProof(ProofSlot.FEED_VIDEO)) {
+                if (!captureThrew) trackCaptureFailure("feed_video", "camera_returned_null")
                 _state.update {
                     it.copy(
                         isCapturingVideo = false,
-                        videoStatus = FeedDistributionProofStatus.FAILED,
-                        videoMessage = PROOF_FAILED,
+                        videoStatus = if (replacing) it.videoStatus else FeedDistributionProofStatus.FAILED,
+                        videoMessage = if (replacing) it.videoMessage else PROOF_FAILED,
                     )
                 }
                 return@launch
             }
+            // Build the evidence slot for re-capture. captureReplacingLatest ensures
+            // the old row is only removed after the new capture succeeds (Manohar ordering).
+            val slot = EvidenceSlot(
+                identity = buildFeedEvidenceSlotIdentity("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate),
+                fieldKey = FIELD_FEED_DISTRIBUTION_VIDEO,
+            )
             when (
-                val result = proofCaptureRepository.capture(
-                    taskId = groupKey,
-                    fieldKey = FIELD_FEED_DISTRIBUTION_VIDEO,
+                val result = proofCaptureRepository.captureReplacingLatest(
+                    slot = slot,
                     subject = ProofSubject.SHED,
                     subjectId = shedId,
                     localUri = captured.localUri,
@@ -309,13 +437,20 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     capturedByPrincipalId = null,
                     proofPolicy = feedShedProofPolicy(captured.captureSource),
                     awaitUploadEnqueue = true,
-                    uploadGroupKey = groupKey,
+                    uploadGroupKey = proofUploadGroupKey(ProofSlot.FEED_VIDEO),
                 )
             ) {
                 is AppResult.Ok -> {
                     val proofOutboxId = result.value.outboxItemId
                     if (proofOutboxId.isNullOrBlank()) {
-                        _state.update { it.copy(isCapturingVideo = false, videoMessage = PROOF_FAILED) }
+                        trackCaptureFailure("feed_video", "missing_upload_outbox")
+                        _state.update {
+                            it.copy(
+                                isCapturingVideo = false,
+                                videoStatus = FeedDistributionProofStatus.FAILED,
+                                videoMessage = PROOF_FAILED,
+                            )
+                        }
                         return@launch
                     }
                     videoProofItemId.value = proofOutboxId
@@ -323,7 +458,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     observeProofItem(ProofSlot.FEED_VIDEO, proofOutboxId)
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,
-                        mapOf(AnalyticsEvents.Params.KIND to "feed_video"),
+                        distributionEventProps(
+                            ProofSlot.FEED_VIDEO,
+                            ACTION_CAPTURED,
+                            mapOf(PARAM_PROOF_ID to result.value.id, PARAM_OUTBOX_ITEM_ID to proofOutboxId),
+                        ),
                     )
                     _state.update {
                         it.copy(
@@ -342,7 +481,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed distribution video enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
-                        mapOf(AnalyticsEvents.Params.REASON to result.message),
+                        distributionEventProps(ProofSlot.FEED_VIDEO, ACTION_CAPTURE_FAILED, mapOf(AnalyticsEvents.Params.REASON to result.message)),
                     )
                     _state.update {
                         it.copy(
@@ -362,7 +501,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         if (replacing) trackReuploadTapped(ProofSlot.WATER_VIDEO)
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_CAPTURE_TAPPED,
-            mapOf(AnalyticsEvents.Params.KIND to "water_video"),
+            distributionEventProps(ProofSlot.WATER_VIDEO, ACTION_RECORD_PROOF),
         )
         _state.update {
             it.copy(
@@ -373,34 +512,35 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
+            var captureThrew = false
             val captured = try {
                 proofCaptureSource.captureVideo(waterVideoContext())
             } catch (error: Exception) {
+                captureThrew = true
                 crashReporter.recordException(error, "feed distribution water video capture failed")
+                trackCaptureFailure("water_video", "camera_exception")
                 null
             }
             if (captured == null) {
-                _state.update { it.copy(isCapturingWaterVideo = false) }
-                return@launch
-            }
-            // The old row is discarded only ONCE NEW MEDIA IS IN HAND. Discarding before the camera
-            // ran meant a cancelled capture, a failed camera or a black preview deleted a good proof
-            // and left the slot empty -- the "proof disappeared" loop again. The camera is the step
-            // that fails; nothing is destroyed until it has succeeded.
-            if (replacing && !discardExistingProof(ProofSlot.WATER_VIDEO)) {
+                if (!captureThrew) trackCaptureFailure("water_video", "camera_returned_null")
                 _state.update {
                     it.copy(
                         isCapturingWaterVideo = false,
-                        waterVideoStatus = FeedDistributionProofStatus.FAILED,
-                        waterVideoMessage = PROOF_FAILED,
+                        waterVideoStatus = if (replacing) it.waterVideoStatus else FeedDistributionProofStatus.FAILED,
+                        waterVideoMessage = if (replacing) it.waterVideoMessage else PROOF_FAILED,
                     )
                 }
                 return@launch
             }
+            // Build the evidence slot for re-capture. captureReplacingLatest ensures
+            // the old row is only removed after the new capture succeeds (Manohar ordering).
+            val slot = EvidenceSlot(
+                identity = buildFeedEvidenceSlotIdentity("feed-dist", shedId, partitionLabel, sessionNo, workflow, targetDate),
+                fieldKey = FIELD_FEED_DISTRIBUTION_WATER_VIDEO,
+            )
             when (
-                val result = proofCaptureRepository.capture(
-                    taskId = groupKey,
-                    fieldKey = FIELD_FEED_DISTRIBUTION_WATER_VIDEO,
+                val result = proofCaptureRepository.captureReplacingLatest(
+                    slot = slot,
                     subject = ProofSubject.SHED,
                     subjectId = shedId,
                     localUri = captured.localUri,
@@ -413,13 +553,20 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     capturedByPrincipalId = null,
                     proofPolicy = feedShedProofPolicy(captured.captureSource),
                     awaitUploadEnqueue = true,
-                    uploadGroupKey = groupKey,
+                    uploadGroupKey = proofUploadGroupKey(ProofSlot.WATER_VIDEO),
                 )
             ) {
                 is AppResult.Ok -> {
                     val proofOutboxId = result.value.outboxItemId
                     if (proofOutboxId.isNullOrBlank()) {
-                        _state.update { it.copy(isCapturingWaterVideo = false, waterVideoMessage = PROOF_FAILED) }
+                        trackCaptureFailure("water_video", "missing_upload_outbox")
+                        _state.update {
+                            it.copy(
+                                isCapturingWaterVideo = false,
+                                waterVideoStatus = FeedDistributionProofStatus.FAILED,
+                                waterVideoMessage = PROOF_FAILED,
+                            )
+                        }
                         return@launch
                     }
                     waterVideoProofItemId.value = proofOutboxId
@@ -427,7 +574,11 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     observeProofItem(ProofSlot.WATER_VIDEO, proofOutboxId)
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_PROOF_CAPTURED,
-                        mapOf(AnalyticsEvents.Params.KIND to "water_video"),
+                        distributionEventProps(
+                            ProofSlot.WATER_VIDEO,
+                            ACTION_CAPTURED,
+                            mapOf(PARAM_PROOF_ID to result.value.id, PARAM_OUTBOX_ITEM_ID to proofOutboxId),
+                        ),
                     )
                     _state.update {
                         it.copy(
@@ -445,7 +596,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed distribution water video enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
-                        mapOf(AnalyticsEvents.Params.REASON to result.message),
+                        distributionEventProps(ProofSlot.WATER_VIDEO, ACTION_CAPTURE_FAILED, mapOf(AnalyticsEvents.Params.REASON to result.message)),
                     )
                     _state.update {
                         it.copy(
@@ -465,19 +616,34 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         val feedWeightPhotoItem = feedWeightPhotoProofItemId.value
         val videoItem = videoProofItemId.value
         val waterVideoItem = waterVideoProofItemId.value
+        // A slot is satisfied by EITHER this phone's own upload or a teammate's server proof id. A
+        // pen-session split across three operators leaves each phone holding one of three, so
+        // demanding all three locally is what made a split pen unsubmittable at all.
+        val feedWeightRemote = feedWeightRemoteRef.value
+        val videoRemote = videoRemoteRef.value
+        val waterVideoRemote = waterVideoRemoteRef.value
         if (
             !current.submitEnabled ||
-            feedWeightPhotoItem.isNullOrBlank() ||
-            videoItem.isNullOrBlank() ||
-            waterVideoItem.isNullOrBlank()
+            (feedWeightPhotoItem.isNullOrBlank() && feedWeightRemote.isNullOrBlank()) ||
+            (videoItem.isNullOrBlank() && videoRemote.isNullOrBlank()) ||
+            (waterVideoItem.isNullOrBlank() && waterVideoRemote.isNullOrBlank())
         ) {
             analytics.track(
                 AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_BLOCKED,
-                mapOf(
+                distributionEventProps(action = ACTION_SUBMIT_BLOCKED, extra = mapOf(
                     "feed_weight_photo_status" to current.feedWeightPhotoStatus.name.lowercase(Locale.ROOT),
                     "feed_video_status" to current.videoStatus.name.lowercase(Locale.ROOT),
                     "water_video_status" to current.waterVideoStatus.name.lowercase(Locale.ROOT),
-                ),
+                )),
+            )
+            trackSubmitSources(
+                result = "blocked",
+                feedWeightItem = feedWeightPhotoItem,
+                feedWeightRemote = feedWeightRemote,
+                videoItem = videoItem,
+                videoRemote = videoRemote,
+                waterVideoItem = waterVideoItem,
+                waterVideoRemote = waterVideoRemote,
             )
             _state.update { it.copy(canComplete = false) }
             return
@@ -487,7 +653,18 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             when (
                 val result = syncRepository.enqueueFeedDistributionComplete(
                     groupKey = groupKey,
-                    idempotencyKey = feedDistributionCompleteKey(groupKey, feedWeightPhotoItem, videoItem, waterVideoItem),
+                    // Keyed on the proof SET, unchanged. Two operators submitting the same pen mint
+                    // different keys, but they name the SAME three proofs, so the backend's
+                    // shed-session natural key makes the second an idempotent no-op rather than a
+                    // double write (a DIFFERENT proof set is what raises ErrDistributionAlreadyRecorded).
+                    // Deliberately NOT re-keyed on pen identity alone: that would collide with the
+                    // earlier successful submit and swallow a legitimate rework re-submit.
+                    idempotencyKey = feedDistributionCompleteKey(
+                        groupKey,
+                        feedWeightPhotoItem ?: feedWeightRemote,
+                        videoItem ?: videoRemote,
+                        waterVideoItem ?: waterVideoRemote,
+                    ),
                     parkId = parkId,
                     shedId = shedId,
                     partitionLabel = partitionLabel,
@@ -497,12 +674,40 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     feedWeightProofOutboxItemId = feedWeightPhotoItem,
                     distributionProofOutboxItemId = videoItem,
                     waterProofOutboxItemId = waterVideoItem,
+                    feedWeightProofRef = feedWeightRemote,
+                    distributionProofRef = videoRemote,
+                    waterProofRef = waterVideoRemote,
                 )
             ) {
                 is AppResult.Ok -> {
                     outboxItemId.value = result.value
                     observeOutboxItem(result.value)
-                    analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SUBMITTED)
+                    // Optimistic offline overlay for the shared Feed Direction list: its chip reads
+                    // lifecycleStatus, and nothing here recorded the submit, so a queued
+                    analytics.track(
+                        AnalyticsEvents.FEED_DISTRIBUTION_SUBMITTED,
+                        distributionEventProps(
+                            action = ACTION_SUBMIT,
+                            extra = mapOf(
+                                PARAM_OUTBOX_ITEM_ID to result.value,
+                                PARAM_FEED_WEIGHT_PROOF_OUTBOX_ITEM_ID to feedWeightPhotoItem.orEmpty(),
+                                PARAM_FEED_VIDEO_PROOF_OUTBOX_ITEM_ID to videoItem.orEmpty(),
+                                PARAM_WATER_VIDEO_PROOF_OUTBOX_ITEM_ID to waterVideoItem.orEmpty(),
+                                PARAM_FEED_WEIGHT_PROOF_REF to feedWeightRemote.orEmpty(),
+                                PARAM_FEED_VIDEO_PROOF_REF to videoRemote.orEmpty(),
+                                PARAM_WATER_VIDEO_PROOF_REF to waterVideoRemote.orEmpty(),
+                            ),
+                        ),
+                    )
+                    trackSubmitSources(
+                        result = "submitted",
+                        feedWeightItem = feedWeightPhotoItem,
+                        feedWeightRemote = feedWeightRemote,
+                        videoItem = videoItem,
+                        videoRemote = videoRemote,
+                        waterVideoItem = waterVideoItem,
+                        waterVideoRemote = waterVideoRemote,
+                    )
                     completeEnqueueInFlight = false
                     _state.update { it.copy(canComplete = false) }
                 }
@@ -511,7 +716,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
                     result.cause?.let { crashReporter.recordException(it, "feed distribution complete enqueue failed") }
                     analytics.track(
                         AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
-                        mapOf(AnalyticsEvents.Params.REASON to result.message),
+                        distributionEventProps(action = ACTION_SUBMIT_FAILED, extra = mapOf(AnalyticsEvents.Params.REASON to result.message)),
                     )
                     _state.update {
                         it.copy(result = FeedDistributionResultUi(FeedDistributionStatus.FAILED, result.message), canComplete = true)
@@ -521,10 +726,69 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         }
     }
 
+    private fun slotSourceLabel(localItem: String?, remoteRef: String?): String = when {
+        !localItem.isNullOrBlank() -> "local_outbox"
+        !remoteRef.isNullOrBlank() -> "server_ref"
+        else -> "missing"
+    }
+
+    /**
+     * Keep required proof uploads and the final completion in one FIFO group. A completion outbox
+     * row resolves proof refs by local outbox id; if it runs while a proof is merely pending, the
+     * sync engine treats that as a normal retryable failure and can burn through completion attempts
+     * before the video upload eventually succeeds.
+     */
+    private fun proofUploadGroupKey(slot: ProofSlot): String = groupKey
+
+    private fun trackSubmitSources(
+        result: String,
+        feedWeightItem: String?,
+        feedWeightRemote: String?,
+        videoItem: String?,
+        videoRemote: String?,
+        waterVideoItem: String?,
+        waterVideoRemote: String?,
+    ) {
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_SUBMIT_SOURCES,
+            mapOf(
+                AnalyticsEvents.Params.SOURCE to SCREEN_FEED_DISTRIBUTION_DETAIL,
+                AnalyticsEvents.Params.KIND to KIND_DISTRIBUTION,
+                PARAM_ACTION to "submit_sources",
+                AnalyticsEvents.Params.SHED_ID to shedId,
+                PARAM_SHED_LABEL to shedLabel,
+                PARAM_PARK_LABEL to parkLabel,
+                PARAM_SESSION_NO to sessionNo.toString(),
+                PARAM_SESSION_LABEL to sessionLabel,
+                PARAM_WORKFLOW to workflow,
+                PARAM_PARTITION_LABEL to partitionLabel,
+                PARAM_GROUP_KEY to groupKey,
+                AnalyticsEvents.Params.FEED_WEIGHT_SOURCE to slotSourceLabel(feedWeightItem, feedWeightRemote),
+                AnalyticsEvents.Params.FEED_VIDEO_SOURCE to slotSourceLabel(videoItem, videoRemote),
+                AnalyticsEvents.Params.WATER_VIDEO_SOURCE to slotSourceLabel(waterVideoItem, waterVideoRemote),
+                PARAM_FEED_WEIGHT_PROOF_OUTBOX_ITEM_ID to feedWeightItem.orEmpty(),
+                PARAM_FEED_VIDEO_PROOF_OUTBOX_ITEM_ID to videoItem.orEmpty(),
+                PARAM_WATER_VIDEO_PROOF_OUTBOX_ITEM_ID to waterVideoItem.orEmpty(),
+                PARAM_FEED_WEIGHT_PROOF_REF to feedWeightRemote.orEmpty(),
+                PARAM_FEED_VIDEO_PROOF_REF to videoRemote.orEmpty(),
+                PARAM_WATER_VIDEO_PROOF_REF to waterVideoRemote.orEmpty(),
+                AnalyticsEvents.Params.RESULT to result,
+            ),
+        )
+    }
+
     private fun syncNow() {
-        analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SYNC_TAPPED)
+        analytics.track(AnalyticsEvents.FEED_DISTRIBUTION_SYNC_TAPPED, distributionEventProps(action = ACTION_REFRESH))
         viewModelScope.launch {
             syncRepository.triggerDrain()
+            // Manual sync must also re-fetch teammate/server proof slots: another operator may
+            // have uploaded the missing captures while this screen is open, and draining the
+            // local outbox alone leaves the slot display stale until back/reopen.
+            refreshTeammateCaptures(source = "sync_tap")
+            // And re-check the session's lifecycle status directly from the server, so a manual
+            // Sync tap gets the same "did a teammate already submit this" answer the periodic poll
+            // provides, without waiting for the next tick.
+            pollServerStatusOnce(source = "sync_tap")
         }
     }
 
@@ -615,6 +879,295 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Learns which slots ANOTHER operator already recorded for this pen-session.
+     *
+     * Three operators may split a pen-session's three proofs -- one shoots the weight photo, one the
+     * feed video, one the water video (maintainer decision 2026-08-14). Without this read a proof was
+     * visible only on the phone that shot it, so the others saw an empty form AND no phone held all
+     * three references, which made the pen unsubmittable.
+     *
+     * Best effort by design: a failure leaves every remote ref null and the screen behaves exactly as
+     * it did before this read existed. A slot this phone recorded ITSELF always wins -- local capture
+     * state is never overwritten by the shared read.
+     */
+    /** Single-flight: the internal retry ladder can run ~17s, and the 30s poll re-invokes this —
+     *  overlapping runs would stack retries against the same slots for no benefit. */
+    private var teammateRefreshInFlight = false
+
+    private fun refreshTeammateCaptures(source: String) {
+        if (shedId.isBlank() || workflow.isBlank() || targetDate.isBlank() || sessionNo < 1) return
+        if (teammateRefreshInFlight) return
+        teammateRefreshInFlight = true
+        viewModelScope.launch {
+            try {
+            // A failed read (null) and an empty read are different answers. Empty is final: the
+            // server confirmed no teammate proof exists. Null means offline/timeout/5xx — retry,
+            // because concluding "slot free" from a network blip leaves this phone stale even
+            // after back-and-reenter (the blip usually outlives one screen entry on farm WiFi).
+            val query = FeedPenSessionCaptureQuery(
+                parkId = parkId,
+                shedId = shedId,
+                // The PEN. Without it the server answers for the shed and would claim a sibling
+                // pen's work as this one's.
+                partitionLabel = partitionLabel,
+                sessionNo = sessionNo,
+                targetDate = targetDate,
+                workflow = workflow,
+            )
+            var captures = feedRepository.penSessionCaptures(query)
+            var retryCount = 0
+            for (delayMs in TEAMMATE_CAPTURE_RETRY_DELAYS_MS) {
+                if (captures != null) break
+                delay(delayMs)
+                retryCount += 1
+                captures = feedRepository.penSessionCaptures(query)
+            }
+            // The read-only gate and the slots arrive in ONE answer — apply the authoritative
+            // session status FIRST so a submitted session locks at open, before any slot/capture
+            // interaction. A null status (no completion row / older server) changes nothing.
+            captures?.sessionStatus?.let { applyLiveStatus(it, source) }
+            val slots = captures?.slots
+            if (slots == null) {
+                trackTeammateCapturesRead(
+                    result = if (retryCount >= TEAMMATE_CAPTURE_RETRY_DELAYS_MS.size) "retry_exhausted" else "failed",
+                    slotMask = "none",
+                    retryCount = retryCount,
+                    source = source,
+                )
+                return@launch
+            }
+            if (slots.isEmpty()) {
+                trackTeammateCapturesRead(result = "success_empty", slotMask = "none", retryCount = retryCount, source = source)
+                return@launch
+            }
+            var sawWeight = false
+            var sawFeed = false
+            var sawWater = false
+            slots.forEach { slot ->
+                when (slot.fieldKey) {
+                    FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO -> {
+                        sawWeight = true
+                        adoptTeammateCapture(ProofSlot.FEED_WEIGHT_PHOTO, feedWeightRemoteRef, slot.proofRef, slot.capturedByName, slot.capturedAt)
+                    }
+                    FIELD_FEED_DISTRIBUTION_VIDEO -> {
+                        sawFeed = true
+                        adoptTeammateCapture(ProofSlot.FEED_VIDEO, videoRemoteRef, slot.proofRef, slot.capturedByName, slot.capturedAt)
+                    }
+                    FIELD_FEED_DISTRIBUTION_WATER_VIDEO -> {
+                        sawWater = true
+                        adoptTeammateCapture(ProofSlot.WATER_VIDEO, waterVideoRemoteRef, slot.proofRef, slot.capturedByName, slot.capturedAt)
+                    }
+                }
+            }
+            trackTeammateCapturesRead(
+                result = "success_slots",
+                slotMask = slotMaskLabel(sawWeight, sawFeed, sawWater),
+                retryCount = retryCount,
+                source = source,
+            )
+            recomputeCanComplete()
+            } finally {
+                teammateRefreshInFlight = false
+            }
+        }
+    }
+
+    private fun slotMaskLabel(weight: Boolean, feed: Boolean, water: Boolean): String = when {
+        weight && feed && water -> "all"
+        weight && feed -> "weight_feed"
+        weight && water -> "weight_water"
+        feed && water -> "feed_water"
+        weight -> "weight"
+        feed -> "feed"
+        water -> "water"
+        else -> "none"
+    }
+
+    private fun trackTeammateCapturesRead(result: String, slotMask: String, retryCount: Int, source: String) {
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_CAPTURES_READ,
+            mapOf(
+                AnalyticsEvents.Params.RESULT to result,
+                AnalyticsEvents.Params.SLOT_MASK to slotMask,
+                AnalyticsEvents.Params.RETRY_COUNT to retryCount.coerceAtMost(TEAMMATE_CAPTURE_RETRY_DELAYS_MS.size).toString(),
+                AnalyticsEvents.Params.SOURCE to source,
+            ),
+        )
+    }
+
+    /**
+     * Marks a slot satisfied by a proof recorded on another phone.
+     *
+     * Skipped entirely when this phone holds its OWN proof for the slot: the operator's own capture
+     * is the one they can re-record, and replacing it with a teammate's reference would silently
+     * discard their work. The status is SYNCED because the proof is already durable server-side --
+     * that is exactly what makes it submittable.
+     *
+     * Fetches the remote preview URL so teammates' proofs render a thumbnail like local captures.
+     * When a teammate re-captures a slot, the newer proofRef arrives on the next read; this
+     * function overwrites the previous ref (re-capture detection) unless THIS phone holds its
+     * own proof for that slot.
+     *
+     * @param capturedByName The display name of the operator who captured this proof.
+     *        Used to show "Captured by <name> · <time>" in the UI. May be blank.
+     * @param capturedAtIso ISO 8601 timestamp when the proof was captured (e.g. "2026-08-15T10:30:00Z").
+     */
+    private fun adoptTeammateCapture(slot: ProofSlot, remoteRef: DraftOutboxItemId, proofRef: String, capturedByName: String = "", capturedAtIso: String = "") {
+        if (proofRef.isBlank()) return
+        val locallyCaptured = when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofItemId.value != null
+            ProofSlot.FEED_VIDEO -> videoProofItemId.value != null
+            ProofSlot.WATER_VIDEO -> waterVideoProofItemId.value != null
+        }
+        // OVERWRITE check: a teammate may re-capture a slot. Only local captures resist overwrite.
+        val wasAlreadyAdopted = remoteRef.value != null
+        val isDifferent = remoteRef.value != proofRef
+        if (locallyCaptured) return
+        val previewUrlMissing = when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> _state.value.feedWeightPhotoRemoteUrl == null
+            ProofSlot.FEED_VIDEO -> _state.value.videoRemoteUrl == null
+            ProofSlot.WATER_VIDEO -> _state.value.waterVideoRemoteUrl == null
+        }
+        // Same-ref repeats are only a no-op when nothing is left to do; if the preview URL fetch
+        // failed earlier, a repeat read is exactly the retry opportunity (a failed fetch must not
+        // permanently strand the slot without its thumbnail).
+        if (wasAlreadyAdopted && !isDifferent && !previewUrlMissing) return
+        // Accept the proof ref (new or updated) and flip the slot state SYNCHRONOUSLY — adoption
+        // must never depend on the preview-URL fetch succeeding (offline/timeout would otherwise
+        // leave the slot stuck un-adopted while the ref was already recorded).
+        remoteRef.value = proofRef
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_TEAMMATE_PROOF_ADOPTED,
+            mapOf(
+                AnalyticsEvents.Params.KIND to slot.analyticsKind(),
+                AnalyticsEvents.Params.SOURCE to "server_teammate_ref",
+                AnalyticsEvents.Params.LOCAL_SLOT_STATE to "empty",
+            ),
+        )
+
+        // Format the message: "Captured by <name> · <formatted time>" or fallback to generic message.
+        val message = buildTeammateProofMessage(capturedByName, capturedAtIso)
+
+        _state.update {
+            when (slot) {
+                ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(
+                    feedWeightPhotoCaptured = true,
+                    feedWeightPhotoStatus = FeedDistributionProofStatus.SYNCED,
+                    feedWeightPhotoMessage = message,
+                )
+                ProofSlot.FEED_VIDEO -> it.copy(
+                    videoCaptured = true,
+                    videoStatus = FeedDistributionProofStatus.SYNCED,
+                    videoMessage = message,
+                )
+                ProofSlot.WATER_VIDEO -> it.copy(
+                    waterVideoCaptured = true,
+                    waterVideoStatus = FeedDistributionProofStatus.SYNCED,
+                    waterVideoMessage = message,
+                )
+            }
+        }
+        // Preview URL is an ENRICHMENT: fetched async, best effort, re-attempted on the next
+        // captures read (open/Sync/30s poll) via previewUrlMissing above.
+        viewModelScope.launch {
+            val url = fetchProofPreviewUrl(proofRef) ?: return@launch
+            _state.update {
+                when (slot) {
+                    ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = url)
+                    ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = url)
+                    ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = url)
+                }
+            }
+        }
+    }
+
+    /**
+     * Builds the message to display when a teammate's proof is adopted.
+     * Format: "Captured by <name> · <formatted time>" when name and time are available,
+     * fallback to "Captured by <name>" with no time, or generic message if name is missing.
+     */
+    private fun buildTeammateProofMessage(capturedByName: String, capturedAtIso: String): String {
+        if (capturedByName.isBlank()) return PROOF_RECORDED_BY_TEAMMATE
+
+        val formattedTime = formatCaptureTime(capturedAtIso)
+        return if (formattedTime.isNotBlank()) {
+            "Captured by $capturedByName · $formattedTime"
+        } else {
+            "Captured by $capturedByName"
+        }
+    }
+
+    /**
+     * Formats an ISO 8601 timestamp (e.g. "2026-08-15T10:30:00Z") to device-local time.
+     * Format: "h:mm a" for today (e.g. "10:30 AM"), or "MMM d · h:mm a" for other days (e.g. "Aug 14 · 10:30 AM").
+     * Returns empty string if parsing or formatting fails.
+     */
+    private fun formatCaptureTime(capturedAtIso: String): String {
+        return try {
+            if (capturedAtIso.isBlank()) return ""
+            val instant = Instant.parse(capturedAtIso)
+            val deviceZone = ZoneId.systemDefault()
+            val localDateTime = instant.atZone(deviceZone).toLocalDateTime()
+            val localDate = localDateTime.toLocalDate()
+
+            if (localDate == LocalDate.now(deviceZone)) {
+                // Today: h:mm a (e.g. "10:30 AM")
+                DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
+                    .format(localDateTime)
+            } else {
+                // Other days: MMM d · h:mm a (e.g. "Aug 14 · 10:30 AM")
+                val dateFormat = DateTimeFormatter.ofPattern("MMM d", Locale.getDefault())
+                val timeFormat = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
+                "${dateFormat.format(localDate)} · ${timeFormat.format(localDateTime)}"
+            }
+        } catch (e: Exception) {
+            "" // Non-fatal: return empty string on parse failure
+        }
+    }
+
+    /**
+     * Fetches the signed download URL for a proof so its preview can be rendered.
+     * Best effort: a failure returns null (no thumbnail yet; retried on the next captures read).
+     */
+    private suspend fun fetchProofPreviewUrl(proofId: String): String? {
+        if (proofId.isBlank()) return null
+        return feedRepository.fetchProofDownloadUrl(proofId)
+    }
+
+    private fun refreshTeammatePreviewUrl(slot: ProofSlot) {
+        val proofRef = when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightRemoteRef.value
+            ProofSlot.FEED_VIDEO -> videoRemoteRef.value
+            ProofSlot.WATER_VIDEO -> waterVideoRemoteRef.value
+        } ?: return
+        viewModelScope.launch {
+            _state.update {
+                when (slot) {
+                    ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = null)
+                    ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = null)
+                    ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = null)
+                }
+            }
+            val url = fetchProofPreviewUrl(proofRef) ?: return@launch
+            _state.update {
+                when (slot) {
+                    ProofSlot.FEED_WEIGHT_PHOTO -> it.copy(feedWeightPhotoRemoteUrl = url)
+                    ProofSlot.FEED_VIDEO -> it.copy(videoRemoteUrl = url)
+                    ProofSlot.WATER_VIDEO -> it.copy(waterVideoRemoteUrl = url)
+                }
+            }
+        }
+    }
+
+    private fun clearProofRowId(slot: ProofSlot) {
+        when (slot) {
+            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofRowId.value = null
+            ProofSlot.FEED_VIDEO -> videoProofRowId.value = null
+            ProofSlot.WATER_VIDEO -> waterVideoProofRowId.value = null
+        }
+    }
+
     private fun observeDurableProofs() {
         viewModelScope.launch {
             // No partitionLabel: [groupKey] ALREADY carries the pen (feedCaptureGroupKey embeds
@@ -684,14 +1237,6 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         }
     }
 
-    private fun clearProofRowId(slot: ProofSlot) {
-        when (slot) {
-            ProofSlot.FEED_WEIGHT_PHOTO -> feedWeightPhotoProofRowId.value = null
-            ProofSlot.FEED_VIDEO -> videoProofRowId.value = null
-            ProofSlot.WATER_VIDEO -> waterVideoProofRowId.value = null
-        }
-    }
-
     private fun updateProofStatus(slot: ProofSlot, item: SyncQueueItem) {
         val proofStatus = when (item.status) {
             SyncItemStatus.QUEUED -> FeedDistributionProofStatus.QUEUED
@@ -731,10 +1276,24 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         if (proofStatus == FeedDistributionProofStatus.SYNCED && syncedProofAnalytics.add(slot)) {
             analytics.track(
                 AnalyticsEvents.FEED_DISTRIBUTION_PROOF_UPLOAD_SYNCED,
-                mapOf(AnalyticsEvents.Params.KIND to slot.analyticsKind()),
+                distributionEventProps(slot, ACTION_UPLOAD_SYNCED),
             )
         }
         recomputeCanComplete()
+    }
+
+    private fun trackCaptureFailure(kind: String, reason: String) {
+        analytics.track(
+            AnalyticsEvents.FEED_DISTRIBUTION_FAILURE,
+            distributionEventProps(
+                kind,
+                ACTION_CAPTURE_FAILED,
+                mapOf(
+                    AnalyticsEvents.Params.KIND to kind,
+                    AnalyticsEvents.Params.REASON to reason,
+                ),
+            ),
+        )
     }
 
     private fun List<ProofCaptureRow>.latestFor(fieldKey: String): ProofCaptureRow? =
@@ -744,7 +1303,7 @@ class FeedDistributionCompleteViewModel @Inject constructor(
     private fun trackReuploadTapped(slot: ProofSlot) {
         analytics.track(
             AnalyticsEvents.FEED_DISTRIBUTION_PROOF_REUPLOAD_TAPPED,
-            mapOf(AnalyticsEvents.Params.KIND to slot.analyticsKind()),
+            distributionEventProps(slot, ACTION_RE_RECORD_PROOF),
         )
     }
 
@@ -771,13 +1330,21 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         title = "Record water video",
     )
 
+    /**
+     * The submit key, derived from the pen-session plus the identity of each proof in the set.
+     *
+     * Each slot contributes whichever reference this phone holds: its own outbox id, or the SERVER
+     * proof id of a proof a teammate recorded. Callers have already established every slot has one,
+     * so the nullable parameters are a type accommodation, not an optional set.
+     */
     private fun feedDistributionCompleteKey(
         groupKey: String,
-        feedWeightPhotoItem: String,
-        videoItem: String,
-        waterVideoItem: String,
+        feedWeightPhotoItem: String?,
+        videoItem: String?,
+        waterVideoItem: String?,
     ): String {
-        val canonical = listOf(groupKey, feedWeightPhotoItem, videoItem, waterVideoItem).joinToString("|")
+        val canonical = listOf(groupKey, feedWeightPhotoItem.orEmpty(), videoItem.orEmpty(), waterVideoItem.orEmpty())
+            .joinToString("|")
         return "feed-distribution-complete:" + UUID.nameUUIDFromBytes(canonical.toByteArray()).toString()
     }
 
@@ -805,6 +1372,32 @@ class FeedDistributionCompleteViewModel @Inject constructor(
             ).filter { it.isNotBlank() }.joinToString(" . "),
         )
 
+    private fun distributionEventProps(
+        slot: ProofSlot? = null,
+        action: String,
+        extra: Map<String, String> = emptyMap(),
+    ): Map<String, String> = buildMap {
+        put(AnalyticsEvents.Params.SOURCE, SCREEN_FEED_DISTRIBUTION_DETAIL)
+        put(AnalyticsEvents.Params.KIND, slot?.analyticsKind() ?: KIND_DISTRIBUTION)
+        put(PARAM_ACTION, action)
+        put(AnalyticsEvents.Params.SHED_ID, shedId)
+        put(PARAM_SHED_LABEL, shedLabel)
+        put(PARAM_PARK_LABEL, parkLabel)
+        put(PARAM_SESSION_NO, sessionNo.toString())
+        put(PARAM_SESSION_LABEL, sessionLabel)
+        put(PARAM_WORKFLOW, workflow)
+        put(PARAM_PARTITION_LABEL, partitionLabel)
+        put(PARAM_GROUP_KEY, groupKey)
+        slot?.fieldKey()?.let { put(AnalyticsEvents.Params.FIELD, it) }
+        putAll(extra)
+    }
+
+    private fun distributionEventProps(
+        kind: String,
+        action: String,
+        extra: Map<String, String> = emptyMap(),
+    ): Map<String, String> = distributionEventProps(action = action, extra = extra + (AnalyticsEvents.Params.KIND to kind))
+
     private fun sg.mesha.goatos.feature.counts.CountsWriteStatus.toDistributionStatus(): FeedDistributionStatus = when (this) {
         sg.mesha.goatos.feature.counts.CountsWriteStatus.SYNCED -> FeedDistributionStatus.SYNCED
         sg.mesha.goatos.feature.counts.CountsWriteStatus.FAILED -> FeedDistributionStatus.FAILED
@@ -823,6 +1416,16 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         const val ARG_PARTITION_LABEL = "partition_label"
         const val ARG_LIFECYCLE_STATUS = "lifecycle_status"
 
+        /** Retry cadence for the teammate-capture read; a farm-WiFi blip usually outlives one attempt. */
+        private val TEAMMATE_CAPTURE_RETRY_DELAYS_MS = longArrayOf(2_000L, 5_000L, 10_000L)
+
+        /** How often [startServerStatusPolling] re-checks this session's lifecycle status directly
+         *  from the server while the screen stays open. */
+        private const val SERVER_STATUS_POLL_INTERVAL_MS = 30_000L
+
+        /** Bound for [startServerStatusPolling] — see its kdoc for why this cannot be unbounded. */
+        private const val MAX_SERVER_STATUS_POLLS = 2_880
+
         private const val KEY_FEED_WEIGHT_PHOTO_IDEMPOTENCY = "feedDistribution.feedWeightPhotoKey"
         private const val KEY_VIDEO_IDEMPOTENCY = "feedDistribution.videoKey"
         private const val KEY_WATER_VIDEO_IDEMPOTENCY = "feedDistribution.waterVideoKey"
@@ -833,15 +1436,47 @@ class FeedDistributionCompleteViewModel @Inject constructor(
         private const val KEY_FEED_WEIGHT_PHOTO_PROOF_ROW_ID = "feedDistribution.feedWeightPhotoProofRowId"
         private const val KEY_VIDEO_PROOF_ROW_ID = "feedDistribution.videoProofRowId"
         private const val KEY_WATER_VIDEO_PROOF_ROW_ID = "feedDistribution.waterVideoProofRowId"
+        private const val KEY_FEED_WEIGHT_REMOTE_REF = "feedDistribution.feedWeightRemoteRef"
+        private const val KEY_VIDEO_REMOTE_REF = "feedDistribution.videoRemoteRef"
+        private const val KEY_WATER_VIDEO_REMOTE_REF = "feedDistribution.waterVideoRemoteRef"
         private const val FIELD_FEED_DISTRIBUTION_FEED_WEIGHT_PHOTO = "feed_distribution_feed_weight_photo"
         private const val FIELD_FEED_DISTRIBUTION_VIDEO = "feed_distribution_video"
         private const val FIELD_FEED_DISTRIBUTION_WATER_VIDEO = "feed_distribution_water_video"
+        private const val KIND_DISTRIBUTION = "distribution"
+        private const val SCREEN_FEED_DISTRIBUTION_DETAIL = "feed_distribution_complete"
+        private const val ACTION_DETAIL_OPENED = "detail_opened"
+        private const val ACTION_RECORD_PROOF = "record_proof"
+        private const val ACTION_RE_RECORD_PROOF = "re_record_proof"
+        private const val ACTION_CAPTURED = "captured"
+        private const val ACTION_CAPTURE_FAILED = "capture_failed"
+        private const val ACTION_UPLOAD_SYNCED = "upload_synced"
+        private const val ACTION_REFRESH = "refresh"
+        private const val ACTION_SUBMIT = "submit"
+        private const val ACTION_SUBMIT_BLOCKED = "submit_blocked"
+        private const val ACTION_SUBMIT_FAILED = "submit_failed"
+        private const val PARAM_ACTION = "action"
+        private const val PARAM_SHED_LABEL = "shed_label"
+        private const val PARAM_PARK_LABEL = "park_label"
+        private const val PARAM_SESSION_NO = "session_no"
+        private const val PARAM_SESSION_LABEL = "session_label"
+        private const val PARAM_WORKFLOW = "workflow"
+        private const val PARAM_PARTITION_LABEL = "partition_label"
+        private const val PARAM_GROUP_KEY = "group_key"
+        private const val PARAM_PROOF_ID = "proof_id"
+        private const val PARAM_OUTBOX_ITEM_ID = "outbox_item_id"
+        private const val PARAM_FEED_WEIGHT_PROOF_OUTBOX_ITEM_ID = "feed_weight_proof_outbox_item_id"
+        private const val PARAM_FEED_VIDEO_PROOF_OUTBOX_ITEM_ID = "feed_video_proof_outbox_item_id"
+        private const val PARAM_WATER_VIDEO_PROOF_OUTBOX_ITEM_ID = "water_video_proof_outbox_item_id"
+        private const val PARAM_FEED_WEIGHT_PROOF_REF = "feed_weight_proof_ref"
+        private const val PARAM_FEED_VIDEO_PROOF_REF = "feed_video_proof_ref"
+        private const val PARAM_WATER_VIDEO_PROOF_REF = "water_video_proof_ref"
         private const val QUEUED_MESSAGE = "Sent for verification. A verifier will review the three proofs."
         private const val SYNCED_MESSAGE = "Sent. Waiting for verifier approval before this feeding is counted."
         private const val VIDEO_QUEUED = "Feed video saved on this phone. It will upload automatically."
         private const val PROOF_QUEUED = "Proof saved on this phone. It will upload automatically."
         private const val PROOF_UPLOADING = "Proof upload is in progress."
         private const val PROOF_SYNCED = "Proof is ready."
+        private const val PROOF_RECORDED_BY_TEAMMATE = "Already recorded by another operator."
         private const val PROOF_FAILED = "Couldn't save that proof. Please capture it again."
     }
 
@@ -851,6 +1486,12 @@ private fun ProofSlot.analyticsKind(): String = when (this) {
     ProofSlot.FEED_WEIGHT_PHOTO -> "feed_weight_photo"
     ProofSlot.FEED_VIDEO -> "feed_video"
     ProofSlot.WATER_VIDEO -> "water_video"
+}
+
+private fun ProofSlot.fieldKey(): String = when (this) {
+    ProofSlot.FEED_WEIGHT_PHOTO -> "feed_distribution_feed_weight_photo"
+    ProofSlot.FEED_VIDEO -> "feed_distribution_video"
+    ProofSlot.WATER_VIDEO -> "feed_distribution_water_video"
 }
 
 }

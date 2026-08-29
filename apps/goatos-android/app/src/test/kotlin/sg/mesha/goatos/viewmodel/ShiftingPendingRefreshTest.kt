@@ -58,6 +58,7 @@ class ShiftingPendingRefreshTest {
         val viewModel = ShiftingPendingViewModel(
             repo = repo,
             drafts = NoopDraftRepository(),
+            syncRepository = NoopShiftingSyncRepository(),
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
         )

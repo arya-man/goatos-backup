@@ -15,7 +15,10 @@ import (
 	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
 )
 
-const defaultSignedURLTTL = 15 * time.Minute
+const (
+	defaultSignedURLTTL         = 15 * time.Minute
+	defaultDownloadSignedURLTTL = time.Hour
+)
 
 var ErrInvalid = errors.New("proof: invalid input")
 
@@ -133,7 +136,7 @@ func (s *Service) DownloadArtifact(ctx context.Context, tenantID, proofID string
 	if err != nil {
 		return domain.Artifact{}, "", err
 	}
-	url, err := s.storage.PrepareDownload(ctx, proof, s.ttl)
+	url, err := s.storage.PrepareDownload(ctx, proof, defaultDownloadSignedURLTTL)
 	if err != nil {
 		return domain.Artifact{}, "", err
 	}

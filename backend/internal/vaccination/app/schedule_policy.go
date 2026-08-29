@@ -1,3 +1,5 @@
+// seed-fixture-guard:ignore: procurement purpose plans use the existing procured-goat purpose field
+// and add no seed input or fixture/schema column; the schedule policy only reads already-loaded data.
 package app
 
 import (
@@ -40,13 +42,24 @@ type genProcurementPolicy struct {
 	// AdultPriorVaccinationAllowed is a pointer so an EXPLICIT false is distinguishable from an
 	// omitted field (R2-03). A plain bool made active() require a positive field, so publishing only
 	// {"adult_prior_vaccination_allowed": false} left the policy "inactive" and the false was ignored.
-	AdultPriorVaccinationAllowed *bool `json:"adult_prior_vaccination_allowed"`
+	AdultPriorVaccinationAllowed *bool                                `json:"adult_prior_vaccination_allowed"`
+	PurposePlans                 map[string]genProcurementPurposePlan `json:"purpose_plans"`
+}
+
+type genProcurementPurposePlan struct {
+	FirstWave           genStringList `json:"first_wave"`
+	SecondWaveAfterDays *int32        `json:"second_wave_after_days"`
+	GoatSecondWave      genStringList `json:"goat_second_wave"`
+	SheepSecondWave     genStringList `json:"sheep_second_wave"`
 }
 
 func (p genProcurementPolicy) active() bool {
 	// An explicitly-present adult-prior flag (true OR false) makes the procurement policy active,
 	// even when every numeric field is zero -- R2-03.
-	return p.WarmupNoVaccinationDays > 0 || p.KidsNormalScheduleUntilWeeks > 0 || p.AdultPriorVaccinationAllowed != nil
+	return p.WarmupNoVaccinationDays > 0 ||
+		p.KidsNormalScheduleUntilWeeks > 0 ||
+		p.AdultPriorVaccinationAllowed != nil ||
+		len(p.PurposePlans) > 0
 }
 
 // adultPriorAllowed reports whether adult prior vaccination history may suppress/anchor adult work.
@@ -248,12 +261,32 @@ func kidFinishWeeks(proc genProcurementPolicy) int {
 	return int(kidWeeks) + 4
 }
 
+// isKidManagementStage reports whether a management_stage names a KID cohort, which is what routes
+// an animal onto the kid course rather than the adult one.
+//
+// The "K" prefix covers the milk/weaning ladder (K0-K3). The second test covers a CLINICAL KID pen
+// tag -- 'ICU-Kid', 'Quarantine kids' -- which a shifting may stamp since 000167.
+//
+// Without it those animals route ADULT, and that is a dosing error, not a pause. "ICU-Kid" upper-
+// cases to "ICU-KID", which does not start with K, so it failed this test and fell through to
+// schedulePathAdultProcurement below: a kid in ICU would be scheduled on the adult course. It bites
+// hardest exactly where this herd is weakest -- the path picker tries DOB first, so an animal with
+// no reliable DOB depends entirely on this answer.
+//
+// Being off the schedule WHILE SICK is a different mechanism and already works: the clinical defer
+// set (protocol/domain.MandatoryClinicalDeferStates) holds the animal's vaccination work off
+// health_status = 'icu'/'quarantine', and it DEFERS for recovery rather than cancelling. This
+// function only decides WHICH course the animal resumes on afterwards.
+//
+// "KID" is safe as a substring across the whole live vocabulary: K0-K3, F2-Male, F2-Female, Buck,
+// Mother, Milking, M0, Pregnant, Non-Pregnant, Warmup, ICU, ICU-Kid, ICU-Non-Pregnant, Quarantine
+// kids. Only genuine kid tags contain it -- "Milking" contains "KI" and stops there.
 func isKidManagementStage(stage string) bool {
 	stage = strings.ToUpper(strings.TrimSpace(stage))
 	if len(stage) >= 2 && strings.HasPrefix(stage, "K") {
 		return true
 	}
-	return false
+	return strings.Contains(stage, "KID")
 }
 
 // hasKidCourseHistory reports whether the goat has any accepted administration

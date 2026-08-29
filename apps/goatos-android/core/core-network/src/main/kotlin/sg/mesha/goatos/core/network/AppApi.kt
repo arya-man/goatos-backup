@@ -8,6 +8,12 @@ import sg.mesha.goatos.core.model.nav.NavModule
 import sg.mesha.goatos.core.model.nav.NavModuleStatus
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
+import sg.mesha.goatos.core.network.dto.ClockPersonDayResponseDto
+import sg.mesha.goatos.core.network.dto.ClockPresenceResponseDto
+import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
+import sg.mesha.goatos.core.network.dto.ClockPunchResponseDto
+import sg.mesha.goatos.core.network.dto.ClockStatusResponseDto
+import sg.mesha.goatos.core.network.dto.ClockEntryDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
@@ -27,7 +33,29 @@ import sg.mesha.goatos.core.network.dto.MilkFeedingPageDto
 import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedWastageCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedWastageCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementRequestDto
+import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementResponseDto
+import sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto
+import sg.mesha.goatos.core.network.dto.PcCareCapturesDto
+import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
+import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
+import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
+import sg.mesha.goatos.core.network.dto.PcCareScanRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareScanResponseDto
+import sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskPageDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskRosterDto
+import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.ToxinStepDto
+import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
+import sg.mesha.goatos.core.network.dto.ToxinTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCapturesDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
@@ -54,6 +82,7 @@ import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.ProofArtifactDto
 import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.ProofDownloadUrlResponseDto
 import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
@@ -81,8 +110,12 @@ import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
@@ -103,7 +136,6 @@ import sg.mesha.goatos.core.network.dto.WeighingPlannerParkBucketsResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationAlertPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAlertPageResponseDto
-import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
@@ -269,6 +301,10 @@ data class AppAnalyticsEventRequestDto(
     @SerialName("flavor") val flavor: String,
     @SerialName("app_version_name") val appVersionName: String,
     @SerialName("app_version_code") val appVersionCode: Int,
+    /** Client-minted operation id — the backend's idempotency key (UNIQUE per tenant); a resend
+     *  after a lost response must not double-count. Top-level, not a property, so the server can
+     *  dedupe without parsing the properties map. */
+    @SerialName("client_event_id") val clientEventId: String? = null,
 )
 
 @Serializable
@@ -517,15 +553,7 @@ interface AppApi {
         limit: Int = WEIGHING_PAGE_SIZE,
     ): WeighingLeadershipShedVideosResponseDto
 
-    /**
-     * GET /app/weighing/leadership/sheds — ONE keyset page of shed buckets across tasks, each with
-     * its own context and its first page of evidence. The gallery's own read: building this page
-     * client-side meant one HTTP call per bucket (~1,500 on a 76-shed park) on every resume.
-     */
-    suspend fun listWeighingLeadershipSheds(
-        cursor: String? = null,
-        limit: Int = WEIGHING_PAGE_SIZE,
-    ): WeighingLeadershipShedPageResponseDto
+
 
     /**
      * GET /app/weighing/alerts — the weighing module's OWN lifecycle feed: work assigned, shed
@@ -633,8 +661,7 @@ interface AppApi {
      */
     suspend fun exportWeighingCampaignCsv(campaignId: String): ByteArray
 
-    /** Leadership growth (ADG). parkId null = every park the caller may see. */
-    suspend fun getWeighingGrowth(parkId: String?, from: String?, to: String?): GrowthSummaryDto
+
 
     /** POST /admin/tasks/{task_id}/verify — leadership verify action on a record task (C35-011).
      *  Idempotent via [idempotencyKey]. The outbox drains this like submitAppTask. */
@@ -696,6 +723,11 @@ interface AppApi {
         fieldKey: String?,
         limit: Int? = 20,
     ): UploadedProofListResponseDto
+
+    /** GET /app/proofs/{proof_id}/download — fetches the signed download URL for a proof
+     *  so its media can be previewed. The URL is short-lived, so clients fetch on-demand
+     *  rather than caching. */
+    suspend fun getProofDownloadUrl(proofId: String): String
 
     /**
      * The binary-PUT + completion pass that follows a successful [registerProof]
@@ -783,6 +815,22 @@ interface AppApi {
         request: VerificationVerdictRequestDto,
     ): VerificationVerdictResponseDto
 
+    /**
+     * POST /app/weighing/observations/{observation_id}/weight-correction -- THE VERIFIER'S WEIGHT
+     * CORRECTION (maintainer decision 2026-08-17). She replaces the weight the operator typed while
+     * she watches the proof video; the corrected value REPLACES the recorded one.
+     *
+     * Weighing owns the route because the correction writes a weighing record; the verification item
+     * only tells the screen WHICH record to address. Drained through the offline-sync outbox with a
+     * stable [idempotencyKey] like every other write, so a server-committed-but-client-unrecorded
+     * replay returns the original correction instead of writing a second one.
+     */
+    suspend fun correctWeighingObservationWeight(
+        observationId: String,
+        idempotencyKey: String,
+        request: WeighingWeightCorrectionRequestDto,
+    ): WeighingWeightCorrectionResponseDto
+
     suspend fun closeVerificationItem(
         itemId: String,
         idempotencyKey: String,
@@ -800,6 +848,12 @@ interface AppApi {
         batchId: String,
         idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto
+
+    /** POST /verification/review-events -- raw verifier journey audit rows. */
+    suspend fun recordVerificationReviewEvents(
+        request: VerificationReviewEventBatchRequestDto,
+    ): VerificationReviewEventBatchResponseDto
+
     /** GET /herd-register/summary — exact scoped census counts from canonical goats. The
      *  response is a small fixed-size rollup (one row per scope grain), not a growable list,
      *  so it is fetched whole rather than paged. */
@@ -933,6 +987,7 @@ interface AppApi {
         parkId: String,
         targetDate: String,
         shedId: String? = null,
+        partitionLabel: String? = null,
         session: Int? = null,
         workflow: String? = null,
         // Optional verification-lifecycle filter: pending | pending_verification | completed.
@@ -993,6 +1048,7 @@ interface AppApi {
     ): MilkPreparationSubmissionResponseDto
 
     suspend fun getMilkPreparation(
+        preparationDate: String? = null,
         parkId: String? = null,
         limit: Int = 20,
         offset: Int = 0,
@@ -1018,6 +1074,8 @@ interface AppApi {
     suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
+        shedId: String? = null,
+        partitionLabel: String? = null,
         // Optional session filter (session_no; null = every session). Mirrors the preview.
         session: Int? = null,
         workflow: String? = null,
@@ -1026,6 +1084,212 @@ interface AppApi {
         limit: Int? = null,
         offset: Int? = null,
     ): FeedPackingWorklistPageDto
+
+    /**
+     * GET /feed-wastage/worklist — one park's per-PEN wastage worklist for one feed day
+     * (maintainer decision 2026-08-18). EXPERIMENT pens only; the grain is the PEN-DAY (no
+     * session). Same paging + whole-scope-summary contract as [getFeedPackingWorklist].
+     */
+    suspend fun getFeedWastageWorklist(
+        parkId: String,
+        targetDate: String,
+        shedId: String? = null,
+        partitionLabel: String? = null,
+        // Optional verification-lifecycle filter: pending | pending_verification | completed.
+        status: String? = null,
+        limit: Int? = null,
+        offset: Int? = null,
+    ): FeedWastageWorklistPageDto
+
+    /**
+     * POST /feed-direction/wastage/complete — the verifier-GATED feed-WASTAGE completion
+     * (maintainer decision 2026-08-18). Carries ONE MANDATORY leftover-feed video ref; flips the
+     * PEN-DAY to `pending_verification` and enqueues a verification item — NOTHING is completed
+     * until a verifier approves. A blank proof is `422 proof_required`; a pen off that day's
+     * experiment sheet is `422 not_experiment_pen`; a DIFFERENT video for a pen-day that already
+     * holds one is a `409` the caller must surface as terminal. Idempotent on [idempotencyKey].
+     */
+    suspend fun completeFeedWastage(
+        idempotencyKey: String,
+        request: FeedWastageCompleteRequestDto,
+    ): FeedWastageCompleteResponseDto
+
+    /**
+     * POST /feed-direction/wastage/{completion_id}/measurement — THE VERIFIER'S WASTAGE
+     * MEASUREMENT (maintainer decision 2026-08-18). She records the leftover weight she reads off
+     * the wastage video, in kg; ZERO IS VALID (an empty trough). The [completionId] comes from the
+     * verification item's own `measurement_correction.observation_id`; the client never composes
+     * that address itself. Drained through the offline-sync outbox with a stable value-bearing
+     * [idempotencyKey], like the weighing weight correction.
+     */
+    suspend fun recordFeedWastageMeasurement(
+        completionId: String,
+        idempotencyKey: String,
+        request: FeedWastageMeasurementRequestDto,
+    ): FeedWastageMeasurementResponseDto
+
+    /**
+     * GET /feed-direction/distribution/captures — which of ONE pen-session's proof slots are ALREADY
+     * recorded, by ANY operator, each with its SERVER proof id.
+     *
+     * Three operators may split a pen-session's three proofs. This is how a phone learns a slot it
+     * did not shoot is done, and how whoever submits names proofs they do not hold locally.
+     *
+     * [partitionLabel] is part of the IDENTITY: omitting it on a partitioned shed answers for the
+     * shed as a whole and would claim another pen's work.
+     */
+
+    /**
+     * PC Care (module pc_care, maintainer decision 2026-08-21). The worklist is the operator's
+     * ASSIGNED tasks for one category tab and one business date; the task detail carries the
+     * backend-owned `expected_slots` contract the capture screen iterates verbatim.
+     */
+	    suspend fun getPcCareWorklist(
+	        category: String,
+	        date: String,
+	        limit: Int? = null,
+	        cursor: String? = null,
+	    ): PcCareTaskPageDto
+
+    /** GET /app/pc-care/tasks — the plan/monitor flat list (CEO planner surface). */
+	    suspend fun getPcCareTasks(
+	        date: String,
+	        parkId: String? = null,
+	        category: String? = null,
+	        limit: Int? = null,
+	        cursor: String? = null,
+	    ): PcCareTaskPageDto
+
+    suspend fun getPcCareTask(taskId: String): PcCareTaskDto
+
+    /**
+     * GET /app/pc-care/tasks/{task_id}/captures — the peer-visibility poll: which animals are
+     * scanned and which slots each holds, by ANY assignee, with "Captured by X" attribution.
+     * Read-only; it is what lets several assigned phones split one task's videos.
+     */
+    suspend fun getPcCareTaskCaptures(
+        taskId: String,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): PcCareCapturesDto
+
+    /**
+     * GET /app/pc-care/tasks/{task_id}/roster — the roster_pick tap list: the active RFIDs of
+     * alive animals currently in the task's pen. Read-only; tapping one records a normal
+     * free-flow scan, so this list never gates what a scan may store.
+     */
+    suspend fun getPcCareTaskRoster(
+        taskId: String,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): PcCareTaskRosterDto
+
+    /**
+     * POST /app/pc-care/tasks/{task_id}/animals — scan one RFID into the task, VERBATIM. A tag
+     * already in the task is `409 duplicate_scan` (terminal — surface "Already scanned", never
+     * re-enqueue under a new key); a locked task is `409 task_locked`.
+     */
+    suspend fun scanPcCareAnimal(
+        taskId: String,
+        idempotencyKey: String,
+        request: PcCareScanRequestDto,
+    ): PcCareScanResponseDto
+
+    /**
+     * PUT /app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot} — attach one slot's
+     * live-camera video (server proof id from the /app/proofs pipeline) to one scanned animal.
+     */
+    suspend fun registerPcCareSlotProof(
+        taskId: String,
+        animalRowId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareSlotProofRequestDto,
+    )
+
+    suspend fun registerPcCareTaskProof(
+        taskId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareSlotProofRequestDto,
+    )
+
+    /**
+     * POST /app/pc-care/tasks/{task_id}/submit — submit the WHOLE task (any assignee). Refused
+     * until every scanned animal carries its full slot set (`422 proof_incomplete`) or while no
+     * animal is scanned (`422 no_animals`). Idempotent on [idempotencyKey].
+     */
+    suspend fun submitPcCareTask(
+        taskId: String,
+        idempotencyKey: String,
+    ): PcCareSubmitResponseDto
+
+    suspend fun getPcCarePlannerCatalog(): PcCarePlannerCatalogDto
+
+    suspend fun getPcCarePlannerParkSheds(
+        parkId: String,
+        category: String,
+        date: String,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): PcCarePlannerShedsDto
+
+    suspend fun createPcCareTask(
+        idempotencyKey: String,
+        request: PcCareCreateTaskRequestDto,
+    ): PcCareTaskDto
+
+    suspend fun cancelPcCareTask(taskId: String)
+
+    // ------------------------------------------------------------------
+    // Toxin (aflatoxin strip test, maintainer decision 2026-08-25)
+    // ------------------------------------------------------------------
+
+    /**
+     * GET /app/toxin/tasks — the tester's task list, one row per test round, keyset-paged.
+     * [filter] is a backend filter KEY (`all` | `pending` | `completed`); blank means `all`.
+     * The client never composes a status list — the backend owns what each key means.
+     */
+    suspend fun getToxinTasks(
+        filter: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): ToxinTaskPageDto
+
+    /**
+     * GET /app/toxin/tasks/{task_id} — the guided 7-step flow with LIVE server-composed step
+     * states. The phone renders [ToxinStepDto.state] verbatim and never derives gate logic from
+     * its own clock.
+     */
+    suspend fun getToxinTask(taskId: String): ToxinTaskDetailDto
+
+    /**
+     * POST /app/toxin/tasks/{task_id}/steps/{step_no}/complete — records one step's proof.
+     * `422 wait_not_elapsed` (server clock gate) and `409 step_already_done` carry backend farm
+     * copy to surface verbatim; both mean "refresh and re-render server state".
+     */
+    suspend fun completeToxinStep(
+        taskId: String,
+        stepNo: Int,
+        idempotencyKey: String,
+        request: ToxinStepCompleteRequestDto,
+    ): ToxinTaskDetailDto
+
+    /** POST /app/toxin/tasks/{task_id}/submit — step 7's strip photo + reading. */
+    suspend fun submitToxinReading(
+        taskId: String,
+        idempotencyKey: String,
+        request: ToxinSubmitRequestDto,
+    ): ToxinTaskDetailDto
+
+    suspend fun getFeedDistributionCaptures(
+        parkId: String?,
+        shedId: String,
+        partitionLabel: String?,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+    ): FeedDistributionCapturesDto
 
     /** POST /app/counts/shifting-events — an operator-reported movement between sheds. Drained
      *  through the offline-sync outbox with a stable [idempotencyKey]: the backend derives the
@@ -1175,12 +1439,48 @@ interface AppApi {
         idempotencyKey: String,
         request: HealthCompleteRequestDto,
     ): HealthCompleteResponseDto
+
     /**
-     * GET /app/weighing/weight-history — fetch weight history data for charting.
-     * [parkId]/[campaignShedId] narrow the result server-side (handler.go `GetWeightHistory`).
-     * Both null = every park/shed the caller may see, matching the unfiltered gallery view.
+     * POST /app/clock/in — the day's clock-in punch (docs/features/clock-in-out/plan.md).
+     * Drained through the offline-sync outbox with the STABLE day-scoped [idempotencyKey]
+     * (`clock:<business_date>:in`), so a server-committed-but-client-unrecorded retry replays
+     * the original entry instead of punching twice. A payload admitting a mock-provided fix or
+     * an installed mock-location app is refused 422 `mock_location_detected`; a second clock-in
+     * on the same IST business day is refused 409 `already_clocked_in`.
      */
-    suspend fun getWeightHistory(parkId: String? = null, campaignShedId: String? = null): WeightHistoryResponseDto
+    suspend fun recordClockIn(
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto
+
+    /** POST /app/clock/out — closes today's open entry; the backend stamps `worked_minutes`.
+     *  409 `not_clocked_in` / `already_clocked_out`; same mock gate as clock-in. */
+    suspend fun recordClockOut(
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto
+
+    /** GET /app/clock/status — today's state, recent days, ALL module copy, and the shell
+     *  reminder `banner_text` (empty = no banner). */
+    suspend fun getClockStatus(): ClockStatusResponseDto
+
+    /** GET /app/clock/presence — the leadership presence board: one row per ACTIVE workforce
+     *  member for the date, keyset-paginated (~20). Summary tiles are whole-filter aggregates. */
+    suspend fun listClockPresence(
+        date: String? = null,
+        parkId: String? = null,
+        designation: String? = null,
+        bucket: String? = null,
+        q: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): ClockPresenceResponseDto
+
+    /** GET /app/clock/presence/{workforce_member_id} — one person's day in full. */
+    suspend fun getClockPresencePerson(
+        workforceMemberId: String,
+        date: String? = null,
+    ): ClockPersonDayResponseDto
 }
 
 /**
@@ -1381,11 +1681,6 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         limit: Int,
     ): WeighingLeadershipShedVideosResponseDto = WeighingLeadershipShedVideosResponseDto()
 
-    override suspend fun listWeighingLeadershipSheds(
-        cursor: String?,
-        limit: Int,
-    ): WeighingLeadershipShedPageResponseDto = WeighingLeadershipShedPageResponseDto()
-
     override suspend fun listWeighingAlerts(
         cursor: String?,
         limit: Int,
@@ -1455,9 +1750,6 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun exportWeighingCampaignCsv(campaignId: String): ByteArray = ByteArray(0)
 
-    override suspend fun getWeighingGrowth(parkId: String?, from: String?, to: String?): GrowthSummaryDto =
-        GrowthSummaryDto()
-
     override suspend fun verifyAppTask(
         taskId: String,
         idempotencyKey: String,
@@ -1511,6 +1803,9 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         fieldKey: String?,
         limit: Int?,
     ): UploadedProofListResponseDto = UploadedProofListResponseDto()
+
+    override suspend fun getProofDownloadUrl(proofId: String): String =
+        "https://fake.local/proofs/$proofId/download"
 
     // Test/dev scaffolding — does not touch the filesystem or network; a proof is simply marked
     // completed under the id `registerProof` handed back, so previews/unit tests that don't care
@@ -1571,6 +1866,12 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         request: VerificationVerdictRequestDto,
     ): VerificationVerdictResponseDto = VerificationVerdictResponseDto()
 
+    override suspend fun correctWeighingObservationWeight(
+        observationId: String,
+        idempotencyKey: String,
+        request: WeighingWeightCorrectionRequestDto,
+    ): WeighingWeightCorrectionResponseDto = WeighingWeightCorrectionResponseDto()
+
     override suspend fun closeVerificationItem(
         itemId: String,
         idempotencyKey: String,
@@ -1586,6 +1887,11 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         batchId: String,
         idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto = VerificationCloseSubmissionResponseDto()
+
+    override suspend fun recordVerificationReviewEvents(
+        request: VerificationReviewEventBatchRequestDto,
+    ): VerificationReviewEventBatchResponseDto = VerificationReviewEventBatchResponseDto()
+
     override suspend fun getHerdRegisterSummary(
         lifecycleStatus: String?,
         parkId: String?,
@@ -1686,7 +1992,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         completionId = "fake-milk-preparation", status = "pending_verification", attemptNo = 1, rowVersion = 1,
     )
 
-    override suspend fun getMilkPreparation(parkId: String?, limit: Int, offset: Int): MilkPreparationPageDto =
+    override suspend fun getMilkPreparation(preparationDate: String?, parkId: String?, limit: Int, offset: Int): MilkPreparationPageDto =
         MilkPreparationPageDto()
 
     override suspend fun getMilkFeedingTasks(feedingDate: String, parkId: String?, sessionNo: Int?, limit: Int, offset: Int): MilkFeedingPageDto = MilkFeedingPageDto(feedingDate = feedingDate)
@@ -1706,6 +2012,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         parkId: String,
         targetDate: String,
         shedId: String?,
+        partitionLabel: String?,
         session: Int?,
         workflow: String?,
         status: String?,
@@ -1716,12 +2023,50 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
+        shedId: String?,
+        partitionLabel: String?,
         session: Int?,
         workflow: String?,
         status: String?,
         limit: Int?,
         offset: Int?,
     ): FeedPackingWorklistPageDto = FeedPackingWorklistPageDto(targetDate = targetDate)
+
+    override suspend fun getFeedWastageWorklist(
+        parkId: String,
+        targetDate: String,
+        shedId: String?,
+        partitionLabel: String?,
+        status: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedWastageWorklistPageDto = FeedWastageWorklistPageDto(targetDate = targetDate)
+
+    override suspend fun completeFeedWastage(
+        idempotencyKey: String,
+        request: FeedWastageCompleteRequestDto,
+    ): FeedWastageCompleteResponseDto =
+        FeedWastageCompleteResponseDto(
+            completionId = "fake-wastage-completion",
+            status = "pending_verification",
+            newlyPending = true,
+        )
+
+    override suspend fun recordFeedWastageMeasurement(
+        completionId: String,
+        idempotencyKey: String,
+        request: FeedWastageMeasurementRequestDto,
+    ): FeedWastageMeasurementResponseDto = FeedWastageMeasurementResponseDto()
+
+    // Nothing recorded by anyone else: the fake keeps the single-phone behaviour tests assert.
+    override suspend fun getFeedDistributionCaptures(
+        parkId: String?,
+        shedId: String,
+        partitionLabel: String?,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+    ): FeedDistributionCapturesDto = FeedDistributionCapturesDto()
 
     override suspend fun recordCountsShiftingEvent(
         idempotencyKey: String,
@@ -1841,14 +2186,179 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         healthSessionId = healthSessionId,
         status = "completed",
     )
-    override suspend fun getWeightHistory(parkId: String?, campaignShedId: String?): WeightHistoryResponseDto =
-        WeightHistoryResponseDto(
-            parks = emptyList(),
-            sheds = emptyList(),
-            series = emptyList(),
-            truncated = false,
-            capped_at = null,
-        )
+	    override suspend fun getPcCareWorklist(
+	        category: String,
+	        date: String,
+	        limit: Int?,
+	        cursor: String?,
+	    ): PcCareTaskPageDto = PcCareTaskPageDto()
+
+    override suspend fun getPcCareTasks(
+        date: String,
+	        parkId: String?,
+	        category: String?,
+	        limit: Int?,
+	        cursor: String?,
+	    ): PcCareTaskPageDto = PcCareTaskPageDto()
+
+    override suspend fun getPcCareTask(taskId: String): PcCareTaskDto = PcCareTaskDto(
+        taskId = taskId,
+        category = "deworming",
+        parkId = "park-1",
+        parkLabel = "CPT",
+        shedId = "shed-1",
+        shedLabel = "Castro",
+        plannedBusinessDate = "2026-08-21",
+        dueBusinessDate = "2026-08-21",
+        workState = "scheduled",
+        status = "open",
+        rowVersion = 1,
+    )
+
+    override suspend fun getPcCareTaskCaptures(
+        taskId: String,
+        cursor: String?,
+        limit: Int?,
+    ): PcCareCapturesDto = PcCareCapturesDto()
+
+    override suspend fun getPcCareTaskRoster(
+        taskId: String,
+        cursor: String?,
+        limit: Int?,
+    ): PcCareTaskRosterDto = PcCareTaskRosterDto()
+
+    override suspend fun scanPcCareAnimal(
+        taskId: String,
+        idempotencyKey: String,
+        request: PcCareScanRequestDto,
+    ): PcCareScanResponseDto = PcCareScanResponseDto(animalRowId = "row-${request.scannedIdentifier}")
+
+    override suspend fun registerPcCareSlotProof(
+        taskId: String,
+        animalRowId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareSlotProofRequestDto,
+    ) = Unit
+
+    override suspend fun registerPcCareTaskProof(
+        taskId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareSlotProofRequestDto,
+    ) = Unit
+
+    override suspend fun submitPcCareTask(
+        taskId: String,
+        idempotencyKey: String,
+    ): PcCareSubmitResponseDto = PcCareSubmitResponseDto(
+        taskId = taskId,
+        status = "pending_verification",
+        rowVersion = 2,
+    )
+
+    override suspend fun getPcCarePlannerCatalog(): PcCarePlannerCatalogDto = PcCarePlannerCatalogDto()
+
+    override suspend fun getPcCarePlannerParkSheds(
+        parkId: String,
+        category: String,
+        date: String,
+        cursor: String?,
+        limit: Int?,
+    ): PcCarePlannerShedsDto = PcCarePlannerShedsDto()
+
+    override suspend fun createPcCareTask(
+        idempotencyKey: String,
+        request: PcCareCreateTaskRequestDto,
+    ): PcCareTaskDto = PcCareTaskDto(
+        taskId = "pc-care-task-1",
+        category = request.category,
+        parkId = request.parkId,
+        parkLabel = request.parkId,
+        shedId = request.shedId,
+        shedLabel = request.shedId,
+        partitionLabel = request.partitionLabel,
+        plannedBusinessDate = request.plannedBusinessDate,
+        dueBusinessDate = request.plannedBusinessDate,
+        workState = "scheduled",
+        status = "open",
+        rowVersion = 1,
+        assigneeUserIds = request.assigneeUserIds,
+    )
+
+    override suspend fun cancelPcCareTask(taskId: String) = Unit
+
+    override suspend fun getToxinTasks(
+        filter: String?,
+        limit: Int?,
+        cursor: String?,
+    ): ToxinTaskPageDto = ToxinTaskPageDto()
+
+    override suspend fun getToxinTask(taskId: String): ToxinTaskDetailDto = ToxinTaskDetailDto(
+        taskId = taskId,
+        status = "in_progress",
+        statusChip = "Test in progress",
+        stepsTotal = 6,
+        steps = listOf(
+            ToxinStepDto(stepNo = 1, kind = "video", title = "Weigh the sample", instruction = "", state = "available"),
+        ),
+    )
+
+    override suspend fun completeToxinStep(
+        taskId: String,
+        stepNo: Int,
+        idempotencyKey: String,
+        request: ToxinStepCompleteRequestDto,
+    ): ToxinTaskDetailDto = getToxinTask(taskId)
+
+    override suspend fun submitToxinReading(
+        taskId: String,
+        idempotencyKey: String,
+        request: ToxinSubmitRequestDto,
+    ): ToxinTaskDetailDto = getToxinTask(taskId).copy(status = "pending_review", statusChip = "Sent for review")
+
+    override suspend fun recordClockIn(
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto = ClockPunchResponseDto(entry = fakeClockEntry(status = "open"))
+
+    override suspend fun recordClockOut(
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto = ClockPunchResponseDto(entry = fakeClockEntry(status = "closed"))
+
+    override suspend fun getClockStatus(): ClockStatusResponseDto = ClockStatusResponseDto(
+        businessDate = "2026-08-28",
+        state = "not_clocked_in",
+    )
+
+    override suspend fun listClockPresence(
+        date: String?,
+        parkId: String?,
+        designation: String?,
+        bucket: String?,
+        q: String?,
+        limit: Int?,
+        cursor: String?,
+    ): ClockPresenceResponseDto = ClockPresenceResponseDto(businessDate = date ?: "2026-08-28")
+
+    override suspend fun getClockPresencePerson(
+        workforceMemberId: String,
+        date: String?,
+    ): ClockPersonDayResponseDto = ClockPersonDayResponseDto(
+        personName = "Fake Person",
+        businessDate = date ?: "2026-08-28",
+    )
+
+    private fun fakeClockEntry(status: String): ClockEntryDto = ClockEntryDto(
+        clockEntryId = "fake-entry",
+        workforceMemberId = "fake-member",
+        personName = "Fake Person",
+        businessDate = "2026-08-28",
+        status = status,
+        clockInAt = "2026-08-28T08:12:00+05:30",
+        clockInLabel = "08:12",
+    )
 }
 
 /**

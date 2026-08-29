@@ -213,3 +213,32 @@ LIMIT 1;
 SELECT status, COALESCE(result_type, '')::text AS result_type, COALESCE(result_id::text, '')::text AS result_id
 FROM idempotency_keys
 WHERE idempotency_key = @idempotency_key;
+
+-- name: GetObligationRepeatCycle :one
+-- Reads one row's repeat-cycle metadata so work derived from it -- a rework row for a missed
+-- dose, say -- can inherit the same cause rather than being born with due-date identity.
+SELECT repeat_cycle_source, repeat_cycle_source_ref, repeat_cycle_anchor_obligation_id,
+       repeat_cycle_anchor_at, repeat_cycle_due_at
+FROM obligation_instances
+WHERE tenant_id = @tenant_id AND obligation_id = @obligation_id;
+
+-- name: GetOpenObligationForRepeatCycle :one
+-- Finds the open row that already holds a repeat cycle, by its CAUSE rather than its due
+-- date. A repeat's due date moves, so a sibling of the same cycle sitting on a different date
+-- is invisible to a due-date lookup -- and that sibling is precisely what the insert guard
+-- suppresses against.
+SELECT obligation_id::text, status, due_at, idempotency_key
+FROM obligation_instances
+WHERE tenant_id = @tenant_id
+  AND protocol_version_id = @protocol_version_id
+  AND rule_id = @rule_id
+  AND target_type = @target_type
+  AND target_id = @target_id
+  AND "sequence" = @sequence
+  AND status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND (
+    (repeat_cycle_source_ref IS NOT NULL AND repeat_cycle_source_ref = sqlc.narg('repeat_cycle_source_ref')::text)
+    OR repeat_cycle_source_ref IS NULL
+  )
+ORDER BY (repeat_cycle_source_ref IS NULL), due_at
+LIMIT 1;

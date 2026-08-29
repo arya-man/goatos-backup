@@ -1,3 +1,8 @@
+// seed-fixture-guard:ignore: this generator change reconciles and supersedes EXISTING obligations,
+// uses already-seeded procurement purpose data, and reads no new seed source. It adds no seed input,
+// changes no fixture column, and moves no canonical seed schema, so the fixture manifest, the
+// source-CSV validators and the seed-source date contract have nothing to record. The migrations it
+// ships beside are additive and declare their own no-seed-impact reason.
 package app
 
 import (
@@ -14,6 +19,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	oblports "github.com/vgoats/goatos/backend/internal/obligation/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
@@ -77,12 +84,31 @@ type ObligationWriter interface {
 	RealignOpenObligationForGeneration(ctx context.Context, tenantID, idempotencyKey string, dueAt time.Time, windowEnd *time.Time, occurredAt time.Time) (obldomain.ObligationRef, bool, error)
 	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, vaccineCode, shedID, parkID string, from, to time.Time) (*time.Time, error)
 	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
+	CancelOpenVaccinationObligationsForExitedGoats(ctx context.Context, tenantID, reason string, occurredAt time.Time) (int, error)
 	CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error)
+	// Bounded pre-filter for plan replacement: which of these animals still hold open work
+	// under a version that is no longer effective for them. Usually none, for one indexed read.
+	GoatsWithVaccinationObligationsOutsideVersions(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) ([]string, error)
+	CarryOverUnchangedVaccinationObligations(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) (int, error)
+	ReconcileOpenObligationForRuleIdentity(ctx context.Context, tenantID string, in obldomain.NewObligation, occurredAt time.Time) (obldomain.ObligationRef, bool, error)
+	// Finds an open row by the CAUSE it descends from, for the case where an insert was
+	// refused because another writer already created this cycle under a different key.
+	OpenObligationForRepeatCycle(ctx context.Context, tenantID, protocolVersionID, ruleID, targetType, targetID string, sequence int32, sourceRef string) (obldomain.ObligationRef, bool, error)
 	CancelOpenVaccinationObligationsForGoatVersion(ctx context.Context, tenantID, goatID, protocolVersionID, reason string, occurredAt time.Time) (int, error)
 	RecordStatusEvent(ctx context.Context, ev obldomain.NewStatusEvent) (string, bool, error)
 	// NextSuccessorSuffix computes the next free numeric successor suffix for a base idempotency key
 	// in one bounded query (R50-011), avoiding O(N) probe round trips on large collision histories.
 	NextSuccessorSuffix(ctx context.Context, tenantID, baseKey string) (int, error)
+}
+
+// ManualVaccineAnchorReader is implemented by the production obligation store.
+// seed-fixture-guard:ignore: this is generation suppression for runtime manual anchors; it changes no seed source, fixture column, SOP DSL, or HRMS import contract.
+// A manual-campaign anchor is the starting point for that animal's vaccine family:
+// once it exists, DOB/arrival/calendar base rules for the same vaccine must not
+// recreate earlier work. Repeat rules still run from accepted history after the
+// anchored dose is verified.
+type ManualVaccineAnchorReader interface {
+	ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, goatID string, vaccineCodes []string) (map[string]obldomain.ObligationRef, error)
 }
 
 // GenerationRunRecorder persists operator-visible generation status. It is optional for unit
@@ -216,9 +242,22 @@ func actionableObligationForSpacing(ref obldomain.ObligationRef) bool {
 //	                                            Same semantics as above. NO successor.
 //	"ineligible_after_recheck"                  adapter default for the per-version cancel when a
 //	                                            caller passes no reason. Ambiguous → fail closed.
+//	"protocol_version_replaced"                 generation tenant-wide scan — the version that
+//	                                            produced this work is no longer effective for the
+//	                                            animal. MINTS, for the same reason the shift-away
+//	                                            cancel does: the animal can come back into that
+//	                                            version's scope (it moves parks and returns, or a
+//	                                            park override lapses and the tenant default is
+//	                                            effective again). A fixed-due dose then recomputes
+//	                                            to the SAME idempotency key, meets its own canceled
+//	                                            row, and without a successor the animal silently
+//	                                            never receives that vaccination. Repeat cycles
+//	                                            escape that trap on their own -- their identity is
+//	                                            the cause, not the key -- but birth-age and course
+//	                                            doses do not.
 func cancelReasonMintsSuccessor(reason string) bool {
 	switch strings.TrimSpace(reason) {
-	case "ineligible_after_shift":
+	case "ineligible_after_shift", "protocol_version_replaced":
 		return true
 	default:
 		return false
@@ -326,6 +365,7 @@ type genEligibility struct {
 	Lifecycle                 genStringList `json:"lifecycle"`
 	Health                    genStringList `json:"health"`
 	Reproductive              genStringList `json:"reproductive"`
+	ProcurementPurpose        genStringList `json:"procurement_purpose"`
 	ExcludeReproductiveStates []string      `json:"exclude_reproductive_states"`
 	DeferStates               []string      `json:"defer_states"`
 	MinAgeDays                *int32        `json:"min_age_days"`
@@ -456,6 +496,9 @@ func mergeEligibility(base, override genEligibility) genEligibility {
 	if len(override.Reproductive) > 0 {
 		out.Reproductive = override.Reproductive
 	}
+	if len(override.ProcurementPurpose) > 0 {
+		out.ProcurementPurpose = override.ProcurementPurpose
+	}
 	if len(override.ExcludeReproductiveStates) > 0 {
 		out.ExcludeReproductiveStates = override.ExcludeReproductiveStates
 	}
@@ -478,6 +521,9 @@ func mergeVaccineProfile(base vaccineProfile, meta genVaccineMeta) vaccineProfil
 	out := base
 	if strings.TrimSpace(meta.Code) != "" {
 		out.Code = strings.TrimSpace(meta.Code)
+	}
+	if strings.TrimSpace(meta.Name) != "" {
+		out.Name = strings.TrimSpace(meta.Name)
 	}
 	if strings.TrimSpace(meta.Type) != "" {
 		out.Type = strings.TrimSpace(meta.Type)
@@ -533,6 +579,9 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 	if err := s.requireEvidenceReader(); err != nil {
 		return res, err
 	}
+	if _, err := s.obl.CancelOpenVaccinationObligationsForExitedGoats(ctx, tenantID, "ineligible_after_exit", asOf); err != nil {
+		return res, err
+	}
 	filter := domain.ImpactFilter{TenantID: tenantID}
 	after := ""
 	plans := make(map[string]cachedVersionPlan)
@@ -555,6 +604,17 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 			return res, err
 		}
 
+		// Plan replacement: publishing a new matrix retires the old version in the same
+		// transaction, but its already-generated obligations stay open and keep appearing on
+		// operators' lists beside the replacement plan's own work. The per-animal path
+		// superseded them; this scan -- the one that actually runs after a publish -- did not.
+		//
+		// Work already in progress is deliberately left alone: the cancel path covers
+		// scheduled, due and deferred only, so an animal being worked right now is never
+		// pulled out from under the operator by a publish.
+		if err := s.supersedeRetiredPlanWork(ctx, tenantID, activeGoats, effectiveVersionsByPark, asOf); err != nil {
+			return res, err
+		}
 		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
 		for _, g := range activeGoats {
 			for _, versionID := range effectiveVersionsByPark[generationParkCacheKey(g.ParkID)] {
@@ -596,7 +656,7 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 	if err != nil {
 		return res, err
 	}
-	for _, p := range allPlans {
+	for i, p := range allPlans {
 		p.opts = runOpts
 		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
 			if shouldAbortGeneration(err) {
@@ -604,6 +664,9 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 			}
 			recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
 			continue
+		}
+		if runOpts.heartbeat != nil && (i+1)%100 == 0 {
+			runOpts.heartbeat(ctx)
 		}
 	}
 	if res.FailedGoats > 0 {
@@ -837,7 +900,9 @@ func (s *GenerationService) generateForVersionWithRun(ctx context.Context, tenan
 		lastError = genErr.Error()
 	}
 	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=generation-run-finish-absolute-instant-storage expiry=2026-12-31
-	if err := s.runs.FinishGenerationRun(ctx, tenantID, run.RunID, res, "", lastError, time.Now().UTC()); err != nil && genErr == nil {
+	finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer finishCancel()
+	if err := s.runs.FinishGenerationRun(finishCtx, tenantID, run.RunID, res, "", lastError, time.Now().In(biztime.DefaultLocation())); err != nil && genErr == nil {
 		genErr = err
 	}
 	return run, res, genErr
@@ -905,8 +970,9 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 		safeThrough time.Time
 	}
 	type candidate struct {
-		goatKey   string
-		cohortKey string
+		goatKey     string
+		cohortKey   string
+		overrideDue time.Time
 	}
 	type cohortMember struct {
 		goatKey   string
@@ -985,9 +1051,14 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 			if hasVaccineAdministrationHistory(ruleVaccine, history) {
 				continue
 			}
+			procDue, procOK := procurementPurposePrimaryDue(plan.goat, rule, ruleVaccine, plan.policies.Procurement)
+			if !procOK {
+				continue
+			}
 			candidates = append(candidates, candidate{
-				goatKey:   campaignDueGoatKey(plan.versionID, rule.RuleID, plan.goat.GoatID),
-				cohortKey: adultCampaignCohortKey(plan.versionID, plan.goat.ParkID, ruleVaccine.Code),
+				goatKey:     campaignDueGoatKey(plan.versionID, rule.RuleID, plan.goat.GoatID),
+				cohortKey:   adultCampaignCohortKey(plan.versionID, plan.goat.ParkID, ruleVaccine.Code),
+				overrideDue: procDue,
 			})
 		}
 	}
@@ -1023,15 +1094,78 @@ func campaignDueOverrides(plans []goatGenerationPlan, asOf time.Time, vaccineHis
 	}
 	for _, c := range candidates {
 		campaignDate := campaignStart
+		if !c.overrideDue.IsZero() {
+			campaignDate = c.overrideDue
+		}
 		// Missing-history adults follow the established normal drive for this
 		// vaccine and park. They do not form an earlier offset-based micro-drive.
-		if cohortDate, found := cohortDates[c.cohortKey]; found {
+		if c.overrideDue.IsZero() {
+			if cohortDate, found := cohortDates[c.cohortKey]; found {
+				campaignDate = cohortDate
+				aligned[c.goatKey] = true
+			}
+		} else if cohortDate, found := cohortDates[c.cohortKey]; found && cohortDate.After(campaignDate) {
 			campaignDate = cohortDate
 			aligned[c.goatKey] = true
 		}
 		out[c.goatKey] = campaignDate
 	}
 	return out, aligned, nil
+}
+
+func procurementPurposePrimaryDue(g domain.EligibleGoat, rule protodomain.Rule, vaccine vaccineProfile, policy genProcurementPolicy) (time.Time, bool) {
+	purpose := strings.ToLower(strings.TrimSpace(g.ProcurementPurpose))
+	if purpose == "" || purpose == "unspecified" {
+		return time.Time{}, true
+	}
+	plan, ok := policy.PurposePlans[purpose]
+	if !ok || purpose == "non_breeding" {
+		return time.Time{}, true
+	}
+	vaccineName := procurementVaccineName(vaccine)
+	base := warmingEntryAt(g)
+	if base == nil {
+		return time.Time{}, false
+	}
+	if containsProcurementVaccine(plan.FirstWave, vaccineName) {
+		return adjustPostArrivalDue(g, protodomain.Rule{TriggerType: "post_arrival", OffsetDays: 0, DueWindowDays: rule.DueWindowDays}, policy), true
+	}
+	secondWave := plan.GoatSecondWave
+	if strings.EqualFold(strings.TrimSpace(g.Species), "sheep") {
+		secondWave = plan.SheepSecondWave
+	}
+	if containsProcurementVaccine(secondWave, vaccineName) {
+		days := int32(28)
+		if plan.SecondWaveAfterDays != nil {
+			days = *plan.SecondWaveAfterDays
+		}
+		return adjustPostArrivalDue(g, protodomain.Rule{TriggerType: "post_arrival", OffsetDays: days, DueWindowDays: rule.DueWindowDays}, policy), true
+	}
+	return time.Time{}, false
+}
+
+func procurementVaccineName(v vaccineProfile) string {
+	name := strings.TrimSpace(v.Name)
+	if name != "" {
+		return name
+	}
+	return strings.TrimSpace(v.Code)
+}
+
+func containsProcurementVaccine(values genStringList, vaccine string) bool {
+	needle := normalizeProcurementVaccine(vaccine)
+	for _, value := range values {
+		if normalizeProcurementVaccine(value) == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeProcurementVaccine(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	replacer := strings.NewReplacer(" ", "", "_", "", "+", "", "-", "")
+	return replacer.Replace(value)
 }
 
 func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, versionID string, asOf time.Time, opts generationOptions) (domain.GenerateResult, error) {
@@ -1085,12 +1219,33 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			break
 		}
 		activeGoats := activeGenerationGoats(goats)
-		if v.ScopeType == "tenant" {
-			if err := s.fillEffectiveVersionsForGoats(ctx, tenantID, activeGoats, asOf, effectiveVersionsByPark); err != nil {
-				return res, err
-			}
+		// Which versions are effective for each animal's park, resolved the same way whatever
+		// this run's own scope is.
+		//
+		// This used to run only for tenant-scoped versions, so a park-scoped run left the map
+		// empty, the supersede below saw no effective version for the park and skipped, and
+		// the previous plan's open work sat beside the new plan's for exactly the animals a
+		// park override exists to move.
+		//
+		// Resolved rather than assumed: a park can hold an override for one vaccine and take
+		// the tenant default for the rest, so seeding a single-entry map with this run's own
+		// version would retire every one of those tenant-default obligations as "no longer
+		// effective".
+		if err := s.fillEffectiveVersionsForGoats(ctx, tenantID, activeGoats, asOf, effectiveVersionsByPark); err != nil {
+			return res, err
 		}
 		effectiveVersionSets := make(map[string]map[string]struct{})
+		// Plan replacement: publishing a new matrix retires the old version in the same
+		// transaction, but its already-generated obligations stay open and keep appearing on
+		// operators' lists beside the replacement plan's own work. The per-animal path
+		// superseded them; this scan -- the one that actually runs after a publish -- did not.
+		//
+		// Work already in progress is deliberately left alone: the cancel path covers
+		// scheduled, due and deferred only, so an animal being worked right now is never
+		// pulled out from under the operator by a publish.
+		if err := s.supersedeRetiredPlanWork(ctx, tenantID, activeGoats, effectiveVersionsByPark, asOf); err != nil {
+			return res, err
+		}
 		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
 		for _, g := range activeGoats {
 			if !goatMatchesEligibility(g, elig, policies.Pregnancy, asOf) {
@@ -1143,7 +1298,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 	if err != nil {
 		return res, err
 	}
-	for _, p := range allPlans {
+	for i, p := range allPlans {
 		p.opts = runOpts
 		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
 			if shouldAbortGeneration(err) {
@@ -1151,6 +1306,9 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			}
 			recordFailedGenerationGoat(&res, failedGoats, p.goat.GoatID)
 			continue
+		}
+		if runOpts.heartbeat != nil && (i+1)%100 == 0 {
+			runOpts.heartbeat(ctx)
 		}
 	}
 	if res.FailedGoats > 0 {
@@ -1286,14 +1444,16 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 	}
 	if batch, ok := s.evidence.(BatchCompletionEvidenceReader); ok {
 		for versionID, candidates := range candidatesByVersion {
-			hits, err := batch.HasTrustedCompletionEvidenceBatch(ctx, tenantID, versionID, candidates, asOf)
-			if err != nil {
-				return nil, err
-			}
 			lookup := lookups[versionID]
-			for _, candidate := range candidates {
-				key := candidate.Key()
-				lookup.record(key, hits[key])
+			for _, chunk := range trustedCompletionCandidateChunks(candidates, 200) {
+				hits, err := batch.HasTrustedCompletionEvidenceBatch(ctx, tenantID, versionID, chunk, asOf)
+				if err != nil {
+					return nil, err
+				}
+				for _, candidate := range chunk {
+					key := candidate.Key()
+					lookup.record(key, hits[key])
+				}
 			}
 		}
 		return lookups, nil
@@ -1309,6 +1469,24 @@ func (s *GenerationService) trustedEvidenceForPlans(ctx context.Context, tenantI
 		}
 	}
 	return lookups, nil
+}
+
+func trustedCompletionCandidateChunks(candidates []domain.TrustedCompletionCandidate, size int) [][]domain.TrustedCompletionCandidate {
+	if len(candidates) == 0 {
+		return nil
+	}
+	if size <= 0 || size >= len(candidates) {
+		return [][]domain.TrustedCompletionCandidate{candidates}
+	}
+	chunks := make([][]domain.TrustedCompletionCandidate, 0, (len(candidates)+size-1)/size)
+	for start := 0; start < len(candidates); start += size {
+		end := start + size
+		if end > len(candidates) {
+			end = len(candidates)
+		}
+		chunks = append(chunks, candidates[start:end])
+	}
+	return chunks
 }
 
 func (s *GenerationService) hasTrustedCompletionEvidence(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, due, asOf time.Time, trustedLookup trustedEvidenceLookup) (bool, error) {
@@ -1363,6 +1541,10 @@ func (s *GenerationService) recentVaccineAdminsForPlans(ctx context.Context, ten
 func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, versionEligibility genEligibility, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, vaccineProf vaccineProfile, vaccineHistory []domain.RecentVaccineAdministration, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
 	historicalCatchUpMaterialized := false
 	path := schedulePathForGoat(g, policies.Procurement, asOf, vaccineHistory)
+	manualAnchors, err := s.manualVaccineAnchorsForSeedRules(ctx, tenantID, g.GoatID, rules, versionEligibility, vaccineProf)
+	if err != nil {
+		return err
+	}
 	// BUG #2: track pending obligations generated in this pass to enforce cross-vaccine spacing among co-due vaccines.
 	// Sorted by rule sequence to ensure deterministic spacing order across replays.
 	var pending []pendingVaccine
@@ -1375,6 +1557,13 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			continue
 		}
 		if !ruleMatchesSchedulePath(rule, path) {
+			continue
+		}
+		procPurposeDue, procPurposeOK := procurementPurposePrimaryDue(g, rule, ruleVaccine, policies.Procurement)
+		if path == schedulePathAdultProcurement && isAdultCampaignRule(rule) &&
+			(strings.EqualFold(strings.TrimSpace(rule.TriggerType), "post_arrival") ||
+				strings.EqualFold(strings.TrimSpace(rule.TriggerType), "manual_campaign")) &&
+			!procPurposeOK {
 			continue
 		}
 		// History outranks DOB/arrival, per DOSE: once THIS rule's own dose has been administered, it
@@ -1404,6 +1593,8 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			continue
 		}
 		anchorCatchUpKey := ""
+		// Set only on the history-driven repeat path below, and only for repeat rules.
+		var historyAnchor *obldomain.RepeatCycleSource
 		baseDue, ok, skip := time.Time{}, false, false
 		if courseDue, found, err := primaryCourseContinuationDueFromHistory(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path, vaccineHistory); err != nil {
 			return err
@@ -1412,6 +1603,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			ok = true
 		} else {
 			baseDue, ok, skip = dueAt(versionID, rule, g, asOf, opts, policies)
+		}
+		if ok && !procPurposeDue.IsZero() {
+			baseDue = procPurposeDue
 		}
 		if skip {
 			trusted, err := s.hasTrustedCompletionEvidence(ctx, tenantID, versionID, rule, g, asOf, asOf, trustedLookup)
@@ -1486,7 +1680,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				anchorCatchUpKey = missingDueDateKey(tenantID, versionID, rule, g, anchorMissingReason(rule.TriggerType))
 			default:
 				res.SkippedNoDueDate++
-				if err := s.genMissingDueDateObligation(ctx, tenantID, versionID, rule, g, asOf, res); err != nil {
+				if err := s.genMissingDueDateObligation(ctx, tenantID, versionID, rule, ruleVaccine.Code, g, asOf, res); err != nil {
 					return err
 				}
 				continue
@@ -1512,11 +1706,24 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				if historyDue, found := dueAfterPreviousCompletion(rule, ruleVaccine, vaccineHistory); found {
 					baseDue = historyDue
 					ok = true
+					// This due date was derived from a specific past administration, and it
+					// moves whenever a newer administration of the same vaccine lands. Record
+					// the administration itself as the cycle's cause so the moved date updates
+					// the existing row instead of minting a second one beside it.
+					if latest, hasLatest := latestVaccineAdministration(rule, strings.TrimSpace(ruleVaccine.Code), vaccineHistory); hasLatest && isRepeatRule(&rule) {
+						historyAnchor = historyRepeatCycle(latest)
+					}
 				}
 			}
 		}
 		if !ok {
 			continue // after_previous_completion → SM-7, manual_campaign → manual
+		}
+		if manualAnchorSuppressesSeedRule(rule) {
+			if _, found := manualAnchors[vaccineAnchorLookupKey(ruleVaccine.Code)]; found {
+				res.SuppressedByTrustedHistory++
+				continue
+			}
 		}
 		supersededCampaignKey := ""
 		campaignKey := campaignDueGoatKey(versionID, rule.RuleID, g.GoatID)
@@ -1635,10 +1842,43 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			WindowEnd:         obligationWindowEnd(rule, due),
 			Status:            status,
 			IdempotencyKey:    key,
-			Sequence:          rule.Sequence,
+			// The rule's business identity, from the same helper the publisher writes to
+			// protocol_rule_lineage. This is what makes the animal's existing work findable
+			// across a publish: the version and rule UUIDs change, the identity does not.
+			RuleIdentityKey: protodomain.RuleIdentityKey(ruleVaccine.Code, rule.DoseCode, rule.Sequence),
+			Sequence:        rule.Sequence,
+			RepeatCycle:     historyAnchor,
 		}
+		if historyAnchor != nil {
+			finalDue := due
+			historyAnchor.DueAt = &finalDue
+		}
+		// Reconcile BEFORE inserting. The animal may already owe this rule under an older
+		// version, and the date it owes it can move even when the rule's content did not --
+		// because the due date is computed from the ANIMAL's history too. Inserting in that case
+		// books the same dose twice, which is worse than the churn carry-over removes. So the
+		// existing row is moved to the new date and version, keeping its obligation_id and
+		// everything attached to it, and no second row is written.
 		var applied bool
-		if deferred {
+		reconciled, found, err := s.obl.ReconcileOpenObligationForRuleIdentity(ctx, tenantID, newObligation, asOf)
+		if err != nil {
+			// An animal already holding two unlabelled open obligations for this rule is a data
+			// problem a generation pass must not paper over: picking one cancels a scheduled
+			// vaccination on a guess, inserting books a third. It fails for THIS animal, carrying
+			// the obligation ids a human needs, and the rest of the run continues.
+			if errors.Is(err, oblports.ErrAmbiguousOpenWork) {
+				res.AmbiguousOpenWork++
+			}
+			return err
+		}
+		if found {
+			// Same work, still open, now pointing at the current version. Nothing was generated,
+			// so it does not count as new; the persisted state is already what generation wanted.
+			res.Reconciled++
+			if reconciled.DateBlocked {
+				res.ReconcileDateBlocked++
+			}
+		} else if deferred {
 			_, applied, err = s.obl.InsertDeferredObligation(ctx, newObligation, deferReason, asOf)
 		} else {
 			_, applied, err = s.obl.InsertObligation(ctx, newObligation)
@@ -1661,18 +1901,60 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			var finalRef obldomain.ObligationRef
 			var changed bool
 			var reschedule *obldomain.RecoveryReschedule
-			if missingKey != "" {
+			// Which row this pass is actually reconciling.
+			//
+			// Everything below is keyed, and the key contains the due date. A repeat cycle
+			// whose due date moved is suppressed by its CAUSE, so the surviving row sits under
+			// the PREVIOUS key and every call here would miss it: the duplicate is gone, but
+			// so is the move -- the row keeps a stale date, is never deferred for a sick
+			// animal, never reopened for a recovered one, and contributes nothing to
+			// cross-vaccine spacing. Reconciling the row we actually suppressed against fixes
+			// that; it also means the new due date reaches the surviving row, which is the
+			// only way a moved date surfaces at all now that a second row is impossible.
+			reconcileKey := key
+			// A reconciled obligation may hold a DIFFERENT key than the one just computed: when
+			// its date could not move, the row keeps whatever address it could take. Addressing it
+			// by the wished-for key would look up nothing and fail the animal, so follow-ups use
+			// the key the row actually holds.
+			if reconciledKey := strings.TrimSpace(reconciled.IdempotencyKey); found && reconciledKey != "" {
+				reconcileKey = reconciledKey
+			}
+			if historyAnchor.Valid() {
+				survivor, found, err := s.obl.OpenObligationForRepeatCycle(
+					ctx, tenantID, versionID, rule.RuleID, "goat", g.GoatID, rule.Sequence, historyAnchor.SourceRef,
+				)
+				if err != nil {
+					return err
+				}
+				if found && strings.TrimSpace(survivor.IdempotencyKey) != "" && survivor.IdempotencyKey != key {
+					reconcileKey = survivor.IdempotencyKey
+					if !deferred && !survivor.DueAt.Equal(due) {
+						// A taken date is not a failure. The duplicate guard spans every status,
+						// so the recomputed date can already hold a dose that was given, or a
+						// canceled row -- and the survivor simply stays where it is rather than
+						// poisoning this animal for every later pass as well.
+						_, _, err := s.obl.RealignOpenObligationForGeneration(ctx, tenantID, reconcileKey, due, newObligation.WindowEnd, asOf)
+						if err != nil && !errors.Is(err, oblports.ErrDueDateTaken) {
+							return err
+						}
+					}
+				}
+			}
+			if missingKey != "" && missingKey != key && missingKey != reconcileKey {
 				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, missingKey, "missing_due_date_resolved", asOf); err != nil {
 					return err
 				}
 			}
 			if cohortCampaignRealignment && !deferred {
+				// Keyed on `key`, not the repeat-cycle reconcile key: campaign rows never carry
+				// repeat metadata, so the two are the same value here, and the campaign contract
+				// guard reads this call literally.
 				if _, _, err := s.obl.RealignOpenObligationForGeneration(ctx, tenantID, key, due, newObligation.WindowEnd, asOf); err != nil {
 					return err
 				}
 			}
 			if deferred {
-				finalRef, changed, err = s.obl.DeferOpenObligationForGeneration(ctx, tenantID, key, deferReason, asOf)
+				finalRef, changed, err = s.obl.DeferOpenObligationForGeneration(ctx, tenantID, reconcileKey, deferReason, asOf)
 				if err != nil {
 					return err
 				}
@@ -1683,15 +1965,20 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				// Goat is no longer in a defer state: if a held (deferred) obligation exists for this
 				// key, reopen it so the recovered goat's due work becomes schedulable again. A no-op
 				// when the row is already schedulable/terminal (safe recovery-recheck replay).
-				if opts.healthRecoveryAlign {
-					reschedule, err = s.recoveryRescheduleForRule(ctx, tenantID, versionID, rule, ruleVaccine, g, asOf, policies.Recovery, policies.Compatibility, vaccineHistory)
+				if found && actionableObligationForSpacing(reconciled) &&
+					!strings.EqualFold(strings.TrimSpace(reconciled.Status), "deferred") {
+					finalRef = reconciled
+				} else {
+					if opts.healthRecoveryAlign {
+						reschedule, err = s.recoveryRescheduleForRule(ctx, tenantID, versionID, rule, ruleVaccine, g, asOf, policies.Recovery, policies.Compatibility, vaccineHistory)
+						if err != nil {
+							return err
+						}
+					}
+					finalRef, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, reconcileKey, asOf, reschedule)
 					if err != nil {
 						return err
 					}
-				}
-				finalRef, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, key, asOf, reschedule)
-				if err != nil {
-					return err
 				}
 				if changed {
 					res.Reopened++
@@ -1785,12 +2072,36 @@ func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx conte
 		// Replay: reconcile the existing successor row with the goat's CURRENT clinical status.
 		// A still-held goat must keep (or re-enter) deferred — reopening here would wrongly
 		// schedule work for a sick/ICU goat.
+		//
+		// WHICH row, though. The insert is refused for two different reasons and only one of
+		// them is a key collision: a repeat cycle is refused by its CAUSE, so the row already
+		// holding it can sit under an entirely different key. Reconciling the key we just
+		// computed then reconciles nothing, and the held animal's existing repeat dose stays
+		// SCHEDULED -- work an operator sees as due for an animal that is sick.
+		//
+		// Defensive, honestly labelled: the caller resolves the same way before it ever gets
+		// here, so no test input reaches this branch today. It is kept because the two paths
+		// must not disagree about what a refusal means -- the last time they did, that
+		// disagreement was the bug.
+		reconcileKey := successor.IdempotencyKey
+		if base.RepeatCycle.Valid() {
+			survivor, found, lookupErr := s.obl.OpenObligationForRepeatCycle(
+				ctx, tenantID, base.ProtocolVersionID, base.RuleID, base.TargetType, base.TargetID,
+				base.Sequence, base.RepeatCycle.SourceRef,
+			)
+			if lookupErr != nil {
+				return obldomain.ObligationRef{}, false, false, lookupErr
+			}
+			if found && strings.TrimSpace(survivor.IdempotencyKey) != "" {
+				reconcileKey = survivor.IdempotencyKey
+			}
+		}
 		var ref obldomain.ObligationRef
 		var changed bool
 		if deferred {
-			ref, changed, err = s.obl.DeferOpenObligationForGeneration(ctx, tenantID, successor.IdempotencyKey, deferReason, asOf)
+			ref, changed, err = s.obl.DeferOpenObligationForGeneration(ctx, tenantID, reconcileKey, deferReason, asOf)
 		} else {
-			ref, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, successor.IdempotencyKey, asOf, nil)
+			ref, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, reconcileKey, asOf, nil)
 		}
 		if err != nil {
 			return obldomain.ObligationRef{}, false, false, err
@@ -1800,6 +2111,23 @@ func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx conte
 		}
 		if !strings.EqualFold(strings.TrimSpace(ref.Status), "canceled") && strings.TrimSpace(ref.Status) != "" {
 			return ref, changed, false, nil
+		}
+		// Refused, and no row under this key: for a repeat cycle that means another writer
+		// already holds this cause -- a booster-minted successor, or a rescheduled missed
+		// dose. Every remaining suffix would be refused by the same guard, so trying 99 more
+		// only burns round trips and then fails the whole generation pass with a suffix
+		// error that names the wrong problem. The cycle exists; return it.
+		if strings.TrimSpace(ref.Status) == "" && base.RepeatCycle.Valid() {
+			existing, found, err := s.obl.OpenObligationForRepeatCycle(
+				ctx, tenantID, base.ProtocolVersionID, base.RuleID, base.TargetType, base.TargetID,
+				base.Sequence, base.RepeatCycle.SourceRef,
+			)
+			if err != nil {
+				return obldomain.ObligationRef{}, false, false, err
+			}
+			if found {
+				return existing, false, false, nil
+			}
 		}
 	}
 	return obldomain.ObligationRef{}, false, false, fmt.Errorf("exhausted successor suffix attempts (max 100 from computed next=%d)", nextSuffix)
@@ -1819,7 +2147,7 @@ func limitsHistoricalCatchUp(rule protodomain.Rule, baseDue, materializedDue, as
 	return asOf.After(windowEnd) && materializedDue.Equal(asOf)
 }
 
-func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, asOf time.Time, res *domain.GenerateResult) error {
+func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, vaccineCode string, g domain.EligibleGoat, asOf time.Time, res *domain.GenerateResult) error {
 	reason := missingDueDateReason(rule, g)
 	if reason == "" {
 		reason = "missing_due_date"
@@ -1833,14 +2161,18 @@ func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, ten
 		TenantID:          tenantID,
 		ProtocolVersionID: versionID,
 		RuleID:            rule.RuleID,
-		TargetType:        "goat",
-		TargetID:          g.GoatID,
-		ScopeType:         scopeType,
-		ScopeID:           scopeID,
-		DueAt:             asOf,
-		Status:            "deferred",
-		IdempotencyKey:    key,
-		Sequence:          rule.Sequence,
+		// Same identity the scheduled path writes. A placeholder row for a missing anchor is still
+		// this rule's work for this animal, and a row without an identity sits outside the
+		// one-open-obligation-per-identity index -- which is where duplicates come from.
+		RuleIdentityKey: protodomain.RuleIdentityKey(vaccineCode, rule.DoseCode, rule.Sequence),
+		TargetType:      "goat",
+		TargetID:        g.GoatID,
+		ScopeType:       scopeType,
+		ScopeID:         scopeID,
+		DueAt:           asOf,
+		Status:          "deferred",
+		IdempotencyKey:  key,
+		Sequence:        rule.Sequence,
 	})
 	if err != nil {
 		return err
@@ -1957,6 +2289,14 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 	vaccineHistoryByGoat, err := s.recentVaccineAdminsForPlans(ctx, tenantID, pagePlans, businessDayEnd(asOf))
 	if err != nil {
 		return res, err
+	}
+	runOpts := opts
+	runOpts.campaignDueByGoat, runOpts.cohortAlignedCampaignByGoat, err = campaignDueOverrides(pagePlans, asOf, vaccineHistoryByGoat)
+	if err != nil {
+		return res, err
+	}
+	for i := range pagePlans {
+		pagePlans[i].opts = runOpts
 	}
 	trustedByVersion, err := s.trustedEvidenceForPlans(ctx, tenantID, pagePlans, asOf, vaccineHistoryByGoat)
 	if err != nil {
@@ -2243,6 +2583,9 @@ func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, preg genPre
 	if !selectorMatches(g.ReproductiveStatus, e.Reproductive) {
 		return false
 	}
+	if !selectorMatches(g.ProcurementPurpose, e.ProcurementPurpose) {
+		return false
+	}
 	if !selectorMatches(g.AgeBand, e.AgeBand) {
 		return false
 	}
@@ -2361,6 +2704,58 @@ func dueAt(versionID string, rule protodomain.Rule, g domain.EligibleGoat, asOf 
 	default: // after_previous_completion (SM-7)
 		return time.Time{}, false, false
 	}
+}
+
+func (s *GenerationService) manualVaccineAnchorsForSeedRules(ctx context.Context, tenantID, goatID string, rules []protodomain.Rule, eligibility genEligibility, vaccineProf vaccineProfile) (map[string]obldomain.ObligationRef, error) {
+	reader, ok := s.obl.(ManualVaccineAnchorReader)
+	if !ok {
+		return nil, nil
+	}
+	codes := make([]string, 0, len(rules))
+	seen := map[string]bool{}
+	for _, rule := range rules {
+		if !manualAnchorSuppressesSeedRule(rule) {
+			continue
+		}
+		_, ruleVaccine, err := ruleGenerationContext(rule, eligibility, vaccineProf)
+		if err != nil {
+			return nil, err
+		}
+		key := vaccineAnchorLookupKey(ruleVaccine.Code)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		codes = append(codes, ruleVaccine.Code)
+	}
+	if len(codes) == 0 {
+		return nil, nil
+	}
+	anchors, err := reader.ManualVaccineAnchorsForGoat(ctx, tenantID, goatID, codes)
+	if err != nil {
+		return nil, err
+	}
+	if len(anchors) == 0 {
+		return nil, nil
+	}
+	normalized := make(map[string]obldomain.ObligationRef, len(anchors))
+	for code, ref := range anchors {
+		normalized[vaccineAnchorLookupKey(code)] = ref
+	}
+	return normalized, nil
+}
+
+func manualAnchorSuppressesSeedRule(rule protodomain.Rule) bool {
+	switch strings.TrimSpace(rule.TriggerType) {
+	case "birth_age", "post_arrival", "calendar", "manual_campaign":
+		return true
+	default:
+		return false
+	}
+}
+
+func vaccineAnchorLookupKey(code string) string {
+	return strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(code), "+", "_"))
 }
 
 // dueAfterPreviousCompletion resolves an after_previous_completion (SM-1 revac)
@@ -2722,4 +3117,69 @@ func generationResultFromRun(run domain.GenerationRun) domain.GenerateResult {
 		SkippedNoDueDate:           run.SkippedNoDueDate,
 		SuppressedByTrustedHistory: run.SuppressedByTrustedHistory,
 	}
+}
+
+// historyRepeatCycle names a past administration as the cause of the repeat cycle it
+// drives. The reference is the administration's own immutable coordinates -- which
+// vaccine, given when, as which dose -- and never the derived due date, because the due
+// date is precisely what moves when a newer administration lands.
+func historyRepeatCycle(admin domain.RecentVaccineAdministration) *obldomain.RepeatCycleSource {
+	ref := obldomain.RepeatCycleRef(admin.VaccineCode, admin.AdministeredAt, admin.Sequence)
+	if ref == "" {
+		return nil
+	}
+	at := admin.AdministeredAt
+	return &obldomain.RepeatCycleSource{
+		Source:    obldomain.RepeatCycleSourceTrustedHistory,
+		SourceRef: ref,
+		AnchorAt:  &at,
+	}
+}
+
+// supersedeRetiredPlanWork cancels open vaccination obligations belonging to a version that is
+// no longer effective for the animal, one park at a time.
+func (s *GenerationService) supersedeRetiredPlanWork(
+	ctx context.Context,
+	tenantID string,
+	goats []domain.EligibleGoat,
+	effectiveVersionsByPark map[string][]string,
+	asOf time.Time,
+) error {
+	byPark := make(map[string][]string, len(effectiveVersionsByPark))
+	for _, g := range goats {
+		key := generationParkCacheKey(g.ParkID)
+		byPark[key] = append(byPark[key], g.GoatID)
+	}
+	for parkKey, goatIDs := range byPark {
+		versionIDs := effectiveVersionsByPark[parkKey]
+		if len(versionIDs) == 0 {
+			// No effective plan for this park. Cancelling everything here would be
+			// indistinguishable from a misconfigured lookup, so leave the work alone.
+			continue
+		}
+		// seed-fixture-guard:ignore: owner=ravi issue=vaccination-additive-publish reason=carry-over-rebinds-existing-obligations-to-the-republished-version-and-authors-no-seed-source-config-or-SOP-contract expiry=2026-11-30
+		//
+		// Carry over BEFORE superseding. Work whose rule is unchanged -- same vaccine, same dose,
+		// same content -- is rebound to the new version in place, keeping its obligation id and
+		// its due date. Only what is left after this is genuinely stale, so publishing a plan
+		// that adds one vaccine no longer cancels and re-mints the vaccines nobody touched.
+		//
+		// Order matters beyond tidiness: rebinding after generation would collide with
+		// obligation_instances_dup_guard, because generation would already hold that key.
+		if _, err := s.obl.CarryOverUnchangedVaccinationObligations(ctx, tenantID, goatIDs, versionIDs); err != nil {
+			return err
+		}
+		stale, err := s.obl.GoatsWithVaccinationObligationsOutsideVersions(ctx, tenantID, goatIDs, versionIDs)
+		if err != nil {
+			return err
+		}
+		for _, goatID := range stale {
+			if _, err := s.obl.CancelOpenVaccinationObligationsForGoatExceptVersions(
+				ctx, tenantID, goatID, versionIDs, "protocol_version_replaced", asOf,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

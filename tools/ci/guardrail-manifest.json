@@ -8,6 +8,16 @@
   },
   "guards": [
     {
+      "id": "admin-web-date-format",
+      "script": "tools/agent-hooks/check-admin-web-date-format.mjs",
+      "makeTarget": "admin-web-date-format-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-date-format.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-date-format.mjs --self-test",
+      "owningDoc": "apps/admin-web/AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-date-format-guard"
+    },
+    {
       "id": "admin-web-local-overlays",
       "script": "tools/agent-hooks/check-admin-web-local-overlays.mjs",
       "makeTarget": "admin-web-local-overlay-guard",
@@ -66,6 +76,17 @@
       "owningDoc": "docs/mobile/README.md",
       "requiredInCI": true,
       "ciStep": "mobile-guard"
+    },
+    {
+      "id": "android-outbox-lifecycle-policy",
+      "script": "tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs --self-test",
+      "owningDoc": "docs/decisions/android-offline-first.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard",
+      "notes": "Every Android OutboxOpType explicitly declares immediate UI, success reconciliation, terminal-failure, and process-death policy; wildcard coverage is rejected."
     },
     {
       "id": "android-verifier-detail-scope",
@@ -566,6 +587,17 @@
       "ciStep": "no-mismatch-review-queue-guard"
     },
     {
+      "id": "herd-signals-language",
+      "script": "tools/agent-hooks/check-herd-signals-language.mjs",
+      "makeTarget": "herd-signals-language-guard",
+      "realCheck": "node tools/agent-hooks/check-herd-signals-language.mjs",
+      "selfTest": "node tools/agent-hooks/check-herd-signals-language.mjs --self-test",
+      "owningDoc": "docs/modules/herd-signals.md",
+      "requiredInCI": true,
+      "ciStep": "herd-signals-language-guard",
+      "notes": "Herd Signals product claim boundary: the HoneyComm BLE ear tag exposes only tag id/MAC, RSSI, battery, tag temperature, cumulative motion_count, sensor-OK bits, gateway id, and timestamps -- it cannot detect eating, rumination, sitting, standing, lying, walking, running, fever, body temperature, or disease. Scans backend/internal/herdsignals/**, apps/admin-web/features/herd-signals/**, the herd-signals slice of contracts/openapi/app-api.yaml, docs/modules/herd-signals.md (allowlisted as the boundary's source of truth), and mock/herd-signals-mock.html for claim-shaped assertions of a banned term, body-temperature mislabeling, and mock/demo/sample/synthetic UI copy leaks. See docs/modules/herd-signals.md Section 3."
+    },
+    {
       "id": "notification-specificity",
       "script": "tools/agent-hooks/check-notification-specificity.mjs",
       "makeTarget": "notification-specificity-guard",
@@ -815,6 +847,17 @@
       "owningDoc": "docs/decisions/vaccination-shed-ack-not-form.md",
       "requiredInCI": true,
       "ciStep": "vaccination-shed-ack-guard"
+    },
+    {
+      "id": "feed-proof-collaboration",
+      "script": "tools/agent-hooks/check-feed-proof-collaboration-guard.mjs",
+      "makeTarget": "feed-proof-collaboration-guard",
+      "realCheck": "node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test",
+      "owningDoc": "docs/product/feed-proof-collaboration.md",
+      "requiredInCI": true,
+      "ciStep": "feed-proof-collaboration-guard",
+      "notes": "Feed distribution proof slots are a shared PARALLEL workspace (maintainer contract 2026-08-15): one shed-session, three slots (weight photo, feed video, water video), filled by peer operators from different phones in any split; no slot gates another; media always uploads compressed + overlay-burned. Five failure modes: (1) a FeedDistributionUiState slot-enabled getter referencing another slot's captured/status flag (sequential gating); (2) CaptureRepository Gate-3 backstop validating photos with the video probe (mime-blind - forced raw-original fallback three times in the field on 2026-08-15); (3) processed-artifact validation called without the output mime type; (4) AppProofMediaProcessor dropping the audit overlay or JPEG compression from the photo path, or the overlay composition from the video path; (5) deletion of the pinned regression tests (ProcessedPhotoValidatorRegressionTest, FeedDistributionSequenceTest, the gate-3 real-JPEG CaptureRepositoryTest case)."
     },
     {
       "id": "weighing-free-flow",
@@ -1113,6 +1156,39 @@
       "owningDoc": "docs/architecture/operational-read-model-contract.md",
       "requiredInCI": true,
       "ciStep": "operational-location-guard"
+    },
+    {
+      "id": "feed-submitted-overlay-wiring",
+      "script": "tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs",
+      "makeTarget": "feed-submitted-overlay-wiring-guard",
+      "realCheck": "node tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs",
+      "selfTest": "node tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs --self-test",
+      "owningDoc": "docs/decisions/android-offline-first.md",
+      "requiredInCI": true,
+      "ciStep": "feed-submitted-overlay-wiring-guard",
+      "notes": "Keeps the queued-submit badge overlay wired end to end (bug 254.mp4: submit a shed-session, return to the worklist, row still reads Pending because the write is only in the outbox). Every Feed worklist renders its chip from lifecycleStatus, so three parts must all survive: the submit ViewModel calls markSubmittedForReview on ENQUEUE SUCCESS; the list ViewModel combines feedCompletionStore.submittedForReviewKeys; and its row mapping runs the status through overlayFeedLifecycleStatus. Deleting any one silently restores the bug while every unit test still passes, because the rule's own tests call the pure function directly and cannot see a severed call site. Also pins overlayFeedLifecycleStatus to exactly ONE definition: Feed Packing and Feed Direction previously drifted apart with per-flow copies. A paging-level test was tried first and rejected \u2014 `rows` ends in cachedIn(viewModelScope) and asSnapshot() never settles under runTest (UncompletedCoroutinesError), so a structural guard is deterministic where that test was flaky."
+    },
+    {
+      "id": "mock-css-parity",
+      "script": "tools/agent-hooks/check-mock-css-parity.mjs",
+      "makeTarget": "mock-css-parity-guard",
+      "realCheck": "node tools/agent-hooks/check-mock-css-parity.mjs",
+      "selfTest": "node tools/agent-hooks/check-mock-css-parity.mjs --self-test",
+      "owningDoc": "docs/modules/herd-signals.md",
+      "requiredInCI": true,
+      "ciStep": "mock-css-parity-guard",
+      "notes": "v4: rewritten to compare RENDERED, BROWSER-COMPUTED styles (Playwright/Chromium getComputedStyle) between the approved mock and the live app at :3318, instead of statically parsing and hand-resolving CSS text. The old static resolver could not see DOM ancestry, so equal-specificity rules from OTHER admin screens sharing a bare class (e.g. Action Center's .task-ac .tag vs this page's .herd-signals-page .tag) looked like competing rules and produced ~76 false findings nobody could triage without opening devtools -- one of which was 'fixed' by adding a bare-classname duplicate rule to the shared global stylesheet, which had to be reverted. A real browser resolves ancestry/specificity/cascade correctly, so this version asks Chromium directly: it loads both pages, walks a curated, deliberately-paired element registry (by class + position/role, never by content -- the mock has invented fixture data and the app has ~20 real tags) across Live Monitor, Animals, Gateways, Alerts, Tag Mapping, Insights, the row-click drawer and the full-screen history, and diffs colour/background/border/border-radius/font/padding/margin/gap/display/grid-template-columns. Needs both dev servers running -- fails loudly with a clear message if either is down, never silently passes. Cannot see hover/focus states, media queries, or anything behind an interaction it does not drive (see the script header's full limits list). A separate, unchanged banned-pattern scan blocks reintroducing the mock's invented battery-life-estimate text, which the style comparison alone would miss since its class is already styled for other fields."
+    },
+    {
+      "id": "additive-publish",
+      "script": "tools/agent-hooks/check-additive-publish.mjs",
+      "makeTarget": "additive-publish-guard",
+      "realCheck": "node tools/agent-hooks/check-additive-publish.mjs",
+      "selfTest": "node tools/agent-hooks/check-additive-publish.mjs --self-test",
+      "owningDoc": "docs/preventive-care-vaccination/additive-publish.md",
+      "requiredInCI": true,
+      "ciStep": "additive-publish-guard",
+      "notes": "Publishing a plan version must only touch the rules that actually changed: adding a 6th vaccine to a plan of 5 leaves those 5 operationally untouched -- same obligation_id, same due_at, same task/batch/proof attachment -- with only protocol_version_id moving. Checks the three ways that guarantee breaks without looking like a bug: the carry-over call vanishing from the supersede path, due_at or status joining the carry-over UPDATE, and a scheduling field dropping out of the rule content fingerprint (which would make an edit read as unchanged and never reach an animal). Lens CD-ADDITIVE-PUBLISH in the review-lens ledger."
     }
   ]
 }

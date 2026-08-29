@@ -103,20 +103,26 @@ Use `docs/ai/README.md` for the full setup and routing guide. In short:
 - `make ai-doctor` verifies the clone is portable and graph artifacts remain
   local-only.
 
-## Android Staging Release Signing
+## Android Production-Facing Release Signing
 
-Staging Android release builds are signed with a **staging-only** upload key.
-The key material is stored in Google Secret Manager under the Mesha/VGoats
-`goatos-stg` project, never in Git.
+Production-facing Android release builds use the unsuffixed package and public
+production URLs. For the current cleanup path, the existing Mesha/VGoats
+`goatos-stg` Google/Firebase project may still provide internal Firebase Auth,
+FCM, and signing secret storage; do not expose that project id in user-facing
+release text.
 
 ```text
-Package: sg.mesha.goatos.stg
-API:     https://stg-api.dashboard.mesha.sg/
-Runbook: docs/mobile/stg-signed-release.md
+Package: sg.mesha.goatos
+API:     https://api.goatos.mesha.sg/
+Login:   https://dashboard.mesha.sg/login
 ```
 
-Developers who need to build or upload a stg release must have Secret Manager
-access to:
+Production-facing release signing must use a separate production package/key
+identity when publishing outside internal testing. Until that is wired, do not
+reuse staging release labels or `-stg` version names for public builds.
+
+Developers who need to build or upload the legacy stg release must still use the
+staging runbook and Secret Manager values:
 
 ```text
 android-stg-upload-keystore-jks
@@ -131,14 +137,7 @@ and export the signing passwords from Secret Manager before running
 keystores or passwords into commits, docs, Slack, tickets, or screenshots.
 
 Use [`docs/mobile/stg-signed-release.md`](docs/mobile/stg-signed-release.md)
-for the exact Secret Manager restore, signed build, Firebase App Distribution,
-Google Play Internal Testing upload, `mesha.sg/app.apk` Storage mirror, and
-post-install SSO/bootstrap verification steps. The direct operator APK link is
-served from `gs://goatos-stg-public-downloads/operator/latest/app.apk`; updating
-it must not rebuild or redeploy the Mesha marketing website.
-
-Production release signing must use a separate production package/key/Secret
-Manager set. Do not reuse the stg upload key for prod.
+only for legacy/internal staging APK distribution details.
 
 ## Operational Kernel
 
@@ -339,6 +338,10 @@ layer over Goat OS. **Status: local-runnable foundation; the backend service,
 Cube metric layer, and MCP Toolbox are being built, and the staging read-only DB
 roles are a pending deploy step.** Do not read this as "shipped" — it is the
 config/secrets on-ramp so any developer can run the pieces that exist.
+
+For approved leadership users connecting Claude, Claude Code/Desktop, Codex, or
+ChatGPT-style custom GPT/app clients to the staging external MCP endpoint, see
+[`docs/ceo-ai/external-mcp-integration.md`](docs/ceo-ai/external-mcp-integration.md).
 
 ### Routing model (one paragraph)
 

@@ -1147,3 +1147,215 @@ val MIGRATION_41_42: Migration = object : Migration(41, 42) {
         db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `gallerySavedUri` TEXT")
     }
 }
+
+val MIGRATION_42_43: Migration = object : Migration(42, 43) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Add indexes on unindexed grain/task keys for live-status observers
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_direction_items_grainKey` ON `feed_direction_items` (`grainKey`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_packing_items_grainKey` ON `feed_packing_items` (`grainKey`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_feed_transport_scoped_items_taskId` ON `feed_transport_scoped_items` (`taskId`)")
+    }
+}
+
+/**
+ * v43 -> v44: persists obligation_instances.row_version on scanned_goat_capture so the reconciliation
+ * in ScanViewModel can distinguish "never submitted" (same row_version as capture time) from
+ * "submitted then reopened" (row_version incremented since capture). This is the server-issued
+ * cycle discriminator that correctly gates whether a SYNCED capture overrules a roster row's open
+ * status, fixing the bug where a simple roster refresh would falsely drop scan DONE ticks.
+ */
+val MIGRATION_43_44: Migration = object : Migration(43, 44) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `scanned_goat_capture` ADD COLUMN `obligationRowVersion` INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+val MIGRATION_44_45: Migration = object : Migration(44, 45) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // R50-060: Persist scopeType and scopeId on ProofCaptureEntity for correct recovery
+        // of weighing free-flow proofs (subject_type="other") on app restart.
+        // Weighing proofs cannot re-derive scope from subjectId (null), so scope MUST be
+        // persisted to prevent backend validation failure on re-registration.
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `scopeType` TEXT NOT NULL DEFAULT 'shed'")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `scopeId` TEXT NOT NULL DEFAULT ''")
+    }
+}
+
+/**
+ * v45 -> v46: durable supersession marker for captureReplacingLatest (P1 fix, CRITICAL
+ * follow-up). `supersedesRowId` is set on a replacement row in the SAME insert as the row
+ * itself, naming the single active occupant it replaces. Previously this "retire the old row
+ * once the new one is SYNCED" intent lived ONLY in an in-memory map
+ * ([sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository.pendingSlotRetirement]) —
+ * process death between a successful replace and the new row reaching SYNCED lost that intent
+ * forever, leaving BOTH rows active and permanently blocking the slot's per-field capture cap
+ * with no operator escape. The column lets every reconcile pass re-derive retirement from
+ * durable state instead of a ticket that may never have existed in this process.
+ */
+val MIGRATION_45_46: Migration = object : Migration(45, 46) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `supersedesRowId` TEXT DEFAULT NULL")
+    }
+}
+
+/**
+ * v46 -> v47: persist uploadGroupKey and clientTaskKey on ProofCaptureEntity for correct
+ * ordering/grouping recovery (Codex blocker 3, CRITICAL). Live capture passes uploadGroupKey for
+ * proof ordering/grouping (feed flows, milk flows, packing flows). On process death, startup
+ * recovery must re-enqueue WITHOUT losing the original group key → proof ordering can break.
+ * These columns let recovery re-enqueue with the EXACT key used at capture time.
+ * clientTaskKey is the application-level session/context id; uploadGroupKey is the order key.
+ * Legacy null falls back to current derivation (legacy: taskId for clientTaskKey,
+ * proofUploadGroupKey for uploadGroupKey).
+ */
+val MIGRATION_46_47: Migration = object : Migration(46, 47) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `uploadGroupKey` TEXT DEFAULT NULL")
+        db.execSQL("ALTER TABLE `proof_capture` ADD COLUMN `clientTaskKey` TEXT DEFAULT NULL")
+    }
+}
+
+/**
+ * v47 -> v48: adds the three Feed WASTAGE read-model tables (maintainer decision 2026-08-18) — the
+ * per-EXPERIMENT-pen leftover-feed worklist as a summary-envelope blob + normalized paged rows +
+ * per-scope remote keys, the same offline-first trio shape as [MIGRATION_16_17]'s Direction and
+ * Packing tables. Purely additive; no existing table changes, so an installed APK carrying an
+ * unsynced write outbox upgrades in place without data loss.
+ *
+ * Each CREATE spells its table name out as a literal (never an interpolated loop) so
+ * `make room-migration-guard` can statically match every new v48 @Entity table against a CREATE
+ * here (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_47_48: Migration = object : Migration(47, 48) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_wastage_meta_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_wastage_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_feed_wastage_items_queryKey_sortIndex` " +
+                "ON `feed_wastage_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_feed_wastage_items_grainKey` " +
+                "ON `feed_wastage_items` (`grainKey`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `feed_wastage_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextOffset` INTEGER NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+    }
+}
+
+/**
+ * v48 -> v49: adds the four PC Care tables (module pc_care, maintainer decision 2026-08-21) — the
+ * paged operator worklist rows + their per-scope remote keys (the [MIGRATION_47_48] Wastage trio
+ * shape minus the summary envelope), the task-detail JSON blob cache, and the durable
+ * per-(task, normalized tag) scanned-animal rows behind the scan screen's duplicate check, sync
+ * status, and peer slot visibility. Purely additive; no existing table changes, so an installed
+ * APK carrying an unsynced write outbox upgrades in place without data loss.
+ *
+ * Each CREATE spells its table name out as a literal (never an interpolated loop) so
+ * `make room-migration-guard` can statically match every new v49 @Entity table against a CREATE
+ * here (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_48_49: Migration = object : Migration(48, 49) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pc_care_task_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_pc_care_task_items_queryKey_sortIndex` " +
+                "ON `pc_care_task_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_pc_care_task_items_grainKey` " +
+                "ON `pc_care_task_items` (`grainKey`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pc_care_task_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pc_care_task_detail_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `pc_care_animal_rows` " +
+                "(`taskId` TEXT NOT NULL, `normalizedTag` TEXT NOT NULL, `tagVerbatim` TEXT NOT NULL, " +
+                "`animalRowId` TEXT NOT NULL, `scannedByName` TEXT NOT NULL, `scanSyncStatus` TEXT NOT NULL, " +
+                "`serverSlotsJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`taskId`, `normalizedTag`))",
+        )
+    }
+}
+
+/**
+ * v49 -> v50: adds the three Toxin read-model tables (module toxin, maintainer decision
+ * 2026-08-25) — the paged aflatoxin test-task list rows + their per-scope remote keys (the
+ * [MIGRATION_48_49] PC Care pair shape) and the task-detail JSON blob cache carrying the
+ * server-composed 7-step state contract. Purely additive; no existing table changes, so an
+ * installed APK carrying an unsynced write outbox upgrades in place without data loss.
+ *
+ * Each CREATE spells its table name out as a literal (never an interpolated loop) so
+ * `make room-migration-guard` can statically match every new v50 @Entity table against a CREATE
+ * here (docs/decisions/room-migration-safety.md).
+ */
+val MIGRATION_49_50: Migration = object : Migration(49, 50) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `toxin_task_items` " +
+                "(`queryKey` TEXT NOT NULL, `grainKey` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `grainKey`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_toxin_task_items_queryKey_sortIndex` " +
+                "ON `toxin_task_items` (`queryKey`, `sortIndex`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_toxin_task_items_grainKey` " +
+                "ON `toxin_task_items` (`grainKey`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `toxin_task_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT NOT NULL, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `toxin_task_detail_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}
+
+/**
+ * v51: the Clock In / Clock Out module's JSON-blob cache (module clock, maintainer decision
+ * 2026-08-27 — docs/features/clock-in-out/plan.md). ONE blob table keyed by scope — the caller's
+ * own status (`status`), the presence board's first page per filter (`presence:<filterKey>`),
+ * and person-day detail (`person:<memberId>:<date>`) — the [MIGRATION_49_50] detail-cache shape.
+ * Additive only; touches nothing existing.
+ */
+val MIGRATION_50_51: Migration = object : Migration(50, 51) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `clock_blob_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}

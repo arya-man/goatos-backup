@@ -12,8 +12,10 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.common.Resource
@@ -26,14 +28,21 @@ import sg.mesha.goatos.core.data.cache.FeedPackingItemEntity
 import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheDao
 import sg.mesha.goatos.core.data.cache.FeedPackingMetaCacheEntity
 import sg.mesha.goatos.core.data.cache.FeedPackingRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.FeedWastageItemEntity
+import sg.mesha.goatos.core.data.cache.FeedWastageMetaCacheDao
+import sg.mesha.goatos.core.data.cache.FeedWastageMetaCacheEntity
+import sg.mesha.goatos.core.data.cache.FeedWastageRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.data.cache.enforceCacheBounds
 import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCapturedSlotDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionRowDto
 import sg.mesha.goatos.core.network.dto.FeedPackingRowDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
+import sg.mesha.goatos.core.network.dto.FeedWastageRowDto
+import sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto
 
 /**
  * One screen-page of feed rows. A phone viewport holds ~7-10 rows; anything larger is the mobile
@@ -59,8 +68,12 @@ data class FeedDirectionQuery(
     // Verification-lifecycle filter (pending | pending_verification | completed); null = every status.
     // Part of roomKey so a status change caches its own page/summary, never mixing two status scopes.
     val status: String? = null,
+    // Cache-only refresh trigger. The backend has no refresh_nonce parameter; this must not partition
+    // Room, but it must force the RemoteMediator to revalidate the current scope.
+    val refreshNonce: Int = 0,
 ) {
     fun roomKey(): String = cacheKey(
+        DIRECTION_CACHE_SHAPE,
         parkId,
         targetDate,
         shedId,
@@ -78,6 +91,8 @@ data class FeedPackingQuery(
     val session: Int? = null,
     val workflow: String? = null,
     val status: String? = null,
+    /** Forces a network refresh without partitioning the stable Room cache scope. */
+    val refreshNonce: Int = 0,
 ) {
     /**
      * The cache namespace for this scope.
@@ -105,6 +120,47 @@ data class FeedPackingQuery(
 private const val PACKING_CACHE_SHAPE = "session-v3"
 
 /**
+ * Filter scope for the Feed Wastage worklist (maintainer decision 2026-08-18). The grain is the
+ * PEN-DAY on EXPERIMENT pens: no session filter and no workflow filter — the server serves only
+ * `experiment` rows.
+ */
+data class FeedWastageQuery(
+    val parkId: String,
+    val targetDate: String,
+    val status: String? = null,
+) {
+    fun roomKey(): String =
+        cacheKey(WASTAGE_CACHE_SHAPE, parkId, targetDate, status, FEED_PAGE_SIZE.toString())
+}
+
+/** Bump whenever the cached wastage row JSON changes shape incompatibly (see PACKING_CACHE_SHAPE's
+ *  kdoc for why a stale-shape row must be orphaned rather than leniently decoded). */
+private const val WASTAGE_CACHE_SHAPE = "pen-day-v1"
+
+/** Page size for [DefaultFeedRepository.fetchWastageRowStatus]'s narrow poll. */
+private const val STATUS_POLL_WASTAGE_LIMIT = 20
+
+/** Page size for [DefaultFeedRepository.fetchDirectionSessionStatus]'s narrow poll — one shed/session
+ *  filtered server-side, so a small page is always enough. */
+private const val STATUS_POLL_DIRECTION_LIMIT = 20
+
+/** Page size for [DefaultFeedRepository.fetchPackingRowStatus]'s poll. When shed and partition are
+ *  narrowed server-side, a small page is always enough. */
+private const val STATUS_POLL_PACKING_LIMIT = 20
+
+/** Maximum pages to fetch during status polling when paginating (should almost never be reached after
+ *  adding exact server-side narrowing by shed/partition_label). */
+private const val MAX_STATUS_POLL_PAGES = 10
+
+/**
+ * Bump whenever the cached direction row JSON or cache semantics change incompatibly.
+ *
+ * v2 = refresh/resume bypasses the TTL through FeedDirectionQuery.refreshNonce, so phones do not
+ * keep reading an old fresh Room page after STG/API has gained a missing shed-partition row.
+ */
+private const val DIRECTION_CACHE_SHAPE = "direction-v2"
+
+/**
  * Feed vertical reads: the generated Feed Direction sheet and the Feed Packing worklist.
  *
  * Offline-first (docs/decisions/android-offline-first.md): Room is the UI's single source of truth.
@@ -113,6 +169,15 @@ private const val PACKING_CACHE_SHAPE = "session-v3"
  * backend by a `RemoteMediator`. Both layers page identically at [FEED_PAGE_SIZE]; nothing ever
  * holds the whole row set. These are read-only surfaces — there is no capture/write path here.
  */
+/**
+ * ONE server answer for a pen-session: the recorded proof slots AND the session's completion
+ * status, from the same instant. [sessionStatus] null = no completion row yet (or field absent).
+ */
+data class FeedPenSessionCaptures(
+    val slots: List<FeedDistributionCapturedSlotDto>,
+    val sessionStatus: String?,
+)
+
 interface FeedRepository {
     /** Cache-first stream of the Feed Direction whole-scope summary (`total_kg_by_feed_item`,
      *  blocked counts). Independent of the page. */
@@ -126,13 +191,184 @@ interface FeedRepository {
 
     /** The paged Feed Packing lines, a Room PagingSource filled by a RemoteMediator. */
     fun packingRows(query: FeedPackingQuery): Flow<PagingData<FeedPackingRowDto>>
+
+    /**
+     * LIVE per-row lifecycle status for one packing PEN-SESSION, straight from the same Room table
+     * [packingRows] renders from. `null` while Room has no cached row for this session yet (e.g. a
+     * fresh screen entry before any worklist page has ever cached it) — the caller should fall back
+     * to its nav-arg hint in that case rather than treating `null` as "open".
+     *
+     * This is what lets [sg.mesha.goatos.viewmodel.FeedPackingCompleteViewModel] flip to read-only
+     * live if the session is verified/rejected elsewhere while the completion screen stays open —
+     * the nav-arg lifecycle-status is only a snapshot from the moment the row was tapped (STG
+     * 2026-08-09 gap).
+     */
+    fun observePackingRowStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int): Flow<String?>
+
+    /**
+     * LIVE per-row lifecycle status for a feed-direction shed-session, straight from the same Room
+     * table [directionRows] renders from. A shed-session's lifecycle bucket is shared across every
+     * ration-grain row of that session (see [FeedDirectionRowDto.lifecycleStatus]'s kdoc), so any
+     * one matching row is authoritative. `null` while Room has no cached row yet — the caller should
+     * fall back to its nav-arg hint.
+     *
+     * Used by [sg.mesha.goatos.viewmodel.FeedDistributionCompleteViewModel] for the same live-status
+     * gating as [observePackingRowStatus].
+     */
+    fun observeDirectionSessionStatus(shedId: String, partitionLabel: String, workflow: String, sessionNo: Int): Flow<String?>
+
+    /**
+     * ONE-SHOT SERVER read of a feed-direction shed-session's lifecycle status, bypassing Room
+     * entirely. [observeDirectionSessionStatus] only changes when THIS phone's own sync writes a
+     * fresh cached row for the session — a teammate submitting the SAME session on another phone
+     * never touches this phone's Room cache while [sg.mesha.goatos.viewmodel.
+     * FeedDistributionCompleteViewModel]'s completion screen sits open, so that observer alone
+     * cannot see it. This is the periodic top-up that closes that gap. Reuses the existing
+     * `GET /feed-direction/preview` endpoint (no new backend route), narrowed to one shed/session so
+     * the read stays cheap.
+     *
+     * Returns `null` on ANY failure (offline/timeout/5xx) OR when no matching row comes back —
+     * callers MUST treat `null` as "unknown, keep current state", never as "not yet submitted".
+     */
+    suspend fun fetchDirectionSessionStatus(
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        targetDate: String,
+    ): String?
+
+    /** Same contract as [fetchDirectionSessionStatus], for the feed-PACKING worklist — used by
+     *  [sg.mesha.goatos.viewmodel.FeedPackingCompleteViewModel]'s periodic server poll. Reuses the
+     *  existing `GET /feed-packing/worklist` endpoint. */
+    suspend fun fetchPackingRowStatus(
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        targetDate: String,
+    ): String?
+
+    /**
+     * Which of ONE pen-session's proof slots are already recorded, by ANY operator.
+     *
+     * Deliberately NOT cache-first: this answers "has someone else done this slot in the last few
+     * minutes", and a stale cached answer is worse than none — it would either hide work that was
+     * just done or claim work that was withdrawn. A failure returns an empty list, so the capture
+     * screen degrades to exactly its pre-2026-08-14 single-phone behaviour rather than breaking.
+     */
+    /**
+     * Server-recorded proof slots for ONE pen-session, or `null` when the read FAILED (offline,
+     * timeout, 5xx). `null` and empty are different answers: empty means the server confirmed no
+     * teammate has recorded anything; null means we do not know and the caller should retry
+     * rather than conclude the slots are free.
+     */
+    suspend fun penSessionCaptures(query: FeedPenSessionCaptureQuery): FeedPenSessionCaptures?
+
+    /**
+     * Fetches the download URL for a proof so its media can be previewed.
+     * Returns null on any error (offline, timeout, proof not found, etc.).
+     */
+    suspend fun fetchProofDownloadUrl(proofId: String): String?
+
+    /**
+     * True when the Feed Direction summary endpoint answered for this scope right now — a live
+     * reachability probe for the manual-refresh affordance. Distinct from cache reads: a fresh
+     * cache can serve without network, so "no timestamp movement" must never be read as offline.
+     */
+    suspend fun probeDirectionSummary(query: FeedDirectionQuery): Boolean
+
+    /**
+     * Persist a fetched lifecycle status into the Room row for a direction shed-session so the
+     * live [observeDirectionSessionStatus] flow emits and screens survive process death offline.
+     * If no cached row exists yet, this is a no-op (the row will arrive on next list refresh).
+     */
+    suspend fun persistDirectionSessionStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ): Unit
+
+    suspend fun persistDirectionSessionStatuses(
+        targetDate: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ): Unit = persistDirectionSessionStatus(shedId, partitionLabel, workflow, sessionNo, lifecycleStatus)
+
+    /**
+     * Persist a fetched lifecycle status into the Room row for a packing pen-session so the
+     * live [observePackingRowStatus] flow emits and screens survive process death offline.
+     * If no cached row exists yet, this is a no-op (the row will arrive on next list refresh).
+     */
+    suspend fun persistPackingRowStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ): Unit
+
+    suspend fun persistPackingRowStatuses(
+        targetDate: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ): Unit = persistPackingRowStatus(shedId, partitionLabel, workflow, sessionNo, lifecycleStatus)
+    /** Cache-first stream of the Feed Wastage whole-scope summary (pen counts). Independent of the
+     *  page — the same offline-first contract as [observePackingTotals]. */
+    fun observeWastageTotals(query: FeedWastageQuery): Flow<Resource<FeedWastageWorklistPageDto>>
+
+    /** The paged Feed Wastage pen rows, a Room PagingSource filled by a RemoteMediator. */
+    fun wastageRows(query: FeedWastageQuery): Flow<PagingData<FeedWastageRowDto>>
+
+    /** LIVE per-row lifecycle status for one wastage PEN — same contract as
+     *  [observePackingRowStatus] (`null` = no cached row yet; fall back to the nav-arg hint). */
+    fun observeWastageRowStatus(shedId: String, partitionLabel: String, workflow: String): Flow<String?>
+
+    /** Same contract as [fetchPackingRowStatus], for the wastage worklist — the periodic server
+     *  poll that sees a teammate's submit this phone's Room cache has not caught up with. */
+    suspend fun fetchWastageRowStatus(
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        targetDate: String,
+    ): String?
+
+    /** Persist a fetched lifecycle status into the Room row for a wastage pen; no-op when no
+     *  cached row exists yet — same contract as [persistPackingRowStatus]. */
+    suspend fun persistWastageRowStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        lifecycleStatus: String,
+    ): Unit
 }
+
+/** Addresses ONE pen-session. [partitionLabel] is identity, not decoration. */
+data class FeedPenSessionCaptureQuery(
+    val parkId: String,
+    val shedId: String,
+    val partitionLabel: String,
+    val sessionNo: Int,
+    val targetDate: String,
+    val workflow: String,
+)
 
 class DefaultFeedRepository(
     private val api: AppApi,
     private val database: GoatDatabase,
     private val directionMetaDao: FeedDirectionMetaCacheDao,
     private val packingMetaDao: FeedPackingMetaCacheDao,
+    private val wastageMetaDao: FeedWastageMetaCacheDao,
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : FeedRepository {
@@ -210,6 +446,337 @@ class DefaultFeedRepository(
             .map { page -> page.map { entity -> json.decodeFromString<FeedPackingRowDto>(entity.dtoJson) } }
             .flowOn(Dispatchers.Default)
     }
+
+    override fun observePackingRowStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+    ): Flow<String?> =
+        database.feedPackingItemDao()
+            .observeRowForPenSession(shedId, partitionLabel, workflow, sessionNo.toString())
+            .map { entity -> entity?.let { json.decodeFromString<FeedPackingRowDto>(it.dtoJson).lifecycleStatus } }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+
+    override fun observeDirectionSessionStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+    ): Flow<String?> {
+        // Pre-concatenated HERE (not inside the SQL string) so the query binds a plain literal
+        // range against the indexed grainKey column instead of a runtime-concatenated LIKE
+        // pattern SQLite cannot turn into an index seek — see observeRowForShedSessionInRange's
+        // kdoc. "￿" sorts above every ASCII byte this key's components use, so
+        // [prefix, prefixEnd) covers exactly this shed/partition/workflow's rows.
+        val prefix = "$shedId|$partitionLabel|$workflow|"
+        val prefixEnd = prefix + "￿"
+        return database.feedDirectionItemDao()
+            .observeRowForShedSessionInRange(prefix, prefixEnd, sessionNo.toString())
+            .map { entity -> entity?.let { json.decodeFromString<FeedDirectionRowDto>(it.dtoJson).lifecycleStatus } }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+    }
+
+    override suspend fun fetchDirectionSessionStatus( // offline-first-guard:ignore: same liveness-beats-staleness rationale as penSessionCaptures below — this exists specifically to see a teammate's write Room has not cached yet.
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        targetDate: String,
+    ): String? = runCatching { // exception:exempt expected poll failure (offline/timeout/5xx); caller treats null as unknown, not an error to record
+        // Narrow server-side to one shed-session-partition grain with exact parameters: guaranteed
+        // to land the target row on page one regardless of park size. If a match still is not on page one
+        // after narrowing (should never happen), paginate up to MAX_STATUS_POLL_PAGES before giving up.
+        var offset = 0
+        repeat(MAX_STATUS_POLL_PAGES) {
+            val response = api.getFeedDirectionPreview(
+                parkId = parkId,
+                targetDate = targetDate,
+                shedId = shedId,
+                partitionLabel = partitionLabel.takeIf { it.isNotBlank() },
+                session = sessionNo,
+                workflow = workflow.takeIf { it.isNotBlank() },
+                limit = STATUS_POLL_DIRECTION_LIMIT,
+                offset = offset,
+            )
+            // Look for exact match on this page
+            response.items.firstOrNull { it.partitionLabel.orEmpty() == partitionLabel }?.lifecycleStatus?.let {
+                return@runCatching it
+            }
+            // If no more pages, give up
+            if (!response.hasMore) {
+                return@runCatching null
+            }
+            // Advance to next page: backend pages by SHEDS, not rows
+            offset += response.items.map { it.shedId }.distinct().size
+        }
+        null
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    override suspend fun fetchPackingRowStatus( // offline-first-guard:ignore: same rationale — periodic server poll for a teammate's write.
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        targetDate: String,
+    ): String? = runCatching {
+        // exception:exempt expected poll failure (offline/timeout/5xx); caller treats null as unknown, not an error to record
+        // Narrow server-side to one shed-session-partition grain with exact parameters: guaranteed
+        // to land the target row on page one regardless of park size. If a match still is not on page one
+        // after narrowing (should never happen), paginate up to MAX_STATUS_POLL_PAGES before giving up.
+        var offset = 0
+        repeat(MAX_STATUS_POLL_PAGES) {
+            val response = api.getFeedPackingWorklist(
+                parkId = parkId,
+                targetDate = targetDate,
+                shedId = shedId,
+                partitionLabel = partitionLabel.takeIf { it.isNotBlank() },
+                session = sessionNo,
+                workflow = workflow.takeIf { it.isNotBlank() },
+                limit = STATUS_POLL_PACKING_LIMIT,
+                offset = offset,
+            )
+            // Look for exact match on this page
+            response.items.firstOrNull { it.shedId == shedId && it.partitionLabel.orEmpty() == partitionLabel }?.lifecycleStatus?.let {
+                return@runCatching it
+            }
+            // If no more pages, give up
+            if (!response.hasMore) {
+                return@runCatching null
+            }
+            // Advance to next page: backend pages by SHEDS, not rows
+            offset += response.items.map { it.shedId }.distinct().size
+        }
+        null
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    override suspend fun penSessionCaptures( // offline-first-guard:ignore: liveness beats staleness here - a cached "someone already did this slot" would either hide work just done or claim work since withdrawn, and this only ADDS to a screen whose own capture state is already Room-backed.
+        query: FeedPenSessionCaptureQuery,
+    ): FeedPenSessionCaptures? =
+        runCatching {
+            val dto = api.getFeedDistributionCaptures(
+                parkId = query.parkId.takeIf { it.isNotBlank() },
+                shedId = query.shedId,
+                partitionLabel = query.partitionLabel.takeIf { it.isNotBlank() },
+                sessionNo = query.sessionNo,
+                targetDate = query.targetDate,
+                workflow = query.workflow,
+            )
+            FeedPenSessionCaptures(slots = dto.items, sessionStatus = dto.sessionStatus.takeIf { it.isNotBlank() })
+        }.getOrElse {
+            // Fail soft but NOT silent to the caller: null tells the ViewModel the read failed so
+            // it can retry, instead of treating a network blip as "no teammate has recorded
+            // anything" and leaving the screen stale until the operator taps Sync.
+            null
+        }
+
+    override suspend fun probeDirectionSummary(query: FeedDirectionQuery): Boolean { // offline-first-guard:ignore: pure reachability probe for the refresh spinner/offline flag — Boolean about the NETWORK, never screen data; the screen stays Room-backed
+        return try {
+            api.getFeedDirectionPreview(
+                parkId = query.parkId,
+                targetDate = query.targetDate,
+                shedId = query.shedId,
+                partitionLabel = null,
+                session = query.session,
+                workflow = query.workflow,
+                status = query.status,
+                limit = 1,
+                offset = 0,
+            )
+            true
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    override suspend fun fetchProofDownloadUrl(proofId: String): String? { // offline-first-guard:ignore: signed URL is single-use and time-limited by the server; caching it in Room would serve an expired/invalid link instead of failing honestly
+        if (proofId.isBlank()) return null
+        return try {
+            api.getProofDownloadUrl(proofId)
+        } catch (cancellation: CancellationException) {
+            // Cancellation must unwind, never be absorbed into a fake "no URL" answer.
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    override suspend fun persistDirectionSessionStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ) {
+        if (lifecycleStatus.isBlank()) return
+        // Find the most recently cached row for this shed-session (same logic as observeDirectionSessionStatus)
+        val prefix = "$shedId|$partitionLabel|$workflow|"
+        val prefixEnd = prefix + "￿"
+        val row = database.feedDirectionItemDao()
+            .observeRowForShedSessionInRange(prefix, prefixEnd, sessionNo.toString())
+            .first()
+        if (row != null) {
+            // Decode the cached DTO, update the lifecycleStatus, and re-encode
+            val dto = json.decodeFromString<FeedDirectionRowDto>(row.dtoJson).copy(lifecycleStatus = lifecycleStatus)
+            val updatedRow = row.copy(dtoJson = json.encodeToString(dto))
+            database.feedDirectionItemDao().upsertAll(listOf(updatedRow))
+        }
+    }
+
+    override suspend fun persistDirectionSessionStatuses(
+        targetDate: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ) {
+        if (lifecycleStatus.isBlank()) return
+        val prefix = "$shedId|$partitionLabel|$workflow|"
+        val rows = database.feedDirectionItemDao().rowsForShedSessionInRange(
+            queryPattern = "$DIRECTION_CACHE_SHAPE|%|$targetDate|%",
+            prefix = prefix,
+            prefixEnd = prefix + "￿",
+            sessionNo = sessionNo.toString(),
+        )
+        database.feedDirectionItemDao().upsertAll(rows.map { row ->
+            val dto = json.decodeFromString<FeedDirectionRowDto>(row.dtoJson).copy(lifecycleStatus = lifecycleStatus)
+            row.copy(dtoJson = json.encodeToString(dto))
+        })
+    }
+
+    override suspend fun persistPackingRowStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ) {
+        if (lifecycleStatus.isBlank()) return
+        // Find the most recently cached row for this pen-session (same logic as observePackingRowStatus)
+        val row = database.feedPackingItemDao()
+            .observeRowForPenSession(shedId, partitionLabel, workflow, sessionNo.toString())
+            .first()
+        if (row != null) {
+            // Decode the cached DTO, update the lifecycleStatus, and re-encode
+            val dto = json.decodeFromString<FeedPackingRowDto>(row.dtoJson).copy(lifecycleStatus = lifecycleStatus)
+            val updatedRow = row.copy(dtoJson = json.encodeToString(dto))
+            database.feedPackingItemDao().upsertAll(listOf(updatedRow))
+        }
+    }
+
+
+    override suspend fun persistPackingRowStatuses(
+        targetDate: String,
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        sessionNo: Int,
+        lifecycleStatus: String,
+    ) {
+        if (lifecycleStatus.isBlank()) return
+        val rows = database.feedPackingItemDao().rowsForPenSession(
+            queryPattern = "$PACKING_CACHE_SHAPE|%|$targetDate|%",
+            shedId = shedId,
+            partitionLabel = partitionLabel,
+            workflow = workflow,
+            sessionNo = sessionNo.coerceAtLeast(1).toString(),
+        )
+        database.feedPackingItemDao().upsertAll(rows.map { row ->
+            val dto = json.decodeFromString<FeedPackingRowDto>(row.dtoJson).copy(lifecycleStatus = lifecycleStatus)
+            row.copy(dtoJson = json.encodeToString(dto))
+        })
+    }
+
+    override fun observeWastageTotals(
+        query: FeedWastageQuery,
+    ): Flow<Resource<FeedWastageWorklistPageDto>> {
+        val key = query.roomKey()
+        return wastageMetaDao.observe(key)
+            .map { entity ->
+                val cached = readCachedJson<FeedWastageWorklistPageDto>(
+                    json = json,
+                    cacheKey = key,
+                    dtoJson = entity?.dtoJson,
+                    updatedAt = entity?.updatedAt,
+                    now = clock(),
+                    quarantine = { wastageMetaDao.delete(it) },
+                )
+                Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
+            }
+            .flowOn(Dispatchers.Default)
+    }
+
+    @OptIn(ExperimentalPagingApi::class)
+    override fun wastageRows(query: FeedWastageQuery): Flow<PagingData<FeedWastageRowDto>> {
+        val key = query.roomKey()
+        return Pager(
+            config = PagingConfig(
+                pageSize = FEED_PAGE_SIZE,
+                initialLoadSize = FEED_PAGE_SIZE,
+                prefetchDistance = 3,
+                enablePlaceholders = false,
+                maxSize = FEED_PAGE_SIZE * 3,
+            ),
+            remoteMediator = FeedWastageRemoteMediator(query, api, database, wastageMetaDao, json, clock),
+            pagingSourceFactory = { database.feedWastageItemDao().pagingSource(key) },
+        ).flow
+            .map { page -> page.map { entity -> json.decodeFromString<FeedWastageRowDto>(entity.dtoJson) } }
+            .flowOn(Dispatchers.Default)
+    }
+
+    override fun observeWastageRowStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+    ): Flow<String?> =
+        database.feedWastageItemDao()
+            .observeRowForPen(shedId, partitionLabel, workflow)
+            .map { entity -> entity?.let { json.decodeFromString<FeedWastageRowDto>(it.dtoJson).lifecycleStatus } }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
+
+    override suspend fun fetchWastageRowStatus( // offline-first-guard:ignore: same rationale as fetchPackingRowStatus — periodic server poll for a teammate's write Room has not cached yet.
+        parkId: String,
+        shedId: String,
+        partitionLabel: String,
+        targetDate: String,
+    ): String? = runCatching {
+        // exception:exempt expected poll failure (offline/timeout/5xx); caller treats null as unknown, not an error to record
+        val response = api.getFeedWastageWorklist(
+            parkId = parkId,
+            targetDate = targetDate,
+            shedId = shedId,
+            partitionLabel = partitionLabel.takeIf { it.isNotBlank() },
+            limit = STATUS_POLL_WASTAGE_LIMIT,
+            offset = 0,
+        )
+        response.items
+            .firstOrNull { it.shedId == shedId && it.partitionLabel.orEmpty() == partitionLabel }
+            ?.lifecycleStatus
+    }.getOrNull()?.takeIf { it.isNotBlank() }
+
+    override suspend fun persistWastageRowStatus(
+        shedId: String,
+        partitionLabel: String,
+        workflow: String,
+        lifecycleStatus: String,
+    ) {
+        if (lifecycleStatus.isBlank()) return
+        val row = database.feedWastageItemDao()
+            .observeRowForPen(shedId, partitionLabel, workflow)
+            .first()
+        if (row != null) {
+            val dto = json.decodeFromString<FeedWastageRowDto>(row.dtoJson).copy(lifecycleStatus = lifecycleStatus)
+            database.feedWastageItemDao().upsertAll(listOf(row.copy(dtoJson = json.encodeToString(dto))))
+        }
+    }
 }
 
 /**
@@ -230,6 +797,7 @@ private class FeedDirectionRemoteMediator(
     private val queryKey = query.roomKey()
 
     override suspend fun initialize(): InitializeAction {
+        if (query.refreshNonce > 0) return InitializeAction.LAUNCH_INITIAL_REFRESH
         val cachedAt = database.feedDirectionRemoteKeyDao().get(queryKey)?.updatedAt
         return if (cachedAt != null && clock() - cachedAt < CacheGovernance.DEFAULT_TTL_MILLIS) {
             InitializeAction.SKIP_INITIAL_REFRESH
@@ -325,6 +893,106 @@ private class FeedDirectionRemoteMediator(
     }
 }
 
+/** Fills Room from `/feed-wastage/worklist` page-by-page. Mirror of [FeedPackingRemoteMediator]:
+ *  the backend pages the SHED set (a shed can hold several pens), so the offset advances by
+ *  DISTINCT sheds and end-of-pagination comes from `has_more`. */
+@OptIn(ExperimentalPagingApi::class)
+private class FeedWastageRemoteMediator(
+    private val query: FeedWastageQuery,
+    private val api: AppApi,
+    private val database: GoatDatabase,
+    private val metaDao: FeedWastageMetaCacheDao,
+    private val json: Json,
+    private val clock: () -> Long,
+) : RemoteMediator<Int, FeedWastageItemEntity>() {
+    private val queryKey = query.roomKey()
+
+    override suspend fun initialize(): InitializeAction {
+        val cachedAt = database.feedWastageRemoteKeyDao().get(queryKey)?.updatedAt
+        return if (cachedAt != null && clock() - cachedAt < CacheGovernance.DEFAULT_TTL_MILLIS) {
+            InitializeAction.SKIP_INITIAL_REFRESH
+        } else {
+            InitializeAction.LAUNCH_INITIAL_REFRESH
+        }
+    }
+
+    override suspend fun load(
+        loadType: LoadType,
+        state: PagingState<Int, FeedWastageItemEntity>,
+    ): MediatorResult {
+        val offset = when (loadType) {
+            LoadType.PREPEND -> return MediatorResult.Success(endOfPaginationReached = true)
+            LoadType.REFRESH -> 0
+            LoadType.APPEND -> {
+                val remoteKey = database.feedWastageRemoteKeyDao().get(queryKey)
+                    ?: return MediatorResult.Success(endOfPaginationReached = true)
+                if (remoteKey.endReached) return MediatorResult.Success(endOfPaginationReached = true)
+                remoteKey.nextOffset
+            }
+        }
+        return try {
+            val response = api.getFeedWastageWorklist(
+                parkId = query.parkId,
+                targetDate = query.targetDate,
+                status = query.status,
+                limit = FEED_PAGE_SIZE,
+                offset = offset,
+            )
+            val shedsReturned = response.items.map { it.shedId }.distinct().size
+            val endReached = !response.hasMore
+            val updatedAt = clock()
+            database.withTransaction {
+                val itemDao = database.feedWastageItemDao()
+                val remoteKeyDao = database.feedWastageRemoteKeyDao()
+                if (loadType == LoadType.REFRESH) {
+                    itemDao.deleteQuery(queryKey)
+                    remoteKeyDao.delete(queryKey)
+                }
+                val rowBase = itemDao.countForQuery(queryKey)
+                itemDao.upsertAll(
+                    response.items.mapIndexed { index, row ->
+                        FeedWastageItemEntity(
+                            queryKey = queryKey,
+                            grainKey = row.grainKey,
+                            sortIndex = rowBase + index,
+                            dtoJson = json.encodeToString(row),
+                            updatedAt = updatedAt,
+                        )
+                    },
+                )
+                remoteKeyDao.upsert(
+                    FeedWastageRemoteKeyEntity(
+                        queryKey = queryKey,
+                        nextOffset = offset + shedsReturned,
+                        endReached = endReached,
+                        updatedAt = updatedAt,
+                    ),
+                )
+                if (loadType == LoadType.REFRESH) {
+                    metaDao.upsert(
+                        FeedWastageMetaCacheEntity(
+                            cacheKey = queryKey,
+                            // Summary envelope only: pen counts roll up the whole filtered scope.
+                            // Rows are dropped here — they live as normalized Room rows so this
+                            // blob can never grow with the sheet.
+                            dtoJson = json.encodeToString(response.copy(items = emptyList())),
+                            updatedAt = updatedAt,
+                        ),
+                    )
+                    itemDao.deleteRowsOutsideNewestQueries(FEED_CACHED_QUERIES)
+                    remoteKeyDao.deleteOutsideNewestQueries(FEED_CACHED_QUERIES)
+                }
+            }
+            if (loadType == LoadType.REFRESH) metaDao.enforceCacheBounds()
+            MediatorResult.Success(endOfPaginationReached = endReached)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            MediatorResult.Error(error)
+        }
+    }
+}
+
 /** Fills Room from `/feed-packing/worklist` page-by-page. Mirror of [FeedDirectionRemoteMediator]. */
 @OptIn(ExperimentalPagingApi::class)
 private class FeedPackingRemoteMediator(
@@ -338,6 +1006,7 @@ private class FeedPackingRemoteMediator(
     private val queryKey = query.roomKey()
 
     override suspend fun initialize(): InitializeAction {
+        if (query.refreshNonce > 0) return InitializeAction.LAUNCH_INITIAL_REFRESH
         val cachedAt = database.feedPackingRemoteKeyDao().get(queryKey)?.updatedAt
         return if (cachedAt != null && clock() - cachedAt < CacheGovernance.DEFAULT_TTL_MILLIS) {
             InitializeAction.SKIP_INITIAL_REFRESH

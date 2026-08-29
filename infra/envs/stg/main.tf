@@ -16,6 +16,10 @@ locals {
       account_id   = "goatos-admin-web-stg"
       display_name = "Goat OS staging admin-web runtime"
     }
+    mcp = {
+      account_id   = "goatos-mcp-stg"
+      display_name = "Goat OS staging external MCP runtime"
+    }
     # kernel_worker: the single consolidated long-running SERVICE that replaces
     # the retired per-stage scheduled Cloud Run Jobs (outbox relay, domain
     # consumer, processed-event/idempotency/inventory/SOP sweepers, vaccination
@@ -25,6 +29,10 @@ locals {
     kernel_worker = {
       account_id   = "goatos-kernel-worker-stg"
       display_name = "Goat OS staging kernel worker runtime"
+    }
+    herd_signals_mqtt_bridge = {
+      account_id   = "goatos-hs-mqtt-bridge-stg"
+      display_name = "Goat OS staging herd signals MQTT bridge runtime"
     }
     outbox_dlq = {
       account_id   = "goatos-outbox-dlq-stg"
@@ -58,6 +66,7 @@ locals {
   database_clients = toset([
     "api",
     "kernel_worker",
+    "herd_signals_mqtt_bridge",
     "outbox_dlq",
     "migrate",
     "legacy_sync",
@@ -70,6 +79,7 @@ locals {
       accessors = [
         "api",
         "kernel_worker",
+        "herd_signals_mqtt_bridge",
         "outbox_dlq",
         "migrate",
         "legacy_sync",
@@ -86,24 +96,28 @@ locals {
       secret_id = "goatos-stg-auth-issuer"
       accessors = [
         "api",
+        "mcp",
       ]
     }
     auth_audience = {
       secret_id = "goatos-stg-auth-audience"
       accessors = [
         "api",
+        "mcp",
       ]
     }
     auth_jwks_url = {
       secret_id = "goatos-stg-auth-jwks-url"
       accessors = [
         "api",
+        "mcp",
       ]
     }
     auth_allowed_emails = {
       secret_id = "goatos-stg-auth-allowed-emails"
       accessors = [
         "api",
+        "mcp",
       ]
     }
     bulk_import_preview_signing_key = {
@@ -122,6 +136,7 @@ locals {
       secret_id = "goatos-stg-firebase-web-config"
       accessors = [
         "admin_web",
+        "mcp",
       ]
     }
     google_oauth_web_credential = {
@@ -176,6 +191,36 @@ locals {
       secret_id = "mesha-mcp-toolset"
       accessors = [
         "api",
+      ]
+    }
+    herd_signals_mqtt_host = {
+      secret_id = "herd-signals-mqtt-host"
+      accessors = [
+        "herd_signals_mqtt_bridge",
+      ]
+    }
+    herd_signals_mqtt_port = {
+      secret_id = "herd-signals-mqtt-port"
+      accessors = [
+        "herd_signals_mqtt_bridge",
+      ]
+    }
+    herd_signals_mqtt_topic = {
+      secret_id = "herd-signals-mqtt-topic"
+      accessors = [
+        "herd_signals_mqtt_bridge",
+      ]
+    }
+    herd_signals_mqtt_client_id = {
+      secret_id = "herd-signals-mqtt-client-id"
+      accessors = [
+        "herd_signals_mqtt_bridge",
+      ]
+    }
+    herd_signals_mqtt_username = {
+      secret_id = "herd-signals-mqtt-username"
+      accessors = [
+        "herd_signals_mqtt_bridge",
       ]
     }
   }

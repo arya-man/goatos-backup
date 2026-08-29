@@ -69,7 +69,12 @@ type ShiftingEvent struct {
 	// operator intent, never a business rule: nothing downstream branches on it. It is carried to
 	// the park head deciding the approval and to the verifier reviewing the evidence, so both read
 	// the same words the operator wrote. nil means no note; it is never defaulted to a placeholder.
-	RaiseComment       *string
+	RaiseComment *string
+	// AdoptPenTag is the tag the DESTINATION PEN itself adopts when this movement applies
+	// (spacing/delivery/flushing into an empty pen -- see ShiftTypeDecision.AdoptPenTag). Empty:
+	// the movement configures no pen. Snapshotted at raise, like TargetManagementStage, so the
+	// park head approves the exact pen configuration the apply writes.
+	AdoptPenTag        string
 	PayloadHash        string
 	IdempotencyKey     string
 	RequestFingerprint string
@@ -570,8 +575,15 @@ type CountsBreakdownQuery struct {
 // This is a bounded CONFIG CATALOG (2 parks, ~154 sheds for the current tenant), not a feed: it is
 // fetched whole, cached on-device, and never paginated. See the guard annotations on the query.
 type ShiftingDestinationCatalog struct {
-	Parks            []ShiftingDestinationPark
+	Parks []ShiftingDestinationPark
+	// ManagementStages is the CLINICAL-STRIPPED active vocabulary offered to pickers: a raise form
+	// must never OFFER a clinical state as a choice.
 	ManagementStages []string
+	// AllManagementStages is the complete active vocabulary, clinical states included. The typed
+	// shifting rulebook canonicalizes against THIS list -- a health movement legitimately stamps a
+	// clinical state (the one type allowed to), and each type's own clinical refusal, not list
+	// stripping, is what guards the others.
+	AllManagementStages []string
 }
 
 // ShiftingDestinationPark is one park and the sheds that belong to it.
@@ -597,6 +609,11 @@ type ShiftingDestinationShed struct {
 	Name             string
 	ManagementStages []string
 
+	// HeadCount is the live animals standing in THIS exact operational location (this partition,
+	// or the bare shed for a non-partitioned entry). 0 for a real-but-empty pen -- the emptiness
+	// signal the typed shifting rules key on (spacing/delivery/flushing into an empty pen).
+	HeadCount int
+
 	// PartitionLabel is nil for the bare-shed (non-partitioned) destination entry, or the raw stored
 	// partition label ('1', 'Part 3') for a partition destination entry. Never "whole": that sentinel
 	// is a matching key, not a real label, and must never reach this field or the API surface.
@@ -605,6 +622,16 @@ type ShiftingDestinationShed struct {
 	// Display is the operator-facing operational-location label (oploc.OperationalLocation.Display):
 	// "Yashoda" for a non-partitioned shed, "Castro 2" / "Godel 1 - Part 3" for a partition.
 	Display string
+
+	// ConfiguredStage is the cohort AUTHORED for this exact operational location -- the pen's own
+	// tag (shed_partitions.animal_stage_id) for a partition entry, the shed's profile
+	// (shed_profiles.animal_stage_id) for a shed that has no pens. "" when none is configured.
+	//
+	// It is the FIRST answer a movement adopts, ahead of ManagementStages, because it is what
+	// somebody decided this pen is for rather than what happens to be standing in it. Maintainer
+	// decision 2026-08-14: a movement always targets a PEN, so the pen's tag is the destination
+	// cohort; deriving it from the shed's residents answered a question about the wrong place.
+	ConfiguredStage string
 }
 
 // GoatShiftingFact is the narrow set of canonical goat attributes needed to DERIVE a shifting

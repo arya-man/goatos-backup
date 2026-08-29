@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   BookText,
@@ -26,12 +26,10 @@ import {
   Zap,
 } from "lucide-react";
 import { type SopCardView, type SopTrigger } from "./sop-derive";
-import { copy, optionGroup, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
-// The New SOP builder is a dedicated full-page surface at /sops?compose=1 (same top-level authority
-// route — the IA guard forbids a nested /sops/new page). The library links out to it; it is no longer a
-// modal. Legacy `?new=1` deep-links (vaccination SOP quick-view) resolve to the same builder.
-const BUILDER_HREF = "/sops?compose=1";
+// The New SOP builder is a dedicated full-page surface at <module SOP page>?compose=1 — the same
+// route as the module page (never a nested /new page). Legacy `?new=1` deep-links resolve to it too.
 
 const TRIGGER_ICON: Record<SopTrigger, React.ElementType> = {
   form: SquarePen,
@@ -64,26 +62,26 @@ export interface SopLibraryProps {
   error?: { code?: string; message: string } | null;
   authRequired?: boolean;
   pageContract: AdminUiPageContract;
+  /** The module SOP page path this library is mounted on (e.g. "/vaccination/sops"). */
+  basePath: string;
 }
 
 // SOP Library client console. Ported from the mock SOP Library screen (header, search, domain chips,
 // card grid, detail modal). "New SOP" / "Edit" navigate to the dedicated full-page builder
-// (/sops?compose=1 [&edit=<sop_id>]). Cards render ONLY real `/admin/sops` data; facets are derived from
+// (<basePath>?compose=1 [&edit=<sop_id>]). Cards render ONLY real `/admin/sops` data; facets are derived from
 // real code/description/form_dsl/proof_policy. No mock inventory, no fake source rows.
-export function SopLibrary({ sops, error, authRequired, pageContract }: SopLibraryProps) {
+export function SopLibrary({ sops, error, authRequired, pageContract, basePath }: SopLibraryProps) {
   const router = useRouter();
+  const builderHref = `${basePath}?compose=1`;
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState<SopCardView | null>(null);
-  const openBuilder = () => router.push(BUILDER_HREF);
-  const openEditor = (sopId: string) => router.push(`${BUILDER_HREF}&edit=${sopId}`);
+  const openBuilder = () => router.push(builderHref);
+  const openEditor = (sopId: string) => router.push(`${builderHref}&edit=${sopId}`);
   const [requestedPage, setRequestedPage] = useState(1);
 	  const pageSizeOptions = tablePageSizes(pageContract, "sop-library");
 	  const [pageSize, setPageSize] = useState<number>(pageSizeOptions.includes(10) ? 10 : (pageSizeOptions[0] ?? 10));
-	  const activeSopChips = optionGroup(pageContract, "domain_chips");
-
-  // Counts are computed from the vaccination-visible slice only (sops already filtered to vaccination
-  // on the server). The only live bucket is "All"; the other mock domain chips stay for layout fidelity
-  // but read 0 and are disabled — they must not imply built product.
+  // The page is pre-scoped to its module's SOP codes (SOP split, maintainer decision 2026-08-18),
+  // so the only client-side filter is the text search.
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return sops;
@@ -128,23 +126,6 @@ export function SopLibrary({ sops, error, authRequired, pageContract }: SopLibra
               setRequestedPage(1);
             }}
           />
-        </div>
-        <div className="subtabs" style={{ margin: 0 }}>
-	          {activeSopChips.map((c) => {
-            return (
-              <button
-	                key={c.key}
-                type="button"
-                className="on"
-                disabled
-                title={copy(pageContract, "filter.domain.current")}
-                style={{ cursor: "not-allowed" }}
-              >
-	                {c.label}
-                <span className="cbq">{sops.length}</span>
-              </button>
-            );
-          })}
         </div>
       </div>
 
@@ -288,6 +269,14 @@ export function SopLibrary({ sops, error, authRequired, pageContract }: SopLibra
 }
 
 function SopDetailModal({ view, pageContract, onClose, onEdit }: { view: SopCardView; pageContract: AdminUiPageContract; onClose: () => void; onEdit: () => void }) {
+  // Overlay close contract: Escape must close the modal, alongside the X button and backdrop click.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
     <>
       <div className="cfgback on" onClick={onClose} />

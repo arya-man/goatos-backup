@@ -28,8 +28,6 @@ const TOP_LEVEL_COMMAND_ROUTES = new Set([
   "/workflows",
   "/workflows/{param}",
   "/calendar/drive/{param}",
-  "/config",
-  "/sops",
 ]);
 
 function walk(dir, out, predicate) {
@@ -67,13 +65,14 @@ function hasCommandSegment(route) {
 // segment but which are not a duplicate of that top-level lens.
 //
 // `/feed/config`, approved by explicit maintainer decision recorded in
-// backend/internal/adminui/app/service.go (see the comment above the "feed" nav group). It is NOT a
-// second Config authority screen: `/config` remains the single generic protocol-rule authority
-// surface, and `/feed/config` authors the ration grid, per-shed factors, session template and
-// dispatch clock that ONLY Feed consumes — a different data model, different endpoints
-// (/feed-config/*), and something `/config?category=feed_direction` cannot render, since that shows
-// protocol rules rather than the ration grid. The backend contract classifies it "module-surface",
-// not "authority-screen", and ships it as a Feed nav leaf.
+// backend/internal/adminui/app/service.go (see the comment above the "feed" nav group). It authors
+// the ration grid, per-shed factors, session template and dispatch clock that ONLY Feed consumes —
+// its own data model and endpoints (/feed-config/*). The backend contract classifies it
+// "module-surface", not "authority-screen", and ships it as a Feed nav leaf.
+//
+// The generic `/config` screen it was once contrasted against no longer exists: it authored
+// protocol rules for a category set that turned out to be vaccination-only, and Preventive Care /
+// Vaccination plan replaced it. Each module now owns its own config surface.
 //
 // `/health/config`, approved by explicit maintainer decision 2026-08-06 and recorded in
 // docs/decisions/health-config-authoring.md plus the "health" nav group comment in the same backend
@@ -88,7 +87,26 @@ function hasCommandSegment(route) {
 // not a routine edit: it must be backed by a maintainer decision recorded in the backend contract.
 // No command lens (Control Tower, Action Center, Calendar, Protocol Adherence, Workflows) is
 // exempted for any vertical, and none may be.
-const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set(["/feed/config", "/health/config"]);
+// The FIVE module SOP pages: three approved by explicit maintainer decision 2026-08-18, plus
+// /milk/sops and /weighing/sops approved by maintainer decision 2026-08-22 (recorded in
+// AGENTS.md and adminui service.go alongside migration 000186's milk.preparation / milk.feeding /
+// weighing.session library documents). The original 2026-08-18 record follows (recorded in
+// backend/internal/adminui/app/service.go, PC nav-group note, and AGENTS.md): the top-level
+// Admin/Data Ops SOP Library (/sops) is RETIRED, and each module owns its SOP documents as a
+// module-surface — /counts/sops (Herd Operations: birth / death /
+// shifting), /feed/sops (distribution / packing / transport). They are not duplicates of a
+// top-level lens: no /sops route exists any more, /config remains the single generic authority
+// screen, and no command lens (Control Tower, Action Center, Calendar, Protocol Adherence,
+// Workflows) is exempted for any vertical. The "sops" segment stays in COMMAND_SEGMENTS so any
+// OTHER nested sops route (e.g. /procurement/sops) still fails without its own recorded decision.
+const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set([
+  "/feed/config",
+  "/health/config",
+  "/counts/sops",
+  "/feed/sops",
+  "/milk/sops",
+  "/weighing/sops",
+]);
 
 function isAllowedRoute(route) {
   if (TOP_LEVEL_COMMAND_ROUTES.has(route)) return true;
@@ -156,20 +174,32 @@ const pageRoutes = new Set(pageFiles.map(normalizeRouteFromPage).filter(Boolean)
 const findings = [];
 
 // Vaccination trigger-closure scope guard: the shell may mirror the broad mock sidebar, but Counts must not
-// create new unsupported route trees. Counts has three real pages in this slice — Herd Register (the per-goat
-// register), Counts Breakdown (the farm x stage x breed x gender x shed census), and Milk Preparation
+// create new unsupported route trees. Counts has four real pages in this slice — Herd Register (the per-goat
+// register, whose left-bar leaf is withheld for now but whose route stays reachable), Herd Analytics (the
+// leadership read: live composition beside month-by-month births/exits/pen movements), Counts Breakdown
+// (the farm x stage x breed x gender x shed census), and Milk Preparation
 // (the current K1/K2/K3 preparation worklist). Every other broad Counts
 // label from the mock must still route into one of those or a top-level command lens.
 //
 // SUPPORTED_COUNTS_HREFS is an allowlist on purpose: widening it is a deliberate scope decision recorded in
 // context/frontend/current-admin-web-scope.md, not a routine edit. Tagging & identity, Weights & ADG, and
 // Count reconciliation remain out of scope and must not be added here without that doc changing too.
-const SUPPORTED_COUNTS_HREFS = new Set(["/counts/herd", "/counts/breakdown", "/counts/milk-preparation", "/action-center"]);
+const SUPPORTED_COUNTS_HREFS = new Set([
+  "/counts/herd",
+  "/counts/analytics",
+  "/counts/breakdown",
+  "/counts/milk-preparation",
+  // Herd Operations SOP page — part of the SOP split (maintainer decision 2026-08-18, see
+  // MODULE_SURFACE_ROUTE_EXCEPTIONS above).
+  "/counts/sops",
+  "/action-center",
+]);
 const backendUiContractFile = "../../backend/internal/adminui/app/service.go";
 const legacyShellFile = "components/mesha-shell.tsx";
 const visibleIaFile = existsSync(backendUiContractFile) ? backendUiContractFile : legacyShellFile;
 if (existsSync(visibleIaFile)) {
-  const visibleIaText = stripComments(readFileSync(visibleIaFile, "utf8"));
+  const visibleIaRawText = readFileSync(visibleIaFile, "utf8");
+  const visibleIaText = stripComments(visibleIaRawText);
   if (visibleIaFile.endsWith(".go")) {
     const pageHrefs = pageHrefsFromGoSource(visibleIaText);
     const navItems = [
@@ -202,11 +232,30 @@ if (existsSync(visibleIaFile)) {
     const labels = countsLeaves.map((leaf) => leaf.label);
     const hrefs = countsLeaves.map((leaf) => leaf.href);
     const unsupportedCountsHrefs = hrefs.filter((href) => !SUPPORTED_COUNTS_HREFS.has(href));
-    if (!labels.includes("Herd register") && !labels.includes("Herd Register")) {
-      findings.push(
-        `${visibleIaFile} must include the real Counts -> Herd Register leaf. ` +
-          `Current Counts labels are [${labels.join(", ") || "none"}].`,
-      );
+    // Herd Register may be WITHHELD from the sidebar (maintainer decision 2026-08-20, recorded in
+    // context/frontend/current-admin-web-scope.md), the same way Feed Packing is. What must never
+    // happen is withholding turning into DELETING: the page route has to stay reachable, and the
+    // commented restore line has to stay in the nav so the next reader can see the leaf is
+    // deliberately parked rather than gone. Checking the raw text is the point — the stripped text
+    // this guard otherwise reads cannot see a commented line at all.
+    const herdRegisterLeafVisible = labels.includes("Herd register") || labels.includes("Herd Register");
+    if (!herdRegisterLeafVisible) {
+      if (!pageRoutes.has("/counts/herd")) {
+        findings.push(
+          `${visibleIaFile} withholds the Counts -> Herd Register leaf, but apps/admin-web no longer serves ` +
+            "/counts/herd. Hiding a leaf must keep its route reachable; deleting the route is a separate " +
+            "scope decision.",
+        );
+      }
+      if (!/navLeaf\("counts-herd",/.test(visibleIaRawText)) {
+        findings.push(
+          `${visibleIaFile} withholds the Counts -> Herd Register leaf without leaving its commented ` +
+            'navLeaf("counts-herd", ...) restore line in place. Keep it so the leaf reads as parked, not lost.',
+        );
+      }
+    }
+    if (labels.length === 0) {
+      findings.push(`${visibleIaFile} publishes an empty Counts sidebar group.`);
     }
     if (unsupportedCountsHrefs.length > 0) {
       findings.push(
@@ -466,7 +515,7 @@ if (findings.length > 0) {
   console.error(
     "\nAllowed pattern: /action-center?domain=<vertical>, /protocol-adherence?domain=<vertical>, " +
       "/calendar?owner_key=<owner>, /workflows?domain=<vertical>, /workflows/{row_id}?domain=<vertical>, " +
-      "/config?category=<module>, or /sops?domain=<module>.\n" +
+      "Vaccination config lives at /vaccination/plan. SOP pages are per-module surfaces: /counts/sops, /feed/sops.\n" +
       "Vertical route trees should contain operational screens only.",
   );
   process.exit(1);

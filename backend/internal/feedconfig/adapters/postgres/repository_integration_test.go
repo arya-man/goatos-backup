@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -718,6 +720,7 @@ func TestListRationRatesPagesAndFilters(t *testing.T) {
 	pool := setupFeedConfigDB(t, ctx)
 	repo := fcRepo(pool)
 
+	fcSeedCatalog(t, ctx, pool, "Concentrate", "Green Fodder")
 	cells := []struct{ group, tag, item, grams string }{
 		{"Boer", "Pregnant", "Concentrate", "250.000"},
 		{"Boer", "Pregnant", "Green Fodder", "1000.000"},
@@ -794,6 +797,7 @@ VALUES ($1::uuid, 'Beetal', 'Beetal/Sirohi'),
 ON CONFLICT DO NOTHING`, fcTenant); err != nil {
 		t.Fatalf("seed ration groups: %v", err)
 	}
+	fcSeedCatalog(t, ctx, pool, "Concentrate", "Green Fodder", "Baking Soda")
 
 	cells := []struct{ group, tag, item, grams string }{
 		{"Beetal/Sirohi", "Pregnant", "Concentrate", "250.000"},
@@ -1107,6 +1111,7 @@ func TestListsExcludeSupersededRows(t *testing.T) {
 	pool := setupFeedConfigDB(t, ctx)
 	repo := fcRepo(pool)
 
+	fcSeedCatalog(t, ctx, pool, "Concentrate")
 	if _, err := repo.UpsertRationRate(ctx, rateCommand("key-hist-00001", "fp-a", "250.000", "2026-07-19")); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
@@ -1534,6 +1539,9 @@ func TestCreateFeedItemAuthorsNoQuantity(t *testing.T) {
 	if _, err := repo.CreateFeedItem(ctx, feedItemCommand("key-item-00002", "fp-item", "Vijay Concentrate")); err != nil {
 		t.Fatalf("CreateFeedItem: %v", err)
 	}
+	// An EMPTY grid has no cells, so there is nothing to complete and no row is written. The item
+	// authors no quantity of its own in any case — see the sibling below for the populated grid,
+	// where cells are opened at 0 and 0 is not a quantity but the absence of one made authorable.
 	for _, table := range []string{"feed_ration_rates", "feed_shed_factors", "feed_experiment_config"} {
 		var count int
 		if err := pool.QueryRow(ctx,
@@ -1543,6 +1551,163 @@ func TestCreateFeedItemAuthorsNoQuantity(t *testing.T) {
 		if count != 0 {
 			t.Fatalf("%s holds %d rows after adding a catalog item; adding an item must author no quantity", table, count)
 		}
+	}
+}
+
+// TestCreateFeedItemOpensZeroRowsInEveryExistingCell is the proof for the second half of the
+// 2026-08-14 grid-completion rule, and the reason it exists is a real stranding: `Vijay Concentrate`
+// and `RGS Concentrate` were added to the catalog on 2026-08-07 and never given a rate, which left
+// them UNAUTHORABLE — the grid renders only rows that exist, so an item with no row has no cell to
+// edit and no way to gain one.
+//
+// Three things are asserted together because each is a different way to get this wrong:
+//
+//  1. Every EXISTING cell gains an open row for the new item, at 0.
+//  2. No cell is INVENTED. The authored grid is ragged on purpose, so filling the group x tag
+//     cartesian would unblock feeding combinations nobody authored. Here the ragged shape is a
+//     second group that exists in only one of the two tags.
+//  3. Not one authored quantity moves. This is the assertion that would catch a fill written as an
+//     upsert instead of an insert-where-absent.
+func TestCreateFeedItemOpensZeroRowsInEveryExistingCell(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	// Three cells, deliberately ragged: Boer is authored in both tags, Sojat in only one. The
+	// (Sojat, Pregnant) cell must NOT appear, even though both labels exist in the fixture.
+	authored := []struct{ group, tag, grams string }{
+		{"Boer", "Pregnant", "500.000"},
+		{"Boer", "Non-Pregnant", "250.000"},
+		{"Sojat", "Non-Pregnant", "125.000"},
+	}
+	for i, cell := range authored {
+		cmd := rateCommand(fmt.Sprintf("key-cell-%02d", i), fmt.Sprintf("fp-cell-%02d", i), cell.grams, "2026-07-19")
+		cmd.RationGroupLabel, cmd.ShedTagLabel = cell.group, cell.tag
+		if _, err := repo.UpsertRationRate(ctx, cmd); err != nil {
+			t.Fatalf("seed cell %s/%s: %v", cell.group, cell.tag, err)
+		}
+	}
+
+	if _, err := repo.CreateFeedItem(ctx, feedItemCommand("key-item-fill", "fp-item-fill", "Vijay Concentrate")); err != nil {
+		t.Fatalf("CreateFeedItem: %v", err)
+	}
+
+	rows, err := pool.Query(ctx, `
+SELECT ration_group_label, shed_tag_label, grams_per_head::text, source_system, valid_from::text
+FROM feed_ration_rates
+WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm('Vijay Concentrate') AND valid_to IS NULL
+ORDER BY ration_group_label, shed_tag_label`, fcTenant)
+	if err != nil {
+		t.Fatalf("read filled rows: %v", err)
+	}
+	defer rows.Close()
+
+	var got []string
+	for rows.Next() {
+		var group, tag, grams, source, validFrom string
+		if err := rows.Scan(&group, &tag, &grams, &source, &validFrom); err != nil {
+			t.Fatalf("scan filled row: %v", err)
+		}
+		if grams != "0.000" {
+			t.Fatalf("%s/%s filled at %s; a completed cell carries 0, never a quantity nobody authored", group, tag, grams)
+		}
+		if source != "grid_fill" {
+			t.Fatalf("%s/%s filled with source_system=%q; a machine-written row must stay distinguishable from an authored 'manual' zero", group, tag, source)
+		}
+		if validFrom != "2026-07-19" {
+			t.Fatalf("%s/%s filled with valid_from=%q, want the command's Asia/Kolkata business date", group, tag, validFrom)
+		}
+		got = append(got, group+"/"+tag)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read filled rows: %v", err)
+	}
+
+	want := []string{"Boer/Non-Pregnant", "Boer/Pregnant", "Sojat/Non-Pregnant"}
+	if !reflect.DeepEqual(got, want) {
+		// A got of 4 with Sojat/Pregnant present means the fill walked the group x tag cartesian and
+		// invented a cell; a got of 0 means it never ran.
+		t.Fatalf("filled cells = %v, want %v", got, want)
+	}
+
+	// The seeded quantities are still exactly what was authored, each still on its 'manual' row.
+	for _, cell := range authored {
+		var grams, source string
+		if err := pool.QueryRow(ctx, `
+SELECT grams_per_head::text, source_system
+FROM feed_ration_rates
+WHERE tenant_id = $1::uuid
+  AND ration_group_key = feed_config_norm($2) AND shed_tag_key = feed_config_norm($3)
+  AND feed_item_key = feed_config_norm('Concentrate') AND valid_to IS NULL`,
+			fcTenant, cell.group, cell.tag).Scan(&grams, &source); err != nil {
+			t.Fatalf("read authored %s/%s: %v", cell.group, cell.tag, err)
+		}
+		if grams != cell.grams || source != "manual" {
+			t.Fatalf("authored %s/%s is now %s g (%s); adding a feed item must never touch an authored quantity",
+				cell.group, cell.tag, grams, source)
+		}
+	}
+}
+
+// TestRestoreFeedItemTopsUpCellsAddedWhileRetired covers the other door into the same defect.
+//
+// Retiring is a status flip, never a delete, so the item's own rates survive — but a cell authored
+// while it was away has no row for it, and a cell with no row is BLOCKED rather than zero. Restoring
+// an item into a state where some sheds cannot be fed would undo the guarantee the retire path
+// documents.
+func TestRestoreFeedItemTopsUpCellsAddedWhileRetired(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	first := rateCommand("key-restore-00", "fp-restore-00", "500.000", "2026-07-19")
+	if _, err := repo.UpsertRationRate(ctx, first); err != nil {
+		t.Fatalf("seed first cell: %v", err)
+	}
+	created, err := repo.CreateFeedItem(ctx, feedItemCommand("key-restore-item", "fp-restore-item", "Vijay Concentrate"))
+	if err != nil {
+		t.Fatalf("CreateFeedItem: %v", err)
+	}
+
+	retire := domain.SetFeedItemStatusCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-19",
+			IdempotencyKey: "key-restore-off", RequestFingerprint: "fp-restore-off",
+		},
+		FeedItemID: created.ResultRowID, Status: domain.FeedItemStatusRetired,
+	}
+	if _, err := repo.SetFeedItemStatus(ctx, retire); err != nil {
+		t.Fatalf("retire: %v", err)
+	}
+
+	// A cell authored while the item is retired. The item is out of the grid read and out of
+	// generation, so nothing fills it now.
+	second := rateCommand("key-restore-01", "fp-restore-01", "250.000", "2026-07-19")
+	second.ShedTagLabel = "Non-Pregnant"
+	if _, err := repo.UpsertRationRate(ctx, second); err != nil {
+		t.Fatalf("seed second cell: %v", err)
+	}
+
+	restore := retire
+	restore.Status = domain.FeedItemStatusActive
+	restore.IdempotencyKey, restore.RequestFingerprint = "key-restore-on", "fp-restore-on"
+	if _, err := repo.SetFeedItemStatus(ctx, restore); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+
+	var cells int
+	var minValidFrom, maxValidFrom string
+	if err := pool.QueryRow(ctx, `
+SELECT count(*), min(valid_from)::text, max(valid_from)::text FROM feed_ration_rates
+WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm('Vijay Concentrate')
+  AND grams_per_head = 0 AND valid_to IS NULL`, fcTenant).Scan(&cells, &minValidFrom, &maxValidFrom); err != nil {
+		t.Fatalf("count restored cells: %v", err)
+	}
+	if cells != 2 {
+		t.Fatalf("restored item covers %d cells, want 2; a cell authored during retirement is BLOCKED, not zero", cells)
+	}
+	if minValidFrom != "2026-07-19" || maxValidFrom != "2026-07-19" {
+		t.Fatalf("restored cells valid_from range = %s..%s, want restore command business date", minValidFrom, maxValidFrom)
 	}
 }
 
@@ -1675,5 +1840,319 @@ WHERE tenant_id = $1::uuid AND idempotency_key = $2`, fcTenant, "key-item-00007"
 	// The catalog is not effective-dated, but the ledger still records WHEN the vocabulary changed.
 	if actor != "tester" || effectiveFrom != "2026-07-19" {
 		t.Fatalf("ledger audit = (%s, %s), want (tester, 2026-07-19)", actor, effectiveFrom)
+	}
+}
+
+// =================================================================================================
+// Session slots — the write that decides WHETHER a feed is served.
+//
+// These run against the real schema because every risk here is in SQL: the predicate that decides
+// "already declared", the coverage gate that reads the whole grid, and the slot-number derivation
+// that has to satisfy a partial unique index. A fake cannot see any of them.
+// =================================================================================================
+
+// seedSession gives the park a feeding session. Slots are FK'd to it, so a slot test without one
+// would only ever prove the fail-closed path.
+func seedSession(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sessionNo int, label, split string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_session_templates (tenant_id, park_id, session_no, session_label, split_fraction, display_order, status)
+VALUES ($1::uuid, $2::uuid, $3, $4, $5::numeric, $3, 'active')
+ON CONFLICT DO NOTHING`, fcTenant, fcPark, sessionNo, label, split); err != nil {
+		t.Fatalf("seed session %d: %v", sessionNo, err)
+	}
+}
+
+func sessionSlotCommand(sessionNo int32, feedItem string, declared bool, key, effectiveFrom string) domain.SetSessionTemplateItemCommand {
+	return domain.SetSessionTemplateItemCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: effectiveFrom,
+			IdempotencyKey: key, RequestFingerprint: "fp-" + key,
+		},
+		ParkID: fcPark, SessionNo: sessionNo, FeedItemLabel: feedItem, Declared: declared,
+	}
+}
+
+// declaredFeeds reads the session's recipe under the predicate GENERATION uses, which is the only
+// predicate that answers "is this feed actually being served".
+func declaredFeeds(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sessionNo int32, asOfDate string) []string {
+	t.Helper()
+	rows, err := pool.Query(ctx, `
+SELECT feed_item_label FROM feed_session_template_items
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND session_no = $3
+  AND status = 'active' AND valid_from <= $4::date AND (valid_to IS NULL OR valid_to > $4::date)
+ORDER BY slot_no`, fcTenant, fcPark, sessionNo, asOfDate)
+	if err != nil {
+		t.Fatalf("read declared feeds: %v", err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var label string
+		if err := rows.Scan(&label); err != nil {
+			t.Fatalf("scan declared feed: %v", err)
+		}
+		out = append(out, label)
+	}
+	return out
+}
+
+// TestDeclareSessionFeedRefusesAFeedTheParkCannotPriceEverywhere is the gate, and it is the reason
+// the grid had to be completed before this write could exist.
+//
+// A declared slot is priced for EVERY shed in the park. A cell with no open rate is BLOCKED rather
+// than zero — the sheet fails outright with `no currently-open ration rate for ...` — so declaring a
+// feed that is unpriced in even one cell would take those sheds down at the next issue, hours after
+// the author pressed a button that appeared to work.
+func TestDeclareSessionFeedRefusesAFeedTheParkCannotPriceEverywhere(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+	seedSession(t, ctx, pool, 1, "Morning", "0.5")
+	seedCorrectionBreedsForSlots(t, ctx, pool)
+
+	// Two cells, and Sirohi Concentrate is priced in only one of them.
+	for i, cell := range []struct{ group, tag string }{{"Boer", "Pregnant"}, {"Boer", "Non-Pregnant"}} {
+		cmd := rateCommand(fmt.Sprintf("key-slotcell-%02d", i), fmt.Sprintf("fp-slotcell-%02d", i), "500.000", "2026-07-19")
+		cmd.RationGroupLabel, cmd.ShedTagLabel = cell.group, cell.tag
+		if _, err := repo.UpsertRationRate(ctx, cmd); err != nil {
+			t.Fatalf("seed cell: %v", err)
+		}
+	}
+	// Priced in ONE cell only — the partial state the gate exists for.
+	partial := rateCommand("key-partial", "fp-partial", "100.000", "2026-07-19")
+	partial.FeedItemLabel = "Hybrid"
+	if _, err := repo.UpsertRationRate(ctx, partial); err != nil {
+		t.Fatalf("seed partial rate: %v", err)
+	}
+
+	_, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Hybrid", true, "key-slot-refuse", "2026-07-19"))
+	if !errors.Is(err, ports.ErrSlotRatesIncomplete) {
+		t.Fatalf("err = %v, want ErrSlotRatesIncomplete", err)
+	}
+	if got := declaredFeeds(t, ctx, pool, 1, "2026-07-19"); len(got) != 0 {
+		t.Fatalf("a REFUSED declare still wrote a slot: %v", got)
+	}
+
+	// Fully priced, so it is accepted — proving the refusal above is the coverage gate and not a
+	// blanket rejection.
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-slot-ok", "2026-07-19")); err != nil {
+		t.Fatalf("declare fully-priced feed: %v", err)
+	}
+	if got := declaredFeeds(t, ctx, pool, 1, "2026-07-19"); len(got) != 1 || got[0] != "Concentrate" {
+		t.Fatalf("declared feeds = %v, want [Concentrate]", got)
+	}
+}
+
+func seedCorrectionBreedsForSlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status)
+VALUES ($1::uuid, 'Concentrate', 'active'), ($1::uuid, 'Hybrid', 'active')
+ON CONFLICT DO NOTHING`, fcTenant); err != nil {
+		t.Fatalf("seed feed items: %v", err)
+	}
+}
+
+// TestWithdrawSessionFeedClosesTheRowAndNeverDeletesIt pins the non-destructive half: a feed taken
+// off the recipe stops being served, but the row survives so sheets already issued from it stay
+// explainable.
+func TestWithdrawSessionFeedClosesTheRowAndNeverDeletesIt(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+	seedSession(t, ctx, pool, 1, "Morning", "0.5")
+	seedCorrectionBreedsForSlots(t, ctx, pool)
+	if _, err := repo.UpsertRationRate(ctx, rateCommand("key-w-cell", "fp-w-cell", "500.000", "2026-07-19")); err != nil {
+		t.Fatalf("seed cell: %v", err)
+	}
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-w-add", "2026-07-19")); err != nil {
+		t.Fatalf("declare: %v", err)
+	}
+
+	// A LATER business date, so the ordinary window-closing branch runs rather than the same-day one.
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", false, "key-w-del", "2026-07-20")); err != nil {
+		t.Fatalf("withdraw: %v", err)
+	}
+	// The withdrawal closes the window AT 2026-07-20, so the feed stops being served from that
+	// date -- and remains served on 2026-07-19, which is the whole point of closing the row
+	// instead of deleting it: sheets already issued for the 19th stay explainable.
+	if got := declaredFeeds(t, ctx, pool, 1, "2026-07-20"); len(got) != 0 {
+		t.Fatalf("withdrawn feed is still served on the withdrawal date: %v", got)
+	}
+	if got := declaredFeeds(t, ctx, pool, 1, "2026-07-19"); len(got) != 1 || got[0] != "Concentrate" {
+		t.Fatalf("the day before the withdrawal no longer reports what was served: %v", got)
+	}
+
+	var stored int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM feed_session_template_items
+WHERE tenant_id = $1::uuid AND feed_item_key = feed_config_norm('Concentrate') AND valid_to = '2026-07-20'`,
+		fcTenant).Scan(&stored); err != nil {
+		t.Fatalf("count closed rows: %v", err)
+	}
+	if stored != 1 {
+		t.Fatalf("%d closed rows, want 1 — a withdrawal must CLOSE the row, never delete it", stored)
+	}
+
+	// Withdrawing again is reported, not silently accepted: the author may be on the wrong session.
+	_, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", false, "key-w-del2", "2026-07-21"))
+	if !errors.Is(err, ports.ErrSlotNotDeclared) {
+		t.Fatalf("err = %v, want ErrSlotNotDeclared", err)
+	}
+}
+
+// TestSessionFeedsAreIndependentPerSession is the parity proof for the split gotcha: a feed added to
+// the morning session is NOT served in the evening. The two sessions each serve their own share of
+// the daily grid quantity, so declaring in one is a real and partial decision.
+func TestSessionFeedsAreIndependentPerSession(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+	seedSession(t, ctx, pool, 1, "Morning", "0.5")
+	seedSession(t, ctx, pool, 2, "Evening", "0.5")
+	seedCorrectionBreedsForSlots(t, ctx, pool)
+	if _, err := repo.UpsertRationRate(ctx, rateCommand("key-s-cell", "fp-s-cell", "500.000", "2026-07-19")); err != nil {
+		t.Fatalf("seed cell: %v", err)
+	}
+
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-s-1", "2026-07-19")); err != nil {
+		t.Fatalf("declare morning: %v", err)
+	}
+	if got := declaredFeeds(t, ctx, pool, 2, "2026-07-19"); len(got) != 0 {
+		t.Fatalf("evening session serves %v after declaring only on the morning session", got)
+	}
+
+	// The same feed on the OTHER session is a separate slot, not a conflict.
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(2, "Concentrate", true, "key-s-2", "2026-07-19")); err != nil {
+		t.Fatalf("declare evening: %v", err)
+	}
+	if got := declaredFeeds(t, ctx, pool, 2, "2026-07-19"); len(got) != 1 || got[0] != "Concentrate" {
+		t.Fatalf("evening feeds = %v, want [Concentrate]", got)
+	}
+
+	// An unknown session is refused rather than FK-violating.
+	_, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(9, "Concentrate", true, "key-s-9", "2026-07-19"))
+	if !errors.Is(err, ports.ErrSessionNotFound) {
+		t.Fatalf("err = %v, want ErrSessionNotFound", err)
+	}
+}
+
+// TestListSessionTemplatesReadsRecipeAsOfExplicitBusinessDate proves the config UI read uses the
+// same explicit business date as generation. A SQL CURRENT_DATE predicate would make this depend on
+// the database session timezone and hide the slot around the IST/UTC boundary.
+func TestListSessionTemplatesReadsRecipeAsOfExplicitBusinessDate(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+	seedSession(t, ctx, pool, 1, "Morning", "0.5")
+	seedCorrectionBreedsForSlots(t, ctx, pool)
+	if _, err := repo.UpsertRationRate(ctx, rateCommand("key-asof-cell", "fp-asof-cell", "500.000", "2026-07-19")); err != nil {
+		t.Fatalf("seed cell: %v", err)
+	}
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-asof-add", "2026-07-20")); err != nil {
+		t.Fatalf("declare future feed: %v", err)
+	}
+
+	before, err := repo.ListSessionTemplates(ctx, domain.SessionTemplateQuery{
+		TenantID: fcTenant, ParkID: fcPark, AsOfDate: "2026-07-19", Page: domain.Page{Limit: 50},
+	})
+	if err != nil {
+		t.Fatalf("list before as-of: %v", err)
+	}
+	if len(before.Items) != 1 || len(before.Items[0].Items) != 0 {
+		t.Fatalf("before date items = %#v, want no served feeds", before.Items)
+	}
+
+	onDate, err := repo.ListSessionTemplates(ctx, domain.SessionTemplateQuery{
+		TenantID: fcTenant, ParkID: fcPark, AsOfDate: "2026-07-20", Page: domain.Page{Limit: 50},
+	})
+	if err != nil {
+		t.Fatalf("list on as-of: %v", err)
+	}
+	if len(onDate.Items) != 1 || len(onDate.Items[0].Items) != 1 || onDate.Items[0].Items[0].FeedItemLabel != "Concentrate" {
+		t.Fatalf("on-date items = %#v, want Concentrate served", onDate.Items)
+	}
+}
+
+// TestDeclareSessionFeedIsIdempotentAndAppendsInPackingOrder covers the replay contract and the slot
+// numbering, which has to satisfy a partial unique index that counts WITHDRAWN rows too.
+func TestDeclareSessionFeedIsIdempotentAndAppendsInPackingOrder(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+	seedSession(t, ctx, pool, 1, "Morning", "0.5")
+	seedCorrectionBreedsForSlots(t, ctx, pool)
+	if _, err := repo.UpsertRationRate(ctx, rateCommand("key-i-cell", "fp-i-cell", "500.000", "2026-07-19")); err != nil {
+		t.Fatalf("seed cell: %v", err)
+	}
+	hybrid := rateCommand("key-i-cell2", "fp-i-cell2", "100.000", "2026-07-19")
+	hybrid.FeedItemLabel = "Hybrid"
+	if _, err := repo.UpsertRationRate(ctx, hybrid); err != nil {
+		t.Fatalf("seed hybrid cell: %v", err)
+	}
+
+	first, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-i-1", "2026-07-19"))
+	if err != nil {
+		t.Fatalf("declare: %v", err)
+	}
+	if first.Outcome != domain.OutcomeInserted {
+		t.Fatalf("outcome = %q, want inserted", first.Outcome)
+	}
+
+	// A DIFFERENT key, same intent. Not an idempotent replay — a genuine second request that finds
+	// the state already correct, which must not open a second window or churn the packing order.
+	again, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-i-2", "2026-07-19"))
+	if err != nil {
+		t.Fatalf("re-declare: %v", err)
+	}
+	if again.Outcome != domain.OutcomeUnchanged {
+		t.Fatalf("outcome = %q, want unchanged", again.Outcome)
+	}
+
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Hybrid", true, "key-i-3", "2026-07-19")); err != nil {
+		t.Fatalf("declare second feed: %v", err)
+	}
+	// Appended, never inserted mid-list: slot order is the PACKING order and renumbering it would
+	// reorder what packers already know.
+	if got := declaredFeeds(t, ctx, pool, 1, "2026-07-19"); len(got) != 2 || got[0] != "Concentrate" || got[1] != "Hybrid" {
+		t.Fatalf("declared feeds = %v, want [Concentrate Hybrid] in packing order", got)
+	}
+}
+
+// TestDeclareSessionFeedRefusesEarlierEditAgainstFutureRecipe catches the easy false-green in the
+// declare path: the row lock must see future-dated active rows, but an earlier declare must not
+// report "unchanged" because generation will not serve that row on the earlier business date.
+func TestDeclareSessionFeedRefusesEarlierEditAgainstFutureRecipe(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+	seedSession(t, ctx, pool, 1, "Morning", "0.5")
+	seedCorrectionBreedsForSlots(t, ctx, pool)
+	if _, err := repo.UpsertRationRate(ctx, rateCommand("key-future-cell", "fp-future-cell", "500.000", "2026-07-19")); err != nil {
+		t.Fatalf("seed cell: %v", err)
+	}
+
+	if _, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-future-add", "2026-07-22")); err != nil {
+		t.Fatalf("declare future feed: %v", err)
+	}
+	_, err := repo.SetSessionTemplateItem(ctx, sessionSlotCommand(1, "Concentrate", true, "key-future-earlier", "2026-07-20"))
+	if !errors.Is(err, ports.ErrFutureDatedRow) {
+		t.Fatalf("err = %v, want ErrFutureDatedRow", err)
+	}
+}
+
+// fcSeedCatalog registers feed items as ACTIVE. The rate listing deliberately scopes itself to
+// catalogued, active items -- the authoring screen and the feed sheet must not disagree about what
+// is fed -- so a fixture that writes rates without cataloguing their item lists nothing at all.
+func fcSeedCatalog(t *testing.T, ctx context.Context, pool *pgxpool.Pool, labels ...string) {
+	t.Helper()
+	for _, label := range labels {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, status)
+VALUES ($1::uuid, $2, 'active')
+ON CONFLICT DO NOTHING`, fcTenant, label); err != nil {
+			t.Fatalf("seed feed item %s: %v", label, err)
+		}
 	}
 }

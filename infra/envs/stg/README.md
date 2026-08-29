@@ -73,16 +73,17 @@ Secret Manager admin access or database credentials.
 ## Branch Automation
 
 ```text
-main -> stg pull request:
-  .github/workflows/stg-pr-gate.yml
-  Runs backend DB/API/migration gates, admin-web build gates, and stg release APK
-  build/unit/Paparazzi checks.
+main production-facing release gate:
+  local/Cloud Build checks
+  Runs backend DB/API/migration gates, admin-web build gates, and
+  production-facing Android release APK build/unit/Paparazzi checks.
 
-push/merge to stg:
-  .github/workflows/stg-deploy.yml
-  Builds backend/migrate/admin-web images and creates a Cloud Deploy release.
-  Cloud Deploy then runs migrations, updates services/jobs, verifies image skew,
-  and smokes /livez, /readyz, and https://stg.dashboard.mesha.sg/login.
+operator-triggered deployment:
+  cloudbuild.stg.yaml / goatos-stg-deploy-main
+  Builds backend/migrate/admin-web images in the reused `goatos-stg` project and
+  creates a Cloud Deploy release. Cloud Deploy then runs migrations, updates
+  services/jobs, verifies image skew, and smokes /livez, /readyz, and
+  https://dashboard.mesha.sg/login.
 
 Cloud Deploy source:
 

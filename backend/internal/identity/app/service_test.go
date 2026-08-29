@@ -2033,3 +2033,11 @@ func TestPrepareCriticalDeathExitDefaultsToIndiaBusinessDate(t *testing.T) {
 		t.Fatalf("occurred_at=%s is not close to now; an undated death must default to the current business instant", cmd.OccurredAt)
 	}
 }
+
+func (f *fakeRepo) PreviewCorrectCensusSlice(context.Context, ports.CorrectCensusSliceCommand) (*ports.CensusSlicePreview, error) {
+	return &ports.CensusSlicePreview{}, nil
+}
+
+func (f *fakeRepo) CorrectCensusSlice(context.Context, ports.CorrectCensusSliceCommand) (*ports.CensusSliceCorrectionResult, error) {
+	return &ports.CensusSliceCorrectionResult{}, nil
+}

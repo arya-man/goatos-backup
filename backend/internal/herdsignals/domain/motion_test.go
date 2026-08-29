@@ -1,0 +1,553 @@
+package domain
+
+import (
+	"testing"
+	"time"
+)
+
+func TestMotionDelta(t *testing.T) {
+	tests := []struct {
+		name      string
+		current   *int64
+		previous  *int64
+		wantDelta int64
+		wantReset bool
+	}{
+		{
+			name:      "normal delta",
+			current:   int64Ptr(150),
+			previous:  int64Ptr(100),
+			wantDelta: 50,
+			wantReset: false,
+		},
+		{
+			name:      "reset detected",
+			current:   int64Ptr(50),
+			previous:  int64Ptr(100),
+			wantDelta: 0,
+			wantReset: true,
+		},
+		{
+			name:      "same value",
+			current:   int64Ptr(100),
+			previous:  int64Ptr(100),
+			wantDelta: 0,
+			wantReset: false,
+		},
+		{
+			name:      "no current",
+			current:   nil,
+			previous:  int64Ptr(100),
+			wantDelta: 0,
+			wantReset: false,
+		},
+		{
+			name:      "no previous",
+			current:   int64Ptr(100),
+			previous:  nil,
+			wantDelta: 0,
+			wantReset: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			delta, reset := MotionDelta(tt.current, tt.previous)
+			if delta != tt.wantDelta {
+				t.Errorf("delta = %d, want %d", delta, tt.wantDelta)
+			}
+			if reset != tt.wantReset {
+				t.Errorf("reset = %v, want %v", reset, tt.wantReset)
+			}
+		})
+	}
+}
+
+func TestMovementStateFromDelta(t *testing.T) {
+	thresholds := DefaultThresholds()
+
+	tests := []struct {
+		name   string
+		delta  int64
+		window int
+		want   string
+	}{
+		{
+			name:   "moving",
+			delta:  150,
+			window: 60,
+			want:   "moving",
+		},
+		{
+			name:   "low activity",
+			delta:  50,
+			window: 60,
+			want:   "low",
+		},
+		{
+			name:   "quiet",
+			delta:  5,
+			window: 60,
+			want:   "quiet",
+		},
+		{
+			name:   "not moving",
+			delta:  0,
+			window: 60,
+			want:   "not_moving",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := MovementStateFromDelta(tt.delta, tt.window, thresholds)
+			if state != tt.want {
+				t.Errorf("state = %s, want %s", state, tt.want)
+			}
+		})
+	}
+}
+
+func TestSignalStateFromRSSI(t *testing.T) {
+	thresholds := DefaultThresholds()
+
+	tests := []struct {
+		name    string
+		rssi    *int16
+		avgRSSI *float64
+		want    string
+	}{
+		{
+			name: "strong signal",
+			rssi: int16Ptr(-60),
+			want: "strong",
+		},
+		{
+			name: "ok signal",
+			rssi: int16Ptr(-70),
+			want: "ok",
+		},
+		{
+			name: "weak signal",
+			rssi: int16Ptr(-80),
+			want: "weak",
+		},
+		{
+			name:    "weak average",
+			avgRSSI: float64Ptr(-85),
+			want:    "weak",
+		},
+		{
+			name: "unknown",
+			want: "unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := SignalStateFromRSSI(tt.rssi, tt.avgRSSI, thresholds)
+			if state != tt.want {
+				t.Errorf("state = %s, want %s", state, tt.want)
+			}
+		})
+	}
+}
+
+func TestBatteryStateFromVoltage(t *testing.T) {
+	thresholds := DefaultThresholds()
+
+	tests := []struct {
+		name string
+		mv   *int
+		want string
+	}{
+		{name: "healthy at 3.10V", mv: intPtr(3100), want: "healthy"},
+		{name: "healthy at exactly 3.00V", mv: intPtr(3000), want: "healthy"},
+		{name: "watch at 2.90V", mv: intPtr(2900), want: "watch"},
+		{name: "watch at exactly 2.80V", mv: intPtr(2800), want: "watch"},
+		{name: "low at 2.70V", mv: intPtr(2700), want: "low"},
+		{name: "critical at 2.50V", mv: intPtr(2500), want: "critical"},
+		{name: "critical below exactly 2.60V", mv: intPtr(2599), want: "critical"},
+		{name: "low at exactly 2.60V (not yet critical)", mv: intPtr(2600), want: "low"},
+		{name: "unknown when nil", want: "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := BatteryStateFromVoltage(tt.mv, thresholds)
+			if state != tt.want {
+				t.Errorf("state = %s, want %s", state, tt.want)
+			}
+		})
+	}
+}
+
+func TestBatteryTrendFromHistory(t *testing.T) {
+	thresholds := DefaultThresholds()
+	now := time.Date(2026, 1, 30, 0, 0, 0, 0, time.UTC)
+
+	t.Run("nil when any endpoint is missing", func(t *testing.T) {
+		if got := BatteryTrendFromHistory(nil, intPtr(3000), nil, &now, thresholds); got != nil {
+			t.Errorf("got %+v, want nil", got)
+		}
+	})
+
+	t.Run("nil when span is too short (noise, not a trend)", func(t *testing.T) {
+		firstAt := now.Add(-2 * time.Hour) // < BatteryTrendMinSpanHours (24h)
+		got := BatteryTrendFromHistory(intPtr(3180), intPtr(3100), &firstAt, &now, thresholds)
+		if got != nil {
+			t.Errorf("got %+v, want nil: two packets a couple hours apart must not invent a trend", got)
+		}
+	})
+
+	t.Run("falling when the drop meets BatteryFallMV over a real window", func(t *testing.T) {
+		firstAt := now.Add(-30 * 24 * time.Hour)
+		got := BatteryTrendFromHistory(intPtr(3180), intPtr(3100), &firstAt, &now, thresholds) // -80mV, >= BatteryFallMV(80)
+		if got == nil {
+			t.Fatal("got nil, want a trend")
+		}
+		if got.Direction != "falling" {
+			t.Errorf("direction = %s, want falling", got.Direction)
+		}
+		if got.FirstMV != 3180 || got.LastMV != 3100 {
+			t.Errorf("endpoints = %d -> %d, want 3180 -> 3100", got.FirstMV, got.LastMV)
+		}
+	})
+
+	t.Run("stable when the drop is below BatteryFallMV (ordinary noise)", func(t *testing.T) {
+		firstAt := now.Add(-30 * 24 * time.Hour)
+		got := BatteryTrendFromHistory(intPtr(3120), intPtr(3100), &firstAt, &now, thresholds) // -20mV
+		if got == nil {
+			t.Fatal("got nil, want a trend")
+		}
+		if got.Direction != "stable" {
+			t.Errorf("direction = %s, want stable", got.Direction)
+		}
+	})
+
+	t.Run("stable when voltage rises", func(t *testing.T) {
+		firstAt := now.Add(-30 * 24 * time.Hour)
+		got := BatteryTrendFromHistory(intPtr(3050), intPtr(3100), &firstAt, &now, thresholds)
+		if got == nil || got.Direction != "stable" {
+			t.Errorf("got %+v, want stable (voltage went up, never falling)", got)
+		}
+	})
+}
+
+func TestBatteryStateWithTrend(t *testing.T) {
+	falling := &BatteryTrend{Direction: "falling"}
+	stable := &BatteryTrend{Direction: "stable"}
+
+	tests := []struct {
+		name      string
+		absolute  string
+		trend     *BatteryTrend
+		isMissing bool
+		want      string
+	}{
+		{name: "healthy stays healthy with no trend", absolute: "healthy", trend: nil, want: "healthy"},
+		{name: "healthy escalates to watch on a relative fall", absolute: "healthy", trend: falling, want: "watch"},
+		{name: "healthy stays healthy on a stable trend", absolute: "healthy", trend: stable, want: "healthy"},
+		{name: "watch stays watch on a fall (already there)", absolute: "watch", trend: falling, want: "watch"},
+		{
+			name:     "critical-on-silence: missing signal + falling trend escalates to critical",
+			absolute: "watch", trend: falling, isMissing: true, want: "critical",
+		},
+		{
+			name:     "missing signal ALONE (stable trend) does not escalate -- silence alone says nothing about the battery",
+			absolute: "healthy", trend: stable, isMissing: true, want: "healthy",
+		},
+		{
+			name:     "missing signal with NO trend at all does not escalate",
+			absolute: "healthy", trend: nil, isMissing: true, want: "healthy",
+		},
+		{name: "low stays low with no trend", absolute: "low", trend: nil, want: "low"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BatteryStateWithTrend(tt.absolute, tt.trend, tt.isMissing)
+			if got != tt.want {
+				t.Errorf("state = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCountConsecutiveQuietWindowsBreaksOnReceptionGap is the direct proof for defect 7's
+// densification bug: a quiet run that BRIDGES a 40-minute reception gap must not accrue as one
+// unbroken "inactive" duration, because inactive is explicitly defined as low movement WHILE
+// PACKETS STILL ARRIVE, not despite a hole in reception.
+func TestCountConsecutiveQuietWindowsBreaksOnReceptionGap(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	bucketSeconds := 300 // 5-minute tier
+	// Two quiet windows immediately before "now" (10 minutes), then a 40-minute reception gap
+	// (SPARSE: those rows simply do not exist), then two more quiet windows far in the past.
+	windows := []ActivityWindow{
+		{BucketStart: base, BucketSeconds: bucketSeconds, MotionDelta: 2, PacketCount: 1, IsGap: false},
+		{BucketStart: base.Add(5 * time.Minute), BucketSeconds: bucketSeconds, MotionDelta: 2, PacketCount: 1, IsGap: false},
+		// gap: base+10m .. base+50m has no rows at all
+		{BucketStart: base.Add(50 * time.Minute), BucketSeconds: bucketSeconds, MotionDelta: 2, PacketCount: 1, IsGap: false},
+		{BucketStart: base.Add(55 * time.Minute), BucketSeconds: bucketSeconds, MotionDelta: 2, PacketCount: 1, IsGap: false},
+	}
+	got := countConsecutiveQuietWindows(windows, 10)
+	want := 10 * time.Minute // only the trailing two contiguous 5-minute buckets, not all four
+	if got != want {
+		t.Errorf("countConsecutiveQuietWindows = %v, want %v (must not bridge the reception gap)", got, want)
+	}
+}
+
+func TestPatternStateFromHistory(t *testing.T) {
+	thresholds := DefaultThresholds()
+	now := time.Now()
+	fiveMinutesAgo := now.Add(-5 * time.Minute)
+
+	tests := []struct {
+		name              string
+		currentDelta      int64
+		lastPacketAt      *time.Time
+		recentWindows     []ActivityWindow
+		previousPattern   string
+		currentIsGapDelta bool
+		expectedState     string
+	}{
+		{
+			name:          "missing signal (no recent packets)",
+			currentDelta:  0,
+			lastPacketAt:  timePtr(now.Add(-time.Hour)),
+			recentWindows: []ActivityWindow{},
+			expectedState: string(PatternMissingSignal),
+		},
+		{
+			name:         "no movement (delta = 0)",
+			currentDelta: 0,
+			lastPacketAt: &fiveMinutesAgo,
+			recentWindows: []ActivityWindow{
+				{BucketSeconds: 60, MotionDelta: 0, PacketCount: 1, IsGap: false},
+			},
+			expectedState: string(PatternNoMovement),
+		},
+		{
+			name:          "quiet watch (sustained low delta 1-2h)",
+			currentDelta:  5,
+			lastPacketAt:  &fiveMinutesAgo,
+			recentWindows: generateQuietWindows(100, 60), // 100 min > 90 min threshold
+			expectedState: string(PatternQuietWatch),
+		},
+		{
+			name:          "inactive (sustained low delta 3+ hours with packets)",
+			currentDelta:  5,
+			lastPacketAt:  &fiveMinutesAgo,
+			recentWindows: generateQuietWindows(190, 60), // 190 min > 180 min threshold
+			expectedState: string(PatternInactive),
+		},
+		{
+			name:            "recovered (activity resumes after quiet_watch)",
+			currentDelta:    15, // >= MotionLowDelta (10)
+			lastPacketAt:    &fiveMinutesAgo,
+			recentWindows:   []ActivityWindow{{BucketSeconds: 60, MotionDelta: 15, PacketCount: 1, IsGap: false}},
+			previousPattern: string(PatternQuietWatch),
+			expectedState:   string(PatternRecovered),
+		},
+		{
+			name:            "recovered (activity resumes after inactive)",
+			currentDelta:    50,
+			lastPacketAt:    &fiveMinutesAgo,
+			recentWindows:   []ActivityWindow{{BucketSeconds: 60, MotionDelta: 50, PacketCount: 1, IsGap: false}},
+			previousPattern: string(PatternInactive),
+			expectedState:   string(PatternRecovered),
+		},
+		{
+			name:            "not recovered: previous quiet_watch but current delta still below threshold",
+			currentDelta:    3, // < MotionLowDelta (10)
+			lastPacketAt:    &fiveMinutesAgo,
+			recentWindows:   []ActivityWindow{{BucketSeconds: 60, MotionDelta: 3, PacketCount: 1, IsGap: false}},
+			previousPattern: string(PatternQuietWatch),
+			expectedState:   string(PatternUnknown),
+		},
+		{
+			name:            "not recovered: previously unknown/active, currently active is just unknown",
+			currentDelta:    15,
+			lastPacketAt:    &fiveMinutesAgo,
+			recentWindows:   []ActivityWindow{{BucketSeconds: 60, MotionDelta: 15, PacketCount: 1, IsGap: false}},
+			previousPattern: string(PatternUnknown),
+			expectedState:   string(PatternUnknown),
+		},
+		{
+			// Maintainer decision on offline behaviour: a huge reconnect lump (delta far above
+			// baseline) must NOT read as "spike" -- it is a total across an unknown-duration gap,
+			// not a burst of activity in this window.
+			name:         "gap delta is never a spike, even when it dwarfs the baseline",
+			currentDelta: 5000, // wildly above any baseline*grainRatio*multiplier
+			lastPacketAt: &fiveMinutesAgo,
+			recentWindows: []ActivityWindow{
+				{BucketSeconds: 300, MotionDelta: 5, PacketCount: 1, IsGap: false},
+				{BucketSeconds: 300, MotionDelta: 6, PacketCount: 1, IsGap: false},
+			},
+			previousPattern:   string(PatternUnknown),
+			currentIsGapDelta: true,
+			expectedState:     string(PatternUnknown),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := PatternStateFromHistory(tt.currentDelta, tt.lastPacketAt, now, tt.recentWindows, tt.previousPattern, tt.currentIsGapDelta, thresholds)
+			if state != tt.expectedState {
+				t.Errorf("state = %s, want %s", state, tt.expectedState)
+			}
+		})
+	}
+}
+
+func TestPercentile75(t *testing.T) {
+	tests := []struct {
+		name     string
+		deltas   []int64
+		expected int64
+	}{
+		{
+			name:     "empty",
+			deltas:   []int64{},
+			expected: 0,
+		},
+		{
+			name:     "single value",
+			deltas:   []int64{10},
+			expected: 10,
+		},
+		{
+			name:     "four values (p75 = 3rd)",
+			deltas:   []int64{1, 2, 3, 4},
+			expected: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := percentile75(tt.deltas)
+			if result != tt.expected {
+				t.Errorf("percentile75 = %d, want %d", result, tt.expected)
+			}
+		})
+	}
+}
+
+// Helper functions for test pointers
+func int16Ptr(v int16) *int16        { return &v }
+func int64Ptr(v int64) *int64        { return &v }
+func intPtr(v int) *int              { return &v }
+func float64Ptr(v float64) *float64  { return &v }
+func timePtr(v time.Time) *time.Time { return &v }
+
+func TestSelectBucketTier(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		span time.Duration
+		want int
+	}{
+		{"30 minutes -> 60s", 30 * time.Minute, 60},
+		{"exactly 1 hour -> 60s", time.Hour, 60},
+		{"2 hours -> 300s", 2 * time.Hour, 300},
+		{"exactly 24 hours -> 300s", 24 * time.Hour, 300},
+		{"25 hours -> 3600s", 25 * time.Hour, 3600},
+		{"7 days -> 3600s", 7 * 24 * time.Hour, 3600},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SelectBucketTier(base, base.Add(tt.span))
+			if got != tt.want {
+				t.Errorf("SelectBucketTier(span=%v) = %d, want %d", tt.span, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsSupportedBucketSeconds(t *testing.T) {
+	for _, b := range []int{60, 300, 3600} {
+		if !IsSupportedBucketSeconds(b) {
+			t.Errorf("IsSupportedBucketSeconds(%d) = false, want true", b)
+		}
+	}
+	for _, b := range []int{0, 30, 120, 900, 7200} {
+		if IsSupportedBucketSeconds(b) {
+			t.Errorf("IsSupportedBucketSeconds(%d) = true, want false", b)
+		}
+	}
+}
+
+func TestBaseline75(t *testing.T) {
+	windows := []ActivityWindow{
+		{MotionDelta: 0, IsGap: false},
+		{MotionDelta: 5, IsGap: false},
+		{MotionDelta: 10, IsGap: false},
+		{MotionDelta: 100, IsGap: true}, // gap must be excluded even though it has a delta value
+	}
+	got := Baseline75(windows)
+	want := percentile75([]int64{0, 5, 10})
+	if got != want {
+		t.Errorf("Baseline75 = %d, want %d (gap window must be excluded)", got, want)
+	}
+}
+
+// TestBaseline75ExcludesGapDelta proves the offline-behaviour exclusion: a reconnect lump must
+// never feed the baseline, even though it is a real (non-gap, packets-received) window.
+func TestBaseline75ExcludesGapDelta(t *testing.T) {
+	windows := []ActivityWindow{
+		{MotionDelta: 3, IsGap: false, GapDelta: false},
+		{MotionDelta: 4, IsGap: false, GapDelta: false},
+		{MotionDelta: 5, IsGap: false, GapDelta: false},
+		{MotionDelta: 5000, IsGap: false, GapDelta: true}, // reconnect lump: real window, must still be excluded
+	}
+	got := Baseline75(windows)
+	want := percentile75([]int64{3, 4, 5})
+	if got != want {
+		t.Errorf("Baseline75 = %d, want %d (gap_delta window must be excluded even though it is not a gap)", got, want)
+	}
+}
+
+func TestIsGapDelta(t *testing.T) {
+	thresholds := DefaultThresholds() // ReceptionGapMinutes = 30
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	if IsGapDelta(nil, now, thresholds) {
+		t.Error("first-ever packet (previousSeenAt=nil) must not be a gap delta")
+	}
+
+	within := now.Add(-10 * time.Minute)
+	if IsGapDelta(&within, now, thresholds) {
+		t.Error("10-minute interval must not be a gap delta (threshold is 30 minutes)")
+	}
+
+	exactly := now.Add(-30 * time.Minute)
+	if IsGapDelta(&exactly, now, thresholds) {
+		t.Error("exactly 30 minutes must not exceed the threshold (strictly greater-than)")
+	}
+
+	beyond := now.Add(-31 * time.Minute)
+	if !IsGapDelta(&beyond, now, thresholds) {
+		t.Error("31-minute interval must be a gap delta")
+	}
+}
+
+// generateQuietWindows creates N minutes worth of quiet windows (delta < 10).
+// generateQuietWindows produces a CONTIGUOUS run of quiet windows with sequential BucketStart
+// timestamps, matching the real time-continuity walk in countConsecutiveQuietWindows (defect 7
+// fix: consecutiveness is now judged by time, not slice position, so a fixture must have real
+// timestamps to exercise it).
+func generateQuietWindows(durationMinutes int, bucketSeconds int) []ActivityWindow {
+	var windows []ActivityWindow
+	bucketsNeeded := (durationMinutes * 60) / bucketSeconds
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < bucketsNeeded; i++ {
+		windows = append(windows, ActivityWindow{
+			BucketStart:   base.Add(time.Duration(i*bucketSeconds) * time.Second),
+			BucketSeconds: bucketSeconds,
+			MotionDelta:   3, // Low delta (below MotionLowDelta threshold of 10)
+			PacketCount:   1,
+			IsGap:         false,
+		})
+	}
+	return windows
+}

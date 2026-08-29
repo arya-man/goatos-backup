@@ -198,7 +198,7 @@ LEFT JOIN LATERAL (
              WHEN gsp.partition_label ~* '^part [0-9]+$'
                THEN COALESCE(NULLIF(gshed.name, ''), NULLIF(gshed.location_code, ''), '') || ' - ' || initcap(gsp.partition_label)
              WHEN gsp.partition_label ~ '^[0-9]+$'
-               THEN COALESCE(NULLIF(gshed.name, ''), NULLIF(gshed.location_code, ''), '') || ' - Part ' || gsp.partition_label
+               THEN COALESCE(NULLIF(gshed.name, ''), NULLIF(gshed.location_code, ''), '') || ' ' || gsp.partition_label
              ELSE COALESCE(NULLIF(gshed.name, ''), NULLIF(gshed.location_code, ''), '') || ' - ' || gsp.partition_label
            END::text AS shed_label,
            COALESCE(pd.name, '')      AS protocol_name,

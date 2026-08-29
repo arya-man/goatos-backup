@@ -11,14 +11,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
@@ -42,20 +48,32 @@ import sg.mesha.goatos.core.ui.operationalLocationLabel
  *
  * The flow is deliberately linear and short, in this exact order:
  *
- *  1. **Find the animal** — search by RFID/tag, then tap ONE result. Selection is SINGLE: tapping a
- *     different result REPLACES the selection rather than appending to a list. An operator standing
- *     at a pen moves the animal in front of them; a multi-select basket invited a mis-tap to
- *     silently relocate an animal nobody looked at.
- *  2. **Current location** — the selected animal's park + shed, READ-ONLY, straight from the
- *     lookup. The operator confirms it; they never type it, and the client never asserts it.
- *  3. **Destination** — the animal's current farm is selected automatically and read-only; the
- *     operator chooses only a destination shed inside that farm. Goats never shift between farms.
+ *  1. **Gather the animals** — scan tags with the Bluetooth reader (or type an RFID) and each one
+ *     is APPENDED to the basket, so a group is collected a tag at a time. Re-scanning an animal
+ *     already in the list is a no-op, and every animal must be on the same farm.
+ *
+ *     This REVERSES the earlier single-animal rule (maintainer decision 2026-08-21). That rule
+ *     existed because "a multi-select basket invited a mis-tap to silently relocate an animal
+ *     nobody looked at" — a real risk, now answered by the confirmation in step 7 rather than by
+ *     forbidding groups. The typed rewrite forced the question: a SPACING movement requires the
+ *     whole source pen to travel together, so a one-animal form could only raise a spacing for a
+ *     pen holding exactly one animal.
+ *  2. **Current location** — each animal's park + shed, READ-ONLY, straight from the lookup. The
+ *     operator confirms it; they never type it, and the client never asserts it. A single animal
+ *     also gets the from/to hero; a group does not, because one "from" line cannot describe a
+ *     basket gathered from more than one pen.
+ *  3. **Destination** — the farm is taken from the FIRST animal and read-only; the operator chooses
+ *     only a destination shed inside that farm. Goats never shift between farms, so an animal from
+ *     another park is refused rather than added.
  *  4. **Priority** — High or Low (default).
- *  5. **Category** — Growth / Health / Breeding / Delivery.
+ *  5. **Category** — the shift TYPE, which decides what happens to the animals' tag
+ *     (Growth / Health / Breeding / Delivery / Spacing / Flushing).
  *  6. **Create shifting**.
+ *  7. **Confirm** — a read-back naming every animal and the destination. Nothing is recorded until
+ *     it is accepted; this is what makes a scanned basket safe to move.
  *
  * What used to be here and is gone on purpose: the source park/shed text inputs (now derived from
- * the animal), the free-text `effective_at` instant, the multi-animal basket, and the whole cohort
+ * the animal), the free-text `effective_at` instant, and the whole cohort
  * IMPACTS editor. The backend derives the movement's impact from the selected animal's own
  * canonical breed/stage — an operator hand-typing a breed next to an animal the server already
  * knows the breed of was a second, contradictable source of truth for the same fact.
@@ -117,14 +135,65 @@ data class ShiftingShedUi(
      * still renders something sensible instead of a blank row.
      */
     val operationalLocationDisplay: String = "",
+    /**
+     * The tag a movement into this pen would stamp, for the TAG TOGGLE. Blank when the pen cannot
+     * supply one — [destinationStageReason] then says why, in the backend's own words.
+     *
+     * Backend-resolved. Never derive it from the pen's residents on-device: the rules behind the
+     * answer (the pen's authored tag first, blank for a mixed or empty pen, never a clinical state)
+     * live on the server, and a second implementation here would drift from the tag the raise
+     * actually stamps.
+     */
+    val destinationStage: String = "",
+    /** Farm-worded reason the pen's tag is unavailable, rendered verbatim. Blank when one exists. */
+    val destinationStageReason: String = "",
 ) {
     /** What the operator should read for this option. */
     val displayLabel: String
         get() = operationalLocationDisplay.ifBlank { operationalLocationLabel(name, partitionLabel) }
 
+    /** Whether the "use destination tag" side of the toggle is offerable for this pen. */
+    val offersDestinationStage: Boolean
+        get() = destinationStage.isNotBlank()
+
     /** Stable dropdown-option key: shed alone is not unique once a shed has partitions. */
     val optionKey: String
         get() = listOfNotNull(shedId, partitionLabel).joinToString("|")
+}
+
+/**
+ * Where a newborn recorded in one park may be placed (maintainer decision 2026-08-20).
+ *
+ * Backend-owned: [mode] and [notice] are rendered verbatim, and [pens] is already filtered to the
+ * park's kid pens. The form must not re-derive any of it from the shed list.
+ */
+@Immutable
+data class BirthPlacementUi(
+    val mode: String = MODE_RECORD_LATER,
+    val notice: String = "",
+    val pens: List<ShiftingShedUi> = emptyList(),
+) {
+    /** The park has exactly one kid pen: it is shown read-only and the operator does not choose. */
+    val isAutomatic: Boolean get() = mode == MODE_AUTOMATIC && pens.size == 1
+
+    /** The park has several kid pens: the picker offers only those. */
+    val isChoice: Boolean get() = mode == MODE_CHOOSE && pens.isNotEmpty()
+
+    /**
+     * No kid pen is set for this park, so the operator picks freely from the full cascade and the
+     * kid's care steps carry Record shed. This is also what an older cached payload decodes to,
+     * which is the safe fallback: the form behaves exactly as it did before this contract existed.
+     */
+    val isRecordLater: Boolean get() = !isAutomatic && !isChoice
+
+    /** The single kid pen in automatic mode, else null. */
+    val automaticPen: ShiftingShedUi? get() = pens.singleOrNull()?.takeIf { isAutomatic }
+
+    companion object {
+        const val MODE_AUTOMATIC = "automatic"
+        const val MODE_CHOOSE = "choose"
+        const val MODE_RECORD_LATER = "record_later"
+    }
 }
 
 /** One park a movement may target, with the sheds that belong to it. */
@@ -133,6 +202,8 @@ data class ShiftingParkUi(
     val parkId: String,
     val name: String,
     val sheds: List<ShiftingShedUi> = emptyList(),
+    /** Newborn placement for this park. Only the birth form reads it; shifting ignores it. */
+    val birthPlacement: BirthPlacementUi = BirthPlacementUi(),
 )
 
 @Immutable
@@ -143,8 +214,26 @@ data class ShiftingUiState(
     val isLookingUpAnimals: Boolean = false,
     /** Lookup outcome copy (no match / lookup failed). Null while idle or successful. */
     val animalLookupMessage: String? = null,
-    /** THE animal being moved. Exactly one, or none. */
-    val selectedAnimal: ShiftingAnimalUi? = null,
+    /**
+     * The animals being moved, in the order they were scanned or tapped.
+     *
+     * A LIST since the 2026-08-21 maintainer decision reversing the single-animal rule. The typed
+     * rewrite made one-at-a-time untenable: a SPACING movement requires the whole source pen to
+     * travel together ("half-half is not an option"), so a single-animal form could only ever raise
+     * a spacing for a pen holding exactly one animal. The mis-tap risk the old rule guarded against
+     * is answered instead by the confirmation step before submit, which names every animal.
+     */
+    val selectedAnimals: List<ShiftingAnimalUi> = emptyList(),
+    /** True while the confirm-before-submit sheet is showing the full list of animals. */
+    val showSubmitConfirmation: Boolean = false,
+    /**
+     * True while the Bluetooth reader is listening for a tag into the lookup field.
+     *
+     * The screen never touches the reader itself — `feature-counts` is presentational and must not
+     * depend on the RFID package. It renders this flag and sends [ShiftingEvent.ToggleRfidScan];
+     * the ViewModel owns the hardware, exactly as the birth/death forms already do.
+     */
+    val scanningAnimalTag: Boolean = false,
 
     // --- 3. destination ----------------------------------------------------------------------
     /** Backend destination catalog. Empty until the first successful fetch or cache read. */
@@ -155,6 +244,19 @@ data class ShiftingUiState(
     val destinationPartitionLabel: String? = null,
     /** Set when the catalog could not be loaded and no cached copy exists. */
     val destinationsMessage: String? = null,
+
+    // --- 3b. tag toggle ----------------------------------------------------------------------
+    /**
+     * Which tag the moved animal ends up carrying: [SHIFTING_STAGE_MODE_DESTINATION] (adopt the
+     * destination pen's tag) or [SHIFTING_STAGE_MODE_KEEP_CURRENT] (keep the one it has).
+     *
+     * Defaults to the destination pen's tag, which is what a movement did before the toggle
+     * existed, so an operator who ignores the control gets exactly today's behaviour.
+     *
+     * The ViewModel forces this back to keep-current whenever the selected pen cannot supply a tag,
+     * so this field can never claim a mode the destination does not support.
+     */
+    val stageMode: String = SHIFTING_STAGE_MODE_DESTINATION,
 
     // --- 4/5. classification -----------------------------------------------------------------
     val priority: String = SHIFTING_PRIORITY_LOW,
@@ -178,6 +280,7 @@ data class ShiftingUiState(
     /** One-shot navigation result consumed by AppNavHost after server-confirmed sync. */
     val returnToActions: Boolean = false,
     val submissionNotice: String? = null,
+    val submittedOutboxItemId: String? = null,
 ) {
     /**
      * The destination options for the currently chosen park — one entry per WHOLE shed or per
@@ -192,6 +295,25 @@ data class ShiftingUiState(
         get() = shedsForSelectedPark.firstOrNull {
             it.shedId == destinationShedId && it.partitionLabel == destinationPartitionLabel
         }
+
+    /**
+     * Whether the "use destination tag" side of the toggle may be tapped. False until a destination is
+     * chosen (there is no pen to take a tag from yet) and false for a pen that cannot supply one.
+     */
+    val canUseDestinationStage: Boolean
+        get() = selectedDestination?.offersDestinationStage == true
+
+    /**
+     * The reason to show under the disabled option, straight from the backend. Null when the option
+     * is available, or when no destination is selected yet — an operator who has not picked a pen
+     * is not owed an explanation for a choice they have not reached.
+     */
+    val destinationStageReason: String?
+        get() = selectedDestination?.destinationStageReason?.takeIf { it.isNotBlank() }
+
+    /** The pen's tag itself, for the option's supporting line. Null when there is none. */
+    val destinationStageLabel: String?
+        get() = selectedDestination?.destinationStage?.takeIf { it.isNotBlank() }
 }
 
 /**
@@ -206,14 +328,47 @@ const val SHIFTING_PRIORITY_LOW = "low"
  * sick, treated, quarantined, or ICU animals remain shiftable. Lifecycle status is independent;
  * dead/transferred/sold animals are terminal and are rejected.
  */
+/**
+ * The two positions of the raise form's TAG TOGGLE, matching the backend's `stage_mode` vocabulary.
+ *
+ * [SHIFTING_STAGE_MODE_DESTINATION] is the default and the pre-toggle behaviour. The client sends
+ * only the mode; the server resolves which tag that actually means.
+ */
+const val SHIFTING_STAGE_MODE_DESTINATION = "destination_stage"
+const val SHIFTING_STAGE_MODE_KEEP_CURRENT = "keep_current"
+
 const val SHIFTING_CATEGORY_GROWTH = "growth"
 const val SHIFTING_CATEGORY_HEALTH = "health"
 const val SHIFTING_CATEGORY_BREEDING = "breeding"
 const val SHIFTING_CATEGORY_DELIVERY = "delivery"
 
+/**
+ * Spacing and Flushing joined the vocabulary with the 2026-08-20 rewrite: the category is now the
+ * shift TYPE, and the type decides what happens to the animals' tag on the backend. The form only
+ * names WHY the animals move; every tag outcome and every refusal reason is backend-owned copy.
+ */
+const val SHIFTING_CATEGORY_SPACING = "spacing"
+const val SHIFTING_CATEGORY_FLUSHING = "flushing"
+
 sealed interface ShiftingEvent {
     data class EditAnimalQuery(val value: String) : ShiftingEvent
     data object LookupAnimals : ShiftingEvent
+
+    /**
+     * Starts or stops the Bluetooth reader for the lookup field. A scanned tag lands in the same
+     * field a typed one does and runs the same lookup, so scanning can never reach a code path
+     * typing cannot.
+     */
+    data object ToggleRfidScan : ShiftingEvent
+
+    /** Removes one animal from the basket. A mis-scan is undone here, before it becomes a movement. */
+    data class RemoveAnimal(val goatId: String) : ShiftingEvent
+
+    /** Opens the confirmation naming every animal; [Submit] is what actually records the movement. */
+    data object RequestSubmitConfirmation : ShiftingEvent
+
+    /** Dismisses the confirmation without recording anything. */
+    data object DismissSubmitConfirmation : ShiftingEvent
 
     /** Selects THE animal. Selecting another one replaces this; it never appends. */
     data class SelectAnimal(val goatId: String) : ShiftingEvent
@@ -221,6 +376,9 @@ sealed interface ShiftingEvent {
     /** Compatibility event only; the ViewModel accepts only the selected animal's current park. */
     data class SelectDestinationPark(val parkId: String) : ShiftingEvent
     data class SelectDestinationShed(val shedId: String, val partitionLabel: String? = null) : ShiftingEvent
+
+    /** Flips the tag toggle. Ignored by the ViewModel when the pen cannot supply a tag. */
+    data class SelectStageMode(val stageMode: String) : ShiftingEvent
 
     data class SelectPriority(val priority: String) : ShiftingEvent
     data class SelectCategory(val category: String) : ShiftingEvent
@@ -242,7 +400,23 @@ fun ShiftingScreen(
     onEvent: (ShiftingEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
+    // Confirm-before-submit: the last chance to read back exactly which animals are about to be
+    // moved. This is what replaced the single-animal rule's safety argument -- a basket is safe
+    // when nothing leaves in it unread.
+    if (state.showSubmitConfirmation) {
+        ShiftingSubmitConfirmation(
+            animals = state.selectedAnimals,
+            destinationLabel = state.selectedDestination?.name.orEmpty(),
+            onConfirm = { onEvent(ShiftingEvent.Submit) },
+            onDismiss = { onEvent(ShiftingEvent.DismissSubmitConfirmation) },
+        )
+    }
+    // One IME inset for the whole screen. Applying it to BOTH the scrolling body and the pinned
+    // submit bar consumes the keyboard's height twice in the same vertical Column: the body
+    // reserves it as bottom padding while the bar rises by the same amount, and on a phone-sized
+    // screen that collapses the form to nothing -- the operator types a tag into a field they
+    // cannot see.
+    Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg).imePadding()) {
         CountsFormHeader(
             title = stringResource(R.string.counts_shifting_title),
             subtitle = stringResource(R.string.counts_shifting_subtitle),
@@ -255,9 +429,12 @@ fun ShiftingScreen(
         val selectedShedLabel = selectedDestination?.name
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize().weight(1f).padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .weight(1f)
+                .padding(horizontal = 18.dp),
+            contentPadding = PaddingValues(top = 2.dp, bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item(key = "result") { CountsResultBanner(state.result) }
             // A synced movement clears the form and leaves this confirmation above the fresh entry.
@@ -272,11 +449,17 @@ fun ShiftingScreen(
                 CountsFieldGroupTitle(text = stringResource(R.string.counts_group_animal))
             }
             item(key = "animal-lookup") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CountsTextField(
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // Scan OR type: the Bluetooth chip in the field starts the reader, and the same
+                    // field accepts a hand-typed tag when the reader is not to hand (a flat
+                    // battery, an unpaired device, a tag that will not read). Both paths run the
+                    // identical lookup, so neither can reach validation the other cannot.
+                    CountsRfidField(
                         value = state.animalQuery,
                         onValueChange = { onEvent(ShiftingEvent.EditAnimalQuery(it)) },
                         label = stringResource(R.string.counts_field_animal_lookup),
+                        scanning = state.scanningAnimalTag,
+                        onToggleScan = { onEvent(ShiftingEvent.ToggleRfidScan) },
                         supporting = stringResource(R.string.counts_hint_animal_lookup),
                     )
                     CountsSubmitButton(
@@ -294,17 +477,40 @@ fun ShiftingScreen(
                 }
             }
             // Matches are a bounded one-screen page from the backend, never a cohort pull.
-            items(state.animalMatches, key = { "match-${it.goatId}" }) { match ->
+            items(state.animalMatches, key = { "match-${it.displayId}-${it.locationLabel}" }) { match ->
                 AnimalRow(
                     animal = match,
-                    selected = state.selectedAnimal?.goatId == match.goatId,
+                    selected = state.selectedAnimals.any { it.goatId == match.goatId },
                     onClick = { onEvent(ShiftingEvent.SelectAnimal(match.goatId)) },
                 )
             }
 
-            // --- 2. Animal hero: From (current, read-only) -> To (mirrors the destination
+            // --- 2. The basket: every animal this movement carries ----------------------------
+            // Scanning appends, so the operator works down a pen tag by tag and watches the list
+            // grow. Each row can be removed on its own; a mis-scan is undone here, and whatever
+            // survives is read back one last time in the confirmation before submit.
+            if (state.selectedAnimals.isNotEmpty()) {
+                item(key = "basket-title") {
+                    CountsFieldGroupTitle(
+                        text = stringResource(
+                            R.string.counts_shifting_selected_count,
+                            state.selectedAnimals.size,
+                        ),
+                    )
+                }
+                items(state.selectedAnimals, key = { "selected-${it.goatId}" }) { animal ->
+                    SelectedAnimalRow(
+                        animal = animal,
+                        onRemove = { onEvent(ShiftingEvent.RemoveAnimal(animal.goatId)) },
+                    )
+                }
+            }
+
+            // --- 2b. Animal hero: From (current, read-only) -> To (mirrors the destination
             // dropdowns below; never a second picker of its own) -------------------------------
-            state.selectedAnimal?.let { animal ->
+            // Shown for a SINGLE animal only: the hero states one "from" location, and with a mixed
+            // group that single line would be a lie. The per-row locations above carry it instead.
+            state.selectedAnimals.singleOrNull()?.let { animal ->
                 item(key = "animal-hero") {
                     ShiftingAnimalHero(
                         animal = animal,
@@ -341,7 +547,7 @@ fun ShiftingScreen(
                 CountsDropdownField(
                     label = stringResource(R.string.counts_field_shed),
                     selectedLabel = selectedShedLabel,
-                    placeholder = if (state.selectedAnimal == null) {
+                    placeholder = if (state.selectedAnimals.isEmpty()) {
                         stringResource(R.string.counts_select_animal_first)
                     } else {
                         stringResource(R.string.counts_select_shed)
@@ -362,9 +568,28 @@ fun ShiftingScreen(
                 }
             }
 
+            // --- 3b. Destination tag context -------------------------------------------------
+            // The TAG TOGGLE is retired (2026-08-20 rewrite): the movement's CATEGORY decides what
+            // happens to the animals' tag on the backend, so the raiser is no longer asked. What
+            // remains is CONTEXT about the chosen pen -- its tag when it has one, else the
+            // backend's reason it has none. Both are backend-owned strings rendered verbatim; the
+            // phone never composes either.
+            if (state.destinationStageLabel != null || state.destinationStageReason != null) {
+                item(key = "destination-tag-context") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        state.destinationStageLabel?.let { tag ->
+                            Text(text = tag, color = MeshaColors.Muted, fontSize = 12.sp)
+                        }
+                        state.destinationStageReason?.let { reason ->
+                            Text(text = reason, color = MeshaColors.Muted, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
             // --- 4. Priority -----------------------------------------------------------------
             item(key = "priority") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     CountsFieldGroupTitle(text = stringResource(R.string.counts_group_priority))
                     CountsSegmented(
                         options = listOf(
@@ -379,7 +604,7 @@ fun ShiftingScreen(
 
             // --- 5. Category -----------------------------------------------------------------
             item(key = "category") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     CountsFieldGroupTitle(text = stringResource(R.string.counts_group_category))
                     CountsSegmented(
                         options = listOf(
@@ -387,9 +612,16 @@ fun ShiftingScreen(
                             SHIFTING_CATEGORY_HEALTH to stringResource(R.string.counts_category_health),
                             SHIFTING_CATEGORY_BREEDING to stringResource(R.string.counts_category_breeding),
                             SHIFTING_CATEGORY_DELIVERY to stringResource(R.string.counts_category_delivery),
+                            SHIFTING_CATEGORY_SPACING to stringResource(R.string.counts_category_spacing),
+                            SHIFTING_CATEGORY_FLUSHING to stringResource(R.string.counts_category_flushing),
                         ),
                         selectedKey = state.category,
                         onSelect = { onEvent(ShiftingEvent.SelectCategory(it)) },
+                        // Six types on one line makes every cell narrower than its word, and the
+                        // labels break mid-word ("Breedin/g"). Two rows of three give each type its
+                        // whole name -- which is what the operator is actually choosing between,
+                        // since the type now decides what happens to the animals' tag.
+                        maxPerRow = 3,
                     )
                 }
             }
@@ -398,7 +630,7 @@ fun ShiftingScreen(
             // Optional by design: it never gates Submit. It is read by the park head approving the
             // movement and by the verifier reviewing the evidence afterwards.
             item(key = "comment") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     CountsFieldGroupTitle(text = stringResource(R.string.counts_group_comment))
                     CountsTextField(
                         value = state.comment,
@@ -423,18 +655,21 @@ fun ShiftingScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(MeshaColors.PageBg)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+                .navigationBarsPadding()
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             CountsSubmitButton(
                 label = stringResource(R.string.counts_submit_shifting),
                 enabled = state.canSubmit,
-                onClick = { onEvent(ShiftingEvent.Submit) },
+                // Never submits straight from the button: the confirmation names every animal
+                // first, which is what makes a scanned basket safe to move.
+                onClick = { onEvent(ShiftingEvent.RequestSubmitConfirmation) },
             )
             Text(
                 text = stringResource(R.string.counts_shifting_pending_note),
-                color = MeshaColors.Faint,
-                fontSize = 10.sp,
+                color = MeshaColors.Muted,
+                fontSize = 11.sp,
             )
         }
     }
@@ -557,6 +792,146 @@ internal fun AnimalRow(
                 contentDescription = null,
                 tint = MeshaColors.Brand,
                 modifier = Modifier.size(16.dp),
+            )
+        }
+    }
+}
+
+/**
+ * The confirmation shown before a movement is recorded: every animal, by name, with where it is
+ * now and where it is going.
+ *
+ * The list is SCROLLABLE and never truncated with a "+N more" -- a bulk move's whole point is that
+ * the operator can no longer hold the group in their head, so hiding part of it would defeat the
+ * check. The confirm button counts the animals so the number is read once more at the moment of
+ * commitment.
+ */
+@Composable
+private fun ShiftingSubmitConfirmation(
+    animals: List<ShiftingAnimalUi>,
+    destinationLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MeshaColors.Surf,
+        title = {
+            Text(
+                text = stringResource(R.string.counts_shifting_confirm_title, animals.size),
+                color = MeshaColors.Ink,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.W800,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = if (destinationLabel.isBlank()) {
+                        stringResource(R.string.counts_shifting_confirm_body_no_destination)
+                    } else {
+                        stringResource(R.string.counts_shifting_confirm_body, destinationLabel)
+                    },
+                    color = MeshaColors.Muted,
+                    fontSize = 13.sp,
+                )
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 280.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(animals, key = { "confirm-${it.goatId}" }) { animal ->
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(
+                                text = animal.displayId,
+                                color = MeshaColors.Ink,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.W700,
+                            )
+                            val where = operationalLocationLabel(animal.shedName, animal.partitionLabel)
+                                .ifBlank { animal.locationLabel }
+                            if (where.isNotBlank()) {
+                                Text(text = where, color = MeshaColors.Faint, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Text(
+                text = stringResource(R.string.counts_shifting_confirm_action, animals.size),
+                color = MeshaColors.Brand,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.W800,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(onClick = onConfirm)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        },
+        dismissButton = {
+            Text(
+                text = stringResource(R.string.counts_shifting_confirm_cancel),
+                color = MeshaColors.Muted,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.W700,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable(onClick = onDismiss)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        },
+    )
+}
+
+/**
+ * One animal already in the basket, with its own remove control.
+ *
+ * Deliberately NOT the same row as a search match: a match is a thing you might take, this is a
+ * thing you are moving. It carries the animal's own current location, because a bulk movement can
+ * gather animals from more than one pen and the single "from" hero cannot say that truthfully.
+ */
+@Composable
+internal fun SelectedAnimalRow(
+    animal: ShiftingAnimalUi,
+    onRemove: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MeshaColors.Brand.copy(alpha = 0.10f))
+            .border(1.dp, MeshaColors.Brand, RoundedCornerShape(12.dp))
+            .padding(start = 12.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(animal.displayId, color = MeshaColors.Ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
+            Text(animal.tag, color = MeshaColors.Muted, fontSize = 11.sp)
+            val where = operationalLocationLabel(animal.shedName, animal.partitionLabel)
+                .ifBlank { animal.locationLabel }
+            if (where.isNotBlank()) {
+                Text(where, color = MeshaColors.Faint, fontSize = 11.sp)
+            }
+        }
+        // 48dp touch target: removing the wrong animal from the list is itself a mis-tap, so the
+        // control is full-size rather than a cramped icon.
+        Box(
+            modifier = Modifier
+                .padding(end = 4.dp)
+                .size(48.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .clickable(onClick = onRemove),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = MeshaIcons.Close,
+                contentDescription = stringResource(R.string.counts_shifting_remove_animal),
+                tint = MeshaColors.Muted,
+                modifier = Modifier.size(18.dp),
             )
         }
     }

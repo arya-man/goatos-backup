@@ -26,6 +26,7 @@ type VendorService interface {
 	UpdateVendor(ctx context.Context, tenantID, vendorID string, write domain.VendorWrite, rowVersion int64, actorID string, includeFinance bool) (domain.Vendor, error)
 	UpdateVendorStatus(ctx context.Context, tenantID, vendorID, status string, rowVersion int64, actorID string) (domain.Vendor, error)
 	ListVendorCatalog(ctx context.Context, tenantID string) ([]domain.VendorCatalogEntry, error)
+	ListVendorOptions(ctx context.Context, tenantID string) (domain.VendorOptions, error)
 }
 
 // VendorHandler serves /procurement/vendors.
@@ -55,6 +56,7 @@ func RegisterVendors(mux *http.ServeMux, h *VendorHandler) {
 	mux.HandleFunc("PUT /procurement/vendors/{vendor_id}", h.UpdateVendor)
 	mux.HandleFunc("POST /procurement/vendors/{vendor_id}/status", h.UpdateVendorStatus)
 	mux.HandleFunc("GET /procurement/vendor-catalog", h.ListVendorCatalog)
+	mux.HandleFunc("GET /procurement/vendor-options", h.ListVendorOptions)
 }
 
 // maxVendorRequestBytes caps a write body. The register's largest legitimate payload is a couple of
@@ -225,6 +227,32 @@ func (h *VendorHandler) ListVendorCatalog(w http.ResponseWriter, r *http.Request
 		Statuses:    grouped[domain.CatalogKindStatus],
 		Feeds:       grouped[domain.CatalogKindFeed],
 	})
+}
+
+// ListVendorOptions serves GET /procurement/vendor-options.
+//
+// The ACTIVE register as a bounded picklist, read by any screen that must name a counterparty --
+// today the Sales record-sale drawer, which maps every deal to a vendor (maintainer decision
+// 2026-08-27).
+//
+// Separate from ListVendors rather than a mode of it, for three reasons: it is active-only (a
+// banned or inactive vendor must not be offerable as the buyer of a NEW deal), it is not paged (a
+// dropdown that stops at page one silently hides buyers), and it carries five columns instead of
+// the full row, so it stays outside the VendorFinanceRead surface entirely.
+func (h *VendorHandler) ListVendorOptions(w http.ResponseWriter, r *http.Request) {
+	options, err := h.service.ListVendorOptions(r.Context(), tenantID(r))
+	if err != nil {
+		h.writeErr(w, r, app.VendorHTTPError(err))
+		return
+	}
+	items := make([]vendorOptionPayload, 0, len(options.Vendors))
+	for _, v := range options.Vendors {
+		items = append(items, vendorOptionPayload{
+			VendorID: v.VendorID, BusinessName: v.BusinessName,
+			RecordType: v.RecordType, City: v.City, State: v.State,
+		})
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, vendorOptionsPayload{Vendors: items, Truncated: options.Truncated})
 }
 
 // decode reads and validates a JSON write body.

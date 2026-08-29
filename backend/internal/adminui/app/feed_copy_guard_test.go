@@ -310,8 +310,14 @@ func TestFeedTableColumnsAreExact(t *testing.T) {
 		{"feed-config", "shed-factors", []string{
 			"shed", "feed_item", "multiplier", "valid_from", "valid_to",
 		}},
+		// `feeds` is the session's RECIPE and it sits between the split and the status because the
+		// TSX renders these cells positionally. It is the column that answers whether a feed reaches
+		// an animal at all: generation walks these slots and looks each up in the ration grid, so a
+		// feed with a grid quantity but no slot is silently absent from the sheet. The table carried
+		// no such column until 2026-08-14, which is why COFS could hold 2157 g/head for Anantapur
+		// Sheep bucks and reach zero sheets with nothing on this screen explaining it.
 		{"feed-config", "session-template", []string{
-			"session_no", "session_label", "split_fraction", "status",
+			"session_no", "session_label", "split_fraction", "feeds", "status",
 		}},
 		// The experiment table has NO valid_from/valid_to pair, unlike every other effective-dated
 		// table on this page — feed_experiment_config is not effective-dated (migration 000006), and
@@ -553,6 +559,13 @@ func TestFeedOptionGroupsCarryNoLiveTenantData(t *testing.T) {
 		// Note what is deliberately NOT here — the VALUES compared against are typed by the author,
 		// never enumerated, because an authored rate is live data.
 		"feed_grams_compare": true,
+		// The feed item's own lifecycle state, NOT the feed item vocabulary. The distinction is the
+		// whole point of this guard: the ITEMS are live tenant data and still arrive through
+		// ReferenceFamilies.FeedItems, while whether one is fed is `feed_item_catalog_status_check`
+		// (000001) — exactly two values, unchangeable without a migration. It is declared because
+		// the status cell became an inline picker, and a picker's options must be backend-owned so
+		// a client cannot offer a value the write would reject.
+		"feed_item_status": true,
 	}
 
 	for _, group := range feedOptionGroups() {

@@ -70,6 +70,9 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /verification/review-events", h.RecordReviewEvents)
 	mux.HandleFunc("GET /verification/items/{item_id}/review-facts", h.GetItemReviewFacts)
 	mux.HandleFunc("GET /verification/oversight-analytics", h.GetOversightAnalytics)
+	mux.HandleFunc("GET /verification/video-log", h.GetVideoLog)
+	mux.HandleFunc("GET /verification/sampling", h.GetVerificationSampling)
+	mux.HandleFunc("PUT /verification/sampling/{category}", h.SetVerificationSamplingPolicy)
 }
 
 type queueItemResponse struct {
@@ -119,6 +122,75 @@ type queueItemResponse struct {
 	// domain.ItemWatchState). Nil when review-event telemetry is unavailable for this deployment
 	// (h.reviewEvent not wired) -- distinct from "not opened", which is a real negative fact.
 	Watch *watchStateResponse `json:"watch,omitempty"`
+	// MeasurementCorrection is the backend-owned declaration that this item carries a number the
+	// verifier may correct while reviewing the proof, and every word of that control's copy.
+	// Absent -- the normal case -- means no client renders a correction control.
+	//
+	// It carries NO current value: the number is already in SubjectLabel, which the producing
+	// module composes and the verifier is reading while she watches the video. Putting it here
+	// too would mean verification reading a producer's tables.
+	MeasurementCorrection *measurementCorrectionResponse `json:"measurement_correction,omitempty"`
+}
+
+// measurementCorrectionResponse is the wire shape of domain.MeasurementCorrectionSpec, resolved
+// for ONE item: the copy comes from the category registration, the two ids come from the item's
+// own source so the client posts the correction against the right record without composing an
+// address of its own.
+type measurementCorrectionResponse struct {
+	// RefType / ObservationID are echoed from Source and are what the producing module's
+	// correction route takes.
+	RefType       string `json:"ref_type"`
+	ObservationID string `json:"observation_id"`
+	Title         string `json:"title"`
+	Help          string `json:"help"`
+	ValueLabel    string `json:"value_label"`
+	SubmitLabel   string `json:"submit_label"`
+	// CountLabel is present only on the ref types that carry an accompanying whole-number field
+	// (a lump-sum shed proof's head count). Absent means the client renders the value field alone.
+	CountLabel string `json:"count_label,omitempty"`
+	// RequiredForApprove tells the client to keep Approve disabled until a number is entered.
+	// True for feed wastage, where the operator sends a video only and the reading is born on the
+	// verifier's screen; false for weighing, where blank means the operator's weight is right.
+	RequiredForApprove bool `json:"required_for_approve"`
+	// Fields is the ordered per-item entry-box list for items whose approve carries one value PER
+	// FIELD (a feed packing item: one per feed item of that pen-session, names only -- the planned
+	// quantities are deliberately hidden). Present and non-empty means the client renders one
+	// labelled box per field instead of the single value field, and the verdict's measurement
+	// carries `entries` echoing each field's key. Absent means the single-value contract.
+	Fields []measurementFieldResponse `json:"fields,omitempty"`
+}
+
+// measurementFieldResponse is one per-item entry box on the wire: the producer's stable key the
+// client posts back verbatim, and the backend-owned caption it renders.
+type measurementFieldResponse struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+// toMeasurementCorrectionResponse resolves the category's declaration for one item, or nil when the
+// category declared none. Pure copy plus an echo of the item's own source and its own enqueued
+// per-item fields -- no read, no join.
+func toMeasurementCorrectionResponse(spec *domain.MeasurementCorrectionSpec, source domain.SourceRef, fields []domain.MeasurementField) *measurementCorrectionResponse {
+	if spec == nil {
+		return nil
+	}
+	out := &measurementCorrectionResponse{
+		RefType:       source.RefType,
+		ObservationID: source.RefID,
+		Title:         spec.Title,
+		Help:          spec.Help,
+		ValueLabel:    spec.ValueLabel,
+		SubmitLabel:   spec.SubmitLabel,
+
+		RequiredForApprove: spec.RequiredForApprove,
+	}
+	if spec.HasCountField(source.RefType) {
+		out.CountLabel = spec.CountLabel
+	}
+	for _, field := range fields {
+		out.Fields = append(out.Fields, measurementFieldResponse{Key: field.Key, Label: field.Label})
+	}
+	return out
 }
 
 // watchStateResponse is the wire shape for domain.ItemWatchState: "percent watched if known, 'not
@@ -162,7 +234,10 @@ func toContextRowResponses(rows []domain.ContextRow) []contextRowResponse {
 	return out
 }
 
-func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
+// toQueueItemResponse maps one queue row to the wire. correction is the category's correctable-
+// measurement declaration, already resolved by the caller (which holds the registry); nil for every
+// category that declares none, which is all of them but weighing today.
+func toQueueItemResponse(row domain.QueueRow, correction *domain.MeasurementCorrectionSpec) queueItemResponse {
 	var verifiedAt *string
 	if row.Item.VerifiedAt != nil {
 		s := row.Item.VerifiedAt.Format(rfc3339Nano)
@@ -229,7 +304,21 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 			RefType:      row.Item.Source.RefType,
 			RefID:        row.Item.Source.RefID,
 		},
+		MeasurementCorrection: toMeasurementCorrectionResponse(correction, row.Item.Source, row.Item.MeasurementFields),
 	}
+}
+
+// measurementCorrectionFor looks up the correctable-measurement declaration for an item's category.
+// Unregistered category or no declaration both mean nil, and nil means no control.
+func (h *Handler) measurementCorrectionFor(category string) *domain.MeasurementCorrectionSpec {
+	if h == nil || h.service == nil {
+		return nil
+	}
+	def, ok := h.service.Category(category)
+	if !ok {
+		return nil
+	}
+	return def.MeasurementCorrection
 }
 
 const rfc3339Nano = "2006-01-02T15:04:05.999999999Z07:00"
@@ -356,6 +445,21 @@ func (h *Handler) listQueue(
 		// capture-date range) on the CAPABILITY, never on a role string. See
 		// permissions.VerificationOversee and ports.ListQueueParams.OversightFiltersEnabled.
 		OversightFiltersEnabled: holdsVerificationPermission(r, permissions.VerificationOversee),
+		// CaptureDateFilterEnabled gates the CAPTURE-DATE RANGE separately from the cross-module
+		// chrome above (maintainer decision 2026-08-17): a verifier narrows her OWN queue to the
+		// days she is working, which crosses no module boundary. Same capability rule -- the
+		// permission, never a role string. See permissions.VerificationFilterByCaptureDate.
+		CaptureDateFilterEnabled: holdsVerificationPermission(r, permissions.VerificationFilterByCaptureDate),
+		// RANDOMIZATION (maintainer decision 2026-08-26): a WORKING VERIFIER's queue carries only
+		// the share of each category's videos the CEO set; leadership oversight keeps seeing every
+		// video, because the principal who SETS the percentage must be able to audit what it
+		// waived -- a queue narrowed by his own setting could not show him that.
+		//
+		// Keyed on the ABSENCE of verification.oversee, the same capability that already separates
+		// the two personas on this endpoint, never on a role string. A caller with oversight is
+		// unaffected in every respect, which is also why every other ListQueue caller (closure
+		// candidates, alerts, the awaiting-application view) is left at the default false.
+		SamplingApplied: !holdsVerificationPermission(r, permissions.VerificationOversee),
 	}
 	result, err := h.service.ListQueue(r.Context(), params)
 	if err != nil {
@@ -378,7 +482,7 @@ func (h *Handler) listQueue(
 	items := make([]queueItemResponse, len(result.Items))
 	itemIDs := make([]string, len(result.Items))
 	for i, row := range result.Items {
-		items[i] = toQueueItemResponse(row)
+		items[i] = toQueueItemResponse(row, h.measurementCorrectionFor(row.Item.Category))
 		itemIDs[i] = row.Item.ItemID
 	}
 	// Watch state is a bounded batch read over exactly this page's item_ids -- never the whole
@@ -403,6 +507,61 @@ type verdictRequest struct {
 	Decision   string `json:"decision"`
 	Reason     string `json:"reason"`
 	RowVersion int    `json:"row_version"`
+	// Measurement is the number the verifier read off the video, carried BY the approve
+	// (maintainer decision 2026-08-20). Absent is the normal weighing case -- blank keeps the
+	// operator's recorded weight. Ignored on a reject.
+	Measurement *verdictMeasurementRequest `json:"measurement,omitempty"`
+}
+
+// verdictMeasurementRequest carries the value ALONE. The record it lands on comes from the item's
+// own source, never from the client, so one item's approve can never be aimed at another's record.
+type verdictMeasurementRequest struct {
+	// Value is a pointer so an omitted field stays distinct from a real 0 -- zero wastage (an
+	// empty trough) is a valid reading, and coercing "she typed nothing" into it would record a
+	// measurement she never made.
+	Value  *float64 `json:"value"`
+	Count  *int     `json:"count,omitempty"`
+	Reason string   `json:"reason,omitempty"`
+	// Entries is the per-field readings for an item whose measurement_correction carries
+	// `fields` (feed packing: one packed weight per feed item). Each key echoes a field's key
+	// verbatim; every declared field must be present for the approve to land.
+	Entries []verdictMeasurementEntryRequest `json:"entries,omitempty"`
+}
+
+// verdictMeasurementEntryRequest is one filled entry box: the field's key plus the reading.
+type verdictMeasurementEntryRequest struct {
+	Key string `json:"key"`
+	// Value is a pointer for the same omitted-vs-zero reason as the single value above: "0 kg
+	// packed of this item" is a real observation, distinct from a box left empty.
+	Value *float64 `json:"value"`
+}
+
+// toDomainMeasurement maps the wire block to the domain, or nil when the client sent no number.
+func (r *verdictRequest) toDomainMeasurement() *domain.VerdictMeasurement {
+	if r.Measurement == nil {
+		return nil
+	}
+	entries := make([]domain.MeasurementEntry, 0, len(r.Measurement.Entries))
+	for _, entry := range r.Measurement.Entries {
+		if entry.Value == nil {
+			// A keyed box with no value is "not entered", not zero; dropping it here lets the
+			// service's completeness check name the missing field instead of recording a guess.
+			continue
+		}
+		entries = append(entries, domain.MeasurementEntry{Key: strings.TrimSpace(entry.Key), Value: *entry.Value})
+	}
+	if r.Measurement.Value == nil && len(entries) == 0 {
+		return nil
+	}
+	out := &domain.VerdictMeasurement{
+		Count:   r.Measurement.Count,
+		Reason:  strings.TrimSpace(r.Measurement.Reason),
+		Entries: entries,
+	}
+	if r.Measurement.Value != nil {
+		out.Value = *r.Measurement.Value
+	}
+	return out
 }
 
 type verdictResponse struct {
@@ -431,6 +590,37 @@ func (h *Handler) RecordVerdict(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if !h.authorizeSingleCategory(w, r, item.Category) {
 		return
 	}
+	// THERE IS DELIBERATELY NO RANDOMIZATION GATE HERE (maintainer decision 2026-08-27, raised in
+	// review of the sampling PR). A verifier can reach this route for an item the policy did NOT
+	// draw -- a drawer still open after the CEO lowered the share, an older push, a direct call --
+	// and her verdict is ACCEPTED and recorded as what it is: a human verdict, with verified_by set
+	// and auto_resolution left NULL.
+	//
+	// The share is a FLOOR on the review she is REQUIRED to do, never a ceiling on the review she is
+	// PERMITTED to do. Refusing here would (a) make bad work unreportable -- she watches an undrawn
+	// video, sees the work was done wrong, and the rejection is refused, so the work proceeds to
+	// completed; and (b) discard a review she has already performed, which is the realistic case
+	// because the draw is monotonic and only a LOWERED share can drop an item she was holding.
+	//
+	// Nothing is mislabelled by allowing it: `auto_resolution = 'not_sampled'` is the contract for a
+	// video NOBODY reviewed, and this one was reviewed. The panel's Reviewed/Selected counts are
+	// share-scoped, so an extra review cannot push her day past 100%, and SettleUnsampledItems skips
+	// any item a verifier already decided -- see its "her verdict wins" branch, which encodes this
+	// same precedence on the write side.
+	//
+	// Sampling is also not an authorization boundary: authorizeSingleCategory above is, and she
+	// already holds verdict authority for this category. Acting outside the share grants her nothing
+	// she is not entitled to do.
+	//
+	// The thing that genuinely takes an item out of her reach is it leaving `pending` -- either the
+	// closeout settling it or a producer withdrawing it -- which RecordVerdict enforces, exactly as
+	// WithdrawItemsBySource does for superseded work. Pinned by
+	// TestAVerdictOnAnUndrawnItemIsHersToCast.
+	//
+	// This was REPORTED as a P1 in review and closed as working-as-decided; the reasoning, what a
+	// REAL defect here would look like, and the two stricter variants that were costed and not taken
+	// are in context/repo-audits/verification-randomization-do-not-reopen-ledger.md -> B-1. Read that
+	// before proposing a sampling gate on this route.
 	item, err = h.service.RecordVerdict(r.Context(), domain.Verdict{
 		TenantID:       tenantID(r),
 		ItemID:         r.PathValue("item_id"),
@@ -439,13 +629,14 @@ func (h *Handler) RecordVerdict(w nethttp.ResponseWriter, r *nethttp.Request) {
 		VerifierID:     actorID(r),
 		RowVersion:     body.RowVersion,
 		IdempotencyKey: idempotencyKey,
+		Measurement:    body.toDomainMeasurement(),
 	})
 	if err != nil {
 		h.respondError(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, nethttp.StatusOK, verdictResponse{
-		Item:    toQueueItemResponse(domain.QueueRow{Item: item}),
+		Item:    toQueueItemResponse(domain.QueueRow{Item: item}, h.measurementCorrectionFor(item.Category)),
 		TraceID: traceID(r),
 	})
 }
@@ -655,7 +846,7 @@ func (h *Handler) CloseItem(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 	httpresponse.WriteJSON(w, nethttp.StatusOK, verdictResponse{
-		Item:    toQueueItemResponse(domain.QueueRow{Item: item}),
+		Item:    toQueueItemResponse(domain.QueueRow{Item: item}, h.measurementCorrectionFor(item.Category)),
 		TraceID: traceID(r),
 	})
 }
@@ -694,7 +885,7 @@ func (h *Handler) CloseSubmission(w nethttp.ResponseWriter, r *nethttp.Request) 
 	}
 	responseItems := make([]queueItemResponse, len(items))
 	for i, item := range items {
-		responseItems[i] = toQueueItemResponse(domain.QueueRow{Item: item})
+		responseItems[i] = toQueueItemResponse(domain.QueueRow{Item: item}, h.measurementCorrectionFor(item.Category))
 	}
 	httpresponse.WriteJSON(w, nethttp.StatusOK, closeSubmissionResponse{
 		Items:   responseItems,
@@ -748,7 +939,7 @@ func (h *Handler) CloseVaccinationBatch(w nethttp.ResponseWriter, r *nethttp.Req
 	}
 	responseItems := make([]queueItemResponse, len(items))
 	for i, item := range items {
-		responseItems[i] = toQueueItemResponse(domain.QueueRow{Item: item})
+		responseItems[i] = toQueueItemResponse(domain.QueueRow{Item: item}, h.measurementCorrectionFor(item.Category))
 	}
 	httpresponse.WriteJSON(w, nethttp.StatusOK, closeSubmissionResponse{
 		Items:   responseItems,

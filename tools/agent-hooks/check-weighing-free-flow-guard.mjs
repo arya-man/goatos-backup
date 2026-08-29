@@ -225,23 +225,69 @@ function stripComments(text) {
 // global allowlist would silently unlock every weighing file, including the write
 // path, which is the exact 2026-08-04 defect this guard exists to prevent. Only
 // the named reporting file may resolve a tag, and only to read breed/sex/stage.
+// Maintainer decision 2026-08-19: the same reporting file may also read
+// goat_shed_partitions only to label lump-sum composition at exact shed/partition
+// grain. This covers historical display rows such as Castro 1/2/3, Gandhi 1/2/3,
+// legacy Gandi 1/2/3, and Godel 2 - Part 1 without letting the write path use
+// per-goat location data.
 //
 // Boundaries that still hold inside the exempt file, and are the reason this is
 // safe: it is READ-ONLY, it is a reporting path with no capture, submit or close
 // behaviour, no scan is gated on identity, and a tag that resolves to nothing is
 // counted and reported rather than rejected — free-flow capture is untouched.
 //
+// THE SECOND RECORDED EXCEPTION (maintainer decision 2026-08-24): the LUMP-SUM
+// CENSUS SNAPSHOT, lump_sum_census.go. Operators kept typing wrong head counts,
+// so the maintainer ruled that the lump-sum submit no longer accepts a typed
+// count: RecordShedObservation snapshots the bucket's live resident count from
+// goats + goat_shed_partitions inside the submit transaction, freezes it on the
+// row forever, and derives the average from it. This is knowingly a WRITE-PATH
+// read — the guard's cross-file scanning would not see the call from
+// RecordShedObservation into this helper, so the exemption is recorded here
+// EXPLICITLY rather than left to that blind spot. Its boundaries: one COUNT of
+// the bucket's own (shed, pen) residents, no per-animal identity leaves the
+// query, individual free-flow capture is untouched (scans still accepted
+// verbatim, unknown tags still counted), and the only gate it adds is the
+// maintainer-ruled zero-census refusal (ports.ErrShedCountUnavailable).
+//
+// THE THIRD RECORDED EXCEPTION (maintainer decision 2026-08-26): the WEIGHTS
+// SEX FILTER, sex_scope.go. The maintainer asked for the Weights page's Sex
+// filter to govern the WHOLE page — the shed table, the KPI row, the growth
+// leaderboard and the Growth Director widgets — and a weighing row knows only a
+// scanned string, so something must say which strings belong to a male kid.
+//
+// The alternative was to let shed_weights.go, growth.go and the Growth Director
+// reads each join goat_identifiers, which is exactly the leak the 2026-08-04
+// defect was about. Instead ONE file answers the question and hands the other
+// reads an OPAQUE list — tag strings and (location, partition) buckets — so
+// those files still name no herd table and still know nothing about animals.
+//
+// Its boundaries: READ-ONLY and REPORTING-ONLY, no capture/submit/close/verdict
+// path calls it; NO scan is gated on identity; an empty sex resolves to an empty
+// scope that every caller reads as "no filter", so the unfiltered page runs the
+// query it ran before this file existed; and a whole-shed weigh is claimed only
+// when its cohort is provably one sex, never split across a mix.
+//
 // Adding a file here is a MAINTAINER decision, never a developer convenience.
 const HERD_JOIN_EXEMPT_FILES = new Map([
   [
     "backend/internal/weighing/adapters/postgres/weight_demographics.go",
-    "maintainer decision 2026-08-07: average weight by breed/sex/stage on the Weights screen",
+    "maintainer decisions 2026-08-07/2026-08-19: average weight by breed/sex/stage and lump-sum shed/partition composition on the Weights screen",
+  ],
+  [
+    "backend/internal/weighing/adapters/postgres/sex_scope.go",
+    "maintainer decision 2026-08-26: resolves the Weights page's Sex filter to a tag list and a lump-sum bucket list, so the other weighing reads filter without naming a herd table",
+  ],
+  [
+    "backend/internal/weighing/adapters/postgres/lump_sum_census.go",
+    "maintainer decision 2026-08-24: lump-sum submit snapshots the bucket's resident head count from the herd register (frozen on the row; operator no longer types it)",
   ],
 ]);
 
-// The only herd tables an exempt file may resolve, and only for those three facts.
+// The only herd tables an exempt file may resolve, and only for the reporting
+// facts above.
 // Vaccination, clinical, protocol and obligation tables stay banned everywhere.
-const HERD_JOIN_EXEMPT_TABLES = new Set(["goats", "goat_identifiers"]);
+const HERD_JOIN_EXEMPT_TABLES = new Set(["goats", "goat_identifiers", "goat_shed_partitions"]);
 
 const WRITE_PATH_ALLOWED_TABLES = new Set([
   "weighing_campaigns",
@@ -391,9 +437,10 @@ function writePathBodies(source) {
 // protocol_*, obligation_* — anything describing an ANIMAL or another module's rules. Weighing
 // knows a scanned string and a weight. It does not know what animal that is, and must not ask.
 //
-// CRITICAL: goat_shed_partitions is BANNED (PER-GOAT table, reveals which animal sits where).
-// shed_partitions (ORG-scoped catalog of existing partitions) is ALLOWED. See BANNED_SHADOW_RE
-// and guard self-test below for enforcement.
+// CRITICAL: goat_shed_partitions is BANNED except in the file-scoped reporting
+// exception above (PER-GOAT table, reveals which animal sits where). shed_partitions
+// (ORG-scoped catalog of existing partitions) is ALLOWED. See BANNED_SHADOW_RE and
+// guard self-test below for enforcement.
 //
 // Adding to this set is a maintainer decision, not a developer convenience.
 const NON_WEIGHING_TABLES_ALLOWED_ON_READ = new Set([
@@ -1606,11 +1653,12 @@ UPDATE weighing_observations observation
     );
   }
 
-  // Mode 16: shed_partitions ALLOWED, goat_shed_partitions BANNED.
+  // Mode 16: shed_partitions ALLOWED, goat_shed_partitions BANNED except for the
+  // single Weights reporting file.
   // Maintainer decision 2026-08-06: shed_partitions is an ORG-scoped catalog (tenant_id, shed_id,
   // normalized_label) with no per-animal data. goat_shed_partitions is per-goat (tenant_id, goat_id)
-  // and reveals which animal sits where -- strictly banned. This distinction is the whole point of
-  // the allowlist.
+  // and reveals which animal sits where. Maintainer decision 2026-08-19 permits that table only in
+  // weight_demographics.go to label lump-sum composition at shed/partition grain.
   const goodMode16ShedPartitions = `
 func (r *Repository) ResolveCampaignPartition(ctx context.Context) error {
   _, err := r.pool.Exec(ctx, ` + "`" + `
@@ -1641,6 +1689,45 @@ func (r *Repository) ResolveCampaignPartition(ctx context.Context) error {
   if (!badMode16.some((f) => f.rule === "weighing-reads-non-weighing-table")) {
     throw new Error(
       `self-test failed: mode 16 did not flag goat_shed_partitions (per-goat, reveals animal location). got: ${JSON.stringify(badMode16)}`,
+    );
+  }
+  const exemptMode16 = anyPathTableFindings(
+    "backend/internal/weighing/adapters/postgres/weight_demographics.go",
+    badMode16GoatShedPartitions,
+  );
+  if (exemptMode16.length) {
+    throw new Error(
+      `self-test failed: mode 16 false positive on goat_shed_partitions inside the Weights reporting exception. got: ${JSON.stringify(exemptMode16)}`,
+    );
+  }
+  // Maintainer decision 2026-08-24: the lump-sum census snapshot file is the
+  // SECOND file-scoped exemption (goats + goat_shed_partitions, one COUNT of a
+  // bucket's residents). The same herd read in ANY OTHER weighing file must
+  // still be a finding — the bad fixture above already proves that half.
+  const censusRead = `
+func (r *Repository) lumpSumCensusCountTx(ctx context.Context) error {
+  _, err := r.pool.Exec(ctx, ` + "`" + `
+    SELECT COUNT(*)
+    FROM goats g
+    LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+    WHERE g.tenant_id=$1 AND g.shed_id=$2
+  ` + "`" + `)
+  return err
+}
+`;
+  const exemptCensus = anyPathTableFindings(
+    "backend/internal/weighing/adapters/postgres/lump_sum_census.go",
+    censusRead,
+  );
+  if (exemptCensus.length) {
+    throw new Error(
+      `self-test failed: mode 16 false positive on the lump-sum census snapshot exemption (maintainer decision 2026-08-24). got: ${JSON.stringify(exemptCensus)}`,
+    );
+  }
+  const nonExemptCensus = anyPathTableFindings("fake.go", censusRead);
+  if (!nonExemptCensus.some((f) => f.rule === "weighing-reads-non-weighing-table")) {
+    throw new Error(
+      `self-test failed: mode 16 must still flag the census read outside its exempt file. got: ${JSON.stringify(nonExemptCensus)}`,
     );
   }
 

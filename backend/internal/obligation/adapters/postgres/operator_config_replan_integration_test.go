@@ -134,7 +134,9 @@ func TestOperatorConfigReplanConsumerSerializesAgainstLiveSweeperLock(t *testing
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	plannedDate := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	// Forward-only recompute: a planned date already in the past is never revisited, so a
+	// fixed calendar date stops proving anything once the clock passes it.
+	plannedDate := time.Now().UTC().AddDate(0, 0, 10).Truncate(24 * time.Hour).Add(12 * time.Hour)
 	park, goatIDs, staleBatchID := seedOperatorConfigReplanFixture(t, ctx, pool, "a1", 6, plannedDate)
 	repo := NewRepository(pool, 5*time.Second)
 
@@ -238,7 +240,9 @@ func TestOperatorConfigReplanRetrysPendingWatermark(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	plannedDate := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	// Forward-only recompute: a planned date already in the past is never revisited, so a
+	// fixed calendar date stops proving anything once the clock passes it.
+	plannedDate := time.Now().UTC().AddDate(0, 0, 10).Truncate(24 * time.Hour).Add(12 * time.Hour)
 	park, goatIDs, staleBatchID := seedOperatorConfigReplanFixture(t, ctx, pool, "f1", 2, plannedDate)
 	repo := NewRepository(pool, 5*time.Second)
 

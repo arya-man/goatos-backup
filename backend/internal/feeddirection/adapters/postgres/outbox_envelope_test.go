@@ -86,6 +86,15 @@ func TestFeedOutboxEnvelopesValidateAgainstTheProductionSchema(t *testing.T) {
 			aggregateType: feedPackingCompletedAggregateType,
 			actorID:       "",
 		},
+		{
+			// The afternoon correction's reopen (2026-08-29). Always system-attributed -- no human
+			// presses anything -- and its event_type must be in the schema enum or the packer's push
+			// silently never fires (the exact invisible-at-the-write failure this file exists for).
+			name:          "feed.packing.reopened by the afternoon correction",
+			eventType:     feedPackingReopenedEventType,
+			aggregateType: feedPackingCompletedAggregateType,
+			actorID:       "",
+		},
 	}
 
 	for _, tc := range cases {

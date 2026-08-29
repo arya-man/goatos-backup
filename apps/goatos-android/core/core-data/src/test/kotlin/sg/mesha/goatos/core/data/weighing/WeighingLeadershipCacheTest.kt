@@ -22,7 +22,6 @@ import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignShedDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignShedPageResponseDto
-import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationDto
@@ -283,112 +282,6 @@ class WeighingLeadershipCacheTest {
         val appended = repository.observeLeadershipShed("task-1", "bucket-1").first()
         assertEquals(listOf("obs-1", "obs-2", "obs-3"), appended.shed?.animals?.map { it.observationId })
         assertFalse(appended.canLoadMoreRecords)
-    }
-
-    // --- videos gallery -----------------------------------------------------------------
-
-    @Test
-    fun `the videos gallery renders cached buckets with their own captured records`() = runTest {
-        var calls = 0
-        val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingLeadershipSheds(
-                cursor: String?,
-                limit: Int,
-            ): WeighingLeadershipShedPageResponseDto {
-                calls += 1
-                val id = if (cursor == null) "bucket-of-task-1" else "bucket-of-task-2"
-                return WeighingLeadershipShedPageResponseDto(
-                    items = listOf(
-                        WeighingLeadershipShedVideosDto(
-                            campaignId = if (cursor == null) "task-1" else "task-2",
-                            campaignShedId = id,
-                            shedName = "Shed $id",
-                            weighingCategory = "individual_animal",
-                            status = "completed",
-                            individual = listOf(observation("obs-$id-1"), observation("obs-$id-2")),
-                        ),
-                    ),
-                    nextCursor = if (cursor == null) "cursor-2" else null,
-                )
-            }
-        }
-        val repository = repository(api)
-        repository.refreshLeadershipVideos()
-
-        val first = repository.observeLeadershipVideos().first()
-        assertEquals(listOf("bucket-of-task-1"), first.map { it.campaignShedId })
-        // The gallery renders a bucket's captured animals, so the cached records must come with it
-        // — bounded per shed, not as one unbounded read across the whole gallery page.
-        assertEquals(
-            listOf("obs-bucket-of-task-1-1", "obs-bucket-of-task-1-2"),
-            first.single().animals.map { it.observationId },
-        )
-
-        repository.refreshLeadershipVideos(reset = false)
-        val second = repository.observeLeadershipVideos().first()
-        assertEquals(listOf("bucket-of-task-1", "bucket-of-task-2"), second.map { it.campaignShedId })
-        assertEquals(
-            listOf("obs-bucket-of-task-2-1", "obs-bucket-of-task-2-2"),
-            second.last().animals.map { it.observationId },
-        )
-        // ONE request per page — never one per bucket.
-        assertEquals(2, calls)
-    }
-
-    @Test
-    fun `a gallery refresh keeps a bucket paged deep on its own screen and does not rewind it`() = runTest {
-        val api = object : AppApi by FakeAppApi() {
-            override suspend fun getWeighingLeadershipShedVideos(
-                campaignId: String,
-                campaignShedId: String,
-                cursor: String?,
-                limit: Int,
-            ) = WeighingLeadershipShedVideosResponseDto(
-                shed = WeighingLeadershipShedVideosDto(
-                    campaignId = campaignId,
-                    campaignShedId = campaignShedId,
-                    shedName = "Shed $campaignShedId",
-                    weighingCategory = "individual_animal",
-                    status = "completed",
-                    individual = if (cursor == null) {
-                        listOf(observation("obs-1"), observation("obs-2"))
-                    } else {
-                        listOf(observation("obs-3"))
-                    },
-                    nextIndividualCursor = if (cursor == null) "records-2" else null,
-                ),
-            )
-
-            override suspend fun listWeighingLeadershipSheds(cursor: String?, limit: Int) =
-                WeighingLeadershipShedPageResponseDto(
-                    items = listOf(
-                        WeighingLeadershipShedVideosDto(
-                            campaignId = "task-1",
-                            campaignShedId = "bucket-1",
-                            shedName = "Shed bucket-1",
-                            weighingCategory = "individual_animal",
-                            status = "completed",
-                            // The gallery always carries page 1 of each bucket.
-                            individual = listOf(observation("obs-1"), observation("obs-2")),
-                            nextIndividualCursor = "records-2",
-                        ),
-                    ),
-                )
-        }
-        val repository = repository(api)
-        // The reader pages this bucket deep on its own detail screen.
-        repository.refreshLeadershipShed("task-1", "bucket-1")
-        repository.refreshLeadershipShed("task-1", "bucket-1", reset = false)
-        val deep = repository.observeLeadershipShed("task-1", "bucket-1").first()
-        assertEquals(listOf("obs-1", "obs-2", "obs-3"), deep.shed?.animals?.map { it.observationId })
-        assertFalse(deep.canLoadMoreRecords)
-
-        // Opening the gallery must not truncate that bucket back to page 1 or rewind its cursor:
-        // both surfaces share one record set.
-        repository.refreshLeadershipVideos()
-        val afterGallery = repository.observeLeadershipShed("task-1", "bucket-1").first()
-        assertEquals(listOf("obs-1", "obs-2", "obs-3"), afterGallery.shed?.animals?.map { it.observationId })
-        assertFalse(afterGallery.canLoadMoreRecords)
     }
 
     // --- planner catalog ----------------------------------------------------------------

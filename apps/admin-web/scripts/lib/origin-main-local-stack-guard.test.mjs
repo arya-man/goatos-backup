@@ -60,10 +60,10 @@ function removeTempRepo(repo) {
 function runGuard(repo) {
   const guardUrl = new URL("./origin-main-local-stack-guard.mjs", import.meta.url).href;
   const source = `import { assertOriginMainLocalStack } from ${JSON.stringify(guardUrl)}; assertOriginMainLocalStack(process.argv[1], "test-admin", { port: 3300 });`;
-  return spawnSync(process.execPath, ["--input-type=module", "-e", source, repo], {
-    env: { ...process.env, GOATOS_ORIGIN_MAIN_PREVERIFIED: "1" },
-    encoding: "utf8",
-  });
+	  return spawnSync(process.execPath, ["--input-type=module", "-e", source, repo], {
+	    env: { ...process.env, GOATOS_ALLOW_STALE_LOCAL_STACK: "0", GOATOS_ORIGIN_MAIN_PREVERIFIED: "1" },
+	    encoding: "utf8",
+	  });
 }
 
 function git(repo, args) {

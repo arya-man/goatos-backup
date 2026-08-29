@@ -41,6 +41,19 @@ const (
 
 func seedDestinationTopology(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
+	// The catalog carries the ACTIVE management-stage vocabulary alongside the destinations, read
+	// from animal_stage_lookup. Without it the movement form has no cohort to move an animal into,
+	// so the fixture seeds the vocabulary it asserts on -- including the two clinical stages, which
+	// the picker must strip.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, sort_order, status)
+VALUES ($1::uuid, 'K2', 'K2', 1, 'active'),
+       ($1::uuid, 'Mother', 'Mother', 2, 'active'),
+       ($1::uuid, 'ICU', 'ICU', 3, 'active'),
+       ($1::uuid, 'Quarantine', 'Quarantine', 4, 'active')
+ON CONFLICT DO NOTHING`, countsTenant); err != nil {
+		t.Fatalf("seed management-stage vocabulary: %v", err)
+	}
 	// retired_at is set in the INSERT rather than by a follow-up UPDATE: the schema's
 	// locations_seeded_scope_guard_update_trg blocks UPDATEs of location_type/status/retired_at on
 	// the seeded CBE/CPT/HF scope ("requires approved migration plan"), which is itself a useful
@@ -70,7 +83,7 @@ ON CONFLICT (location_id) DO NOTHING`,
 }
 
 // TestShiftingDestinationCatalogSuppressesSameParkPartitionAliases pins the live STG bug where the
-// operator saw both "Castro 1" and "Castro - 1" in the same park. The first is an old active
+// operator saw both "Castro 1" and "Castro 1" in the same park. The first is an old active
 // partition-alias location; the second is the canonical parent shed plus shed_partitions row.
 func TestShiftingDestinationCatalogSuppressesSameParkPartitionAliases(t *testing.T) {
 	ctx := context.Background()
@@ -117,8 +130,8 @@ SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
 			}
 		}
 	}
-	if len(labels) != 1 || labels[0] != "Castro - 1" {
-		t.Fatalf("Castro destination labels in one park = %v, want only the canonical parent partition \"Castro - 1\"", labels)
+	if len(labels) != 1 || labels[0] != "Castro 1" {
+		t.Fatalf("Castro destination labels in one park = %v, want only the actual shed \"Castro 1\"", labels)
 	}
 }
 
@@ -179,7 +192,7 @@ SET partition_label = EXCLUDED.partition_label, status = EXCLUDED.status`,
 		}
 	}
 	if len(labels) != 1 || labels[0] != "Mandela 1 - Part 3" {
-		t.Fatalf("Mandela destination labels in one park = %v, want only the canonical parent partition \"Mandela 1 - Part 3\"", labels)
+		t.Fatalf("Mandela destination labels in one park = %v, want only the actual shed \"Mandela 1 - Part 3\"", labels)
 	}
 }
 
@@ -451,5 +464,182 @@ UPDATE goats SET merged_into_goat_id = $2::uuid WHERE goat_id = $1::uuid`, merge
 	}
 	if len(foreign) != 0 {
 		t.Fatalf("foreign tenant resolved %d facts, want 0", len(foreign))
+	}
+}
+
+// TestShiftingDestinationCatalogCarriesEachPensOwnConfiguredCohort pins the maintainer decision of
+// 2026-08-14: a movement targets a PEN, so the catalog must report the cohort configured for that
+// pen, not one derived from the whole building.
+//
+// Two pens of ONE shed are given different tags. Before shed_partitions carried a cohort there was
+// no way to tell them apart, and the raise resolved from the shed's mixed residents -- which is
+// precisely the case that produced "keep current" for a pen that is unambiguously one cohort.
+//
+// The shed's own profile is set to a THIRD value, so a query that fell back to shed_profiles for a
+// pen row would be caught rather than passing by coincidence.
+func TestShiftingDestinationCatalogCarriesEachPensOwnConfiguredCohort(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	seedDestinationTopology(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($3::uuid, $1::uuid, 'shed', 'CPT-CASTRO', 'Castro', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		countsTenant, countsPark, destCastroParentCPT); err != nil {
+		t.Fatalf("seed parent Castro shed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (tenant_id, stage_code, name, age_band, sort_order, status)
+VALUES ($1::uuid, 'K2', 'Milk drinking', 'kid', 1, 'active'),
+       ($1::uuid, 'Mother', 'Mother', 'adult', 2, 'active'),
+       ($1::uuid, 'Buck', 'Buck', 'adult', 3, 'active')
+ON CONFLICT (tenant_id, stage_code) DO NOTHING`, countsTenant); err != nil {
+		t.Fatalf("seed stage vocabulary: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source, animal_stage_id)
+SELECT $1::uuid, $2::uuid, pen.label, pen.normalized, 'active', 'manual', a.animal_stage_id
+FROM (VALUES ('1', '1', 'K2'), ('2', '2', 'Mother')) AS pen(label, normalized, stage)
+JOIN animal_stage_lookup a ON a.tenant_id = $1::uuid AND a.stage_code = pen.stage`,
+		countsTenant, destCastroParentCPT); err != nil {
+		t.Fatalf("seed pens with cohorts: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_profiles (location_id, tenant_id, animal_stage_id, row_version)
+SELECT $2::uuid, $1::uuid, a.animal_stage_id, 1
+FROM animal_stage_lookup a WHERE a.tenant_id = $1::uuid AND a.stage_code = 'Buck'
+ON CONFLICT (location_id) DO UPDATE SET animal_stage_id = EXCLUDED.animal_stage_id`,
+		countsTenant, destCastroParentCPT); err != nil {
+		t.Fatalf("seed shed profile: %v", err)
+	}
+
+	catalog, err := repo.ShiftingDestinationCatalog(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+
+	byDisplay := map[string]string{}
+	for _, park := range catalog.Parks {
+		for _, shed := range park.Sheds {
+			if shed.ShedID == destCastroParentCPT {
+				byDisplay[shed.Display] = shed.ConfiguredStage
+			}
+		}
+	}
+	if len(byDisplay) != 2 {
+		t.Fatalf("want one entry per pen, got %d: %+v", len(byDisplay), byDisplay)
+	}
+	for display, want := range map[string]string{"Castro 1": "K2", "Castro 2": "Mother"} {
+		if got := byDisplay[display]; got != want {
+			t.Fatalf("%s configured cohort = %q, want %q -- a pen must report its OWN tag, not its shed's", display, got, want)
+		}
+	}
+	for display, got := range byDisplay {
+		if got == "Buck" {
+			t.Fatalf("%s fell back to the SHED profile; a pen row must never inherit it", display)
+		}
+	}
+}
+
+// TestShiftingDestinationCatalogReportsEachPensOwnResidentStages pins the pen grain of the
+// resident-stage FALLBACK (the tags a movement adopts when nobody authored a pen cohort).
+//
+// Live STG incident (2026-08-29, CBE): a HEALTH raise into "Godel 1 - Part 1" -- a pen holding
+// 21 F2-Female and nothing else -- was refused destination_tag_mixed ("This destination holds a
+// mix of tags") because the catalog aggregated resident stages PER SHED: sibling pens held Buck
+// and F2-Male, so every pen row of Godel 1 carried the whole shed's stage set. The typed-raise
+// rulebook (maintainer decision 2026-08-20) resolves THE PEN's tag, so the fallback must be
+// aggregated on the same grain the animal_count lateral already uses.
+func TestShiftingDestinationCatalogReportsEachPensOwnResidentStages(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	seedDestinationTopology(t, ctx, pool)
+	seedCustodianParty(t, ctx, pool)
+	repo := NewRepository(pool, 10*time.Second)
+
+	const godelParent = "00000000-0000-4000-8000-000000004107"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($3::uuid, $1::uuid, 'shed', 'CPT-GODEL1', 'Godel 1', $2::uuid, 'active')
+ON CONFLICT (location_id) DO NOTHING`,
+		countsTenant, countsPark, godelParent); err != nil {
+		t.Fatalf("seed parent Godel 1 shed: %v", err)
+	}
+	// Two catalog pens with NO authored cohort (animal_stage_id NULL) -- the resident fallback is
+	// the only tag source, which is the exact condition of the incident.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, 'Part 1', '1', 'active', 'manual'),
+       ($1::uuid, $2::uuid, 'Part 2', '2', 'active', 'manual')`,
+		countsTenant, godelParent); err != nil {
+		t.Fatalf("seed pens: %v", err)
+	}
+	// Residents: Part 1 homogeneous F2-Female, Part 2 Buck, plus one animal standing in the shed
+	// with NO partition row at all -- its stage must pollute neither pen (same exclusion the head
+	// count applies).
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goats (goat_id, tenant_id, species, sex, breed, age_band, management_stage,
+                   lifecycle_status, custodian_party_id, park_id, shed_id, current_location_id,
+                   origin_type, dob, entry_date)
+VALUES
+  ('00000000-0000-4000-8000-0000000052a1'::uuid, $1::uuid, 'goat', 'female', 'Sirohi', 'adult', 'F2-Female',
+   'alive', $4::uuid, $2::uuid, $3::uuid, $3::uuid, 'procured', DATE '2024-01-01', DATE '2024-01-01'),
+  ('00000000-0000-4000-8000-0000000052a2'::uuid, $1::uuid, 'goat', 'female', 'Sirohi', 'adult', 'F2-Female',
+   'alive', $4::uuid, $2::uuid, $3::uuid, $3::uuid, 'procured', DATE '2024-01-01', DATE '2024-01-01'),
+  ('00000000-0000-4000-8000-0000000052a3'::uuid, $1::uuid, 'goat', 'male', 'Sirohi', 'adult', 'Buck',
+   'alive', $4::uuid, $2::uuid, $3::uuid, $3::uuid, 'procured', DATE '2024-01-01', DATE '2024-01-01'),
+  ('00000000-0000-4000-8000-0000000052a4'::uuid, $1::uuid, 'goat', 'female', 'Sirohi', 'adult', 'Mother',
+   'alive', $4::uuid, $2::uuid, $3::uuid, $3::uuid, 'procured', DATE '2024-01-01', DATE '2024-01-01')
+ON CONFLICT (goat_id) DO NOTHING`,
+		countsTenant, countsPark, godelParent, countsCustodian); err != nil {
+		t.Fatalf("seed resident goats: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, '00000000-0000-4000-8000-0000000052a1'::uuid, $2::uuid, 'Part 1', 'Godel 1 - Part 1'),
+       ($1::uuid, '00000000-0000-4000-8000-0000000052a2'::uuid, $2::uuid, 'Part 1', 'Godel 1 - Part 1'),
+       ($1::uuid, '00000000-0000-4000-8000-0000000052a3'::uuid, $2::uuid, 'Part 2', 'Godel 1 - Part 2')`,
+		countsTenant, godelParent); err != nil {
+		t.Fatalf("seed goat partitions: %v", err)
+	}
+
+	catalog, err := repo.ShiftingDestinationCatalog(ctx, countsTenant)
+	if err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	stagesByDisplay := map[string][]string{}
+	countByDisplay := map[string]int{}
+	for _, park := range catalog.Parks {
+		for _, shed := range park.Sheds {
+			if shed.ShedID == godelParent {
+				stagesByDisplay[shed.Display] = shed.ManagementStages
+				countByDisplay[shed.Display] = shed.HeadCount
+			}
+		}
+	}
+	if len(stagesByDisplay) != 2 {
+		t.Fatalf("want one entry per pen, got %d: %+v", len(stagesByDisplay), stagesByDisplay)
+	}
+	for display, want := range map[string][]string{
+		"Godel 1 - Part 1": {"F2-Female"},
+		"Godel 1 - Part 2": {"Buck"},
+	} {
+		got := stagesByDisplay[display]
+		if len(got) != len(want) || (len(got) > 0 && got[0] != want[0]) {
+			t.Fatalf("%s resident stages = %v, want %v -- a pen must report its OWN residents' tags, not its shed's; a shed-grain aggregate makes a homogeneous pen read as a mix and refuses a health raise (destination_tag_mixed)", display, got, want)
+		}
+	}
+	// The partitionless animal's stage joins neither pen -- same grain the head count uses.
+	for display, stages := range stagesByDisplay {
+		for _, stage := range stages {
+			if stage == "Mother" {
+				t.Fatalf("%s carries the partitionless animal's stage %q; it must be excluded on the same grain as the head count", display, stage)
+			}
+		}
+	}
+	if countByDisplay["Godel 1 - Part 1"] != 2 || countByDisplay["Godel 1 - Part 2"] != 1 {
+		t.Fatalf("head counts = %+v, want Part 1=2, Part 2=1", countByDisplay)
 	}
 }

@@ -28,7 +28,7 @@ func (r *fakeRepo) ListParks(context.Context, string) ([]domain.Park, error) {
 	return r.parks, nil
 }
 
-func (r *fakeRepo) GetGrowthDirectorWeights(_ context.Context, _ string, parkIDs []string, start, end time.Time) (domain.GrowthDirectorWeights, error) {
+func (r *fakeRepo) GetGrowthDirectorWeights(_ context.Context, _ string, parkIDs []string, start, end time.Time, _ string) (domain.GrowthDirectorWeights, error) {
 	r.gotParkIDs = append([]string(nil), parkIDs...)
 	r.gotStart, r.gotEnd = start, end
 	out := r.result
@@ -71,7 +71,7 @@ func TestGetGrowthDirectorWeightsRejectsUnauthorizedParkID(t *testing.T) {
 		Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: gdParkA,
 	})
 
-	if _, err := svc.GetGrowthDirectorWeights(ctx, gdActor(), gdParkB, "", ""); err == nil {
+	if _, err := svc.GetGrowthDirectorWeights(ctx, gdActor(), gdParkB, "", "", ""); err == nil {
 		t.Fatal("expected park B to be denied for a park-A scoped monitor, got nil error")
 	}
 	if repo.gotParkIDs != nil {
@@ -91,12 +91,15 @@ func TestGetGrowthDirectorWeightsOmittedParkIDUsesOnlyAuthorizedParks(t *testing
 		Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: gdParkA,
 	})
 
-	out, err := svc.GetGrowthDirectorWeights(ctx, gdActor(), "", "", "")
+	out, err := svc.GetGrowthDirectorWeights(ctx, gdActor(), "", "", "", "")
 	if err != nil {
 		t.Fatalf("GetGrowthDirectorWeights: %v", err)
 	}
 	if len(repo.gotParkIDs) != 1 || repo.gotParkIDs[0] != gdParkA {
 		t.Fatalf("expected repository scoped to park A only, got %v", repo.gotParkIDs)
+	}
+	if got := int(repo.gotEnd.Sub(repo.gotStart).Hours() / 24); got != domain.DefaultPeriodDays {
+		t.Fatalf("omitted from/to default window=%d days, want %d", got, domain.DefaultPeriodDays)
 	}
 	// The park vocabulary is backend-owned AND scoped: offering park B here
 	// would advertise a park this caller cannot read.
@@ -117,7 +120,7 @@ func TestGetGrowthDirectorWeightsTenantWideResolvesAllParks(t *testing.T) {
 		Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: gdTenant,
 	})
 
-	if _, err := svc.GetGrowthDirectorWeights(ctx, gdActor(), "", "", ""); err != nil {
+	if _, err := svc.GetGrowthDirectorWeights(ctx, gdActor(), "", "", "", ""); err != nil {
 		t.Fatalf("GetGrowthDirectorWeights: %v", err)
 	}
 	if len(repo.gotParkIDs) != 2 {
@@ -135,7 +138,7 @@ func TestGetGrowthDirectorWeightsPassesHalfOpenBusinessDayWindow(t *testing.T) {
 		Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: gdTenant,
 	})
 
-	if _, err := svc.GetGrowthDirectorWeights(ctx, gdActor(), gdParkA, "2026-07-01", "2026-07-28"); err != nil {
+	if _, err := svc.GetGrowthDirectorWeights(ctx, gdActor(), gdParkA, "2026-07-01", "2026-07-28", ""); err != nil {
 		t.Fatalf("GetGrowthDirectorWeights: %v", err)
 	}
 	if got := repo.gotStart.Format("2006-01-02"); got != "2026-07-01" {
@@ -161,7 +164,7 @@ func TestGetGrowthDirectorWeightsRejectsMalformedInput(t *testing.T) {
 		{"inverted window", "", "2026-07-28", "2026-07-01"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := svc.GetGrowthDirectorWeights(ctx, gdActor(), tc.park, tc.from, tc.to); err != ports.ErrInvalidArgument {
+			if _, err := svc.GetGrowthDirectorWeights(ctx, gdActor(), tc.park, tc.from, tc.to, ""); err != ports.ErrInvalidArgument {
 				t.Fatalf("want ErrInvalidArgument, got %v", err)
 			}
 		})
@@ -175,7 +178,7 @@ func TestGetGrowthDirectorWeightsRequiresMonitorCapability(t *testing.T) {
 	ctx := gdContext()
 	actor := domain.Actor{TenantID: gdTenant, Roles: []string{permissions.RoleOperator}}
 
-	if _, err := svc.GetGrowthDirectorWeights(ctx, actor, "", "", ""); err != ports.ErrForbidden {
+	if _, err := svc.GetGrowthDirectorWeights(ctx, actor, "", "", "", ""); err != ports.ErrForbidden {
 		t.Fatalf("want ErrForbidden for a non-monitor role, got %v", err)
 	}
 }
@@ -192,7 +195,7 @@ func TestGetGrowthDirectorWeightsNoAuthorizedParksIsNotFound(t *testing.T) {
 		Role: permissions.RoleOperator, ScopeType: "park", ScopeID: gdParkA,
 	})
 
-	if _, err := svc.GetGrowthDirectorWeights(ctx, gdActor(), "", "", ""); err != ports.ErrNotFound {
+	if _, err := svc.GetGrowthDirectorWeights(ctx, gdActor(), "", "", "", ""); err != ports.ErrNotFound {
 		t.Fatalf("want ErrNotFound for a monitor with no authorized park, got %v", err)
 	}
 	if repo.gotParkIDs != nil {

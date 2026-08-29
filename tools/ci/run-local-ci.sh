@@ -20,6 +20,7 @@
 #   tools/ci/run-local-ci.sh query-plans # one required DB-plan job (no push receipt)
 #   tools/ci/run-local-ci.sh guardrails  # compatibility: common + backend + mobile static guards
 #   GOATOS_RUN_POSTGRES_TESTS=1 tools/ci/run-local-ci.sh  # explicit DB/Docker opt-in
+#   GOATOS_SQLC_PLAN_ADMIN_DSN=... tools/ci/run-local-ci.sh query-plans
 #   GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh android  # faster developer loop; no landing receipt
 set -uo pipefail
 
@@ -432,6 +433,9 @@ run_common() {
   step "agent: refresh-binding"   node tools/agent-hooks/check-refresh-binding.mjs
   step "agent: UI vaccine labels" make ui-vaccine-labels-guard
   step "agent: notification specificity" make notification-specificity-guard
+  step "additive-publish-guard"    make additive-publish-guard
+  step "agent: mock css parity"          make mock-css-parity-guard
+  step "agent: herd signals language"    make herd-signals-language-guard
   step "agent: vaccination shared source sync" make vaccination-shared-source-sync-guard
   step "agent: calendar endpoint grain" make calendar-endpoint-grain-guard
   step "agent: contract-drift"    bash tools/agent-hooks/check-contract-drift.sh
@@ -508,6 +512,7 @@ run_common() {
   # original two ratchets instead of folded into the same baseline.
   step "exception-guard (whole-tree ratchet v2)" make exception-guard-ratchet-v2
   step "telemetry-guard (whole-tree ratchet v2)" make telemetry-guard-ratchet-v2
+  return 0
 }
 
 run_backend() {
@@ -535,9 +540,12 @@ run_backend() {
   step "operational-partition-identity-guard" make operational-partition-identity-guard
   step "proof-capture-authorization-guard" make proof-capture-authorization-guard
   step "weighing-free-flow-guard" make weighing-free-flow-guard
+  step "feed-submitted-overlay-wiring-guard" make feed-submitted-overlay-wiring-guard
+  step "feed-proof-collaboration-guard" make feed-proof-collaboration-guard
   step "weighing-close-gate-guard" make weighing-close-gate-guard
   step "weighing-operator-scope-guard" make weighing-operator-scope-guard
   step "weighing-one-operator-per-bucket-guard" make weighing-one-operator-per-bucket-guard
+  step "weighing-partition-composition-guard" make weighing-partition-composition-guard
   step "weighing-kernel-phase2-guard" make weighing-kernel-phase2-guard
   step "migration-duplicate-versions-guard" make migration-duplicate-versions-guard
   step "vaccination-drive-clubbing-guard" make vaccination-drive-clubbing-guard
@@ -585,13 +593,65 @@ run_backend() {
   fi
   # CEO-AI answer-quality eval: cheap golden self-test always; live regression opt-in.
   run_ceo_ai_eval
+  return 0
 }
 
 run_query_plans() {
   current_job="query-plans"
   # Required for every backend diff. This deliberately stays outside the broad Postgres/E2E opt-in:
   # index regressions in production queries must fail ordinary PR, push, and local landing CI.
+  prepare_query_plan_database
   step "required PostgreSQL query plans" make validate-sqlc-plans
+  return 0
+}
+
+prepare_query_plan_database() {
+  if [ -n "${GOATOS_SQLC_PLAN_ADMIN_DSN:-}" ]; then
+    echo "── ci-local: query-plans using GOATOS_SQLC_PLAN_ADMIN_DSN"
+    return 0
+  fi
+
+  # The maintainer OCI dev Postgres clone is the sanctioned heavy-DB path for machines
+  # without a local Docker/Colima stack. The sourced file is local-only and
+  # gitignored; when present it exports DATABASE_URL through the SSH tunnel.
+  local env_file
+  for env_file in \
+    "${GOATOS_OCI_DB_ENV:-}" \
+    "${GOATOS_OCI_ENV_FILE:-}" \
+    "$HOME/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env"
+  do
+    if [ -n "$env_file" ] && [ -f "$env_file" ]; then
+      # shellcheck disable=SC1090
+      . "$env_file"
+      break
+    fi
+  done
+
+  case "${DATABASE_URL:-}" in
+    postgres://*@127.0.0.1:15432/*|postgresql://*@127.0.0.1:15432/*)
+      export GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL"
+      echo "── ci-local: query-plans using OCI tunnel DATABASE_URL as GOATOS_SQLC_PLAN_ADMIN_DSN"
+      return 0
+      ;;
+  esac
+
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    echo "── ci-local: query-plans using local Docker Postgres fallback"
+    return 0
+  fi
+
+  cat >&2 <<'EOF'
+query-plans requires PostgreSQL. Local Docker is unavailable or unreachable, so
+use the OCI dev Postgres tunnel instead:
+
+  $HOME/mesha/tools/local/oci-goatos-a1-dev.sh tunnel
+  source "${GOATOS_OCI_DB_ENV:-$HOME/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env}"
+  GOATOS_SQLC_PLAN_ADMIN_DSN="$DATABASE_URL" tools/ci/run-local-ci.sh query-plans
+
+The query-plan script creates and drops its own scratch database from that admin
+DSN; it does not need laptop Docker when the OCI DSN is set.
+EOF
+  return 2
 }
 
 run_admin_web() {
@@ -606,10 +666,12 @@ run_admin_web() {
   step "admin-web request reads" make admin-web-request-reads-guard
   step "admin-web prefetch"      make admin-web-prefetch-guard
   step "admin-web local overlays" make admin-web-local-overlay-guard
+  step "admin-web-date-format-guard" make admin-web-date-format-guard
   step "overlay motion"          make overlay-motion-guard
   step "admin-web mock-fidelity" npm --prefix apps/admin-web run check:mock-fidelity
   step "admin-web request-plan"  npm --prefix apps/admin-web run check:action-center-request-plan
   step "admin-web production build + token leak" env GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run build
+  return 0
 }
 
 run_android_guards() {
@@ -798,6 +860,7 @@ run_android() {
   step_cached "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
   gradle_lock_clear_trap
   gradle_lock_release
+  return 0
 }
 
 run_guardrails() {
@@ -865,7 +928,7 @@ fi
 echo ""
 echo "════════ ci-local summary @ ${sha} ════════"
 for r in "${RESULTS[@]}"; do echo "  $r"; done
-if [ "${#TIMINGS[@]:-0}" -gt 0 ]; then
+if [ "${#TIMINGS[@]}" -gt 0 ]; then
   echo ""
   echo "──────── slowest steps (top 10) ────────"
   printf '%s\n' "${TIMINGS[@]}" | sort -t"$(printf '\t')" -k1,1nr | head -10 \
@@ -906,7 +969,7 @@ else
     echo "  Re-run just the first failure, e.g.:  grep -n '${FAILURES[0]}' tools/ci/run-local-ci.sh"
   fi
   echo "ci-local: RED @ ${sha} (${#FAILURES[@]} failing step(s) named above)"
-    if [ "${#FAILED_JOBS[@]:-0}" -gt 0 ]; then
+    if [ "${#FAILED_JOBS[@]}" -gt 0 ]; then
       echo ""
       echo "  Or re-check only the failing JOB (fast, writes NO receipt):"
       for j in "${FAILED_JOBS[@]}"; do

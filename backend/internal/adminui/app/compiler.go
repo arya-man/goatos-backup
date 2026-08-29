@@ -68,19 +68,32 @@ type cacheEntry struct {
 
 func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) domain.BootstrapResponse {
 	now := s.now()
+	// The person's own page ticks are resolved BEFORE the cache is consulted, and their
+	// fingerprint is part of the key.
+	//
+	// This is not an optimisation -- it is what makes the screen usable. The key is built
+	// from tenant, actor, roles and grants, none of which move when an admin edits access,
+	// so a saved change would have sat behind the 60-second TTL: the admin ticks a box,
+	// tells the person to reload, and nothing happens for a minute. That never mattered
+	// while a role change was a deploy; it matters now that access is an edit.
+	//
+	// The resolved value is carried into compile() rather than read again, so this costs
+	// ONE small indexed read per bootstrap, not two.
+	access, assigned, accessErr := s.personPageAccessFor(ctx, input)
+	fingerprint := pageAccessFingerprint(access, assigned)
 	revisionKey := ""
 	if revisions, ok := s.loadFamilyRevisions(ctx, input.TenantID); ok {
-		revisionKey = s.cacheKey(input, ReferenceFamilies{RevisionInputs: revisions}, nil)
+		revisionKey = s.cacheKey(input, ReferenceFamilies{RevisionInputs: revisions}, nil) + "::" + fingerprint
 		if cached, ok := s.cached(revisionKey, now); ok {
 			return cached
 		}
 	}
 	families, familyErr := s.loadFamilies(ctx, input.TenantID)
-	key := s.cacheKey(input, families, familyErr)
+	key := s.cacheKey(input, families, familyErr) + "::" + fingerprint
 	if cached, ok := s.cached(key, now); ok {
 		return cached
 	}
-	resp := s.compile(ctx, input, families, familyErr)
+	resp := s.compile(ctx, input, families, familyErr, access, assigned, accessErr)
 	expiresAt := now.Add(s.cacheTTL)
 	s.storeCache(key, resp, now, expiresAt)
 	if revisionKey != "" && familyErr == nil {
@@ -104,6 +117,10 @@ func (s *Service) cacheKey(input BootstrapInput, families ReferenceFamilies, fam
 	}
 	return strings.Join([]string{
 		strings.TrimSpace(input.TenantID),
+		// The ACTOR is part of the key: two people carrying identical roles can now be
+		// ticked for different pages, so a role-keyed cache would serve one of them the
+		// other's sidebar (per-person access, maintainer decision 2026-08-27).
+		strings.TrimSpace(input.ActorID),
 		strings.Join(roles, ","),
 		strings.Join(grantParts, ","),
 		strings.Join(revisionParts, ","),
@@ -166,7 +183,37 @@ func (s *Service) evictCacheEntryLocked() {
 	}
 }
 
-func (s *Service) compile(ctx context.Context, input BootstrapInput, families ReferenceFamilies, familyErr error) domain.BootstrapResponse {
+// pageAccessFingerprint identifies one principal's resolved page ticks for the cache key.
+//
+// An UNASSIGNED principal (no stored rows) gets a distinct constant rather than the empty
+// set's hash: "not narrowed at all" and "narrowed to nothing" compile to different
+// contracts, and sharing a key between them would serve one of them the other's sidebar.
+func pageAccessFingerprint(access permissions.PageAccess, assigned bool) string {
+	if !assigned {
+		return "pages:none"
+	}
+	parts := make([]string, 0, len(access.Pages)+len(access.Modules))
+	for key := range access.Pages {
+		parts = append(parts, "p:"+key)
+	}
+	for key := range access.Modules {
+		parts = append(parts, "m:"+key)
+	}
+	// Sorted: Go's map iteration order would give the same access set a different
+	// fingerprint on every request, which is a cache that never hits.
+	sort.Strings(parts)
+	return "pages:" + hashString(strings.Join(parts, ","))
+}
+
+func (s *Service) compile(
+	ctx context.Context,
+	input BootstrapInput,
+	families ReferenceFamilies,
+	familyErr error,
+	access permissions.PageAccess,
+	pageAccessAssigned bool,
+	pageAccessErr error,
+) domain.BootstrapResponse {
 	families.UIConfig = applicableConfigEntries(families.UIConfig)
 	resp := baseBootstrap()
 	resp = compileRequestContext(resp, input, families)
@@ -176,6 +223,15 @@ func (s *Service) compile(ctx context.Context, input BootstrapInput, families Re
 	// It runs before familyHashes so the contract revision reflects what is actually served.
 	if isVerifierLensPrincipal(input) {
 		resp = applyVerifierLens(resp, s.verifierNavModules(ctx, input))
+	} else if pageAccessAssigned {
+		// Per-person page narrowing (maintainer decision 2026-08-27). This REPLACES the
+		// hand-coded procurement-director lens: "only Procurement and Feed, and not Feed
+		// Config" is now that person's ticks on /people rather than a Go file.
+		resp = applyPersonPageLens(resp, access)
+	} else if pageAccessErr != nil {
+		// The read failed. The contract is served UNNARROWED -- a person must not be locked
+		// out of a product they are authorized for by a database blip -- and it SAYS so.
+		resp.DisplayRules = append(resp.DisplayRules, personPageAccessUnavailableRule(pageAccessErr))
 	}
 	hashes := familyHashes(resp, families, input, familyErr)
 	resp.FamilyHashes = hashes
@@ -762,7 +818,7 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 		switch out[i].RouteID {
 		case "action-center", "vaccination", "shed-execution":
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "park_display_chips", optionsFromReferences(families.Parks, "info"))
-		case "config":
+		case "config", "vaccination-plan":
 			out[i].OptionGroups = compileConfigOptionGroups(out[i].OptionGroups, families)
 			out[i].Controls = compileConfigControls(out[i].Controls, input, out[i].Copy)
 		case "herd-register":
@@ -788,8 +844,17 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].Controls = compileVerificationReviewControls(out[i].Controls, input, out[i].Copy)
 		case "health-config":
 			out[i].Controls = compileHealthConfigControls(out[i].Controls, input, out[i].Copy)
+		case "sales":
+			out[i].Controls = compileSalesControls(out[i].Controls, input, out[i].Copy)
+		case "feed-purchases":
+			out[i].Controls = compileFeedPurchaseControls(out[i].Controls, input, out[i].Copy)
+		case "people":
+			out[i].Controls = compilePeopleControls(out[i].Controls, input, out[i].Copy)
 		case "counts-breakdown":
 			out[i].Controls = compileCountsBreakdownControls(out[i].Controls, input, out[i].Copy)
+			// The breed catalog for the inline breed correction, injected the same way Feed's
+			// vocabularies are. Contract code declares the group; the values are tenant rows.
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "counts_breed", optionsFromReferences(families.Breeds, ""))
 		}
 	}
 	return out
@@ -841,6 +906,119 @@ func compileHealthConfigControls(controls []domain.Control, input BootstrapInput
 		controls = upsertControl(controls, c)
 	}
 	return controls
+}
+
+// compileSalesControls splits /sales by authority: SalesRead reaches the board and
+// reads the ledger; only SalesWrite may record a sale.
+//
+// The control is declared for every principal who reaches the page and DISABLED with a reason for
+// those who may not use it, rather than omitted -- a missing button reads as a broken page, a
+// disabled one carrying "your role can view sales but not record them" is an answer. Same shape as
+// compileHealthConfigControls. The route behind it requires the same permission, so a principal
+// who defeats the disabled state still gets 403; the control is the honest label, not the lock.
+func compileSalesControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps the control
+	// enabled, matching compileConfigControls and compileHealthConfigControls.
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.SalesWrite})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.write", "Your current role can view sales but not record them.")
+	}
+	controls = upsertControl(controls, domain.Control{
+		ID:             "record_sale",
+		Label:          controlCopy(copy, "action.record_sale.label", "Record sale"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /sales/deals",
+	})
+	// One capability gate for the pipeline/evidence writes (leads, farmer groups, market quotes,
+	// tag lists, weight checks): they all ride SalesWrite, and the sheet they replaced is retired
+	// (maintainer decision 2026-08-18), so entry lives here or nowhere.
+	return upsertControl(controls, domain.Control{
+		ID:             "record_pipeline",
+		Label:          controlCopy(copy, "action.record_pipeline.label", "Add record"),
+		Kind:           "secondary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /sales/buyer-leads",
+	})
+}
+
+// compileFeedPurchaseControls splits /procurement/feed-purchases by authority: FeedPurchaseRead
+// reaches the ledger; only FeedPurchaseWrite may record a purchased load.
+//
+// Same shape as compileSalesControls, and for the same reason: the control is DECLARED for every
+// principal who reaches the page and disabled with a reason for those who may not use it, because
+// a missing button reads as a broken page while a disabled one carrying "your role can view feed
+// purchases but not record them" is an answer. The route behind it requires the same permission,
+// so a principal who defeats the disabled state still gets 403 -- the control is the honest label,
+// not the lock.
+//
+// This is the capability half of the 2026-08-24 decision that retired migration 000174's
+// read-only lock. There is deliberately NO role-string conditional in the page component: the
+// difference between a Feed Director (read) and the procurement desk (write) arrives ONLY through
+// this control and the route's permission, per the role-scoped-UI-is-capability-gated lock.
+func compileFeedPurchaseControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps the control
+	// enabled, matching compileSalesControls and compileHealthConfigControls.
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.FeedPurchaseWrite})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.write", "Your current role can view feed purchases but not record them.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "record_feed_purchase",
+		Label:          controlCopy(copy, "action.record_feed_purchase.label", "Record purchase"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /procurement/feed-purchases",
+	})
+}
+
+// compilePeopleControls gates the per-person ACCESS editor (maintainer decision 2026-08-24).
+//
+// The authority is OperatorsManageCapability, deliberately NOT the OperatorsWrite that creates a
+// person: adding a colleague and deciding what every colleague may do are different jobs, and this
+// one can grant every other permission in the catalog -- including itself.
+//
+// Declared-and-disabled rather than omitted, the same shape as sales and health config: a missing
+// button reads as a broken page, and a disabled one carrying "your role can view access but not
+// change it" is an answer. The PUT route behind it requires the same permission, so a principal
+// who defeats the disabled state still gets 403 -- the control is the honest label, not the lock.
+func compilePeopleControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.OperatorsManageCapability})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "disabled.access_write", "Your current role can view access but not change it.")
+	}
+	controls = upsertControl(controls, domain.Control{
+		ID:             "edit_access",
+		Label:          controlCopy(copy, "access.action.save", "Save access"),
+		Kind:           "primary_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /admin/workforce/people/{person_id}/access",
+	})
+	// view_clock gates the Clock In / Out tab (maintainer decision 2026-08-28:
+	// clock.presence.read, leadership only). The tab option itself stays in the
+	// static group; the renderer enables it only when this control is enabled,
+	// and the backend routes refuse regardless — the control is the honest
+	// label, not the lock.
+	clockAllowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.ClockPresenceRead})
+	clockReason := ""
+	if !clockAllowed {
+		clockReason = controlCopy(copy, "clock.tab.locked", "Clock oversight is limited to leadership.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "view_clock",
+		Label:          controlCopy(copy, "clock.tab.title", "Clock In / Out"),
+		Kind:           "view",
+		Enabled:        clockAllowed,
+		DisabledReason: clockReason,
+		Action:         "GET /admin/workforce/clock-entries",
+	})
 }
 
 func compileConfigControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
@@ -977,12 +1155,34 @@ func compileVerificationReviewControls(controls []domain.Control, input Bootstra
 		DisabledReason: oversightReason,
 		Action:         "",
 	})
+	// capture_date_filter gates the CAPTURE-DATE RANGE picker on /verify -- on every page of the
+	// verifier's workspace, since they are one component under different categories (maintainer
+	// decision 2026-08-17).
+	//
+	// SPLIT OUT of oversight_filters deliberately. The 2026-08-12 incident was CROSS-MODULE chrome
+	// leaking to every role, and the module chips stay leadership-only for exactly that reason. A
+	// date range crosses no module boundary: it narrows the caller's own queue to the days she is
+	// working. Without it the verifier's board is pinned to one date she cannot change, which on
+	// real data means an empty screen sitting on top of a full backlog.
+	mayFilterByCaptureDate := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationFilterByCaptureDate})
+	captureDateReason := ""
+	if !mayFilterByCaptureDate {
+		captureDateReason = controlCopy(copy, "capture_date_filter.disabled_no_access", "Filtering by capture date is limited to the video verification team and leadership.")
+	}
+	out = upsertControl(out, domain.Control{
+		ID:             "capture_date_filter",
+		Label:          controlCopy(copy, "capture_date_filter.label", "Capture date"),
+		Kind:           "visibility",
+		Enabled:        mayFilterByCaptureDate,
+		DisabledReason: captureDateReason,
+		Action:         "",
+	})
 	// oversight_analytics gates the CEO/Director analytics section ABOVE the queue table on
 	// /verify: waiting count, per-module pending, per-verifier last-14d, watch-integrity. Same
 	// capability as oversight_filters (permissions.VerificationOversee) -- it is a second, distinct
 	// control rather than the renderer reusing oversight_filters for two different pieces of
 	// chrome, so a future change to one visibility rule cannot silently move the other.
-	return upsertControl(out, domain.Control{
+	out = upsertControl(out, domain.Control{
 		ID:             "oversight_analytics",
 		Label:          controlCopy(copy, "oversight_analytics.title", "Verification oversight"),
 		Kind:           "visibility",
@@ -990,6 +1190,91 @@ func compileVerificationReviewControls(controls []domain.Control, input Bootstra
 		DisabledReason: oversightReason,
 		Action:         "GET /verification/oversight-analytics",
 	})
+	// video_log gates the VIDEO LOG panel on /verify: one business day, per shed, the time each
+	// proof was uploaded (maintainer decision 2026-08-14).
+	//
+	// It follows permissions.VerificationEvidenceTimeline, NOT VerificationOversee, and that is the
+	// entire point of it being a separate control: the VERIFIER holds this capability and does not
+	// hold oversight, so she gets the Video Log button and still gets no module chips, no
+	// capture-date range picker and no analytics drawer. Reusing oversight_analytics here would
+	// have handed her all three, which is the 2026-08-12 STG incident again.
+	mayReadTimeline := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationEvidenceTimeline})
+	timelineReason := ""
+	if !mayReadTimeline {
+		timelineReason = controlCopy(copy, "video_log.disabled_no_access", "The video log is limited to the verification team and leadership.")
+	}
+	out = upsertControl(out, domain.Control{
+		ID:             "video_log",
+		Label:          controlCopy(copy, "video_log.open", "Video Log"),
+		Kind:           "visibility",
+		Enabled:        mayReadTimeline,
+		DisabledReason: timelineReason,
+		Action:         "GET /verification/video-log",
+	})
+	// The TOXIN review tab (maintainer decision 2026-08-25). Both controls follow
+	// permissions.ToxinVerdict, which only ceo_internal holds -- toxin review is deliberately NOT
+	// the generic Verification module and NOT verification.verdict, so the tenant verifier must
+	// never see this tab (the verifier lens additionally never enables it: applyVerifierLens keys
+	// on verification.verdict, and a verifier holds no toxin permission). Capability-gated per
+	// docs/decisions/role-scoped-ui-is-capability-gated.md: this contract control is the UI half;
+	// the endpoint half is the ToxinVerdict gate on listToxinReview / recordToxinVerdict in
+	// permissions/routes.go.
+	mayToxin := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.ToxinVerdict})
+	toxinReason := ""
+	if !mayToxin {
+		toxinReason = controlCopy(copy, "toxin_tab.disabled_no_access", "Feed toxin tests are reviewed by the CEO's office.")
+	}
+	out = upsertControl(out, domain.Control{
+		ID:             "toxin_tab",
+		Label:          controlCopy(copy, "toxin_tab.title", "Toxin"),
+		Kind:           "visibility",
+		Enabled:        mayToxin,
+		DisabledReason: toxinReason,
+		Action:         "GET /toxin/review",
+	})
+	out = upsertControl(out, domain.Control{
+		ID:             "toxin_verdict",
+		Label:          controlCopy(copy, "toxin_verdict.title", "Record toxin verdict"),
+		Kind:           "primary_action",
+		Enabled:        mayToxin,
+		DisabledReason: toxinVerdictReason(copy, mayToxin),
+		Action:         "POST /toxin/tasks/{task_id}/verdict",
+	})
+	// randomization gates the CEO-only sampling section on /verify: per module, what percentage of
+	// that module's proof videos the verifier actually has to watch, and today's progress against
+	// that share (maintainer decision 2026-08-26).
+	//
+	// It follows permissions.VerificationSampling, which is narrower than every other control on
+	// this page -- RolePCDirector holds oversight and does NOT hold this. Oversight WATCHES the
+	// verification workload; this DECIDES how much of it a human is required to watch, and a
+	// director setting that for his own department's work is the separation of duty that keeps
+	// verdict authority off leadership in the first place. It is its own control for the same
+	// reason oversight_analytics is not folded into oversight_filters: one visibility rule must
+	// never move because another changed.
+	//
+	// This is the UI gate; the SAME capability gates the data on GET/PUT /verification/sampling. A
+	// pixel-only gate would be the 2026-08-12 incident's inverse.
+	mayRandomize := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationSampling})
+	randomizationReason := ""
+	if !mayRandomize {
+		randomizationReason = controlCopy(copy, "randomization.disabled_no_access", "Setting how much proof is reviewed is limited to the CEO.")
+	}
+	return upsertControl(out, domain.Control{
+		ID:             "randomization",
+		Label:          controlCopy(copy, "randomization.title", "Randomization"),
+		Kind:           "visibility",
+		Enabled:        mayRandomize,
+		DisabledReason: randomizationReason,
+		Action:         "GET /verification/sampling",
+	})
+}
+
+// toxinVerdictReason keeps the enabled control reason-free, matching every other control here.
+func toxinVerdictReason(copy map[string]string, mayToxin bool) string {
+	if mayToxin {
+		return ""
+	}
+	return controlCopy(copy, "toxin_verdict.disabled_no_access", "Feed toxin tests are reviewed by the CEO's office.")
 }
 
 func controlCopy(copy map[string]string, key, fallback string) string {
@@ -1215,6 +1500,9 @@ func highestRole(roles []string) string {
 		permissions.RoleCEOInternal,
 		permissions.RolePCDirector,
 		permissions.RoleGrowthDirector,
+		// Above feed_director so the current holder — who carries BOTH keys — is chipped as the
+		// Procurement Director he was appointed as (maintainer decision 2026-08-21).
+		permissions.RoleProcurementDirector,
 		permissions.RoleFeedDirector,
 		permissions.RoleHealthDirector,
 		permissions.RoleParkHead,
@@ -1246,6 +1534,8 @@ func roleLensForRole(role string) domain.RoleLensContract {
 		return domain.RoleLensContract{ID: "growth-director", Name: "Growth Director", AuditShort: "Growth Dir", Scope: "weighing · all parks", Description: "Weighing governance view"}
 	case permissions.RoleFeedDirector:
 		return domain.RoleLensContract{ID: "feed-director", Name: "Feed Director", AuditShort: "Feed Dir", Scope: "feed · all parks", Description: "Feed governance view"}
+	case permissions.RoleProcurementDirector:
+		return domain.RoleLensContract{ID: "procurement-director", Name: "Procurement Director", AuditShort: "Proc Dir", Scope: "procurement + feed · all parks", Description: "Procurement governance view"}
 	case permissions.RoleHealthDirector:
 		return domain.RoleLensContract{ID: "health-director", Name: "Health Director", AuditShort: "Health Dir", Scope: "health · all parks", Description: "Health / counts governance view"}
 	case permissions.RoleParkHead:
@@ -1279,6 +1569,8 @@ func roleInitials(role string) string {
 		return "GD"
 	case permissions.RoleFeedDirector:
 		return "FD"
+	case permissions.RoleProcurementDirector:
+		return "PD"
 	case permissions.RoleHealthDirector:
 		return "HD"
 	case permissions.RoleParkHead:
@@ -1325,19 +1617,57 @@ func permissionsForNav(id string) []string {
 		// they work; the register carries negotiated prices, contact numbers and banking
 		// instruments. Gating the leaf on ProcurementRead would put it in every operator's sidebar.
 		return []string{permissions.VendorRead}
-	case "counts-herd", "counts-breakdown":
+	case "sales-board":
+		// The dedicated sales permission, NOT ProcurementRead: sales carries revenue, buyer names
+		// and realized prices -- the selling side, not the intake screens operators work.
+		return []string{permissions.SalesRead}
+	case "procurement-feed-purchases":
+		// The dedicated ledger permission, NOT ProcurementRead: the purchase ledger carries
+		// supplier prices and payment state. Gating on ProcurementRead would put it in every
+		// operator's and park head's sidebar -- the same leak VendorRead exists to avoid.
+		return []string{permissions.FeedPurchaseRead}
+	case "counts-herd":
+		// The Herd Register really is goat data. Its leaf is withheld from the sidebar today
+		// (maintainer decision 2026-08-20) but the route stays reachable.
 		return []string{permissions.GoatRead}
+	// These leaves had NO gate, so they rendered for anyone whose sidebar carried the group
+	// and then 403'd on their own data -- a dead screen. An exhaustive persona sweep found
+	// nine of them across four real people. Each gate below is the permission that leaf's
+	// OWN data route already requires (permissions/routes.go), so the leaf is offered
+	// exactly when it can be opened.
+	case "counts-herd-analytics", "milk-preparation", "counts-breakdown":
+		// counts.read, which is what these three screens' own data routes require. Counts
+		// Breakdown was gated on goat.read while /counts/breakdown checks counts.read, so it
+		// rendered for three real people and 403'd when they opened it. Counts is a
+		// deliberately OFF feature held back by exactly counts.read, so this also stops the
+		// leaf advertising a module that is switched off.
+		return []string{permissions.CountsRead}
+	case "counts-sops", "milk-sops", "feed-sops", "weighing-sops":
+		return []string{permissions.SOPRead}
+	case "feed-config":
+		return []string{permissions.FeedConfigRead}
+	case "feed-analytics":
+		return []string{permissions.FeedDirectionRead}
+	case "vaccination-live-tracker":
+		return []string{permissions.LocationsRead, permissions.ObligationRead, permissions.VaccinationRead}
+	case "herd-signals":
+		return []string{permissions.HerdSignalsRead}
 	case "weighing-weights":
 		// The MONITOR capability, matching /app/weighing/shed-weights. Weights is an
 		// oversight read-out, not a planning surface, so it must not gate on
 		// WeighingPlan (CEO-only): the Growth Director owns weighing oversight and
 		// would otherwise be locked out of the estate they are accountable for.
 		return []string{permissions.WeighingMonitor}
+	case "people":
+		// The staff directory. Before this case existed the leaf fell through to
+		// the nil default and rendered for ANY principal with admin_web.bootstrap
+		// — the nav-leak fixed by the 2026-08-22 People/HRMS rewrite.
+		return []string{permissions.OperatorsRead}
 	case "audit-log":
 		return []string{permissions.OperatorsViewAudit}
 	case "dlq-center":
 		return []string{permissions.OperatorsViewAudit}
-	case "config":
+	case "config", "vaccination-plan":
 		return []string{permissions.ProtocolRead}
 	case "sop-library":
 		return []string{permissions.SOPRead}

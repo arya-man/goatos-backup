@@ -78,9 +78,10 @@ data class MilkPreparationUiState(
     val isRefreshing: Boolean = false,
     val isOffline: Boolean = false,
     val lastSyncedAt: Long? = null,
+    val isToday: Boolean = true,
 ) {
     val hasCaptured: Boolean get() = steps.any { it.captured }
-    val isEditable: Boolean get() = verificationStatus.isBlank() || verificationStatus == "not_submitted" || verificationStatus == "rework"
+    val isEditable: Boolean get() = isToday && (verificationStatus.isBlank() || verificationStatus == "not_submitted" || verificationStatus == "rework")
     val morningQuestionEnabled: Boolean get() = isEditable && !submitted
     val eveningQuestionEnabled: Boolean get() = morningMilkCollected.toDoubleOrNull()?.let { it >= 0 } == true && morningQuestionEnabled
     val goatMilkQuestionEnabled: Boolean get() = eveningQuestionEnabled && eveningMilkCollected.toDoubleOrNull()?.let { it >= 0 } == true && !hasCaptured
@@ -148,7 +149,7 @@ fun MilkPreparationScreen(
                 item(key = "milking-questions") { GoatMilkingQuestions(state, onEvent) }
                 item(key = "steps-title") { MilkPreparationSectionTitle("Preparation steps") }
                 items(state.steps, key = { it.code }) { step ->
-                    MilkPreparationStepCard(step, state.selectedParkId.isNotBlank(), onAnswer = { onEvent(MilkPreparationEvent.SetStepAnswer(step.code, it)) }, onRecord = { onEvent(MilkPreparationEvent.CaptureStep(step.code)) }, onReRecord = { onEvent(MilkPreparationEvent.ReCaptureStep(step.code)) })
+                    MilkPreparationStepCard(step, state.selectedParkId.isNotBlank() && state.isEditable, onAnswer = { onEvent(MilkPreparationEvent.SetStepAnswer(step.code, it)) }, onRecord = { onEvent(MilkPreparationEvent.CaptureStep(step.code)) }, onReRecord = { onEvent(MilkPreparationEvent.ReCaptureStep(step.code)) })
                 }
                 item(key = "submit") { MilkPreparationSubmitButton(state) { onEvent(MilkPreparationEvent.Submit) } }
             }
@@ -285,7 +286,7 @@ private fun MilkPreparationSectionTitle(title: String) {
 @Composable
 private fun MilkPreparationStepCard(
     step: MilkPreparationStepUi,
-    hasPark: Boolean,
+    canEdit: Boolean,
     onAnswer: (String) -> Unit,
     onRecord: () -> Unit,
     onReRecord: () -> Unit = onRecord,
@@ -312,7 +313,7 @@ private fun MilkPreparationStepCard(
             )
         }
         if (step.requiresAnswer) {
-            MilkNumberField(step.label, step.answer, step.unit, step.enabled, onAnswer)
+            MilkNumberField(step.label, step.answer, step.unit, step.enabled && canEdit, onAnswer)
         } else {
             Text(
                 "Amount is calculated automatically. Record the mixing and storage video.",
@@ -320,10 +321,10 @@ private fun MilkPreparationStepCard(
                 fontSize = 12.sp,
             )
         }
-        val canRecord = !step.captured && step.enabled && step.answerComplete && hasPark
+        val canRecord = !step.captured && step.enabled && step.answerComplete && canEdit
         // A captured step is not a dead end: an unusable clip can be replaced from here rather than
         // submitted and bounced by the verifier (maintainer request 2026-07-30).
-        val clickable = if (step.captured) hasPark && !step.capturing else canRecord && !step.capturing
+        val clickable = if (step.captured) canEdit && !step.capturing else canRecord && !step.capturing
         Box(
             Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp))
                 .background(if (canRecord) MeshaColors.Brand else MeshaColors.Surf3)

@@ -18,6 +18,8 @@
     <string name="proof_camera_water_distribution_instruction">నీటి పంపిణీ పని స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_camera_feed_packing_title">మేత ప్యాకింగ్‌ను రికార్డ్ చేయండి</string>
     <string name="proof_camera_feed_packing_instruction">మేత ప్యాకింగ్ పని స్పష్టంగా కనిపించేలా ఉంచండి</string>
+    <string name="proof_camera_feed_wastage_title">మిగిలిన దాణాను రికార్డ్ చేయండి</string>
+    <string name="proof_camera_feed_wastage_instruction">తొట్టిలో మిగిలిన దాణా స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_camera_milk_preparation_title">పాల తయారీ దశను రికార్డ్ చేయండి</string>
     <string name="proof_camera_milk_preparation_instruction">ఈ తయారీ దశ మరియు దాని కొలత స్పష్టంగా కనిపించేలా ఉంచండి</string>
     <string name="proof_camera_feed_transport_title">మేత రవాణా వీడియో</string>
@@ -30,6 +32,9 @@
     <string name="proof_camera_start_label">రికార్డింగ్ ప్రారంభించండి</string>
     <string name="proof_camera_recording_time">రికార్డింగ్ · %1$s</string>
     <string name="proof_camera_unavailable">కెమెరా అందుబాటులో లేదు. రద్దు చేసి మళ్లీ ప్రయత్నించండి.</string>
+    <string name="proof_camera_preview_timeout">కెమెరా ప్రివ్యూ ప్రారంభం కాలేదు. మళ్లీ ప్రయత్నించండి లేదా రద్దు చేయండి.</string>
+    <string name="proof_camera_retry">మళ్లీ ప్రయత్నించండి</string>
+    <string name="proof_capture_invalid_video">రికార్డింగ్ సేవ్ చేయలేకపోయింది. దయచేసి మళ్లీ రికార్డ్ చేయండి.</string>
     <string name="proof_camera_cancel">రుజువు రికార్డింగ్‌ను రద్దు చేయండి</string>
     <string name="proof_camera_start_recording">రుజువు రికార్డింగ్‌ను ప్రారంభించండి</string>
     <string name="proof_camera_stop_recording">ఆపి రుజువు రికార్డింగ్‌ను సేవ్ చేయండి</string>
@@ -51,4 +56,7 @@
     <string name="bootstrap_action_retry">మళ్లీ ప్రయత్నించండి</string>
     <string name="bootstrap_error_access_not_provisioned">మీ యాక్సెస్ ఇంకా సెట్ కాలేదు. మిమ్మల్ని చేర్చమని మీ మేనేజర్‌ను అడిగి, మళ్లీ ప్రయత్నించండి.</string>
     <string name="sheds_toast_already_submitted_fmt">%1$s ఇప్పటికే ధృవీకరణ కోసం సమర్పించబడింది</string>
+    <string name="proof_photo_toxin_strip_title">స్ట్రిప్ ఫోటో తీయండి</string>
+    <string name="proof_photo_toxin_strip_instruction">రెండు గీతలు స్పష్టంగా కనిపించేలా స్ట్రిప్‌ను చదునుగా, స్థిరంగా పట్టుకోండి</string>
+    <string name="proof_video_toxin_step_header">అఫ్లాటాక్సిన్ పరీక్ష</string>
 </resources>

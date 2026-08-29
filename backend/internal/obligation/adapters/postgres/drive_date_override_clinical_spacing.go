@@ -185,12 +185,12 @@ func (r *Repository) clinicallySafeVaccinationDriveAvailability(ctx context.Cont
 func (r *Repository) vaccinationClinicalRuleForCode(ctx context.Context, tenant pgtype.UUID, vaccineCode string) (vaccinationClinicalRule, error) {
 	var out vaccinationClinicalRule
 	err := r.pool.QueryRow(ctx, `
-SELECT COALESCE(NULLIF(pr.vaccine_code, ''), prd.vaccine_code, $2),
-       COALESCE(NULLIF(pr.vaccine_code, ''), prd.vaccine_code, $2),
-       COALESCE(NULLIF(pr.vaccine_type, ''), 'killed'),
-       COALESCE(NULLIF(pr.pathogen_class, ''), ''),
-       COALESCE(NULLIF(pr.course_type, ''), ''),
-       COALESCE(NULLIF(pr.min_gap_days, 0), 0)
+SELECT COALESCE(NULLIF(prd.vaccine_code, ''), $2),
+       COALESCE(NULLIF(prd.vaccine_code, ''), $2),
+       COALESCE(NULLIF(prd.vaccine_type, ''), 'killed'),
+       COALESCE(NULLIF(prd.pathogen_class, ''), ''),
+       COALESCE(NULLIF(prd.vaccine_json->>'course_type', ''), ''),
+       COALESCE(NULLIF(prd.min_gap_days, 0), 0)
 FROM protocol_rule_dimensions prd
 JOIN protocol_rules pr
   ON pr.tenant_id = prd.tenant_id
@@ -292,49 +292,59 @@ WHERE vda.tenant_id = $1
 
 func (r *Repository) vaccinationClinicalConflictForDate(ctx context.Context, tenant, park pgtype.UUID, cohort vaccinationDriveAffectedCohort, moved vaccinationClinicalRule, candidate, original time.Time) (*vaccinationClinicalConflict, error) {
 	rows, err := r.pool.Query(ctx, `
-WITH affected(goat_id) AS (SELECT unnest($3::uuid[])),
+WITH affected(goat_id) AS (SELECT unnest($2::uuid[])),
 events AS (
   SELECT vc.goat_id,
          vc.administered_at::date AS event_date,
-         COALESCE(NULLIF(pr.vaccine_code, ''), prd.vaccine_code, '') AS vaccine_code,
-         COALESCE(NULLIF(pr.vaccine_code, ''), prd.vaccine_code, '') AS vaccine_label,
-         COALESCE(NULLIF(pr.vaccine_type, ''), 'killed') AS vaccine_type,
-         COALESCE(NULLIF(pr.pathogen_class, ''), '') AS pathogen_class,
-         COALESCE(NULLIF(pr.course_type, ''), '') AS course_type,
-         COALESCE(NULLIF(pr.min_gap_days, 0), 0) AS min_gap_days
+         COALESCE(prd.vaccine_code, '') AS vaccine_code,
+         COALESCE(prd.vaccine_code, '') AS vaccine_label,
+         COALESCE(NULLIF(prd.vaccine_type, ''), 'killed') AS vaccine_type,
+         COALESCE(prd.pathogen_class, '') AS pathogen_class,
+         COALESCE(prd.vaccine_json->>'course_type', '') AS course_type,
+         COALESCE(prd.min_gap_days, 0) AS min_gap_days
   FROM vaccination_completions vc
   JOIN obligation_instances oi ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
-  LEFT JOIN protocol_rules pr ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
-  LEFT JOIN protocol_rule_dimensions prd ON prd.tenant_id = oi.tenant_id AND prd.rule_id = oi.rule_id
+  LEFT JOIN LATERAL (
+    SELECT d.vaccine_code, d.vaccine_type, d.pathogen_class, d.min_gap_days, d.vaccine_json
+    FROM protocol_rule_dimensions d
+    WHERE d.tenant_id = oi.tenant_id AND d.rule_id = oi.rule_id
+    ORDER BY d.created_at, d.selector_key
+    LIMIT 1
+  ) prd ON TRUE
   JOIN affected a ON a.goat_id = vc.goat_id
   WHERE vc.tenant_id = $1
     AND vc.status = 'accepted'
-    AND NOT (vc.obligation_id = ANY($7::uuid[]))
+    AND NOT (vc.obligation_id = ANY($4::uuid[]))
   UNION ALL
   SELECT oi.target_id AS goat_id,
          COALESCE(vda.planned_date, oi.due_at::date) AS event_date,
-         COALESCE(NULLIF(pr.vaccine_code, ''), prd.vaccine_code, '') AS vaccine_code,
-         COALESCE(NULLIF(pr.vaccine_code, ''), prd.vaccine_code, '') AS vaccine_label,
-         COALESCE(NULLIF(pr.vaccine_type, ''), 'killed') AS vaccine_type,
-         COALESCE(NULLIF(pr.pathogen_class, ''), '') AS pathogen_class,
-         COALESCE(NULLIF(pr.course_type, ''), '') AS course_type,
-         COALESCE(NULLIF(pr.min_gap_days, 0), 0) AS min_gap_days
+         COALESCE(prd.vaccine_code, '') AS vaccine_code,
+         COALESCE(prd.vaccine_code, '') AS vaccine_label,
+         COALESCE(NULLIF(prd.vaccine_type, ''), 'killed') AS vaccine_type,
+         COALESCE(prd.pathogen_class, '') AS pathogen_class,
+         COALESCE(prd.vaccine_json->>'course_type', '') AS course_type,
+         COALESCE(prd.min_gap_days, 0) AS min_gap_days
   FROM obligation_instances oi
   JOIN affected a ON a.goat_id = oi.target_id
   LEFT JOIN vaccination_drive_assignment_members m ON m.tenant_id = oi.tenant_id AND m.obligation_id = oi.obligation_id
   LEFT JOIN vaccination_drive_assignments vda ON vda.tenant_id = m.tenant_id AND vda.assignment_id = m.assignment_id
-  LEFT JOIN protocol_rules pr ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
-  LEFT JOIN protocol_rule_dimensions prd ON prd.tenant_id = oi.tenant_id AND prd.rule_id = oi.rule_id
+  LEFT JOIN LATERAL (
+    SELECT d.vaccine_code, d.vaccine_type, d.pathogen_class, d.min_gap_days, d.vaccine_json
+    FROM protocol_rule_dimensions d
+    WHERE d.tenant_id = oi.tenant_id AND d.rule_id = oi.rule_id
+    ORDER BY d.created_at, d.selector_key
+    LIMIT 1
+  ) prd ON TRUE
   WHERE oi.tenant_id = $1
     AND oi.target_type = 'goat'
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
-    AND NOT (oi.obligation_id = ANY($7::uuid[]))
+    AND NOT (oi.obligation_id = ANY($4::uuid[]))
 )
 SELECT vaccine_code, vaccine_label, event_date, vaccine_type, pathogen_class, course_type, min_gap_days
 FROM events
-WHERE event_date BETWEEN ($5::date - INTERVAL '60 days')::date AND ($5::date + INTERVAL '60 days')::date
-ORDER BY ABS(event_date - $5::date), event_date
-LIMIT 50`, tenant, park, cohort.goats, moved.code, businessDateOnly(candidate), businessDateOnly(original), cohort.obligations)
+WHERE event_date BETWEEN ($3::date - INTERVAL '60 days')::date AND ($3::date + INTERVAL '60 days')::date
+ORDER BY ABS(event_date - $3::date), event_date
+LIMIT 50`, tenant, cohort.goats, businessDateOnly(candidate), cohort.obligations)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: read vaccination clinical conflicts: %w", err)
 	}

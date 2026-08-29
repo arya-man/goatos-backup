@@ -1,10 +1,24 @@
-# goatos-stg API config
+# goatos-stg-backed production-facing API config
 
 Authoritative env var list: `../../../docs/runbooks/deployment.md` ("Required
 backend config per environment"). Real values come from Secret Manager; never
 commit real secrets (`*.env.*` is gitignored on purpose).
 
-stg specifics:
+The current public/operator-facing rollout reuses the `goatos-stg`
+Google/Firebase project and Cloud SQL/Pub/Sub/kernel resources internally. The
+public product surfaces are production-facing:
+
+```text
+Dashboard URL: https://dashboard.mesha.sg/
+API URL:       https://api.goatos.mesha.sg/
+Android app:   sg.mesha.goatos
+```
+
+Internal backing resource names such as project `goatos-stg`, database instance
+`goatos-stg-core-db`, Pub/Sub topics, and Firebase Auth issuer/audience remain
+unchanged unless a separate migration project is explicitly approved.
+
+Backing project specifics:
 
 ```text
 GOATOS_ENV=stg
@@ -29,25 +43,24 @@ password. See `docs/runbooks/auth.md`.
 
 ## Dashboard endpoint, DNS, and OAuth
 
-Staging dashboard public host:
+Production-facing dashboard public host:
 
 ```text
-URL:         https://stg.dashboard.mesha.sg/
+URL:         https://dashboard.mesha.sg/
 Project:     goatos-stg
 Region:      asia-south1
 Cloud Run:   goatos-admin-web-stg
 Raw URL:     https://goatos-admin-web-stg-awtrpmn4za-el.a.run.app
 LB IP:       8.233.143.24
 LB IP name:  goatos-stg-dashboard-ip
-Certificate: goatos-stg-dashboard-cert
-Certificate status: ACTIVE
-Canonical host env: GOATOS_CANONICAL_DASHBOARD_HOST=stg.dashboard.mesha.sg
+Certificate: create/attach a managed cert that includes dashboard.mesha.sg
+Canonical host env: GOATOS_CANONICAL_DASHBOARD_HOST=dashboard.mesha.sg
 ```
 
-Staging API public host:
+Production-facing API public host:
 
 ```text
-URL:         https://stg-api.dashboard.mesha.sg/
+URL:         https://api.goatos.mesha.sg/
 Project:     goatos-stg
 Region:      asia-south1
 Cloud Run:   goatos-api-stg
@@ -55,9 +68,9 @@ Raw URL:     https://goatos-api-stg-awtrpmn4za-el.a.run.app
 LB IP:       8.233.143.24
 NEG:         goatos-api-stg-neg
 Backend:     goatos-api-stg-backend
-URL map:     goatos-stg-dashboard-map host rule stg-api.dashboard.mesha.sg -> api-host
-Certificate: goatos-stg-api-cert
-Android stg API_BASE_URL: https://stg-api.dashboard.mesha.sg/
+URL map:     goatos-stg-dashboard-map host rule api.goatos.mesha.sg -> api-host
+Certificate: create/attach a managed cert that includes api.goatos.mesha.sg
+Android prod API_BASE_URL: https://api.goatos.mesha.sg/
 ```
 
 DNS lives in Cloudflare, not Google Cloud DNS:
@@ -66,8 +79,8 @@ DNS lives in Cloudflare, not Google Cloud DNS:
 Cloudflare account: Manju@flokx.io's Account
 Cloudflare account id: 13c352a0cade56bf65b77c0d8b78bf53
 Zone: mesha.sg
-Record: A stg.dashboard -> 8.233.143.24
-Record: A stg-api.dashboard -> 8.233.143.24
+Record: A dashboard -> 8.233.143.24
+Record: A api.goatos -> 8.233.143.24
 Proxy: DNS only
 TTL: Auto
 ```
@@ -82,34 +95,26 @@ zone id separately as `CLOUDFLARE_ZONE_ID_MESHA_SG`.
 Use this verification set after DNS or LB changes:
 
 ```bash
-dig +short stg.dashboard.mesha.sg A
-dig +short stg-api.dashboard.mesha.sg A
-gcloud compute ssl-certificates describe goatos-stg-dashboard-cert \
+dig +short dashboard.mesha.sg A
+dig +short api.goatos.mesha.sg A
+gcloud compute ssl-certificates list \
   --project=goatos-stg \
   --global \
-  --format='json(managed.status,managed.domainStatus)'
-gcloud compute ssl-certificates describe goatos-stg-api-cert \
-  --project=goatos-stg \
-  --global \
-  --format='json(managed.status,managed.domainStatus)'
+  --format='table(name,managed.domains,managed.status)'
 curl -fsSI https://goatos-admin-web-stg-awtrpmn4za-el.a.run.app/login
-curl -fsSI https://stg.dashboard.mesha.sg/login
-curl -sSI https://stg-api.dashboard.mesha.sg/app/bootstrap | sed -n '1,8p'
+curl -fsSI https://dashboard.mesha.sg/login
+curl -sSI https://api.goatos.mesha.sg/app/bootstrap | sed -n '1,8p'
 ```
 
-Do not set `GOATOS_CANONICAL_DASHBOARD_HOST=stg.dashboard.mesha.sg` on
-admin-web until the Google-managed certificate is `ACTIVE`; otherwise the raw
-Cloud Run URL redirects users to a host that may still fail TLS.
+Do not set `GOATOS_CANONICAL_DASHBOARD_HOST=dashboard.mesha.sg` on admin-web
+until the Google-managed certificate for `dashboard.mesha.sg` is `ACTIVE`;
+otherwise the raw Cloud Run URL redirects users to a host that may still fail
+TLS.
 
-Do not create prod DNS/certs until the prod API/backend/Firebase project are
-live. Prod should reuse the same shape later:
-
-```text
-Android package: sg.mesha.goatos
-Firebase project: goatos-prod/goatos-prd (final name to be created/confirmed)
-API host: https://api.dashboard.mesha.sg/ or the final approved prod API host
-Dashboard host: https://dashboard.mesha.sg/
-```
+Legacy staging hosts `stg.dashboard.mesha.sg` and `stg-api.dashboard.mesha.sg`
+can remain as compatibility aliases until the production-facing hosts are fully
+verified. Do not use them in public release notes, app config, operator links,
+or new production-facing docs.
 
 Google SSO uses the classic Google Auth Platform web client below. The broken
 IAM OAuth UUID-style client must not be used for Google Identity Services.
@@ -117,7 +122,7 @@ IAM OAuth UUID-style client must not be used for Google Identity Services.
 ```text
 OAuth client display name: goatos-stg-admin-web
 OAuth client id: 514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com
-Google Auth Platform app name: Goat OS Staging
+Google Auth Platform app name: GoatOS
 Audience: External
 Publishing status: In production
 Support/contact email: ravi@mesha.sg
@@ -127,7 +132,7 @@ Secret Manager: goatos-stg-google-oauth-web-credential
 Authorized JavaScript origins:
 
 ```text
-https://stg.dashboard.mesha.sg
+https://dashboard.mesha.sg
 https://goatos-admin-web-stg-514832198871.asia-south1.run.app
 https://goatos-admin-web-stg-awtrpmn4za-el.a.run.app
 http://localhost:3000
@@ -138,7 +143,7 @@ http://localhost:3311
 Authorized redirect URIs:
 
 ```text
-https://stg.dashboard.mesha.sg/api/auth/google-redirect
+https://dashboard.mesha.sg/api/auth/google-redirect
 https://goatos-admin-web-stg-514832198871.asia-south1.run.app/api/auth/google-redirect
 https://goatos-admin-web-stg-awtrpmn4za-el.a.run.app/api/auth/google-redirect
 http://localhost:3000/api/auth/google-redirect
@@ -151,7 +156,8 @@ https://goatos-stg.web.app/__/auth/handler
 The `goatos-stg` Identity Platform Google provider is enabled and must point to
 the same OAuth client ID. Firebase/Auth Platform authorized domains must include
 `localhost`, `goatos-stg.firebaseapp.com`, `goatos-stg.web.app`, and
-`stg.dashboard.mesha.sg`.
+`dashboard.mesha.sg`. Keep `stg.dashboard.mesha.sg` only as a legacy
+compatibility domain while old links are being retired.
 
 Seed the matching dashboard DB grants with the staging-guarded helper:
 

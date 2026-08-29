@@ -10,6 +10,7 @@ var (
 	sweeperBatchDuration    = newHistogram("kernel.sweeper.batch.duration", "s", "Duration of one obligation-sweeper protocol-version sweep.")
 	sweeperObligationsSwept = newCounter("kernel.sweeper.obligations_swept", "{obligation}", "Obligations created or advanced by a sweeper run.")
 	sweeperTasksCreated     = newCounter("kernel.sweeper.tasks_created", "{task}", "SOP batch tasks created by a sweeper run.")
+	sweeperFailures         = newCounter("kernel.sweeper.failures", "{failure}", "Recoverable obligation-sweeper failures observed during a run.")
 )
 
 // RecordSweeperBatch records one protocol-version sweep's duration plus the
@@ -24,4 +25,8 @@ func RecordSweeperBatch(ctx context.Context, stage string, durationSeconds float
 	if tasksCreated > 0 {
 		addCounter(ctx, sweeperTasksCreated, int64(tasksCreated), attribute.String("stage", stage))
 	}
+}
+
+func RecordSweeperFailure(ctx context.Context, phase string) {
+	addCounter(ctx, sweeperFailures, 1, attribute.String("phase", phase))
 }

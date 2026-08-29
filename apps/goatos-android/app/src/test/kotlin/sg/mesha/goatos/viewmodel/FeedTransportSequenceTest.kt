@@ -1,5 +1,8 @@
 package sg.mesha.goatos.viewmodel
 
+import kotlinx.coroutines.flow.flowOf
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
+import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import androidx.room.Room
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
@@ -47,6 +50,7 @@ import sg.mesha.goatos.core.network.dto.FeedTransportFilterOptionDto
 import sg.mesha.goatos.core.network.dto.FeedTransportFilterOptionsDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.feature.feed.FeedDistributionProofStatus
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureUiState
@@ -141,6 +145,7 @@ class FeedTransportSequenceTest {
             val analytics = RecordingAnalytics()
             val viewModel = FeedTransportViewModel(
                 repo = FeedTransportRepository(api, database),
+                submittedGrains = SubmittedGrainsSource { flowOf(emptySet()) },
                 analytics = analytics,
                 crashReporter = NoopCrashReporter(),
             )
@@ -181,6 +186,7 @@ class FeedTransportSequenceTest {
             drafts = drafts,
             analytics = RecordingAnalytics(),
             crashReporter = NoopCrashReporter(),
+            feedTransportRepository = FakeFeedTransportStatusSource(),
             saved = SavedStateHandle(
                 mapOf(
                     FeedTransportCaptureViewModel.ARG_TASK_ID to "transport-task-1",
@@ -298,7 +304,7 @@ private class TransportSyncRepository : SyncRepository {
 
     override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
-    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> = error("unused")
+    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int, measurement: VerificationVerdictMeasurementDto?): AppResult<String> = error("unused")
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = error("unused")
     override suspend fun triggerDrain() = Unit

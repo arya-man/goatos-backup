@@ -78,7 +78,6 @@ class ProofAudioCaptureTest {
             listOf(
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_FINE_LOCATION,
             ),
             mandatoryCapturePermissionsForSdk(29),
@@ -91,7 +90,6 @@ class ProofAudioCaptureTest {
             listOf(
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.BLUETOOTH_CONNECT,
                 Manifest.permission.BLUETOOTH_SCAN,
@@ -106,7 +104,6 @@ class ProofAudioCaptureTest {
             listOf(
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.BLUETOOTH_CONNECT,
                 Manifest.permission.BLUETOOTH_SCAN,
@@ -121,7 +118,6 @@ class ProofAudioCaptureTest {
             listOf(
                 Manifest.permission.CAMERA,
                 Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.POST_NOTIFICATIONS,
                 Manifest.permission.BLUETOOTH_CONNECT,
@@ -138,6 +134,22 @@ class ProofAudioCaptureTest {
                 "language (copy firewall) — never the raw RECORD_AUDIO constant.",
             "Microphone",
             permissionLabel(Manifest.permission.RECORD_AUDIO),
+        )
+    }
+
+    @Test
+    fun `precise location request includes coarse without making coarse a blocker`() {
+        assertEquals(
+            listOf(
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            ),
+            requestPermissionsFor(setOf(Manifest.permission.ACCESS_FINE_LOCATION)),
+        )
+        assertFalse(
+            "Coarse must not be a separately blocking capture permission. If precise location " +
+                "is already granted after an update, a false coarse grant must not keep asking.",
+            Manifest.permission.ACCESS_COARSE_LOCATION in mandatoryCapturePermissionsForSdk(33),
         )
     }
 
@@ -165,6 +177,29 @@ class ProofAudioCaptureTest {
         )
     }
 
+    @Test
+    fun `the in-app recorder does not auto-start a second clip while finalizing validation`() {
+        val source = findRecorderSource()
+        assertNotNull(
+            "Could not locate InAppVideoRecorder.kt from ${File("").absolutePath}",
+            source,
+        )
+        val text = source!!.readText()
+
+        assertTrue(
+            "A finalized clip sets isRecording=false before off-main validation completes. The " +
+                "preview-streaming auto-start gate must include pendingValidation, otherwise it " +
+                "can start a second recording and overwrite startedAtMs before the first clip is " +
+                "delivered, producing 0:00 proof durations.",
+            FINALIZING_BLOCKS_AUTO_START.containsMatchIn(text),
+        )
+        assertTrue(
+            "startRecording itself must also refuse to run while a previous clip is validating, " +
+                "so retrying/recomposition cannot create a second active file before delivery.",
+            text.contains("if (pendingValidation != null) return"),
+        )
+    }
+
     /** Walks up from the test's working directory so the test is independent of the Gradle CWD. */
     private fun findRecorderSource(): File? {
         var dir: File? = File("").absoluteFile
@@ -188,6 +223,10 @@ class ProofAudioCaptureTest {
          */
         val RECORDING_WITH_AUDIO = Regex(
             """prepareRecording\s*\([^)]*\)(?:\s*//[^\n]*\n)*\s*\.withAudioEnabled\s*\(\s*\)""",
+        )
+        val FINALIZING_BLOCKS_AUTO_START = Regex(
+            """LaunchedEffect\s*\(\s*previewStreaming\s*,\s*isRecording\s*,\s*pendingValidation\s*,\s*resultDelivered\s*\)\s*\{\s*if\s*\(\s*previewStreaming\s*&&\s*!isRecording\s*&&\s*pendingValidation\s*==\s*null\s*&&\s*!resultDelivered\s*\)""",
+            RegexOption.DOT_MATCHES_ALL,
         )
     }
 }

@@ -15,6 +15,7 @@ import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.core.model.nav.barItems
 import sg.mesha.goatos.core.model.nav.resolveModule
+import sg.mesha.goatos.feature.pccare.PcCareTaskEvent
 
 class TopLevelChromeTest {
     private val roots = listOf(
@@ -86,6 +87,34 @@ class TopLevelChromeTest {
             calendarTargetRoute("/vaccination/scan/shed-1", "2026-07-24"),
         )
         assertFalse(isTopLevelRoute(calendarTargetRoute(null), roots))
+    }
+
+    @Test
+    fun `pc care planner capability keeps category tabs in monitor mode`() {
+        assertTrue(pcCareShowsExecutorFace(canExecutePcCare = true, canPlanPcCare = false))
+        assertFalse(pcCareShowsExecutorFace(canExecutePcCare = false, canPlanPcCare = true))
+        assertFalse(pcCareShowsExecutorFace(canExecutePcCare = true, canPlanPcCare = true))
+    }
+
+    @Test
+    fun `pc care task route locks monitor mode unless user is execute only`() {
+        assertFalse(pcCareTaskRouteUsesMonitorMode(canExecutePcCare = true, canPlanPcCare = false))
+        assertTrue(pcCareTaskRouteUsesMonitorMode(canExecutePcCare = false, canPlanPcCare = true))
+        assertTrue(pcCareTaskRouteUsesMonitorMode(canExecutePcCare = true, canPlanPcCare = true))
+        assertTrue(pcCareTaskRouteUsesMonitorMode(canExecutePcCare = false, canPlanPcCare = false))
+    }
+
+    @Test
+    fun `pc care monitor route only allows read refresh and back events`() {
+        assertTrue(pcCareMonitorEventAllowed(PcCareTaskEvent.Back))
+        assertTrue(pcCareMonitorEventAllowed(PcCareTaskEvent.Refresh))
+
+        assertFalse(pcCareMonitorEventAllowed(PcCareTaskEvent.ReconnectReader))
+        assertFalse(pcCareMonitorEventAllowed(PcCareTaskEvent.RosterTapped("tag-1")))
+        assertFalse(pcCareMonitorEventAllowed(PcCareTaskEvent.RecordSlot("tag-1", "video")))
+        assertFalse(pcCareMonitorEventAllowed(PcCareTaskEvent.SubmitTypedScan))
+        assertFalse(pcCareMonitorEventAllowed(PcCareTaskEvent.Submit))
+        assertFalse(pcCareMonitorEventAllowed(PcCareTaskEvent.ConfirmSubmit))
     }
 
     // -----------------------------------------------------------------------
@@ -507,5 +536,95 @@ class TopLevelChromeTest {
         val legacy = NavState(chrome = NavChrome.MINIMAL, items = vaccination.navItems)
         assertEquals(vaccination.navItems, legacy.barItems(null, Routes.VACCINATION))
         assertTrue(isTopLevelRoute(Routes.VACCINATION, rootsFor(legacy, null, Routes.VACCINATION)))
+    }
+
+    // -----------------------------------------------------------------------
+    // Cold-start chrome trap regression (P1 device-reproduced bug).
+    // Operators landed on CALENDAR with no drawer/bottom bar on real devices.
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `module landing routes are top-level for chrome purposes`() {
+        // CRITICAL INVARIANT: When an operator taps a module in the drawer, they navigate to
+        // module.href, which MUST render with chrome. This test ensures that the shell's
+        // drawerTopLevelRoutes calculation includes BOTH module.navItems AND module.hrefs.
+        //
+        // The bug: drawerTopLevelRoutes was built from navItems only, so module landing routes
+        // were not recognized as top-level. On cold start with empty NavState, startDestinationFor
+        // falls back to CALENDAR, but drawerTopLevelRoutes was empty → isTopLevel(CALENDAR, [])
+        // returned false → chrome was hidden → operators on real devices got a chrome-less screen
+        // with no way to access other modules.
+        val drawerTopLevelRoutes = twoModules.availableModules().flatMap { module ->
+            listOf(module.href) + module.navItems.map { it.href }
+        }.filter { it.isNotBlank() }
+
+        // Every module's landing href must be in the top-level routes for chrome derivation.
+        assertTrue(
+            "Vaccination module landing route must be top-level",
+            isTopLevelRoute(Routes.VACCINATION, drawerTopLevelRoutes)
+        )
+        assertTrue(
+            "Counts module landing route must be top-level",
+            isTopLevelRoute("/counts/birth", drawerTopLevelRoutes)
+        )
+        assertTrue(
+            "Feed module landing route must be top-level",
+            isTopLevelRoute(Routes.FEED_DIRECTION, drawerTopLevelRoutes)
+        )
+
+        // All module navItems remain top-level.
+        assertTrue(
+            "Vaccination alerts must be top-level",
+            isTopLevelRoute(Routes.VACCINATION_ALERTS, drawerTopLevelRoutes)
+        )
+        assertTrue(
+            "Counts death must be top-level",
+            isTopLevelRoute("/counts/death", drawerTopLevelRoutes)
+        )
+        assertTrue(
+            "Feed packing must be top-level",
+            isTopLevelRoute(Routes.FEED_PACKING, drawerTopLevelRoutes)
+        )
+
+        // Drills are not top-level (exact membership only).
+        assertFalse(
+            "Vaccination drill must not be top-level",
+            isTopLevelRoute(Routes.CALENDAR_DRIVE, drawerTopLevelRoutes)
+        )
+    }
+
+    @Test
+    fun `cold start with empty navstate would render calendar fallback as top-level`() {
+        // Reproduces the cold-start condition: NavState is empty, bootstrap hasn't arrived yet.
+        // startDestinationFor falls back to CALENDAR. The shell must recognize CALENDAR as
+        // top-level even when drawerTopLevelRoutes is initially empty and will be populated
+        // later when NavState arrives.
+        //
+        // This test verifies the fix: once modules arrive and drawerTopLevelRoutes is built,
+        // CALENDAR (as a module landing route) is recognized as top-level.
+        val emptyState = NavState.Empty
+        val emptyDrawerTopLevelRoutes = emptyState.availableModules().flatMap { module ->
+            listOf(module.href) + module.navItems.map { it.href }
+        }.filter { it.isNotBlank() }
+
+        // On cold start with empty state, drawerTopLevelRoutes is empty.
+        assertTrue(emptyDrawerTopLevelRoutes.isEmpty())
+
+        // Once bootstrap arrives with modules (where one of them has CALENDAR as a landing route
+        // or as a navItem), CALENDAR becomes top-level.
+        // This test uses twoModules where vaccination has CALENDAR in navItems (implicitly, as
+        // the CALENDAR app bar shows vaccination drives). The shell's calculation would build:
+        // [module.hrefs] + [module.navItems] = [/vaccination, /counts/birth, /feed_direction]
+        // + [/vaccination, /vaccination/alerts, /you, /counts/birth, /counts/death, /counts/shifting,
+        // /feed_direction, /feed_packing]
+        val populatedDrawerTopLevelRoutes = twoModules.availableModules().flatMap { module ->
+            listOf(module.href) + module.navItems.map { it.href }
+        }.filter { it.isNotBlank() }
+
+        // The vaccination module's href and items are now in the top-level set.
+        assertTrue(
+            "Vaccination module landing must be in populated drawer routes",
+            isTopLevelRoute(Routes.VACCINATION, populatedDrawerTopLevelRoutes)
+        )
     }
 }

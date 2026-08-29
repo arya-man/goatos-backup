@@ -121,7 +121,6 @@ class RoleChromeScreenshotTest {
     private fun weighingDirectorNavItems() = listOf(
         NavItem(key = "weighing", label = "My work", href = "/weighing"),
         NavItem(key = "operators", label = "Operators", href = "/weighing/operators"),
-        NavItem(key = "videos", label = "Videos", href = "/weighing/videos"),
         NavItem(key = "weighing_alerts", label = "Alerts", href = "/weighing/alerts"),
         NavItem(key = "you", label = "You", href = Routes.YOU),
     )

@@ -16,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -42,7 +43,9 @@ import sg.mesha.goatos.core.network.dto.VerificationMediaItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
+import sg.mesha.goatos.feature.verify.VerifyMeasurementInput
 import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
 import sg.mesha.goatos.feature.verify.VideoPlaybackAction
 
@@ -95,6 +98,64 @@ class VerifyDetailViewModelAnalyticsTest {
 
         assertEquals(Triple("approved", "2026-07-29", false), repo.lastObservedScope)
         assertEquals(Triple("approved", "2026-07-29", false), repo.lastRefreshedScope)
+    }
+
+    // THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20).
+    //
+    // This replaces `weight correction refresh waits for exact outbox success`, which guarded the
+    // standalone save. That save relabelled the item, bumping row_version, so the Approve pressed
+    // straight afterwards was version-fenced out and silently did nothing. There is no separate
+    // save any more: one press, one outbox row, value and verdict together.
+    @Test
+    fun `approve carries the typed number on the same verdict`() = runTest(dispatcher) {
+        val repo = FakeVerifyDetailRepository()
+        val syncRepository = FakeVerifyDetailSyncRepository()
+        val vm = VerifyDetailViewModel(
+            repo = repo,
+            syncRepo = syncRepository,
+            analytics = RecordingAnalytics(),
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "weighing")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(
+            VerifyDetailEvent.Approve(
+                itemId = "item-1",
+                measurement = VerifyMeasurementInput(value = 42.5, reason = "scale reads 42.5"),
+            ),
+        )
+        advanceUntilIdle()
+
+        val verdict = syncRepository.lastVerdict
+        assertEquals("approved", verdict?.decision)
+        assertEquals(42.5, verdict?.measurement?.value)
+        assertEquals("scale reads 42.5", verdict?.measurement?.reason)
+    }
+
+    // A rejection sends the work back to be recorded again, so a number typed before she changed
+    // her mind must never reach the record that is about to be redone.
+    @Test
+    fun `reject never carries a number`() = runTest(dispatcher) {
+        val repo = FakeVerifyDetailRepository()
+        val syncRepository = FakeVerifyDetailSyncRepository()
+        val vm = VerifyDetailViewModel(
+            repo = repo,
+            syncRepo = syncRepository,
+            analytics = RecordingAnalytics(),
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "weighing")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(VerifyDetailEvent.Reject(reason = "clip too dark to read", itemId = "item-1"))
+        advanceUntilIdle()
+
+        val verdict = syncRepository.lastVerdict
+        assertEquals("rejected", verdict?.decision)
+        assertNull(verdict?.measurement)
     }
 
     @Test
@@ -409,12 +470,13 @@ class VerifyDetailViewModelAnalyticsTest {
     }
 
     @Test
-    fun `non-source playback error remains visible as Crashlytics non-fatal`() = runTest(dispatcher) {
+    fun `media codec playback error stays out of Crashlytics non-fatals`() = runTest(dispatcher) {
         val crashReporter = RecordingCrashReporter()
+        val analytics = RecordingAnalytics()
         val vm = VerifyDetailViewModel(
             repo = FakeVerifyDetailRepository(),
             syncRepo = FakeVerifyDetailSyncRepository(),
-            analytics = RecordingAnalytics(),
+            analytics = analytics,
             crashReporter = crashReporter,
             savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "weighing")),
         )
@@ -426,11 +488,17 @@ class VerifyDetailViewModelAnalyticsTest {
                 proofSubject = "proof-1",
                 mimeType = "video/mp4",
                 action = VideoPlaybackAction.PLAYBACK_ERROR,
-                reason = "decoder crashed",
+                reason = "MediaCodecVideoRenderer error, index=0, format=Format(2, null, video/mp4, video/avc, avc1.64001F, 2502626, null, [1280, 720, 29.388496, ColorInfo(BT709, Limited range, SDR SMPTE 170M, false, 8bit Luma, 8bit Chroma)], [-1, -1]), format_supported=YES",
             ),
         )
 
-        assertEquals(listOf("verification video playback failed" to "decoder crashed"), crashReporter.exceptions)
+        assertTrue(crashReporter.exceptions.isEmpty())
+        assertTrue(
+            analytics.events.any { (event, props) ->
+                event == AnalyticsEvents.VERIFY_VIDEO_PLAYBACK_ERROR &&
+                    props[AnalyticsFunnels.Params.PROOF_ID] == "proof-1"
+            },
+        )
     }
 }
 
@@ -473,6 +541,7 @@ private class RecordingCrashReporter : CrashReporter {
 private class FakeVerifyDetailRepository : VerificationRepository {
     var lastObservedScope: Triple<String?, String?, Boolean?>? = null
     var lastRefreshedScope: Triple<String?, String?, Boolean?>? = null
+    var refreshCount: Int = 0
     private val item = VerificationQueueItem(
         itemId = "item-1",
         category = "vaccination_proof",
@@ -498,6 +567,7 @@ private class FakeVerifyDetailRepository : VerificationRepository {
     }
 
     override suspend fun refreshQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> {
+        refreshCount += 1
         lastRefreshedScope = Triple(status, businessDate, missed)
         return Result.success(Unit)
     }
@@ -514,17 +584,47 @@ private class FakeVerifyDetailRepository : VerificationRepository {
         sg.mesha.goatos.core.common.AppResult.Ok(Unit)
 }
 
+/** One enqueued verdict, as the outbox saw it. */
+private data class RecordedVerdict(
+    val decision: String,
+    val measurement: VerificationVerdictMeasurementDto?,
+)
+
 private class FakeVerifyDetailSyncRepository : SyncRepository {
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
+    private val correctionItem = MutableStateFlow<SyncQueueItem?>(null)
 
     override fun observeStatus(): StateFlow<SyncStatus> = status
-    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf()
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = correctionItem
     override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: SubmitTaskRequestDto): AppResult<String> = error("unused")
     override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: RescheduleObligationRequestDto): AppResult<String> = error("unused")
     override suspend fun enqueueProofUpload(groupKey: String, idempotencyKey: String, request: ProofUploadRequestDto, localFilePath: String, durationMs: Long?): AppResult<String> = error("unused")
     override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
-    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> = AppResult.Ok("outbox-1")
+    /** What actually reached the outbox, so a test can assert on what the verdict DROPPED as well
+     *  as on what it carried. */
+    var lastVerdict: RecordedVerdict? = null
+        private set
+
+    override suspend fun enqueueVerificationVerdict(
+        itemId: String,
+        decision: String,
+        reason: String?,
+        rowVersion: Int,
+        measurement: VerificationVerdictMeasurementDto?,
+    ): AppResult<String> {
+        lastVerdict = RecordedVerdict(decision = decision, measurement = measurement)
+        return AppResult.Ok("outbox-1")
+    }
+
+    override suspend fun enqueueWeighingWeightCorrection(
+        observationId: String,
+        refType: String,
+        weightKg: Double,
+        animalCount: Int?,
+        reason: String?,
+    ): AppResult<String> = error("the standalone correction is not called any more; the approve carries the number")
+
     override suspend fun retry(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun findOutboxItem(itemId: String): AppResult<SyncQueueItem?> =
@@ -559,7 +659,7 @@ private class FailingVerifyDetailSyncRepository(private val message: String) : S
     override suspend fun enqueueProofUpload(groupKey: String, idempotencyKey: String, request: ProofUploadRequestDto, localFilePath: String, durationMs: Long?): AppResult<String> = error("unused")
     override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
-    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> =
+    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int, measurement: VerificationVerdictMeasurementDto?): AppResult<String> =
         AppResult.Err(message)
 
     override suspend fun retry(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)

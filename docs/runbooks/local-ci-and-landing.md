@@ -358,8 +358,9 @@ non-numeric status scores 97 = FAILED. The parent additionally asserts
 `accounted == launched == selected`. `screenshots_ran` crosses the boundary the
 same way, and its absence on the android job fails the run so a receipt can
 never claim wrong screenshot coverage. Jobs contending on the same resource are
-grouped and never overlap (`android` → `gradle`; `backend` + `query-plans` →
-`docker`), scheduled by the parent so a killed child cannot leave a stale lock.
+grouped and never overlap (`android` → `gradle`; `backend` → `docker`;
+`query-plans` → OCI tunnel / `GOATOS_SQLC_PLAN_ADMIN_DSN`), scheduled by the
+parent so a killed child cannot leave a stale lock.
 Job logs are captured per job and replayed in **selection** order, not finish
 order, so output stays deterministic.
 

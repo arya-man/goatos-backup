@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.ExecutionParkOptionDto
+import sg.mesha.goatos.core.network.dto.ShedCardSummaryDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 import sg.mesha.goatos.core.network.dto.currentScheduleDate
@@ -401,52 +402,64 @@ class ShedsViewModel @Inject constructor(
         val base = sampleShedsState()
         val weekRows = rows
         val rowsForSelectedDay = weekRows.filter { row ->
-            val dueDate = row.currentScheduleDate?.let(::parseExecutionDate)
-            val hasVisibleWork = row.hasOperatorVisibleWork()
-            when {
-                !hasVisibleWork -> false
-                dueDate == null -> selectedDay == workWindow.today
-                // Today folds in the deep backlog (due on or before today), INCLUDING rows the
-                // operator already finished. A completed shed must stay visible until the drive
-                // itself closes -- and "closed" is not a flag the client tracks; it is simply the
-                // moment the backend stops returning the row at all (it falls outside
-                // workWindow.asOf/dueBefore, the same window this whole list is already scoped
-                // to). As long as the API keeps sending the row, the drive is still active and the
-                // card stays on today's list; the day it silently drops out of `rows` upstream is
-                // the day the operator stops seeing it. Previously this branch additionally
-                // required `hasOpenOrReviewWork()` for backlog rows, which hid every completed
-                // shed the moment its own due date rolled past today -- exactly the maintainer-
-                // reported defect where 3 of 4 finished sheds vanished mid-drive.
-                selectedDay == workWindow.today -> !dueDate.isAfter(workWindow.today)
-                else -> dueDate == selectedDay
-            }
+            row.isVisibleForOperatorDay(selectedDay, workWindow)
         }
         // Group by the exact key rendered by Compose. Do not group by metadata that is not also
         // present in ShedRow.id: the same shed/partition/task can arrive as multiple backend rows
         // (for example BT + SP rows, or a task row version/sop version split) but must remain one
         // UI card with one LazyColumn key.
+        // Prefer backend-computed card summaries (page-independent) over row-level folds.
+        val cardSummaries = cardSummaries
         val shedRows = rowsForSelectedDay.groupBy { it.executionCardId() }.map { (cardId, group) ->
             val first = group.first()
             val scheduleDate = group.mapNotNull { it.currentScheduleDate?.let(::parseExecutionDate) }.minOrNull()
-            val status = shedStatusForRows(group)
-            val counts = executionCardCounts(group)
-            val vaccineGroups = group.flatMap { row ->
-                row.vaccineLabels.ifEmpty { listOfNotNull(row.driveName) }
-                    .map { humanizeVaccineLabel(it) }
-                    .filter { it.isNotBlank() }
-                    .map { label -> label to row }
-            }
-                .groupBy({ it.first }, { it.second })
-                .map { (label, driveRows) ->
-                    val driveCounts = executionCardCounts(driveRows)
-                    val driveDone = effectiveCardDoneCount(driveRows)
+
+            // Prefer backend-computed card summary (page-independent, covers all rows for the card).
+            // Fall back to row-level computation for older API responses without cardSummaries.
+            val cardSummary = cardSummaries?.get(cardId)
+            val status: ShedStatus
+            val counts: ExecutionCounts
+            val vaccineGroups: List<VaccineGroup>
+            val effectiveDone: Int
+
+            if (cardSummary != null) {
+                // Use backend summary: it's authoritative and page-independent
+                status = cardSummaryStatusToShedStatus(cardSummary.status, cardSummary.needsRedo)
+                counts = ExecutionCounts(
+                    target = cardSummary.targetCount,
+                    open = cardSummary.openCount,
+                    done = cardSummary.doneCount,
+                )
+                effectiveDone = cardSummary.doneCount
+                vaccineGroups = cardSummary.vaccineGroups.map { summary ->
                     VaccineGroup(
-                        label = label,
-                        countLabel = "$driveDone/${driveCounts.target}",
-                        full = driveCounts.open == 0 && driveRows.none { it.needsRedo() },
+                        label = summary.label,
+                        countLabel = "", // Backend summary doesn't include per-vaccine counts; client computes if needed
+                        full = summary.full,
                     )
                 }
-            val effectiveDone = effectiveCardDoneCount(group)
+            } else {
+                // Fall back to row-level computation for backward compat
+                status = shedStatusForRows(group)
+                counts = executionCardCounts(group)
+                effectiveDone = effectiveCardDoneCount(group)
+                vaccineGroups = group.flatMap { row ->
+                    row.vaccineLabels.ifEmpty { listOfNotNull(row.driveName) }
+                        .map { humanizeVaccineLabel(it) }
+                        .filter { it.isNotBlank() }
+                        .map { label -> label to row }
+                }
+                    .groupBy({ it.first }, { it.second })
+                    .map { (label, driveRows) ->
+                        val driveCounts = executionCardCounts(driveRows)
+                        val driveDone = effectiveCardDoneCount(driveRows)
+                        VaccineGroup(
+                            label = label,
+                            countLabel = "$driveDone/${driveCounts.target}",
+                            full = driveCounts.open == 0 && driveRows.none { it.needsRedo() },
+                        )
+                    }
+            }
             ShedRow(
                 id = cardId,
                 // The shed CARD TITLE. It must carry the backend-composed operational location,
@@ -546,6 +559,7 @@ class ShedsViewModel @Inject constructor(
             roleNote = null,
             adherence = protocolAdherenceSummary(rowsForSelectedDay, totals, isComplete = pageComplete),
             dayTabs = buildOperatorDayTabs(weekRows, workWindow, selectedDay),
+            taskListOnly = true,
             parkFilters = filterOptions?.parks.orEmpty().toShedParkFilters(_selectedParkId.value),
             rows = shedRows,
             hostedFromCalendar = calendarHosted,
@@ -655,6 +669,20 @@ internal fun protocolAdherenceSummary(
         acceptedPercent = if (counts.target > 0) (accepted * 100 / counts.target).coerceIn(0, 100) else 0,
         isComplete = isComplete,
     )
+}
+
+/**
+ * Convert backend status string + redo state to ShedStatus enum.
+ * Backend maps: rejected→SENT_BACK, overdue→DELAYED, completed→DONE, due→PENDING
+ */
+internal fun cardSummaryStatusToShedStatus(backendStatus: String, needsRedo: Boolean): ShedStatus {
+    if (needsRedo) return ShedStatus.SENT_BACK
+    return when (backendStatus.lowercase()) {
+        "rejected", "deferred" -> ShedStatus.SENT_BACK
+        "overdue", "missed", "blocked" -> ShedStatus.DELAYED
+        "completed" -> ShedStatus.DONE
+        else -> ShedStatus.PENDING
+    }
 }
 
 internal fun shedStatusForRows(rows: List<VaccinationExecutionRowDto>): ShedStatus {
@@ -821,6 +849,20 @@ private fun VaccinationExecutionRowDto.hasOperatorVisibleWork(): Boolean =
 private fun VaccinationExecutionRowDto.hasOpenOrReviewWork(): Boolean =
     openCount > 0 || isVerificationPending() || (doneCount > 0 && !isFinalClosed())
 
+internal fun VaccinationExecutionRowDto.isVisibleForOperatorDay(
+    selectedDay: LocalDate,
+    workWindow: OperatorWorkWindow,
+): Boolean {
+    val dueDate = currentScheduleDate?.let(::parseExecutionDate)
+    return when {
+        !hasOperatorVisibleWork() -> false
+        dueDate == null -> selectedDay == workWindow.today
+        selectedDay == workWindow.today && dueDate.isBefore(workWindow.today) -> hasOpenOrReviewWork()
+        selectedDay == workWindow.today -> dueDate == workWindow.today
+        else -> dueDate == selectedDay
+    }
+}
+
 private fun VaccinationExecutionRowDto.isVerificationPending(): Boolean =
     proofStatus.equals("uploaded", ignoreCase = true) ||
         verificationStatus.equals("pending", ignoreCase = true) ||
@@ -876,23 +918,40 @@ private fun VaccinationExecutionRowDto.isFinalClosed(): Boolean = when (sopStatu
  * True when tapping this shed may ONLY open its read-only record — i.e. there is nothing left
  * for the operator to do here.
  *
- * `proofStatus=uploaded` is only "ready to finalize" and must stay open. A submitted/review record
- * is different: once the backend says `sopStatus=submitted` or `verificationStatus=pending`, stale
- * open counts must not reopen the scan/camera workflow. The only exception is an explicit redo
- * state (`rejected`/`deferred`), where the verifier intentionally sent the animal back to the
- * operator.
+ * CORE INVARIANT (backend-owned, see vaccinationexecution/app/service.go
+ * computeOperatorLockState): only a FINAL SUBMIT locks the card. Partial review/proof/
+ * verification state NEVER locks while openCount > 0. `sopStatus` wording such as
+ * "needs_review" or "submitted" describes EVIDENCE state, not remaining work, and must not be
+ * read as a lock signal — a card with open=6 whose sopStatus happens to read "needs_review" is
+ * NOT done. This was the field bug: a 17/11/6 needs_review card was refused entry because the
+ * old predicate treated "needs_review" itself as a terminal submission status.
+ *
+ * Prefer the backend's own `operatorCanContinue` field. Fall back, ONLY for API responses that
+ * predate this field (missing operatorCanContinue), to the pre-existing openCount + terminal
+ * sopStatus guard: record-only iff openCount == 0 AND sopStatus is a terminal submission status
+ * (submitted/needs_review/accepted/closed/completed). openCount==0 alone is not enough in the
+ * fallback -- a shed can reach openCount==0 via a draft/uploaded proof that has not been
+ * submitted yet (`sopStatus="draft"`/`"open"`), which must stay open for finalize.
  */
 internal fun List<VaccinationExecutionRowDto>.opensSubmittedRecordOnly(): Boolean =
     isNotEmpty() &&
+        // Explicit verifier redo ALWAYS vetoes record-only, even against a stale backend
+        // operatorCanContinue: the verifier deliberately sent this back to the operator.
         none { row -> row.needsRedo() } &&
         all { row -> row.hasSubmittedRecord() }
 
-private fun VaccinationExecutionRowDto.hasSubmittedRecord(): Boolean =
-    sopStatus.isSubmissionTerminalStatus() ||
-        verificationStatus.equals("pending", ignoreCase = true) ||
-        verificationStatus.equals("accepted", ignoreCase = true) ||
-        verificationStatus.equals("verified", ignoreCase = true) ||
-        workState.equals("verification_pending", ignoreCase = true)
+/** True when this row's work is submitted-and-locked from the operator's perspective. Prefers the
+ *  backend-owned operatorCanContinue (core invariant: only a FINAL SUBMIT locks; partial
+ *  review/proof state never locks while openCount > 0); falls back for pre-field API responses to
+ *  the explicit openCount + terminal-submission-status guard. */
+private fun VaccinationExecutionRowDto.hasSubmittedRecord(): Boolean {
+    val canContinue = operatorCanContinue
+    return if (canContinue != null) {
+        !canContinue
+    } else {
+        openCount.coerceAtLeast(0) == 0 && sopStatus.isSubmissionTerminalStatus()
+    }
+}
 
 private fun String.isSubmissionTerminalStatus(): Boolean = when (lowercase()) {
     "submitted", "needs_review", "accepted", "closed", "completed" -> true
@@ -996,6 +1055,7 @@ internal fun emptyShedsState(
     date = if (selectedDay == window.today) "Today · ${shortDateLabel(selectedDay)}" else shortDateLabel(selectedDay),
     window = window.windowLabel,
     dayTabs = if (readOnly) emptyList() else buildOperatorDayTabs(emptyList(), window, selectedDay),
+    taskListOnly = true,
     hostedFromCalendar = hostedFromCalendar,
     canOpenShed = !readOnly,
 )

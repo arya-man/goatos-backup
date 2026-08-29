@@ -21,6 +21,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
+	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
@@ -56,6 +57,8 @@ type verificationStores struct {
 	// the pool-less dispatch test must be able to exercise the real registration without a
 	// database, and a Postgres repository built on a nil pool panics the moment it is used.
 	weighingAck weighingapp.VerificationApplyAcker
+	// pcCare applies PC Care task verdicts (pc_care/pc_care_task).
+	pcCare eventwiring.PCCareVerdictStore
 }
 
 // buildDomainBusOn is BuildDomainBus with the bus (and the verdict-applier stores) injected.
@@ -92,6 +95,12 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(notificationbridge.NewVaccineLabelResolver(pool, logger)).WithLocationNames(notificationbridge.NewLocationNameResolver(pool)).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
+	// The afternoon feed correction's packing reopen: DOWNWARD push to the packer whose bag was
+	// taken back, carrying the old-vs-new quantities (feed.packing.reopened; maintainer decision
+	// 2026-08-29). Registered here as well as in kernelstages/bus.go, cmd/domain-event-consumer and
+	// cmd/outbox-relay -- this builder is also the bus the kernel E2E fixture relays through, so a
+	// consumer missing here is invisible to the story suite.
+	notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
 	// Verifier-verdict appliers: the ONE shared registration (internal/eventwiring), the same call
 	// bootstrap/api.go and cmd/outbox-relay make. This builder previously hand-listed consumers and
 	// carried ONLY the weighing applier, so every shifting / feed-distribution / feed-packing /
@@ -115,7 +124,10 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	if stores.weighingAck == nil && pool != nil {
 		stores.weighingAck = weighingverificationbridge.New(verificationpg.NewRepository(pool, queryTimeout))
 	}
-	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.milkPreparation, stores.weighing, stores.weighingAck, logger)
+	if stores.pcCare == nil {
+		stores.pcCare = pccarepg.NewRepository(pool, queryTimeout)
+	}
+	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.milkPreparation, stores.weighing, stores.weighingAck, stores.pcCare, logger)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
 	// Birth/death workflow consumers: the ONE shared registration (internal/eventwiring), same set on

@@ -18,21 +18,22 @@ check_admin_feature_relative_imports() {
   local relative_pattern="(from|import\\() ['\"](\\.\\./)+[^/'\"]+/[^'\"]+['\"]"
   [ -d "$root" ] || return 0
 
-  while IFS= read -r file; do
+  while IFS=: read -r file line_no line; do
+    [ -n "$file" ] || continue
+    [ -n "$line_no" ] || continue
+    [ -n "$line" ] || continue
     local current_feature
     current_feature="${file#"$root"/}"
     current_feature="${current_feature%%/*}"
-    while IFS= read -r line; do
-      local target_feature
-      target_feature="$(printf '%s\n' "$line" | sed -E "s/.*(from|import\\() ['\"](\\.\\.\\/)+([^/'\"]+)(\\/[^'\"]+)?['\"].*/\\3/")"
-      if [ -n "$target_feature" ] \
-        && [ "$target_feature" != "$current_feature" ] \
-        && [ -d "$root/$target_feature" ]; then
-        echo "$file:$line"
-        fail=1
-      fi
-    done < <(grep -nE "$relative_pattern" "$file" 2>/dev/null || true)
-  done < <(find "$root" \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \) 2>/dev/null)
+    local target_feature
+    target_feature="$(printf '%s\n' "$line" | sed -E "s/.*(from|import\\() ['\"](\\.\\.\\/)+([^/'\"]+)(\\/[^'\"]+)?['\"].*/\\3/")"
+    if [ -n "$target_feature" ] \
+      && [ "$target_feature" != "$current_feature" ] \
+      && [ -d "$root/$target_feature" ]; then
+      echo "$file:$line_no:$line"
+      fail=1
+    fi
+  done < <(rg -n "$relative_pattern" "$root" -g '*.ts' -g '*.tsx' -g '*.js' -g '*.jsx' 2>/dev/null || true)
 }
 
 if [ "${1:-}" = "--self-test" ]; then

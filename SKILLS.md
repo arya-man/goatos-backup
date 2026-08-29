@@ -21,6 +21,17 @@ Claude discovers the same skill through a symlink:
 
 Do not hand-maintain two copies. `.agents/skills/goatos-build/` is the source.
 
+STG billing recovery / Cloud Run 429:
+
+```text
+docs/runbooks/stg-cloud-run-billing-recovery.md
+```
+
+Load this before touching code when STG shows Google Frontend `429 Rate
+exceeded` after a paid/restored bill. The required closeout is Cloud Billing
+verification, Cloud Run readiness in `asia-south1`, `goatos-api-stg`
+min/max `2/2`, terminal curls, and live Chrome verification.
+
 ## Code Review Skill
 
 Use the Goat OS code-review skill to **review or audit** a change (diff, branch,
@@ -85,6 +96,22 @@ catalog (`shed_partitions`/feed config pens API), not animal census/count
 facets, because empty partitions are still real animal residences and must be
 selectable. The staging Cloud Deploy task wrapper must not hide migration
 failures behind `if ! main`; migrations must stop the rollout loudly.
+
+Weights page partition-composition guardrail:
+`make weighing-partition-composition-guard` protects the admin-web Weights
+read model from collapsing physical partitions into their parent shed. It covers
+worded buckets (`Godel 2 - Part 1`), numeric display rows (`Castro 1/2/3`,
+`Gandhi 1/2/3`, legacy `Gandi 1/2/3`), and a numeric non-partition shed that
+must stay whole. Load `docs/decisions/operational-location-convention.md`
+whenever a weighing change touches shed/partition labels, composition chips,
+lump-sum rows, or daily-gain/shed-average read models.
+
+Weights page rendered-proof guardrail:
+After every Weights page UI/read-model/API-contract change, verify the exact
+`/weighing/weights` route in Chrome after the final edit before reporting done
+or pushing. The acceptance check must include: page reachable on the expected
+local URL, no backend-down/error fallback, and the changed cards/tables/chips
+visibly rendered with the expected labels.
 
 Critical animal action guardrails:
 
@@ -197,6 +224,24 @@ show delayed backlog as **Delayed** against the original planned date; never
 render the rolled due date as if the shed was newly scheduled today. Regression
 guard: `WeighingAssignmentModeAwarenessTest`.
 
+Android CLI and Journey proof:
+
+```text
+docs/mobile/android-cli-and-journeys.md
+tools/dev/ensure-android-cli.sh
+```
+
+Before Android device/debug/Journey work, run the helper or an Android Make
+target that calls it. It installs/updates Google's Android CLI and official
+Android skills for Codex, Claude, and other detected agents when missing.
+Journeys are agent-run functional proof for real-device workflows; they
+supplement, never replace, Gradle, lint, unit tests, Paparazzi, and the phone-QA
+target-chain rules. For Compose work, prefer the relevant official Android skill
+(`adaptive`, `edge-to-edge`, `testing-setup`, `camerax`, `android-profiler`,
+`navigation-3`, or `styles`) only when its trigger matches the task; do not
+upgrade Compose, navigation, or dependencies solely because a skill mentions a
+new API.
+
 ## Leadership Assistant Coverage Skill
 
 Use the leadership-assistant skill whenever a change adds or modifies a
@@ -205,7 +250,10 @@ mobile workflow, reporting view, domain event, or official KPI. It is the
 canonical HOW-TO for keeping the Mesha leadership assistant (CEO/CXO read-only
 chatbot) read path in sync — Cube-first routing, `ceo_ai.*` views, MCP Toolbox
 tools, read-API mappings, GenAI query-classes, evals — or writing a documented
-exclusion.
+exclusion. The external MCP connector is only the product entrypoint; it must
+not be treated as a raw table/API dump. New tables and APIs become visible to
+Claude/Codex/CEO chat only after this coverage layer is updated or explicitly
+excluded.
 
 ```text
 .agents/skills/goatos-leadership-assistant/SKILL.md
@@ -231,7 +279,8 @@ Machine gate: `make leadership-assistant-coverage-guard`
 `tools/ci/run-local-ci.sh`, and nudged on PostToolUse for Claude
 (`.claude/settings.json`) and Codex (`.codex/hooks.json`). Scaffold:
 `node tools/ceo-ai/scaffold-coverage.mjs <module>`. Backfill baseline:
-`docs/ceo-ai/coverage-matrix.md`.
+`docs/ceo-ai/coverage-matrix.md`. External connector/operator setup:
+`docs/ceo-ai/external-mcp-integration.md`.
 
 ## Agent tool routing (human)
 
@@ -284,6 +333,20 @@ is to resolve the verification, never to add a path around the gate. See
 `AGENTS.md` → "Weighing vocabulary" and
 `context/repo-audits/weighing-implementation-do-not-reopen-ledger.md` → D-5.
 
+## Production-Facing Naming
+
+The current public/operator-facing Goat OS path reuses the existing
+`goatos-stg` Google/Firebase project internally. Agents must not expose staging
+names in public app config, release labels, dashboard URLs, API URLs, or operator
+instructions unless the request is explicitly about historical staging. Use:
+
+- Android package `sg.mesha.goatos`
+- Dashboard `https://dashboard.mesha.sg`
+- API `https://api.goatos.mesha.sg/`
+
+Firebase Auth issuer/audience can remain `goatos-stg` while that existing
+Firebase project is reused; that is internal plumbing.
+
 ## STG Deploy Routing
 
 When the user says "deploy STG", "push to STG", "promote STG", "ship to
@@ -292,11 +355,15 @@ staging", or similar:
 - load `docs/runbooks/stg-deploy.md` (canonical contract) and
   `context/deploy-contract.json`
 - follow `docs/runbooks/cloud-deploy-staging.md` for full Cloud Deploy mechanics
-- deploy is **manual Google Cloud Deploy** from latest approved `origin/main`
+- deploy is the **Slack button in `#goatos-stg-deploy`**, backed by Cloud Build
+  trigger `goatos-stg-deploy-main` and Cloud Deploy, from latest approved
+  `origin/main`
 - do NOT use generic GitHub/CI assumptions
 - do NOT offer GitHub Actions or PR-driven deploy options
 - do NOT force-push a `stg` branch
 - verify `ravi@mesha.sg` / `vgoats.com` / `goatos-stg` before any cloud command
+- if asked whether it succeeded or failed, check the Slack-started Cloud Build
+  first, then the linked Cloud Deploy rollout
 - every completed release must have a GitHub release tag from `make release-tag`
   with separate Backend, Frontend/Admin Web, Mobile Android, Infra/Deploy,
   Docs/Seed/Data, and Other sections
@@ -309,6 +376,9 @@ staging", or similar:
   `gs://goatos-stg-public-downloads/operator/latest/app.apk` for
   `https://mesha.sg/app.apk`; do not deploy the Mesha marketing website just to
   update the APK
+- if the Slack checkbox `Also distribute Android mobile` is selected, mobile
+  starts only after STG Cloud Deploy succeeds; failure in Firebase, Play
+  Internal, or the APK mirror fails the Cloud Build
 
 ## Context Files
 
@@ -450,8 +520,10 @@ lens when its trigger matches:
 | `kernel-scale-lens` | a trigger/obligation/reminder/sweeper/projection/notification/Calendar/AC/PA/process-integrity path | `context/architecture/operational-kernel.md`; `references/kernel-and-scale.md`; `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, `high-scale-dashboard-projections.md` |
 | `frontend-anti-patterns` | an `apps/admin-web/**` page, SSR read, nav, label, dashboard, or slow page load/API contract selection | `references/frontend.md`, `references/mobile.md`; `docs/decisions/calendar-ownership.md`, `high-scale-dashboard-projections.md`, `mobile-data-fetch-anti-patterns.md` |
 | `mobile-anti-patterns` | `apps/goatos-android/**` screen/route, list fetch, Room, offline, memory, lifecycle, phone-scale UI (windowing/chips/spinners) | `references/mobile.md`; `docs/decisions/mobile-data-fetch-anti-patterns.md`, `android-offline-first.md`, `room-migration-safety.md`, `android-navigation-stack.md`, `apps/goatos-android/docs/phone-scale-ui.md` |
+| `feed-proof-flow` | any feed-chain surface (feeddirection backend, feature-feed / capture screens, proof processing, their tests) or a multi-device feed E2E | `docs/product/feed-proof-collaboration.md`; `docs/decisions/feed-distribution-verification.md`, `feed-transport-verification.md`; guard `make feed-proof-collaboration-guard` |
 | `nav-composition` | nav rendering, role/module gating, sidebar/bottom-bar composition | `references/frontend.md`; `docs/decisions/role-module-nav-composition.md` |
 | `domain-event-architecture` | any backend/frontend/mobile CRUD/import/offline write, domain event, outbox producer/consumer, shifting, dead birth, feed direction, vaccination mutation, or future operational module | `context/architecture/domain-event-integration-contract.md`; `context/architecture/domain-event-registry.json`; `references/contracts-events.md`, `references/kernel-and-scale.md`, `references/frontend.md`, `references/mobile.md` |
+| `goatos-herd-signals` | `backend/internal/herdsignals/**`, `apps/admin-web/features/herd-signals/**`, the herd-signals slice of `contracts/openapi/app-api.yaml`, `mock/herd-signals-mock.html`, or `docs/modules/herd-signals.md` | `docs/modules/herd-signals.md`; guard `make herd-signals-language-guard` |
 
 Machine gates each lens names (`make scale-guard`, `validate-hot-index-migrations`,
 `mobile-guard`, `admin-web-request-reads-guard`, `nav-composition-guard`,

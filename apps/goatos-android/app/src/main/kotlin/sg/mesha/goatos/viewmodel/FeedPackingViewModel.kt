@@ -21,6 +21,8 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
+import sg.mesha.goatos.core.data.sync.submittedGrainKey
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedPackingQuery
 import sg.mesha.goatos.core.data.FeedRepository
@@ -47,6 +49,7 @@ import javax.inject.Inject
 class FeedPackingViewModel @Inject constructor(
     private val repo: FeedRepository,
     private val feedCompletionStore: FeedCompletionLocalStore,
+    private val submittedGrains: SubmittedGrainsSource,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
@@ -115,14 +118,22 @@ class FeedPackingViewModel @Inject constructor(
         ),
     )
 
-    // Combined with the optimistic local-completion set — a just-completed shed-session shows
-    // completed immediately (offline-first), converging on the backend flag once the write syncs.
+    // Combined with the optimistic local-completion and submitted-for-review sets — a
+    // just-completed or just-submitted shed-session shows the appropriate status immediately
+    // (offline-first), converging on the backend flag once the write syncs.
     @OptIn(ExperimentalCoroutinesApi::class)
     val rows: Flow<PagingData<FeedPackingRowUi>> =
-        combine(_filters, feedCompletionStore.completedKeys) { selection, completed -> selection to completed }
-            .flatMapLatest { (selection, completed) ->
+        combine(
+            _filters,
+            feedCompletionStore.completedKeys,
+            // Derived from the OUTBOX, not an in-memory set: a submit that succeeds or dies leaves
+            // the active set by itself, so the badge retracts with no second key to keep in sync.
+            submittedGrains.observe(),
+        ) { selection, completed, submitted -> Triple(selection, completed, submitted) }
+            .flatMapLatest { (selection, completed, submitted) ->
+                val feedDay = selection.toQuery().targetDate
                 repo.packingRows(selection.toQuery())
-                    .map { page -> page.map { it.toRowUi(completed) } }
+                    .map { page -> page.map { it.toRowUi(completed, submitted, feedDay) } }
             }
             .cachedIn(viewModelScope)
 
@@ -131,6 +142,8 @@ class FeedPackingViewModel @Inject constructor(
     }
 
     fun onRowsLoadFailed(error: Throwable) {
+        _isRefreshing.value = false
+        _isOffline.value = true
         crashReporter.recordException(error, "feed packing page load failed")
         analytics.track(
             AnalyticsEvents.FEED_READ_FAILURE,
@@ -139,6 +152,15 @@ class FeedPackingViewModel @Inject constructor(
                 AnalyticsEvents.Params.REASON to (error.message ?: "unknown"),
             ),
         )
+    }
+
+    fun onRowsLoading() {
+        _isRefreshing.value = true
+    }
+
+    fun onRowsLoaded() {
+        _isRefreshing.value = false
+        _isOffline.value = false
     }
 
     fun onEvent(event: FeedPackingEvent) {
@@ -162,9 +184,13 @@ class FeedPackingViewModel @Inject constructor(
     }
 
     private fun refresh() {
-        _isRefreshing.value = false
+        _isRefreshing.value = true
         _isOffline.value = false
-        _filters.value = _filters.value.copy()
+        // A NEW value, not an equal one: MutableStateFlow conflates on equality and these
+        // selections are data classes, so a bare copy() emitted nothing and flatMapLatest
+        // stayed on the same page -- a refresh that silently did not refetch. Same defect
+        // fixed in ShiftingPendingViewModel on 2026-08-13.
+        _filters.value = _filters.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
     }
 
     private fun selectPark(parkId: String) {
@@ -264,29 +290,49 @@ class FeedPackingViewModel @Inject constructor(
 
     private fun sg.mesha.goatos.core.network.dto.FeedPackingRowDto.toRowUi(
         locallyCompleted: Set<String>,
-    ): FeedPackingRowUi = FeedPackingRowUi(
-        grainKey = grainKey,
-        parkId = parkId,
-        parkLabel = parkLabel,
-        shedId = shedId,
-        sessionNo = sessionNo,
-        // Shed + partition, never the bare shed name: a feed/packing row is one OPERATIONAL
-        // LOCATION, so Castro 1 and Castro 2 share a shed_id and would otherwise print as two
-        // identical "Castro" lines the operator cannot tell apart. Prefers the backend-composed
-        // display and falls back to composing it only when an older server omits the field.
-        shedLabel = operationalLocationDisplay.ifBlank { operationalLocationLabel(shedLabel, partitionLabel) },
-        partitionLabel = partitionLabel.orEmpty(),
-        sessionLabel = sessionLabel,
-        workflow = workflow,
-        experimentArm = experimentArm,
-        headCount = headCount,
-        items = items.map { FeedItemQtyUi(it.feedItem, it.quantityKg, it.isBlocked, it.blockedReason?.detail.orEmpty()) },
-        totalKg = totalKg,
-        status = status,
-        completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow)),
-        lifecycleStatus = lifecycleStatus,
-        reworkReason = reworkReason,
-    )
+        locallySubmittedForReview: Set<String>,
+        feedDay: String,
+    ): FeedPackingRowUi {
+        val completionKey = FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow)
+        val isLocallyCompleted = locallyCompleted.contains(completionKey)
+        // The SAME builder the outbox projection uses — one definition, so the two cannot disagree.
+        val isLocallySubmittedForReview = locallySubmittedForReview.contains(
+            submittedGrainKey(feedDay),
+        )
+
+        // Precedence lives in ONE place — [overlayFeedLifecycleStatus] — so a test asserting the
+        // rule and the list projection that renders it can never drift apart.
+        val overlaidLifecycleStatus = overlayVerificationStatus(
+            backendStatus = lifecycleStatus,
+            reworkReason = reworkReason,
+            isLocallySubmitted = isLocallySubmittedForReview,
+            inReviewToken = IN_REVIEW_PENDING_VERIFICATION,
+        )
+
+        return FeedPackingRowUi(
+            grainKey = grainKey,
+            parkId = parkId,
+            parkLabel = parkLabel,
+            shedId = shedId,
+            sessionNo = sessionNo,
+            // Shed + partition, never the bare shed name: a feed/packing row is one OPERATIONAL
+            // LOCATION, so Castro 1 and Castro 2 share a shed_id and would otherwise print as two
+            // identical "Castro" lines the operator cannot tell apart. Prefers the backend-composed
+            // display and falls back to composing it only when an older server omits the field.
+            shedLabel = operationalLocationDisplay.ifBlank { operationalLocationLabel(shedLabel, partitionLabel) },
+            partitionLabel = partitionLabel.orEmpty(),
+            sessionLabel = sessionLabel,
+            workflow = workflow,
+            experimentArm = experimentArm,
+            headCount = headCount,
+            items = items.map { FeedItemQtyUi(it.feedItem, it.quantityKg, it.isBlocked, it.blockedReason?.detail.orEmpty()) },
+            totalKg = totalKg,
+            status = status,
+            completed = completed || isLocallyCompleted,
+            lifecycleStatus = overlaidLifecycleStatus,
+            reworkReason = reworkReason,
+        )
+    }
 
     private data class FeedPackingSelection(
         val parkId: String = "",
@@ -299,6 +345,8 @@ class FeedPackingViewModel @Inject constructor(
         // The feed day. Reactive (not a fixed val) so the date bar can step it to a past day and
         // re-query, same as every other filter here.
         val targetDate: String = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString(),
+        /** Bumped by refresh so an unchanged selection is still a NEW value. */
+        val refreshNonce: Int = 0,
     ) {
         fun toQuery(): FeedPackingQuery = FeedPackingQuery(
             parkId = parkId,
@@ -310,6 +358,7 @@ class FeedPackingViewModel @Inject constructor(
             session = session.takeIf { it != 0 },
             workflow = workflow.takeIf { it.isNotBlank() },
             status = status.takeIf { it.isNotBlank() },
+            refreshNonce = refreshNonce,
         )
     }
 

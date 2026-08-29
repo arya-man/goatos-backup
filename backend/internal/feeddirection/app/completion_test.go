@@ -91,9 +91,13 @@ type fakePackingStore struct {
 	reopenCalls    []ports.ReopenPackingParams
 	reopenedIDs    []string
 	reopenCallsErr error
+	// completeCalls records every CompletePacking write, so a test can assert the submit carried
+	// the packed-against snapshot read from the frozen sheet.
+	completeCalls []ports.CompletePackingParams
 }
 
-func (f *fakePackingStore) CompletePacking(_ context.Context, _ ports.CompletePackingParams) (ports.CompletePackingResult, error) {
+func (f *fakePackingStore) CompletePacking(_ context.Context, p ports.CompletePackingParams) (ports.CompletePackingResult, error) {
+	f.completeCalls = append(f.completeCalls, p)
 	return ports.CompletePackingResult{}, nil
 }
 
@@ -112,6 +116,14 @@ func (f *fakePackingStore) ApplyVerifiedPacking(_ context.Context, _ ports.Apply
 }
 
 func (f *fakePackingStore) BouncePackingForRework(_ context.Context, _ ports.BouncePackingParams) (bool, error) {
+	return false, nil
+}
+
+func (f *fakePackingStore) RecordPackingVerifiedQuantities(_ context.Context, _ ports.RecordPackingVerifiedQuantitiesParams) error {
+	return nil
+}
+
+func (f *fakePackingStore) PackingVerifiedQuantitiesRecorded(_ context.Context, _, _ string) (bool, error) {
 	return false, nil
 }
 
@@ -134,6 +146,14 @@ type fakeProofValidator struct {
 	// kindErr, when set, is returned instead of err for the media-kind path, letting a test drive a
 	// wrong-kind rejection without also failing plain presence validation.
 	kindErr error
+}
+
+// ListPenSessionCaptures: this fake exercises the completion path, where nothing is discovered
+// from other operators' phones. Empty keeps that path's behaviour identical.
+func (f *fakeProofValidator) ListPenSessionCaptures(
+	context.Context, ports.PenSessionCaptureQuery,
+) ([]ports.CapturedProofSlot, error) {
+	return nil, nil
 }
 
 func (f *fakeProofValidator) ValidateFeedProofs(_ context.Context, _ string, ids []string) error {

@@ -25,6 +25,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.navigation.NavController
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -71,6 +72,26 @@ import sg.mesha.goatos.feature.feed.FeedDistributionStatus
 import sg.mesha.goatos.feature.feed.FeedDirectionScreen
 import sg.mesha.goatos.feature.feed.FeedPackingEvent
 import sg.mesha.goatos.feature.feed.FeedPackingScreen
+import sg.mesha.goatos.feature.feed.FeedWastageCompleteEvent
+import sg.mesha.goatos.feature.feed.FeedWastageCompleteScreen
+import sg.mesha.goatos.feature.feed.FeedWastageCompleteStatus
+import sg.mesha.goatos.feature.feed.FeedWastageEvent
+import sg.mesha.goatos.feature.feed.FeedWastageScreen
+import sg.mesha.goatos.feature.pccare.PcCareMonitorScreen
+import sg.mesha.goatos.feature.pccare.PcCarePlanWizardScreen
+import sg.mesha.goatos.feature.pccare.PcCareTaskScreen
+import sg.mesha.goatos.feature.pccare.PcCareWorklistEvent
+import sg.mesha.goatos.feature.pccare.PcCareWorklistScreen
+import sg.mesha.goatos.feature.clock.ClockEvent
+import sg.mesha.goatos.feature.clock.ClockPersonDayEvent
+import sg.mesha.goatos.feature.clock.ClockPersonDayScreen
+import sg.mesha.goatos.feature.clock.ClockScreen
+import sg.mesha.goatos.feature.clock.ClockTeamEvent
+import sg.mesha.goatos.feature.clock.ClockTeamScreen
+import sg.mesha.goatos.feature.toxin.ToxinTaskDetailEvent
+import sg.mesha.goatos.feature.toxin.ToxinTaskDetailScreen
+import sg.mesha.goatos.feature.toxin.ToxinTaskListEvent
+import sg.mesha.goatos.feature.toxin.ToxinTaskListScreen
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
 import sg.mesha.goatos.feature.feed.FeedTransportEvent
@@ -123,10 +144,7 @@ import sg.mesha.goatos.feature.weighing.WeighingOperatorsScreen
 import sg.mesha.goatos.feature.weighing.plan.WeighingPlanWizardScreen
 import sg.mesha.goatos.feature.weighing.WeighingScreen
 import sg.mesha.goatos.feature.weighing.WeighingTaskDetailScreen
-import sg.mesha.goatos.feature.weighing.WeighingGrowthScreen
 import sg.mesha.goatos.feature.weighing.WeighingTasksScreen
-import sg.mesha.goatos.feature.weighing.WeightHistoryChartScreen
-import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosScreen
 import sg.mesha.goatos.feature.weighing.leadership.WeighingShedDetailScreen
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.availableModules
@@ -157,11 +175,21 @@ import sg.mesha.goatos.viewmodel.MilkFeedingListViewModel
 import sg.mesha.goatos.viewmodel.FeedCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedDistributionCompleteViewModel
 import sg.mesha.goatos.viewmodel.FeedPackingCompleteViewModel
+import sg.mesha.goatos.viewmodel.FeedWastageCompleteViewModel
+import sg.mesha.goatos.viewmodel.FeedWastageViewModel
 import sg.mesha.goatos.viewmodel.FeedDirectionViewModel
 import sg.mesha.goatos.viewmodel.FeedPackingViewModel
 import sg.mesha.goatos.viewmodel.FeedTransportCaptureViewModel
 import sg.mesha.goatos.viewmodel.FeedTransportViewModel
 import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
+import sg.mesha.goatos.viewmodel.PcCarePlanViewModel
+import sg.mesha.goatos.viewmodel.PcCareTaskViewModel
+import sg.mesha.goatos.viewmodel.PcCareWorklistViewModel
+import sg.mesha.goatos.viewmodel.ClockPersonDayViewModel
+import sg.mesha.goatos.viewmodel.ClockTeamViewModel
+import sg.mesha.goatos.viewmodel.ClockViewModel
+import sg.mesha.goatos.viewmodel.ToxinTaskDetailViewModel
+import sg.mesha.goatos.viewmodel.ToxinTaskListViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.RecordViewModel
 import sg.mesha.goatos.viewmodel.RfidPromoteViewModel
@@ -177,10 +205,7 @@ import sg.mesha.goatos.viewmodel.VerifyDetailViewModel
 import sg.mesha.goatos.viewmodel.VerifyQueueViewModel
 import sg.mesha.goatos.viewmodel.VaccinationLeadershipVideosViewModel
 import sg.mesha.goatos.viewmodel.WeighingPlanWizardViewModel
-import sg.mesha.goatos.viewmodel.WeighingGrowthViewModel
 import sg.mesha.goatos.viewmodel.WeighingViewModel
-import sg.mesha.goatos.viewmodel.WeightHistoryChartViewModel
-import sg.mesha.goatos.viewmodel.WeighingLeadershipVideosViewModel
 import sg.mesha.goatos.viewmodel.WeighingShedDetailViewModel
 
 // Route ids. The backend nav item hrefs map onto these; unknown hrefs fall through
@@ -217,18 +242,11 @@ object Routes {
     const val WEIGHING_SHED = "/weighing/shed"
     /** Read-only oversight of weighing work assigned to someone else. Carries no scan action. */
     const val WEIGHING_OPERATORS = "/weighing/operators"
-    const val WEIGHING_VIDEOS = "/weighing/videos"
-    /**
-     * Leadership-only weight history: one bar series per RFID tag (or per shed for a lump-sum
-     * weighing) across the weigh days that actually happened.
-     *
-     * Read-only and SEPARATE from [WEIGHING_VIDEOS]: that tab reviews proof clips, this one reads
-     * the numbers those clips back. Gated on WeighingMonitor by the backend nav registry, so an
-     * operator never receives the tab.
-     */
-    const val WEIGHING_WEIGHTS = "/weighing/weights"
-    /** Leadership growth (ADG) summary. Weighing data only — never herd or vaccination data. */
-    const val WEIGHING_GROWTH = "/weighing/growth"
+    // The Videos (/weighing/videos), Weights (/weighing/weights) and Growth (/weighing/growth)
+    // pages were RETIRED from mobile (maintainer ruling 2026-08-28): weighing on the phone keeps
+    // only the work surfaces plus Alerts. The Weights/Growth read-outs live on admin-web, and
+    // evidence review lives in the verifier/leadership surfaces. A push still naming a retired
+    // target falls back to the recipient's own module landing via pushTargetRoute().
     /**
      * The weighing module's OWN lifecycle alerts feed: work assigned, a shed submitted for
      * verification, a proof sent back for rework, a shed reopened, work closed.
@@ -308,12 +326,14 @@ object Routes {
     const val COUNTS_SHIFTING = "/counts/shifting"
     const val COUNTS_MILK_PREPARATION = "/counts/milk-preparation"
     const val MILK_PREPARATION_PARK_ID_ARG = "park_id"
-    const val COUNTS_MILK_PREPARATION_DETAIL = "/counts/milk-preparation/farms/{$MILK_PREPARATION_PARK_ID_ARG}"
-    fun milkPreparationDetailRoute(parkId: String): String = "/counts/milk-preparation/farms/$parkId"
+    const val MILK_PREPARATION_DATE_ARG = "preparation_date"
+    const val COUNTS_MILK_PREPARATION_DETAIL = "/counts/milk-preparation/farms/{$MILK_PREPARATION_PARK_ID_ARG}/dates/{$MILK_PREPARATION_DATE_ARG}"
+    fun milkPreparationDetailRoute(parkId: String, preparationDate: String): String = "/counts/milk-preparation/farms/$parkId/dates/$preparationDate"
     const val COUNTS_MILK_FEEDING = "/counts/milk-feeding"
     const val MILK_FEEDING_TASK_ID_ARG = "task_id"
-    const val COUNTS_MILK_FEEDING_DETAIL = "/counts/milk-feeding/tasks/{$MILK_FEEDING_TASK_ID_ARG}"
-    fun milkFeedingDetailRoute(taskId: String): String = "/counts/milk-feeding/tasks/$taskId"
+    const val MILK_FEEDING_DATE_ARG = "feeding_date"
+    const val COUNTS_MILK_FEEDING_DETAIL = "/counts/milk-feeding/tasks/{$MILK_FEEDING_TASK_ID_ARG}/dates/{$MILK_FEEDING_DATE_ARG}"
+    fun milkFeedingDetailRoute(taskId: String, feedingDate: String): String = "/counts/milk-feeding/tasks/$taskId/dates/$feedingDate"
 
     /**
      * `/counts/colostrum` — the Milk module's Colostrum work list (L0), the kids with a colostrum
@@ -345,6 +365,7 @@ object Routes {
     const val COUNTS_DEATH_ADD = "/counts/death/add"
     const val COUNTS_SHIFTING_ADD = "/counts/shifting/add"
     const val COUNTS_SHIFTING_SUBMISSION_NOTICE = "counts_shifting_submission_notice"
+    const val COUNTS_SHIFTING_SUBMISSION_OUTBOX_ID = "counts_shifting_submission_outbox_id"
     const val COUNTS_BIRTH_SUBMISSION_NOTICE = "counts.birth.submissionNotice"
     const val COUNTS_DEATH_SUBMISSION_NOTICE = "counts.death.submissionNotice"
 
@@ -382,13 +403,94 @@ object Routes {
         "&$COUNTS_PROMOTE_LOCATION_ARG=${Uri.encode(locationDisplay)}" +
         "&$COUNTS_PROMOTE_ROW_VERSION_ARG=$rowVersion"
 
-    // Feed module bar (backend module `feed_direction`). Both are L0 roots and match the
+    // Feed module bar (backend module `feed_direction`). All are L0 roots and match the
     // backend-composed nav hrefs verbatim, so the module bottom bar navigates straight to them.
     const val FEED_DIRECTION = "/feed/direction"
     const val FEED_PACKING = "/feed/packing"
     const val FEED_TRANSPORT = "/feed/transport"
-    const val FEED_TRANSPORT_CAPTURE = "/feed/transport/task/{task_id}/{shed_id}?shed_label={shed_label}&park_label={park_label}"
-    fun feedTransportCaptureRoute(taskId:String,shedId:String,shedLabel:String,parkLabel:String)="/feed/transport/task/${Uri.encode(taskId)}/${Uri.encode(shedId)}?shed_label=${Uri.encode(shedLabel)}&park_label=${Uri.encode(parkLabel)}"
+
+    // The 4th feed tab (maintainer decision 2026-08-18): the per-EXPERIMENT-pen leftover-feed
+    // worklist. The backend's nav item carries this href verbatim ({key:"feed_wastage",
+    // href:"/feed/wastage"}), so registering the route is what makes the tab work.
+    const val FEED_WASTAGE = "/feed/wastage"
+
+    // PC Care module bar (backend module `pc_care`, maintainer decision 2026-08-21). The four
+    // category worklists are L0 roots matching the backend-composed nav hrefs VERBATIM
+    // (bootstrap_copy.go), plus the CEO planner tab. Category keys are the backend's category
+    // vocabulary (backend/internal/pccare/domain).
+    const val PC_DEWORMING = "/pc/deworming"
+    const val PC_VACCINE_STOCK = "/pc/vaccine-stock"
+    const val PC_TICKS = "/pc/ticks"
+    const val PC_HOOF_TRIMMING = "/pc/hoof-trimming"
+    const val PC_HAIR_TRIMMING = "/pc/hair-trimming"
+    const val PC_TASK_ID_ARG = "task_id"
+    const val PC_TASK_CATEGORY_ARG = "category"
+    const val PC_TASK_TITLE_ARG = "title"
+
+    // The L1 task drill: one PC Care task's scan/capture/submit screen. A distinct hosted
+    // destination with Up/Back and NO root chrome (Android navigation-stack invariant) — never a
+    // prefix reuse of the L0 tabs above.
+    const val PC_TASK_MONITOR_ARG = "monitor"
+
+    /** SavedStateHandle key: the plan wizard hands its planned date back to the monitor list. */
+    const val PC_CARE_CREATED_DATE_KEY = "pc_care_created_date"
+    const val PC_TASK = "/pc/task/{$PC_TASK_ID_ARG}?$PC_TASK_CATEGORY_ARG={$PC_TASK_CATEGORY_ARG}&$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}&$PC_TASK_MONITOR_ARG={$PC_TASK_MONITOR_ARG}"
+
+    const val PC_TAG_KEY_ARG = "tag_key"
+    const val PC_TAG_VERBATIM_ARG = "tag_verbatim"
+
+    /** The roster drill: one animal's clearly-labeled video cards (Feed completion-screen shape). */
+    const val PC_ANIMAL = "/pc/animal/{$PC_TASK_ID_ARG}/{$PC_TAG_KEY_ARG}" +
+        "?$PC_TAG_VERBATIM_ARG={$PC_TAG_VERBATIM_ARG}&$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}"
+
+    fun pcAnimalRoute(taskId: String, tagKey: String, tagVerbatim: String, title: String): String =
+        "/pc/animal/${Uri.encode(taskId)}/${Uri.encode(tagKey)}" +
+            "?$PC_TAG_VERBATIM_ARG=${Uri.encode(tagVerbatim)}" +
+            "&$PC_TASK_TITLE_ARG=${Uri.encode(title)}"
+
+    // Toxin module (backend module `toxin`, maintainer decision 2026-08-25 —
+    // docs/decisions/toxin-testing-module.md). The list is an L0 root whose href matches the
+    // backend-composed nav item VERBATIM (bootstrap_copy.go: {key:"toxin", href:"/toxin"}); the
+    // guided round is a distinct hosted drill with Up/Back and NO root chrome, never a prefix
+    // reuse of the L0 route.
+    const val TOXIN = "/toxin"
+    const val TOXIN_TASK_ID_ARG = "task_id"
+    const val TOXIN_TASK = "/toxin/tasks/{$TOXIN_TASK_ID_ARG}"
+
+    fun toxinTaskRoute(taskId: String): String = "/toxin/tasks/${Uri.encode(taskId)}"
+
+    // Clock module (backend module `clock`, maintainer decision 2026-08-27 —
+    // docs/features/clock-in-out/plan.md). TWO L0 roots whose hrefs match the backend-composed
+    // nav items VERBATIM (bootstrap_copy.go: {key:"clock", href:"/clock"} for everyone and
+    // {key:"clock_team", href:"/clock/team"} for leadership only); the person-day detail is a
+    // distinct hosted drill with Up/Back and NO root chrome, never a prefix reuse of an L0 route.
+    const val CLOCK = "/clock"
+    const val CLOCK_TEAM = "/clock/team"
+    const val CLOCK_PERSON_MEMBER_ARG = "memberId"
+    const val CLOCK_PERSON_DATE_ARG = "date"
+    const val CLOCK_PERSON = "/clock/team/person/{$CLOCK_PERSON_MEMBER_ARG}" +
+        "?$CLOCK_PERSON_DATE_ARG={$CLOCK_PERSON_DATE_ARG}"
+
+    fun clockPersonRoute(memberId: String, date: String): String =
+        "/clock/team/person/${Uri.encode(memberId)}?$CLOCK_PERSON_DATE_ARG=${Uri.encode(date)}"
+
+    fun pcTaskRoute(taskId: String, category: String, title: String, monitor: Boolean = false): String =
+        "/pc/task/${Uri.encode(taskId)}" +
+            "?$PC_TASK_CATEGORY_ARG=${Uri.encode(category)}" +
+            "&$PC_TASK_TITLE_ARG=${Uri.encode(title)}" +
+            "&$PC_TASK_MONITOR_ARG=${if (monitor) "1" else ""}"
+
+    // The L1 plan-wizard drill (maintainer feedback 2026-08-21): "Plan a care task" opens as its
+    // own hosted destination with Up/Back and NO root chrome, launched from a category tab's plan
+    // action. The category is fixed by the launching tab — the wizard never asks for it again.
+    const val PC_PLAN = "/pc/plan/{$PC_TASK_CATEGORY_ARG}?$PC_TASK_TITLE_ARG={$PC_TASK_TITLE_ARG}"
+
+    fun pcPlanRoute(category: String, title: String): String =
+        "/pc/plan/${Uri.encode(category)}?$PC_TASK_TITLE_ARG=${Uri.encode(title)}"
+    const val FEED_TRANSPORT_CAPTURE = "/feed/transport/task/{task_id}/{shed_id}?shed_label={shed_label}&park_label={park_label}&lifecycle_status={lifecycle_status}"
+    // [lifecycleStatus] is the task's backend-owned status AT THE MOMENT the row was tapped — only a
+    // FIRST-PAINT hint for FeedTransportCaptureViewModel; see its ARG_LIFECYCLE_STATUS kdoc.
+    fun feedTransportCaptureRoute(taskId:String,shedId:String,shedLabel:String,parkLabel:String,lifecycleStatus:String)="/feed/transport/task/${Uri.encode(taskId)}/${Uri.encode(shedId)}?shed_label=${Uri.encode(shedLabel)}&park_label=${Uri.encode(parkLabel)}&lifecycle_status=${Uri.encode(lifecycleStatus)}"
 
     // L2 feed-direction completion detail, reached by tapping a shed-session row on either feed
     // screen. Path args are the completion grain; labels are query args (URL-encoded, may contain
@@ -475,6 +577,39 @@ object Routes {
         return "/feed/packing/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
             "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}&park_label=${e(parkLabel)}" +
             "&partition_label=${e(partitionLabel)}&lifecycle_status=${e(lifecycleStatus)}"
+    }
+
+    // L2 verifier-GATED feed-WASTAGE completion (maintainer decision 2026-08-18), reached ONLY by
+    // tapping a pen row on Feed Wastage. Distinct route from every other feed destination — never
+    // a prefix reuse. The grain is the PEN-DAY: no {session_no} and no {workflow} segment on
+    // purpose (wastage is measured once per day, and the server stamps `experiment`).
+    const val FEED_WASTAGE_COMPLETE =
+        "/feed/wastage/complete/{park_id}/{shed_id}/{target_date}?shed_label={shed_label}&park_label={park_label}&partition_label={partition_label}&experiment_arm={experiment_arm}&lifecycle_status={lifecycle_status}&capture_allowed={capture_allowed}"
+
+    fun feedWastageCompleteRoute(
+        parkId: String,
+        shedId: String,
+        targetDate: String,
+        shedLabel: String,
+        parkLabel: String,
+        // The PEN whose leftover was filmed, "" for an undivided shed. The completion needs it
+        // because a partitioned shed has one wastage task PER PEN.
+        partitionLabel: String,
+        // The pen's authored trial group — display context for the capture screen's subtitle.
+        experimentArm: String,
+        // The row's backend-owned lifecycle bucket; first-paint hint for the capture screen's
+        // already-submitted lock (a reinstall wipes the local draft).
+        lifecycleStatus: String,
+        // Backend/bootstrap-owned execute gate carried from the worklist. The detail also honors
+        // this so stale/deep routes do not expose camera actions to read-only users.
+        captureAllowed: Boolean,
+    ): String {
+        fun e(value: String): String = Uri.encode(value)
+        val park = parkId.ifBlank { "-" }
+        return "/feed/wastage/complete/${e(park)}/${e(shedId)}/${e(targetDate)}" +
+            "?shed_label=${e(shedLabel)}&park_label=${e(parkLabel)}" +
+            "&partition_label=${e(partitionLabel)}&experiment_arm=${e(experimentArm)}" +
+            "&lifecycle_status=${e(lifecycleStatus)}&capture_allowed=$captureAllowed"
     }
 
     /**
@@ -957,6 +1092,8 @@ fun AppNavHost(
     showProtocolAdherenceCard: Boolean = false,
     canExecuteVaccination: Boolean = false,
     canExecuteWeighing: Boolean = false,
+    canExecutePcCare: Boolean = false,
+    canPlanPcCare: Boolean = false,
     /**
      * Whether the backend's nav answer has ARRIVED. Every `canExecute*` flag above is read off the
      * nav feature flags, which are empty until bootstrap resolves -- so before this is true they
@@ -1019,19 +1156,9 @@ fun AppNavHost(
                         // list to that day) and must NOT navigate. Handled by CalendarViewModel.
                         is CalendarEvent.TapDay -> vm.onEvent(event)
                         CalendarEvent.Refresh -> {
-                            if (state.selectedSegmentId == "month") {
-                                // Month has two independent data layers:
-                                // - ViewModel-managed overview/metadata/error state.
-                                // - Paging-managed schedule rows.
-                                //
-                                // A transient schedule failure must not leave the user stuck on a
-                                // stale top-level error after they tap Retry. Refresh both layers so
-                                // the banner/offline state and the paged month rows recover together.
-                                vm.onEvent(event)
-                                monthItems.refresh()
-                            } else {
-                                vm.onEvent(event)
-                            }
+                            // CalendarViewModel advances the Month pager's cache-only refresh
+                            // generation as part of the same refresh, including while Week is active.
+                            vm.onEvent(event)
                         }
                         else -> vm.onEvent(event)
                     }
@@ -1540,51 +1667,6 @@ fun AppNavHost(
             )
         }
 
-        composable(Routes.WEIGHING_GROWTH) {
-            val vm: WeighingGrowthViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            WeighingGrowthScreen(
-                state = state.copy(
-                    title = stringResource(sg.mesha.goatos.feature.weighing.R.string.weighing_growth_title),
-                    eyebrow = stringResource(sg.mesha.goatos.feature.weighing.R.string.weighing_eyebrow),
-                    scopeLabel = state.parkOptions.firstOrNull { it.selected }?.label
-                        ?: stringResource(sg.mesha.goatos.feature.weighing.R.string.weighing_growth_scope_all),
-                ),
-                onRefresh = vm::refresh,
-                onSelectPark = vm::onSelectPark,
-                // The losing-weight count drills to the per-animal weight surface. It is a real
-                // destination, not a dead tap: leaving a tappable tile that goes nowhere is the
-                // same silent dead end the analytics work exists to eliminate.
-                // Expands the list in place: the animals are already in the payload, so a
-                // navigation away from the summary would lose the context they belong to.
-                onOpenLosing = vm::onToggleLosing,
-            )
-        }
-
-        composable(Routes.WEIGHING_WEIGHTS) {
-            val vm: WeightHistoryChartViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            WeightHistoryChartScreen(
-                state = state,
-                onSelectKind = vm::onSelectKind,
-                onSelectPark = vm::onSelectPark,
-                onSelectShed = vm::onSelectShed,
-                onSearch = vm::onSearch,
-                onRefresh = vm::refresh,
-            )
-        }
-
-        composable(Routes.WEIGHING_VIDEOS) {
-            val vm: WeighingLeadershipVideosViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            WeighingLeadershipVideosScreen(
-                state = state,
-                onShedVisible = vm::onShedVisible,
-                onRefresh = vm::refresh,
-                onPlayback = vm::onPlayback,
-            )
-        }
-
         composable(
             route = "${Routes.WEIGHING_SCAN}?${Routes.WEIGHING_CAMPAIGN_ARG}={${Routes.WEIGHING_CAMPAIGN_ARG}}&${Routes.WEIGHING_WORK_GROUP_ARG}={${Routes.WEIGHING_WORK_GROUP_ARG}}&${Routes.WEIGHING_CAMPAIGN_SHED_ARG}={${Routes.WEIGHING_CAMPAIGN_SHED_ARG}}&${Routes.WEIGHING_CATEGORY_ARG}={${Routes.WEIGHING_CATEGORY_ARG}}&${Routes.WEIGHING_TENANT_ARG}={${Routes.WEIGHING_TENANT_ARG}}&${Routes.WEIGHING_EXPECTED_LOCATION_ARG}={${Routes.WEIGHING_EXPECTED_LOCATION_ARG}}&${Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG}={${Routes.WEIGHING_EXPECTED_LOCATION_LABEL_ARG}}&${Routes.WEIGHING_PARK_LABEL_ARG}={${Routes.WEIGHING_PARK_LABEL_ARG}}&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}",
             arguments = listOf(
@@ -1655,7 +1737,6 @@ fun AppNavHost(
                     onScanInputChange = vm::onScanInputChange,
                     onScanSubmit = vm::submitTypedScan,
                     onWeightChange = vm::onWeightInputChange,
-                    onAnimalCountChange = vm::onAnimalCountInputChange,
                     onWeightEntryActive = vm::setWeightEntryActive,
                     onAnimalWeightChange = vm::onAnimalWeightInputChange,
                     onRecordAnimalWeight = vm::recordIndividual,
@@ -1989,7 +2070,7 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         is MilkPreparationListEvent.OpenFarm -> navController.navigate(
-                            Routes.milkPreparationDetailRoute(event.parkId),
+                            Routes.milkPreparationDetailRoute(event.parkId, event.preparationDate),
                         ) { launchSingleTop = true }
                         MilkPreparationListEvent.Back -> navController.popBackStack()
                         else -> vm.onEvent(event)
@@ -2000,7 +2081,10 @@ fun AppNavHost(
 
         composable(
             route = Routes.COUNTS_MILK_PREPARATION_DETAIL,
-            arguments = listOf(navArgument(Routes.MILK_PREPARATION_PARK_ID_ARG) { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument(Routes.MILK_PREPARATION_PARK_ID_ARG) { type = NavType.StringType },
+                navArgument(Routes.MILK_PREPARATION_DATE_ARG) { type = NavType.StringType },
+            ),
         ) {
             val vm: MilkPreparationViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
@@ -2022,7 +2106,7 @@ fun AppNavHost(
             val vm: MilkFeedingListViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             MilkFeedingListScreen(state, onEvent = { event -> when (event) {
-                is MilkFeedingListEvent.OpenTask -> navController.navigate(Routes.milkFeedingDetailRoute(event.taskId)) { launchSingleTop = true }
+                is MilkFeedingListEvent.OpenTask -> navController.navigate(Routes.milkFeedingDetailRoute(event.taskId, event.feedingDate)) { launchSingleTop = true }
                 MilkFeedingListEvent.Back -> navController.popBackStack()
                 else -> vm.onEvent(event)
             } })
@@ -2030,7 +2114,10 @@ fun AppNavHost(
 
         composable(
             route = Routes.COUNTS_MILK_FEEDING_DETAIL,
-            arguments = listOf(navArgument(Routes.MILK_FEEDING_TASK_ID_ARG) { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument(Routes.MILK_FEEDING_TASK_ID_ARG) { type = NavType.StringType },
+                navArgument(Routes.MILK_FEEDING_DATE_ARG) { type = NavType.StringType },
+            ),
         ) {
             val vm: MilkFeedingViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
@@ -2207,7 +2294,22 @@ fun AppNavHost(
                 backStackEntry.savedStateHandle
                     .remove<String>(Routes.COUNTS_SHIFTING_SUBMISSION_NOTICE)
             }
+            val submissionOutboxId = remember(backStackEntry) {
+                backStackEntry.savedStateHandle
+                    .remove<String>(Routes.COUNTS_SHIFTING_SUBMISSION_OUTBOX_ID)
+            }
+            LaunchedEffect(submissionOutboxId) {
+                if (submissionOutboxId != null) {
+                    pendingVm.followSubmittedOutboxItem(submissionOutboxId, submissionNotice)
+                }
+            }
             val pendingRows = pendingVm.rows.collectAsLazyPagingItems()
+            LaunchedEffect(submissionNotice) {
+                if (submissionNotice != null) {
+                    pendingVm.onEvent(ShiftingPendingEvent.Refresh)
+                    pendingRows.refresh()
+                }
+            }
             val refreshState = pendingRows.loadState.refresh
             LaunchedEffect(refreshState) {
                 when (refreshState) {
@@ -2220,7 +2322,7 @@ fun AppNavHost(
             LaunchedEffect(appendError) { appendError?.let(pendingVm::onRowsLoadFailed) }
 
             ShiftingActionsScreen(
-                state = pendingState.copy(submissionNotice = submissionNotice),
+                state = pendingState,
                 rows = pendingRows,
                 onEvent = { event ->
                     when (event) {
@@ -2251,6 +2353,12 @@ fun AppNavHost(
                         Routes.COUNTS_SHIFTING_SUBMISSION_NOTICE,
                         state.submissionNotice ?: "Shifting raised successfully.",
                     )
+                    state.submittedOutboxItemId?.let { outboxItemId ->
+                        navController.previousBackStackEntry?.savedStateHandle?.set(
+                            Routes.COUNTS_SHIFTING_SUBMISSION_OUTBOX_ID,
+                            outboxItemId,
+                        )
+                    }
                     vm.onEvent(ShiftingEvent.NavigationHandled)
                     navController.popBackStack()
                 }
@@ -2332,11 +2440,16 @@ fun AppNavHost(
             val vm: FeedDirectionViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             val rows = vm.rows.collectAsLazyPagingItems()
-            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val refreshState = rows.loadState.refresh
             val appendError = (rows.loadState.append as? LoadState.Error)?.error
-            LaunchedEffect(refreshError, appendError) {
-                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            LaunchedEffect(refreshState) {
+                when (refreshState) {
+                    is LoadState.Loading -> vm.onRowsLoading()
+                    is LoadState.Error -> vm.onRowsLoadFailed(refreshState.error)
+                    is LoadState.NotLoading -> vm.onRowsLoaded()
+                }
             }
+            LaunchedEffect(appendError) { appendError?.let(vm::onRowsLoadFailed) }
             FeedDirectionScreen(
                 state = state,
                 rows = rows,
@@ -2380,7 +2493,12 @@ fun AppNavHost(
             val rows = vm.rows.collectAsLazyPagingItems()
             val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
             val appendError = (rows.loadState.append as? LoadState.Error)?.error
-            LaunchedEffect(refreshError, appendError) {
+            LaunchedEffect(rows.loadState.refresh, refreshError, appendError) {
+                when (rows.loadState.refresh) {
+                    is LoadState.Loading -> vm.onRowsLoading()
+                    is LoadState.NotLoading -> vm.onRowsLoaded()
+                    is LoadState.Error -> Unit
+                }
                 (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
             }
             FeedPackingScreen(
@@ -2421,7 +2539,118 @@ fun AppNavHost(
             )
         }
 
-        composable(Routes.FEED_TRANSPORT){val vm:FeedTransportViewModel=hiltViewModel();val state by vm.state.collectAsStateWithLifecycle();FeedTransportScreen(state){event->if(event is FeedTransportEvent.Open){vm.onEvent(event);navController.navigate(Routes.feedTransportCaptureRoute(event.row.taskId,event.row.shedId,event.row.shedLabel,event.row.parkLabel))}else vm.onEvent(event)}}
+        composable(Routes.FEED_TRANSPORT){val vm:FeedTransportViewModel=hiltViewModel();val state by vm.state.collectAsStateWithLifecycle();FeedTransportScreen(state){event->if(event is FeedTransportEvent.Open){vm.onEvent(event);navController.navigate(Routes.feedTransportCaptureRoute(event.row.taskId,event.row.shedId,event.row.shedLabel,event.row.parkLabel,event.row.status))}else vm.onEvent(event)}}
+
+        // L1 Feed Wastage worklist (maintainer decision 2026-08-18): one leftover-feed video per
+        // EXPERIMENT pen per feed day. Mirrors the Packing list; the 4th feed-module tab.
+        composable(Routes.FEED_WASTAGE) {
+            val vm: FeedWastageViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            FeedWastageScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        FeedWastageEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        // Pen rows open the verifier-GATED wastage flow (ONE mandatory proof ->
+                        // pending_verification), mirroring Packing rows above.
+                        is FeedWastageEvent.OpenRow -> {
+                            vm.onEvent(event)
+                            navController.navigate(
+                                Routes.feedWastageCompleteRoute(
+                                    parkId = event.parkId,
+                                    shedId = event.shedId,
+                                    // Wastage is measured ON the feed day, so the selected date is
+                                    // the backend target_date verbatim (no packing +1 axis).
+                                    targetDate = state.targetDateLabel,
+                                    shedLabel = event.shedLabel,
+                                    parkLabel = event.parkLabel,
+                                    partitionLabel = event.partitionLabel,
+                                    experimentArm = event.experimentArm,
+                                    lifecycleStatus = event.lifecycleStatus,
+                                    captureAllowed = state.canCapture,
+                                ),
+                            ) { launchSingleTop = true }
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // L2 verifier-GATED feed-WASTAGE completion: ONE MANDATORY leftover-feed video ->
+        // pending_verification. Camera binding is held only while composed (operator capture role
+        // gated), releasing on leave. Same single-proof shape as [FEED_PACKING_COMPLETE].
+        composable(
+            route = Routes.FEED_WASTAGE_COMPLETE,
+            arguments = listOf(
+                navArgument(FeedWastageCompleteViewModel.ARG_PARK_ID) { type = NavType.StringType },
+                navArgument(FeedWastageCompleteViewModel.ARG_SHED_ID) { type = NavType.StringType },
+                navArgument(FeedWastageCompleteViewModel.ARG_TARGET_DATE) { type = NavType.StringType },
+                navArgument(FeedWastageCompleteViewModel.ARG_SHED_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedWastageCompleteViewModel.ARG_PARK_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedWastageCompleteViewModel.ARG_PARTITION_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedWastageCompleteViewModel.ARG_EXPERIMENT_ARM) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedWastageCompleteViewModel.ARG_LIFECYCLE_STATUS) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedWastageCompleteViewModel.ARG_CAPTURE_ALLOWED) {
+                    type = NavType.StringType
+                    defaultValue = "false"
+                },
+            ),
+        ) {
+            val vm: FeedWastageCompleteViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            var returnAfterSubmit by rememberSaveable { mutableStateOf(false) }
+            val onEvent: (FeedWastageCompleteEvent) -> Unit = { event ->
+                when (event) {
+                    FeedWastageCompleteEvent.Back -> navController.popBackStack()
+                    FeedWastageCompleteEvent.MarkDone -> {
+                        returnAfterSubmit = true
+                        vm.onEvent(event)
+                    }
+                    else -> vm.onEvent(event)
+                }
+            }
+            // On a successful submission the wastage video is durably enqueued (QUEUED) or already
+            // SYNCED: show the success tone briefly, then pop back to the Feed Wastage list (which
+            // is RefreshOnResume, so it refreshes once on landing and shows the pen in review).
+            val submitted = state.result?.status == FeedWastageCompleteStatus.SYNCED ||
+                state.result?.status == FeedWastageCompleteStatus.QUEUED
+            LaunchedEffect(submitted, returnAfterSubmit) {
+                if (submitted && returnAfterSubmit) {
+                    delay(SUBMIT_SUCCESS_RETURN_DELAY_MS)
+                    navController.popBackStack(Routes.FEED_WASTAGE_COMPLETE, inclusive = true)
+                }
+            }
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                FeedWastageCompleteScreen(state = state, onEvent = onEvent)
+            }
+        }
 
         composable(
             route = Routes.FEED_TRANSPORT_CAPTURE,
@@ -2436,14 +2665,19 @@ fun AppNavHost(
                     type = NavType.StringType
                     defaultValue = ""
                 },
+                navArgument(FeedTransportCaptureViewModel.ARG_LIFECYCLE_STATUS) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
             ),
         ) {
             val vm: FeedTransportCaptureViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            var returnAfterSubmit by rememberSaveable { mutableStateOf(false) }
             val submitted = state.result?.status == FeedTransportSubmitStatus.SYNCED ||
                 state.result?.status == FeedTransportSubmitStatus.QUEUED
-            LaunchedEffect(submitted) {
-                if (submitted) {
+            LaunchedEffect(submitted, returnAfterSubmit) {
+                if (submitted && returnAfterSubmit) {
                     delay(SUBMIT_SUCCESS_RETURN_DELAY_MS)
                     navController.popBackStack(Routes.FEED_TRANSPORT_CAPTURE, inclusive = true)
                 }
@@ -2454,6 +2688,9 @@ fun AppNavHost(
                     if (event == FeedTransportCaptureEvent.Back) {
                         navController.popBackStack()
                     } else {
+                        if (event == FeedTransportCaptureEvent.Submit) {
+                            returnAfterSubmit = true
+                        }
                         vm.onEvent(event)
                     }
                 }
@@ -2533,9 +2770,14 @@ fun AppNavHost(
         ) {
             val vm: FeedDistributionCompleteViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            var returnAfterSubmit by rememberSaveable { mutableStateOf(false) }
             val onEvent: (FeedDistributionEvent) -> Unit = { event ->
                 when (event) {
                     FeedDistributionEvent.Back -> navController.popBackStack()
+                    FeedDistributionEvent.MarkDone -> {
+                        returnAfterSubmit = true
+                        vm.onEvent(event)
+                    }
                     else -> vm.onEvent(event)
                 }
             }
@@ -2545,8 +2787,8 @@ fun AppNavHost(
             // it refreshes once on landing and shows the session as pending verification).
             val submitted = state.result?.status == FeedDistributionStatus.SYNCED ||
                 state.result?.status == FeedDistributionStatus.QUEUED
-            LaunchedEffect(submitted) {
-                if (submitted) {
+            LaunchedEffect(submitted, returnAfterSubmit) {
+                if (submitted && returnAfterSubmit) {
                     delay(SUBMIT_SUCCESS_RETURN_DELAY_MS)
                     // Pop this exact destination if it is still on top; a no-op if the operator
                     // already navigated away, so we never pop an extra screen.
@@ -2596,9 +2838,14 @@ fun AppNavHost(
         ) {
             val vm: FeedPackingCompleteViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            var returnAfterSubmit by rememberSaveable { mutableStateOf(false) }
             val onEvent: (FeedPackingCompleteEvent) -> Unit = { event ->
                 when (event) {
                     FeedPackingCompleteEvent.Back -> navController.popBackStack()
+                    FeedPackingCompleteEvent.MarkDone -> {
+                        returnAfterSubmit = true
+                        vm.onEvent(event)
+                    }
                     else -> vm.onEvent(event)
                 }
             }
@@ -2608,8 +2855,8 @@ fun AppNavHost(
             // refreshes once on landing and shows the session as pending verification).
             val submitted = state.result?.status == FeedPackingCompleteStatus.SYNCED ||
                 state.result?.status == FeedPackingCompleteStatus.QUEUED
-            LaunchedEffect(submitted) {
-                if (submitted) {
+            LaunchedEffect(submitted, returnAfterSubmit) {
+                if (submitted && returnAfterSubmit) {
                     delay(SUBMIT_SUCCESS_RETURN_DELAY_MS)
                     // Pop this exact destination if it is still on top; a no-op if the operator
                     // already navigated away, so we never pop an extra screen.
@@ -2619,6 +2866,318 @@ fun AppNavHost(
             CaptureAccessGate {
                 BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
                 FeedPackingCompleteScreen(state = state, onEvent = onEvent)
+            }
+        }
+
+        // --- Toxin (module toxin, maintainer decision 2026-08-25) --------------------------
+        // ONE L0 list of aflatoxin test rounds waiting on someone, plus the hosted guided drill.
+        // Module visibility is backend-composed (the `toxin.read` permission on the per-person
+        // `toxin_tester` role), so nothing here gates on a role string — registering the routes is
+        // what makes the backend's nav item work.
+        composable(Routes.TOXIN) {
+            val vm: ToxinTaskListViewModel = hiltViewModel()
+            // Mirrors the backend nav label ("nav.toxin" in bootstrap_copy.go), the same way the
+            // PC Care tabs below carry theirs, so the screen header and the nav item read
+            // identically.
+            LaunchedEffect(vm) { vm.bind(TOXIN_TAB_TITLE) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            ToxinTaskListScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        ToxinTaskListEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is ToxinTaskListEvent.SelectFilter -> {
+                            // Re-scope the list, then tell Paging to reload: the ViewModel swaps
+                            // the pager for the new key, and refresh() drives the first page of
+                            // it rather than leaving the previous slice's rows on screen.
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is ToxinTaskListEvent.OpenTask -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.toxinTaskRoute(event.taskId)) {
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                },
+            )
+        }
+
+        // The guided round (L1 drill): the seven steps, their two in-app-camera media kinds, and
+        // the strip reading. Both capture sources are bound only while this destination is on
+        // screen, exactly like the feed distribution completion screen.
+        composable(
+            route = Routes.TOXIN_TASK,
+            arguments = listOf(navArgument(Routes.TOXIN_TASK_ID_ARG) { type = NavType.StringType }),
+        ) {
+            val vm: ToxinTaskDetailViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            CaptureAccessGate {
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
+                ToxinTaskDetailScreen(
+                    state = state,
+                    onEvent = { event ->
+                        when (event) {
+                            ToxinTaskDetailEvent.Back -> navController.popBackStack()
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
+        }
+
+        // --- Clock In / Clock Out (module clock, maintainer decision 2026-08-27) -----------
+        // TWO L0 bottom-bar roots (My Clock for everyone; Team for leadership, offered only when
+        // bootstrap composed the nav item) plus the hosted person-day drill. Module visibility is
+        // backend-composed — registering the routes is what makes the backend's nav items work.
+        composable(Routes.CLOCK) {
+            val vm: ClockViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            ClockScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        ClockEvent.Refresh -> vm.refresh()
+                        ClockEvent.Punch -> vm.punch()
+                        ClockEvent.CheckAgain -> vm.checkAgain()
+                    }
+                },
+            )
+        }
+
+        composable(Routes.CLOCK_TEAM) {
+            val vm: ClockTeamViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.open() }
+            val state by vm.state.collectAsStateWithLifecycle()
+            ClockTeamScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        ClockTeamEvent.Refresh -> vm.refresh()
+                        is ClockTeamEvent.SelectDate -> vm.selectDate(event.date)
+                        is ClockTeamEvent.SelectTile -> vm.selectTile(event.key)
+                        is ClockTeamEvent.QueryChanged -> vm.queryChanged(event.query)
+                        is ClockTeamEvent.SelectPark -> vm.selectPark(event.key)
+                        is ClockTeamEvent.SelectDesignation -> vm.selectDesignation(event.key)
+                        ClockTeamEvent.LoadMore -> vm.loadMore()
+                        is ClockTeamEvent.OpenPerson -> {
+                            val date = state.dates.firstOrNull { it.selected }?.date.orEmpty()
+                            navController.navigate(Routes.clockPersonRoute(event.memberId, date)) {
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                },
+            )
+        }
+
+        // The person-day drill (L1): both punches in full + recent days. Hosted destination with
+        // Up/Back and no root chrome (android-navigation-stack invariant).
+        composable(
+            route = Routes.CLOCK_PERSON,
+            arguments = listOf(
+                navArgument(Routes.CLOCK_PERSON_MEMBER_ARG) { type = NavType.StringType },
+                navArgument(Routes.CLOCK_PERSON_DATE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val vm: ClockPersonDayViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            ClockPersonDayScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        ClockPersonDayEvent.Refresh -> vm.refresh()
+                        ClockPersonDayEvent.Back -> navController.popBackStack()
+                    }
+                },
+            )
+        }
+
+        // --- PC Care (module pc_care, maintainer decision 2026-08-21) -----------------------
+        // Four L0 category tabs — THE bar (the Feed shape, maintainer feedback 2026-08-21).
+        // Each route binds its category constant + backend tab label. What a tab renders is the
+        // backend's `pc_care_execute` capability: an executor gets the scan worklist, everyone
+        // else the read-only monitor list with the plan wizard offered on `pc_care_plan`.
+        // Titles mirror the backend nav labels ("nav.pc_*" in bootstrap_copy.go) so the screen
+        // header and the bottom-bar tab read identically.
+        pcCareCategoryComposable(Routes.PC_DEWORMING, "deworming", "Deworming", navController, canExecutePcCare, canPlanPcCare)
+        pcCareCategoryComposable(
+            Routes.PC_VACCINE_STOCK,
+            "inventory_vaccine",
+            "Stock",
+            navController,
+            canExecutePcCare,
+            canPlanPcCare,
+            moduleLabel = "Vaccination",
+            showDateBar = false,
+        )
+        pcCareCategoryComposable(Routes.PC_TICKS, "ticks_removal", "Ticks Removal", navController, canExecutePcCare, canPlanPcCare)
+        pcCareCategoryComposable(Routes.PC_HOOF_TRIMMING, "hoof_trimming", "Hoof Trimming", navController, canExecutePcCare, canPlanPcCare)
+        pcCareCategoryComposable(Routes.PC_HAIR_TRIMMING, "hair_trimming", "Hair Trimming", navController, canExecutePcCare, canPlanPcCare)
+
+        // The L1 plan-wizard drill: category fixed by the launching tab, steps day → farm →
+        // pen → people → review, hosted with Up/Back and no root chrome.
+        composable(
+            route = Routes.PC_PLAN,
+            arguments = listOf(
+                navArgument(Routes.PC_TASK_CATEGORY_ARG) { type = NavType.StringType },
+                navArgument(Routes.PC_TASK_TITLE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) { entry ->
+            val category = entry.arguments?.getString(Routes.PC_TASK_CATEGORY_ARG).orEmpty()
+            val title = entry.arguments?.getString(Routes.PC_TASK_TITLE_ARG).orEmpty()
+            val vm: PcCarePlanViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bindWizard(category, title) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            LaunchedEffect(state.createdTaskId) {
+                if (state.createdTaskId.isNotBlank()) {
+                    // Hand the planned date back to the monitor face so it can jump there and
+                    // show the new task immediately.
+                    navController.previousBackStackEntry?.savedStateHandle
+                        ?.set(Routes.PC_CARE_CREATED_DATE_KEY, state.selectedDate)
+                    navController.popBackStack()
+                }
+            }
+            PcCarePlanWizardScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        sg.mesha.goatos.feature.pccare.PcCarePlanEvent.CloseCreate -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // The L1 task drill: scan + per-animal slot capture + whole-task submit. The composable
+        // is wrapped in CaptureAccessGate + BindVideoCaptureSource so the LIVE in-app camera works
+        // exactly like the weighing scan screen.
+        composable(
+            route = Routes.PC_TASK,
+            arguments = listOf(
+                navArgument(Routes.PC_TASK_ID_ARG) { type = NavType.StringType },
+                navArgument(Routes.PC_TASK_CATEGORY_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(Routes.PC_TASK_TITLE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(Routes.PC_TASK_MONITOR_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val monitor = it.arguments?.getString(Routes.PC_TASK_MONITOR_ARG) == "1" ||
+                pcCareTaskRouteUsesMonitorMode(canExecutePcCare, canPlanPcCare)
+            val vm: PcCareTaskViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            // Hardware reader capture only while this capture screen is active.
+            DisposableEffect(vm, monitor) {
+                if (!monitor) vm.setCaptureActive(true)
+                onDispose { if (!monitor) vm.setCaptureActive(false) }
+            }
+            val content: @Composable () -> Unit = {
+                if (!monitor) {
+                    BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                    BindPhotoCaptureSource(rememberDelegatingPhotoCaptureSource())
+                }
+                PcCareTaskScreen(
+                    state = state,
+                    onEvent = { event ->
+                        if (monitor && !pcCareMonitorEventAllowed(event)) return@PcCareTaskScreen
+                        when (event) {
+                            sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back -> navController.popBackStack()
+                            sg.mesha.goatos.feature.pccare.PcCareTaskEvent.ReconnectReader ->
+                                navController.navigate(Routes.RFID) { launchSingleTop = true }
+                            // Roster mode: a tap opens the animal's own capture drill with the
+                            // video set as clearly-labeled cards (Feed completion-screen shape).
+                            is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.RosterTapped -> {
+                                val taskId = it.arguments?.getString(Routes.PC_TASK_ID_ARG).orEmpty()
+                                val title = it.arguments?.getString(Routes.PC_TASK_TITLE_ARG).orEmpty()
+                                // The verbatim tag comes from whichever list carried the tap —
+                                // the pen roster (roster mode) or the scanned-animal list
+                                // (scan-and-record mode).
+                                val verbatim = state.rosterRows
+                                    .firstOrNull { row -> row.key == event.tagKey }?.tagLabel
+                                    ?: state.animals.firstOrNull { row -> row.key == event.tagKey }?.tagLabel
+                                    ?: event.tagKey
+                                navController.navigate(
+                                    Routes.pcAnimalRoute(taskId, event.tagKey, verbatim, title),
+                                ) { launchSingleTop = true }
+                            }
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
+            if (monitor) {
+                content()
+            } else {
+                CaptureAccessGate { content() }
+            }
+        }
+
+        // The roster drill (L2 under the task): ONE animal's video cards. Entering records the
+        // tag into the task (the tap IS the free-flow scan); each card records its own clip
+        // through the same proof outbox pipeline.
+        composable(
+            route = Routes.PC_ANIMAL,
+            arguments = listOf(
+                navArgument(Routes.PC_TASK_ID_ARG) { type = NavType.StringType },
+                navArgument(Routes.PC_TAG_KEY_ARG) { type = NavType.StringType },
+                navArgument(Routes.PC_TAG_VERBATIM_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(Routes.PC_TASK_TITLE_ARG) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+            ),
+        ) {
+            val monitor = pcCareTaskRouteUsesMonitorMode(canExecutePcCare, canPlanPcCare)
+            val vm: PcCareTaskViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            val content: @Composable () -> Unit = {
+                if (!monitor) {
+                    BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                }
+                sg.mesha.goatos.feature.pccare.PcCareAnimalScreen(
+                    state = state,
+                    onEvent = { event ->
+                        if (monitor && !pcCareMonitorEventAllowed(event)) return@PcCareAnimalScreen
+                        when (event) {
+                            sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back -> navController.popBackStack()
+                            else -> vm.onEvent(event)
+                        }
+                    },
+                )
+            }
+            if (monitor) {
+                content()
+            } else {
+                CaptureAccessGate { content() }
             }
         }
 
@@ -2930,10 +3489,14 @@ private fun HealthListDestination(
  * guard keeps an unknown future root from failing startup with a 403.
  */
 internal fun startDestinationFor(navState: NavState): String {
-    navState.availableModules().firstOrNull()?.href
+    // The served visible_navigation IS the active module's bar — the day opens
+    // there. Preferring the DRAWER's first module here would open everyone on
+    // Clock In / Out now that attendance sits at the top of the drawer
+    // (maintainer ask 2026-08-28): the drawer is only the fallback for a
+    // principal whose bar composed empty of hosted roots (e.g. clock-only).
+    navState.items.firstOrNull { isRootDestination(it.href) }?.href?.let { return it }
+    return navState.availableModules().firstOrNull()?.href
         ?.takeIf { isRootDestination(it) }
-        ?.let { return it }
-    return navState.items.firstOrNull { isRootDestination(it.href) }?.href
         ?: Routes.CALENDAR
 }
 
@@ -2945,6 +3508,12 @@ private const val SUBMIT_SUCCESS_RETURN_DELAY_MS = 800L
 
 private val supportedRootDestinations = setOf(
 	Routes.CALENDAR,
+	// Clock In / Out bottom-bar destinations are L0 roots like every other
+	// module bar leaf — without this a clock-only principal's landing fell
+	// back to Calendar with NO route into the module once the reminder banner
+	// cleared (E2E finding 2026-08-28: the operator could never review hours).
+	Routes.CLOCK,
+	Routes.CLOCK_TEAM,
 	Routes.VACCINATION,
 	Routes.WEIGHING,
 	Routes.VERIFY,
@@ -2964,6 +3533,10 @@ private val supportedRootDestinations = setOf(
     Routes.FEED_DIRECTION,
     Routes.FEED_PACKING,
     Routes.FEED_TRANSPORT,
+    // The 4th backend-composed feed tab (maintainer decision 2026-08-18). A bottom-bar
+    // destination is a root exactly like its siblings — registering the composable alone would
+    // leave a notification or deep link naming it treated as unhosted and bounced to home.
+    Routes.FEED_WASTAGE,
     // Counts roots: a Counts principal's default landing is the first capture page they may
     // open (/counts/birth). These are registered top-level composables, so cold start must
     // accept them instead of falling back to Calendar (which a Counts-only principal may not
@@ -2980,6 +3553,15 @@ private val supportedRootDestinations = setOf(
     Routes.COUNTS_COLOSTRUM,
     Routes.HEALTH_ADULTS,
     Routes.HEALTH_KIDS,
+    // PC Care roots (maintainer decision 2026-08-21): the four backend-composed category tabs
+    // ARE the module bar (the Feed shape) — there is no fifth planner tab. Each is an L0
+    // bottom-bar destination exactly like its siblings; what a tab renders is decided by the
+    // backend pc_care_execute / pc_care_plan capability flags, never by a role string.
+    Routes.PC_DEWORMING,
+    Routes.PC_VACCINE_STOCK,
+    Routes.PC_TICKS,
+    Routes.PC_HOOF_TRIMMING,
+    Routes.PC_HAIR_TRIMMING,
 )
 
 /**
@@ -2996,9 +3578,6 @@ private val pushTargetDestinations: Set<String> = supportedRootDestinations + se
     Routes.WEIGHING_TASK_NEW,
     Routes.WEIGHING_SHED,
     Routes.WEIGHING_OPERATORS,
-    Routes.WEIGHING_VIDEOS,
-    Routes.WEIGHING_WEIGHTS,
-    Routes.WEIGHING_GROWTH,
     Routes.WEIGHING_SCAN,
 )
 
@@ -3043,6 +3622,124 @@ private fun executionRoutePattern(base: String): String =
         "&${Routes.EXECUTION_TASK_ROW_VERSION_ARG}={${Routes.EXECUTION_TASK_ROW_VERSION_ARG}}" +
         "&${Routes.EXECUTION_SCAN_TITLE_ARG}={${Routes.EXECUTION_SCAN_TITLE_ARG}}" +
         "&${Routes.EXECUTION_PARTITION_ARG}={${Routes.EXECUTION_PARTITION_ARG}}"
+
+/**
+ * One PC Care category worklist tab (module pc_care). The four L0 tab routes share this
+ * registration: each binds its category constant + backend tab label to its own
+ * [PcCareWorklistViewModel] instance (VMs are scoped per NavBackStackEntry, so the tabs never
+ * share state), and a card tap pushes the hosted task drill carrying the same category + title.
+ */
+/** The backend's `nav.toxin` label, mirrored so the L0 header matches the nav item. */
+private const val TOXIN_TAB_TITLE = "Tests"
+
+private fun NavGraphBuilder.pcCareCategoryComposable(
+    route: String,
+    category: String,
+    title: String,
+    navController: NavHostController,
+    canExecutePcCare: Boolean,
+    canPlanPcCare: Boolean,
+    moduleLabel: String = "Preventive Care",
+    showDateBar: Boolean = true,
+) {
+    composable(route) { entry ->
+        if (pcCareShowsExecutorFace(canExecutePcCare, canPlanPcCare)) {
+            // Executor face: the scan worklist for tasks assigned to this person.
+            val vm: PcCareWorklistViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bind(category, title, moduleLabel = moduleLabel, showDateBar = showDateBar) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            PcCareWorklistScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        PcCareWorklistEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        is PcCareWorklistEvent.OpenTask -> {
+                            vm.onEvent(event)
+                            navController.navigate(Routes.pcTaskRoute(event.taskId, category, title)) {
+                                launchSingleTop = true
+                            }
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        } else {
+            // Monitor face (CEO / PC Director oversight): the read-only task list for this
+            // category, with the plan wizard offered only on the backend's pc_care_plan flag.
+            val vm: PcCarePlanViewModel = hiltViewModel()
+            LaunchedEffect(vm) { vm.bindMonitor(category, title) }
+            val state by vm.state.collectAsStateWithLifecycle()
+            val rows = vm.rows.collectAsLazyPagingItems()
+            // A finished plan wizard hands back the planned date: jump the monitor to that day
+            // and refetch, so the just-created task is on screen the moment the wizard closes.
+            val createdDate by entry.savedStateHandle
+                .getStateFlow(Routes.PC_CARE_CREATED_DATE_KEY, "")
+                .collectAsStateWithLifecycle()
+            LaunchedEffect(createdDate) {
+                if (createdDate.isNotBlank()) {
+                    // exception:exempt malformed saved-state date is stale navigation glue; ignore it and clear the one-shot key below
+                    runCatching { java.time.LocalDate.parse(createdDate) }.getOrNull()?.let { date ->
+                        vm.onEvent(sg.mesha.goatos.feature.pccare.PcCarePlanEvent.SelectMonitorDate(date))
+                    }
+                    entry.savedStateHandle[Routes.PC_CARE_CREATED_DATE_KEY] = ""
+                    vm.onEvent(sg.mesha.goatos.feature.pccare.PcCarePlanEvent.Refresh)
+                    rows.refresh()
+                }
+            }
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            PcCareMonitorScreen(
+                state = state,
+                rows = rows,
+                planEnabled = canPlanPcCare,
+                onPlanTask = {
+                    navController.navigate(Routes.pcPlanRoute(category, title)) { launchSingleTop = true }
+                },
+                // Oversight drill: any card opens the task READ-ONLY — animals, video states,
+                // and status, with no scan/record/submit controls (monitor=1 locks the screen).
+                onOpenTask = { card ->
+                    navController.navigate(
+                        Routes.pcTaskRoute(card.taskId, card.category, title, monitor = true),
+                    ) { launchSingleTop = true }
+                },
+                onEvent = { event ->
+                    when (event) {
+                        sg.mesha.goatos.feature.pccare.PcCarePlanEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+    }
+}
+
+internal fun pcCareShowsExecutorFace(canExecutePcCare: Boolean, canPlanPcCare: Boolean): Boolean =
+    canExecutePcCare && !canPlanPcCare
+
+internal fun pcCareTaskRouteUsesMonitorMode(canExecutePcCare: Boolean, canPlanPcCare: Boolean): Boolean =
+    !pcCareShowsExecutorFace(canExecutePcCare, canPlanPcCare)
+
+internal fun pcCareMonitorEventAllowed(
+    event: sg.mesha.goatos.feature.pccare.PcCareTaskEvent,
+): Boolean =
+    event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Back ||
+        event is sg.mesha.goatos.feature.pccare.PcCareTaskEvent.Refresh
 
 private fun appVersionLabel(): String = "Version ${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})"
 

@@ -10,14 +10,16 @@ export function ProcurementPager({
   page,
   count,
   noun,
+  forceVisible = false,
 }: {
   prevHref: string | null;
   nextHref: string | null;
   page: number;
   count: number;
   noun: string;
+  forceVisible?: boolean;
 }) {
-  if (!prevHref && !nextHref && page <= 1) return null;
+  if (!forceVisible && !prevHref && !nextHref && page <= 1) return null;
 
   return (
     <div className="pager2">

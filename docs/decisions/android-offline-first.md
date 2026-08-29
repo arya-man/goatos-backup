@@ -66,3 +66,19 @@ The ViewModel exposes `state = repo.observeX(scope)` (cached immediately) + a
   from day one.
 - Applies to all current and future read screens (Calendar, Overview/Control-Tower,
   Sheds/Execution, Adherence, Insights, and anything added later).
+
+## Outbox write lifecycle
+
+Every `OutboxOpType` must declare four separate decisions in the production-owned
+`OutboxLifecyclePolicy.kt`: immediate UI/overlay, success reconciliation,
+terminal-failure repair, and process-death recovery. Different operations may use
+different mechanisms; an upload supporting a parent submission does not need the
+same UI as an optimistic Room write. A wildcard/default policy is forbidden because
+it would let a newly added operation compile without lifecycle review.
+
+The declaration is architecture metadata, not proof that the mechanism is wired.
+Each operation still needs production-path tests for its declared behavior. Kotlin's
+exhaustive `when`, `OutboxLifecyclePolicyTest`, and
+`check-android-outbox-lifecycle-policy.mjs` jointly prevent an operation from being
+added without a declaration. The static guard runs, with adversarial self-tests, from
+`make mobile-guard` and ordinary local CI.

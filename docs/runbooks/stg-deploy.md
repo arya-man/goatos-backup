@@ -16,6 +16,16 @@ lives in [`google-cloud-environments.md`](./google-cloud-environments.md).
 - deploying from Heva / Slice / system-gsuite / apps-script / goatos-sheets
   projects
 
+## Billing Recovery / Cloud Run 429
+
+If STG returns Google Frontend `HTTP 429` with body `Rate exceeded.`, or Cloud
+Run request logs say `The request was aborted because there was no available
+instance`, first follow
+[`stg-cloud-run-billing-recovery.md`](./stg-cloud-run-billing-recovery.md).
+That is an availability recovery path after billing restoration, not a normal
+code deploy. Do not call it fixed until both terminal curls and the live Chrome
+browser surface pass.
+
 ## Valid Deploy Path
 
 STG deploy is **manual Google Cloud Deploy**. Cloud Deploy is the deployment
@@ -23,12 +33,37 @@ authority for `goatos-stg`. GitHub Actions / Cloud Build / a local operator may
 only build images and create a release; Cloud Run staging services and jobs are
 mutated by the Cloud Deploy rollout task only.
 
+Do not require laptop Docker for staging. Slack deploys and agent deploys
+should build images in Cloud Build. If local Docker is needed for diagnosis,
+run that on the OCI builder environment, not on a developer Mac.
+
 Scripts:
 
 ```bash
 tools/deploy/stg-clouddeploy-release.sh   # build/create the release
 tools/deploy/stg-clouddeploy-task.sh      # custom-target rollout task
 ```
+
+For Codex/Claude, prefer the Cloud Build path:
+
+```bash
+gcloud builds triggers run goatos-stg-deploy-main --project=goatos-stg
+```
+
+If the trigger API cannot resolve the GitHub ref, submit the already-pushed
+clean `origin/main` checkout directly:
+
+```bash
+gcloud builds submit --project=goatos-stg --config=cloudbuild.stg.yaml \
+  --substitutions=COMMIT_SHA="$(git rev-parse --short=12 origin/main)",_DEPLOY_STG=true,_DEPLOY_MOBILE=false,_TRIGGERED_BY="Codex"
+```
+
+Both paths use Cloud Build for Docker image creation and post Slack status
+cards.
+
+If the Cloud Deploy task runner itself needs rebuilding, use
+`cloudbuild.stg-runner.yaml` in Cloud Build and update the pinned runner digest
+in `deploy/clouddeploy/stg/clouddeploy.yaml`. Do not rebuild it on a laptop.
 
 Do not hand-write long `RELEASE_ID` values. Cloud Deploy generates rollout ids
 from the release id, target, and attempt suffix, and the final rollout id must

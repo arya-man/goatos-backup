@@ -26,6 +26,8 @@ type ProtocolConfig interface {
 	AddRule(ctx context.Context, in domain.NewRule) (string, error)
 	GetVersion(ctx context.Context, tenantID, versionID string) (domain.Version, error)
 	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error
+	DiscardVersion(ctx context.Context, tenantID, versionID string) error
+	ReplaceDraftVersion(ctx context.Context, in domain.NewVersion, replacesVersionID string) (string, error)
 	ListConfigs(ctx context.Context, tenantID, category string) ([]domain.ConfigListItem, error)
 	ListAnimalStages(ctx context.Context, tenantID string) ([]domain.AnimalStage, error)
 }
@@ -56,6 +58,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /protocols/versions/{version_id}/rules", h.AddRule)
 	mux.HandleFunc("GET /protocols/versions/{version_id}", h.GetVersion)
 	mux.HandleFunc("POST /protocols/versions/{version_id}/publish", h.PublishVersion)
+	mux.HandleFunc("POST /protocols/versions/{version_id}/discard", h.DiscardVersion)
+	mux.HandleFunc("POST /protocols/versions/{version_id}/replace", h.ReplaceDraftVersion)
 }
 
 type errorEnvelope struct {
@@ -104,6 +108,8 @@ func (h *Handler) CreateDefinition(w http.ResponseWriter, r *http.Request) {
 // ---- create version (always draft) ----
 
 type createVersionRequest struct {
+	// Only the replace route reads this: the create route takes the protocol from its path.
+	ProtocolID    string          `json:"protocol_id"`
 	ScopeType     string          `json:"scope_type"`
 	ScopeID       *string         `json:"scope_id"`
 	Version       *int32          `json:"version"`
@@ -143,6 +149,11 @@ func (h *Handler) CreateVersion(w http.ResponseWriter, r *http.Request) {
 		RuleDsl: rawOrEmpty(req.RuleDsl), ProofPolicy: rawOrEmpty(req.ProofPolicy),
 		SopVersionID: req.SopVersionID, DraftedBy: actorPtr(r), IdempotencyKey: idempotencyKey,
 	})
+	if errors.Is(err, ports.ErrDraftAlreadyExists) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "draft_already_exists", Message: "this plan already has a draft; open that draft instead of starting another", TraceID: traceID(r)}, nil)
+		return
+	}
 	if errors.Is(err, ports.ErrIdempotencyConflict) {
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 			errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different protocol version payload", TraceID: traceID(r)}, nil)
@@ -248,6 +259,7 @@ type configItemResponse struct {
 	Status            string     `json:"status"`
 	EffectiveFrom     *time.Time `json:"effective_from,omitempty"`
 	EffectiveTo       *time.Time `json:"effective_to,omitempty"`
+	RetiredAt         *time.Time `json:"retired_at,omitempty"`
 	SopVersionID      string     `json:"sop_version_id,omitempty"`
 	PublishedBy       string     `json:"published_by,omitempty"`
 	PublishedAt       *time.Time `json:"published_at,omitempty"`
@@ -284,7 +296,7 @@ func (h *Handler) ListConfigs(w http.ResponseWriter, r *http.Request) {
 			ProtocolID: it.ProtocolID, Code: it.Code, Name: it.Name, Category: it.Category,
 			ProtocolVersionID: it.ProtocolVersionID, Version: it.Version, VersionLabel: it.VersionLabel,
 			ScopeType: it.ScopeType, ScopeID: it.ScopeID, ScopeLabel: it.ScopeLabel, Status: it.Status,
-			EffectiveFrom: it.EffectiveFrom, EffectiveTo: it.EffectiveTo,
+			EffectiveFrom: it.EffectiveFrom, EffectiveTo: it.EffectiveTo, RetiredAt: it.RetiredAt,
 			SopVersionID: it.SopVersionID, PublishedBy: it.PublishedBy,
 			PublishedAt: it.PublishedAt, UpdatedAt: it.UpdatedAt,
 			SourceSystem: it.SourceSystem, SourceRef: it.SourceRef,
@@ -301,9 +313,15 @@ type animalStageResponse struct {
 	AnimalStageID string `json:"animal_stage_id"`
 	StageCode     string `json:"stage_code"`
 	Name          string `json:"name"`
-	MinAgeDays    *int32 `json:"min_age_days,omitempty"`
-	MaxAgeDays    *int32 `json:"max_age_days,omitempty"`
-	SortOrder     int32  `json:"sort_order"`
+	// AgeBand and AssignableAsCohort exist for pickers that ASSIGN this vocabulary rather than just
+	// list it: the band is what an animal inherits when its pen is retagged, and a clinical tag is
+	// one the assigning writes reject. Both are always emitted -- an absent field would read to a
+	// client as "adult" and "assignable", which are the wrong defaults for a safety-bearing value.
+	AgeBand            string `json:"age_band"`
+	AssignableAsCohort bool   `json:"assignable_as_cohort"`
+	MinAgeDays         *int32 `json:"min_age_days,omitempty"`
+	MaxAgeDays         *int32 `json:"max_age_days,omitempty"`
+	SortOrder          int32  `json:"sort_order"`
 }
 
 type animalStageListResponse struct {
@@ -324,6 +342,7 @@ func (h *Handler) ListAnimalStages(w http.ResponseWriter, r *http.Request) {
 	for _, s := range stages {
 		resp.Items = append(resp.Items, animalStageResponse{
 			AnimalStageID: s.AnimalStageID, StageCode: s.StageCode, Name: s.Name,
+			AgeBand: s.AgeBand, AssignableAsCohort: s.AssignableAsCohort,
 			MinAgeDays: s.MinAgeDays, MaxAgeDays: s.MaxAgeDays, SortOrder: s.SortOrder,
 		})
 	}
@@ -368,6 +387,91 @@ func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---- publish ----
+
+// ReplaceDraftVersion swaps the named draft for the supplied one, atomically.
+//
+// Saving an edited plan is exactly this: the draft on screen becomes a new draft carrying the
+// edits, and the old row goes. Done as two calls it either creates a second draft -- which
+// one-draft-per-scope refuses -- or deletes the farm's work before knowing the replacement
+// will land.
+func (h *Handler) ReplaceDraftVersion(w http.ResponseWriter, r *http.Request) {
+	idempotencyKey, ok := h.idempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	var req createVersionRequest
+	if !h.decode(w, r, &req) {
+		return
+	}
+	replaces := strings.TrimSpace(r.PathValue("version_id"))
+	if replaces == "" || strings.TrimSpace(req.ProtocolID) == "" || strings.TrimSpace(req.ScopeType) == "" ||
+		req.EffectiveFrom.IsZero() || len(req.RuleDsl) == 0 {
+		h.badRequest(w, r, "missing_required_field", "protocol_id, scope_type, effective_from, and rule_dsl are required")
+		return
+	}
+	id, err := h.config.ReplaceDraftVersion(r.Context(), domain.NewVersion{
+		TenantID: tenantID(r), ProtocolID: req.ProtocolID,
+		ScopeType: req.ScopeType, ScopeID: req.ScopeID, VersionLabel: req.VersionLabel,
+		Status: "draft", EffectiveFrom: req.EffectiveFrom, EffectiveTo: req.EffectiveTo,
+		RuleDsl: rawOrEmpty(req.RuleDsl), ProofPolicy: rawOrEmpty(req.ProofPolicy),
+		SopVersionID: req.SopVersionID, DraftedBy: actorPtr(r), IdempotencyKey: idempotencyKey,
+	}, replaces)
+	if errors.Is(err, ports.ErrIdempotencyConflict) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different draft payload", TraceID: traceID(r)}, nil)
+		return
+	}
+	if errors.Is(err, ports.ErrVersionNotDraft) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "version_not_draft", Message: "that version is not a draft and cannot be replaced", TraceID: traceID(r)}, nil)
+		return
+	}
+	if errors.Is(err, ports.ErrDraftAlreadyExists) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "draft_already_exists", Message: "this plan already has another draft; discard it before saving", TraceID: traceID(r)}, nil)
+		return
+	}
+	if errors.Is(err, app.ErrInvalidRuleDSL) {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			errorEnvelope{Code: "invalid_rule_dsl", Message: err.Error(), TraceID: traceID(r)}, nil)
+		return
+	}
+	if errors.Is(err, ports.ErrNotFound) {
+		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+			errorEnvelope{Code: "not_found", Message: "protocol version not found", TraceID: traceID(r)}, nil)
+		return
+	}
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusCreated, map[string]string{"protocol_version_id": id})
+}
+
+// DiscardVersion deletes a draft version and its rules.
+//
+// Only a draft can be discarded, and that is enforced in SQL rather than here, so a
+// published or retired version cannot be removed even by a caller that skips this
+// handler. There is no idempotency key: the operation is naturally idempotent in
+// effect, and a repeat on an already-deleted draft is a 404, which is the truth.
+func (h *Handler) DiscardVersion(w http.ResponseWriter, r *http.Request) {
+	err := h.config.DiscardVersion(r.Context(), tenantID(r), r.PathValue("version_id"))
+	if errors.Is(err, ports.ErrVersionNotDraft) {
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "version_not_draft", Message: "only draft protocol versions can be discarded; published versions are permanent", TraceID: traceID(r)}, nil)
+		return
+	}
+	if errors.Is(err, ports.ErrNotFound) {
+		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+			errorEnvelope{Code: "not_found", Message: "protocol version not found", TraceID: traceID(r)}, nil)
+		return
+	}
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
 
 func (h *Handler) PublishVersion(w http.ResponseWriter, r *http.Request) {
 	idempotencyKey, ok := h.idempotencyKey(w, r)

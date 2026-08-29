@@ -283,6 +283,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
        COALESCE(g.species, 'goat')::text AS species,
        COALESCE(g.origin_type, '')::text AS origin_type,
+       COALESCE(proc.procurement_purpose, '')::text AS procurement_purpose,
        proc.warming_entry_at,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(park.location_id::text, '')::text AS park_id,
@@ -295,7 +296,8 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        COALESCE(loa.is_icu, false)::boolean AS location_is_icu
 FROM goats g
 LEFT JOIN LATERAL (
-  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
+  SELECT plg.purpose AS procurement_purpose,
+         COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
   FROM procurement_load_goats plg
   WHERE plg.tenant_id = g.tenant_id
     AND plg.goat_id = g.goat_id
@@ -341,6 +343,7 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        COALESCE(g.reproductive_status, '')::text AS reproductive_status,
        COALESCE(g.species, 'goat')::text AS species,
        COALESCE(g.origin_type, '')::text AS origin_type,
+       COALESCE(proc.procurement_purpose, '')::text AS procurement_purpose,
        proc.warming_entry_at,
        COALESCE(shed.location_id::text, '')::text AS shed_id,
        COALESCE(park.location_id::text, '')::text AS park_id,
@@ -353,7 +356,8 @@ SELECT g.goat_id::text AS goat_id, g.dob, g.entry_date, g.breeding_date, g.last_
        COALESCE(loa.is_icu, false)::boolean AS location_is_icu
 FROM goats g
 LEFT JOIN LATERAL (
-  SELECT COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
+  SELECT plg.purpose AS procurement_purpose,
+         COALESCE(plg.warmup_started_at, plg.intake_accepted_at, g.entry_date::timestamptz) AS warming_entry_at
   FROM procurement_load_goats plg
   WHERE plg.tenant_id = g.tenant_id
     AND plg.goat_id = g.goat_id

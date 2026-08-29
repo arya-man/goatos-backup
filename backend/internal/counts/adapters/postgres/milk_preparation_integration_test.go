@@ -25,6 +25,7 @@ func TestMilkPreparationUsesExactCohortGrainAndWholeScopeSummary(t *testing.T) {
 	}
 	// This animal is in the same shed but outside the milk-preparation membership set.
 	insertBreakdownGoat(t, ctx, pool, goatUUID(90), goatDisplayID(90), "male", "Beetal", "alive", "Adult", strp(countsPark), strp(countsShedA), nil)
+	openK3Window(t, ctx, pool, "2026-07-30")
 
 	asOf := time.Date(2026, 7, 29, 20, 30, 0, 0, time.UTC) // 2026-07-30 in India.
 	got, err := repo.GetMilkPreparation(ctx, domain.MilkPreparationQuery{
@@ -65,6 +66,150 @@ func TestMilkPreparationUsesExactCohortGrainAndWholeScopeSummary(t *testing.T) {
 	}
 	if len(empty.Items) != 0 || len(empty.FarmTasks) != 0 || empty.HasMore || empty.Summary.HeadCount != 0 || empty.Summary.TotalRequiredML != 0 {
 		t.Fatalf("empty park response=%+v", empty)
+	}
+}
+
+// A kid housed in an ICU / quarantine shed still drinks milk, and it drinks the band it was on
+// before it got sick. Its management_stage no longer carries that band -- the clinical tag
+// overwrote it -- so the band is read from milk_cohort, recovered from stage history by 000166.
+//
+// The negative half is the maintainer's rule and is the more important assertion of the two: a
+// clinically-housed kid whose band could NOT be recovered stays out of milk preparation entirely.
+// It is never defaulted to a band, because a guessed band is a guessed milk volume for a sick
+// animal. Those are resolved by hand, not by this query.
+func TestMilkPreparationCountsClinicallyHousedKidsAtTheirRecoveredBand(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	// Ordinary milk kid, answering from its own management_stage: 1 x K1 = 800 ml.
+	insertBreakdownGoat(t, ctx, pool, goatUUID(60), goatDisplayID(60), "female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedA), nil)
+
+	// Two kids in the ICU shed. Both lost their band to the clinical tag; only the first one's band
+	// was recoverable from history. The second must not be fed a guess.
+	insertBreakdownGoat(t, ctx, pool, goatUUID(61), goatDisplayID(61), "female", "Beetal", "alive", "ICU-Kid", strp(countsPark), strp(countsShedB), nil)
+	insertBreakdownGoat(t, ctx, pool, goatUUID(62), goatDisplayID(62), "male", "Beetal", "alive", "ICU-Kid", strp(countsPark), strp(countsShedB), nil)
+	setMilkCohort(t, ctx, pool, goatUUID(61), "K2")
+
+	asOf := time.Date(2026, 7, 29, 20, 30, 0, 0, time.UTC) // 2026-07-30 in India.
+	got, err := repo.GetMilkPreparation(ctx, domain.MilkPreparationQuery{
+		TenantID: countsTenant, ParkID: strp(countsPark), Limit: 50, AsOf: asOf,
+	})
+	if err != nil {
+		t.Fatalf("GetMilkPreparation: %v", err)
+	}
+
+	// Two heads, not three: the unrecoverable ICU kid is excluded, not counted at a default band.
+	if got.Summary.HeadCount != 2 || got.Summary.ShedCount != 2 || got.Summary.CohortCount != 2 {
+		t.Fatalf("summary=%+v, want 2 heads across 2 sheds in 2 cohorts (K1 + recovered K2)", got.Summary)
+	}
+	// 800 (K1) + 1200 (recovered K2). A K3 default for the excluded animal would read 2400.
+	if got.Summary.TotalRequiredML != 2000 {
+		t.Fatalf("total required ml=%d, want 2000 (800 K1 + 1200 recovered K2)", got.Summary.TotalRequiredML)
+	}
+
+	// The ICU shed appears as its own preparation row, at K2, priced as a K2 -- and holding ONE
+	// head, so the excluded sibling standing in the same shed did not sneak in through the row.
+	var icuRow *domain.MilkPreparationRow
+	for i := range got.Items {
+		if got.Items[i].ShedID == countsShedB {
+			icuRow = &got.Items[i]
+		}
+	}
+	if icuRow == nil {
+		t.Fatalf("no milk preparation row for the ICU shed; items=%+v", got.Items)
+	}
+	if icuRow.ManagementStage != "K2" || icuRow.HeadCount != 1 || icuRow.DailyRequiredML != 1200 {
+		t.Fatalf("ICU shed row=%+v, want stage K2, 1 head, 1200 ml", *icuRow)
+	}
+}
+
+// K3 is a SEVEN DAY weaning window, not a standing cohort. An animal shifted into K3 draws milk
+// for 7 days from its entry day and then stops, and an animal that was ALREADY in K3 when the rule
+// landed carries no clock at all -- it has had its week, so it draws nothing.
+//
+// The boundaries are the point of this test. Day 7 is the last fed day and day 8 is dry, and both
+// are asserted on the SAME animal by re-querying for a later preparation date, so an off-by-one in
+// either direction fails: an exclusive upper bound loses day 7, and a `+ 7` feeds day 8.
+func TestMilkPreparationK3IsASevenDayWindowFromEntry(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newBreakdownRepo(t, ctx)
+
+	// Entered K3 on the preparation day itself: day 1 of 7.
+	fresh := goatUUID(60)
+	insertBreakdownGoat(t, ctx, pool, fresh, goatDisplayID(60), "female", "Beetal", "alive", "K3", strp(countsPark), strp(countsShedA), nil)
+	setK3Start(t, ctx, pool, fresh, "2026-07-30")
+
+	// Already in K3 before the rule landed: no clock, no milk, per "count as 0 days".
+	stale := goatUUID(61)
+	insertBreakdownGoat(t, ctx, pool, stale, goatDisplayID(61), "male", "Beetal", "alive", "K3", strp(countsPark), strp(countsShedA), nil)
+
+	asOf := time.Date(2026, 7, 29, 20, 30, 0, 0, time.UTC) // 2026-07-30 in India.
+	page := func(t *testing.T, at time.Time) domain.MilkPreparationSummary {
+		t.Helper()
+		got, err := repo.GetMilkPreparation(ctx, domain.MilkPreparationQuery{
+			TenantID: countsTenant, ParkID: strp(countsPark), Limit: 50, AsOf: at,
+		})
+		if err != nil {
+			t.Fatalf("GetMilkPreparation: %v", err)
+		}
+		return got.Summary
+	}
+
+	// Day 1: only the clocked animal. 400 ml, not 800 -- the clockless one is out.
+	if s := page(t, asOf); s.HeadCount != 1 || s.TotalRequiredML != 400 {
+		t.Fatalf("day 1 summary=%+v, want 1 head / 400 ml (the clockless K3 animal draws nothing)", s)
+	}
+
+	// Day 7 (2026-08-05) is the LAST fed day: entry day counts as day 1.
+	if s := page(t, asOf.AddDate(0, 0, 6)); s.HeadCount != 1 || s.TotalRequiredML != 400 {
+		t.Fatalf("day 7 summary=%+v, want the animal still fed on its seventh and final day", s)
+	}
+
+	// Day 8 (2026-08-06): dry.
+	if s := page(t, asOf.AddDate(0, 0, 7)); s.HeadCount != 0 || s.TotalRequiredML != 0 {
+		t.Fatalf("day 8 summary=%+v, want no milk -- the seven day window is over", s)
+	}
+
+	// A K1 animal in the same shed is unaffected by any of this: only K3 is windowed.
+	insertBreakdownGoat(t, ctx, pool, goatUUID(62), goatDisplayID(62), "female", "Beetal", "alive", "K1", strp(countsPark), strp(countsShedA), nil)
+	if s := page(t, asOf.AddDate(0, 0, 7)); s.HeadCount != 1 || s.TotalRequiredML != 800 {
+		t.Fatalf("day 8 with a K1 present=%+v, want the K1 fed at 800 ml and only the K3 dropped", s)
+	}
+}
+
+// openK3Window puts every seeded K3 animal inside its seven-day weaning window (000168) by
+// starting its clock on the given preparation date.
+//
+// Suites that are about something else -- cohort grain, partition rollup, pagination, status
+// buckets -- seed K3 animals as ordinary members of the milk set. Since 000168 a K3 animal with no
+// clock draws no milk, so without this they would silently test an empty K3 cohort and stop proving
+// what they are named for. The window itself is proved by
+// TestMilkPreparationK3IsASevenDayWindowFromEntry, which is the only place that leaves a clock off
+// on purpose.
+func openK3Window(t *testing.T, ctx context.Context, pool *pgxpool.Pool, preparationDate string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+UPDATE goats SET k3_milk_started_on = $2::date
+WHERE tenant_id = $1::uuid AND management_stage = 'K3'`, countsTenant, preparationDate); err != nil {
+		t.Fatalf("open K3 window: %v", err)
+	}
+}
+
+func setK3Start(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, startedOn string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`UPDATE goats SET k3_milk_started_on = $3::date WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		countsTenant, goatID, startedOn); err != nil {
+		t.Fatalf("set k3_milk_started_on: %v", err)
+	}
+}
+
+func setMilkCohort(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, cohort string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`UPDATE goats SET milk_cohort = $3 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		countsTenant, goatID, cohort); err != nil {
+		t.Fatalf("set milk_cohort: %v", err)
 	}
 }
 
@@ -244,6 +389,7 @@ func TestMilkPreparationPaginationIsStableAcrossPartitionedPageBoundary(t *testi
 		insertBreakdownGoat(t, ctx, pool, id, goatDisplayID(240+i), "male", "Beetal", "alive", "K3", strp(countsPark), strp(countsShedA), nil)
 		insertMilkPrepPartition(t, ctx, pool, id, countsShedA, label)
 	}
+	openK3Window(t, ctx, pool, "2026-07-30")
 	asOf := time.Date(2026, 7, 29, 20, 30, 0, 0, time.UTC)
 
 	seen := map[string]bool{}
@@ -360,6 +506,7 @@ func TestMilkPreparationPartitionEveryStatusBuckets(t *testing.T) {
 		insertBreakdownGoat(t, ctx, pool, goatUUID(640+i), goatDisplayID(640+i), "male", "Beetal", "alive", stage, strp(countsPark), strp(countsShedA), nil)
 		insertMilkPrepPartition(t, ctx, pool, goatUUID(640+i), countsShedA, "2")
 	}
+	openK3Window(t, ctx, pool, "2026-07-30")
 	asOf := time.Date(2026, 7, 29, 20, 30, 0, 0, time.UTC)
 	got, err := repo.GetMilkPreparation(ctx, domain.MilkPreparationQuery{TenantID: countsTenant, ParkID: strp(countsPark), Limit: 50, AsOf: asOf})
 	if err != nil {
@@ -402,5 +549,90 @@ func TestMilkPreparationPartitionExecutionDateIndependence(t *testing.T) {
 			t.Fatalf("as_of=%s items=%d summary=%d, want 2 partition rows totalling 2 regardless of date",
 				asOf.Format("2006-01-02"), len(got.Items), got.Summary.HeadCount)
 		}
+	}
+}
+
+// TestVerifiedUHTConsumptionReadsTheAcceptedAttemptOnly drives the production
+// submit → approve path and pins the feed-stock seam's read contract
+// (maintainer decision 2026-08-22: the app's verified UHT answer feeds the
+// stock ledger): litres exist only once the completion is COMPLETED, come from
+// the CURRENT attempt, and disappear again on rework.
+func TestVerifiedUHTConsumptionReadsTheAcceptedAttemptOnly(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := newBreakdownRepo(t, ctx)
+
+	submit := func(idem string, litres float64) domain.MilkPreparationSubmissionResult {
+		t.Helper()
+		res, err := repo.SubmitMilkPreparation(ctx, domain.MilkPreparationSubmission{
+			TenantID: countsTenant, ParkID: countsPark,
+			PreparationDate: time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC),
+			FeedingDate:     time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC),
+			GoatMilkUsed:    false,
+			Answers: domain.MilkPreparationAnswers{
+				MorningMilkCollectedLitres: 1, EveningMilkCollectedLitres: 1,
+				UHTMilkQuantityLitres: litres, CitricAcidGrams: 120,
+			},
+			Proofs: domain.MilkPreparationProofs{
+				UHTMilkQuantityProofRef: "proof-uht-" + idem, CitricAcidMixingProofRef: "proof-citric-" + idem,
+			},
+			SubmittedBy: "90000000-0000-4000-8000-000000000101", SubmittedAt: time.Now().In(biztime.DefaultLocation()),
+			IdempotencyKey: "milk-prep:" + idem, TraceID: "trace-" + idem,
+		})
+		if err != nil {
+			t.Fatalf("submit %s: %v", idem, err)
+		}
+		return res
+	}
+
+	first := submit("a1", 28)
+
+	// Pending: no accepted consumption yet.
+	if _, ok, err := repo.VerifiedUHTConsumption(ctx, countsTenant, first.CompletionID); err != nil || ok {
+		t.Fatalf("pending completion must read (ok=false, nil), got ok=%v err=%v", ok, err)
+	}
+
+	// Verifier bounces the first attempt; a reworked row has no accepted fact.
+	if applied, err := repo.BounceMilkPreparationForRework(ctx, domain.MilkPreparationVerdictCommand{
+		TenantID: countsTenant, CompletionID: first.CompletionID,
+		VerifiedBy: "90000000-0000-4000-8000-000000000101", Reason: "blurry",
+		OccurredAt: time.Now().In(biztime.DefaultLocation()), TraceID: "verdict-1",
+	}); err != nil || !applied {
+		t.Fatalf("rework: applied=%v err=%v", applied, err)
+	}
+	if _, ok, _ := repo.VerifiedUHTConsumption(ctx, countsTenant, first.CompletionID); ok {
+		t.Fatalf("reworked completion must carry no accepted consumption")
+	}
+
+	// The re-shoot carries CORRECTED litres; approval must surface the second
+	// attempt's answer, never the bounced first attempt's.
+	second := submit("a2", 30)
+	if second.CompletionID != first.CompletionID || second.AttemptNo != 2 {
+		t.Fatalf("second attempt must reuse the farm-day completion: %+v", second)
+	}
+	if _, err := repo.ApplyVerifiedMilkPreparation(ctx, domain.MilkPreparationVerdictCommand{
+		TenantID: countsTenant, CompletionID: first.CompletionID,
+		VerifiedBy: "90000000-0000-4000-8000-000000000101", OccurredAt: time.Now().In(biztime.DefaultLocation()), TraceID: "verdict-2",
+	}); err != nil {
+		t.Fatalf("approve second attempt: %v", err)
+	}
+	got, ok, err := repo.VerifiedUHTConsumption(ctx, countsTenant, first.CompletionID)
+	if err != nil || !ok {
+		t.Fatalf("completed read = (ok=%v, err=%v)", ok, err)
+	}
+	if got.ParkID != countsPark || got.PreparationDate != "2026-08-22" || got.UHTMilkQuantityLitres != 30 || got.AttemptNo != 2 {
+		t.Fatalf("consumption=%+v, want the SECOND attempt's 30 litres", got)
+	}
+
+	// A stale rework verdict on the now-completed row is an at-least-once no-op —
+	// it neither errors nor retracts the accepted fact.
+	if applied, err := repo.BounceMilkPreparationForRework(ctx, domain.MilkPreparationVerdictCommand{
+		TenantID: countsTenant, CompletionID: first.CompletionID,
+		VerifiedBy: "90000000-0000-4000-8000-000000000101", Reason: "late duplicate",
+		OccurredAt: time.Now().In(biztime.DefaultLocation()), TraceID: "verdict-3",
+	}); err != nil || applied {
+		t.Fatalf("stale rework must be a no-op: applied=%v err=%v", applied, err)
+	}
+	if _, ok, _ := repo.VerifiedUHTConsumption(ctx, countsTenant, first.CompletionID); !ok {
+		t.Fatalf("stale rework no-op must not retract the accepted fact")
 	}
 }

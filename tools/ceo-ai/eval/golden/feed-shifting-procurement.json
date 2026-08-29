@@ -7,7 +7,8 @@
     "expect": {
       "aggregate_first": true,
       "ist": true,
-      "tiers_any_of": ["api", "toolbox"]
+      "tiers_any_of": ["api", "toolbox"],
+      "external_mcp_tools_any_of": ["get_feed_today", "GET /feed-direction/preview"]
     }
   },
   {
@@ -17,7 +18,8 @@
     "notes": "Group blocked cells by shed/ration/feed item; blocked = missing config, not zero.",
     "expect": {
       "aggregate_first": true,
-      "tiers_any_of": ["api", "toolbox", "sql"]
+      "tiers_any_of": ["api", "toolbox", "sql"],
+      "external_mcp_tools_any_of": ["get_feed_today", "GET /feed-direction/preview"]
     }
   },
   {
@@ -56,7 +58,8 @@
     "notes": "Separate expected/received/accepted/rejected/holding counts.",
     "expect": {
       "aggregate_first": true,
-      "tiers_any_of": ["api", "cube", "sql"]
+      "tiers_any_of": ["api", "cube", "sql"],
+      "external_mcp_tools_any_of": ["get_procurement_pipeline", "GET /procurement/source-entry/loads"]
     }
   },
   {
@@ -67,6 +70,28 @@
       "aggregate_first": true,
       "ist": true,
       "tiers_any_of": ["api", "sql"]
+    }
+  },
+  {
+    "id": "sales-overview",
+    "class": "sales_overview",
+    "question": "What is our Sales revenue, animals sold, realized price per kg, and manure sold?",
+    "notes": "Answer from the Sales overview read API. Only Deal Closed rows feed closed-sales KPIs; buyer demand and evidence panels keep separate grains.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api"],
+      "external_mcp_tools_any_of": ["get_sales_overview", "GET /sales/overview"]
+    }
+  },
+  {
+    "id": "sales-deals",
+    "class": "sales_deals",
+    "question": "Show the latest Sales deals for CBE.",
+    "notes": "Deal-level reconciliation only. Do not mutate or record a sale.",
+    "expect": {
+      "aggregate_first": true,
+      "tiers_any_of": ["api"],
+      "external_mcp_tools_any_of": ["get_sales_deals", "GET /sales/deals"]
     }
   }
 ]

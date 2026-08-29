@@ -199,6 +199,27 @@ func TestLiveTrackerDateShiftUsesEffectiveDriveDate(t *testing.T) {
 	}
 }
 
+// TestLiveTrackerAssignedWorkUsesAssignmentScheduledDateWithOneToManyPageBoundaryParkScopeStatusMatrix pins the operational source of truth: once a row is
+// assigned to an operator drive, planned_date is the live-track day. due_at can represent clinical
+// due timing or bad seed history and must not pull assigned closed work into another day's board.
+func TestLiveTrackerAssignedWorkUsesAssignmentScheduledDateWithOneToManyPageBoundaryParkScopeStatusMatrix(t *testing.T) {
+	for _, snippet := range []string{
+		"LEFT JOIN vaccination_drive_assignment_members member",
+		"LEFT JOIN vaccination_drive_assignments member_assignment",
+		"member_assignment.planned_date = $2::date",
+		"member_assignment.assignment_id IS NULL",
+		"COALESCE(s.assigned_operator_id, asg.operator_id) AS operator_id",
+	} {
+		if !strings.Contains(liveTrackerScopedCTE, snippet) {
+			t.Fatalf("live tracker membership/operator attribution missing %q", snippet)
+		}
+	}
+	if strings.Index(liveTrackerScopedCTE, "member_assignment.planned_date = $2::date") >
+		strings.Index(liveTrackerScopedCTE, "AND oi.due_at >= (SELECT due_floor FROM day_window)") {
+		t.Fatal("assigned work must be admitted by planned_date before falling back to due_at")
+	}
+}
+
 // TestLiveTrackerScheduledDateCutsEveryDayBoundaryInBusinessTime pins that every day boundary on the
 // page is an IST boundary. A single UTC comparison would put the last two evening hours of a drive
 // on the next day for one section and not the others.
@@ -527,7 +548,9 @@ func TestLiveTrackerVaccineLabelsNeverComeFromTheEmptyCatalog(t *testing.T) {
 // the vaccination surface, so the same partition is not called two different things on two screens.
 func TestLiveTrackerShedLabelMatchesOperationalNaming(t *testing.T) {
 	cases := map[[2]string]string{
-		{"Gandhi", "3"}:         "Gandhi - 3",
+		// Canonical naming (2026-08-14 ruling): bare-numeral partitions join with a SPACE
+		// ("Gandhi 3" is a real shed name, never "Gandhi - 3"); worded partitions keep the dash.
+		{"Gandhi", "3"}:         "Gandhi 3",
 		{"Sumathi 2", "Part 4"}: "Sumathi 2 - Part 4",
 		{"Mandela 2", "whole"}:  "Mandela 2",
 		{"Old Yashoda", ""}:     "Old Yashoda",
@@ -621,12 +644,13 @@ func TestLiveTrackerMembershipIsVaccinationOnly(t *testing.T) {
 	}
 }
 
-// TestLiveTrackerMembershipExcludesDeadObligations pins the status exclusion set. 'superseded' and
-// 'waived' rows will never receive a proof; counting them into `scheduled` inflates the Scheduled
-// tile and Remaining and holds the shed row open for the rest of the day.
-func TestLiveTrackerMembershipExcludesDeadObligations(t *testing.T) {
-	if !strings.Contains(liveTrackerScopedCTE, "oi.status NOT IN ('canceled', 'superseded', 'waived')") {
-		t.Error("membership must exclude canceled, superseded AND waived obligations")
+// TestLiveTrackerMembershipExcludesDeadOrNonWorkObligations pins the status exclusion set.
+// 'superseded', 'waived' and 'missed' rows will never receive a proof; 'deferred' is not today's
+// operator work. Counting them into `scheduled` inflates the Scheduled tile and Remaining and holds
+// the shed row open for the rest of the day.
+func TestLiveTrackerMembershipExcludesDeadOrNonWorkObligations(t *testing.T) {
+	if !strings.Contains(liveTrackerScopedCTE, "oi.status NOT IN ('canceled', 'superseded', 'waived', 'missed', 'deferred')") {
+		t.Error("membership must exclude canceled, superseded, waived, missed and deferred obligations")
 	}
 	if strings.Contains(liveTrackerScopedCTE, "oi.status <> 'canceled'") {
 		t.Error("excluding only 'canceled' leaves dead obligations counted as scheduled work")
@@ -1023,7 +1047,7 @@ func TestLiveTrackerDoseStateNeverInfersClosureFromAProof(t *testing.T) {
 		{"in_progress", 0, domain.LiveTrackerDoseAwaitingProof},
 		{"due", 0, domain.LiveTrackerDoseAwaitingProof},
 		{"scheduled", 0, domain.LiveTrackerDoseScheduled},
-		{"missed", 0, domain.LiveTrackerDoseScheduled},
+		{"missed", 0, domain.LiveTrackerDoseMissed},
 	} {
 		if got := liveTrackerDoseState(tc.status, tc.proofs); got != tc.want {
 			t.Errorf("dose state for status=%q proofs=%d = %q, want %q", tc.status, tc.proofs, got, tc.want)

@@ -32,6 +32,7 @@ import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SubmitViewModelIdentityTest {
@@ -75,6 +76,22 @@ class SubmitViewModelIdentityTest {
 
         assertEquals("shed-submit:task-1:scope:old-yashoda:rv:1", SubmitViewModel.stableSubmissionKey(oldYashoda))
         assertEquals("shed-submit:task-1:scope:godel-1:rv:1", SubmitViewModel.stableSubmissionKey(godelOne))
+    }
+
+    @Test
+    fun `shed submit with partition key includes partition segment unconditionally when whole`() {
+        val task = TaskSummaryDto(taskId = "task-shared", sopVersionId = "sop-v1", scopeId = "godel-2", rowVersion = 4)
+
+        // 3-arg version with includePartition=true should emit partition segment even when partition="whole"
+        assertEquals(
+            "shed-submit:task-shared:scope:godel-2:partition:whole:rv:4",
+            SubmitViewModel.stableSubmissionKey(task, activeShedId = "godel-2", partitionLabel = "whole")
+        )
+        // 3-arg version with explicit shed id and partition should emit partition segment
+        assertEquals(
+            "shed-submit:task-shared:scope:godel-2:partition:shed-a:rv:4",
+            SubmitViewModel.stableSubmissionKey(task, activeShedId = "godel-2", partitionLabel = "shed-a")
+        )
     }
 
     @Test
@@ -155,7 +172,7 @@ private class NoopSyncRepository : SyncRepository {
     override suspend fun enqueueProofUpload(groupKey: String, idempotencyKey: String, request: ProofUploadRequestDto, localFilePath: String, durationMs: Long?): AppResult<String> = error("unused")
     override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
-    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> = error("unused")
+    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int, measurement: VerificationVerdictMeasurementDto?): AppResult<String> = error("unused")
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
     override suspend fun triggerDrain() = Unit
 }

@@ -23,6 +23,11 @@ import retrofit2.http.PUT
 import retrofit2.http.Query
 import retrofit2.http.Streaming
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
+import sg.mesha.goatos.core.network.dto.ClockPersonDayResponseDto
+import sg.mesha.goatos.core.network.dto.ClockPresenceResponseDto
+import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
+import sg.mesha.goatos.core.network.dto.ClockPunchResponseDto
+import sg.mesha.goatos.core.network.dto.ClockStatusResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteResponseDto
@@ -43,7 +48,28 @@ import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.MilkFeedingSubmitResponseDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.FeedDirectionPreviewPageDto
+import sg.mesha.goatos.core.network.dto.FeedDistributionCapturesDto
 import sg.mesha.goatos.core.network.dto.FeedPackingWorklistPageDto
+import sg.mesha.goatos.core.network.dto.FeedWastageCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.FeedWastageCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementRequestDto
+import sg.mesha.goatos.core.network.dto.FeedWastageMeasurementResponseDto
+import sg.mesha.goatos.core.network.dto.FeedWastageWorklistPageDto
+import sg.mesha.goatos.core.network.dto.PcCareCapturesDto
+import sg.mesha.goatos.core.network.dto.PcCareCreateTaskRequestDto
+import sg.mesha.goatos.core.network.dto.PcCarePlannerCatalogDto
+import sg.mesha.goatos.core.network.dto.PcCarePlannerShedsDto
+import sg.mesha.goatos.core.network.dto.PcCareScanRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareScanResponseDto
+import sg.mesha.goatos.core.network.dto.PcCareSlotProofRequestDto
+import sg.mesha.goatos.core.network.dto.PcCareSubmitResponseDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskPageDto
+import sg.mesha.goatos.core.network.dto.PcCareTaskRosterDto
+import sg.mesha.goatos.core.network.dto.ToxinStepCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.ToxinSubmitRequestDto
+import sg.mesha.goatos.core.network.dto.ToxinTaskDetailDto
+import sg.mesha.goatos.core.network.dto.ToxinTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitResponseDto
@@ -69,6 +95,7 @@ import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.ProofCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.ProofDownloadUrlResponseDto
 import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
@@ -98,8 +125,12 @@ import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationReviewEventBatchResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionRequestDto
+import sg.mesha.goatos.core.network.dto.WeighingWeightCorrectionResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
@@ -120,7 +151,6 @@ import sg.mesha.goatos.core.network.dto.WeighingPlannerParkBucketsResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationAlertPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAlertPageResponseDto
-import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto
@@ -323,12 +353,6 @@ interface AppApiService {
         @Query("limit") limit: Int,
     ): WeighingLeadershipShedVideosResponseDto
 
-    @GET("app/weighing/leadership/sheds")
-    suspend fun listWeighingLeadershipSheds(
-        @Query("cursor") cursor: String?,
-        @Query("limit") limit: Int,
-    ): WeighingLeadershipShedPageResponseDto
-
     @GET("app/vaccination/alerts")
     suspend fun listVaccinationAlerts(
         @Query("cursor") cursor: String?,
@@ -470,6 +494,11 @@ interface AppApiService {
         @Query("limit") limit: Int?,
     ): UploadedProofListResponseDto
 
+    @GET("app/proofs/{proof_id}/download")
+    suspend fun getProofDownloadUrl(
+        @Path("proof_id") proofId: String,
+    ): ProofDownloadUrlResponseDto
+
     @DELETE("app/proofs/{proof_id}")
     suspend fun deleteProof(@Path("proof_id") proofId: String)
 
@@ -527,6 +556,19 @@ interface AppApiService {
         @Body request: VerificationVerdictRequestDto,
     ): VerificationVerdictResponseDto
 
+    /**
+     * THE VERIFIER'S WEIGHT CORRECTION (maintainer decision 2026-08-17). Weighing owns the route --
+     * the correction writes a weighing record -- while the verification item tells the app WHICH
+     * record to address, via measurement_correction. Same endpoint admin-web calls: one act, one
+     * rule, one route.
+     */
+    @POST("app/weighing/observations/{observation_id}/weight-correction")
+    suspend fun correctWeighingObservationWeight(
+        @Path("observation_id") observationId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingWeightCorrectionRequestDto,
+    ): WeighingWeightCorrectionResponseDto
+
     @POST("verification/items/{item_id}/close")
     suspend fun closeVerificationItem(
         @Path("item_id") itemId: String,
@@ -545,6 +587,12 @@ interface AppApiService {
         @Path("batch_id") batchId: String,
         @Header("Idempotency-Key") idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto
+
+    @POST("verification/review-events")
+    suspend fun recordVerificationReviewEvents(
+        @Body request: VerificationReviewEventBatchRequestDto,
+    ): VerificationReviewEventBatchResponseDto
+
     @GET("herd-register/summary")
     suspend fun getHerdRegisterSummary(
         @Query("lifecycle_status") lifecycleStatus: String?,
@@ -619,6 +667,7 @@ interface AppApiService {
         @Query("park_id") parkId: String,
         @Query("target_date") targetDate: String,
         @Query("shed_id") shedId: String?,
+        @Query("partition_label") partitionLabel: String?,
         @Query("session") session: Int?,
         @Query("workflow") workflow: String?,
         @Query("status") status: String?,
@@ -630,12 +679,178 @@ interface AppApiService {
     suspend fun getFeedPackingWorklist(
         @Query("park_id") parkId: String,
         @Query("target_date") targetDate: String,
+        @Query("shed_id") shedId: String?,
+        @Query("partition_label") partitionLabel: String?,
         @Query("session") session: Int?,
         @Query("workflow") workflow: String?,
         @Query("status") status: String?,
         @Query("limit") limit: Int?,
         @Query("offset") offset: Int?,
     ): FeedPackingWorklistPageDto
+
+    @GET("feed-wastage/worklist")
+    suspend fun getFeedWastageWorklist(
+        @Query("park_id") parkId: String,
+        @Query("target_date") targetDate: String,
+        @Query("shed_id") shedId: String?,
+        @Query("partition_label") partitionLabel: String?,
+        @Query("status") status: String?,
+        @Query("limit") limit: Int?,
+        @Query("offset") offset: Int?,
+    ): FeedWastageWorklistPageDto
+
+    @POST("feed-direction/wastage/complete")
+    suspend fun completeFeedWastage(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: FeedWastageCompleteRequestDto,
+    ): FeedWastageCompleteResponseDto
+
+    /**
+     * THE VERIFIER'S WASTAGE MEASUREMENT (maintainer decision 2026-08-18). Feed owns the route —
+     * the measurement writes a feed-wastage record — while the verification item tells the app
+     * WHICH record to address, via measurement_correction. Same endpoint admin-web calls.
+     */
+    @POST("feed-direction/wastage/{completion_id}/measurement")
+    suspend fun recordFeedWastageMeasurement(
+        @Path("completion_id") completionId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: FeedWastageMeasurementRequestDto,
+    ): FeedWastageMeasurementResponseDto
+
+
+    // ------------------------------------------------------------------
+    // PC Care (module pc_care, maintainer decision 2026-08-21)
+    // ------------------------------------------------------------------
+
+    @GET("app/pc-care/worklist")
+	    suspend fun getPcCareWorklist(
+	        @Query("category") category: String,
+	        @Query("date") date: String,
+	        @Query("limit") limit: Int?,
+	        @Query("cursor") cursor: String?,
+	    ): PcCareTaskPageDto
+
+    @GET("app/pc-care/tasks")
+    suspend fun getPcCareTasks(
+        @Query("date") date: String,
+	        @Query("park_id") parkId: String?,
+	        @Query("category") category: String?,
+	        @Query("limit") limit: Int?,
+	        @Query("cursor") cursor: String?,
+	    ): PcCareTaskPageDto
+
+    @GET("app/pc-care/tasks/{task_id}")
+    suspend fun getPcCareTask(
+        @Path("task_id") taskId: String,
+    ): PcCareTaskDto
+
+    @GET("app/pc-care/tasks/{task_id}/captures")
+    suspend fun getPcCareTaskCaptures(
+        @Path("task_id") taskId: String,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): PcCareCapturesDto
+
+    @GET("app/pc-care/tasks/{task_id}/roster")
+    suspend fun getPcCareTaskRoster(
+        @Path("task_id") taskId: String,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): PcCareTaskRosterDto
+
+    @POST("app/pc-care/tasks/{task_id}/animals")
+    suspend fun scanPcCareAnimal(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: PcCareScanRequestDto,
+    ): PcCareScanResponseDto
+
+    @PUT("app/pc-care/tasks/{task_id}/animals/{animal_row_id}/proofs/{slot}")
+    suspend fun registerPcCareSlotProof(
+        @Path("task_id") taskId: String,
+        @Path("animal_row_id") animalRowId: String,
+        @Path("slot") slot: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: PcCareSlotProofRequestDto,
+    ): Unit
+
+    @PUT("app/pc-care/tasks/{task_id}/proofs/{slot}")
+    suspend fun registerPcCareTaskProof(
+        @Path("task_id") taskId: String,
+        @Path("slot") slot: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: PcCareSlotProofRequestDto,
+    ): Unit
+
+    @POST("app/pc-care/tasks/{task_id}/submit")
+    suspend fun submitPcCareTask(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+    ): PcCareSubmitResponseDto
+
+    @GET("app/pc-care/planner/catalog")
+    suspend fun getPcCarePlannerCatalog(): PcCarePlannerCatalogDto
+
+    @GET("app/pc-care/planner/parks/{park_id}/sheds")
+    suspend fun getPcCarePlannerParkSheds(
+        @Path("park_id") parkId: String,
+        @Query("category") category: String,
+        @Query("date") date: String,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): PcCarePlannerShedsDto
+
+    @POST("app/pc-care/tasks")
+    suspend fun createPcCareTask(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: PcCareCreateTaskRequestDto,
+    ): PcCareTaskDto
+
+    @POST("app/pc-care/tasks/{task_id}/cancel")
+    suspend fun cancelPcCareTask(
+        @Path("task_id") taskId: String,
+    ): Unit
+
+    // ------------------------------------------------------------------
+    // Toxin (aflatoxin strip test, maintainer decision 2026-08-25)
+    // ------------------------------------------------------------------
+
+    @GET("app/toxin/tasks")
+    suspend fun getToxinTasks(
+        @Query("filter") filter: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): ToxinTaskPageDto
+
+    @GET("app/toxin/tasks/{task_id}")
+    suspend fun getToxinTask(
+        @Path("task_id") taskId: String,
+    ): ToxinTaskDetailDto
+
+    @POST("app/toxin/tasks/{task_id}/steps/{step_no}/complete")
+    suspend fun completeToxinStep(
+        @Path("task_id") taskId: String,
+        @Path("step_no") stepNo: Int,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ToxinStepCompleteRequestDto,
+    ): ToxinTaskDetailDto
+
+    @POST("app/toxin/tasks/{task_id}/submit")
+    suspend fun submitToxinReading(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ToxinSubmitRequestDto,
+    ): ToxinTaskDetailDto
+
+    @GET("feed-direction/distribution/captures")
+    suspend fun getFeedDistributionCaptures(
+        @Query("park_id") parkId: String?,
+        @Query("shed_id") shedId: String,
+        @Query("partition_label") partitionLabel: String?,
+        @Query("session_no") sessionNo: Int,
+        @Query("target_date") targetDate: String,
+        @Query("workflow") workflow: String,
+    ): FeedDistributionCapturesDto
 
     @POST("feed-direction/complete")
     suspend fun completeFeedDirectionSession(
@@ -663,6 +878,7 @@ interface AppApiService {
 
     @GET("app/counts/milk-preparation")
     suspend fun getMilkPreparation(
+        @Query("preparation_date") preparationDate: String?,
         @Query("park_id") parkId: String?,
         @Query("limit") limit: Int,
         @Query("offset") offset: Int,
@@ -795,19 +1011,42 @@ interface AppApiService {
         @Body request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto
 
-    @GET("app/weighing/weight-history")
-    suspend fun getWeightHistory(
-        @Query("park_id") parkId: String?,
-        @Query("campaign_shed_id") campaignShedId: String?,
-    ): WeightHistoryResponseDto
+    // --- Clock In / Clock Out (docs/features/clock-in-out/plan.md) --------------------------
+    // The Idempotency-Key header mirrors the body's idempotency_key (the contract accepts both;
+    // body wins server-side) so the punch shares the same header convention every other outbox
+    // write here uses.
 
-    // park_id omitted = every park the caller may see.
-    @GET("app/weighing/leadership/growth")
-    suspend fun getWeighingGrowth(
+    @POST("app/clock/in")
+    suspend fun recordClockIn(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto
+
+    @POST("app/clock/out")
+    suspend fun recordClockOut(
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto
+
+    @GET("app/clock/status")
+    suspend fun getClockStatus(): ClockStatusResponseDto
+
+    @GET("app/clock/presence")
+    suspend fun listClockPresence(
+        @Query("date") date: String?,
         @Query("park_id") parkId: String?,
-        @Query("from") from: String?,
-        @Query("to") to: String?,
-    ): GrowthSummaryDto
+        @Query("designation") designation: String?,
+        @Query("bucket") bucket: String?,
+        @Query("q") q: String?,
+        @Query("limit") limit: Int?,
+        @Query("cursor") cursor: String?,
+    ): ClockPresenceResponseDto
+
+    @GET("app/clock/presence/{workforce_member_id}")
+    suspend fun getClockPresencePerson(
+        @Path("workforce_member_id") workforceMemberId: String,
+        @Query("date") date: String?,
+    ): ClockPersonDayResponseDto
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic.
@@ -817,6 +1056,7 @@ interface AppApiService {
 class RetrofitAppApi(
     private val service: AppApiService,
     private val blobUploader: ProofBlobUploader,
+    private val baseUrl: String = "",
 ) : AppApi {
     override suspend fun recordAuthSessionEvent(request: AuthSessionEventRequestDto) =
         service.recordAuthSessionEvent(request)
@@ -986,11 +1226,6 @@ class RetrofitAppApi(
     ): WeighingLeadershipShedVideosResponseDto =
         service.getWeighingLeadershipShedVideos(campaignId, campaignShedId, cursor, limit)
 
-    override suspend fun listWeighingLeadershipSheds(
-        cursor: String?,
-        limit: Int,
-    ): WeighingLeadershipShedPageResponseDto = service.listWeighingLeadershipSheds(cursor, limit)
-
     override suspend fun listVaccinationAlerts(
         cursor: String?,
         limit: Int,
@@ -1109,6 +1344,13 @@ class RetrofitAppApi(
         limit: Int?,
     ): UploadedProofListResponseDto = service.listUploadedProofs(scopeType, scopeId, clientTaskKey, fieldKey, limit)
 
+    override suspend fun getProofDownloadUrl(proofId: String): String {
+        val url = service.getProofDownloadUrl(proofId).downloadUrl
+        // Local storage signs a RELATIVE path; a raw URL loader needs it absolute or the
+        // teammate thumbnail silently never renders (device finding 2026-08-15).
+        return if (url.startsWith("/")) baseUrl.trimEnd('/') + url else url
+    }
+
     override suspend fun deleteProof(proofId: String) = service.deleteProof(proofId)
 
     override suspend fun uploadProofBlob(
@@ -1196,6 +1438,12 @@ class RetrofitAppApi(
         request: VerificationVerdictRequestDto,
     ): VerificationVerdictResponseDto = service.submitVerificationVerdict(itemId, idempotencyKey, request)
 
+    override suspend fun correctWeighingObservationWeight(
+        observationId: String,
+        idempotencyKey: String,
+        request: WeighingWeightCorrectionRequestDto,
+    ): WeighingWeightCorrectionResponseDto = service.correctWeighingObservationWeight(observationId, idempotencyKey, request)
+
     override suspend fun closeVerificationItem(
         itemId: String,
         idempotencyKey: String,
@@ -1213,6 +1461,12 @@ class RetrofitAppApi(
         idempotencyKey: String,
     ): VerificationCloseSubmissionResponseDto =
         service.closeVaccinationBatch(batchId, idempotencyKey)
+
+    override suspend fun recordVerificationReviewEvents(
+        request: VerificationReviewEventBatchRequestDto,
+    ): VerificationReviewEventBatchResponseDto =
+        service.recordVerificationReviewEvents(request)
+
     override suspend fun getHerdRegisterSummary(
         lifecycleStatus: String?,
         parkId: String?,
@@ -1308,24 +1562,132 @@ class RetrofitAppApi(
         parkId: String,
         targetDate: String,
         shedId: String?,
+        partitionLabel: String?,
         session: Int?,
         workflow: String?,
         status: String?,
         limit: Int?,
         offset: Int?,
     ): FeedDirectionPreviewPageDto =
-        service.getFeedDirectionPreview(parkId, targetDate, shedId, session, workflow, status, limit, offset)
+        service.getFeedDirectionPreview(parkId, targetDate, shedId, partitionLabel, session, workflow, status, limit, offset)
 
     override suspend fun getFeedPackingWorklist(
         parkId: String,
         targetDate: String,
+        shedId: String?,
+        partitionLabel: String?,
         session: Int?,
         workflow: String?,
         status: String?,
         limit: Int?,
         offset: Int?,
     ): FeedPackingWorklistPageDto =
-        service.getFeedPackingWorklist(parkId, targetDate, session, workflow, status, limit, offset)
+        service.getFeedPackingWorklist(parkId, targetDate, shedId, partitionLabel, session, workflow, status, limit, offset)
+
+
+	    override suspend fun getPcCareWorklist(
+	        category: String,
+	        date: String,
+	        limit: Int?,
+	        cursor: String?,
+	    ): PcCareTaskPageDto = service.getPcCareWorklist(category, date, limit, cursor)
+
+    override suspend fun getPcCareTasks(
+        date: String,
+	        parkId: String?,
+	        category: String?,
+	        limit: Int?,
+	        cursor: String?,
+	    ): PcCareTaskPageDto = service.getPcCareTasks(date, parkId, category, limit, cursor)
+
+    override suspend fun getPcCareTask(taskId: String): PcCareTaskDto = service.getPcCareTask(taskId)
+
+    override suspend fun getPcCareTaskCaptures(
+        taskId: String,
+        cursor: String?,
+        limit: Int?,
+    ): PcCareCapturesDto = service.getPcCareTaskCaptures(taskId, cursor, limit)
+
+    override suspend fun getPcCareTaskRoster(
+        taskId: String,
+        cursor: String?,
+        limit: Int?,
+    ): PcCareTaskRosterDto = service.getPcCareTaskRoster(taskId, cursor, limit)
+
+    override suspend fun scanPcCareAnimal(
+        taskId: String,
+        idempotencyKey: String,
+        request: PcCareScanRequestDto,
+    ): PcCareScanResponseDto = service.scanPcCareAnimal(taskId, idempotencyKey, request)
+
+    override suspend fun registerPcCareSlotProof(
+        taskId: String,
+        animalRowId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareSlotProofRequestDto,
+    ) = service.registerPcCareSlotProof(taskId, animalRowId, slot, idempotencyKey, request)
+
+    override suspend fun registerPcCareTaskProof(
+        taskId: String,
+        slot: String,
+        idempotencyKey: String,
+        request: PcCareSlotProofRequestDto,
+    ) = service.registerPcCareTaskProof(taskId, slot, idempotencyKey, request)
+
+    override suspend fun submitPcCareTask(
+        taskId: String,
+        idempotencyKey: String,
+    ): PcCareSubmitResponseDto = service.submitPcCareTask(taskId, idempotencyKey)
+
+    override suspend fun getPcCarePlannerCatalog(): PcCarePlannerCatalogDto =
+        service.getPcCarePlannerCatalog()
+
+    override suspend fun getPcCarePlannerParkSheds(
+        parkId: String,
+        category: String,
+        date: String,
+        cursor: String?,
+        limit: Int?,
+    ): PcCarePlannerShedsDto = service.getPcCarePlannerParkSheds(parkId, category, date, cursor, limit)
+
+    override suspend fun createPcCareTask(
+        idempotencyKey: String,
+        request: PcCareCreateTaskRequestDto,
+    ): PcCareTaskDto = service.createPcCareTask(idempotencyKey, request)
+
+    override suspend fun cancelPcCareTask(taskId: String) = service.cancelPcCareTask(taskId)
+
+    override suspend fun getToxinTasks(
+        filter: String?,
+        limit: Int?,
+        cursor: String?,
+    ): ToxinTaskPageDto = service.getToxinTasks(filter, limit, cursor)
+
+    override suspend fun getToxinTask(taskId: String): ToxinTaskDetailDto = service.getToxinTask(taskId)
+
+    override suspend fun completeToxinStep(
+        taskId: String,
+        stepNo: Int,
+        idempotencyKey: String,
+        request: ToxinStepCompleteRequestDto,
+    ): ToxinTaskDetailDto = service.completeToxinStep(taskId, stepNo, idempotencyKey, request)
+
+    override suspend fun submitToxinReading(
+        taskId: String,
+        idempotencyKey: String,
+        request: ToxinSubmitRequestDto,
+    ): ToxinTaskDetailDto = service.submitToxinReading(taskId, idempotencyKey, request)
+
+    override suspend fun getFeedDistributionCaptures(
+        parkId: String?,
+        shedId: String,
+        partitionLabel: String?,
+        sessionNo: Int,
+        targetDate: String,
+        workflow: String,
+    ): FeedDistributionCapturesDto =
+        service.getFeedDistributionCaptures(parkId, shedId, partitionLabel, sessionNo, targetDate, workflow)
 
     override suspend fun completeFeedDirectionSession(
         idempotencyKey: String,
@@ -1342,6 +1704,29 @@ class RetrofitAppApi(
         request: FeedPackingCompleteRequestDto,
     ): FeedPackingCompleteResponseDto = service.completeFeedPacking(idempotencyKey, request)
 
+    override suspend fun getFeedWastageWorklist(
+        parkId: String,
+        targetDate: String,
+        shedId: String?,
+        partitionLabel: String?,
+        status: String?,
+        limit: Int?,
+        offset: Int?,
+    ): FeedWastageWorklistPageDto =
+        service.getFeedWastageWorklist(parkId, targetDate, shedId, partitionLabel, status, limit, offset)
+
+    override suspend fun completeFeedWastage(
+        idempotencyKey: String,
+        request: FeedWastageCompleteRequestDto,
+    ): FeedWastageCompleteResponseDto = service.completeFeedWastage(idempotencyKey, request)
+
+    override suspend fun recordFeedWastageMeasurement(
+        completionId: String,
+        idempotencyKey: String,
+        request: FeedWastageMeasurementRequestDto,
+    ): FeedWastageMeasurementResponseDto =
+        service.recordFeedWastageMeasurement(completionId, idempotencyKey, request)
+
     override suspend fun submitMilkPreparation(
         idempotencyKey: String,
         request: MilkPreparationSubmissionRequestDto,
@@ -1350,8 +1735,8 @@ class RetrofitAppApi(
     override suspend fun getMilkFeedingTasks(feedingDate: String, parkId: String?, sessionNo: Int?, limit: Int, offset: Int): MilkFeedingPageDto = service.getMilkFeedingTasks(feedingDate, parkId, sessionNo, limit, offset)
     override suspend fun submitMilkFeedingTask(taskId: String, idempotencyKey: String, request: MilkFeedingSubmitRequestDto): MilkFeedingSubmitResponseDto = service.submitMilkFeedingTask(taskId, idempotencyKey, request)
 
-    override suspend fun getMilkPreparation(parkId: String?, limit: Int, offset: Int): MilkPreparationPageDto =
-        service.getMilkPreparation(parkId, limit, offset)
+    override suspend fun getMilkPreparation(preparationDate: String?, parkId: String?, limit: Int, offset: Int): MilkPreparationPageDto =
+        service.getMilkPreparation(preparationDate, parkId, limit, offset)
 
     override suspend fun getFeedTransportTasks(
         businessDate: String,
@@ -1461,11 +1846,33 @@ class RetrofitAppApi(
         request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto = service.rejectCountsApproval(requestId, idempotencyKey, request)
 
-    override suspend fun getWeightHistory(parkId: String?, campaignShedId: String?): WeightHistoryResponseDto =
-        service.getWeightHistory(parkId, campaignShedId)
+    override suspend fun recordClockIn(
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto = service.recordClockIn(idempotencyKey, request)
 
-    override suspend fun getWeighingGrowth(parkId: String?, from: String?, to: String?): GrowthSummaryDto =
-        service.getWeighingGrowth(parkId, from, to)
+    override suspend fun recordClockOut(
+        idempotencyKey: String,
+        request: ClockPunchRequestDto,
+    ): ClockPunchResponseDto = service.recordClockOut(idempotencyKey, request)
+
+    override suspend fun getClockStatus(): ClockStatusResponseDto = service.getClockStatus()
+
+    override suspend fun listClockPresence(
+        date: String?,
+        parkId: String?,
+        designation: String?,
+        bucket: String?,
+        q: String?,
+        limit: Int?,
+        cursor: String?,
+    ): ClockPresenceResponseDto =
+        service.listClockPresence(date, parkId, designation, bucket, q, limit, cursor)
+
+    override suspend fun getClockPresencePerson(
+        workforceMemberId: String,
+        date: String?,
+    ): ClockPersonDayResponseDto = service.getClockPresencePerson(workforceMemberId, date)
 }
 
 /**
@@ -1594,6 +2001,7 @@ object NetworkFactory {
         RetrofitAppApi(
             retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider, localeProvider, requestMetadataProvider, telemetryInterceptor)).create(),
             proofBlobUploader(baseUrl, tokenProvider),
+            baseUrl,
         )
 }
 

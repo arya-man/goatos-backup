@@ -39,20 +39,9 @@ import java.time.ZoneId
  * instead of `dueDate.isBefore(today)`. Since Saturday == firstDay (yesterday), the
  * condition was false, and Saturday's rows fell through to the `else` branch.
  *
- * The fix: fold in ALL backlog work (open, review, or already completed) whose due date is
- * on or before today:
- *   !dueDate.isAfter(workWindow.today)
- *
- * Completed backlog rows now ALSO stay on today's list, not just their original due date --
- * a maintainer-specified product decision (2026-08-05): a shed the operator finished must
- * stay visible until its DRIVE closes, and the drive closing is exactly the moment the
- * backend stops returning the row at all (it falls outside workWindow.asOf/dueBefore).
- * As long as the API still sends it, the card stays. This superseded an earlier version of
- * this same test file that asserted completed backlog rows should NOT appear on today --
- * that assertion encoded the defect this rule now fixes (a completed shed silently
- * vanishing from the operator's list mid-drive). See ShedsViewModelTest's
- * "a completed backlog shed stays on today's list and is marked non-openable" for the
- * pinning test on the fixed behaviour.
+ * The fix: fold unfinished/actionable backlog work into today, but keep completed backlog
+ * history on its own date. Operators should not see prior-date cards they already finished
+ * on today's worklist.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ShedsOverdueWorkVisibilityTest {
@@ -107,7 +96,7 @@ class ShedsOverdueWorkVisibilityTest {
     }
 
     @Test
-    fun `completed work due yesterday also stays visible on today's tab until its drive closes`() = runTest(dispatcher) {
+    fun `completed work due yesterday is hidden from today's tab`() = runTest(dispatcher) {
         val today = LocalDate.now(ZoneId.of("Asia/Kolkata"))
         val yesterday = today.minusDays(1).toString()
 
@@ -115,8 +104,7 @@ class ShedsOverdueWorkVisibilityTest {
             OverdueTestExecutionRepository(
                 VaccinationExecutionResponseDto(
                     rows = listOf(
-                        // Saturday work that is completed — the backend is still returning it
-                        // (its drive has not closed), so it must stay visible on Sunday too.
+                        // Saturday work that is completed must not roll into Sunday's tab.
                         VaccinationExecutionRowDto(
                             shedId = "gandhi-2",
                             shedName = "Gandhi 2",
@@ -143,8 +131,7 @@ class ShedsOverdueWorkVisibilityTest {
         advanceUntilIdle()
 
         val state = vm.state.value
-        assertEquals("completed work must stay visible on today's list while its drive is active", 1, state.rows.size)
-        assertEquals("Gandhi 2", state.rows[0].name)
+        assertEquals("completed prior-date work must not stay visible on today's list", 0, state.rows.size)
     }
 
     @Test
@@ -244,7 +231,7 @@ class ShedsOverdueWorkVisibilityTest {
     }
 
     @Test
-    fun `mixing yesterday open and completed shows both on today, and both on yesterday`() = runTest(dispatcher) {
+    fun `mixing yesterday open and completed rolls only open work into today`() = runTest(dispatcher) {
         val today = LocalDate.now(ZoneId.of("Asia/Kolkata"))
         val yesterday = today.minusDays(1).toString()
 
@@ -290,11 +277,10 @@ class ShedsOverdueWorkVisibilityTest {
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
-        // Verify today shows both the open AND the completed work from yesterday — the
-        // completed shed stays visible until its drive closes, not just on its own due date.
+        // Verify today shows only actionable rollover work from yesterday.
         val stateToday = vm.state.value
-        assertEquals("today should show both open and completed work from yesterday", 2, stateToday.rows.size)
-        assertEquals(listOf("Gandhi 1", "Gandhi 2"), stateToday.rows.map { it.name })
+        assertEquals("today should show only open work from yesterday", 1, stateToday.rows.size)
+        assertEquals(listOf("Gandhi 1"), stateToday.rows.map { it.name })
 
         // Now select yesterday to verify both appear there
         vm.onEvent(sg.mesha.goatos.feature.sheds.ShedsEvent.SelectDay(yesterday))
@@ -306,7 +292,7 @@ class ShedsOverdueWorkVisibilityTest {
     }
 
     @Test
-    fun `deep backlog completed work stays visible on today while its drive is still active`() = runTest(dispatcher) {
+    fun `deep backlog completed work is hidden from today`() = runTest(dispatcher) {
         val today = LocalDate.now(ZoneId.of("Asia/Kolkata"))
         val deepBacklog = today.minusDays(7).toString()
 
@@ -314,8 +300,7 @@ class ShedsOverdueWorkVisibilityTest {
             OverdueTestExecutionRepository(
                 VaccinationExecutionResponseDto(
                     rows = listOf(
-                        // Deep backlog completed work — the backend is still returning this row
-                        // (its drive has not closed), so the operator must still see it today.
+                        // Deep backlog completed work must not roll into today's tab.
                         VaccinationExecutionRowDto(
                             shedId = "godel-1",
                             shedName = "Godel 1",
@@ -342,8 +327,7 @@ class ShedsOverdueWorkVisibilityTest {
         advanceUntilIdle()
 
         val state = vm.state.value
-        assertEquals("completed deep backlog should stay visible while its drive is active", 1, state.rows.size)
-        assertEquals("Godel 1", state.rows[0].name)
+        assertEquals("completed deep backlog should not stay visible on today", 0, state.rows.size)
     }
 }
 
@@ -422,6 +406,16 @@ private class OverdueTestExecutionRepository(
 
     override suspend fun getScanRosterStatusCounts(shedId: String, taskId: String?, partitionLabel: String?): List<StatusCount> =
         error("unused")
+
+    override suspend fun openScanRosterRows(shedId: String, taskId: String?, partitionLabel: String?): List<ScanRosterRowEntity> =
+        emptyList()
+
+    override suspend fun siblingPartitionOpenRows(shedId: String, taskId: String?, activePartitionLabel: String?): List<ScanRosterRowEntity> =
+        emptyList()
+
+    override suspend fun otherShedOpenRows(shedId: String, taskId: String?): List<ScanRosterRowEntity> =
+        emptyList()
+
 
     override fun observeScanRosterRows(shedId: String, taskId: String?, windowSize: Int, partitionLabel: String?): Flow<List<ScanRosterRowEntity>> =
         error("unused")

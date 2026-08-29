@@ -272,6 +272,114 @@ func TestVerifyPageOversightFiltersControlIsCapabilityGated(t *testing.T) {
 // (permissions.VerificationOversee) for the /verify oversight analytics section as
 // TestVerifyPageOversightFiltersControlIsCapabilityGated pins for the filter chrome: CEO/directors
 // who hold VerificationOversee get "oversight_analytics" enabled, the verifier does not.
+// TestVerifyPageVideoLogControlIsCapabilityGated pins that the video_log control follows
+// permissions.VerificationEvidenceTimeline and NOT VerificationOversee.
+//
+// The verifier row is the load-bearing one: she must get video_log ENABLED and oversight_analytics
+// DISABLED from the same compile. Asserting both in one case is what stops a later change from
+// collapsing the two controls back together in either direction.
+func TestVerifyPageVideoLogControlIsCapabilityGated(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		role             string
+		videoLogEnabled  bool
+		oversightEnabled bool
+	}{
+		{"ceo_internal", permissions.RoleCEOInternal, true, true},
+		{"pc_director", permissions.RolePCDirector, true, true},
+		// The whole point of the separate capability.
+		{"verifier", permissions.RoleVerifier, true, false},
+		// Holds neither: no verification.review, so it cannot open /verify at all.
+		{"growth_director", permissions.RoleGrowthDirector, false, false},
+		{"operator", permissions.RoleOperator, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+				TenantID: "00000000-0000-4000-8000-000000000001",
+				ActorID:  "00000000-0000-4000-8000-000000000099",
+				Grants: []permissions.ActiveGrant{
+					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+				},
+			})
+			controls := pageByRouteID(t, resp.Pages, "verification-review").Controls
+
+			videoLog := controlByID(t, controls, "video_log")
+			if videoLog.Enabled != tc.videoLogEnabled {
+				t.Fatalf("%s video_log.enabled = %v want %v (%#v)", tc.name, videoLog.Enabled, tc.videoLogEnabled, videoLog)
+			}
+			if !tc.videoLogEnabled && videoLog.DisabledReason == "" {
+				t.Fatalf("%s: disabled video_log control must carry a backend disabled reason", tc.name)
+			}
+			// The endpoint the panel reads must be declared on the control, so the contract states
+			// which read this visibility gate is standing in front of.
+			if videoLog.Action != "GET /verification/video-log" {
+				t.Fatalf("%s video_log.action = %q want the video-log read", tc.name, videoLog.Action)
+			}
+
+			oversight := controlByID(t, controls, "oversight_analytics")
+			if oversight.Enabled != tc.oversightEnabled {
+				t.Fatalf("%s oversight_analytics.enabled = %v want %v — the video log must not widen a caller into the oversight chrome",
+					tc.name, oversight.Enabled, tc.oversightEnabled)
+			}
+		})
+	}
+}
+
+// TestVerifyPageRandomizationControlIsCapabilityGated pins the NARROWEST capability on /verify:
+// permissions.VerificationSampling, which is CEO-ONLY (maintainer decision 2026-08-26).
+//
+// The pc_director row is the load-bearing one, and it is deliberately the opposite of every other
+// control on this page: he holds VerificationOversee, so he gets the module chips, the capture-date
+// range and the analytics -- and must NOT get this. Oversight WATCHES the verification workload;
+// randomization DECIDES how much of it a human is required to watch, and a director setting that
+// for his own department's work is the separation of duty that keeps verdict authority off
+// leadership in the first place. Asserting oversight_analytics ENABLED and randomization DISABLED
+// from the same compile is what stops a later change from collapsing the two capabilities together.
+func TestVerifyPageRandomizationControlIsCapabilityGated(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		role             string
+		randomization    bool
+		oversightEnabled bool
+	}{
+		{"ceo_internal", permissions.RoleCEOInternal, true, true},
+		// Holds oversight, must not hold this.
+		{"pc_director", permissions.RolePCDirector, false, true},
+		{"verifier", permissions.RoleVerifier, false, false},
+		{"park_head", permissions.RoleParkHead, false, false},
+		{"operator", permissions.RoleOperator, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+				TenantID: "00000000-0000-4000-8000-000000000001",
+				ActorID:  "00000000-0000-4000-8000-000000000099",
+				Grants: []permissions.ActiveGrant{
+					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+				},
+			})
+			controls := pageByRouteID(t, resp.Pages, "verification-review").Controls
+
+			randomization := controlByID(t, controls, "randomization")
+			if randomization.Enabled != tc.randomization {
+				t.Fatalf("%s randomization.enabled = %v want %v (%#v)", tc.name, randomization.Enabled, tc.randomization, randomization)
+			}
+			if !tc.randomization && randomization.DisabledReason == "" {
+				t.Fatalf("%s: disabled randomization control must carry a backend disabled reason", tc.name)
+			}
+			// The endpoint the panel reads must be declared on the control, so the contract states
+			// which read this visibility gate stands in front of.
+			if randomization.Action != "GET /verification/sampling" {
+				t.Fatalf("%s randomization.action = %q want the sampling read", tc.name, randomization.Action)
+			}
+			oversight := controlByID(t, controls, "oversight_analytics")
+			if oversight.Enabled != tc.oversightEnabled {
+				t.Fatalf("%s oversight_analytics.enabled = %v want %v -- randomization must not move the oversight gate",
+					tc.name, oversight.Enabled, tc.oversightEnabled)
+			}
+		})
+	}
+}
+
 func TestVerifyPageOversightAnalyticsControlIsCapabilityGated(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -435,7 +543,7 @@ func TestBootstrapCompilesDBBackedFamilies(t *testing.T) {
 	if len(parkChips.Options) != 1 || parkChips.Options[0].Key != "park-1" {
 		t.Fatalf("park display chips = %#v", parkChips.Options)
 	}
-	config := pageByRouteID(t, resp.Pages, "config")
+	config := pageByRouteID(t, resp.Pages, "vaccination-plan")
 	ruleScopes := optionGroupByID(t, config.OptionGroups, "rule_scopes")
 	if len(ruleScopes.Options) != 2 || ruleScopes.Options[1].Key != "park:park-1" || !strings.Contains(ruleScopes.Options[1].Label, "P1") {
 		t.Fatalf("rule scopes were not DB compiled: %#v", ruleScopes.Options)
@@ -471,7 +579,7 @@ func TestBootstrapEmptyDBBackedFamiliesDoNotFallBackToStaticValues(t *testing.T)
 			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
-	config := pageByRouteID(t, resp.Pages, "config")
+	config := pageByRouteID(t, resp.Pages, "vaccination-plan")
 
 	// rule_categories is a fixed visible vocabulary for this deploy: an empty DB must still expose
 	// vaccination and the reopened Feed Direction Config template category. Future categories stay hidden.
@@ -555,11 +663,11 @@ func TestBootstrapConfigSeparatesReadNavFromPublishAction(t *testing.T) {
 			{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
-	item := navLeafByID(t, resp.Navigation.Groups, "config")
+	item := navLeafByID(t, resp.Navigation.Groups, "vaccination-plan")
 	if !item.Enabled {
 		t.Fatalf("config should remain visible to protocol.read users: %#v", item)
 	}
-	control := controlByID(t, pageByRouteID(t, resp.Pages, "config").Controls, "publish_protocol_version")
+	control := controlByID(t, pageByRouteID(t, resp.Pages, "vaccination-plan").Controls, "publish_protocol_version")
 	if control.Enabled {
 		t.Fatalf("publish control should be disabled without protocol.publish: %#v", control)
 	}
@@ -574,7 +682,7 @@ func TestBootstrapConfigSeparatesReadNavFromPublishAction(t *testing.T) {
 			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
-	publishControl := controlByID(t, pageByRouteID(t, publisher.Pages, "config").Controls, "publish_protocol_version")
+	publishControl := controlByID(t, pageByRouteID(t, publisher.Pages, "vaccination-plan").Controls, "publish_protocol_version")
 	if !publishControl.Enabled || publishControl.DisabledReason != "" {
 		t.Fatalf("publish control should be enabled for protocol.publish: %#v", publishControl)
 	}
@@ -588,7 +696,7 @@ func TestBootstrapConfigPublishesReopenedRuleAuthoringGroups(t *testing.T) {
 			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 		},
 	})
-	config := pageByRouteID(t, resp.Pages, "config")
+	config := pageByRouteID(t, resp.Pages, "vaccination-plan")
 
 	feedItems := optionGroupByID(t, config.OptionGroups, "feed_items")
 	if got := optionKeys(feedItems); !got["reviewed_template_rows"] || !got["feed-1"] {
@@ -649,7 +757,7 @@ func TestBootstrapAppliesDBBackedStableUIConfigEntries(t *testing.T) {
 	if actionCenter.Copy["empty.work_board"] != "No backend work for this scope." {
 		t.Fatalf("page copy was not config-overridden: %q", actionCenter.Copy["empty.work_board"])
 	}
-	config := pageByRouteID(t, resp.Pages, "config")
+	config := pageByRouteID(t, resp.Pages, "vaccination-plan")
 	for _, blocked := range []struct {
 		group string
 		key   string
@@ -905,12 +1013,12 @@ func (fakeUIConfigFamilies) LoadContractFamilies(ctx context.Context, tenantID s
 		{RouteID: "action-center", Key: "copy.empty.work_board", Value: "No backend work for this scope."},
 		{RouteID: "action-center", Key: "table.work-board.column.owner.label", Value: "Responsible"},
 		{RouteID: "action-center", Key: "option.park_display_chips.park-1.label", Value: "Wrong park label"},
-		{RouteID: "config", Key: "option.rule_scopes.park:park-1.label", Value: "Wrong park scope"},
-		{RouteID: "config", Key: "option.rule_breeds.DB Breed.label", Value: "Wrong breed"},
-		{RouteID: "config", Key: "option.schedule_sop_labels.sop-v1.label", Value: "Wrong SOP"},
-		{RouteID: "config", Key: "option.feed_items.feed-1.label", Value: "Wrong feed"},
-		{RouteID: "config", Key: "option.source_systems.manual_admin.label", Value: "Wrong source label"},
-		{RouteID: "config", Key: "option.source_systems.manual_admin.tone", Value: "ok"},
+		{RouteID: "vaccination-plan", Key: "option.rule_scopes.park:park-1.label", Value: "Wrong park scope"},
+		{RouteID: "vaccination-plan", Key: "option.rule_breeds.DB Breed.label", Value: "Wrong breed"},
+		{RouteID: "vaccination-plan", Key: "option.schedule_sop_labels.sop-v1.label", Value: "Wrong SOP"},
+		{RouteID: "vaccination-plan", Key: "option.feed_items.feed-1.label", Value: "Wrong feed"},
+		{RouteID: "vaccination-plan", Key: "option.source_systems.manual_admin.label", Value: "Wrong source label"},
+		{RouteID: "vaccination-plan", Key: "option.source_systems.manual_admin.tone", Value: "ok"},
 	}
 	families.RevisionInputs["admin-ui-config-values"] = "ui-config-rev-1"
 	return families, err

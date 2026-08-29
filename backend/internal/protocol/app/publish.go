@@ -282,6 +282,7 @@ var (
 		"lifecycle":                   true,
 		"health":                      true,
 		"reproductive":                true,
+		"procurement_purpose":         true,
 		"exclude_reproductive_states": true,
 		"defer_states":                true,
 		"min_age_days":                true,
@@ -313,6 +314,8 @@ var (
 		"warmup_no_vaccination_days":       true,
 		"kids_normal_schedule_until_weeks": true,
 		"adult_prior_vaccination_allowed":  true,
+		"procurement_purpose":              true,
+		"purpose_plans":                    true,
 		"first_wave":                       true,
 		"second_wave_after_days":           true,
 		"goat_second_wave":                 true,
@@ -1012,13 +1015,56 @@ func validateVaccinationComboLimits(env ruleDSLEnvelope) error {
 		if !ok {
 			continue
 		}
-		var wave []string
-		if err := json.Unmarshal(raw, &wave); err != nil {
-			return fmt.Errorf("%w: procurement_policy.%s must be a string array", ErrNotPublishable, key)
+		if err := validateProcurementWave(raw, "procurement_policy."+key); err != nil {
+			return err
 		}
-		if countNonBlankStrings(wave) > maxVaccinesPerComboSession {
-			return fmt.Errorf("%w: procurement_policy.%s allows at most %d vaccines per combo visit", ErrNotPublishable, key, maxVaccinesPerComboSession)
+	}
+	if raw, ok := proc["purpose_plans"]; ok {
+		var purposePlans map[string]map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &purposePlans); err != nil {
+			return fmt.Errorf("%w: procurement_policy.purpose_plans must be an object", ErrNotPublishable)
 		}
+		for purpose, purposePlan := range purposePlans {
+			if purpose != "breeding" && purpose != "fattening" {
+				return fmt.Errorf("%w: procurement_policy.purpose_plans has unknown purpose %q", ErrNotPublishable, purpose)
+			}
+			for _, key := range []string{"first_wave", "goat_second_wave", "sheep_second_wave"} {
+				raw, ok := purposePlan[key]
+				if !ok {
+					continue
+				}
+				if err := validateProcurementWave(raw, "procurement_policy.purpose_plans."+purpose+"."+key); err != nil {
+					return err
+				}
+			}
+			if raw, ok := purposePlan["second_wave_after_days"]; ok {
+				if err := validateProcurementSecondWaveGap(raw, "procurement_policy.purpose_plans."+purpose+".second_wave_after_days"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateProcurementSecondWaveGap(raw json.RawMessage, label string) error {
+	var days int32
+	if err := json.Unmarshal(raw, &days); err != nil {
+		return fmt.Errorf("%w: %s must be a number", ErrNotPublishable, label)
+	}
+	if days < 0 {
+		return fmt.Errorf("%w: %s cannot be negative", ErrNotPublishable, label)
+	}
+	return nil
+}
+
+func validateProcurementWave(raw json.RawMessage, label string) error {
+	var wave []string
+	if err := json.Unmarshal(raw, &wave); err != nil {
+		return fmt.Errorf("%w: %s must be a string array", ErrNotPublishable, label)
+	}
+	if countNonBlankStrings(wave) > maxVaccinesPerComboSession {
+		return fmt.Errorf("%w: %s allows at most %d vaccines per combo visit", ErrNotPublishable, label, maxVaccinesPerComboSession)
 	}
 	return nil
 }
@@ -1222,6 +1268,28 @@ func arrayHasNonBlankString(v any) bool {
 // PublishVersion publishes a draft version after schema and executable-contract checks pass. The DB
 // also enforces the published-window EXCLUDE non-overlap; category capability
 // (CEO/COO protocol.publish.*) is enforced at the API/RBAC boundary.
+// DiscardVersion deletes a draft version and its rules.
+//
+// No executable-contract checks run here, unlike publish: a draft has never reached
+// the field, so nothing downstream references it and there is nothing to keep
+// consistent. The draft-only restriction lives in the repository's SQL.
+// ReplaceDraftVersion swaps one draft for another atomically. See the port for why the two
+// halves cannot be separate calls.
+//
+// The DSL is validated first, exactly as CreateVersion validates it. Without that, saving an
+// edited plan was the one way to get an invalid rule_dsl into the database -- and it would
+// land by DELETING the draft that was still valid.
+func (s *Service) ReplaceDraftVersion(ctx context.Context, in domain.NewVersion, replacesVersionID string) (string, error) {
+	if err := ValidateRuleDSL(in.RuleDsl); err != nil {
+		return "", err
+	}
+	return s.repo.ReplaceDraftVersion(ctx, in, replacesVersionID)
+}
+
+func (s *Service) DiscardVersion(ctx context.Context, tenantID, versionID string) error {
+	return s.repo.DiscardVersion(ctx, tenantID, versionID)
+}
+
 func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error {
 	return s.publishVersion(ctx, tenantID, versionID, publishedBy, "", idempotencyKey...)
 }
@@ -1549,6 +1617,10 @@ func compileVaccinationRuleDimensions(v domain.Version, env ruleDSLEnvelope, rul
 	if err != nil {
 		return nil, err
 	}
+	procurementPurposes, err := selectorValues(eligibility, []string{"procurement_purpose"}, "all", "procurement_purpose")
+	if err != nil {
+		return nil, err
+	}
 	minAge, err := selectorInt32(eligibility, "min_age_days")
 	if err != nil {
 		return nil, fmt.Errorf("%w: rule %q invalid min_age_days: %v", ErrNotPublishable, rule.DoseCode, err)
@@ -1577,45 +1649,48 @@ func compileVaccinationRuleDimensions(v domain.Version, env ruleDSLEnvelope, rul
 					for _, lifecycle := range lifecycles {
 						for _, health := range healths {
 							for _, repro := range reproductive {
-								if len(out) >= maxCompiledRuleDimensionsPerRule {
-									return nil, fmt.Errorf("%w: rule %q expands past %d compiled dimensions", ErrNotPublishable, rule.DoseCode, maxCompiledRuleDimensionsPerRule)
+								for _, procPurpose := range procurementPurposes {
+									if len(out) >= maxCompiledRuleDimensionsPerRule {
+										return nil, fmt.Errorf("%w: rule %q expands past %d compiled dimensions", ErrNotPublishable, rule.DoseCode, maxCompiledRuleDimensionsPerRule)
+									}
+									selectorKey := strings.Join([]string{matrixRow.RowID, rule.RuleID, rule.DoseCode, sp, stage, sex, breed, lifecycle, health, repro, procPurpose}, "|")
+									out = append(out, domain.RuleDimension{
+										Category:                  category,
+										RulesetFamily:             strings.TrimSpace(env.RulesetFamily),
+										ProtocolVersionID:         v.ProtocolVersionID,
+										RuleID:                    rule.RuleID,
+										MatrixRowID:               matrixRowID,
+										SelectorKey:               selectorKey,
+										DoseCode:                  rule.DoseCode,
+										SourceDoseCode:            sourceDose,
+										VaccineCode:               vaccineCode,
+										VaccineType:               vaccineType,
+										PathogenClass:             pathogenClass,
+										CompatibilityGroup:        compatibilityGroup,
+										Species:                   sp,
+										AnimalStage:               stage,
+										Sex:                       sex,
+										Breed:                     breed,
+										Lifecycle:                 lifecycle,
+										Health:                    health,
+										Reproductive:              repro,
+										ProcurementPurpose:        procPurpose,
+										MinAgeDays:                minAge,
+										MaxAgeDays:                maxAge,
+										TriggerType:               rule.TriggerType,
+										Sequence:                  rule.Sequence,
+										OffsetDays:                rule.OffsetDays,
+										DueWindowDays:             rule.DueWindowDays,
+										MinGapDays:                rule.MinGapDays,
+										Repeat:                    rule.Repeat,
+										CatchUp:                   rule.CatchUp,
+										MaxDelayDays:              schedule.MaxDelayDays,
+										RevaccinationIntervalDays: schedule.RevaccinationDays,
+										EligibilityJSON:           payload.Eligibility,
+										VaccineJSON:               payload.Vaccine,
+										ScheduleJSON:              scheduleJSON,
+									})
 								}
-								selectorKey := strings.Join([]string{matrixRow.RowID, rule.RuleID, rule.DoseCode, sp, stage, sex, breed, lifecycle, health, repro}, "|")
-								out = append(out, domain.RuleDimension{
-									Category:                  category,
-									RulesetFamily:             strings.TrimSpace(env.RulesetFamily),
-									ProtocolVersionID:         v.ProtocolVersionID,
-									RuleID:                    rule.RuleID,
-									MatrixRowID:               matrixRowID,
-									SelectorKey:               selectorKey,
-									DoseCode:                  rule.DoseCode,
-									SourceDoseCode:            sourceDose,
-									VaccineCode:               vaccineCode,
-									VaccineType:               vaccineType,
-									PathogenClass:             pathogenClass,
-									CompatibilityGroup:        compatibilityGroup,
-									Species:                   sp,
-									AnimalStage:               stage,
-									Sex:                       sex,
-									Breed:                     breed,
-									Lifecycle:                 lifecycle,
-									Health:                    health,
-									Reproductive:              repro,
-									MinAgeDays:                minAge,
-									MaxAgeDays:                maxAge,
-									TriggerType:               rule.TriggerType,
-									Sequence:                  rule.Sequence,
-									OffsetDays:                rule.OffsetDays,
-									DueWindowDays:             rule.DueWindowDays,
-									MinGapDays:                rule.MinGapDays,
-									Repeat:                    rule.Repeat,
-									CatchUp:                   rule.CatchUp,
-									MaxDelayDays:              schedule.MaxDelayDays,
-									RevaccinationIntervalDays: schedule.RevaccinationDays,
-									EligibilityJSON:           payload.Eligibility,
-									VaccineJSON:               payload.Vaccine,
-									ScheduleJSON:              scheduleJSON,
-								})
 							}
 						}
 					}
@@ -1795,7 +1870,7 @@ func mergedEligibilityJSON(baseRaw, overrideRaw json.RawMessage) (json.RawMessag
 }
 
 func canonicalizeEligibilitySelectors(obj map[string]json.RawMessage) error {
-	for _, field := range []string{"species", "animal_stage", "sex", "breed", "lifecycle", "health", "reproductive"} {
+	for _, field := range []string{"species", "animal_stage", "sex", "breed", "lifecycle", "health", "reproductive", "procurement_purpose"} {
 		raw, ok := obj[field]
 		if !ok || strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
 			continue
@@ -1995,7 +2070,7 @@ func normalizeSelectorValue(field, value string) (string, error) {
 
 func selectorFieldUsesAllWildcard(field string) bool {
 	switch field {
-	case "species", "animal_stage", "sex", "breed", "lifecycle", "health", "reproductive":
+	case "species", "animal_stage", "sex", "breed", "lifecycle", "health", "reproductive", "procurement_purpose":
 		return true
 	default:
 		return false

@@ -77,6 +77,14 @@ ON CONFLICT (campaign_shed_id) DO UPDATE SET weighing_category=EXCLUDED.weighing
 	proofB := "00000000-0000-4000-8000-000000009399"
 	insertProof(t, ctx, pool, proofB, "video", "completed", "shed", repoActualShed, "shed", repoActualShed)
 
+	// Bucket B's shed needs a live resident: the lump-sum submit snapshots the
+	// herd register's census (maintainer decision 2026-08-24) and refuses an
+	// empty shed with shed_count_unavailable.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ('00000000-0000-4000-8000-000000009198'::uuid, $1::uuid, 'G-990905', 'female', 'adult', 'alive', 'adult', $2::uuid, $3::uuid, $4::uuid, $3::uuid)
+ON CONFLICT (goat_id) DO NOTHING`, repoTenant, repoParty, repoActualShed, repoPark)
+
 	// BUCKET B (shedTwo): Submit lump-sum observation
 	obsB, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
 		TenantID:         repoTenant,

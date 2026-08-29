@@ -426,8 +426,11 @@ func TestRecordShedObservationPersistsAverageWeightAndOneToFiveProofs(t *testing
 	if err != nil {
 		t.Fatalf("record five-proof shed observation: %v", err)
 	}
-	if obs.AverageWeightKg != 13.375 || len(obs.ProofArtifactIDs) != 5 {
-		t.Fatalf("observation average/proofs=(%v,%v)", obs.AverageWeightKg, obs.ProofArtifactIDs)
+	// The client-sent average (13.375 = 107/8) is IGNORED since 2026-08-24: the
+	// stored average derives from the register snapshot — the fixture's FOUR
+	// residents — so 107/4.
+	if obs.AverageWeightKg != 26.75 || len(obs.ProofArtifactIDs) != 5 {
+		t.Fatalf("observation average/proofs=(%v,%v), want census-derived average 26.75", obs.AverageWeightKg, obs.ProofArtifactIDs)
 	}
 
 	var average float64
@@ -442,8 +445,8 @@ WHERE wso.tenant_id=$1::uuid AND wso.shed_observation_id=$2::uuid
 GROUP BY wso.average_weight_kg`, repoTenant, obs.ObservationID).Scan(&average, &proofCount); err != nil {
 		t.Fatalf("read persisted lump sum: %v", err)
 	}
-	if average != 13.375 || proofCount != 5 {
-		t.Fatalf("persisted average/proof_count=(%v,%d), want (13.375,5)", average, proofCount)
+	if average != 26.75 || proofCount != 5 {
+		t.Fatalf("persisted average/proof_count=(%v,%d), want (26.75,5)", average, proofCount)
 	}
 
 	replay, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
@@ -873,6 +876,18 @@ INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_stat
 VALUES ($1::uuid, $2::uuid, 'G-990001', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
 ON CONFLICT (goat_id) DO UPDATE SET current_location_id=EXCLUDED.current_location_id, shed_id=EXCLUDED.shed_id`,
 		repoAnimal, repoTenant, repoParty, repoExpectedShed, repoPark)
+	// CENSUS SNAPSHOT (maintainer decision 2026-08-24): a lump-sum submit reads
+	// the bucket's live resident count from the herd register, so the per-shed
+	// bucket's shed needs residents or every lump-sum submit in this suite would
+	// refuse with shed_count_unavailable. FOUR residents, deterministically:
+	// every lump-sum average in these tests is weight/4.
+	for i := 1; i <= 4; i++ {
+		execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, $3, 'female', 'adult', 'alive', 'adult', $4::uuid, $5::uuid, $6::uuid, $5::uuid)
+ON CONFLICT (goat_id) DO UPDATE SET shed_id=EXCLUDED.shed_id, lifecycle_status='alive', exited_at=NULL`,
+			"00000000-0000-4000-8000-00000000921"+string(rune('0'+i)), repoTenant, "G-99080"+string(rune('0'+i)), repoParty, repoPerShed, repoPark)
+	}
 	execWeighingTestSQL(t, ctx, pool, `
 INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, status, planned_cap_per_day, operator_user_id, created_by)
 VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-07-27', '2026-08-02', '2026-07-29', 'published', 100, $4::uuid, $4::uuid)

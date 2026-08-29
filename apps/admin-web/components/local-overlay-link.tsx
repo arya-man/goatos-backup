@@ -5,9 +5,24 @@ import { useCallback, useEffect, useRef, useState, type ComponentProps, type Mou
 
 export const LOCAL_OVERLAY_URL_CHANGE_EVENT = "mesha:local-overlay-url-change";
 const LOCAL_OVERLAY_HISTORY_KEY = "__meshaLocalOverlay";
+const rememberedOverlaySelections = new Map<string, string>();
 
-export function notifyLocalOverlayUrlChange(): void {
-  window.dispatchEvent(new Event(LOCAL_OVERLAY_URL_CHANGE_EVENT));
+type LocalOverlayUrlChangeDetail = {
+  selections: Record<string, string>;
+};
+
+function overlaySelectionsFromUrl(url: URL): Record<string, string> {
+  const selections: Record<string, string> = {};
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+  for (const key of ["hs_tag", "hs_history"]) {
+    const value = hashParams.get(key) ?? url.searchParams.get(key);
+    if (value) selections[key] = value;
+  }
+  return selections;
+}
+
+export function notifyLocalOverlayUrlChange(detail?: LocalOverlayUrlChangeDetail): void {
+  window.dispatchEvent(new CustomEvent(LOCAL_OVERLAY_URL_CHANGE_EVENT, { detail }));
 }
 
 export function currentHistoryEntryIsLocalOverlay(): boolean {
@@ -19,8 +34,41 @@ export function replaceLocalOverlayUrl(href: string): void {
   const state = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
   const { [LOCAL_OVERLAY_HISTORY_KEY]: _overlay, ...nextState } = state;
   void _overlay;
+  rememberOverlaySelectionsFromHref(href, true);
   window.history.replaceState(nextState, "", href);
-  notifyLocalOverlayUrlChange();
+  notifyLocalOverlayUrlChange({ selections: overlaySelectionsFromUrl(new URL(href, window.location.href)) });
+}
+
+export function pushLocalOverlayUrl(href: string): boolean {
+  const nextUrl = new URL(href, window.location.href);
+  if (nextUrl.origin !== window.location.origin || nextUrl.pathname !== window.location.pathname) return false;
+  rememberOverlaySelectionsFromUrl(nextUrl, false);
+  const detail = { selections: overlaySelectionsFromUrl(nextUrl) };
+  if (nextUrl.href === window.location.href) {
+    notifyLocalOverlayUrlChange(detail);
+    return true;
+  }
+  const state = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
+  window.history.pushState({ ...state, [LOCAL_OVERLAY_HISTORY_KEY]: true }, "", nextUrl);
+  notifyLocalOverlayUrlChange(detail);
+  return true;
+}
+
+function rememberOverlaySelectionsFromHref(href: string, clearMissing: boolean): void {
+  rememberOverlaySelectionsFromUrl(new URL(href, window.location.href), clearMissing);
+}
+
+function rememberOverlaySelectionsFromUrl(url: URL, clearMissing: boolean): void {
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+  for (const key of ["hs_tag", "hs_history"]) {
+    const value = hashParams.get(key) ?? url.searchParams.get(key);
+    if (value) rememberedOverlaySelections.set(key, value);
+    else if (clearMissing) rememberedOverlaySelections.delete(key);
+  }
+}
+
+function rememberedOverlaySelection(selectionKey: string): string | undefined {
+  return rememberedOverlaySelections.get(selectionKey);
 }
 
 type LocalOverlayLinkProps = ComponentProps<typeof Link>;
@@ -35,17 +83,8 @@ export function LocalOverlayLink({ onClick, ...props }: LocalOverlayLinkProps) {
     onClick?.(event);
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 
-    const nextUrl = new URL(event.currentTarget.href, window.location.href);
-    if (nextUrl.origin !== window.location.origin || nextUrl.pathname !== window.location.pathname) return;
-
+    if (!pushLocalOverlayUrl(event.currentTarget.href)) return;
     event.preventDefault();
-    if (nextUrl.href === window.location.href) {
-      notifyLocalOverlayUrlChange();
-      return;
-    }
-    const state = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
-    window.history.pushState({ ...state, [LOCAL_OVERLAY_HISTORY_KEY]: true }, "", nextUrl);
-    notifyLocalOverlayUrlChange();
   }
 
   return <Link {...props} data-local-overlay-navigation="true" onClick={openLocally} />;
@@ -106,10 +145,26 @@ export function useLocalOverlaySelection<T>({
   }, [transitionMs]);
 
   useEffect(() => {
-    function syncSelectionFromUrl(): void {
+    function syncSelectionFromUrl(event?: Event): void {
       const url = new URL(window.location.href);
       const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
-      const selectedId = hashParams.get(selectionKey) ?? url.searchParams.get(selectionKey) ?? undefined;
+      const eventSelection =
+        event instanceof CustomEvent && event.detail && typeof event.detail === "object"
+          ? (event.detail as LocalOverlayUrlChangeDetail).selections?.[selectionKey]
+          : undefined;
+      const explicitId = eventSelection ?? hashParams.get(selectionKey) ?? url.searchParams.get(selectionKey);
+      // The remembered fallback keeps an overlay open when a third party rewrites the URL and drops
+      // its parameter. It must NOT fire when a DIFFERENT overlay is explicitly open: clicking
+      // Expand swaps hs_tag for hs_history, and the drawer would otherwise restore itself from
+      // memory and sit on top of the full-screen view, swallowing its Close button.
+      const anotherOverlayIsExplicitlyOpen = [...rememberedOverlaySelections.keys()].some(
+        (key) => key !== selectionKey && Boolean(hashParams.get(key) ?? url.searchParams.get(key)),
+      );
+      const selectedId =
+        explicitId ??
+        (currentHistoryEntryIsLocalOverlay() && !anotherOverlayIsExplicitlyOpen
+          ? rememberedOverlaySelection(selectionKey)
+          : undefined);
       const item = items.find((candidate) => itemId(candidate) === selectedId);
       if (item) showDrawer(item);
       else hideDrawer();
@@ -117,7 +172,7 @@ export function useLocalOverlaySelection<T>({
     window.addEventListener("popstate", syncSelectionFromUrl);
     window.addEventListener("hashchange", syncSelectionFromUrl);
     window.addEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncSelectionFromUrl);
-    const initialFrame = window.requestAnimationFrame(syncSelectionFromUrl);
+    const initialFrame = window.requestAnimationFrame(() => syncSelectionFromUrl());
     return () => {
       window.cancelAnimationFrame(initialFrame);
       window.removeEventListener("popstate", syncSelectionFromUrl);
@@ -129,11 +184,7 @@ export function useLocalOverlaySelection<T>({
   }, [hideDrawer, itemId, items, selectionKey, showDrawer]);
 
   useEffect(() => {
-    if (drawerOpen) {
-      const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-      return () => window.cancelAnimationFrame(frame);
-    }
-    previousFocusRef.current?.focus();
+    if (!drawerOpen) previousFocusRef.current?.focus();
   }, [drawerOpen]);
 
   const closeDrawer = useCallback((): void => {

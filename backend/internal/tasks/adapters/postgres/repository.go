@@ -28,6 +28,11 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 type Repository struct {
 	pool    *pgxpool.Pool
 	timeout time.Duration
+
+	// identityTx places a kid when the Record shed fallback step is completed, inside that action
+	// write's own transaction. Optional: a repository without it runs every other workflow
+	// unchanged. See newborn_placement.go.
+	identityTx IdentityTxWriter
 }
 
 var _ ports.Repository = (*Repository)(nil)
@@ -107,7 +112,18 @@ func (r *Repository) OpenWorkflow(ctx context.Context, cmd ports.OpenWorkflowCom
 	if strings.TrimSpace(cmd.TenantID) == "" || strings.TrimSpace(cmd.SubjectGoatID) == "" || cmd.EventAt.IsZero() {
 		return false, domain.ErrMissingRequiredField
 	}
-	template, ok := domain.TemplateByKeyAt(cmd.TemplateKey, cmd.EventAt)
+	// The kid track carries the Record shed fallback step ONLY when this kid is not already in a
+	// kid pen -- read from ground truth, so it is self-healing: once the fallback tags a pen for
+	// kids, the park's next birth places automatically and its workflow opens without the step.
+	needsShedPlacement := false
+	if cmd.TemplateKey == domain.TemplateKeyBirthKid {
+		var placementErr error
+		needsShedPlacement, placementErr = r.needsShedPlacement(ctx, cmd.TenantID, cmd.SubjectGoatID)
+		if placementErr != nil {
+			return false, placementErr
+		}
+	}
+	template, ok := domain.TemplateByKeyAt(cmd.TemplateKey, cmd.EventAt, needsShedPlacement)
 	if !ok {
 		return false, domain.ErrUnknownTemplate
 	}
@@ -687,7 +703,10 @@ ORDER BY seq ASC`+lock, tenantID, workflowID)
 // and denominator both range over the same workflow_instances key set; no join fan-out.
 func (r *Repository) workflowMutation(
 	ctx context.Context, tenantID, workflowID string,
-	mutate func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error),
+	// mutate receives the OPEN transaction so a step whose completion has a canonical side effect
+	// (today: the Record shed placement) can write that effect in the SAME transaction as the
+	// action row. Callbacks that only change action state ignore it.
+	mutate func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error),
 ) (domain.WorkflowInstance, []domain.WorkflowAction, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -712,7 +731,7 @@ func (r *Repository) workflowMutation(
 		return domain.WorkflowInstance{}, nil, false, err
 	}
 
-	changed, replay, err := mutate(&w, actions)
+	changed, replay, err := mutate(tx, &w, actions)
 	if err != nil {
 		return domain.WorkflowInstance{}, nil, false, err
 	}
@@ -793,7 +812,7 @@ FOR UPDATE`, tenantID, workflowID).Scan(
 func (r *Repository) AnswerAction(ctx context.Context, cmd domain.AnswerActionCommand) (domain.ActionWriteResult, error) {
 	var target domain.WorkflowAction
 	w, actions, replay, err := r.workflowMutation(ctx, cmd.TenantID, cmd.WorkflowID,
-		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
 			idx := findAction(actions, cmd.ActionID)
 			if idx < 0 {
 				return nil, false, domain.ErrNotFound
@@ -809,6 +828,18 @@ func (r *Repository) AnswerAction(ctx context.Context, cmd domain.AnswerActionCo
 			target = updated
 			if isReplay {
 				return nil, true, nil
+			}
+			// THE PLACEMENT COMMITS WITH THE ANSWER. Completing Record shed moves the kid into the
+			// pen the operator named and tags that pen for kids. Doing it here, inside the action
+			// write's own transaction, is what makes the two one atomic unit: a failed placement
+			// rolls the step back to pending rather than recording it as done with the kid still in
+			// the wrong pen. The idempotency gate is the action row itself -- an exact replay
+			// returned above, and a completed action refuses a second write -- so this cannot run
+			// twice for the same step.
+			if updated.ActionKey == domain.ActionKeyRecordShed {
+				if err := r.applyRecordedNewbornPen(ctx, tx, w, updated, cmd); err != nil {
+					return nil, false, err
+				}
 			}
 			return []domain.WorkflowAction{updated}, false, nil
 		})
@@ -830,7 +861,7 @@ func (r *Repository) CompleteAction(ctx context.Context, cmd domain.CompleteActi
 	}
 	var target domain.WorkflowAction
 	w, actions, replay, err := r.workflowMutation(ctx, cmd.TenantID, cmd.WorkflowID,
-		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
 			idx := findAction(actions, cmd.ActionID)
 			if idx < 0 {
 				return nil, false, domain.ErrNotFound
@@ -995,7 +1026,7 @@ LIMIT 1`, tenantID, goatID, domain.TemplateKeyBirthKid).Scan(&id)
 	}
 
 	_, _, _, err = r.workflowMutation(ctx, tenantID, workflowID,
-		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
 			if w.AwaitingVerification {
 				return nil, true, nil
 			}
@@ -1077,7 +1108,7 @@ WHERE wi.tenant_id = $1::uuid AND wi.subject_goat_id = $2::uuid AND wi.template_
 // can neither wait for nor fan out through sibling workflows.
 func (r *Repository) BirthWorkflowEvidenceForVerification(ctx context.Context, tenantID, workflowID string) (ports.BirthEvidenceReview, error) {
 	w, actions, _, err := r.workflowMutation(ctx, tenantID, workflowID,
-		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
 			if w.TemplateKey != domain.TemplateKeyBirthKid && w.TemplateKey != domain.TemplateKeyBirthMother {
 				return nil, false, domain.ErrNotFound
 			}
@@ -1149,7 +1180,7 @@ WHERE tenant_id = $1::uuid AND workflow_id = $2::uuid AND state <> 'canceled'`, 
 // redelivery.
 func (r *Repository) ApplyDeathSignoffApproved(ctx context.Context, cmd ports.DeathVerdictCommand) error {
 	_, _, _, err := r.workflowMutation(ctx, cmd.TenantID, cmd.WorkflowID,
-		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
 			if w.TemplateKey != domain.TemplateKeyDeath {
 				return nil, false, domain.ErrNotFound
 			}
@@ -1170,7 +1201,7 @@ func (r *Repository) ApplyDeathSignoffApproved(ctx context.Context, cmd ports.De
 // re-shoot is mandatory) and closes the current workflow verification gate. Idempotent on replay.
 func (r *Repository) BounceDeathVideosForRework(ctx context.Context, cmd ports.DeathVerdictCommand) error {
 	_, _, _, err := r.workflowMutation(ctx, cmd.TenantID, cmd.WorkflowID,
-		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
 			if w.TemplateKey != domain.TemplateKeyDeath {
 				return nil, false, domain.ErrNotFound
 			}
@@ -1201,7 +1232,7 @@ func (r *Repository) BounceDeathVideosForRework(ctx context.Context, cmd ports.D
 
 func (r *Repository) ApplyBirthSignoffApproved(ctx context.Context, cmd ports.DeathVerdictCommand) error {
 	_, _, _, err := r.workflowMutation(ctx, cmd.TenantID, cmd.WorkflowID,
-		func(w *domain.WorkflowInstance, _ []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+		func(_ pgx.Tx, w *domain.WorkflowInstance, _ []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
 			if w.TemplateKey != domain.TemplateKeyBirthKid && w.TemplateKey != domain.TemplateKeyBirthMother {
 				return nil, false, domain.ErrNotFound
 			}
@@ -1216,7 +1247,7 @@ func (r *Repository) ApplyBirthSignoffApproved(ctx context.Context, cmd ports.De
 
 func (r *Repository) BounceBirthVideoForRework(ctx context.Context, cmd ports.DeathVerdictCommand) error {
 	_, _, _, err := r.workflowMutation(ctx, cmd.TenantID, cmd.WorkflowID,
-		func(w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
+		func(tx pgx.Tx, w *domain.WorkflowInstance, actions []domain.WorkflowAction) ([]domain.WorkflowAction, bool, error) {
 			if w.TemplateKey != domain.TemplateKeyBirthKid && w.TemplateKey != domain.TemplateKeyBirthMother {
 				return nil, false, domain.ErrNotFound
 			}

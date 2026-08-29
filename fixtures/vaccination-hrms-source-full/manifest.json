@@ -9,6 +9,7 @@
   "capacity_config_override_note": "Compatible with migration 000045 (nullable vaccination_capacity_config.max_shots_per_animal_per_drive admin override). This fixture seeds no override value; the obligation sweeper falls back to the published rule_dsl / code default, so no fixture data or hashes change.",
   "growth_director_role_note": "Compatible with migration 000057. growth_director is a Weighing-only director role hint/catalog row; the vaccination HRMS fixture does not seed vaccination capacity or workforce_positions from that hint.",
   "vaccination_manage_duty_note": "Compatible with the narrowed pc.vaccination manage-duty derivation (seed-position-duties). seed-closeout requires an ACTIVE seat holding both `execute` and `manage` for pc.vaccination because the reminder ladder resolves both duty types; `manage` is now derived from manager-tier seats that are neither operators nor backups, while vaccination_operator_* and backup_manager deliberately stay on `execute`. This fixture already seats a 'Preventive Care Manager' per center (asserted by vaccination-hrms-fixture-lib), so it satisfies the requirement unchanged: no fixture data and no file hashes change.",
+  "people_identity_columns_note": "Compatible with migration 000187 (nullable workforce_members.first_name/last_name/email for the People/HRMS directory + in-app Add Person onboarding). This fixture seeds none of the three columns; every seeded member keeps display_name/display_code identity, the unique (tenant_id, lower(email)) partial index ignores NULLs, and no fixture data or hashes change. Emails are written only by the admin-web Add Person flow (POST /admin/workforce/people) and never by seed commands.",
   "contracts": {
     "vaccination_protocol_code": "vaccination.matrix",
     "vaccination_sop_code": "vaccination.drive",
@@ -37,6 +38,7 @@
     "source_dates_are_never_invented": true,
     "accepted_one_time_history_supersedes_active_seed_obligations": true,
     "adult_blank_history_joins_normal_drive": true,
+    "schedule_path_policy": "shared_schedule_path_for_goat",
     "vaccination_medical_date_field": "vaccination_completions.administered_at",
     "source_policy_sha256": "f74ef1bd5b9f8723ca76b78382af9a13b5967c71fa0ce0627d749d5c3df49e91"
   },
@@ -104,6 +106,11 @@
     }
   },
   "seed_contract_coupling_reviews": [
+    {
+      "date": "2026-08-16",
+      "change": "Migration 000171 and seed-vaccination-real add Flushing to the writable animal_stage_lookup vocabulary with NULL age_band, so fresh tenants and existing tenants agree that a shifting into a Flushing pen may adopt that destination tag without reclassifying kid/adult.",
+      "vaccination_hrms_source_impact": "none to committed HRMS source fixture bytes, hashes, counts, SOP proof grain, vaccination source dates, operator capacity, or source validation semantics. Flushing is stage-catalog configuration, not a raw HRMS/vaccination source field; the fixture ships no animal_stage_lookup rows and no new source column."
+    },
     {
       "date": "2026-08-05",
       "change": "Migration 000109 adds animal_stage_lookup.age_band ('kid'/'adult'/NULL) and seed-vaccination-real/seed-vaccination-trigger now seed it, so a shifting stamps the destination cohort's kid/adult band onto the animals it moves.",
@@ -255,6 +262,36 @@
       "date": "2026-08-06",
       "change": "Migrations 000120/000121/000123 add partition_label columns to verification_items, weighing_campaign_sheds, and health_cases, with backfill from goat_shed_partitions (canonical per-goat partition assignments seeded during vaccination/weighing imports) and fallback logic for cases where the source location/partition cannot be resolved. Partition resolution is now part of the location contract: every animal placed in a partitioned shed must have a goat_shed_partitions entry during seed.",
       "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, or animal/vaccination source dates. Partition resolution is a seed DATA contract, not a source-file schema change. Source shed labels like 'Godel 1 - Part 3' are parsed by the seeder into physical shed + partition components during animal placement; goat_shed_partitions rows are seeded from that parsed partition label at animal write time, and later migrations backfill partition_label on location-bearing read/output tables from those seeded associations. Source validation adds a partition-resolution contract check (pass/warning) documenting the requirement; it does not change validation logic or block the fixture."
+    },
+    {
+      "date": "2026-08-14",
+      "change": "Migrations 000160/000161 add pen-grain capacity and cohort configuration to shed_partitions for the Counts -> Sheds directory.",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, vaccination source dates, SOP proof grain, protocol rows, or scheduling anchors. The new shed_partitions columns are counts/shed-directory configuration over the existing pen catalog. They do not add a vaccination source field, change goat_shed_partitions animal placement, or alter vaccination operator capacity."
+    },
+    {
+      "date": "2026-08-15",
+      "change": "Seed import and runtime generation now share SchedulePathForGoat for kid/adult schedule-path selection, including no-DOB clinical kid pen tags and stale K-stage tags past the 20-week finishing window.",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, or source vaccination dates. This is a derived scheduling-policy correction: source rows still preserve reviewed DOB/stage/history evidence, and generation classifies from that evidence through the same shared policy instead of a seeder-local shortcut."
+    },
+    {
+      "date": "2026-08-21",
+      "change": "seed-roster-real adds pc_care (deworming / ticks removal / hoof trimming / hair trimming) to the preventive_care department module grant; migration 000181_pc_care_module_grants.sql applies the same grant to already-seeded databases.",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, or source vaccination dates. This is runtime module/navigation authorization only: preventive_care members gain the pc_care bottom-bar module; no vaccination roster, history, or obligation data changes."
+    },
+    {
+      "date": "2026-08-26",
+      "change": "migration 000210 adds protocol_rule_dimensions.procurement_purpose and includes it in the compiled vaccination dimension match index so procurement breeding/fattening purpose plans can be prefiltered in SQL.",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, source vaccination dates, roster capacity, or seed closeout. Existing compiled dimensions backfill to all, and new values derive from authored rule DSL at publish time rather than from HRMS/vaccination source files."
+    },
+    {
+      "date": "2026-08-29",
+      "change": "manual vaccination anchors now suppress same-family manual_campaign seed rows before the anchor, matching the existing suppression for DOB/arrival/calendar seed rows.",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, source vaccination dates, roster capacity, or seed closeout. This is runtime replay behavior for generated obligations after a manual anchor is authored."
+    },
+    {
+      "date": "2026-08-29",
+      "change": "Blue Tongue adult W2/booster is published as the second post-arrival wave and generator replay anchors all multi-dose boosters to accepted dose 1 or a manual dose-1 anchor. A 2026-08-12 accepted Blue Tongue dose 1 therefore produces the +28 day booster on 2026-09-09 instead of a DOB/adult no-history row.",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, source vaccination dates, roster capacity, or seed closeout. The change is derived schedule publication/replay semantics only; source validation still preserves the same date cells and minimum-gap checks."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows.",

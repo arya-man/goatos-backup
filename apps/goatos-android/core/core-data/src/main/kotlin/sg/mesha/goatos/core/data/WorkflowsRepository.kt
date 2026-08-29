@@ -128,6 +128,9 @@ interface WorkflowsRepository {
     /** Optimistic local completion of an `action` step. [inReview] renders verification-gated
      *  (requires_video) completions as in-review rather than done. */
     suspend fun markActionCompleted(workflowId: String, actionId: String, inReview: Boolean)
+
+    /** Restores a locally completed action after its exact outbox row terminally fails. */
+    suspend fun rollbackAction(workflowId: String, actionId: String) = Unit
 }
 
 class DefaultWorkflowsRepository(
@@ -316,6 +319,26 @@ class DefaultWorkflowsRepository(
             )
         }
 
+    override suspend fun rollbackAction(workflowId: String, actionId: String) =
+        mutateCachedDetail(workflowId) { detail ->
+            detail.copy(
+                actions = detail.actions.map { action ->
+                    if (action.actionId == actionId) {
+                        action.copy(
+                            status = STATUS_PENDING,
+                            answerValue = null,
+                            proofRef = null,
+                            completedByLabel = null,
+                            completedAt = null,
+                            verificationStatus = null,
+                        )
+                    } else {
+                        action
+                    }
+                },
+            )
+        }
+
     /**
      * Rewrites the cached detail through [transform], recomputing the done counter over the SAME
      * grain the backend maintains (all visible operator actions, including scheduled colostrum;
@@ -379,6 +402,7 @@ class DefaultWorkflowsRepository(
     private companion object {
         const val STATUS_COMPLETED = "completed"
         const val STATUS_IN_REVIEW = "in_review"
+        const val STATUS_PENDING = "pending"
         const val SECTION_MAIN = "main"
         const val TYPE_APPROVAL = "approval"
     }

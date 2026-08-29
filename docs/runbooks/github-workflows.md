@@ -9,6 +9,12 @@ For Codex/Claude pushes to `main`, `make land-main` is the required outer
 command: it rebases onto fresh main before calling the same local CI, rechecks
 main afterward, and only then uses the guarded push path.
 
+Main merges are allowed only with exact-SHA CI evidence. The preferred route is
+`make land-main` from a clean isolated worktree. GitHub UI/API/connector merges
+are allowed only when GitHub `ci` is green for the exact current PR head SHA
+after rebasing onto fresh `origin/main`. Do not merge on pending, failed,
+cancelled, stale, skipped, or merely targeted local checks.
+
 This runbook explains the GitHub Actions workflows for project and engineering
 review.
 

@@ -92,6 +92,13 @@ export const OPERATOR_SHIFT_LABEL_IS_FALLBACK_IDENTITY_NOT_TIME_OF_DAY = true;
 export const OPERATOR_SHIFT_MINUTE_MIN = 0;
 export const OPERATOR_SHIFT_MINUTE_MAX_EXCLUSIVE = 1440;
 export const OPERATOR_SHIFT_MINUTES_ARE_SAME_RANGE_AT_SOURCE_DB_AND_DOMAIN = true;
+// Coupling review 2026-08-22: migration 000187 adds NULLABLE
+// workforce_members.first_name/last_name/email for the People/HRMS directory
+// and the in-app Add Person onboarding. NO CHANGE to this fixture contract:
+// seed commands never populate the three columns (identity stays
+// display_name/display_code), the unique email index ignores NULLs, and emails
+// enter only through POST /admin/workforce/people at runtime. Do not add
+// email/name-split fields to the roster fixture.
 // The operator-roster contract is a loader contract, not just a data file:
 // backend/cmd/seed-roster-real decodes cpt-operator-roster.json with
 // DisallowUnknownFields, so a declared block with no consuming struct field is a
@@ -126,6 +133,10 @@ export const ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END = true;
 // a field executor mislabelled supervisor/park_head (the Amit/Darshan/Sagar STG
 // incident). Capacity tier "manager" is NOT a role and never a non-operator hint.
 export const OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT = true;
+// Multi-dose vaccination courses anchor dose 2/booster timing to the accepted
+// dose-1 completion/manual dose-1 anchor. DOB/age rules are only the no-history
+// first-dose entry point; once dose 1 exists they must not delay the booster.
+export const BOOSTER_TIMING_ANCHORS_TO_ACCEPTED_DOSE1 = true;
 // The same CPT operator-roster contract also owns Android field-login setup
 // after DB seed: every executable vaccination operator must have a distinct
 // email/password identity derived from operators[].email_hint. Shared operator
@@ -169,6 +180,7 @@ export const ADULT_ETTT_DOSE2_POST_SEED_CONTRACT =
   "accepted et_tt_adult_w1 requires same-goat et_tt_adult_w2 obligation or completion before seed handoff";
 export const ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE = true;
 export const VACCINATION_MEDICAL_DATE_FIELD = "vaccination_completions.administered_at";
+export const SCHEDULE_PATH_POLICY = "shared_schedule_path_for_goat";
 export const OPTIONAL_SECONDARY_RFID_FIELD = "rfid2";
 export const SEED_PUBLICATION_VACCINE_EXCLUSION_ENV = "GOATOS_SEED_EXCLUDE_VACCINES";
 
@@ -360,6 +372,7 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
   expect(manifest.contracts?.full_access_grant_role === "ceo_internal", "manifest must bind CEO/CXO full-access grants to ceo_internal", problems);
   expect(manifest.contracts?.full_access_workforce_hint === "cxo", "manifest must bind CEO/CXO workforce hint to cxo", problems);
   expect(manifest.contracts?.adult_blank_history_joins_normal_drive === ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE, "manifest must auto-enrol adult blank-history animals into the normal generated drive", problems);
+  expect(manifest.contracts?.schedule_path_policy === SCHEDULE_PATH_POLICY, "manifest must bind kid/adult path selection to shared SchedulePathForGoat", problems);
   expect(manifest.contracts?.vaccination_medical_date_field === VACCINATION_MEDICAL_DATE_FIELD, "manifest must bind repeat timing to operator-administered vaccination_completions.administered_at", problems);
 
   if (checkHashes) {
@@ -617,6 +630,15 @@ export function updateManifestHashes(directory, manifest) {
 // 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination
 // HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no
 // fixture/source-data change is required. See fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews.
+// Coupling review 2026-08-21: seed-roster-real adds pc_care (deworming / ticks removal /
+// hoof trimming / hair trimming) to the preventive_care department module grant; migration
+// 000181_pc_care_module_grants.sql applies the same grant to already-seeded databases. This
+// changes runtime module/navigation authorization only; it does not change HRMS roster rows,
+// vaccination history, source dates, fixture bytes, hashes, or counts.
+// Coupling review 2026-08-26: protocol_rule_dimensions.procurement_purpose is publish-time
+// compiled selector metadata with DEFAULT 'all'. It is not read from the fixture, not validated
+// here, and changes no HRMS/vaccination source bytes, hashes, row counts, SOP proof grain, or
+// operator-capacity contract.
 
 // 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.
 
@@ -681,3 +703,22 @@ export function updateManifestHashes(directory, manifest) {
 // milk + aas_health department_module_grants rows. Nothing in this fixture contract changes: module
 // grants gate a bottom bar, not a vaccination source input. No fixture byte, hash, row count, goat
 // field, protocol rule or operator capacity is touched, so no validator here needed updating.
+// Coupling review 2026-08-14: migrations 000160/000161 add capacity and cohort columns to
+// shed_partitions for the Counts/Sheds directory. Those are pen-catalog configuration fields, not
+// vaccination HRMS source fields; the committed fixture bytes, hashes, row counts, SOP proof grain,
+// protocol rows, goat_shed_partitions placement contract, and operator capacity rules stay unchanged.
+// Coupling review 2026-08-15: seed import and runtime generation share SchedulePathForGoat.
+// No raw fixture bytes or HRMS rows change; the fixture contract records that kid/adult path
+// selection is derived once from reviewed DOB/stage/history evidence through that shared policy.
+// Coupling review 2026-08-16: Flushing is now seeded as an active animal_stage_lookup row with NULL
+// age_band (migration 000171 parity for fresh tenants). This fixture library still has no
+// stage-catalog input: committed HRMS/vaccination source bytes, hashes, rows, SOP proof grain,
+// operator capacity, and validation semantics are unchanged.
+// Coupling review 2026-08-29: manual vaccination anchors now suppress same-family manual_campaign
+// seed rows before the anchor. This library remains unchanged because the fixture source still
+// describes imported rows/dates, not runtime manual-anchor replay behavior.
+// Coupling review 2026-08-29: Blue Tongue adult W2/booster timing now follows accepted dose 1
+// or a manual dose-1 anchor (+28 days) instead of falling back to DOB/adult no-history timing.
+// The committed HRMS fixture bytes, source date cells, SOP proof grain, row counts, hashes,
+// operator capacity, and validation parser stay unchanged; this exported invariant pins the
+// loader contract so a validator or seeder cannot reinterpret booster rows as first-dose rows.

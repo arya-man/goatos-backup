@@ -25,14 +25,21 @@ import (
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
+	pccarepg "github.com/vgoats/goatos/backend/internal/pccare/adapters/postgres"
+	pccareverificationbridge "github.com/vgoats/goatos/backend/internal/pccare/adapters/verificationbridge"
+	pccareapp "github.com/vgoats/goatos/backend/internal/pccare/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	tasksapp "github.com/vgoats/goatos/backend/internal/tasks/app"
+	toxinpg "github.com/vgoats/goatos/backend/internal/toxin/adapters/postgres"
+	toxinapp "github.com/vgoats/goatos/backend/internal/toxin/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
+	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
 	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
@@ -88,6 +95,10 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(verificationVaccineLabels).WithLocationNames(verificationLocationNames).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
+	// The afternoon feed correction's packing reopen: DOWNWARD push to the packer whose bag was
+	// taken back, carrying the old-vs-new quantities (feed.packing.reopened; maintainer decision
+	// 2026-08-29).
+	notificationbridge.NewFeedPackingReopenNotifyConsumer(rosterService, calendarService, logger).Register(bus)
 	// A missed obligation must reach people, not just open an escalation row: DOWN to the assigned
 	// operator, UP to the park head and the owning module's director.
 	calendarapp.NewObligationMissedHandler(calendarService).WithNotifier(notificationbridge.NewObligationMissedNotifier(calendarService, rosterService, calendarService, logger)).Register(bus)
@@ -97,12 +108,24 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	countsapp.NewShiftingVerificationHandler(countsApprovalRepo, nil).Register(bus)
 	countsapp.NewMilkPreparationVerificationHandler(countsMilkPreparationRepo).Register(bus)
 	countsapp.NewMilkFeedingVerificationHandler(countsMilkPreparationRepo).Register(bus)
+	// Toxin (maintainer decision 2026-08-25): a recorded feed purchase owes the load an
+	// aflatoxin strip test; the toxin consumer materializes the round-1 task idempotently.
+	toxinapp.NewFeedPurchaseRecordedHandler(toxinpg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feedDirectionRepo, logger).Register(bus)
+	feeddirectionapp.NewFeedWastageVerificationHandler(feedDirectionRepo, logger).Register(bus)
 	// Weighing verdict applier: weighing enqueues a verification item for every
 	// observation, so without this consumer every approve/reject is a silent drop.
 	weighingapp.NewVerificationVerdictHandler(weighingRepo, logger).Register(bus)
+	// PC Care verdict applier: pc_care enqueues a verification item per completed care
+	// task, so without this consumer every approve/reject is a silent drop.
+	pccareapp.NewPCCareVerificationHandler(pccarepg.NewRepository(pool, pgCfg.QueryTimeout), logger).Register(bus)
+	verificationService := verificationapp.NewService(verificationpg.NewRepository(pool, pgCfg.QueryTimeout), nil)
+	if err := pccareverificationbridge.RegisterCategories(verificationService); err != nil {
+		panic(fmt.Sprintf("register pc care verification categories: %v", err))
+	}
+	pccareapp.NewPCCarePendingVerificationHandler(pccareverificationbridge.New(verificationService), logger).Register(bus)
 	tasksapp.NewCountsDeathReportedHandler(workflowService).Register(bus)
 	tasksapp.NewCountsDeathRejectedHandler(workflowService).Register(bus)
 	tasksapp.NewGoatCreatedWorkflowHandler(workflowService).Register(bus)

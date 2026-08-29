@@ -59,6 +59,12 @@ var (
 	// animal. (Reproductive cohorts like Pregnant/Lactating are intentionally NOT rejected here — see
 	// resolveDestinationTag's scope note; that distinction is part of the shed_profiles work.)
 	ErrClinicalDestinationTag = errors.New("identity relocate: destination cohort is a clinical state that a shed move must not fabricate")
+	// ErrDestinationPenChanged: a typed shifting promised the park head an EMPTY (or
+	// already-matching) destination pen to adopt the group's tag onto, and by apply time the pen no
+	// longer satisfies that promise -- somebody configured it differently, or animals of another
+	// cohort now stand in it. The apply fails closed and rolls back rather than silently creating
+	// the mixed pen the raise-time check exists to prevent.
+	ErrDestinationPenChanged = errors.New("identity: destination pen changed between approval and apply; the movement must be raised again")
 	// ErrDestinationProfileMissing: the destination shed has no ACTIVE configured operational profile
 	// (an active shed_profiles row joined through animal_stage_lookup). The destination cohort is
 	// authoritative CONFIGURATION -- read from shed_profiles, never inferred from resident goats
@@ -441,5 +447,11 @@ type Repository interface {
 	IdentityGoat(ctx context.Context, cmd IdentityGoatCommand) (*AdminGoatMutationResult, error)
 	PreviewReclassifyShedStage(ctx context.Context, cmd ReclassifyShedStageCommand) (*ReclassifyShedStagePreview, error)
 	ReclassifyShedStage(ctx context.Context, cmd ReclassifyShedStageCommand) (*ReclassifyShedStageResult, error)
+
+	// The census-slice correction: fix a wrongly recorded breed or sex on the animals of ONE Counts
+	// Breakdown row. Scoped to the row, not the pen -- see ports/census_correction.go for why that
+	// differs from the reclassification above.
+	PreviewCorrectCensusSlice(ctx context.Context, cmd CorrectCensusSliceCommand) (*CensusSlicePreview, error)
+	CorrectCensusSlice(ctx context.Context, cmd CorrectCensusSliceCommand) (*CensusSliceCorrectionResult, error)
 	Ping(ctx context.Context) error
 }

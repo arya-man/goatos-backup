@@ -322,7 +322,10 @@ const zeroUUIDLiteral = "'00000000-0000-0000-0000-000000000000'::uuid"
 //     member rows), so the count that matches animal_count is DISTINCT goat_id, not row count.
 //
 // Idempotent/replay-safe: prune-then-insert scoped to these batches converges on the same rows for
-// an unchanged plan. Set-based only (no per-obligation statement) -- see make scale-guard.
+// an unchanged plan. If a legacy/stale member row already binds an obligation outside the pruned
+// batch rows, the INSERT moves that one obligation onto the newly computed assignment instead of
+// crashing on the table's tenant+obligation unique key. Set-based only (no per-obligation statement)
+// -- see make scale-guard.
 func syncVaccinationDriveAssignmentMembersTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, batchIDs []pgtype.UUID) error {
 	if len(batchIDs) == 0 {
 		return nil
@@ -338,7 +341,7 @@ WHERE m.tenant_id = $1
   AND vda.batch_id = ANY($2::uuid[])`, tenant, batchIDs); err != nil {
 		return fmt.Errorf("obligation: prune drive assignment members: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `
+	rows, err := tx.Query(ctx, `
 -- projection-review: membership=the batch's non-canceled goat obligation_instances, matched to the drive cell (batch,park,shed,physical_shed,partition,vaccine_lane) that actually covers them; group_key=cell key + vaccine lane + goat_id rank vs each split row's animal_count window; join_cardinality=obligation->cell is collapsed with DISTINCT ON (obligation_id) so a row can belong to exactly one assignment (also enforced by UNIQUE (tenant_id, obligation_id)), and goat->obligation fan-out is intentional (member grain is obligation, animal_count is matched by count(DISTINCT goat_id) within one lane); pagination=whole batch recomputed in one set-based statement, no page or LIMIT can truncate membership; scope=explicit batch id list within one tenant.
 -- GRAIN PROOF (producer vs consumer, mandatory per AGENTS.md):
 --   producer unique key   = vaccination_drive_assignments (tenant_id, batch_id, planned_date, park_id, COALESCE(shed_id,0), physical_shed, partition_label, COALESCE(operator_id,0)); its business lane is vaccine_rule_ids.
@@ -423,20 +426,85 @@ WITH a AS (
    AND s.partition_label = g.partition_label
    AND s.lane_key = g.lane_key
    AND ((g.grank > s.lo AND g.grank <= s.hi) OR (s.rn_last = 1 AND g.grank > s.hi))
+), intended AS (
+  SELECT $1::uuid AS tenant_id, al.assignment_id, o.obligation_id, o.goat_id
+  FROM obl o
+  JOIN alloc al
+    ON al.batch_id = o.batch_id
+   AND al.park_id = o.park_id
+   AND COALESCE(al.shed_id, `+zeroUUIDLiteral+`) = COALESCE(o.shed_id, `+zeroUUIDLiteral+`)
+   AND al.physical_shed = o.physical_shed
+   AND al.partition_label = o.partition_label
+   AND al.lane_key = o.lane_key
+   AND al.goat_id = o.goat_id
+), displaced AS (
+  SELECT DISTINCT m.assignment_id
+  FROM vaccination_drive_assignment_members m
+  JOIN intended i
+    ON i.tenant_id = m.tenant_id
+   AND i.obligation_id = m.obligation_id
+  WHERE m.assignment_id <> i.assignment_id
+), upserted AS (
+  INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+  SELECT tenant_id, assignment_id, obligation_id, goat_id
+  FROM intended
+  ON CONFLICT (tenant_id, obligation_id) DO UPDATE SET
+    assignment_id = EXCLUDED.assignment_id,
+    goat_id = EXCLUDED.goat_id
+  RETURNING assignment_id
 )
-INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
-SELECT $1, al.assignment_id, o.obligation_id, o.goat_id
-FROM obl o
-JOIN alloc al
-  ON al.batch_id = o.batch_id
- AND al.park_id = o.park_id
- AND COALESCE(al.shed_id, `+zeroUUIDLiteral+`) = COALESCE(o.shed_id, `+zeroUUIDLiteral+`)
- AND al.physical_shed = o.physical_shed
- AND al.partition_label = o.partition_label
- AND al.lane_key = o.lane_key
- AND al.goat_id = o.goat_id
-ON CONFLICT (assignment_id, obligation_id) DO NOTHING`, tenant, batchIDs); err != nil {
+SELECT assignment_id FROM displaced`, tenant, batchIDs)
+	if err != nil {
 		return fmt.Errorf("obligation: write drive assignment members: %w", err)
+	}
+	var displacedAssignmentIDs []pgtype.UUID
+	for rows.Next() {
+		var assignmentID pgtype.UUID
+		if err := rows.Scan(&assignmentID); err != nil {
+			rows.Close()
+			return fmt.Errorf("obligation: scan displaced drive assignment: %w", err)
+		}
+		displacedAssignmentIDs = append(displacedAssignmentIDs, assignmentID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("obligation: read displaced drive assignments: %w", err)
+	}
+	rows.Close()
+	if err := recomputeDriveAssignmentCountersExactForAssignmentsTx(ctx, tx, tenant, displacedAssignmentIDs); err != nil {
+		return err
+	}
+	return nil
+}
+
+func recomputeDriveAssignmentCountersExactForAssignmentsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, assignmentIDs []pgtype.UUID) error {
+	assignmentIDs = dedupUUIDs(assignmentIDs)
+	if len(assignmentIDs) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE vaccination_drive_assignments vda
+SET animal_count = COALESCE((
+      SELECT count(DISTINCT m.goat_id)::int
+      FROM vaccination_drive_assignment_members m
+      WHERE m.tenant_id = vda.tenant_id AND m.assignment_id = vda.assignment_id
+    ), 0),
+    total_doses = COALESCE((
+      SELECT count(*)::int
+      FROM vaccination_drive_assignment_members m
+      WHERE m.tenant_id = vda.tenant_id AND m.assignment_id = vda.assignment_id
+    ), 0),
+    updated_at = now()
+WHERE vda.tenant_id = $1
+  AND vda.assignment_id = ANY($2::uuid[])`, tenant, assignmentIDs); err != nil {
+		return fmt.Errorf("obligation: recompute displaced drive assignment counters: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+DELETE FROM vaccination_drive_assignments
+WHERE tenant_id = $1
+  AND assignment_id = ANY($2::uuid[])
+  AND animal_count = 0`, tenant, assignmentIDs); err != nil {
+		return fmt.Errorf("obligation: delete empty displaced drive assignments: %w", err)
 	}
 	return nil
 }

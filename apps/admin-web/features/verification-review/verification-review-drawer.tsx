@@ -48,6 +48,8 @@ function renderLabelOrFallback(label: string | null | undefined): string {
 export function VerificationReviewDrawer({
   items,
   initialSelectedId,
+  nextCursor,
+  nextTrail,
   actionTypeLabels,
   searchParams,
   feedback,
@@ -56,6 +58,8 @@ export function VerificationReviewDrawer({
 }: {
   items: VerificationQueueItem[];
   initialSelectedId?: string;
+  nextCursor?: string;
+  nextTrail?: string;
   // Backend-owned module/page labels, keyed by category, composed once by the page so the drawer
   // subtitle and the queue's ACTION TYPE column can never disagree.
   actionTypeLabels: Record<string, string>;
@@ -74,7 +78,7 @@ export function VerificationReviewDrawer({
   const closeTimerRef = useRef<number | null>(null);
   const item = items.find((candidate) => candidate.item_id === displayedId);
   const drawerOpen = Boolean(activeId && item);
-  const closeHref = hrefWithout(searchParams, ["vi_row"]);
+  const closeHref = hrefWithout(searchParams, ["vi_row", "vi_open_first"]);
   const currentIndex = item ? items.findIndex((i) => i.item_id === item.item_id) : -1;
   const canGoBack = currentIndex > 0;
   const canGoForward = currentIndex >= 0 && currentIndex < items.length - 1;
@@ -162,6 +166,13 @@ export function VerificationReviewDrawer({
   if (!item) return null;
 
   const returnTo = hrefWithRow(searchParams, item.item_id);
+  // The item AFTER this one in the currently rendered queue order. Carried through the verdict
+  // form so an APPROVAL advances the drawer to the next video instead of dropping the verifier
+  // back to the list (on the pending tab the approved item leaves the filtered list, so the
+  // redirect's vi_row no longer resolves and the drawer closed). If the current page is exhausted
+  // but the keyset queue has another page, the action follows nextCursor instead of declaring the
+  // queue done.
+  const nextRowId = currentIndex >= 0 ? (items[currentIndex + 1]?.item_id ?? "") : "";
 
   return (
     <>
@@ -176,6 +187,9 @@ export function VerificationReviewDrawer({
         item={item}
         actionTypeLabel={actionTypeLabels[item.category] ?? item.category}
         returnTo={returnTo}
+        nextRowId={nextRowId}
+        nextCursor={nextCursor ?? ""}
+        nextTrail={nextTrail ?? ""}
         feedback={feedback}
         open={drawerOpen}
         onClose={closeDrawer}
@@ -196,6 +210,9 @@ function VerificationReviewDrawerPanel({
   item,
   actionTypeLabel,
   returnTo,
+  nextRowId,
+  nextCursor,
+  nextTrail,
   feedback,
   open,
   onClose,
@@ -212,6 +229,11 @@ function VerificationReviewDrawerPanel({
   item: VerificationQueueItem;
   actionTypeLabel: string;
   returnTo: string;
+  /** The next queue row's item_id, "" when this page is exhausted. See nextRowId at the call site. */
+  nextRowId: string;
+  /** Keyset cursor/trail for the next page, used only when nextRowId is empty. */
+  nextCursor: string;
+  nextTrail: string;
   feedback: { status?: string; code?: string };
   open: boolean;
   onClose: () => void;
@@ -244,6 +266,42 @@ function VerificationReviewDrawerPanel({
   // own -- it also flipped Reject straight to type=submit, so the next click re-posted an empty
   // reason and bounced with the same error. Correct-by-construction beats a better error message.
   const [reason, setReason] = useState("");
+  // The measurement TEXT is state, not just DOM, for the same reason `reason` is: the Accept
+  // button's enabled-ness depends on it where the category requires a number, and a value read off
+  // an uncontrolled input cannot drive that. Kept as a STRING so blank ("she typed nothing") stays
+  // distinct from "0" (an empty trough, a real wastage reading).
+  //
+  // KEYED BY item_id, like mediaSelection above, because this panel is not remounted when the
+  // verifier steps to the next video. Plain state would carry one animal's weight onto the next
+  // animal's Accept -- a wrong number written to a record she never typed it for. Reading it back
+  // through the key resets it on every item switch without a setState-in-effect cascade.
+  const [measurement, setMeasurement] = useState<{ itemId: string; value: string }>({
+    itemId: item.item_id,
+    value: "",
+  });
+  const measurementValue = measurement.itemId === item.item_id ? measurement.value : "";
+  const setMeasurementValue = useCallback(
+    (value: string) => setMeasurement({ itemId: item.item_id, value }),
+    [item.item_id],
+  );
+  // Per-field readings for items whose measurement_correction carries `fields` (feed packing: one
+  // box per feed item, blind entry -- the backend deliberately sends NAMES ONLY, never the planned
+  // quantities). Controlled and KEYED BY item_id for the same reasons `measurement` above is: the
+  // Accept button's enabled-ness depends on every box being filled, and stepping to the next item
+  // must never carry one pen's readings onto another pen's Accept.
+  const [entryValues, setEntryValues] = useState<{ itemId: string; values: Record<string, string> }>({
+    itemId: item.item_id,
+    values: {},
+  });
+  const entriesForItem = entryValues.itemId === item.item_id ? entryValues.values : {};
+  const setEntryValue = useCallback(
+    (key: string, value: string) =>
+      setEntryValues((prev) => ({
+        itemId: item.item_id,
+        values: { ...(prev.itemId === item.item_id ? prev.values : {}), [key]: value },
+      })),
+    [item.item_id],
+  );
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const reasonReady = reason.trim().length > 0;
 
@@ -403,8 +461,27 @@ function VerificationReviewDrawerPanel({
   // with them; keeping a permission flag for controls that no longer exist is how a screen quietly
   // regrows them.
   const mayReview = controlEnabled(pageContract, "record_verdict", false);
+  // The backend attaches this only to items carrying a number the verifier may correct, and owns
+  // every word of the control. Absent -- every category but weighing today -- means no control.
+  const correction = item.measurement_correction;
+  // Per-field items (feed packing) render one box per field instead of the single value field; the
+  // "why was the number wrong" note only makes sense where a prior recorded number exists, so
+  // neither wastage (born here) nor a per-field item offers it.
+  const correctionFields = correction?.fields ?? [];
+  const perFieldEntry = correctionFields.length > 0;
+  const measurementReasonSupported = correction?.ref_type !== "feed_wastage_completion" && !perFieldEntry;
   // A verdict is terminal: approved/rejected items stay open for viewing but cannot be re-decided.
   const verdictSettled = item.status !== "pending";
+  // Blank means she has typed nothing. It is NOT a zero: for wastage an empty trough is a real
+  // reading, so the two must stay distinguishable all the way to the server action.
+  const measurementEntered = measurementValue.trim() !== "";
+  const everyEntryFilled = correctionFields.every((field) => (entriesForItem[field.key] ?? "").trim() !== "");
+  // Feed wastage cannot be approved without a number -- the operator submits only a video, so the
+  // reading is born on this screen. The backend refuses it too (422 measurement_required); doing it
+  // here as well means she is told before she loses a round-trip. Weighing's flag is false, so a
+  // verifier who agrees with the operator's weight still approves in one press. A per-field item
+  // (feed packing) holds Accept until EVERY box is filled -- zero is a valid entry, blank is not.
+  const measurementMissing = Boolean(correction?.required_for_approve) && (perFieldEntry ? !everyEntryFilled : !measurementEntered);
 
   return (
       <div className={`vr-modal${open ? " on" : ""}`} aria-label={text("drawer.aria")} aria-hidden={!open} inert={!open}>
@@ -463,6 +540,13 @@ function VerificationReviewDrawerPanel({
                   proofId={activeMedia.proof_id}
                   itemId={item.item_id}
                   eventBuffer={eventBuffer}
+                  // Backend-owned copy for the double-speed control; the player renders it and
+                  // composes none of it. It only appears on clips longer than 20 seconds.
+                  speedLabels={{
+                    normal: text("player.speed_normal"),
+                    fast: text("player.speed_fast"),
+                    hint: text("player.speed_hint"),
+                  }}
                 />
               ) : activeMedia?.mime_type?.startsWith("image/") ? (
                 // A signed, short-lived proof URL on an external media host: next/image would
@@ -551,6 +635,110 @@ function VerificationReviewDrawerPanel({
             )}
           </div>
 
+          {/* THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20, replacing the
+              separate save forms of the 2026-08-17 weighing and 2026-08-18 wastage decisions).
+
+              There used to be two sibling forms here, each with its own save button posting to its
+              producing module's route. Saving relabelled the item, which bumps row_version, so the
+              Accept she pressed next carried the version this page rendered with and the
+              version-fenced verdict matched nothing -- she pressed Accept and nothing happened.
+
+              So the field now sits INSIDE the verdict form: she types the number and presses
+              Accept once, and the backend applies the value and the verdict together, resolving
+              the producer route from the item's own source.
+
+              Shown only when the backend attaches measurement_correction. Every visible word comes
+              from that block; this component composes none of it, and the head-count field appears
+              only when the backend sent count_label -- a lump-sum shed proof has one, a single
+              animal's proof does not. Gated on the same record_verdict control as the verdict:
+              correcting the number the evidence shows belongs to the person judging the evidence. */}
+          {mayReview && correction ? (
+            <div
+              style={{ display: "grid", gap: 8, marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid var(--line)" }}
+            >
+              <div>
+                <b>{correction.title}</b>
+                <div className="small muted">{correction.help}</div>
+              </div>
+              {perFieldEntry ? (
+                /* BLIND PER-ITEM ENTRY (maintainer decision 2026-08-21): one labelled box per feed
+                   item, names only -- the backend deliberately withholds the planned quantities so
+                   the verifier's readings are independent. Zero is a valid entry ("this item was
+                   not packed"); blank means not entered, and Accept below stays held until every
+                   box is filled. The intended-vs-entered comparison surfaces only on the
+                   leadership feed analytics execution view, never here. */
+                correctionFields.map((field) => (
+                  <label key={`${item.item_id}:${field.key}`} className="fld" style={{ marginBottom: 0 }}>
+                    <span>{field.label}</span>
+                    <input
+                      form="verdict-form"
+                      type="number"
+                      name={`measurement_entry:${field.key}`}
+                      step="0.001"
+                      min="0"
+                      max="100000"
+                      inputMode="decimal"
+                      value={entriesForItem[field.key] ?? ""}
+                      onChange={(e) => setEntryValue(field.key, e.target.value)}
+                      disabled={verdictSettled}
+                    />
+                  </label>
+                ))
+              ) : (
+                <label className="fld" style={{ marginBottom: 0 }}>
+                  <span>{correction.value_label}</span>
+                  {/* min is 0, never 0.001: for wastage an empty trough is a real, good measurement
+                      and zero must stay enterable. Deliberately NOT `required` -- the field is
+                      optional for weighing, and where it IS required the Accept button below carries
+                      the rule, so she is never blocked by a browser message on a form she also uses
+                      to Reject. */}
+                  <input
+                    form="verdict-form"
+                    type="number"
+                    name="measurement_value"
+                    step="0.001"
+                    min="0"
+                    max="100000"
+                    inputMode="decimal"
+                    value={measurementValue}
+                    onChange={(e) => setMeasurementValue(e.target.value)}
+                    disabled={verdictSettled}
+                  />
+                </label>
+              )}
+              {correction.count_label ? (
+                <label className="fld" style={{ marginBottom: 0 }}>
+                  <span>{correction.count_label}</span>
+                  {/* Blank means "leave the recorded count alone", which is the normal case -- she
+                      is usually fixing a mistyped total, not a miscount. */}
+                  <input
+                    /* Uncontrolled, so it needs a key to be REMOUNTED on an item switch -- see
+                       measurement above: a head count left in the DOM would be sent with the next
+                       animal's Accept. */
+                    key={item.item_id}
+                    form="verdict-form"
+                    type="number"
+                    name="measurement_count"
+                    step="1"
+                    min="1"
+                    max="100000"
+                    inputMode="numeric"
+                    disabled={verdictSettled}
+                  />
+                </label>
+              ) : null}
+              {measurementReasonSupported ? (
+                <label className="fld" style={{ marginBottom: 0 }}>
+                  <span>{text("verdict.reason_label")}</span>
+                  <textarea key={item.item_id} form="verdict-form" name="measurement_reason" rows={2} disabled={verdictSettled} />
+                </label>
+              ) : null}
+              {/* Named the same way the button below is: an Accept she cannot press needs to say
+                  why, or it reads as a broken screen. */}
+              {measurementMissing ? <div className="note">{text("verdict.disabled_measurement_required")}</div> : null}
+            </div>
+          ) : null}
+
           {mayReview ? (
             <form id="verdict-form" action={recordVerificationVerdictAction} onSubmit={handleVerdictSubmit} style={{ display: "grid", gap: 8 }}>
                   <input type="hidden" name="item_id" value={item.item_id} />
@@ -558,6 +746,12 @@ function VerificationReviewDrawerPanel({
                       submit 409 instead of silently overwriting the other reviewer's decision. */}
                   <input type="hidden" name="row_version" value={item.row_version} />
                   <input type="hidden" name="return_to" value={returnTo} />
+                  {/* Lets an APPROVAL advance straight to the next video (see the action). Sent for
+                      both decisions but read only on approve — a rejection keeps its current
+                      return, because the verifier may still be mid-thought on the reason. */}
+                  <input type="hidden" name="next_row" value={nextRowId} />
+                  <input type="hidden" name="next_cursor" value={nextCursor} />
+                  <input type="hidden" name="next_trail" value={nextTrail} />
                   <label className="fld" style={{ marginBottom: 0, display: rejecting ? "grid" : "none" }}>
                     <span>{text("verdict.reason_label")}</span>
                     {/* Deliberately not `required`: the same field is mandatory for Reject and
@@ -576,6 +770,9 @@ function VerificationReviewDrawerPanel({
                   {rejecting ? <div className="small muted">{text("verdict.reason_required")}</div> : null}
                   {verdictSettled ? <div className="note">{text("verdict.disabled_not_pending")}</div> : null}
                   {!hasEvidence ? <div className="note">{text("verdict.disabled_no_evidence")}</div> : null}
+                  {/* Reject stays available: she can always send an unreadable clip back, and it is
+                      the ONLY correct move when the number cannot be read at all. Only Accept is
+                      held. */}
             </form>
           ) : null}
 
@@ -645,8 +842,16 @@ function VerificationReviewDrawerPanel({
                 name="decision"
                 value="approved"
                 className="btn p"
-                disabled={verdictSettled || !hasEvidence}
-                title={!hasEvidence ? text("verdict.disabled_no_evidence") : verdictSettled ? text("verdict.disabled_not_pending") : undefined}
+                disabled={verdictSettled || !hasEvidence || measurementMissing}
+                title={
+                  !hasEvidence
+                    ? text("verdict.disabled_no_evidence")
+                    : verdictSettled
+                      ? text("verdict.disabled_not_pending")
+                      : measurementMissing
+                        ? text("verdict.disabled_measurement_required")
+                        : undefined
+                }
               >
                 Accept
               </button>

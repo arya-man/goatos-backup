@@ -23,13 +23,97 @@ type CategoryDefinition struct {
 	//
 	// Optional: a category that leaves it empty still gets a header, derived from ExpectedMedia by
 	// MediaLabelFor. A per-proof label resolved from workflow task truth always wins over both.
-	MediaLabels           []string
-	SLAHours              int
+	MediaLabels []string
+	SLAHours    int
+	// MeasurementCorrection declares that items in this category carry a number the
+	// VERIFIER may correct while reviewing the proof, and owns every word of that
+	// control's copy. Nil -- the default -- means the category has no correctable
+	// measurement and no client renders one.
+	//
+	// It is registry metadata rather than a weighing field because the shape is not
+	// weighing's: any producer whose proof shows a number an operator typed has the
+	// same problem, and the next one registers a spec instead of editing the
+	// verification wire. Verification itself stays ignorant of what the number MEANS;
+	// it carries the copy and the producer's own route owns the write.
+	MeasurementCorrection *MeasurementCorrectionSpec
 	NavigationModule      string // backend drawer module key, e.g. counts or feed_direction
 	NavigationModuleLabel string // backend-owned display copy for the queue header
 	PageKey               string // stable page/tab key inside NavigationModule
 	PageLabel             string // backend-owned top-tab label
 	PageOrder             int
+}
+
+// MeasurementCorrectionSpec is the backend-owned copy for a correctable measurement
+// on a verification item.
+//
+// Every visible word is here, because the golden frontend rule is that backend owns
+// labels and clients render them: a phone and an admin-web drawer showing the same
+// control must not be able to word it differently, and a producer that changes what
+// it measures changes one registration rather than two client trees.
+//
+// It carries NO VALUE. The current number is already in the item's subject label,
+// which the producer composes and the verifier is reading while she watches the
+// video; putting it here as well would mean verification reading the producer's
+// tables, which is the module boundary this design exists to keep.
+type MeasurementCorrectionSpec struct {
+	// Title heads the control ("Correct the weight").
+	Title string
+	// Help is one sentence telling the verifier what the correction does. It must say
+	// plainly that the value REPLACES the recorded one -- a verifier who thinks she is
+	// filing a note rather than overwriting a record is the failure this sentence
+	// prevents.
+	Help string
+	// ValueLabel names the number itself, unit included ("Corrected weight (kg)").
+	ValueLabel string
+	// SubmitLabel named the separate save button that used to sit under the field.
+	//
+	// THAT BUTTON IS GONE (maintainer decision 2026-08-20): the verifier types the number and
+	// presses Approve, and the approve carries it. The field is kept on the wire so an installed
+	// APK built before that decision still renders its own button against the producer route,
+	// which is also still served. No current client reads it; do not build a new one that does.
+	SubmitLabel string
+	// RequiredForApprove refuses an APPROVE that carries no number and finds none already
+	// recorded.
+	//
+	// True where the number is BORN on the verifier's screen: feed wastage ships the operator a
+	// video only, so approving without a reading would complete a pen-day with no wastage at all
+	// -- "an unreadable value is a rejection, never a guess". False where the producer already
+	// recorded a number and the verifier is correcting it: weighing's blank field means "the
+	// operator's weight is right", which is the normal case and must stay a single tap.
+	RequiredForApprove bool
+	// PerItemFields declares that this category's measurement is one value PER FIELD, with the
+	// field list carried on each ITEM (CreateItem.MeasurementFields -- e.g. one per feed item of
+	// a packing pen-session) rather than a single value. RequiredForApprove then binds to the
+	// item's own fields: every declared box must be filled to approve, and an item enqueued with
+	// NO fields (the producer's frozen sheet was unreadable at submit -- a deliberate fail-open)
+	// stays approvable rather than stranded behind a requirement it cannot render.
+	PerItemFields bool
+	// CountLabel names an accompanying whole-number field, and is rendered ONLY
+	// for the ref types in CountRefTypes. NO category declares one today:
+	// weighing's lump-sum head count ("Goats on the scale") was the only user
+	// and was retired on 2026-08-24, when the count became a frozen herd-register
+	// snapshot taken at submit. The mechanism stays for a future category whose
+	// measurement genuinely pairs a value with a count; offering the field on a
+	// ref type whose write path refuses it invites a value the server rejects.
+	CountLabel string
+	// CountRefTypes lists the source ref types whose items carry the count field.
+	// Empty means no item in this category does.
+	CountRefTypes []string
+}
+
+// HasCountField reports whether an item with this source ref type carries the
+// accompanying whole-number field.
+func (s *MeasurementCorrectionSpec) HasCountField(refType string) bool {
+	if s == nil || strings.TrimSpace(s.CountLabel) == "" {
+		return false
+	}
+	refType = strings.TrimSpace(refType)
+	for _, candidate := range s.CountRefTypes {
+		if strings.EqualFold(strings.TrimSpace(candidate), refType) {
+			return true
+		}
+	}
+	return false
 }
 
 // MediaLabelFor returns the backend-owned header for the proof at position i (0-based) out of
@@ -140,6 +224,25 @@ func (r *Registry) Register(def CategoryDefinition) error {
 	}
 	if len(def.MediaLabels) > 0 && len(def.MediaLabels) != len(def.ExpectedMedia) {
 		return fmt.Errorf("%w: verification media labels must be positionally parallel to expected media (%d labels vs %d expected)", ErrInvalid, len(def.MediaLabels), len(def.ExpectedMedia))
+	}
+	// A correctable measurement declared with missing copy would render a control with
+	// a blank heading or an unlabelled input on the verifier's screen. Every visible
+	// word is required at REGISTRATION, where a missing one fails the process start,
+	// rather than at read time where it would ship as an empty label.
+	if spec := def.MeasurementCorrection; spec != nil {
+		spec.Title = strings.TrimSpace(spec.Title)
+		spec.Help = strings.TrimSpace(spec.Help)
+		spec.ValueLabel = strings.TrimSpace(spec.ValueLabel)
+		spec.SubmitLabel = strings.TrimSpace(spec.SubmitLabel)
+		spec.CountLabel = strings.TrimSpace(spec.CountLabel)
+		if spec.Title == "" || spec.Help == "" || spec.ValueLabel == "" || spec.SubmitLabel == "" {
+			return fmt.Errorf("%w: verification measurement correction requires title, help, value label, and submit label", ErrInvalid)
+		}
+		// The two count fields are meaningless apart: a label nothing renders, or a
+		// ref-type list with no label to render for it, is a half-wired control.
+		if (spec.CountLabel == "") != (len(spec.CountRefTypes) == 0) {
+			return fmt.Errorf("%w: verification measurement correction count label and count ref types must be declared together", ErrInvalid)
+		}
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

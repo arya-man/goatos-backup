@@ -154,9 +154,11 @@ class PushTargetResolverTest {
     }
 
     @Test
-    fun `weighing videos target keeps its own identity`() {
+    fun `retired weighing videos target names no destination`() {
+        // /weighing/videos was retired from mobile (2026-08-28). A backend push still naming it
+        // must fall back to the recipient's own landing, never crash or open a dead route.
         assertEquals(
-            Routes.WEIGHING_VIDEOS,
+            null,
             resolvePushRoute(mapOf(PushExtras.TARGET to "/weighing/videos")),
         )
     }

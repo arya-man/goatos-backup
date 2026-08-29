@@ -129,4 +129,22 @@
     <string name="feed_proof_recapture">प्रमाण दोबारा लें</string>
     <string name="feed_complete_already_submitted_title">पहले ही भेजा गया</string>
     <string name="feed_complete_already_submitted_body">यह वीडियो सत्यापनकर्ता को भेज दिया गया है। यहाँ और कुछ रिकॉर्ड नहीं करना है — समीक्षा के बाद परिणाम दिखेगा।</string>
+    <string name="feed_dist_session_submitted_body">इस सत्र के प्रूफ़ सत्यापनकर्ता को भेज दिए गए हैं। यहाँ और कुछ रिकॉर्ड नहीं करना है — समीक्षा के बाद परिणाम दिखेगा।</string>
+    <string name="feed_wastage_title">फ़ीड बर्बादी</string>
+    <string name="feed_wastage_caption">आज हर प्रयोग पेन के लिए बची हुई फ़ीड रिकॉर्ड करें</string>
+    <string name="feed_wastage_summary_title">पेन (पूरा फ़ार्म)</string>
+    <string name="feed_wastage_stat_pens">पेन</string>
+    <string name="feed_wastage_recorded_fmt">बर्बादी दर्ज: %1$s किलो</string>
+    <string name="feed_wastage_complete_caption">इस पेन में बची हुई फ़ीड का एक वीडियो रिकॉर्ड करें। सत्यापनकर्ता वीडियो से बची हुई फ़ीड का वज़न पढ़कर दर्ज करता है।</string>
+    <string name="feed_wastage_video_title">बची हुई फ़ीड का वीडियो (आवश्यक)</string>
+    <string name="feed_wastage_record_video">बची हुई फ़ीड का वीडियो रिकॉर्ड करें</string>
+    <string name="feed_wastage_video_uploading">अपलोड हो रहा है…</string>
+    <string name="feed_wastage_video_recorded">बची हुई फ़ीड का वीडियो रिकॉर्ड किया गया</string>
+    <string name="feed_wastage_submit">सत्यापन के लिए सबमिट करें</string>
+    <string name="feed_wastage_need_video">सबमिट करने के लिए बची हुई फ़ीड का वीडियो रिकॉर्ड करें।</string>
+    <string name="feed_wastage_retry_video">बची हुई फ़ीड का वीडियो फिर से रिकॉर्ड करें</string>
+    <string name="feed_wastage_waiting_sync">बची हुई फ़ीड का वीडियो अपलोड हो रहा है। तैयार होने पर सबमिट दिखेगा।</string>
+    <string name="feed_wastage_ready_to_submit">बची हुई फ़ीड का वीडियो तैयार है। सत्यापन के लिए सबमिट करें।</string>
+    <string name="feed_wastage_submitted">सत्यापन के लिए भेजा गया।</string>
+    <string name="feed_wastage_retry_submit">सत्यापन के लिए फिर से भेजें</string>
 </resources>

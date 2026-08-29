@@ -522,6 +522,9 @@ type lockedShiftingEvent struct {
 	AuthorizationState string
 	VerificationState  string
 	Priority           string
+	// Category is the shift TYPE (growth/health/breeding/delivery/spacing/flushing). The apply
+	// path branches on it once: a health movement may stamp a clinical destination tag.
+	Category *string
 
 	DestinationParkID         string
 	DestinationShedID         string
@@ -534,6 +537,9 @@ type lockedShiftingEvent struct {
 	CompletionDestinationTag *string
 	ManagementStageMode      *string
 	TargetManagementStage    *string
+	// AdoptPenTag is the tag the destination pen itself adopts at apply (typed raise into an empty
+	// pen). NULL: no pen configuration travels with this movement.
+	AdoptPenTag *string
 	// RaiseComment is read under the SAME row lock as everything else, so the note handed to the
 	// verifier is the one stored on the movement being completed, not a value re-read afterwards.
 	RaiseComment *string
@@ -553,10 +559,10 @@ type lockedShiftingEvent struct {
 func lockShiftingEvent(ctx context.Context, tx pgx.Tx, tenantID, shiftingEventID string) (lockedShiftingEvent, error) {
 	var out lockedShiftingEvent
 	err := tx.QueryRow(ctx, `
-SELECT event_status, authorization_state, verification_state, priority,
+SELECT event_status, authorization_state, verification_state, priority, category,
        destination_park_id::text, destination_shed_id::text, destination_partition_label,
        applied_at, applied_by::text, completed_at, completed_by::text,
-       completion_destination_tag, management_stage_mode, target_management_stage,
+       completion_destination_tag, management_stage_mode, target_management_stage, adopt_pen_tag,
        raise_comment,
        canceled_at, canceled_by::text, cancel_reason,
        completion_idempotency_key, completion_request_fingerprint,
@@ -564,10 +570,10 @@ SELECT event_status, authorization_state, verification_state, priority,
 FROM shifting_events
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 FOR UPDATE`, tenantID, shiftingEventID).Scan(
-		&out.EventStatus, &out.AuthorizationState, &out.VerificationState, &out.Priority,
+		&out.EventStatus, &out.AuthorizationState, &out.VerificationState, &out.Priority, &out.Category,
 		&out.DestinationParkID, &out.DestinationShedID, &out.DestinationPartitionLabel,
 		&out.AppliedAt, &out.AppliedBy, &out.CompletedAt, &out.CompletedBy,
-		&out.CompletionDestinationTag, &out.ManagementStageMode, &out.TargetManagementStage,
+		&out.CompletionDestinationTag, &out.ManagementStageMode, &out.TargetManagementStage, &out.AdoptPenTag,
 		&out.RaiseComment,
 		&out.CanceledAt, &out.CanceledBy, &out.CancelReason,
 		&out.CompletionIdempotencyKey, &out.CompletionRequestFingerprint,
@@ -643,16 +649,37 @@ func (r *Repository) applyAuthorizedCompletedShiftingInTx(
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, err
 	}
+	// PEN-TAG ADOPTION (typed shifting rewrite, maintainer decisions 2026-08-20): a spacing /
+	// delivery / flushing raise into an empty pen tags that pen with the arriving group's tag.
+	// Written through the identity seam BEFORE the relocation, in the same transaction, so a pen
+	// that changed between approval and apply fails the whole apply closed
+	// (ErrDestinationPenChanged) instead of silently creating a mixed pen.
+	if current.AdoptPenTag != nil && strings.TrimSpace(*current.AdoptPenTag) != "" {
+		if err := r.identityTx.ConfigureAdoptedShedCohortInTx(ctx, tx, identityports.ConfigureAdoptedShedCohortCommand{
+			TenantID:       tenantID,
+			ShedID:         destShedID,
+			PartitionLabel: current.DestinationPartitionLabel,
+			Stage:          *current.AdoptPenTag,
+		}); err != nil {
+			return domain.ShiftingExecutionResult{}, err
+		}
+	}
+	// A HEALTH-type movement is the one caller allowed to stamp a clinical destination tag: moving
+	// an animal into the ICU pen IS the health team setting her clinical state (maintainer
+	// decision 2026-08-20). Derived from the stored category, so a hand-crafted completion cannot
+	// widen it -- the raise resolver decided the target, the row records the type.
+	allowClinical := current.Category != nil && strings.EqualFold(strings.TrimSpace(*current.Category), domain.ShiftTypeHealth)
 	moved, err := r.identityTx.RelocateGoatsToShedInTx(ctx, tx, identityports.RelocateGoatsCommand{
 		TenantID: tenantID, ActorID: *current.CompletedBy, GoatIDs: goatIDs,
 		FromParkID: sourceParkID, FromShedID: sourceShedID, FromPartitionLabel: sourcePartitionLabel,
 		ToParkID: destParkID, ToShedID: destShedID, DestinationTag: destinationTag,
-		DestinationPartitionLabel: current.DestinationPartitionLabel,
-		DestinationShedName:       destShedName,
-		TraceID:                   traceID,
-		Reason:                    "counts shifting approved and operator-completed " + shiftingEventID,
-		OccurredAt:                appliedAt.UTC(),
-		OutboxIdempotencyPrefix:   "counts-shifting-applied:" + shiftingEventID,
+		AllowClinicalDestinationTag: allowClinical,
+		DestinationPartitionLabel:   current.DestinationPartitionLabel,
+		DestinationShedName:         destShedName,
+		TraceID:                     traceID,
+		Reason:                      "counts shifting approved and operator-completed " + shiftingEventID,
+		OccurredAt:                  appliedAt.UTC(),
+		OutboxIdempotencyPrefix:     "counts-shifting-applied:" + shiftingEventID,
 	})
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, err
@@ -874,6 +901,41 @@ func shiftingOutstandingActionSQL() string {
 	              OR se.verification_state = 'rejected'))`
 }
 
+// shiftingExecutableSourceCurrentSQL keeps stale approved moves out of the operator's executable
+// queue. Completion already fails closed when a named animal is no longer at the approved source;
+// the list must use the same source truth so refresh/back does not keep advertising an impossible
+// card as active.
+func shiftingExecutableSourceCurrentSQL(tenantParam string) string {
+	return `(NOT ` + shiftingOutstandingActionSQL() + `
+	         OR EXISTS (
+	             SELECT 1
+	             FROM counts_approval_requests ar
+	             WHERE ar.tenant_id = ` + tenantParam + `::uuid
+	               AND ar.shifting_event_id = se.shifting_event_id
+	               AND ar.status = 'approved'
+	               AND NOT EXISTS (
+	                   SELECT 1
+	                   FROM jsonb_array_elements_text(coalesce(ar.payload -> 'goat_ids', '[]'::jsonb)) AS gid(goat_id)
+	                   LEFT JOIN goats g
+	                     ON g.tenant_id = ar.tenant_id
+	                    AND g.goat_id = gid.goat_id::uuid
+	                   LEFT JOIN goat_shed_partitions gsp
+	                     ON gsp.tenant_id = g.tenant_id
+	                    AND gsp.goat_id = g.goat_id
+	                   WHERE g.goat_id IS NULL
+	                      OR g.merged_into_goat_id IS NOT NULL
+	                      OR g.exited_at IS NOT NULL
+	                      OR g.shed_id IS DISTINCT FROM se.source_shed_id
+	                      OR g.park_id IS DISTINCT FROM se.source_park_id
+	                      OR (
+	                           nullif(se.source_partition_label, '') IS NOT NULL
+	                           AND regexp_replace(lower(btrim(coalesce(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+	                               IS DISTINCT FROM regexp_replace(lower(btrim(se.source_partition_label)), '^part[[:space:]]+', '')
+	                         )
+	               )
+	         ))`
+}
+
 // ListShiftingEventsPendingExecution returns one keyset page of date-scoped Actions history.
 //
 // projection-review: membership=date-and-status-scoped shifting_events plus one preferred request per event; group_key=shifting_event_id; join_cardinality=request and preview lateral joins reduce to at most one row per event; pagination=keyset over raised_at and shifting_event_id with limit plus one; scope=tenant_id plus business-date status park and shed filters
@@ -967,6 +1029,7 @@ WITH page AS (
 	      AND ($9::uuid IS NULL OR se.source_park_id = $9::uuid)
 	      AND ($10::uuid IS NULL OR se.source_shed_id = $10::uuid)
 	      AND `+shiftingActionsVisibleSQL("$11")+`
+	      AND `+shiftingExecutableSourceCurrentSQL("$1")+`
 	      AND ($5::timestamptz IS NULL
 	           OR (se.raised_at, se.shifting_event_id) < ($5::timestamptz, $6::uuid))
 	    ORDER BY se.raised_at DESC, se.shifting_event_id DESC
@@ -1112,6 +1175,7 @@ ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
 FROM shifting_events se WHERE tenant_id=$1::uuid AND raised_at >= $2 AND raised_at < $3
   AND ($5::uuid IS NULL OR se.source_park_id = $5::uuid)
   AND ($6::uuid IS NULL OR se.source_shed_id = $6::uuid)
+  AND `+shiftingExecutableSourceCurrentSQL("$1")+`
   AND `+shiftingActionsVisibleSQL("$4"),
 			q.TenantID, q.RaisedFrom.UTC(), q.RaisedBefore.UTC(), now.UTC(), sourceParkID, sourceShedID).Scan(
 			&page.StatusCounts.All, &page.StatusCounts.Pending, &page.StatusCounts.Authorized,
@@ -1131,6 +1195,7 @@ WHERE tenant_id=$1::uuid AND `+shiftingOutstandingActionSQL()+`
   AND raised_at < $2 AND raised_at >= $2 - interval '90 days'
   AND ($4::uuid IS NULL OR se.source_park_id = $4::uuid)
   AND ($5::uuid IS NULL OR se.source_shed_id = $5::uuid)
+  AND `+shiftingExecutableSourceCurrentSQL("$1")+`
   AND `+shiftingActionsVisibleSQL("$3")+`
 GROUP BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date
 ORDER BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date DESC LIMIT 5`, q.TenantID, q.RaisedFrom.UTC(), now.UTC(), sourceParkID, sourceShedID)

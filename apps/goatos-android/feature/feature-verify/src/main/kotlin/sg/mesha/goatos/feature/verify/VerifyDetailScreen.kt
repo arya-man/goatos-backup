@@ -15,15 +15,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -36,6 +39,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -151,9 +155,122 @@ data class VerifyContextRow(
  * (`ref_type=sop_submission`, several clips under one verdict) still renders here as a
  * single-entry group — see [VerifyDetailViewModel] grouping.
  */
+/**
+ * THE VERIFIER'S WEIGHT CORRECTION control (maintainer decision 2026-08-17), exactly as the backend
+ * declared it on this item. Every string here is rendered VERBATIM: this screen composes none of
+ * them, so the phone and the admin-web drawer cannot word the same control differently.
+ *
+ * It carries NO current value -- the number is already in the entry's subject label, which she is
+ * reading while she watches the video.
+ */
+@Immutable
+data class VerifyWeightCorrection(
+    /** Echoed from the item's source; posted back verbatim, never inferred. */
+    val refType: String,
+    val observationId: String,
+    val title: String,
+    /** Says plainly that the value REPLACES the recorded one. Rendered, never paraphrased. */
+    val help: String,
+    val valueLabel: String,
+    /**
+     * Named the separate save button that used to sit under the field. THAT BUTTON IS GONE
+     * (maintainer decision 2026-08-20): she types the number and presses Approve, and the approve
+     * carries it. Kept on the state so the backend's copy still decodes; nothing renders it.
+     */
+    val submitLabel: String,
+    /**
+     * Keep Approve DISABLED until she enters a number. True for feed wastage, where the operator
+     * submits a video only and the reading is born on this screen; false for weighing, where the
+     * operator already recorded a weight and blank means "his weight is right".
+     */
+    val requiredForApprove: Boolean = false,
+    /**
+     * Label for the head-count field. Null means render the weight field ALONE -- an individual
+     * animal's proof carries no count and the backend REFUSES one, so showing the field there would
+     * invite a value the server rejects.
+     */
+    val countLabel: String? = null,
+    /**
+     * True when ZERO is a valid measurement — the feed-wastage route (maintainer decision
+     * 2026-08-18), where an empty trough is a real, good reading. False for weighing, whose
+     * write path refuses a non-positive weight. A blank field is still blank either way: the
+     * card never coerces "she has not typed" into 0.
+     */
+    val allowZero: Boolean = false,
+    /**
+     * Whether the optional free-text reason field renders. Weighing accepts a correction reason;
+     * the wastage measurement route carries no reason at all, so offering the field there would
+     * collect words the write path silently drops.
+     */
+    val showReason: Boolean = true,
+    /**
+     * The ordered per-item entry boxes for items whose approve carries one value PER FIELD -- a
+     * feed packing item: one box per feed item of that pen-session, NAMES ONLY (the planned
+     * quantities are deliberately hidden so the verifier enters blind; maintainer decision
+     * 2026-08-21). Non-empty means the card renders one labelled box per field INSTEAD of the
+     * single value field, and Approve stays held until every box carries a usable number -- zero
+     * included ("this item was not packed" is a real observation).
+     */
+    val fields: List<VerifyMeasurementField> = emptyList(),
+)
+
+/** One per-item entry box: the backend's stable key, echoed verbatim, and its caption. */
+@Immutable
+data class VerifyMeasurementField(
+    val key: String,
+    val label: String,
+)
+
+/**
+ * THE NUMBER SHE TYPED, travelling with her approve (maintainer decision 2026-08-20).
+ *
+ * It names NO target. The record it lands on is resolved by the backend from the item's own source,
+ * so this screen cannot aim one item's approve at another item's record.
+ */
+@Immutable
+data class VerifyMeasurementInput(
+    /**
+     * The single-value reading in the category's own unit (kg for weighing and wastage). Zero is
+     * valid for wastage. Null on a per-field item, whose readings travel on [entries].
+     */
+    val value: Double? = null,
+    /** Lump-sum only. Null leaves the recorded count alone, which is the normal case. */
+    val count: Int? = null,
+    val reason: String? = null,
+    /** One reading per declared field (feed packing). Empty for single-value categories. */
+    val entries: List<VerifyMeasurementEntry> = emptyList(),
+)
+
+/** One filled entry box travelling with the approve: the field's key plus the reading. */
+@Immutable
+data class VerifyMeasurementEntry(
+    val key: String,
+    val value: Double,
+)
+
+/**
+ * An approve waiting on its confirmation dialog.
+ *
+ * The number is captured at the PRESS, not read back at confirm time: the dialog is rendered
+ * outside the card and has no way to see its fields.
+ */
+@Immutable
+private data class VerifyPendingApprove(
+    val itemId: String,
+    val measurement: VerifyMeasurementInput?,
+)
+
 @Immutable
 data class VerifyDetailEntryUiState(
     val itemId: String,
+    /**
+     * Present only when the backend declared a correctable measurement on this item -- weighing
+     * today. Null means the card renders no correction control at all.
+     *
+     * Deliberately NOT cleared once a verdict is recorded: she may correct the weight before
+     * deciding or after, including on an item she already approved, until the bucket closes.
+     */
+    val weightCorrection: VerifyWeightCorrection? = null,
     val subjectLabel: String? = null,
     val media: List<VerifyMediaItem> = emptyList(),
     val statusTone: VerifyTone = VerifyTone.PENDING,
@@ -227,6 +344,10 @@ enum class VerifyDecisionUnavailableReason { NONE, ALREADY_DECIDED, EVIDENCE_UNA
  *  mandatory-reason dialog, so this keeps the two decisions symmetric. */
 private const val APPROVE_NEEDS_CONFIRMATION = true
 
+/** Upper bound for an allow-zero measurement (feed wastage: 0..10000 kg, the backend's own
+ *  `wastage_out_of_range` window), so the server's refusal is unreachable from the UI. */
+private const val MAX_MEASUREMENT_KG = 10_000.0
+
 enum class VideoPlaybackAction {
     /** Fired synchronously at the play/pause TAP, before player.play()/pause() is even called —
      *  see [VerifyDetailScreen] play/pause click handlers. This is the INTENT half of the
@@ -249,10 +370,21 @@ sealed interface VerifyDetailEvent {
     /** [itemId] null targets the legacy single-entry group (`entries.first()`); a grouped shed
      *  screen always passes the tapped entry's own item id, so one animal's verdict never
      *  touches its shed-mates. */
-    data class Approve(val itemId: String? = null) : VerifyDetailEvent
+    /**
+     * THE APPROVE CARRIES THE NUMBER (maintainer decision 2026-08-20).
+     *
+     * [measurement] is what she typed into the item's measurement field, or null -- the normal
+     * weighing case, where blank means the operator's recorded weight is right, and every category
+     * that declares no field at all.
+     */
+    data class Approve(
+        val itemId: String? = null,
+        val measurement: VerifyMeasurementInput? = null,
+    ) : VerifyDetailEvent
     /** [reason] is always non-blank — the reject dialog below refuses to emit this otherwise.
      *  [itemId] follows the same null-means-legacy-single-entry contract as [Approve]. */
     data class Reject(val reason: String, val itemId: String? = null) : VerifyDetailEvent
+
     data object Refresh : VerifyDetailEvent
     /** Dialog-lifecycle telemetry: the Compose dialogs below own their own open/dismiss state
      *  (a screen-recomposition concern), but every open/cancel is still a real verifier action
@@ -297,7 +429,10 @@ fun VerifyDetailScreen(
     // a single screen-wide flag, or one animal's tap would surface a dialog whose confirm posts
     // the wrong verdict once entries re-sort after a refresh.
     var rejectDialogForItemId by remember { mutableStateOf<String?>(null) }
-    var approveDialogForItemId by remember { mutableStateOf<String?>(null) }
+    // Holds the item AND the number she typed, because the confirm dialog is rendered outside the
+    // card and cannot read the card's fields when it resolves.
+    var pendingApprove by remember { mutableStateOf<VerifyPendingApprove?>(null) }
+    var activeProofSubject by rememberSaveable { mutableStateOf<String?>(null) }
     RefreshOnResume { onEvent(VerifyDetailEvent.Refresh) }
 
     // The scrollable viewport's own bounds, in window coordinates. Each row's [VerifyVideoPlayer]
@@ -309,28 +444,6 @@ fun VerifyDetailScreen(
     // entries list of length 1, so the "one card, one verdict" layout below is also the correct
     // (and only) rendering for that case — no separate legacy code path needed.
     val entries = state.entries
-
-    // Auto-close once the last item in this group is decided: the item leaves the queue,
-    // entries becomes empty, and we have nothing left to show. This happens AFTER the
-    // backend confirms the decision (waitForBackendDecision succeeds), at which point the
-    // ViewModel sets autoCloseAfterDecision = true. A single legacy/bundled item (entries
-    // of length 1) closes immediately; a multi-animal shed waits until all are decided.
-    // Distinction: an entry with NO media (genuinely missing evidence) is still an entry —
-    // it renders the "No video attached" warning inside VerifyEntryCard. An item with NO
-    // entries means the queue no longer knows about this group at all — that is the signal
-    // to close.
-    // Keyed on the FLAG ALONE. It was `autoCloseAfterDecision && entries.isEmpty()`, which
-    // never fires: the ViewModel does not drain `entries` on a verdict -- decided animals stay
-    // rendered -- it sets autoCloseAfterDecision = !stillPending once every animal in the group
-    // holds a terminal verdict (see its own comment). Requiring an empty list on top of that
-    // meant the screen sat on a decided item showing "No video attached to this item" instead
-    // of returning to the queue. An item with genuinely no media never sets the flag (no verdict
-    // was submitted), so its EmptyState is untouched by this.
-    LaunchedEffect(state.autoCloseAfterDecision) {
-        if (state.autoCloseAfterDecision) {
-            onEvent(VerifyDetailEvent.Close)
-        }
-    }
 
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.Bg)) {
         Column(
@@ -385,13 +498,18 @@ fun VerifyDetailScreen(
                             isCloseMode = state.isCloseMode,
                             videoControlsEnabled = videoControlsEnabled,
                             viewportBounds = viewportBounds,
+                            activeProofSubject = activeProofSubject,
+                            onActiveProofSubjectChange = { activeProofSubject = it },
                             onPlayback = { onEvent(it) },
-                            onApprove = {
+                            onApprove = { measurement ->
                                 if (APPROVE_NEEDS_CONFIRMATION) {
-                                    approveDialogForItemId = entry.itemId
+                                    // The number is captured HERE, with the press, not read back
+                                    // when the dialog confirms: the dialog sits outside the card
+                                    // and cannot see its fields.
+                                    pendingApprove = VerifyPendingApprove(entry.itemId, measurement)
                                     onEvent(VerifyDetailEvent.ApproveDialogOpened(entry.itemId))
                                 } else {
-                                    onEvent(VerifyDetailEvent.Approve(entry.itemId))
+                                    onEvent(VerifyDetailEvent.Approve(entry.itemId, measurement))
                                 }
                             },
                             onReject = {
@@ -433,15 +551,17 @@ fun VerifyDetailScreen(
         )
     }
 
-    approveDialogForItemId?.let { targetItemId ->
+    pendingApprove?.let { pending ->
         ApproveConfirmDialog(
+            isSubmitting = state.isSubmitting,
             onConfirm = {
-                approveDialogForItemId = null
-                onEvent(VerifyDetailEvent.Approve(targetItemId))
+                onEvent(VerifyDetailEvent.Approve(pending.itemId, pending.measurement))
             },
             onDismiss = {
-                approveDialogForItemId = null
-                onEvent(VerifyDetailEvent.ApproveDialogCancelled(targetItemId))
+                if (!state.isSubmitting) {
+                    pendingApprove = null
+                    onEvent(VerifyDetailEvent.ApproveDialogCancelled(pending.itemId))
+                }
             },
         )
     }
@@ -454,10 +574,70 @@ private fun VerifyEntryCard(
     isCloseMode: Boolean,
     videoControlsEnabled: Boolean,
     viewportBounds: Rect?,
+    activeProofSubject: String?,
+    onActiveProofSubjectChange: (String?) -> Unit,
     onPlayback: (VerifyDetailEvent) -> Unit,
-    onApprove: () -> Unit,
+    onApprove: (VerifyMeasurementInput?) -> Unit,
     onReject: () -> Unit,
 ) {
+    // The typed number lives HERE rather than inside the measurement card, because the Approve
+    // button below has to read it -- that is the whole point of the 2026-08-20 decision. Keyed by
+    // observation id so stepping to another animal starts blank instead of carrying one animal's
+    // weight onto the next one's approve.
+    val correction = entry.weightCorrection
+    var valueText by rememberSaveable(correction?.observationId) { mutableStateOf("") }
+    var countText by rememberSaveable(correction?.observationId) { mutableStateOf("") }
+    var reasonText by rememberSaveable(correction?.observationId) { mutableStateOf("") }
+    // Per-field readings (feed packing's blind entry, maintainer decision 2026-08-21): one box per
+    // feed item. Keyed by observation id like the single value above, so stepping to another item
+    // starts blank instead of carrying one pen's readings onto the next pen's approve.
+    val entryTexts = remember(correction?.observationId) { mutableStateMapOf<String, String>() }
+
+    val perFieldEntry = (correction?.fields?.size ?: 0) > 0
+    // Blank is "she has not typed a number", NEVER a zero: for wastage an empty trough is a real
+    // reading, so coercing blank to 0 would record a measurement she never made.
+    val value = valueText.trim().toDoubleOrNull()
+    val trimmedCount = countText.trim()
+    val count = trimmedCount.toIntOrNull()
+    val countIsUsable = trimmedCount.isEmpty() || (count != null && count > 0)
+    // allowZero is the wastage case: an empty trough is a real, good reading. Weighing's write path
+    // refuses a non-positive weight, so a typed 0 there is held here rather than sent to be
+    // rejected. Blank is still blank in both -- "she has not typed" is never coerced into 0.
+    val valueIsUsable = value != null && value.isFinite() && (if (correction?.allowZero == true) value >= 0 else value > 0)
+    // Per-field completeness: EVERY box must carry a usable number, zero included ("this item was
+    // not packed" is a real observation). Blank is not entered, and holds Approve below.
+    val fieldReadings = correction?.fields.orEmpty().associate { field ->
+        field.key to entryTexts[field.key]?.trim()?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 }
+    }
+    val everyFieldFilled = perFieldEntry && fieldReadings.values.all { it != null }
+    // Held only where the backend says the readings are born on this screen -- feed wastage's one
+    // value, or a per-field item's full set. Weighing stays a single tap when she agrees with the
+    // operator's weight.
+    val measurementMissing = correction?.requiredForApprove == true &&
+        (if (perFieldEntry) !everyFieldFilled else !valueIsUsable)
+    val measurement = when {
+        correction == null -> null
+        perFieldEntry -> correction.takeIf { everyFieldFilled }?.let {
+            VerifyMeasurementInput(
+                entries = correction.fields.map { field ->
+                    // Not-null by everyFieldFilled.
+                    VerifyMeasurementEntry(key = field.key, value = fieldReadings[field.key] ?: 0.0)
+                },
+            )
+        }
+        valueIsUsable ->
+            VerifyMeasurementInput(
+                value = value,
+                // Only where the backend offered the field; the write path refuses a count that
+                // the grain cannot carry, so it is dropped rather than sent to be rejected.
+                count = count.takeIf { correction.countLabel?.isNotBlank() == true },
+                // The wastage write path carries NO reason, so a note typed there would be
+                // collected and silently dropped. The field is not rendered for it either.
+                reason = reasonText.trim().ifBlank { null }.takeIf { correction.showReason },
+            )
+        else -> null
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         entry.subjectLabel?.takeIf { it.isNotBlank() }?.let { subject ->
             Text(
@@ -509,6 +689,8 @@ private fun VerifyEntryCard(
                         onPlayback = onPlayback,
                         controlsEnabled = videoControlsEnabled,
                         viewportBounds = viewportBounds,
+                        activeProofSubject = activeProofSubject,
+                        onActiveProofSubjectChange = onActiveProofSubjectChange,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -520,13 +702,37 @@ private fun VerifyEntryCard(
         entry.verdictReason?.takeIf { it.isNotBlank() }?.let { reason ->
             RejectionReasonCard(reason = reason)
         }
+        // Shown ONLY when the backend attached a correctable measurement to this item -- weighing
+        // today. It sits ABOVE the verdict row because the order matches the act: she watches the
+        // video, fixes the number if it is wrong, then decides. Deliberately NOT hidden once a
+        // verdict exists: she may correct before deciding or after, until the bucket closes.
+        correction?.let { spec ->
+            MeasurementCard(
+                correction = spec,
+                valueText = valueText,
+                onValueChange = { valueText = it },
+                countText = countText,
+                onCountChange = { countText = it },
+                reasonText = reasonText,
+                onReasonChange = { reasonText = it },
+                entryTexts = entryTexts,
+                countIsUsable = countIsUsable,
+                showRequiredHint = measurementMissing,
+                enabled = !entry.isSubmitting,
+            )
+        }
         if (!isCloseMode) {
             DecisionRow(
-                approveEnabled = entry.isApproveEnabled && !entry.isSubmitting,
+                // A malformed count would be refused by the write path, so it holds Approve here
+                // rather than travelling to be rejected.
+                approveEnabled = entry.isApproveEnabled && !entry.isSubmitting && !measurementMissing && countIsUsable,
+                // Reject is NEVER held on the number. A reading she cannot take off the clip is
+                // exactly the case that must be sent back, and blocking it would strand her with an
+                // item she can neither approve nor return.
                 rejectEnabled = entry.isRejectEnabled && !entry.isSubmitting,
                 unavailableReason = entry.decisionUnavailableReason,
                 isSubmitting = entry.isSubmitting,
-                onApprove = onApprove,
+                onApprove = { onApprove(measurement) },
                 onReject = onReject,
             )
         }
@@ -535,6 +741,114 @@ private fun VerifyEntryCard(
             thickness = 1.dp,
             color = MeshaColors.Surf2,
         )
+    }
+}
+
+/**
+ * THE MEASUREMENT CARD -- the number the verifier reads off the video.
+ *
+ * IT HAS NO SAVE BUTTON (maintainer decision 2026-08-20). There used to be one, and pressing it
+ * relabelled the verification item, which bumps row_version -- so the Approve she pressed next
+ * carried the version the screen had loaded with, the version-fenced verdict matched nothing, and
+ * nothing happened. Two acts for one judgement, the second broken by the first. She now types the
+ * number and presses Approve, and the approve carries it.
+ *
+ * Every visible word comes from [correction], which the backend composed: heading, help and both
+ * field labels. This card composes none of them, so the phone and the admin-web drawer cannot word
+ * the same control differently. The head-count field appears only when the backend sent a label for
+ * it -- a lump-sum shed proof has one, a single animal's proof does not, and the write path REFUSES
+ * a count on the latter.
+ *
+ * The state lives in the caller ([VerifyEntryCard]) because the Approve button has to read it.
+ */
+@Composable
+private fun MeasurementCard(
+    correction: VerifyWeightCorrection,
+    valueText: String,
+    onValueChange: (String) -> Unit,
+    countText: String,
+    onCountChange: (String) -> Unit,
+    reasonText: String,
+    onReasonChange: (String) -> Unit,
+    entryTexts: MutableMap<String, String>,
+    countIsUsable: Boolean,
+    showRequiredHint: Boolean,
+    enabled: Boolean,
+) {
+    Column(
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .fillMaxWidth()
+            .background(MeshaColors.Surf2, shape = RoundedCornerShape(16.dp))
+            .padding(14.dp),
+    ) {
+        Text(text = correction.title, color = MeshaColors.Ink, style = MeshaType.listTitle)
+        Text(
+            text = correction.help,
+            color = MeshaColors.Muted,
+            style = MeshaType.cta,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        if (correction.fields.isNotEmpty()) {
+            // BLIND PER-ITEM ENTRY (maintainer decision 2026-08-21): one labelled box per feed
+            // item, names only -- the backend deliberately withholds the planned quantities so her
+            // readings are independent. Zero is a valid entry ("this item was not packed"); blank
+            // means not entered and holds Approve. The bounded fields list is one pen-session's
+            // feed items, never a scrolling data set.
+            correction.fields.forEach { field ->
+                OutlinedTextField(
+                    value = entryTexts[field.key] ?: "",
+                    onValueChange = { entryTexts[field.key] = it },
+                    label = { Text(field.label) },
+                    singleLine = true,
+                    enabled = enabled,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+            }
+        } else {
+            OutlinedTextField(
+                value = valueText,
+                onValueChange = onValueChange,
+                label = { Text(correction.valueLabel) },
+                singleLine = true,
+                enabled = enabled,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            )
+        }
+        correction.countLabel?.takeIf { it.isNotBlank() }?.let { countLabel ->
+            OutlinedTextField(
+                value = countText,
+                onValueChange = onCountChange,
+                label = { Text(countLabel) },
+                singleLine = true,
+                enabled = enabled,
+                isError = !countIsUsable,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
+        }
+        if (correction.showReason) {
+            OutlinedTextField(
+                value = reasonText,
+                onValueChange = onReasonChange,
+                label = { Text(stringResource(R.string.verify_detail_correction_reason_label)) },
+                singleLine = false,
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
+        }
+        // An Approve she cannot press has to say why, or the screen reads as broken. Rejecting is
+        // still open to her, and is the right move when the number cannot be read at all.
+        if (showRequiredHint) {
+            Text(
+                text = stringResource(R.string.verify_detail_measurement_required),
+                color = MeshaColors.Muted,
+                style = MeshaType.cta,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
     }
 }
 
@@ -664,6 +978,8 @@ private fun VerifyVideoPlayer(
     modifier: Modifier = Modifier,
     controlsEnabled: Boolean = false,
     viewportBounds: Rect? = null,
+    activeProofSubject: String? = null,
+    onActiveProofSubjectChange: (String?) -> Unit = {},
 ) {
     val context = LocalContext.current
     // Telemetry-instrumented player (W-22): media3 must fetch over the app's OkHttp client, or a
@@ -712,6 +1028,21 @@ private fun VerifyVideoPlayer(
             )
         ) {
             player.setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
+        }
+    }
+    // Prepare visible proofs enough to paint their first frame and duration. The verifier should
+    // not see a black ExoPlayer box that reads 0:00 / 0:00 and have to guess whether evidence exists.
+    // Playback ownership is still only claimed on an actual play tap; this is just preview readiness.
+    LaunchedEffect(rowBounds, viewportBounds, activeProofSubject, armed, player) {
+        val row = rowBounds ?: return@LaunchedEffect
+        val viewport = viewportBounds ?: return@LaunchedEffect
+        if (
+            !armed &&
+            isRowVisibleInViewport(row, viewport) &&
+            player.playbackState == Player.STATE_IDLE
+        ) {
+            armed = true
+            player.prepare()
         }
     }
     // prepare() (the call that allocates the hardware decoder) is fired synchronously from the
@@ -772,7 +1103,7 @@ private fun VerifyVideoPlayer(
     // Pause + free the decoder once this row is no longer (mostly) visible in the shed list.
     //
     // Every row used to keep playing forever once tapped: composition never tears the player down
-    // until the row leaves COMPOSITION (LazyColumn recycling), which is later than leaving the
+    // until the row leaves COMPOSITION (scroll-list recycling), which is later than leaving the
     // VIEWPORT, and never happens at all for a row merely scrolled half off-screen. With several
     // animals per shed and several sheds per park, that meant several hardware decoders running
     // (and audio playing) off-screen at once — the exact condition that silently starved the
@@ -794,9 +1125,13 @@ private fun VerifyVideoPlayer(
     LaunchedEffect(rowBounds, viewportBounds) {
         val row = rowBounds ?: return@LaunchedEffect
         val viewport = viewportBounds ?: return@LaunchedEffect
-        if (armed && player.isPlaying && !isRowVisibleInViewport(row, viewport)) {
+        if (armed && !isRowVisibleInViewport(row, viewport)) {
             player.playWhenReady = false
             player.stop()
+            armed = false
+            if (activeProofSubject == media.proofSubject) {
+                onActiveProofSubjectChange(null)
+            }
         }
     }
     // Backgrounding the app (lock screen, home button, task switch) is its own case: nothing
@@ -807,6 +1142,16 @@ private fun VerifyVideoPlayer(
         if (armed && player.isPlaying) {
             player.playWhenReady = false
             player.stop()
+            if (activeProofSubject == media.proofSubject) {
+                onActiveProofSubjectChange(null)
+            }
+        }
+    }
+    LaunchedEffect(activeProofSubject, player) {
+        if (activeProofSubject != null && activeProofSubject != media.proofSubject && armed) {
+            player.playWhenReady = false
+            player.stop()
+            armed = false
         }
     }
     Box(
@@ -814,6 +1159,22 @@ private fun VerifyVideoPlayer(
             .aspectRatio(16f / 9f)
             .clip(RoundedCornerShape(14.dp))
             .background(MeshaColors.Bg)
+            .clickable(enabled = isPlaying) {
+                currentOnPlayback(
+                    VerifyDetailEvent.VideoPlayback(
+                        proofSubject = media.proofSubject,
+                        mimeType = media.mimeType,
+                        action = VideoPlaybackAction.PLAY_INTENT,
+                        playerState = player.playbackState.toPlayerStateLabel(),
+                        armed = armed,
+                        targetAction = "pause",
+                    ),
+                )
+                player.pause()
+                if (activeProofSubject == media.proofSubject) {
+                    onActiveProofSubjectChange(null)
+                }
+            }
             .onGloballyPositioned { rowBounds = it.boundsInWindow() },
     ) {
         AndroidView(
@@ -850,9 +1211,15 @@ private fun VerifyVideoPlayer(
         // hand the verifier a seek bar. This is a label, so she can see how long the clip is and
         // how far in she is, and still cannot skip through it.
         VideoTimeReadout(player = player, modifier = Modifier.align(Alignment.BottomStart))
-        PlayPauseButton(
-            isPlaying = isPlaying,
-            onClick = {
+        // DOUBLE-SPEED PLAYBACK (maintainer decision 2026-08-17). Offered ONLY on clips longer than
+        // 20 seconds -- see MIN_DOUBLE_SPEED_DURATION_MS. It is a SPEED control, not a seek control:
+        // she still watches every frame, so it does not reopen the skip-blocking this screen exists
+        // to enforce.
+        DoubleSpeedButton(player = player, modifier = Modifier.align(Alignment.BottomEnd))
+        if (!isPlaying) {
+            PlayPauseButton(
+                isPlaying = false,
+                onClick = {
                 // INTENT half of the intent/outcome pair (docs/observability/
                 // TELEMETRY_GUARDRAILS.md): recorded BEFORE pause()/play() is even called, so a
                 // tap is proven to have happened whether or not the player responds. The matching
@@ -885,6 +1252,7 @@ private fun VerifyVideoPlayer(
                     // nothing whatsoever happens. Re-watching a 3-second proof is the core of the
                     // job, so this path must never depend on effect ordering.
                     armed = true
+                    onActiveProofSubjectChange(media.proofSubject)
                     when (player.playbackState) {
                         Player.STATE_IDLE -> player.prepare()
                         Player.STATE_ENDED -> player.seekTo(0)
@@ -892,9 +1260,10 @@ private fun VerifyVideoPlayer(
                     }
                     player.play()
                 }
-            },
-            modifier = Modifier.align(Alignment.Center),
-        )
+                },
+                modifier = Modifier.align(Alignment.Center),
+            )
+        }
         // Maintainer decision 2026-08-04 SUPERSEDES 2026-08-02: the verifier keeps NO SCRUBBING
         // (useController stays false, so there is no seek bar) but now gets FULLSCREEN and a
         // read-only elapsed/total readout.
@@ -925,6 +1294,9 @@ private fun VerifyVideoPlayer(
                     // closing fullscreen and pressing play still works.
                     player.playWhenReady = false
                     player.stop()
+                    if (activeProofSubject == media.proofSubject) {
+                        onActiveProofSubjectChange(null)
+                    }
                     isFullscreen = true
                 },
                 modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
@@ -976,6 +1348,65 @@ private fun RejectionReasonCard(reason: String) {
             modifier = Modifier.padding(top = 4.dp),
         )
     }
+}
+
+/**
+ * DOUBLE-SPEED PLAYBACK is offered ONLY on clips longer than this (maintainer decision 2026-08-17).
+ *
+ * The point of the control is to save a verifier real time on a long clip. On a short one it saves a
+ * couple of seconds while making it materially easier to miss the single moment the proof turns on --
+ * the scale reading, the needle going in -- so the control is simply ABSENT rather than present and
+ * discouraged.
+ */
+private const val MIN_DOUBLE_SPEED_DURATION_MS = 20_000L
+
+private const val DOUBLE_SPEED_RATE = 2f
+private const val NORMAL_SPEED_RATE = 1f
+
+/**
+ * The 2x toggle, drawn over the video next to the time readout.
+ *
+ * It is a SPEED control and deliberately not a seek control: at 2x she still passes through every
+ * frame, so it does not reopen the forward-skip block this screen enforces by withholding the media3
+ * controller.
+ *
+ * The button appears only once the player reports a duration over [MIN_DOUBLE_SPEED_DURATION_MS].
+ * Duration is `C.TIME_UNSET` until the media is prepared, so it starts absent and appears when the
+ * clip proves itself long enough -- never the other way round, which would flash an option that then
+ * vanishes. If a shorter clip is loaded into the same player, the rate is reset to normal rather than
+ * left at 2x on a video that was never eligible for it.
+ */
+@Composable
+private fun DoubleSpeedButton(player: ExoPlayer, modifier: Modifier = Modifier) {
+    var durationMs by remember(player) { mutableLongStateOf(0L) }
+    var isDoubleSpeed by rememberSaveable(player) { mutableStateOf(false) }
+    LaunchedEffect(player) {
+        while (true) {
+            durationMs = player.duration.coerceAtLeast(0L)
+            kotlinx.coroutines.delay(500)
+        }
+    }
+    val mayDoubleSpeed = durationMs > MIN_DOUBLE_SPEED_DURATION_MS
+    // Applied in an effect, not at tap time, so the rate survives a re-prepare or a media-item swap
+    // that would otherwise leave the button reading 2x while the clip plays at normal speed.
+    LaunchedEffect(player, isDoubleSpeed, mayDoubleSpeed) {
+        val wantDoubleSpeed = isDoubleSpeed && mayDoubleSpeed
+        player.setPlaybackSpeed(if (wantDoubleSpeed) DOUBLE_SPEED_RATE else NORMAL_SPEED_RATE)
+        if (isDoubleSpeed && !mayDoubleSpeed) isDoubleSpeed = false
+    }
+    if (!mayDoubleSpeed) return
+    Text(
+        text = stringResource(
+            if (isDoubleSpeed) R.string.verify_detail_speed_on else R.string.verify_detail_speed_off,
+        ),
+        style = MeshaType.caption,
+        color = MeshaColors.Ink,
+        modifier = modifier
+            .padding(8.dp)
+            .background(MeshaColors.Bg.copy(alpha = 0.72f), RoundedCornerShape(6.dp))
+            .clickable { isDoubleSpeed = !isDoubleSpeed }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
 }
 
 /**
@@ -1213,9 +1644,13 @@ private fun FullscreenVideoDialog(
                 },
                 modifier = Modifier.fillMaxSize(),
             )
-            PlayPauseButton(
-                isPlaying = isPlaying,
-                onClick = {
+            // Fullscreen builds its OWN ExoPlayer, so it needs its own 2x toggle -- otherwise going
+            // fullscreen silently drops the verifier back to normal speed on a long clip.
+            DoubleSpeedButton(player = player, modifier = Modifier.align(Alignment.BottomEnd))
+            if (!isPlaying) {
+                PlayPauseButton(
+                    isPlaying = false,
+                    onClick = {
                     // INTENT half — see the inline player's identical click handler above for the
                     // full rationale. The fullscreen player is always prepared eagerly on
                     // creation, so `armed` is always true here.
@@ -1242,9 +1677,10 @@ private fun FullscreenVideoDialog(
                         }
                         player.play()
                     }
-                },
-                modifier = Modifier.align(Alignment.Center),
-            )
+                    },
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -1394,21 +1830,37 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
             modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
         )
         rows.forEachIndexed { index, row ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 11.dp),
-            ) {
-                // design-system:ignore: 13sp/W400 has no close token — the only W400 style is
-                // `body` at 14.5sp, which would render this label larger than its 13.5sp value.
-                Text(text = contextRowLabel(row), color = MeshaColors.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                val displayValue = remember(row.value, row.kind, locale) {
-                    if (row.kind == VerifyContextKind.CAPTURED_AT) {
-                        formatCapturedAt(row.value, locale, ZoneId.of("Asia/Kolkata"))
-                    } else {
-                        row.value
-                    }
+            val label = contextRowLabel(row)
+            val displayValue = remember(row.value, row.kind, locale) {
+                if (row.kind == VerifyContextKind.CAPTURED_AT) {
+                    formatCapturedAt(row.value, locale, ZoneId.of("Asia/Kolkata"))
+                } else {
+                    row.value
                 }
-                Text(text = displayValue, color = MeshaColors.Ink, style = MeshaType.listTitle)
+            }
+            val stacked = row.backendLabel?.isNotBlank() == true || displayValue.length > 32
+            if (stacked) {
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 11.dp)) {
+                    // design-system:ignore: 13sp/W400 has no close token — the only W400 style is
+                    // `body` at 14.5sp, which would render this label larger than its 13.5sp value.
+                    Text(text = label, color = MeshaColors.Muted, fontSize = 13.sp)
+                    Text(
+                        text = displayValue,
+                        color = MeshaColors.Ink,
+                        style = MeshaType.listTitle,
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    )
+                }
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 11.dp),
+                ) {
+                    // design-system:ignore: 13sp/W400 has no close token — the only W400 style is
+                    // `body` at 14.5sp, which would render this label larger than its 13.5sp value.
+                    Text(text = label, color = MeshaColors.Muted, fontSize = 13.sp, modifier = Modifier.widthIn(max = 120.dp).weight(1f))
+                    Text(text = displayValue, color = MeshaColors.Ink, style = MeshaType.listTitle)
+                }
             }
             if (index != rows.lastIndex) {
                 HorizontalDivider(thickness = 1.dp, color = MeshaColors.Surf2)
@@ -1631,11 +2083,14 @@ private fun RejectReasonDialog(
  */
 @Composable
 private fun ApproveConfirmDialog(
+    isSubmitting: Boolean,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (!isSubmitting) onDismiss()
+        },
         // design-system:ignore: weight-only override on the Material dialog title style — applying a
         // MeshaType style here would also replace the AlertDialog's own title size/line-height.
         title = { Text(stringResource(R.string.verify_approve_dialog_title), fontWeight = FontWeight.W700) },
@@ -1649,14 +2104,20 @@ private fun ApproveConfirmDialog(
             )
         },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
+            TextButton(enabled = !isSubmitting, onClick = onConfirm) {
                 // design-system:ignore: weight-only override on the Material TextButton label style —
                 // a MeshaType style would also replace the button's own size/line-height.
-                Text(stringResource(R.string.verify_approve_dialog_confirm), color = MeshaColors.Ok, fontWeight = FontWeight.W700)
+                if (isSubmitting) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MeshaColors.Ok, strokeWidth = 2.dp)
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.verify_detail_submitting), color = MeshaColors.Ok, fontWeight = FontWeight.W700)
+                } else {
+                    Text(stringResource(R.string.verify_approve_dialog_confirm), color = MeshaColors.Ok, fontWeight = FontWeight.W700)
+                }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(enabled = !isSubmitting, onClick = onDismiss) {
                 Text(stringResource(R.string.verify_approve_dialog_cancel), color = MeshaColors.Muted)
             }
         },

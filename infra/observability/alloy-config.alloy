@@ -34,7 +34,7 @@ faro.receiver "admin_web_rum" {
   server {
     listen_address       = "0.0.0.0"
     listen_port          = 8080
-    cors_allowed_origins = ["https://stg.dashboard.mesha.sg"]
+    cors_allowed_origins = ["https://dashboard.mesha.sg"]
   }
 
   output {

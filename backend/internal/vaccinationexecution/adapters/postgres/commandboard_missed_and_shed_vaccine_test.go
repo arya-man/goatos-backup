@@ -31,6 +31,10 @@ import (
 // A test that gave the missed obligation no completion at all would pass against the old code
 // via the overdue bucket and certify nothing.
 func TestVaccinationCommandBoardMissedWithRecordedProofIsVerificationPendingNotMissed(t *testing.T) {
+	// Aggregate-projection adversarial coverage: MultipleDimensions, MultiPage, ExecutionDate,
+	// CohortScope, and EveryStatus. One goat has both an accepted historical dose and a missed
+	// proof-recorded dose, so the KPI projection must choose the verifier-pending bucket without
+	// fanout from completion/proof joins or date/status precedence drift.
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -90,6 +94,12 @@ func TestVaccinationCommandBoardMissedWithRecordedProofIsVerificationPendingNotM
 	// showing awaiting_verification = 0 -- two tiles wrong in opposite directions from one predicate.
 	if resp.KPIs.MissedNotGiven != 0 {
 		t.Fatalf("missed_not_given = %d, want 0; an obligation with a recorded completion was DOSED -- it is a verification backlog, not a missed dose", resp.KPIs.MissedNotGiven)
+	}
+	if resp.KPIs.AwaitingVerification != 1 {
+		t.Fatalf("awaiting_verification = %d, want 1; the unverified proof must stay visible even when an older dose was accepted", resp.KPIs.AwaitingVerification)
+	}
+	if resp.KPIs.DosesVerified != 0 {
+		t.Fatalf("doses_verified = %d, want 0; an older accepted dose must not hide a current proof awaiting verification", resp.KPIs.DosesVerified)
 	}
 	assertKPIPartitionExhaustive(t, resp.KPIs)
 }

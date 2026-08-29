@@ -139,6 +139,24 @@ locals {
         schedule            = "11 0 * * *"
         env                 = {}
       }
+      # Daily herd_signal_packets partition ensure + prune (migration 000201,
+      # backend/cmd/herd-signals-partition-maintenance). -retention-days=14 matches the
+      # documented default (docs/modules/herd-signals-system-design.md Section 3.2). Runs at
+      # 00:21 IST, offset from partition_maintainer (00:11) and the other 00:xx-hour jobs so
+      # they don't all hit Cloud SQL in the same minute. Dropping a partition here is
+      # IRREVERSIBLE -- see docs/runbooks/herd-signals-partition-retention.md for the
+      # operational contract and what healthy/unhealthy looks like.
+      herd_signals_partition_maintenance = {
+        name                = "goatos-dev-herd-signals-partition-maintenance"
+        service_account_key = "herd_signals_partition_maintenance"
+        command             = ["/app/bin/herd-signals-partition-maintenance"]
+        args                = ["-timeout=90s", "-days-ahead=14", "-retention-days=14"]
+        timeout             = "120s"
+        memory              = "512Mi"
+        cpu                 = "1"
+        schedule            = "21 0 * * *"
+        env                 = {}
+      }
     }
   )
 }

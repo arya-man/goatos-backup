@@ -19,9 +19,10 @@ import (
 // retrying client depends on.
 
 type fakeService struct {
-	rateInput     feedconfigapp.UpsertRationRateInput
-	scheduleInput feedconfigapp.UpsertScheduleConfigInput
-	factorInput   feedconfigapp.UpsertShedFactorInput
+	rateInput        feedconfigapp.UpsertRationRateInput
+	scheduleInput    feedconfigapp.UpsertScheduleConfigInput
+	factorInput      feedconfigapp.UpsertShedFactorInput
+	sessionSlotInput feedconfigapp.SetSessionTemplateItemInput
 
 	feedItemInput feedconfigapp.CreateFeedItemInput
 
@@ -108,6 +109,12 @@ func (f *fakeService) CreateFeedItem(_ context.Context, in feedconfigapp.CreateF
 func (f *fakeService) UpsertShedFactor(_ context.Context, in feedconfigapp.UpsertShedFactorInput) (domain.WriteResult, error) {
 	f.calls++
 	f.factorInput = in
+	return f.result, f.err
+}
+
+func (f *fakeService) SetSessionTemplateItem(_ context.Context, in feedconfigapp.SetSessionTemplateItemInput) (domain.WriteResult, error) {
+	f.calls++
+	f.sessionSlotInput = in
 	return f.result, f.err
 }
 

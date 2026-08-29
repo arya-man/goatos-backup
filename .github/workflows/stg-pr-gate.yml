@@ -14,7 +14,8 @@ concurrency:
 
 jobs:
   route:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 5
     steps:
       - name: Require main to stg
         env:
@@ -38,7 +39,8 @@ jobs:
 
   backend-db-api:
     needs: route
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 45
     env:
       GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
       GOATOS_SQLC_POSTGRES_IMAGE: postgres:16.9-alpine
@@ -50,9 +52,7 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
       - name: Install guardrail tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
+        run: rg --version
       - name: Boundary and contract guards
         run: |
           make ai-doctor
@@ -99,7 +99,8 @@ jobs:
 
   admin-web:
     needs: route
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
@@ -124,7 +125,8 @@ jobs:
 
   android-release-apk:
     needs: route
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v4
@@ -166,7 +168,8 @@ jobs:
 
   stg-pr-gate:
     needs: [backend-db-api, admin-web, android-release-apk]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 5
     steps:
       - name: Staging gate passed
         run: echo "main -> stg PR is ready for merge and automatic staging deployment."

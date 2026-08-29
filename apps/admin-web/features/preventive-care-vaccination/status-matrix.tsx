@@ -109,7 +109,7 @@ export function VaccinationStatusMatrix({
           </div>
           {ok ? (
             <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-              <Link href={scopeHref("/sops", scope)} className="btn sm">
+              <Link href={scopeHref("/vaccination/plan", scope)} className="btn sm">
                 {copy(pageContract, "action.open_sop_library")}
               </Link>
             </div>

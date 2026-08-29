@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -20,6 +21,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
@@ -43,7 +45,19 @@ import sg.mesha.goatos.core.network.dto.HerdRegisterSummaryResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_BREEDING
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_DELIVERY
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_FLUSHING
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_GROWTH
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_HEALTH
+import sg.mesha.goatos.feature.counts.SHIFTING_CATEGORY_SPACING
+import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_DESTINATION
+import sg.mesha.goatos.feature.counts.SHIFTING_STAGE_MODE_KEEP_CURRENT
+import sg.mesha.goatos.feature.counts.CountsWriteStatus
 import sg.mesha.goatos.feature.counts.ShiftingEvent
+import sg.mesha.goatos.rfid.FakeScanSource
+import sg.mesha.goatos.rfid.ScanSource
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ShiftingViewModelEligibilityTest {
@@ -65,9 +79,27 @@ class ShiftingViewModelEligibilityTest {
         advanceUntilIdle()
 
         assertTrue(vm.state.value.animalMatches.isEmpty())
-        assertNull(vm.state.value.selectedAnimal)
+        assertTrue(vm.state.value.selectedAnimals.isEmpty())
         assertFalse(vm.state.value.canSubmit)
         assertEquals("This animal is no longer active and cannot be shifted.", vm.state.value.animalLookupMessage)
+    }
+
+    @Test
+    fun `animal lookup results are deduped by goat id before they reach lazy list keys`() = runTest(dispatcher) {
+        val vm = newViewModel(
+            listOf(
+                animal(lifecycle = "alive", shedName = "Castro 1"),
+                animal(lifecycle = "alive", shedName = "Castro 1"),
+            ),
+        )
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+
+        assertEquals(listOf(GOAT_ID), vm.state.value.animalMatches.map { it.goatId })
+        assertNull(vm.state.value.animalLookupMessage)
     }
 
     @Test
@@ -89,7 +121,7 @@ class ShiftingViewModelEligibilityTest {
     }
 
     @Test
-    fun `successful shifting submission clears the draft and requests return to Actions`() = runTest(dispatcher) {
+    fun `queued shifting submission clears the draft and requests return to Actions`() = runTest(dispatcher) {
         val sync = NoopShiftingSyncRepository()
         val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync)
         advanceUntilIdle()
@@ -102,17 +134,61 @@ class ShiftingViewModelEligibilityTest {
         vm.onEvent(ShiftingEvent.Submit)
         advanceUntilIdle()
 
-        sync.succeed("shift-outbox")
-        advanceUntilIdle()
-
         assertEquals("", vm.state.value.animalQuery)
-        assertNull(vm.state.value.selectedAnimal)
-        // A successful child form returns to Actions; it must not leave its success banner on the
-        // now-empty form, which is the current broken behaviour.
+        assertTrue(vm.state.value.selectedAnimals.isEmpty())
+        // The device has accepted the write once it is queued. Do not strand the operator on a
+        // locked copy of the old draft while the outbox waits for network/backend sync.
         assertNull(vm.state.value.lastRecordedMessage)
         assertTrue(vm.state.value.returnToActions)
+        assertEquals("Saved on this phone. It will sync automatically.", vm.state.value.submissionNotice)
         vm.onEvent(ShiftingEvent.NavigationHandled)
         assertFalse(vm.state.value.returnToActions)
+    }
+
+    @Test
+    fun `invalid shifting submit attempt is tracked before enqueue`() = runTest(dispatcher) {
+        val sync = NoopShiftingSyncRepository()
+        val analytics = NoopShiftingAnalytics()
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync, analytics = analytics)
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.Submit)
+
+        assertNull(sync.lastShiftingRequest)
+        assertEquals(AnalyticsEvents.SUBMIT_BLOCKED, analytics.events.single().first)
+        assertEquals("shifting", analytics.events.single().second[AnalyticsEvents.Params.KIND])
+        assertEquals(
+            "Find and select the animals that moved.",
+            analytics.events.single().second[AnalyticsEvents.Params.REASON],
+        )
+    }
+
+    @Test
+    fun `confirmed shifting submit records breadcrumbs and shows queued immediately`() = runTest(dispatcher) {
+        val sync = NoopShiftingSyncRepository()
+        val analytics = NoopShiftingAnalytics()
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync, analytics = analytics)
+        advanceUntilIdle()
+
+        selectAnimalAndPen(vm)
+        vm.onEvent(ShiftingEvent.RequestSubmitConfirmation)
+        assertTrue(vm.state.value.showSubmitConfirmation)
+
+        vm.onEvent(ShiftingEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals(CountsWriteStatus.IDLE, vm.state.value.result.status)
+        assertTrue(vm.state.value.returnToActions)
+        assertEquals("Saved on this phone. It will sync automatically.", vm.state.value.submissionNotice)
+        assertEquals(
+            listOf(
+                AnalyticsEvents.COUNTS_SHIFTING_CONFIRM_OPENED,
+                AnalyticsEvents.COUNTS_SHIFTING_SUBMIT_ATTEMPTED,
+                AnalyticsEvents.COUNTS_SHIFTING_SUBMITTED,
+            ),
+            analytics.events.map { it.first },
+        )
+        assertEquals("1", analytics.events.last().second[AnalyticsEvents.Params.ANIMAL_COUNT])
     }
 
     /**
@@ -137,6 +213,33 @@ class ShiftingViewModelEligibilityTest {
         assertTrue(vm.state.value.canSubmit)
     }
 
+    @Test
+    fun `every rendered shifting category is selectable and travels on submit`() = runTest(dispatcher) {
+        val categories = listOf(
+            SHIFTING_CATEGORY_GROWTH,
+            SHIFTING_CATEGORY_HEALTH,
+            SHIFTING_CATEGORY_BREEDING,
+            SHIFTING_CATEGORY_DELIVERY,
+            SHIFTING_CATEGORY_SPACING,
+            SHIFTING_CATEGORY_FLUSHING,
+        )
+
+        categories.forEach { category ->
+            val sync = NoopShiftingSyncRepository()
+            val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync)
+            advanceUntilIdle()
+
+            selectAnimalAndPen(vm)
+            vm.onEvent(ShiftingEvent.SelectCategory(category))
+            assertEquals(category, vm.state.value.category)
+
+            vm.onEvent(ShiftingEvent.Submit)
+            advanceUntilIdle()
+
+            assertEquals(category, sync.lastShiftingRequest?.category)
+        }
+    }
+
     // -------------------------------------------------------------------------------------------
     // Partition carrying — the maintainer-reported defect: FROM must show the animal's PARTITION,
     // and MOVE TO must be able to target a different partition of the SAME shed, or any partition
@@ -156,7 +259,7 @@ class ShiftingViewModelEligibilityTest {
         // The DTO -> UI mapping preserves the animal's current partition rather than dropping it,
         // which is the root cause of the reported "Coimbatore · Yashoda" FROM chip that could not
         // say which partition the animal was actually in.
-        assertEquals("1", vm.state.value.selectedAnimal?.partitionLabel)
+        assertEquals("1", vm.state.value.selectedAnimals.single().partitionLabel)
     }
 
     @Test
@@ -231,17 +334,253 @@ class ShiftingViewModelEligibilityTest {
         assertNull(vm.state.value.destinationPartitionLabel)
     }
 
+    /**
+     * The tag toggle's happy path (maintainer decision 2026-08-15): the form defaults to the
+     * destination pen's tag, the operator may decline it, and whichever they choose is what the
+     * write carries.
+     */
+    @Test
+    fun `the tag toggle defaults to the pen's tag and sends the operator's choice`() = runTest(dispatcher) {
+        val sync = NoopShiftingSyncRepository()
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync, destinations = taggedPen())
+        advanceUntilIdle()
+        selectAnimalAndPen(vm)
+
+        // Default: the pre-toggle behaviour, so an operator who ignores the control gets today's.
+        assertEquals(SHIFTING_STAGE_MODE_DESTINATION, vm.state.value.stageMode)
+        assertTrue(vm.state.value.canUseDestinationStage)
+        assertEquals("Mother", vm.state.value.destinationStageLabel)
+        assertNull(vm.state.value.destinationStageReason)
+
+        vm.onEvent(ShiftingEvent.SelectStageMode(SHIFTING_STAGE_MODE_KEEP_CURRENT))
+        assertEquals(SHIFTING_STAGE_MODE_KEEP_CURRENT, vm.state.value.stageMode)
+
+        vm.onEvent(ShiftingEvent.Submit)
+        advanceUntilIdle()
+        // The mode is sent EXPLICITLY, never left to a server default the form cannot see.
+        assertEquals(SHIFTING_STAGE_MODE_KEEP_CURRENT, sync.lastShiftingRequest?.stageMode)
+    }
+
+    /**
+     * A pen that cannot supply a tag: the option is not selectable, the backend's reason is carried
+     * verbatim for the greyed-out control, and the mode is forced to keep-current so the form can
+     * never claim a tag the raise would not apply.
+     */
+    @Test
+    fun `a pen with no usable tag forces keep-current and carries the backend's reason`() = runTest(dispatcher) {
+        val reason = "This destination holds a mix of tags"
+        val sync = NoopShiftingSyncRepository()
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync, destinations = untaggedPen(reason))
+        advanceUntilIdle()
+        selectAnimalAndPen(vm)
+
+        assertFalse(vm.state.value.canUseDestinationStage)
+        assertEquals(SHIFTING_STAGE_MODE_KEEP_CURRENT, vm.state.value.stageMode)
+        // Rendered verbatim: the phone never composes this from a blank tag.
+        assertEquals(reason, vm.state.value.destinationStageReason)
+        assertNull(vm.state.value.destinationStageLabel)
+
+        // Asking for the pen's tag anyway is IGNORED rather than accepted-and-downgraded.
+        vm.onEvent(ShiftingEvent.SelectStageMode(SHIFTING_STAGE_MODE_DESTINATION))
+        assertEquals(SHIFTING_STAGE_MODE_KEEP_CURRENT, vm.state.value.stageMode)
+
+        vm.onEvent(ShiftingEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(SHIFTING_STAGE_MODE_KEEP_CURRENT, sync.lastShiftingRequest?.stageMode)
+    }
+
+    /**
+     * Switching from a tagged pen to an untagged one must snap the toggle back. Without the
+     * re-resolution the form would keep showing "use destination tag" for a pen that has none, the raise
+     * would silently fall back to keep-current, and the operator would never be told.
+     */
+    @Test
+    fun `changing to a pen with no tag snaps the toggle back to keep-current`() = runTest(dispatcher) {
+        val destinations = listOf(
+            CountsDestinationParkDto(
+                parkId = CBE_PARK_ID,
+                name = "Coimbatore",
+                sheds = listOf(
+                    CountsDestinationShedDto(
+                        shedId = CBE_SHED_ID, name = "Castro", partitionLabel = "1",
+                        operationalLocationDisplay = "Castro - 1", destinationStage = "Mother",
+                    ),
+                    CountsDestinationShedDto(
+                        shedId = CBE_SHED_ID, name = "Castro", partitionLabel = "2",
+                        operationalLocationDisplay = "Castro - 2",
+                        destinationStageReason = "This destination has no tag set",
+                    ),
+                ),
+            ),
+        )
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), destinations = destinations)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID, "1"))
+        assertEquals(SHIFTING_STAGE_MODE_DESTINATION, vm.state.value.stageMode)
+
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID, "2"))
+        assertEquals(SHIFTING_STAGE_MODE_KEEP_CURRENT, vm.state.value.stageMode)
+        assertEquals("This destination has no tag set", vm.state.value.destinationStageReason)
+    }
+
+    /** The lookup is async, so the scope must idle before the match can be selected. */
+    private fun TestScope.selectAnimalAndPen(vm: ShiftingViewModel) {
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID, null))
+    }
+
+    private fun taggedPen() = listOf(
+        CountsDestinationParkDto(
+            parkId = CBE_PARK_ID,
+            name = "Coimbatore",
+            sheds = listOf(
+                CountsDestinationShedDto(
+                    shedId = CBE_SHED_ID, name = "Yashoda", partitionLabel = null,
+                    operationalLocationDisplay = "Yashoda", destinationStage = "Mother",
+                ),
+            ),
+        ),
+    )
+
+    private fun untaggedPen(reason: String) = listOf(
+        CountsDestinationParkDto(
+            parkId = CBE_PARK_ID,
+            name = "Coimbatore",
+            sheds = listOf(
+                CountsDestinationShedDto(
+                    shedId = CBE_SHED_ID, name = "Yashoda", partitionLabel = null,
+                    operationalLocationDisplay = "Yashoda", destinationStageReason = reason,
+                ),
+            ),
+        ),
+    )
+
     private fun newViewModel(
         matches: List<GoatSearchItemDto>,
         syncRepository: NoopShiftingSyncRepository = NoopShiftingSyncRepository(),
         destinations: List<CountsDestinationParkDto>? = null,
+        scanSource: ScanSource = FakeScanSource(),
+        analytics: NoopShiftingAnalytics = NoopShiftingAnalytics(),
     ) = ShiftingViewModel(
         syncRepository = syncRepository,
         countsRepository = FakeShiftingCountsRepository(matches, destinations),
-        analytics = NoopShiftingAnalytics(),
+        analytics = analytics,
         crashReporter = NoopShiftingCrashReporter(),
+        scanSource = scanSource,
         savedStateHandle = SavedStateHandle(),
     )
+
+    // -----------------------------------------------------------------------
+    // Bulk shifting (maintainer decision 2026-08-21): scanning APPENDS.
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `selecting several animals builds one movement carrying every goat id`() = runTest(dispatcher) {
+        val first = animal("alive")
+        val second = animal("alive").copy(goatId = SECOND_GOAT_ID, displayId = "G-000326")
+        val sync = NoopShiftingSyncRepository()
+        val vm = newViewModel(listOf(first, second), sync)
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.SelectAnimal(SECOND_GOAT_ID))
+        // Re-scanning an animal already in the basket must not duplicate it: on a crowded pen the
+        // same tag really does get read twice, and a duplicate goat id is a movement of one animal
+        // counted as two.
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        advanceUntilIdle()
+
+        assertEquals(2, vm.state.value.selectedAnimals.size)
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID))
+        vm.onEvent(ShiftingEvent.RequestSubmitConfirmation)
+        advanceUntilIdle()
+        // Nothing is recorded by opening the confirmation: the read-back is a gate, not a submit.
+        assertTrue(vm.state.value.showSubmitConfirmation)
+        assertNull(sync.lastShiftingRequest)
+
+        vm.onEvent(ShiftingEvent.Submit)
+        advanceUntilIdle()
+        assertEquals(listOf(GOAT_ID, SECOND_GOAT_ID), sync.lastShiftingRequest?.goatIds)
+    }
+
+    @Test
+    fun `removing an animal drops only that one from the movement`() = runTest(dispatcher) {
+        val first = animal("alive")
+        val second = animal("alive").copy(goatId = SECOND_GOAT_ID, displayId = "G-000326")
+        val sync = NoopShiftingSyncRepository()
+        val vm = newViewModel(listOf(first, second), sync)
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.SelectAnimal(SECOND_GOAT_ID))
+        vm.onEvent(ShiftingEvent.RemoveAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID))
+        vm.onEvent(ShiftingEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals(listOf(SECOND_GOAT_ID), sync.lastShiftingRequest?.goatIds)
+    }
+
+    @Test
+    fun `an animal on another farm is refused rather than joining the movement`() = runTest(dispatcher) {
+        val here = animal("alive")
+        val elsewhere = animal("alive").copy(
+            goatId = SECOND_GOAT_ID,
+            locationPath = GoatLocationPathDto(
+                operationalLocationDisplay = "Channapatna / Gandhi 1",
+                parkId = CPT_PARK_ID,
+                parkName = "Channapatna",
+                shedId = YASHODA_SHED_ID,
+                shedName = "Gandhi 1",
+                partitionLabel = null,
+            ),
+        )
+        val vm = newViewModel(listOf(here, elsewhere))
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00001"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        vm.onEvent(ShiftingEvent.SelectAnimal(SECOND_GOAT_ID))
+        advanceUntilIdle()
+
+        // Goats never move between farms, so the second animal never joins the basket, and the
+        // operator is told why in farm words.
+        assertEquals(listOf(GOAT_ID), vm.state.value.selectedAnimals.map { it.goatId })
+        assertEquals(
+            "That animal is on another farm. A movement can only carry animals from one farm.",
+            vm.state.value.animalLookupMessage,
+        )
+    }
+
+    @Test
+    fun `a scanned tag lands in the lookup field and releases the reader`() = runTest(dispatcher) {
+        val scanSource = FakeScanSource()
+        val vm = newViewModel(listOf(animal("alive")), scanSource = scanSource)
+        vm.onEvent(ShiftingEvent.ToggleRfidScan)
+        advanceUntilIdle()
+        assertTrue(scanSource.isStarted)
+
+        scanSource.emit("CBE-ASSUMED-RFID-00001")
+        advanceUntilIdle()
+
+        assertEquals("CBE-ASSUMED-RFID-00001", vm.state.value.animalQuery)
+        // The reader is app-wide: leaving it enabled would swallow the comment field's typing.
+        assertFalse(scanSource.isStarted)
+        assertFalse(vm.state.value.scanningAnimalTag)
+        // Scanning an animal means wanting to find it, so the lookup ran without a second tap.
+        assertEquals(listOf(GOAT_ID), vm.state.value.animalMatches.map { it.goatId })
+    }
 
     private fun animal(
         lifecycle: String,
@@ -265,6 +604,7 @@ class ShiftingViewModelEligibilityTest {
 
     private companion object {
         const val GOAT_ID = "d8337607-6e21-41c9-a703-a7b73ae4e545"
+        const val SECOND_GOAT_ID = "f1a2b3c4-6e21-41c9-a703-a7b73ae4e546"
         const val CBE_PARK_ID = "00000000-0000-4000-8000-000000003001"
         const val CBE_SHED_ID = "43071c6e-3b00-47a9-860c-1bbacb570575"
         const val CPT_PARK_ID = "00000000-0000-4000-8000-000000003002"
@@ -309,7 +649,7 @@ private class FakeShiftingCountsRepository(
     override suspend fun lookupAnimals(query: String, parkId: String?, shedId: String?): Result<List<GoatSearchItemDto>> = Result.success(matches)
 }
 
-private class NoopShiftingSyncRepository : SyncRepository {
+internal class NoopShiftingSyncRepository : SyncRepository {
     var lastShiftingRequest: CountsShiftingEventRequestDto? = null
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     fun succeed(itemId: String) {
@@ -345,7 +685,7 @@ private class NoopShiftingSyncRepository : SyncRepository {
     override suspend fun enqueueProofUpload(groupKey: String, idempotencyKey: String, request: ProofUploadRequestDto, localFilePath: String, durationMs: Long?): AppResult<String> = error("unused")
     override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
     override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
-    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> = error("unused")
+    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int, measurement: VerificationVerdictMeasurementDto?): AppResult<String> = error("unused")
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
     override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
     override suspend fun triggerDrain() = Unit
@@ -360,7 +700,10 @@ private class NoopShiftingSyncRepository : SyncRepository {
 }
 
 private class NoopShiftingAnalytics : AnalyticsPort {
-    override fun track(event: String, props: Map<String, String>) {}
+    val events = mutableListOf<Pair<String, Map<String, String>>>()
+    override fun track(event: String, props: Map<String, String>) {
+        events += event to props
+    }
     override fun setUserProperty(name: String, value: String?) {}
     override fun setUserId(id: String?) {}
 }

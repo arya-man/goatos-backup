@@ -341,3 +341,136 @@ func derefOr(v *string) string {
 	}
 	return *v
 }
+
+// TestVendorOptionsPicklistIsActiveOnlyAndNameOrdered exercises the picklist behind every "who is
+// this sale for" dropdown against a real Postgres.
+//
+// Integration rather than unit for the same reason as the file above: everything worth breaking
+// here lives in the SQL. The active-only predicate is a MEDICAL-grade correctness rule for
+// commerce -- offering a banned counterparty as the buyer of a new sale is the defect -- and a
+// fake repository would happily return whatever the test handed it.
+func TestVendorOptionsPicklistIsActiveOnlyAndNameOrdered(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Lower-case "zebu" is seeded FIRST and must still sort LAST: the ordering is lower(name), so a
+	// plain byte order would put every capitalised name after it and scramble the picker.
+	seed := []struct {
+		name   string
+		status string
+		city   string
+	}{
+		{"zebu Agro", domain.VendorStatusActive, "Hosur"},
+		{"Anantapur Sheep Traders", domain.VendorStatusActive, "Anantapur"},
+		{"Madur Livestock", domain.VendorStatusActive, ""},
+		{"Retired Traders", domain.VendorStatusInactive, "Salem"},
+		{"Never Again Agro", domain.VendorStatusBanned, "Erode"},
+		{"Still Talking Agro", domain.VendorStatusNegotiating, "Mysore"},
+	}
+	for _, v := range seed {
+		if _, err := repo.CreateVendor(ctx, testTenant, domain.VendorWrite{
+			RecordType: "Sheep Agent", BusinessName: v.name, Status: v.status,
+			State: "TN", City: v.city,
+			// Payment instruments on every row, so the assertion below that the picklist carries
+			// none of them is testing a real exclusion rather than an empty column.
+			BankName: "HDFC Bank", AccountNo: "12345678901", UPIID: "someone@upi",
+		}.Normalize(), ""); err != nil {
+			t.Fatalf("seed vendor %q: %v", v.name, err)
+		}
+	}
+
+	options, err := repo.ListVendorOptions(ctx, testTenant)
+	if err != nil {
+		t.Fatalf("list vendor options: %v", err)
+	}
+
+	got := make([]string, 0, len(options.Vendors))
+	for _, v := range options.Vendors {
+		got = append(got, v.BusinessName)
+	}
+	want := []string{"Anantapur Sheep Traders", "Madur Livestock", "zebu Agro"}
+	if len(got) != len(want) {
+		t.Fatalf("picklist = %v, want exactly the ACTIVE vendors %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("picklist = %v, want case-insensitive name order %v", got, want)
+		}
+	}
+	if options.Truncated {
+		t.Fatal("a register of three vendors must not report itself truncated")
+	}
+
+	byName := map[string]domain.VendorOption{}
+	for _, v := range options.Vendors {
+		byName[v.BusinessName] = v
+	}
+	// A vendor with no city keeps an EMPTY place rather than a NULL the picker would have to guess
+	// at -- the label composition appends a location only when there is one.
+	if madur := byName["Madur Livestock"]; madur.City != "" || madur.State != "TN" {
+		t.Fatalf("missing city must read as empty, not null: %+v", madur)
+	}
+	if anantapur := byName["Anantapur Sheep Traders"]; anantapur.VendorID == "" || anantapur.RecordType != "Sheep Agent" {
+		t.Fatalf("picklist row must carry its id and record type: %+v", anantapur)
+	}
+}
+
+// TestVendorCatalogOffersBuyerRecordTypes pins the 2026-08-27 maintainer decision that added the
+// buyer-side vendor categories.
+//
+// The register's 35 record types were imported from a legacy sheet describing only the SUPPLY side
+// -- everyone the farm buys FROM. Since 000193 made every buyer a vendor row, there was no honest
+// way to classify who the farm SELLS TO.
+//
+// The migration is asserted on a FRESH database on purpose. An earlier draft scoped the insert to
+// tenants that already held a record_type vocabulary, which reads sensibly and is silently wrong:
+// on a fresh database the vendor import has not run, so that vocabulary does not exist, the insert
+// matches nothing, and because the importer only upserts the fixture's own 35 values these five
+// would then never appear at all. This test fails on that draft.
+func TestVendorCatalogOffersBuyerRecordTypes(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	entries, err := repo.ListVendorCatalog(ctx, testTenant, true)
+	if err != nil {
+		t.Fatalf("ListVendorCatalog: %v", err)
+	}
+	got := map[string]domain.VendorCatalogEntry{}
+	for _, e := range entries {
+		if e.Kind == domain.CatalogKindRecordType {
+			got[e.Value] = e
+		}
+	}
+	for _, want := range []string{"Agent", "Butcher", "Company", "Farmer", "Slaughter House"} {
+		e, ok := got[want]
+		if !ok {
+			t.Errorf("record_type %q is not offered; the buyer categories must survive a fresh migrate with no vendor import", want)
+			continue
+		}
+		// Label mirrors the value: these are typed by hand, not imported, so there is no separate
+		// sheet spelling for the label to carry.
+		if e.Label != want {
+			t.Errorf("record_type %q label = %q, want %q", want, e.Label, want)
+		}
+		// A shared 100 keeps the five together AFTER the imported set, and survives the importer
+		// renumbering the fixture's values to their 0..34 indexes on every run.
+		if e.SortOrder != 100 {
+			t.Errorf("record_type %q sort_order = %d, want 100", want, e.SortOrder)
+		}
+	}
+	// Plural spellings must NOT be offered alongside the singular ones -- every other entry in the
+	// vocabulary is singular and a dropdown holding both reads as two different categories.
+	for _, banned := range []string{"Agents", "Butchers", "Farmers", "Companies"} {
+		if _, ok := got[banned]; ok {
+			t.Errorf("record_type %q is offered; the vocabulary is singular throughout", banned)
+		}
+	}
+}

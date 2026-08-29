@@ -1738,7 +1738,7 @@ INSERT INTO shifting_events (
   -- handler already parses+validates destination_partition_label, but this INSERT never named
   -- them -- so every raise silently discarded the pen and a Castro 1 -> Castro 2 move was stored
   -- as Castro -> Castro. Found by an end-to-end run on 2026-08-06.
-  source_partition_label, destination_partition_label
+  source_partition_label, destination_partition_label, adopt_pen_tag
 ) VALUES (
   $1::uuid, $2, $3, $4, nullif($5::text, '')::uuid, nullif($6::text, '')::uuid,
   $7::uuid, $8::uuid, $9, $10, $11, nullif($12::text, '')::uuid,
@@ -1758,7 +1758,7 @@ INSERT INTO shifting_events (
   -- comment to absent, so an empty string reaching here would be a real (if odd) operator value
   -- rather than "unset", and collapsing it would hide that.
   $24,
-  nullif($25, ''), nullif($26, '')
+  nullif($25, ''), nullif($26, ''), nullif($27, '')
 )
 RETURNING shifting_event_id::text`,
 		in.TenantID, in.LogicalShiftingEventKey, in.Priority, in.Category, ptrValue(in.SourceParkID), ptrValue(in.SourceShedID),
@@ -1766,7 +1766,7 @@ RETURNING shifting_event_id::text`,
 		in.AuthorizationState, in.VerificationState, in.EventStatus, in.SourceSystem, in.SourceRef, ptrValue(in.ProofRef),
 		in.PayloadHash, in.IdempotencyKey, in.RequestFingerprint,
 		in.ManagementStageMode, in.TargetManagementStage, in.RaiseComment,
-		ptrValue(in.SourcePartitionLabel), ptrValue(in.DestinationPartitionLabel)).Scan(&id)
+		ptrValue(in.SourcePartitionLabel), ptrValue(in.DestinationPartitionLabel), in.AdoptPenTag).Scan(&id)
 	if err == nil {
 		return id, false, nil
 	}
@@ -2904,7 +2904,11 @@ UNION ALL
 -- aggregate above, since there is no real partition to select.
 SELECT 'shed',
        COALESCE(g.shed_id::text, '') || '#' || ` + partitionKeyExpr + `,
-       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || gsp.partition_label,
+       CASE
+         WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || initcap(gsp.partition_label)
+         WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' ' || gsp.partition_label
+         ELSE COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || gsp.partition_label
+       END,
        count(*), COALESCE(g.park_id::text, ''), btrim(gsp.partition_label)
 FROM goats g
 JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
@@ -2928,7 +2932,11 @@ UNION ALL
 -- one with its real count, so this cannot double count. count(*) is literally 0 for these rows.
 SELECT 'shed',
        sp.shed_id::text || '#' || sp.normalized_label,
-       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || sp.partition_label,
+       CASE
+         WHEN sp.partition_label ~* '^part [0-9]+$' THEN COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || initcap(sp.partition_label)
+         WHEN sp.partition_label ~ '^[0-9]+$' THEN COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' ' || sp.partition_label
+         ELSE COALESCE(NULLIF(shed.name, ''), shed.location_code, '') || ' - ' || sp.partition_label
+       END,
        0,
        -- park, then the raw partition label (last column)
        -- Park identity must match what the OCCUPIED branches emit, or an empty partition lands

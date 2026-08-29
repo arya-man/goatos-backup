@@ -2,13 +2,14 @@ SQLC ?= $(shell command -v sqlc 2>/dev/null || if command -v go >/dev/null 2>&1;
 GOATOS_LOCAL_TENANT_ID ?= 00000000-0000-4000-8000-000000000001
 GOATOS_VACCINATION_SOURCE_DIR ?= $(REPO_ROOT)/fixtures/vaccination-hrms-source-full
 GOATOS_SHED_MANAGER_MAPPING ?= $(GOATOS_VACCINATION_SOURCE_DIR)/shed-manager-mapping.jul11-vaccination.csv
-GOATOS_DEV_DASHBOARD_ADMIN_EMAILS ?= abhishek@mesha.sg aryaman@mesha.sg manju@mesha.sg manohark@mesha.sg ravi@mesha.sg
+GOATOS_DEV_DASHBOARD_ADMIN_EMAILS ?= aryaman@mesha.sg manju@mesha.sg manohark@mesha.sg ravi@mesha.sg
 GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: seed-state-guard check guardrails exception-guard-ratchet telemetry-guard-ratchet exception-guard-ratchet-regenerate telemetry-guard-ratchet-regenerate exception-guard-ratchet-v2 telemetry-guard-ratchet-v2 exception-guard-ratchet-v2-regenerate telemetry-guard-ratchet-v2-regenerate git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard stg-operator-scope-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard operational-read-model-contract-guard critical-animal-action-availability-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard operational-partition-identity-guard role-scoped-ui-contract-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard operational-location-guard vaccination-drive-clubbing-guard vaccination-adult-drive-contract-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard notification-specificity-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local ci-local-screenshots screenshot-remediation-guard push-hook-freshness-guard parallel-dispatch-cleanup-guard gradle-worktree-lock-guard land-main land-main-self-test mobile-guard mobile-guard-audit android-runtime-permission-sdk-gates-guard android-runtime-permission-sdk-gates-guard-audit android-row-action-scope-guard android-vaccination-submit-gate-guard android-navigation-stack-guard nav-entry-point-placement-guard nav-entry-point-placement-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit android-compose-lists-guard android-compose-lists-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit exception-guard exception-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest grant-assistant-public-read
+.PHONY: additive-publish-guard seed-state-guard check guardrails mock-css-parity-guard herd-signals-language-guard exception-guard-ratchet telemetry-guard-ratchet exception-guard-ratchet-regenerate telemetry-guard-ratchet-regenerate exception-guard-ratchet-v2 telemetry-guard-ratchet-v2 exception-guard-ratchet-v2-regenerate telemetry-guard-ratchet-v2-regenerate git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard stg-operator-scope-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard operational-read-model-contract-guard critical-animal-action-availability-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard operational-partition-identity-guard role-scoped-ui-contract-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard operational-location-guard vaccination-drive-clubbing-guard vaccination-adult-drive-contract-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard notification-specificity-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local ci-local-screenshots screenshot-remediation-guard push-hook-freshness-guard parallel-dispatch-cleanup-guard gradle-worktree-lock-guard land-main land-main-self-test mobile-guard mobile-guard-audit android-runtime-permission-sdk-gates-guard android-runtime-permission-sdk-gates-guard-audit android-row-action-scope-guard android-vaccination-submit-gate-guard android-navigation-stack-guard nav-entry-point-placement-guard nav-entry-point-placement-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit weighing-partition-composition-guard exception-guard exception-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest e2e-mcp-smoke oci-stg-db-parity grant-assistant-public-read
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
+.PHONY: mcp-full-e2e
 .PHONY: release-tag release-tag-contract-guard restore-stg-android-release-env
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 setup-crg: ai-setup
@@ -97,6 +98,8 @@ ai-telemetry-ui:
 	else echo "Open: $(REPO_ROOT)/ai-telemetry.html"; fi
 
 guardrails:
+	$(MAKE) additive-publish-guard
+	$(MAKE) mock-css-parity-guard
 	$(MAKE) domain-event-envelope-enum-guard
 	$(MAKE) design-system-guard
 	$(MAKE) git-identity-guard
@@ -138,9 +141,12 @@ guardrails:
 	$(MAKE) operational-partition-identity-guard
 	$(MAKE) proof-capture-authorization-guard
 	$(MAKE) weighing-free-flow-guard
+	$(MAKE) feed-submitted-overlay-wiring-guard
+	$(MAKE) feed-proof-collaboration-guard
 	$(MAKE) weighing-close-gate-guard
 	$(MAKE) weighing-operator-scope-guard
 	$(MAKE) weighing-one-operator-per-bucket-guard
+	$(MAKE) weighing-partition-composition-guard
 	$(MAKE) weighing-kernel-phase2-guard
 	$(MAKE) migration-duplicate-versions-guard
 	$(MAKE) scale-certification-docs-guard
@@ -163,6 +169,7 @@ guardrails:
 	$(MAKE) config-validate-guard
 	$(MAKE) ui-vaccine-labels-guard
 	$(MAKE) notification-specificity-guard
+	$(MAKE) herd-signals-language-guard
 	$(MAKE) no-mismatch-review-queue-guard
 	$(MAKE) review-lens-ledger-guard
 	$(MAKE) seed-migration-guard
@@ -181,6 +188,7 @@ guardrails:
 	$(MAKE) admin-web-request-reads-guard
 	$(MAKE) admin-web-prefetch-guard
 	$(MAKE) admin-web-local-overlay-guard
+	$(MAKE) admin-web-date-format-guard
 	$(MAKE) overlay-motion-guard
 	$(MAKE) android-bounded-memory-guard
 	$(MAKE) telemetry-guard
@@ -301,6 +309,14 @@ weighing-free-flow-guard:
 	node tools/agent-hooks/check-weighing-free-flow-guard.mjs --self-test
 	node tools/agent-hooks/check-weighing-free-flow-guard.mjs
 
+feed-submitted-overlay-wiring-guard:
+	node tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs --self-test
+	node tools/agent-hooks/check-feed-submitted-overlay-wiring.mjs
+
+feed-proof-collaboration-guard:
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs
+
 weighing-close-gate-guard:
 	node tools/agent-hooks/check-weighing-close-gate-guard.mjs --self-test
 	node tools/agent-hooks/check-weighing-close-gate-guard.mjs
@@ -312,6 +328,9 @@ weighing-operator-scope-guard:
 weighing-one-operator-per-bucket-guard:
 	node tools/agent-hooks/check-weighing-one-operator-per-bucket-guard.mjs --self-test
 	node tools/agent-hooks/check-weighing-one-operator-per-bucket-guard.mjs
+
+weighing-partition-composition-guard:
+	cd backend && go test ./internal/weighing/adapters/postgres -run 'TestWeightDemographicsLumpCompositionResolvesPhysicalShedPartitions' -count=1
 
 .PHONY: weighing-kernel-phase2-guard
 weighing-kernel-phase2-guard:
@@ -641,6 +660,20 @@ notification-specificity-guard:
 	node tools/agent-hooks/check-notification-specificity.mjs --self-test
 	node tools/agent-hooks/check-notification-specificity.mjs
 
+
+# herd-signals-language-guard enforces the Herd Signals product claim boundary
+# (docs/modules/herd-signals.md Section 3). The HoneyComm BLE ear tag exposes
+# only tag id/MAC, RSSI, battery, tag temperature, a cumulative motion_count,
+# sensor-OK bits, gateway id, and timestamps -- it cannot detect eating,
+# rumination, sitting, standing, lying, walking, running, fever, body
+# temperature, or disease. Scans backend/internal/herdsignals/**,
+# apps/admin-web/features/herd-signals/**, the herd-signals slice of
+# contracts/openapi/app-api.yaml, docs/modules/herd-signals.md, and
+# mock/herd-signals-mock.html.
+herd-signals-language-guard:
+	node tools/agent-hooks/check-herd-signals-language.mjs --self-test
+	node tools/agent-hooks/check-herd-signals-language.mjs
+
 # review-lens-ledger-guard: the review-lens closed-decisions ledger
 # (.agents/skills/goatos-code-review/references/review-lens-ledger.md) is the
 # always-loaded record of what was already fixed/banned/locked, so agents don't
@@ -657,6 +690,16 @@ review-lens-ledger-guard:
 india-date-guard:
 	node tools/agent-hooks/check-india-business-date.mjs --self-test
 	node tools/agent-hooks/check-india-business-date.mjs
+
+# additive-publish-guard: publishing a plan version must only touch the rules that
+# actually changed. Adding a 6th vaccine to a plan of 5 leaves those 5 untouched --
+# same obligation_id, same due_at -- with only protocol_version_id moving. Checks that
+# carry-over still runs BEFORE the supersede sweep, that the carry-over UPDATE assigns
+# neither due_at nor status, and that the content fingerprint still covers every
+# scheduling field. See docs/preventive-care-vaccination/additive-publish.md.
+additive-publish-guard:
+	node tools/agent-hooks/check-additive-publish.mjs --self-test
+	node tools/agent-hooks/check-additive-publish.mjs
 
 # offline-first-guard: every Android READ screen is offline-first with Room as SSOT.
 # A network-only read repository (thin api.xxx() pass-through with no Room persist +
@@ -785,6 +828,8 @@ design-system-guard: ## Fail if a screen invents its own colour or text style in
 
 mobile-guard:
 	bash tools/android/check-no-hardcoded-design.sh
+	node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs --self-test
+	node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs
 	node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs --self-test
 	node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs
 	node tools/agent-hooks/check-android-ui-foundations.mjs --self-test
@@ -801,6 +846,8 @@ mobile-guard:
 	node tools/agent-hooks/check-android-vaccine-weighing-proof-context.mjs
 	node tools/agent-hooks/check-android-feed-proof-submit.mjs --self-test
 	node tools/agent-hooks/check-android-feed-proof-submit.mjs
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --self-test
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs
 	node tools/agent-hooks/check-android-proof-video-screenshots.mjs --self-test
 	node tools/agent-hooks/check-android-proof-video-screenshots.mjs
 	node tools/agent-hooks/check-android-row-action-scope.mjs --self-test
@@ -816,6 +863,7 @@ mobile-guard:
 
 mobile-guard-audit:
 	bash tools/android/check-no-hardcoded-design.sh
+	node tools/agent-hooks/check-android-outbox-lifecycle-policy.mjs
 	node tools/agent-hooks/check-android-runtime-permission-sdk-gates.mjs --all
 	node tools/agent-hooks/check-android-ui-foundations.mjs
 	node tools/agent-hooks/check-android-ui-copy-layout.mjs
@@ -823,6 +871,7 @@ mobile-guard-audit:
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
 	node tools/agent-hooks/check-android-proof-video-pipeline.mjs --all
 	node tools/agent-hooks/check-android-proof-video-screenshots.mjs
+	node tools/agent-hooks/check-feed-proof-collaboration-guard.mjs --all
 	node tools/agent-hooks/check-android-row-action-scope.mjs
 	node tools/agent-hooks/check-operational-partition-identity.mjs --all
 	node tools/agent-hooks/check-android-alerts-gate-composed.mjs
@@ -948,6 +997,14 @@ admin-web-local-overlay-guard:
 	node tools/agent-hooks/check-admin-web-local-overlays.mjs --self-test
 	node tools/agent-hooks/check-admin-web-local-overlays.mjs
 
+# admin-web-date-format-guard: visible dates render DD-MM-YYYY via lib/format.ts
+# fmtDate (maintainer decision 2026-08-21) — canary on the helper plus a scan for
+# JSX text nodes shipping bare ISO date fields to the screen.
+.PHONY: admin-web-date-format-guard
+admin-web-date-format-guard:
+	node tools/agent-hooks/check-admin-web-date-format.mjs --self-test
+	node tools/agent-hooks/check-admin-web-date-format.mjs
+
 # android-bounded-memory-guard: block unbounded in-memory growth in the Android data layer
 # (an in-heap cache/accumulator with no cap/TTL/eviction, or a DAO reading a whole table into
 # memory — commits 7058fff2 + d58acac2). Distinct from mobile-guard (which owns fetch/page SIZE).
@@ -1072,6 +1129,17 @@ pre-google-readiness:
 seed-feed-ration:
 	cd backend && go run ./cmd/seed-feed-ration -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}"
 
+# Herd Signals partition maintenance (see migration 000201 and
+# docs/modules/herd-signals-system-design.md Section 3): creates any missing daily
+# herd_signal_packets partitions ahead of ingest, then drops daily partitions older than
+# retention (IRREVERSIBLE -- dropped raw packets are not recoverable). Intended to run once
+# daily against the target environment's DATABASE_URL. Scheduled in dev via Cloud Scheduler
+# (infra/envs/dev/cloud_run_jobs.tf); declared but manually-triggered in stg
+# (infra/envs/stg/herd_signals_partition_maintenance.tf) until stg gets equivalent scheduler
+# wiring -- see docs/runbooks/herd-signals-partition-retention.md.
+herd-signals-partition-maintenance:
+	cd backend && go run ./cmd/herd-signals-partition-maintenance -days-ahead=14 -retention-days=14
+
 seed-dev-email-grants:
 	cd backend && go run ./cmd/seed-dev-email-grants -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -role ceo_internal -source goatos_dev_dashboard_admins $(foreach email,$(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS),-email $(email))
 
@@ -1110,10 +1178,10 @@ verify-stg-9-person-login:
 # exist: backend grant materialization derives user_id from the committed
 # Firebase UID table, so creating a replacement user during seed would produce
 # a different UID and a broken grant. The target sets the documented throwaway
-# passwords for 5 leadership + 4 field users + Jyothi, while leaving Google SSO
+# passwords for 4 leadership + 4 field users + Jyothi, while leaving Google SSO
 # linked for leadership users.
 GOATOS_STG_FIREBASE_PROJECT ?= goatos-stg
-GOATOS_STG_AUTH_CONTINUE_URL ?= https://stg.dashboard.mesha.sg/login
+GOATOS_STG_AUTH_CONTINUE_URL ?= https://dashboard.mesha.sg/login
 seed-stg-firebase-password-users:
 	@if [ "$${GOATOS_ENV:-}" != "stg" ]; then \
 		echo "seed-stg-firebase-password-users: GOATOS_ENV must be stg"; \
@@ -1126,12 +1194,10 @@ seed-stg-firebase-password-users:
 	  --require-provider "ravi@mesha.sg=google.com" \
 	  --require-provider "manohark@mesha.sg=google.com" \
 	  --require-provider "manju@mesha.sg=google.com" \
-	  --require-provider "abhishek@mesha.sg=google.com" \
 	  --require-provider "aryaman@mesha.sg=google.com" \
 	  --user-password "ravi@mesha.sg=Ravi@2026" \
 	  --user-password "manohark@mesha.sg=Manohar@2026" \
 	  --user-password "manju@mesha.sg=Manju@2026" \
-	  --user-password "abhishek@mesha.sg=Abhishek@2026" \
 	  --user-password "aryaman@mesha.sg=Aryaman@2026" \
 	  --user-password "amit797069@gmail.com=Amit@2026" \
 	  --user-password "darshantalawar033@gmail.com=Darshan@2026" \
@@ -1372,3 +1438,24 @@ CEO_AI_EVAL_HTML ?= out/ceo-ai-eval-report.html
 CEO_AI_EVAL_JSON ?= out/ceo-ai-eval-report.json
 ceo-ai-eval:
 	cd tools/ceo-ai/eval && mkdir -p out && CEO_AI_EVAL_STRICT=1 go run . -html "$(CEO_AI_EVAL_HTML)" -json "$(CEO_AI_EVAL_JSON)"
+
+# oci-stg-db-parity: read-only proof that the maintainer OCI tunnel DB matches
+# staging schema/inventory and critical dashboard fingerprints before local MCP
+# E2E is treated as staging-equivalent.
+oci-stg-db-parity:
+	bash tools/dev/check-oci-stg-db-parity.sh
+
+# e2e-mcp-smoke: live JSON-RPC smoke through the external MCP facade. It compares
+# read-only structuredContent payloads with the same staging API endpoints.
+e2e-mcp-smoke:
+	node tools/ceo-ai/eval/run-mcp-stg-e2e.mjs
+
+# mcp-full-e2e: full live MCP gate. First proves the OCI DB clone matches
+# staging, then runs typed MCP JSON equality + messy-language intent judging.
+# The broader /ceo-ai/ask answer-quality eval remains a separate gate because it
+# validates the deployed assistant surface, not just MCP tool robustness.
+mcp-full-e2e: oci-stg-db-parity e2e-mcp-smoke
+
+mock-css-parity-guard:
+	@node tools/agent-hooks/check-mock-css-parity.mjs --self-test
+	@node tools/agent-hooks/check-mock-css-parity.mjs

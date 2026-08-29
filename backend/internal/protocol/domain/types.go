@@ -136,6 +136,7 @@ type RuleDimension struct {
 	Lifecycle                 string
 	Health                    string
 	Reproductive              string
+	ProcurementPurpose        string
 	MinAgeDays                *int32
 	MaxAgeDays                *int32
 	TriggerType               string
@@ -169,6 +170,7 @@ type ConfigListItem struct {
 	Status            string // draft | published | retired
 	EffectiveFrom     *time.Time
 	EffectiveTo       *time.Time
+	RetiredAt         *time.Time
 	SopVersionID      string
 	PublishedBy       string
 	PublishedAt       *time.Time
@@ -189,9 +191,20 @@ type AnimalStage struct {
 	AnimalStageID string
 	StageCode     string
 	Name          string
-	MinAgeDays    *int32
-	MaxAgeDays    *int32
-	SortOrder     int32
+	// AgeBand is "kid" or "adult", or "" for a tag whose band the farm has not classified. It is a
+	// property OF the tag rather than of the animal's birthday (migration 000109 records the farm
+	// data proving it: F2-Male animals up to 67 weeks old the farm still calls kids), which is why
+	// retagging a pen also moves its animals' band. A picker that offers this vocabulary must be
+	// able to show that consequence before it is applied.
+	AgeBand string
+	// AssignableAsCohort is false for a CLINICAL tag (ICU, Quarantine). Those describe an animal's
+	// medical state, are owned by the clinical flows, and are rejected by every write that assigns a
+	// cohort -- so a picker must not offer them and then fail. Computed from the canonical
+	// MandatoryClinicalDeferStates, never from a second hardcoded list.
+	AssignableAsCohort bool
+	MinAgeDays         *int32
+	MaxAgeDays         *int32
+	SortOrder          int32
 }
 
 // NewTrigger is the input to create a protocol trigger.

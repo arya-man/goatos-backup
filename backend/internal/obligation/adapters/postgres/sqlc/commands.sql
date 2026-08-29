@@ -6,11 +6,16 @@
 INSERT INTO obligation_instances (
   tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id,
   scope_type, scope_id, due_at, window_start, window_end, status,
-  idempotency_key, generated_by_trigger_id, "sequence"
+  idempotency_key, rule_identity_key, generated_by_trigger_id, "sequence",
+  repeat_cycle_source, repeat_cycle_source_ref, repeat_cycle_anchor_obligation_id,
+  repeat_cycle_anchor_at, repeat_cycle_due_at
 ) SELECT
   @tenant_id, @protocol_version_id, @rule_id, @batch_id, @target_type, @target_id,
   @scope_type, @scope_id, @due_at, @window_start, @window_end, @status,
-  @idempotency_key, @generated_by_trigger_id, @sequence
+  @idempotency_key, sqlc.narg('rule_identity_key'), @generated_by_trigger_id, @sequence,
+  sqlc.narg('repeat_cycle_source'), sqlc.narg('repeat_cycle_source_ref'),
+  sqlc.narg('repeat_cycle_anchor_obligation_id'), sqlc.narg('repeat_cycle_anchor_at'),
+  sqlc.narg('repeat_cycle_due_at')
 WHERE NOT EXISTS (
   SELECT 1
   FROM obligation_instances existing
@@ -19,9 +24,41 @@ WHERE NOT EXISTS (
     AND existing.rule_id = @rule_id
     AND existing.target_type = @target_type
     AND existing.target_id = @target_id
-    AND existing."sequence" = @sequence
-    AND existing.due_at = @due_at
-    AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+    AND (
+      -- NON-REPEAT: missed is closed history. A fresh generation pass must be able to create
+      -- new work instead of letting a terminal missed row suppress the insert.
+      (
+        sqlc.narg('repeat_cycle_source_ref')::text IS NULL
+        AND existing."sequence" = @sequence
+        AND existing.due_at = @due_at
+        AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      )
+      OR
+      -- REPEAT: deduped by the administration that CAUSED it, never by its due date. A
+      -- repeat's due date moves with the previous dose, which is exactly how the same
+      -- cycle came to be minted twice a day apart.
+      --
+      -- 'missed' is absent on purpose: a missed successor is closed history, so it must
+      -- free its source for the next pass to mint new work rather than block it forever.
+      (
+        sqlc.narg('repeat_cycle_source_ref')::text IS NOT NULL
+        AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+        AND (
+          existing.repeat_cycle_source = sqlc.narg('repeat_cycle_source')::text
+            AND existing.repeat_cycle_source_ref = sqlc.narg('repeat_cycle_source_ref')::text
+          OR
+          -- A row written before repeat-cycle metadata existed carries no cause, so it cannot
+          -- be matched by one. It is still the same open cycle: for a repeat rule, one open
+          -- obligation per dose slot IS the invariant. Without this an anchored insert would
+          -- land beside every unrepaired legacy row on the day of deploy -- including rows
+          -- whose cause the repair could not reconstruct, which are reported and left alone
+          -- rather than guessed at. Scoped to the repeat branch, so no other writer is
+          -- affected.
+          existing.repeat_cycle_source_ref IS NULL
+            AND existing."sequence" = @sequence
+        )
+      )
+    )
 )
 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
 SET scope_type = EXCLUDED.scope_type,

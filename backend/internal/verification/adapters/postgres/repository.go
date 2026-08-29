@@ -5,6 +5,8 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,14 +64,37 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 
 var _ ports.Repository = (*Repository)(nil)
 
+func (r *Repository) WithVerdictLock(ctx context.Context, tenantID, itemID string, fn func(context.Context) error) error {
+	lockCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	conn, err := r.pool.Acquire(lockCtx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	key := verdictLockKey(tenantID, itemID)
+	if _, err := conn.Exec(lockCtx, "SELECT pg_advisory_lock($1)", key); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", key)
+	}()
+	return fn(ctx)
+}
+
+func verdictLockKey(tenantID, itemID string) int64 {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(tenantID) + ":" + strings.TrimSpace(itemID)))
+	return int64(binary.BigEndian.Uint64(sum[:8]))
+}
+
 const itemColumns = `item_id::text, tenant_id::text, vertical, module, category, source_module,
-  source_task_id::text, source_submission_id::text, source_ref_type, source_ref_id::text, subject_label, subject_note, media_refs, context_rows,
+  source_task_id::text, source_submission_id::text, source_ref_type, source_ref_id::text, subject_label, subject_note, media_refs, context_rows, measurement_fields,
   status, verdict_reason, operator_id::text, shed_id::text, partition_label, park_id::text, captured_at, verified_by::text,
   verified_at, closed_by::text, closed_at, applier_ack_expected, applied_at, applied_by_module,
   row_version, created_at, updated_at`
 
 const itemColumnsWithLabels = `vi.item_id::text, vi.tenant_id::text, vi.vertical, vi.module, vi.category, vi.source_module,
-  vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.subject_note, vi.media_refs, vi.context_rows,
+  vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.subject_note, vi.media_refs, vi.context_rows, vi.measurement_fields,
   vi.status, vi.verdict_reason, vi.operator_id::text, vi.shed_id::text, vi.partition_label, vi.park_id::text, vi.captured_at, vi.verified_by::text,
   vi.verified_at, vi.closed_by::text, vi.closed_at, vi.applier_ack_expected, vi.applied_at, vi.applied_by_module,
   vi.row_version, vi.created_at, vi.updated_at,
@@ -89,6 +114,10 @@ func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (doma
 	if err != nil {
 		return domain.CreateItemResult{}, fmt.Errorf("verification: marshal context_rows: %w", err)
 	}
+	fieldsJSON, err := json.Marshal(nonNilMeasurementFields(in.MeasurementFields))
+	if err != nil {
+		return domain.CreateItemResult{}, fmt.Errorf("verification: marshal measurement_fields: %w", err)
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return domain.CreateItemResult{}, err
@@ -99,12 +128,12 @@ func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (doma
 	err = tx.QueryRow(ctx, `
 INSERT INTO verification_items (
   tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id,
-  source_ref_type, source_ref_id, subject_label, subject_note, media_refs, context_rows, status, operator_id, shed_id, partition_label, park_id,
+  source_ref_type, source_ref_id, subject_label, subject_note, media_refs, context_rows, measurement_fields, status, operator_id, shed_id, partition_label, park_id,
   captured_at, idempotency_key, applier_ack_expected
 ) VALUES (
   $1::uuid, $2, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid, $8, $9::uuid, nullif($10, ''),
   nullif($18, ''),
-  $11::jsonb, $20::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($19, ''), nullif($14, '')::uuid, $15, $16, $17
+  $11::jsonb, $20::jsonb, $21::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($19, ''), nullif($14, '')::uuid, $15, $16, $17
 )
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING item_id::text`,
@@ -112,7 +141,7 @@ RETURNING item_id::text`,
 		derefStr(in.Source.TaskID), derefStr(in.Source.SubmissionID), in.Source.RefType, in.Source.RefID,
 		derefStr(in.SubjectLabel), string(mediaJSON), derefStr(in.OperatorID), derefStr(in.ShedID), derefStr(in.ParkID),
 		in.CapturedAt.UTC(), in.IdempotencyKey, in.ApplierAckExpected, derefStr(in.SubjectNote),
-		derefStr(in.PartitionLabel), string(contextJSON),
+		derefStr(in.PartitionLabel), string(contextJSON), string(fieldsJSON),
 	).Scan(&itemID)
 	created := true
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -122,8 +151,29 @@ RETURNING item_id::text`,
 	}
 
 	if created {
+		// RANDOMIZATION (maintainer decision 2026-08-26): whether this video is one the verifier
+		// will actually be shown. Read HERE, in the same transaction as the insert, because the
+		// pending push says "an assigned verifier must review it" -- and telling her about a video
+		// the policy waived is telling her to open something her queue does not contain.
+		//
+		// It is a snapshot of the share IN FORCE NOW, and deliberately so. The CEO can raise the
+		// share later in the day and recruit this item into her queue; she simply gets no push for
+		// it, which is the safe direction. The alternative -- pushing for everything and letting
+		// her find the gap -- is the one that wastes a person's attention.
+		//
+		// The LEADERSHIP half of that push is unaffected: a park head is told proof arrived from
+		// his park whether or not a verifier is going to watch it.
+		var inSample bool
+		if err := tx.QueryRow(ctx, `
+SELECT `+samplingInSampleSQL()+`
+FROM verification_items vi
+WHERE vi.tenant_id = $1::uuid AND vi.item_id = $2::uuid`, in.TenantID, itemID).Scan(&inSample); err != nil {
+			return domain.CreateItemResult{}, mapWriteErr(err)
+		}
+		payload := verificationItemPendingPayload(itemID, in)
+		payload["in_sample"] = inSample
 		if err := insertOutboxEvent(ctx, tx, in.TenantID, EventItemPending, itemID,
-			"verification.item.pending:"+itemID, verificationItemPendingPayload(itemID, in)); err != nil {
+			"verification.item.pending:"+itemID, payload); err != nil {
 			return domain.CreateItemResult{}, err
 		}
 	}
@@ -204,11 +254,9 @@ func (r *Repository) GetItemProofRefs(ctx context.Context, tenantID string, item
 		if err := rows.Scan(&itemID, &raw); err != nil {
 			return nil, err
 		}
-		refs := []string{}
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &refs); err != nil {
-				return nil, fmt.Errorf("verification: unmarshal media_refs for item %s: %w", itemID, err)
-			}
+		refs, err := decodeMediaRefs(raw)
+		if err != nil {
+			return nil, fmt.Errorf("verification: unmarshal media_refs for item %s: %w", itemID, err)
 		}
 		out[itemID] = refs
 	}
@@ -338,7 +386,7 @@ WHERE vi.tenant_id = $1::uuid
       AND vi.closed_at IS NULL
       AND vi.status NOT IN ('pending', 'withdrawn')
     )
-  )
+  )`+samplingPredicateSQL(20)+`
 ORDER BY vi.captured_at ASC, vi.item_id ASC
 LIMIT $11`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
@@ -348,6 +396,7 @@ LIMIT $11`,
 		params.CapturedFrom, params.CapturedBefore,
 		params.AwaitingApplicationOnly,
 		filterPartition,
+		params.SamplingApplied,
 	)
 	if err != nil {
 		return nil, err
@@ -395,12 +444,16 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $8::boolean OR vi.source_submission_id IS NOT NULL)
   AND (NOT $9::boolean OR vi.closed_at IS NULL)
   AND ($10::timestamptz IS NULL OR vi.captured_at >= $10::timestamptz)
-  AND ($11::timestamptz IS NULL OR vi.captured_at < $11::timestamptz)
+  AND ($11::timestamptz IS NULL OR vi.captured_at < $11::timestamptz)`+samplingPredicateSQL(12)+`
 GROUP BY vi.park_id, park_loc.name
 ORDER BY label, vi.park_id::text`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.SubmissionScopedOnly, params.OpenOnly,
 		params.CapturedFrom, params.CapturedBefore,
+		// The DROPDOWNS are sampled too, or the verifier is offered a park whose every video the
+		// policy waived: she picks it, the queue is empty, and the filter she was given is the only
+		// thing that said there was work there.
+		params.SamplingApplied,
 	)
 	if err != nil {
 		return options, err
@@ -450,7 +503,7 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $9::boolean OR vi.source_submission_id IS NOT NULL)
   AND (NOT $10::boolean OR vi.closed_at IS NULL)
   AND ($11::timestamptz IS NULL OR vi.captured_at >= $11::timestamptz)
-  AND ($12::timestamptz IS NULL OR vi.captured_at < $12::timestamptz)
+  AND ($12::timestamptz IS NULL OR vi.captured_at < $12::timestamptz)`+samplingPredicateSQL(13)+`
 GROUP BY vi.shed_id, shed_loc.name, `+shedPartitionPredicate+`
 -- Park first so a park's sheds arrive contiguously and a client can group without sorting.
 -- shed_id still breaks the final tie, so two identically-named sheds in ONE park stay stable.
@@ -458,6 +511,8 @@ ORDER BY park_label, shed_label, partition_key, vi.shed_id::text`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.ParkID, params.SubmissionScopedOnly, params.OpenOnly,
 		params.CapturedFrom, params.CapturedBefore,
+		// Same reason as the park list above.
+		params.SamplingApplied,
 	)
 	if err != nil {
 		return options, err
@@ -518,11 +573,12 @@ WHERE vi.tenant_id = $1::uuid
   AND ($8 = '' OR vi.shed_id = $8::uuid)
   AND ($9::timestamptz IS NULL OR vi.captured_at >= $9::timestamptz)
   AND ($10::timestamptz IS NULL OR vi.captured_at < $10::timestamptz)
-  AND ($11 = '' OR `+shedPartitionPredicate+` = $11)
+  AND ($11 = '' OR `+shedPartitionPredicate+` = $11)`+samplingPredicateSQL(12)+`
 GROUP BY vi.status`,
 		params.TenantID, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.ParkID, filterShedID,
 		params.CapturedFrom, params.CapturedBefore, filterPartition,
+		params.SamplingApplied,
 	)
 	if err != nil {
 		return options, err
@@ -560,12 +616,13 @@ SELECT EXISTS (
     AND ($7 = '' OR vi.park_id = $7::uuid)
     AND ($8 = '' OR vi.shed_id = $8::uuid)
     AND vi.captured_at < $9::timestamptz
-    AND ($10 = '' OR `+shedPartitionPredicate+` = $10)
+    AND ($10 = '' OR `+shedPartitionPredicate+` = $10)`+samplingPredicateSQL(11)+`
   LIMIT 1
 )`,
 			params.TenantID, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 			params.ScopeRestricted, params.ParkIDs, params.ParkID, filterShedID, params.MissedBefore,
 			filterPartition,
+			params.SamplingApplied,
 		).Scan(&options.HasMissed)
 		if err != nil {
 			return options, err
@@ -1881,6 +1938,11 @@ func (r *Repository) RecordVerdict(ctx context.Context, in domain.Verdict) (doma
 	if in.Decision == domain.DecisionRejected {
 		status = domain.StatusRejected
 	}
+	if in.Decision == domain.DecisionApproved {
+		if err := requireProducerMeasurementBeforeApproval(ctx, tx, in.TenantID, in.ItemID); err != nil {
+			return domain.Item{}, err
+		}
+	}
 	var reason any
 	if in.Reason != "" {
 		reason = in.Reason
@@ -1953,6 +2015,40 @@ WHERE tenant_id = $4::uuid
 	return item, nil
 }
 
+func requireProducerMeasurementBeforeApproval(ctx context.Context, tx pgx.Tx, tenantID, itemID string) error {
+	var sourceModule, sourceRefType, sourceRefID, category string
+	err := tx.QueryRow(ctx, `
+SELECT source_module, source_ref_type, source_ref_id::text, category
+FROM verification_items
+WHERE tenant_id = $1::uuid AND item_id = $2::uuid`,
+		tenantID, itemID).Scan(&sourceModule, &sourceRefType, &sourceRefID, &category)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if sourceModule != "feed" || sourceRefType != "feed_wastage_completion" {
+		return nil
+	}
+	var measured bool
+	err = tx.QueryRow(ctx, `
+SELECT wastage_kg IS NOT NULL
+FROM feed_wastage_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`,
+		tenantID, sourceRefID).Scan(&measured)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if !measured {
+		return &ports.ErrMeasurementRequired{Category: category}
+	}
+	return nil
+}
+
 // verificationItemPendingPayload is the verification.item.pending outbox payload. Field set is fixed
 // by contract with the notification producer session (build-handover-20260713.md §1 P0 1a "the Max
 // seam"): tenant/item identity + classification + WHO to route to (operator/shed/partition/park) + WHEN
@@ -1978,6 +2074,8 @@ func verificationItemPendingPayload(itemID string, in domain.CreateItem) map[str
 		"partition_label": derefStr(in.PartitionLabel),
 		"park_id":         derefStr(in.ParkID),
 		"captured_at":     in.CapturedAt.UTC().Format(time.RFC3339Nano),
+		// in_sample is added by the caller, which is the only place that can read the item's own
+		// generated bucket against the share in force. See CreateItem.
 	}
 }
 
@@ -2339,20 +2437,70 @@ func scanItemRow(row rowScanner) (domain.Item, error) {
 	return scanItem(row)
 }
 
+func decodeMediaRefs(raw []byte) ([]string, error) {
+	if len(raw) == 0 {
+		return []string{}, nil
+	}
+	var refs []string
+	if err := json.Unmarshal(raw, &refs); err == nil {
+		return refs, nil
+	}
+	var entries []any
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil, err
+	}
+	refs = make([]string, 0, len(entries))
+	for _, entry := range entries {
+		switch value := entry.(type) {
+		case string:
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				refs = append(refs, trimmed)
+			}
+		case map[string]any:
+			if ref := mediaRefFromObject(value); ref != "" {
+				refs = append(refs, ref)
+			}
+		}
+	}
+	return refs, nil
+}
+
+func mediaRefFromObject(value map[string]any) string {
+	for _, key := range []string{
+		"proof_id",
+		"proofId",
+		"proof_ref",
+		"proofRef",
+		"proof_artifact_id",
+		"proofArtifactId",
+		"artifact_id",
+		"artifactId",
+		"id",
+		"ref",
+	} {
+		if raw, ok := value[key].(string); ok {
+			if trimmed := strings.TrimSpace(raw); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
+}
+
 func scanItem(row rowScanner) (domain.Item, error) {
 	var (
 		item                                                                            domain.Item
 		sourceTaskID, sourceSubmissionID                                                *string
 		operatorID, shedID, partitionLabel, parkID, verifiedBy, closedBy, verdictReason *string
 		subjectLabel, subjectNote                                                       *string
-		mediaJSON, contextJSON                                                          []byte
+		mediaJSON, contextJSON, fieldsJSON                                              []byte
 		appliedByModule                                                                 *string
 		verifiedAt, closedAt, appliedAt                                                 *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
-		&subjectLabel, &subjectNote, &mediaJSON, &contextJSON, &item.Status, &verdictReason, &operatorID, &shedID, &partitionLabel, &parkID,
+		&subjectLabel, &subjectNote, &mediaJSON, &contextJSON, &fieldsJSON, &item.Status, &verdictReason, &operatorID, &shedID, &partitionLabel, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
 		&item.ApplierAckExpected, &appliedAt, &appliedByModule,
 		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
@@ -2377,14 +2525,19 @@ func scanItem(row rowScanner) (domain.Item, error) {
 	item.CapturedAt = item.CapturedAt.UTC()
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.UpdatedAt = item.UpdatedAt.UTC()
-	if len(mediaJSON) > 0 {
-		if err := json.Unmarshal(mediaJSON, &item.MediaRefs); err != nil {
-			return domain.Item{}, fmt.Errorf("verification: unmarshal media_refs: %w", err)
-		}
+	mediaRefs, err := decodeMediaRefs(mediaJSON)
+	if err != nil {
+		return domain.Item{}, fmt.Errorf("verification: unmarshal media_refs: %w", err)
 	}
+	item.MediaRefs = mediaRefs
 	if len(contextJSON) > 0 {
 		if err := json.Unmarshal(contextJSON, &item.ContextRows); err != nil {
 			return domain.Item{}, fmt.Errorf("verification: unmarshal context_rows: %w", err)
+		}
+	}
+	if len(fieldsJSON) > 0 {
+		if err := json.Unmarshal(fieldsJSON, &item.MeasurementFields); err != nil {
+			return domain.Item{}, fmt.Errorf("verification: unmarshal measurement_fields: %w", err)
 		}
 	}
 	return item, nil
@@ -2398,13 +2551,13 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 		subjectLabel, subjectNote                                                       *string
 		operatorName, verifiedByName, shedLabel, parkLabel                              *string
 		appliedByModule                                                                 *string
-		mediaJSON, contextJSON                                                          []byte
+		mediaJSON, contextJSON, fieldsJSON                                              []byte
 		verifiedAt, closedAt, appliedAt                                                 *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
-		&subjectLabel, &subjectNote, &mediaJSON, &contextJSON, &item.Status, &verdictReason, &operatorID, &shedID, &partitionLabel, &parkID,
+		&subjectLabel, &subjectNote, &mediaJSON, &contextJSON, &fieldsJSON, &item.Status, &verdictReason, &operatorID, &shedID, &partitionLabel, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
 		&item.ApplierAckExpected, &appliedAt, &appliedByModule,
 		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
@@ -2434,14 +2587,19 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 	item.CapturedAt = item.CapturedAt.UTC()
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.UpdatedAt = item.UpdatedAt.UTC()
-	if len(mediaJSON) > 0 {
-		if err := json.Unmarshal(mediaJSON, &item.MediaRefs); err != nil {
-			return domain.Item{}, fmt.Errorf("verification: unmarshal media_refs: %w", err)
-		}
+	mediaRefs, err := decodeMediaRefs(mediaJSON)
+	if err != nil {
+		return domain.Item{}, fmt.Errorf("verification: unmarshal media_refs: %w", err)
 	}
+	item.MediaRefs = mediaRefs
 	if len(contextJSON) > 0 {
 		if err := json.Unmarshal(contextJSON, &item.ContextRows); err != nil {
 			return domain.Item{}, fmt.Errorf("verification: unmarshal context_rows: %w", err)
+		}
+	}
+	if len(fieldsJSON) > 0 {
+		if err := json.Unmarshal(fieldsJSON, &item.MeasurementFields); err != nil {
+			return domain.Item{}, fmt.Errorf("verification: unmarshal measurement_fields: %w", err)
 		}
 	}
 	return item, nil
@@ -2476,6 +2634,19 @@ func nonNilContextRows(rows []domain.ContextRow) []domain.ContextRow {
 			continue
 		}
 		out = append(out, row)
+	}
+	return out
+}
+
+// nonNilMeasurementFields keeps a nil slice out of the jsonb column (same CHECK as context_rows)
+// and drops fields with a blank key -- a keyless entry box could never be posted back.
+func nonNilMeasurementFields(fields []domain.MeasurementField) []domain.MeasurementField {
+	out := make([]domain.MeasurementField, 0, len(fields))
+	for _, field := range fields {
+		if strings.TrimSpace(field.Key) == "" {
+			continue
+		}
+		out = append(out, field)
 	}
 	return out
 }
@@ -2590,6 +2761,55 @@ RETURNING `+itemColumns, tenantID, sourceModule, sourceRefType, sourceRefIDs)
 		return 0, mapWriteErr(err)
 	}
 	return len(withdrawn), nil
+}
+
+// RelabelItemBySource replaces the backend-composed subject label on the item
+// raised for ONE source record.
+//
+// It exists for the verifier's weighing weight correction. subject_label is
+// composed by the producing module at enqueue and STATES A FACT -- for weighing it
+// carries the weight itself ("Godel 1 - Part 3 · Tag 9010 · 120.0 kg"). When the
+// verifier corrects that weight, the stored label still advertises the number that
+// was just replaced, so she reads her own correction back as if it never landed.
+// The producing module owns that sentence, so the producing module hands the new
+// one back through this seam rather than reaching into verification's table.
+//
+// It decides NOTHING. No status, no verdict, no verifier, no media, no event: it
+// rewrites display copy, and a relabel is not a lifecycle transition that any
+// consumer needs to hear about. row_version IS bumped, because an open verdict
+// form rendered against the old label is looking at a stale row and its optimistic
+// concurrency check should say so rather than silently write over a corrected one.
+//
+// EVERY status is relabelled, decided items included. That is deliberate and is the
+// opposite of WithdrawItemsBySource's pending-only rule: withdrawal changes what an
+// item MEANS and must never touch a decision, while a label must describe the row
+// as it stands now -- an approved item whose weight was later corrected still has
+// to name the weight the record actually holds.
+//
+// Idempotent by construction: writing the same label twice is the same end state,
+// and the second write is skipped entirely (the label predicate below) so a retry
+// does not churn row_version.
+func (r *Repository) RelabelItemBySource(ctx context.Context, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel string) (int, error) {
+	subjectLabel = strings.TrimSpace(subjectLabel)
+	// The column's CHECK forbids a present-but-blank label, and a blank one would
+	// strip the verifier's only identity line. Nothing to do rather than corrupt it.
+	if subjectLabel == "" {
+		return 0, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+UPDATE verification_items
+SET subject_label = $5, row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND source_module = $2
+  AND source_ref_type = $3
+  AND source_ref_id = $4::uuid
+  AND subject_label IS DISTINCT FROM $5`, tenantID, sourceModule, sourceRefType, sourceRefID, subjectLabel)
+	if err != nil {
+		return 0, mapWriteErr(err)
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 // MarkVerdictApplied is the producing module's RECEIPT that it wrote a verdict

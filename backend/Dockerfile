@@ -1,4 +1,4 @@
-FROM golang:1.25.12-alpine AS build
+FROM golang:1.25.13-alpine AS build
 
 WORKDIR /src/backend
 RUN apk add --no-cache ca-certificates
@@ -23,7 +23,7 @@ ARG GIT_SHA=unknown
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     set -e && \
     mkdir -p /out && \
-    for cmd in api outbox-relay outbox-dlq domain-event-consumer domain-event-processed-sweeper generate-vaccination-obligations vaccination-eligibility-rollup-recompute obligation-sweeper kernel-worker notification-dispatcher backfill-goat-created idempotency-key-sweeper inventory-batch-reconciler sop-review-fanout-retry partition-maintainer legacy-god-sheet-sync feed-direction-issue feed-transport-issue seed-dev-grant seed-dev-email-grants seed-vaccination-trigger mint-dev-token analytics-rollup; do \
+    for cmd in api mcp outbox-relay outbox-dlq domain-event-consumer domain-event-processed-sweeper generate-vaccination-obligations vaccination-eligibility-rollup-recompute obligation-sweeper kernel-worker notification-dispatcher backfill-goat-created idempotency-key-sweeper inventory-batch-reconciler sop-review-fanout-retry partition-maintainer legacy-god-sheet-sync feed-direction-issue feed-transport-issue seed-dev-grant seed-dev-email-grants seed-vaccination-trigger mint-dev-token analytics-rollup herd-signals-partition-maintenance herd-signals-mqtt-bridge; do \
       ldflags="-s -w"; \
       if [ "$cmd" = "api" ]; then \
         ldflags="$ldflags -X github.com/vgoats/goatos/backend/internal/platform/buildinfo.SHA=${GIT_SHA}"; \

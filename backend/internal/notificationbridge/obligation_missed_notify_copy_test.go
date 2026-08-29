@@ -45,8 +45,17 @@ func TestObligationMissedNotifierCopyNamesShedAndDate(t *testing.T) {
 		if !strings.Contains(c.in.Body, "Godel 1 - Part 8") {
 			t.Errorf("missed-work body must name the shed: %q", c.in.Body)
 		}
-		if !strings.Contains(c.in.Body, "2026-08-01") {
-			t.Errorf("missed-work body must name the business date it was missed on: %q", c.in.Body)
+		// dd/mm/yyyy in visible copy, ISO in the structured context (maintainer decision
+		// 2026-08-24). Both halves are asserted: a body carrying the ISO string is the defect this
+		// replaced, and a context carrying dd/mm/yyyy would break the client that parses it.
+		if !strings.Contains(c.in.Body, "01/08/2026") {
+			t.Errorf("missed-work body must date the miss as dd/mm/yyyy: %q", c.in.Body)
+		}
+		if strings.Contains(c.in.Body, "2026-08-01") {
+			t.Errorf("missed-work body must not carry the ISO date: %q", c.in.Body)
+		}
+		if c.in.Context["due_date"] != "2026-08-01" {
+			t.Errorf("structured due_date must stay ISO for clients to parse: %q", c.in.Context["due_date"])
 		}
 		assertCopyClean(t, "missed-work title", c.in.Title)
 		assertCopyClean(t, "missed-work body", c.in.Body)

@@ -34,6 +34,19 @@ func TestDirectorReachesOwnModuleAndIsForbiddenOnAnothers(t *testing.T) {
 			ownerRole:   RoleFeedDirector,
 			otherOwners: []string{RolePCDirector, RoleGrowthDirector, RoleHealthDirector},
 		},
+		// Procurement belongs to procurement_director (maintainer decision 2026-08-21). The other
+		// directors — feed_director included, whose ProcurementRead covers only the source-entry
+		// intake screens — must not reach the vendor register or the sales ledger.
+		{
+			name: "procurement vendor register", method: "GET", path: "/procurement/vendors",
+			ownerRole:   RoleProcurementDirector,
+			otherOwners: []string{RolePCDirector, RoleGrowthDirector, RoleHealthDirector, RoleFeedDirector},
+		},
+		{
+			name: "sales ledger", method: "GET", path: "/sales/deals",
+			ownerRole:   RoleProcurementDirector,
+			otherOwners: []string{RolePCDirector, RoleGrowthDirector, RoleHealthDirector, RoleFeedDirector},
+		},
 	}
 	for _, p := range probes {
 		route, ok := Match(p.method, p.path)
@@ -78,6 +91,21 @@ func TestDirectorHoldsNoOtherModulesCapabilities(t *testing.T) {
 		},
 		RolePCDirector:     {FeedConfigRead, FeedConfigWrite, FeedDirectionOversee, FeedTransportRead, CountsRead, WeighingExecute, WeighingMonitor},
 		RoleGrowthDirector: {FeedConfigRead, FeedConfigWrite, FeedDirectionRead, FeedDirectionOversee, FeedTransportRead, CountsRead, VaccinationRead},
+		// procurement_director READS the feed chain by explicit maintainer decision 2026-08-21
+		// ("he should see only the Procurement and Feed modules in web"), so the feed reads are
+		// absent from this list on purpose. Everything that RUNS the feed chain, and every other
+		// module, stays forbidden: this role must never drift into a second feed_director or into
+		// the modules its web lens hides.
+		RoleProcurementDirector: {
+			VaccinationRead, VaccinationVerify, VaccinationCampaign, VaccinationOverseeExecution,
+			WeighingPlan, WeighingMonitor, WeighingExecute, WeighingOverseeOperators,
+			CountsRead, CountsWrite, CountsApproveLifecycle, CountsApproveShifting, CountsApproveAccess,
+			FeedConfigRead, FeedConfigWrite, FeedDirectionOversee, FeedDirectionComplete,
+			VerificationReview, VerificationAct, VerificationVerdict,
+			GoatRead, CalendarRead, CalendarAction, TaskExecute, TaskRead, TaskAssign,
+			HealthConfigRead, HealthConfigWrite, HealthRead, HealthDiagnose,
+			AppBootstrap,
+		},
 	}
 	for role, perms := range forbidden {
 		for _, permission := range perms {
@@ -92,7 +120,7 @@ func TestDirectorHoldsNoOtherModulesCapabilities(t *testing.T) {
 // declared-vs-effective guard applied to the two new roles: the class of bug it protects against
 // (a declared permission silently inert) has shipped twice on growth_director.
 func TestNewDirectorRolesDeclaredPermissionsAreEffective(t *testing.T) {
-	for _, role := range []string{RoleFeedDirector, RoleHealthDirector} {
+	for _, role := range []string{RoleFeedDirector, RoleHealthDirector, RoleProcurementDirector} {
 		declared, ok := rolePermissions[role]
 		if !ok || len(declared) == 0 {
 			t.Fatalf("%s has no permission set; the role grant would authorize nothing at all", role)
@@ -110,7 +138,7 @@ func TestNewDirectorRolesDeclaredPermissionsAreEffective(t *testing.T) {
 
 // The two roles must be grantable end to end, not just present in the map.
 func TestNewDirectorRolesAreKnownGrantableRoles(t *testing.T) {
-	for _, role := range []string{RoleFeedDirector, RoleHealthDirector} {
+	for _, role := range []string{RoleFeedDirector, RoleHealthDirector, RoleProcurementDirector} {
 		if !IsKnownRole(role) {
 			t.Errorf("%s is not a known grantable role; a seeded grant would be rejected", role)
 		}
@@ -129,7 +157,7 @@ func TestHealthDirectorOwnsCountsWithoutAccess(t *testing.T) {
 		if !ok {
 			t.Fatalf("route GET %s is not registered", path)
 		}
-		for _, role := range []string{RoleHealthDirector, RolePCDirector, RoleGrowthDirector, RoleFeedDirector} {
+		for _, role := range []string{RoleHealthDirector, RolePCDirector, RoleGrowthDirector, RoleFeedDirector, RoleProcurementDirector} {
 			if RolesAuthorize([]string{role}, route.Permissions, route.AdminOnly) {
 				t.Errorf("%s reaches %s; counts is an OFF feature and stays ceo_internal-only", role, path)
 			}

@@ -6,8 +6,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.map
@@ -23,12 +21,13 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.GoatDatabase
+import sg.mesha.goatos.core.data.capture.ProofIdentity
+import sg.mesha.goatos.core.data.capture.ProofFlow
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.appApiStatusCode
 import sg.mesha.goatos.core.network.userFacingMessage
-import sg.mesha.goatos.core.network.WeightHistoryResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAcceptedObservationDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
@@ -402,6 +401,38 @@ data class IndividualWeighingCapture(
     val capturedAtMs: Long? = null,
 )
 
+enum class IndividualProofAttachStatus {
+    ATTACHED,
+    ALREADY_ACCEPTED,
+    ALREADY_QUEUED,
+    NO_OBSERVATION,
+    ENQUEUE_FAILED,
+}
+
+data class IndividualProofAttachOutcome(
+    val status: IndividualProofAttachStatus,
+    val scopeKey: String,
+    val scannedIdentifier: String,
+    val proofCaptureId: String,
+    val serverProofId: String?,
+    val campaignId: String? = null,
+    val campaignShedId: String? = null,
+    val idempotencyKey: String? = null,
+    val reason: String? = null,
+)
+
+fun interface WeighingProofAttachTelemetryReporter {
+    fun onIndividualProofAttach(
+        outcome: IndividualProofAttachOutcome,
+        source: String,
+        recoveredByRfid: Boolean,
+    )
+
+    companion object {
+        val Noop = WeighingProofAttachTelemetryReporter { _, _, _ -> }
+    }
+}
+
 data class ShedPartitionWeighingCapture(
     val tenantId: String,
     val campaignId: String,
@@ -638,15 +669,6 @@ interface WeighingRepository {
     /** Appends the next page of records for a shed using the stored cursor. */
     suspend fun appendLeadershipShed(campaignId: String, campaignShedId: String): AppResult<Int>
 
-    /** The leadership videos gallery from Room, as a BOUNDED window of shed buckets. */
-    fun observeLeadershipVideos(windowSize: Int = WEIGHING_LEADERSHIP_PAGE_SIZE): Flow<List<WeighingLeadershipShed>>
-
-    /** Fetches ONE page of the videos gallery — one task page, then each of its buckets. */
-    suspend fun refreshLeadershipVideos(reset: Boolean = true): AppResult<Int>
-
-    /** Appends the next page of videos gallery using the stored cursor. */
-    suspend fun appendLeadershipVideos(): AppResult<Int>
-
     /**
      * The PARK-grain planner catalog from Room: EVERY park the planner may use on that date.
      *
@@ -728,7 +750,12 @@ interface WeighingRepository {
     suspend fun replaceRoster(scopeKey: String, rows: List<WeighingRosterRowEntity>)
     suspend fun matchTag(scopeKey: String, scannedTag: String): WeighingScanMatch
     suspend fun recordIndividual(capture: IndividualWeighingCapture): AppResult<IndividualWeighingDraft>
-    suspend fun attachIndividualProof(scopeKey: String, scannedIdentifier: String, proofCaptureId: String, serverProofId: String?)
+    suspend fun attachIndividualProof(
+        scopeKey: String,
+        scannedIdentifier: String,
+        proofCaptureId: String,
+        serverProofId: String?,
+    ): AppResult<IndividualProofAttachOutcome>
     suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft>
     suspend fun attachShedPartitionProof(
         scopeKey: String,
@@ -737,11 +764,23 @@ interface WeighingRepository {
         serverProofIds: List<String> = emptyList(),
     )
     suspend fun discardEditableIndividual(scopeKey: String, scannedIdentifier: String)
+    /**
+     * Enqueues the shed SUBMIT transition durably via the outbox and returns the outbox item id
+     * (`AppResult.Ok` = "durably queued", NOT "server confirmed" — callers observe the returned id
+     * via [sg.mesha.goatos.core.data.sync.SyncRepository.observeItem] for the terminal outcome,
+     * exactly like every other outbox-backed submit in this app). A killed process no longer loses
+     * the attempt: the row survives in Room and the sync engine retries it independently of
+     * whether anything is still observing.
+     */
     suspend fun submitIndividualScope(
         campaignId: String,
         campaignShedId: String,
         scannedIdentifiers: List<String>,
-    ): AppResult<Unit>
+    ): AppResult<String>
+
+    /** Resolves the durable outbox row (if any) for the shed's current submit attempt, so a
+     *  recreated ViewModel can resume observing instead of losing the in-flight submit. */
+    suspend fun findPendingSubmit(campaignId: String, campaignShedId: String): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?>
     suspend fun reopenScope(
         campaignId: String,
         campaignShedId: String,
@@ -756,19 +795,6 @@ interface WeighingRepository {
         campaignId: String,
         reason: String = "",
     ): AppResult<Unit>
-    /** [parkId]/[campaignShedId] narrow the query server-side (both null = the caller's full
-     *  authorized scope) — see `AppApi.getWeightHistory`. */
-    suspend fun fetchWeightHistory(
-        parkId: String? = null,
-        campaignShedId: String? = null,
-    ): AppResult<sg.mesha.goatos.core.network.WeightHistoryResponseDto>
-
-    /** Leadership growth (ADG). parkId null = every park the caller may see. */
-    suspend fun fetchGrowthSummary(
-        parkId: String?,
-        from: String?,
-        to: String?,
-    ): AppResult<sg.mesha.goatos.core.network.GrowthSummaryDto>
 }
 
 class DefaultWeighingRepository(
@@ -780,6 +806,7 @@ class DefaultWeighingRepository(
     private val database: GoatDatabase? = null,
     private val syncRepository: SyncRepository? = null,
     private val appScope: CoroutineScope? = null,
+    private val proofAttachTelemetry: WeighingProofAttachTelemetryReporter = WeighingProofAttachTelemetryReporter.Noop,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
 ) : WeighingRepository {
@@ -830,15 +857,22 @@ class DefaultWeighingRepository(
         // same attempt, and re-applied it -- the exact double-apply this mechanism exists
         // to prevent, crossing transition types instead of repeating within one.
         val scopeId = "$transition:$rawScopeId"
-        val dao = epochDao ?: return "weighing:$transition:$scopeId:" +
-            inMemoryTransitionEpochs.getOrPut(scopeId) { idGenerator() }
-        // Claim-then-read: IGNORE on conflict means a concurrent attempt on the same scope loses
-        // the write and then reads the winner's epoch, so both send the SAME key.
-        dao.insertIfAbsent(
-            WeighingTransitionEpochEntity(scopeId = scopeId, epoch = idGenerator(), updatedAt = clock()),
+        val epoch = epochDao?.let {
+            // Claim-then-read: IGNORE on conflict means a concurrent attempt on the same scope loses
+            // the write and then reads the winner's epoch, so both send the SAME key.
+            it.insertIfAbsent(
+                WeighingTransitionEpochEntity(scopeId = scopeId, epoch = idGenerator(), updatedAt = clock()),
+            )
+            it.get(scopeId) ?: idGenerator()
+        } ?: inMemoryTransitionEpochs.getOrPut(scopeId) { idGenerator() }
+
+        val identity = ProofIdentity(
+            flow = ProofFlow.WEIGHING_SHED,
+            taskId = rawScopeId,
+            transition = transition,
+            transitionEpoch = epoch,
         )
-        val epoch = dao.get(scopeId) ?: idGenerator()
-        return "weighing:$transition:$scopeId:$epoch"
+        return identity.weighingTransitionKey()
     }
 
     /** Called only after the server confirmed the transition, so a failed attempt stays retryable. */
@@ -1325,133 +1359,6 @@ class DefaultWeighingRepository(
             }
             AppResult.Ok(response.individual.size)
         }.getOrElse { AppResult.Err(it.userFacingMessage("Could not fetch the next records for this shed.")) }
-    }
-
-    @OptIn(ExperimentalCoroutinesApi::class)
-    override fun observeLeadershipVideos(windowSize: Int): Flow<List<WeighingLeadershipShed>> {
-        val sheds = leadershipShedDao ?: return kotlinx.coroutines.flow.flowOf(emptyList())
-        val records = leadershipRecordDao ?: return kotlinx.coroutines.flow.flowOf(emptyList())
-        val bounded = windowSize.coerceIn(1, WEIGHING_LEADERSHIP_MAX_WINDOW)
-        return sheds.observeGalleryWindow(WEIGHING_VIDEOS_QUERY_KEY, bounded)
-            .flatMapLatest { rows ->
-                val shedKeys = rows.map { it.shedKey }
-                if (shedKeys.isEmpty()) {
-                    kotlinx.coroutines.flow.flowOf(emptyList())
-                } else {
-                    // The gallery renders an individual bucket's captured animals, so it needs the
-                    // SAME cached records the shed detail reads -- bounded PER SHED to one page,
-                    // never one unbounded read across the whole gallery page.
-                    records.observeWindowForSheds(shedKeys, WEIGHING_LEADERSHIP_PAGE_SIZE)
-                        .map { cached ->
-                            val byShed = cached.groupBy { it.shedKey }
-                            rows.map { it.toLeadershipShed(byShed[it.shedKey].orEmpty(), cacheJson) }
-                        }
-                }
-            }.flowOn(Dispatchers.Default)
-    }
-
-    override suspend fun refreshLeadershipVideos(reset: Boolean): AppResult<Int> = withContext(Dispatchers.IO) {
-        val client = api ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val db = database ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val sheds = leadershipShedDao ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val keys = galleryKeyDao ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val cursor = if (reset) null else keys.get(WEIGHING_VIDEOS_QUERY_KEY)?.takeIf { !it.endReached }
-            ?.nextCursor?.takeIf { it.isNotBlank() }
-            ?: return@withContext AppResult.Ok(0)
-        runCatching {
-            // ONE request for the whole page. This used to fetch a page of TASKS, expand every
-            // embedded bucket, and then call the single-bucket read once per bucket -- about 1,500
-            // sequential round trips on a 76-shed park, on every RefreshOnResume. A per-call limit
-            // bounds each response, not the number of calls; only a page at BUCKET grain does.
-            val response = client.listWeighingLeadershipSheds(
-                cursor = cursor,
-                limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
-            )
-            val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
-            val now = clock()
-            db.withTransaction {
-                val startIndex = if (reset) {
-                    // Clears MEMBERSHIP only: a bucket also opened on its own detail screen keeps
-                    // its cached context and its records.
-                    sheds.clearGallery(WEIGHING_VIDEOS_QUERY_KEY)
-                    0
-                } else {
-                    sheds.nextGallerySortIndex(WEIGHING_VIDEOS_QUERY_KEY)
-                }
-                response.items.forEachIndexed { index, dto ->
-                    writeLeadershipShedPage(
-                        shedKey = weighingShedKey(dto.campaignId, dto.campaignShedId),
-                        dto = dto,
-                        clearRecords = false,
-                        periodLabel = dto.periodLabel,
-                        galleryQueryKey = WEIGHING_VIDEOS_QUERY_KEY,
-                        gallerySortIndex = startIndex + index,
-                        keepDeeperRecords = true,
-                    )
-                }
-                keys.upsert(
-                    WeighingLeadershipGalleryRemoteKeyEntity(
-                        queryKey = WEIGHING_VIDEOS_QUERY_KEY,
-                        nextCursor = nextCursor,
-                        endReached = nextCursor.isNullOrBlank(),
-                        updatedAt = now,
-                    ),
-                )
-                if (reset) {
-                    // All three tables are bounded together. Pruning only the bucket rows left the
-                    // records of every evicted bucket behind forever -- the reads were bounded, the
-                    // writes were not.
-                    sheds.pruneOutsideNewest(WEIGHING_CACHED_SHEDS)
-                    leadershipRecordDao?.pruneOrphans()
-                    leadershipRecordKeyDao?.pruneOrphans()
-                }
-            }
-            AppResult.Ok(response.items.size)
-        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing videos.")) }
-    }
-
-    override suspend fun appendLeadershipVideos(): AppResult<Int> = withContext(Dispatchers.IO) {
-        val client = api ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val db = database ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val sheds = leadershipShedDao ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val keys = galleryKeyDao ?: return@withContext AppResult.Err("Weighing videos are not configured.")
-        val cursor = keys.get(WEIGHING_VIDEOS_QUERY_KEY)?.nextCursor?.takeIf { it.isNotBlank() }
-            ?: return@withContext AppResult.Ok(0)
-        runCatching {
-            val response = client.listWeighingLeadershipSheds(
-                cursor = cursor,
-                limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
-            )
-            val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
-            val now = clock()
-            db.withTransaction {
-                val startIndex = sheds.nextGallerySortIndex(WEIGHING_VIDEOS_QUERY_KEY)
-                response.items.forEachIndexed { index, dto ->
-                    writeLeadershipShedPage(
-                        shedKey = weighingShedKey(dto.campaignId, dto.campaignShedId),
-                        dto = dto,
-                        clearRecords = false,
-                        periodLabel = dto.periodLabel,
-                        galleryQueryKey = WEIGHING_VIDEOS_QUERY_KEY,
-                        gallerySortIndex = startIndex + index,
-                        keepDeeperRecords = true,
-                    )
-                }
-                keys.upsert(
-                    WeighingLeadershipGalleryRemoteKeyEntity(
-                        queryKey = WEIGHING_VIDEOS_QUERY_KEY,
-                        nextCursor = nextCursor,
-                        endReached = nextCursor.isNullOrBlank(),
-                        updatedAt = now,
-                    ),
-                )
-                // Prune overflow without clearing the query since we're appending, not resetting
-                sheds.pruneOutsideNewest(WEIGHING_CACHED_SHEDS)
-                leadershipRecordDao?.pruneOrphans()
-                leadershipRecordKeyDao?.pruneOrphans()
-            }
-            AppResult.Ok(response.items.size)
-        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not fetch the next weighing videos.")) }
     }
 
     override fun observePlannerCatalog(periodStartDate: String): Flow<WeighingPlannerCatalogCache> {
@@ -1986,9 +1893,10 @@ class DefaultWeighingRepository(
         campaignId: String,
         campaignShedId: String,
         scannedIdentifiers: List<String>,
-    ): AppResult<Unit> =
+    ): AppResult<String> =
         withContext(Dispatchers.IO) {
-            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
+            val sync = syncRepository
+                ?: return@withContext AppResult.Err("Weighing sync is unavailable.")
             try {
                 // The key names the ATTEMPT, not the shed's contents. It used to hash only
                 // (campaignId, campaignShedId, scannedIdentifiers), which is byte-identical
@@ -1997,21 +1905,64 @@ class DefaultWeighingRepository(
                 // and wrote nothing, while the phone navigated away as if it had worked. The
                 // operator's rework was silently lost -- the same failure the close/reopen
                 // epoch below exists to prevent. The epoch rotates only after the server
-                // confirms, so retrying an unknown outcome still deduplicates.
+                // confirms (now: only after the outbox row reaches SUCCEEDED, see
+                // SyncEngine.reconcileFeatureSuccess), so retrying an unknown outcome still
+                // deduplicates.
+                //
+                // Previously this made a direct, non-durable HTTP call: a killed process or a
+                // dropped connection mid-call lost the write entirely -- no retry, no record it
+                // was ever attempted, and the operator's confirm tap silently vanished. This now
+                // enqueues onto the SAME durable outbox every other weighing write already uses.
                 val scopeId = "$campaignId:$campaignShedId"
                 val idempotencyKey = transitionIdempotencyKey("submit", scopeId)
-                service.submitWeighingScope(
-                    campaignId,
-                    campaignShedId,
-                    idempotencyKey,
-                    WeighingScopeSubmitRequestDto(scannedIdentifiers),
+                sync.enqueueWeighingScopeSubmit(
+                    campaignId = campaignId,
+                    campaignShedId = campaignShedId,
+                    groupKey = campaignShedId,
+                    idempotencyKey = idempotencyKey,
+                    request = WeighingScopeSubmitRequestDto(scannedIdentifiers),
                 )
-                advanceTransitionEpoch("submit", scopeId)
-                AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.userFacingMessage("Couldn't submit weighing shed."), error)
             }
         }
+
+    override suspend fun findPendingSubmit(
+        campaignId: String,
+        campaignShedId: String,
+    ): AppResult<sg.mesha.goatos.core.data.sync.SyncQueueItem?> = withContext(Dispatchers.IO) {
+        val sync = syncRepository
+            ?: return@withContext AppResult.Err("Weighing sync is unavailable.")
+        // MUST find the row by its stable (groupKey, opType) identity, never by re-deriving an
+        // idempotency key from transitionIdempotencyKey(). SyncEngine.reconcileFeatureSuccess
+        // advances the submit epoch the moment this row reaches SUCCEEDED, so a key re-derived
+        // AFTER success is already a DIFFERENT key than the one the succeeded row was written
+        // under -- findOutboxItemByIdempotencyKey would miss it, scopeSubmitted would flip back
+        // to false/null, the screen would unlock, and a re-tap would dispatch a genuinely new
+        // POST under a fresh key against a shed that was already submitted.
+        val result = sync.findLatestOutboxItem(
+            groupKey = campaignShedId,
+            opType = sg.mesha.goatos.core.database.outbox.OutboxOpType.WEIGHING_SCOPE_SUBMIT.name,
+        )
+        // groupKey is the shed alone (see enqueueWeighingScopeSubmit's `groupKey = campaignShedId`),
+        // so if the same shed is reused across a LATER, different campaign the latest row by
+        // groupKey could belong to that other campaign. The idempotency key still encodes both
+        // ids ("weighing:submit:submit:$campaignId:$campaignShedId:$epoch" -- see
+        // transitionIdempotencyKey), so cross-check it and treat a mismatch as "no pending
+        // submit for THIS campaign scope" rather than surfacing an unrelated campaign's row.
+        when (result) {
+            is AppResult.Ok -> {
+                val item = result.value
+                val expectedPrefix = "weighing:submit:submit:$campaignId:$campaignShedId:"
+                if (item == null || !item.idempotencyKey.startsWith(expectedPrefix)) {
+                    AppResult.Ok(null)
+                } else {
+                    result
+                }
+            }
+            is AppResult.Err -> result
+        }
+    }
 
     override suspend fun reopenScope(
         campaignId: String,
@@ -2076,34 +2027,6 @@ class DefaultWeighingRepository(
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.userFacingMessage("Couldn't close weighing campaign."), error)
-            }
-        }
-
-    override suspend fun fetchWeightHistory(
-        parkId: String?,
-        campaignShedId: String?,
-    ): AppResult<WeightHistoryResponseDto> =
-        withContext(Dispatchers.IO) {
-            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
-            try {
-                val response = service.getWeightHistory(parkId = parkId, campaignShedId = campaignShedId)
-                AppResult.Ok(response)
-            } catch (error: Throwable) {
-                AppResult.Err(error.userFacingMessage("Couldn't fetch weight history."), error)
-            }
-        }
-
-    override suspend fun fetchGrowthSummary(
-        parkId: String?,
-        from: String?,
-        to: String?,
-    ): AppResult<sg.mesha.goatos.core.network.GrowthSummaryDto> =
-        withContext(Dispatchers.IO) {
-            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
-            try {
-                AppResult.Ok(service.getWeighingGrowth(parkId, from, to))
-            } catch (error: Throwable) {
-                AppResult.Err(error.userFacingMessage("Couldn't fetch growth."), error)
             }
         }
 
@@ -2179,7 +2102,17 @@ class DefaultWeighingRepository(
         proofCaptureId: String,
         serverProofId: String?,
     ) = withContext(Dispatchers.IO) {
-        val row = observationDao.findByScannedIdentifier(scopeKey, scannedIdentifier) ?: return@withContext
+        val row = observationDao.findByScannedIdentifier(scopeKey, scannedIdentifier)
+            ?: return@withContext AppResult.Ok(
+                IndividualProofAttachOutcome(
+                    status = IndividualProofAttachStatus.NO_OBSERVATION,
+                    scopeKey = scopeKey,
+                    scannedIdentifier = scannedIdentifier,
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                    reason = "missing_local_observation",
+                ),
+            )
         // SAME EVIDENCE, NOT A NEW ONE. Identity of a proof is the id the SERVER gave it, never
         // the id of the local capture file that produced it.
         //
@@ -2199,7 +2132,14 @@ class DefaultWeighingRepository(
         if (row.syncStatus == WeighingSyncStatus.ACCEPTED.name && !serverProofId.isNullOrBlank() &&
             row.serverProofId == serverProofId
         ) {
-            return@withContext
+            return@withContext AppResult.Ok(
+                row.proofAttachOutcome(
+                    status = IndividualProofAttachStatus.ALREADY_ACCEPTED,
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                    reason = "already_accepted",
+                ),
+            )
         }
         // REDELIVERY, NOT A REVISION. This method has two callers for the same row: the
         // capture screen attaches the proof as soon as the upload completes, and the
@@ -2234,7 +2174,14 @@ class DefaultWeighingRepository(
                 ?.value
                 ?.let { it.isActive || it.status == SyncItemStatus.SUCCEEDED } == true
         if (alreadyQueuedForThisProof) {
-            return@withContext
+            return@withContext AppResult.Ok(
+                row.proofAttachOutcome(
+                    status = IndividualProofAttachStatus.ALREADY_QUEUED,
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                    reason = "already_queued",
+                ),
+            )
         }
         val isProofRevision = !row.serverProofId.isNullOrBlank()
         val revisionIdempotencyKey = if (isProofRevision && !serverProofId.isNullOrBlank()) {
@@ -2254,7 +2201,13 @@ class DefaultWeighingRepository(
             },
         )
         if (!serverProofId.isNullOrBlank()) {
-            syncRepository?.enqueueWeighingAnimalObservation(
+            val sync = syncRepository ?: return@withContext row.revertProofToRetryableUpload(
+                proofCaptureId = proofCaptureId,
+                serverProofId = serverProofId,
+                idempotencyKey = revisionIdempotencyKey,
+                reason = "sync_repository_missing",
+            )
+            when (val enqueued = sync.enqueueWeighingAnimalObservation(
                 campaignId = row.campaignId,
                 groupKey = row.scopeKey,
                 idempotencyKey = revisionIdempotencyKey,
@@ -2265,9 +2218,76 @@ class DefaultWeighingRepository(
                     proofArtifactId = serverProofId,
                     actualLocationId = row.actualLocationId ?: row.expectedLocationId,
                 ),
+            )) {
+                is AppResult.Ok -> AppResult.Ok(
+                    row.proofAttachOutcome(
+                        status = IndividualProofAttachStatus.ATTACHED,
+                        proofCaptureId = proofCaptureId,
+                        serverProofId = serverProofId,
+                        idempotencyKey = revisionIdempotencyKey,
+                    ),
+                )
+                is AppResult.Err -> row.revertProofToRetryableUpload(
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                    idempotencyKey = revisionIdempotencyKey,
+                    reason = enqueued.message,
+                )
+            }
+        } else {
+            AppResult.Ok(
+                row.proofAttachOutcome(
+                    status = IndividualProofAttachStatus.ATTACHED,
+                    proofCaptureId = proofCaptureId,
+                    serverProofId = serverProofId,
+                    idempotencyKey = revisionIdempotencyKey,
+                ),
             )
         }
     }
+
+    private suspend fun WeighingObservationEntity.revertProofToRetryableUpload(
+        proofCaptureId: String,
+        serverProofId: String,
+        idempotencyKey: String,
+        reason: String,
+    ): AppResult<IndividualProofAttachOutcome> {
+        observationDao.attachProof(
+            observationId = observationId,
+            proofCaptureId = proofCaptureId,
+            serverProofId = null,
+            idempotencyKey = idempotencyKey,
+            syncStatus = WeighingSyncStatus.PROOF_UPLOADING.name,
+        )
+        return AppResult.Ok(
+            proofAttachOutcome(
+                status = IndividualProofAttachStatus.ENQUEUE_FAILED,
+                proofCaptureId = proofCaptureId,
+                serverProofId = serverProofId,
+                idempotencyKey = idempotencyKey,
+                reason = reason,
+            ),
+        )
+    }
+
+    private fun WeighingObservationEntity.proofAttachOutcome(
+        status: IndividualProofAttachStatus,
+        proofCaptureId: String,
+        serverProofId: String?,
+        idempotencyKey: String = this.idempotencyKey,
+        reason: String? = null,
+    ): IndividualProofAttachOutcome =
+        IndividualProofAttachOutcome(
+            status = status,
+            scopeKey = scopeKey,
+            scannedIdentifier = scannedIdentifier,
+            proofCaptureId = proofCaptureId,
+            serverProofId = serverProofId,
+            campaignId = campaignId,
+            campaignShedId = campaignShedId,
+            idempotencyKey = idempotencyKey,
+            reason = reason,
+        )
 
     override suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft> =
         withContext(Dispatchers.IO) {
@@ -2390,7 +2410,18 @@ class DefaultWeighingRepository(
                 scannedIdentifier = ready.scannedIdentifier,
                 proofCaptureId = ready.proofCaptureId,
                 serverProofId = ready.serverProofId,
-            )
+            ).reportIndividualProofAttach("ready_proof_reconcile", recoveredByRfid = false)
+        }
+        observationDao.listOrphanReadyProofs(
+            fieldKey = WEIGHING_INDIVIDUAL_PROOF_FIELD_KEY,
+            toleranceMs = WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS,
+        ).forEach { ready ->
+            attachIndividualProof(
+                scopeKey = ready.scopeKey,
+                scannedIdentifier = ready.scannedIdentifier,
+                proofCaptureId = ready.proofCaptureId,
+                serverProofId = ready.serverProofId,
+            ).reportIndividualProofAttach("orphan_ready_proof_reconcile", recoveredByRfid = true)
         }
         shedObservationDao.listReadyProofs().forEach { ready ->
             attachShedPartitionProof(
@@ -2415,7 +2446,22 @@ class DefaultWeighingRepository(
                         scannedIdentifier = ready.scannedIdentifier,
                         proofCaptureId = ready.proofCaptureId,
                         serverProofId = ready.serverProofId,
-                    )
+                    ).reportIndividualProofAttach("ready_proof_reconcile", recoveredByRfid = false)
+                }
+            }
+        }
+        scope.launch(Dispatchers.IO) {
+            observationDao.observeOrphanReadyProofs(
+                fieldKey = WEIGHING_INDIVIDUAL_PROOF_FIELD_KEY,
+                toleranceMs = WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS,
+            ).collect { readyRows ->
+                readyRows.forEach { ready ->
+                    attachIndividualProof(
+                        scopeKey = ready.scopeKey,
+                        scannedIdentifier = ready.scannedIdentifier,
+                        proofCaptureId = ready.proofCaptureId,
+                        serverProofId = ready.serverProofId,
+                    ).reportIndividualProofAttach("orphan_ready_proof_reconcile", recoveredByRfid = true)
                 }
             }
         }
@@ -2443,7 +2489,17 @@ class DefaultWeighingRepository(
         }
     }
 
+    private fun AppResult<IndividualProofAttachOutcome>.reportIndividualProofAttach(
+        source: String,
+        recoveredByRfid: Boolean,
+    ) {
+        val outcome = (this as? AppResult.Ok)?.value ?: return
+        proofAttachTelemetry.onIndividualProofAttach(outcome, source, recoveredByRfid)
+    }
+
     private companion object {
+        const val WEIGHING_INDIVIDUAL_PROOF_FIELD_KEY = "weighing_individual_video"
+        const val WEIGHING_PROOF_DRAFT_MATCH_TOLERANCE_MS = 30 * 60 * 1000L
     }
 }
 
@@ -2570,9 +2626,6 @@ private const val WEIGHING_CACHED_TRANSITION_SCOPES = 50
  * the read, it is NOT a page size, and there is no park cursor behind it.
  */
 private const val WEIGHING_MAX_PLANNER_PARKS = 100
-
-/** The one query key the leadership videos gallery pages under. */
-private const val WEIGHING_VIDEOS_QUERY_KEY = "weighing-videos"
 
 /** Two filters are two independent keyset streams and must never interleave in one cache scope. */
 private fun taskListQueryKey(scope: String, parkId: String?): String =
@@ -2816,8 +2869,11 @@ fun weighingShedResult(weightKg: Double, unit: String = "kg"): JsonObject = buil
 
 private data class WeighingShedResultValues(
     val totalWeightKg: Double,
-    val animalCount: Int,
-    val averageWeightKg: Double,
+    // Nullable since 2026-08-24: a new capture records no count (the backend
+    // snapshots it from the herd register at submit); an OLD draft written by a
+    // previous build still carries one and must keep replaying byte-identically.
+    val animalCount: Int?,
+    val averageWeightKg: Double?,
 )
 
 private fun weighingShedResultValues(resultJson: String): WeighingShedResultValues? =
@@ -2825,9 +2881,10 @@ private fun weighingShedResultValues(resultJson: String): WeighingShedResultValu
         // exception:exempt JSON parse fallback; malformed result returns null for null-coalescing
         val result = Json.parseToJsonElement(resultJson).jsonObject
         val total = (result["total_weight_kg"] ?: result["weight"])?.jsonPrimitive?.doubleOrNull ?: return@runCatching null
-        val count = result["animal_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1
-        if (total <= 0 || count <= 0) return@runCatching null
-        WeighingShedResultValues(total, count, total / count)
+        if (total <= 0) return@runCatching null
+        val count = result["animal_count"]?.jsonPrimitive?.content?.toIntOrNull()
+        if (count != null && count <= 0) return@runCatching null
+        WeighingShedResultValues(total, count, count?.let { total / it })
     }.getOrNull()
 
 private fun normalizedProofArtifactIds(primary: String?, ids: List<String>): List<String> =

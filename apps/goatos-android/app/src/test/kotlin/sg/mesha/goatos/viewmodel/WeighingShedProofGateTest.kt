@@ -27,7 +27,6 @@ class WeighingShedProofGateTest {
         hasScope = true,
         category = "per_shed_partition",
         weightInput = "120",
-        animalCountInput = "10",
         shedProofs = proofs.mapIndexed { index, status ->
             WeighingProofUiRow(id = "proof-$index", label = "video", status = status)
         },
@@ -99,11 +98,9 @@ class WeighingShedProofGateTest {
             R.string.weighing_blocked_need_weight,
             lumpSumState(ProofUploadStatus.UPLOADING).copy(weightInput = "").submitBlockedReason,
         )
-        assertEquals(
-            R.string.weighing_blocked_need_count,
-            lumpSumState(ProofUploadStatus.UPLOADING).copy(animalCountInput = "").submitBlockedReason,
-        )
-        // ... and once both are valid, proof is the only blocker left.
+        // No count reason exists any more: the head count is a backend register
+        // snapshot (2026-08-24), so once the weight is valid, proof is the only
+        // blocker left.
         assertEquals(
             R.string.weighing_blocked_video_uploading,
             lumpSumState(ProofUploadStatus.UPLOADING).submitBlockedReason,

@@ -12,11 +12,11 @@ import (
 // A pen that ALSO exists as a legacy location row must not raise its own transport task.
 //
 // This is the second half of the 000152/000155 shed-grain repair. That one stopped the
-// materializer fanning out over `shed_partitions`, so `partition_label` is ” on every new row --
+// materializer fanning out over `shed_partitions`, so `partition_label` is empty on every new row --
 // and the grain still came out wrong, because the farm's pens exist a SECOND time in `locations`:
 // active rows typed 'shed' and named "Shed A 1" or "Shed A - Part 3", sitting beside the canonical
-// parent shed plus its catalog entry. Membership written as location_type='shed' and status='active'
-// counts each pen again as its own building. On the live data that was 126 sheds
+// parent shed plus its catalog entry. Membership written as `location_type='shed' AND
+// status='active'` counts each pen again as its own building. On the live data that was 126 sheds
 // against 21 real ones, and Mandela 1 alone raised eleven tasks for one load.
 //
 // Both alias spellings are asserted on purpose. The suppression copy in

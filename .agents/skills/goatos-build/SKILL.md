@@ -396,11 +396,25 @@ one product; this skill is the navigation layer.
 ## Must
 
 - Read wide, write narrow.
+- Treat the current public/operator-facing Goat OS path as production-facing
+  even though it reuses the existing `goatos-stg` Google/Firebase project
+  internally. Public app config, release labels, dashboard URLs, API URLs, and
+  operator instructions should use `sg.mesha.goatos`,
+  `https://dashboard.mesha.sg`, and `https://api.goatos.mesha.sg/` unless the
+  user explicitly asks about historical staging. Firebase Auth issuer/audience
+  may still be `goatos-stg` while that existing Firebase project is reused.
 - **Promote staging only through manual Cloud Deploy.** Never create or wait for
   a `main -> stg` PR or GitHub Actions deployment. Never push any local ref to
   remote `stg`. Deploy only from a clean, approved `origin/main` SHA through
   `docs/runbooks/stg-deploy.md` and the repo-owned Cloud Deploy helpers. Never
   use `--no-verify` to bypass the installed pre-push guard.
+- **Recover STG billing/Cloud Run 429 through the dedicated runbook.** If
+  `stg.dashboard.mesha.sg` or `stg-api.dashboard.mesha.sg` returns Google
+  Frontend `429 Rate exceeded` after a paid/restored bill, read
+  `docs/runbooks/stg-cloud-run-billing-recovery.md` before changing code. Verify
+  `billingEnabled: true`, Cloud Run readiness in `asia-south1`, and the
+  maintainer baseline `goatos-api-stg min-instances=2 max-instances=2`; finish
+  with terminal curls and live Chrome verification.
 - **Land ordinary work and this documentation foundation through
   `make land-main` (Codex and Claude).** Do not issue a
   direct `git push` / `git mesha-push` to `main`, and do not run CI before
@@ -733,6 +747,7 @@ one product; this skill is the navigation layer.
   exercising a disposable tree.
 
 <!-- Coupling review 2026-07-29: seed-roster-real adds feed_direction to the preventive_care department module grant. This changes runtime module/navigation authorization only; it does not change HRMS roster rows, vaccination history, source dates, fixture bytes, hashes, or counts. -->
+<!-- Coupling review 2026-08-21: seed-roster-real adds pc_care (deworming / ticks removal / hoof trimming / hair trimming) to the preventive_care department module grant; migration 000181_pc_care_module_grants.sql applies the same grant to already-seeded databases. This changes runtime module/navigation authorization only; it does not change HRMS roster rows, vaccination history, source dates, fixture bytes, hashes, or counts. -->
 <!-- Coupling review 2026-07-20: the counts (approval, department_module_grants) and feed_direction migrations 000009-000015 plus the seed-roster-real department-module-grants write were reviewed against the vaccination HRMS seed source. They are orthogonal to it (counts/feed tables, not the vaccination roster source), so no fixture/source-data change is required. Recorded in fixtures/vaccination-hrms-source-full/manifest.json -> seed_contract_coupling_reviews. -->
 <!-- Coupling review 2026-07-22: adult ET+TT dose-2 post-seed invariant and shed partition name-pattern normalization do not change raw fixture bytes. They change transform/generation validation: partition-bearing shed labels normalize to physical shed + partition metadata, and accepted et_tt_adult_w1 must have same-goat et_tt_adult_w2 work before handoff. -->
 
@@ -764,6 +779,15 @@ If a finding assumes any of those exist, it is invalid — close it and cite ban
 findings are about PLUMBING: writes landing, evidence being reviewable, failures being
 visible, screens showing honest numbers. Full statement:
 `docs/features/weighing/TRD.md` → "What weighing IS".
+
+Weights dashboard reporting rule: when a user selects a date range, whole-shed
+daily gain and load gain use the first and latest accepted weighs inside that
+same selected range. Do not borrow a 28-day/four-week baseline from outside the
+visible period. The table and daily-gain chart show only sheds that have accepted
+weigh data in the selected range. Breed+sex chips on shed rows are allowed only
+through the recorded `weight_demographics.go` read-only exception; they are row
+labels, not scan validation, and mixed whole-shed averages must not be split by
+breed or sex.
 
 Isolation does not exempt Weighing from shared operational coordination.
 Weighing emits its domain/audit/idempotency/proof/outbox facts atomically; a
@@ -811,3 +835,10 @@ Consequences for anyone touching this:
   `story_shifting_kid_to_adult` kernel story.
 
 <!-- Coupling review 2026-08-05 (preventive_care module grants): seed-roster-real drops "milk" from preventive_care defaultDepartmentModules and migration 000110 deactivates the existing preventive_care milk + aas_health department_module_grants rows. No vaccination/HRMS source impact: department_module_grants decides which modules a bottom bar OFFERS and is not a seed source input. No HRMS row, fixture byte/hash/count, goat/DOB/species field, protocol_rules row or vaccination matrix changes. Vaccination operator capacity is unaffected -- it derives from the operator role grant plus shed assignment, never from a department module grant, so the four PC operators keep their drives and their caps. Migration 000110 is DML on department_module_grants only, no canonical-table DDL. -->
+<!-- Coupling review 2026-08-14: migrations 000160/000161 put capacity and cohort config on shed_partitions for pen-grain Counts/Sheds editing. Treat them as pen-catalog configuration, not vaccination HRMS source, source-date, SOP proof, protocol, goat_shed_partitions placement, or operator-capacity inputs. The committed vaccination fixture remains byte-stable. -->
+<!-- Coupling review 2026-08-15: seed import and runtime generation now share SchedulePathForGoat for kid/adult schedule-path selection. This changes derived scheduling behavior only; raw HRMS fixture bytes, SOP contracts, proof grain, source vaccination dates and roster rows remain unchanged. -->
+<!-- Coupling review 2026-08-16: migration 000171 and seed-vaccination-real add Flushing to the writable stage vocabulary with NULL age_band. Treat this as animal_stage_lookup catalog configuration only: no HRMS fixture byte/hash/count, source-date, SOP proof, protocol, goat_shed_partitions placement, or operator-capacity input changes. -->
+<!-- Coupling review 2026-08-22: migration 000187 adds NULLABLE workforce_members.first_name/last_name/email for the People/HRMS directory and the in-app Add Person onboarding (POST /admin/workforce/people). No vaccination/HRMS source impact: seed commands never populate the three columns, identity stays display_name/display_code, the unique (tenant_id, lower(email)) partial index ignores NULLs, and login emails are written only by the runtime create-person flow. Migration 000188 creates auth_allowed_emails, a runtime-only auth admission table no seed writes. Fixture bytes, hashes, row counts, SOP contracts, and source vaccination dates are unchanged. -->
+<!-- Coupling review 2026-08-26: protocol_rule_dimensions.procurement_purpose is compiled execution-index metadata with DEFAULT 'all'. It is produced from existing rule DSL at publish time to keep procurement purpose filtering in SQL; it is not an HRMS/vaccination source field and does not affect fixture bytes, hashes, source dates, SOP proof grain, roster capacity, or seed closeout. -->
+<!-- Coupling review 2026-08-29: manual vaccination anchors are treated as the operational start date for that vaccine family. When building or reviewing vaccination changes, confirm same-family DOB/arrival/calendar/manual_campaign seed rows before that anchor are suppressed while boosters/revacs continue from the manual anchor. No HRMS fixture bytes, hashes, source rows, SOP proof grain, or validation inputs change. -->
+<!-- Coupling review 2026-08-29: for any multi-dose vaccination course, accepted dose 1 or a manual dose-1 anchor is the medical anchor for dose 2/booster. Age/DOB rules only create the first due row for animals with no history; they must not delay or replace a booster once dose 1 exists. Example: Blue Tongue dose 1 accepted on 2026-08-12 schedules the +28 day booster on 2026-09-09, including adult/manual campaign animals. -->

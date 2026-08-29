@@ -37,6 +37,7 @@ import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ShedCompletionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.TaskSummaryDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictMeasurementDto
 import sg.mesha.goatos.rfid.FakeScanSource
 
 /**
@@ -230,6 +231,7 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
         partitionLabel: String?,
         awaitUploadEnqueue: Boolean,
         uploadGroupKey: String?,
+        allowReplacementOverCap: Boolean,
     ): AppResult<ProofCaptureRow> = error("unused")
 
     override suspend fun updateCaption(taskId: String, id: String, caption: String): AppResult<Unit> = error("unused")
@@ -239,6 +241,26 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
     override suspend fun retryUpload(taskId: String, id: String): AppResult<Unit> = AppResult.Ok(Unit)
 
     override suspend fun clearForTask(taskId: String) = Unit
+
+    override suspend fun activeCount(slot: sg.mesha.goatos.core.data.capture.EvidenceSlot): Int = 0
+
+    override suspend fun captureReplacingLatest(
+        slot: sg.mesha.goatos.core.data.capture.EvidenceSlot,
+        subject: ProofSubject,
+        subjectId: String?,
+        localUri: String,
+        mimeType: String,
+        caption: String?,
+        rfidTag: String?,
+        scopeType: String,
+        scopeId: String,
+        capturedStartMs: Long,
+        capturedEndMs: Long,
+        capturedByPrincipalId: String?,
+        proofPolicy: ProofPolicy,
+        awaitUploadEnqueue: Boolean,
+        uploadGroupKey: String?,
+    ): AppResult<ProofCaptureRow> = error("unused")
 }
 
 private class WhileSubNoopSyncRepository : SyncRepository {
@@ -274,7 +296,7 @@ private class WhileSubNoopSyncRepository : SyncRepository {
 
     override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
 
-    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> =
+    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int, measurement: VerificationVerdictMeasurementDto?): AppResult<String> =
         error("unused")
 
     override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")

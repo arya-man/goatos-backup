@@ -7,6 +7,10 @@ import androidx.paging.cachedIn
 import androidx.paging.map
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -23,6 +27,8 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
+import sg.mesha.goatos.core.data.sync.submittedGrainKey
 import sg.mesha.goatos.core.data.FeedCompletionLocalStore
 import sg.mesha.goatos.core.data.FeedDirectionQuery
 import sg.mesha.goatos.core.data.FeedRepository
@@ -55,6 +61,7 @@ import javax.inject.Inject
 class FeedDirectionViewModel @Inject constructor(
     private val repo: FeedRepository,
     private val feedCompletionStore: FeedCompletionLocalStore,
+    private val submittedGrains: SubmittedGrainsSource,
     private val bootstrapRepository: BootstrapRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
@@ -80,7 +87,14 @@ class FeedDirectionViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FeedDirectionEnvelope())
 
     private val _isRefreshing = MutableStateFlow(false)
-    private val _isOffline = MutableStateFlow(false)
+    private val _probeOffline = MutableStateFlow(false)
+    private val _rowsLoadFailed = MutableStateFlow(false)
+    private val _isOffline: StateFlow<Boolean> = combine(_probeOffline, _rowsLoadFailed) { probeOffline, rowsLoadFailed ->
+        probeOffline || rowsLoadFailed
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    /** The single in-flight refresh monitor; a new tap cancels the previous one so stale
+     *  collectors can never clear the spinner or flash isOffline out of order. */
+    private var refreshMonitorJob: Job? = null
 
     val state: StateFlow<FeedDirectionUiState> = combine(
         observed,
@@ -130,10 +144,16 @@ class FeedDirectionViewModel @Inject constructor(
     // backend `completed` flag once the write syncs. A change to either re-subscribes the pager.
     @OptIn(ExperimentalCoroutinesApi::class)
     val rows: Flow<PagingData<FeedDirectionRowUi>> =
-        combine(_filters, feedCompletionStore.completedKeys) { selection, completed -> selection to completed }
-            .flatMapLatest { (selection, completed) ->
+        combine(
+            _filters,
+            feedCompletionStore.completedKeys,
+            // Outbox-derived: the badge retracts by itself when the row succeeds or dies.
+            submittedGrains.observe(),
+        ) { selection, completed, submitted -> Triple(selection, completed, submitted) }
+            .flatMapLatest { (selection, completed, submitted) ->
+                val targetDate = selection.toQuery().targetDate
                 repo.directionRows(selection.toQuery())
-                    .map { page -> page.map { it.toRowUi(completed) } }
+                    .map { page -> page.map { it.toRowUi(completed, submitted, targetDate) } }
             }
             .cachedIn(viewModelScope)
 
@@ -149,6 +169,8 @@ class FeedDirectionViewModel @Inject constructor(
     }
 
     fun onRowsLoadFailed(error: Throwable) {
+        _isRefreshing.value = false
+        _rowsLoadFailed.value = true
         crashReporter.recordException(error, "feed direction page load failed")
         analytics.track(
             AnalyticsEvents.FEED_READ_FAILURE,
@@ -157,6 +179,15 @@ class FeedDirectionViewModel @Inject constructor(
                 AnalyticsEvents.Params.REASON to (error.message ?: "unknown"),
             ),
         )
+    }
+
+    fun onRowsLoading() {
+        _isRefreshing.value = true
+    }
+
+    fun onRowsLoaded() {
+        _isRefreshing.value = false
+        _rowsLoadFailed.value = false
     }
 
     fun onEvent(event: FeedDirectionEvent) {
@@ -190,10 +221,39 @@ class FeedDirectionViewModel @Inject constructor(
     // The paged rows revalidate through the RemoteMediator; Refresh just resets the transient
     // offline flag and lets the observed summary re-request via a fresh subscription.
     private fun refresh() {
-        _isRefreshing.value = false
-        _isOffline.value = false
+        _isRefreshing.value = true
+        _probeOffline.value = false
+        _rowsLoadFailed.value = false
+        val priorSyncedAt = observed.value.resource.lastSyncedAt ?: 0L
         // Re-emit the current selection so both the summary observe and the pager re-subscribe.
-        _filters.value = _filters.value.copy()
+        // A NEW value, not an equal one: MutableStateFlow conflates on equality and these
+        // selections are data classes, so a bare copy() emitted nothing and flatMapLatest
+        // stayed on the same page -- a refresh that silently did not refetch. Same defect
+        // fixed in ShiftingPendingViewModel on 2026-08-13.
+        _filters.value = _filters.value.let { it.copy(refreshNonce = it.refreshNonce + 1) }
+        // ONE monitor per refresh; a new tap cancels the previous so overlapping taps can't race
+        // each other's spinner/offline writes. Success is judged by an ACTUAL network probe --
+        // never by lastSyncedAt movement alone, because a fresh-enough cache legitimately serves
+        // without a network hit and a timestamp that stays put then reads as a FALSE offline
+        // (field report 2026-08-15: list flashed "syncing" then "offline" with the server up).
+        refreshMonitorJob?.cancel()
+        refreshMonitorJob = viewModelScope.launch {
+            val query = _filters.value.toQuery()
+            val reachable = kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+                repo.probeDirectionSummary(query)
+            } ?: false
+            if (reachable) {
+                // Give the re-subscribed mediator/summary a beat to land its upsert before the
+                // spinner clears, so the "Updated just now" caption reflects the refetch.
+                kotlinx.coroutines.withTimeoutOrNull(3_000L) {
+                    observed
+                        .map { it.resource.lastSyncedAt ?: 0L }
+                        .first { it > priorSyncedAt }
+                }
+            }
+            _isRefreshing.value = false
+            _probeOffline.value = !reachable
+        }
     }
 
     private fun selectPark(parkId: String) {
@@ -297,6 +357,8 @@ class FeedDirectionViewModel @Inject constructor(
 
     private fun sg.mesha.goatos.core.network.dto.FeedDirectionRowDto.toRowUi(
         locallyCompleted: Set<String>,
+        locallySubmittedForReview: Set<String>,
+        targetDate: String,
     ): FeedDirectionRowUi = FeedDirectionRowUi(
         grainKey = grainKey,
         parkId = parkId,
@@ -322,7 +384,23 @@ class FeedDirectionViewModel @Inject constructor(
         overduePending = overduePending,
         // Backend truth OR the optimistic local overlay for a just-completed shed-session.
         completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow)),
-        lifecycleStatus = lifecycleStatus,
+        // The CHIP renders lifecycleStatus, not `completed` — overlaying only the boolean above left
+        // a just-submitted row reading "Pending" (the 254.mp4 defect, same class as Feed Packing).
+        // Direction/Distribution rows carry no rework channel, so that rung passes "".
+        lifecycleStatus = overlayVerificationStatus(
+            backendStatus = lifecycleStatus,
+            // Direction/Distribution rows carry no rework channel.
+            reworkReason = "",
+            isLocallySubmitted = locallySubmittedForReview.contains(
+                // Tapping a Feed Direction row opens the DISTRIBUTION capture, which enqueues
+                // FEED_DISTRIBUTION_COMPLETE *with this row's partitionLabel* (see
+                // FeedDistributionCompleteViewModel). The lookup MUST use the same partition or the
+                // keys never match on a partitioned shed — Castro 1 and Castro 2 share a shed_id —
+                // and the badge silently never appears: 254.mp4, reopened.
+                submittedGrainKey(targetDate),
+            ),
+            inReviewToken = IN_REVIEW_PENDING_VERIFICATION,
+        ),
     )
 
     private data class FeedDirectionSelection(
@@ -338,6 +416,8 @@ class FeedDirectionViewModel @Inject constructor(
         // default the operator dispatches against. Reactive (not a fixed val) so the date bar can
         // step it to a past day and re-query, same as every other filter here.
         val targetDate: String = LocalDate.now(ZoneId.of(INDIA_ZONE)).toString(),
+        /** Bumped by refresh so an unchanged selection is still a NEW value. */
+        val refreshNonce: Int = 0,
     ) {
         fun toQuery(): FeedDirectionQuery = FeedDirectionQuery(
             parkId = parkId,
@@ -346,6 +426,7 @@ class FeedDirectionViewModel @Inject constructor(
             session = session.takeIf { it != 0 },
             workflow = workflow.takeIf { it.isNotBlank() },
             status = status.takeIf { it.isNotBlank() },
+            refreshNonce = refreshNonce,
         )
     }
 

@@ -7,6 +7,7 @@ const COVERAGE_MATRIX = "docs/ceo-ai/coverage-matrix.md";
 
 const COVERAGE_FILES = [
   "docs/ceo-ai/ceo-chatbot-purpose-and-build-plan.md",
+  "docs/ceo-ai/external-mcp-integration.md",
   "docs/ceo-ai/mcp-toolbox-plan.md",
   "docs/ceo-ai/mcp-toolbox-tools.yaml",
   "context/agents/ceo-bot-analytics-context.md",

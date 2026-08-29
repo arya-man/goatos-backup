@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,10 +102,142 @@ func (s *Service) AmendDirection(ctx context.Context, req IssueRequest) (Lifecyc
 	}, nil
 }
 
-// packingReopenedReason is the operator-facing sentence stored on a pen reopened by the afternoon
-// correction. Backend owns the copy (the golden frontend rule), and it says the farm thing: animals
-// moved, the quantities changed, pack again and film it again. It names no table, job or window.
+// packingReopenedReason is the operator-facing FALLBACK sentence stored on a pen reopened by the
+// afternoon correction when no session-specific sentence could be composed (the corrected sheet no
+// longer lists that pen-session, or a submit raced the correction). Backend owns the copy (the
+// golden frontend rule), and it says the farm thing: animals moved, the quantities changed, pack
+// again and film it again. It names no table, job or window.
+//
+// The ORDINARY reopened row carries the SPECIFIC sentence composed per pen-session by
+// packingReopenContexts -- naming the old and new numbers ("This bag was 4 kg for 2 animals; it is
+// now 24 kg for 12 animals") -- because the generic sentence was the STG 2026-08-28 confusion: the
+// card silently showed the corrected quantity with nothing saying what the operator had actually
+// packed against.
 const packingReopenedReason = "Animals moved in or out of this pen, so the feed quantities changed. Pack the new amounts and record a new video."
+
+// packingReopenContexts composes, for every session of the reopened pens, the specific
+// operator-facing reopen sentence plus the corrected-sheet facts the feed.packing.reopened
+// notification event carries. OLD numbers come from the rows' packed-against snapshots (what the
+// card said when the bag was filled, via ListPackingCompletionStatuses); NEW numbers come from the
+// corrected sheet just persisted (prep.cells), aggregated by the same BuildPackingRows the worklist
+// cards render from -- so the sentence and the card cannot disagree.
+//
+// FAIL-OPEN: a failed snapshot read degrades the sentence to new-values-only, and a pen-session
+// with no corrected row at all (its cohort vanished) simply has no context -- the store then falls
+// back to the generic packingReopenedReason. Copy stays farm language; it never names a table, a
+// job or a correction window.
+func (s *Service) packingReopenContexts(ctx context.Context, tenantID, parkID string, prep lifecyclePrep, pens []domain.PenKey) ([]ports.ReopenSessionContext, string) {
+	penSet := make(map[domain.PenKey]bool, len(pens))
+	for _, pen := range pens {
+		penSet[pen] = true
+	}
+
+	type penSession struct {
+		shedID       string
+		partitionKey string
+		sessionNo    int32
+	}
+	prior := map[penSession]ports.PackingCompletionStatus{}
+	if statuses, err := s.packing.ListPackingCompletionStatuses(ctx, tenantID, parkID, prep.feedDayTime); err == nil {
+		for _, st := range statuses {
+			if st.Workflow != prep.workflow {
+				continue
+			}
+			prior[penSession{st.ShedID, domain.PartitionMatchKey(st.PartitionLabel), st.SessionNo}] = st
+		}
+	}
+
+	rows := domain.ReconstructRows(prep.cells)
+	parkLabel := ""
+	contexts := []ports.ReopenSessionContext(nil)
+	for _, row := range domain.BuildPackingRows(rows, domain.DistinctFeedItems(rows)) {
+		if parkLabel == "" {
+			parkLabel = row.ParkLabel
+		}
+		pen := domain.PenKey{ShedID: row.ShedID, PartitionKey: domain.PartitionMatchKey(row.PartitionLabel)}
+		if !penSet[pen] {
+			continue
+		}
+		st, hasPrior := prior[penSession{pen.ShedID, pen.PartitionKey, row.SessionNo}]
+		contexts = append(contexts, ports.ReopenSessionContext{
+			ShedID:                     pen.ShedID,
+			PartitionKey:               pen.PartitionKey,
+			SessionNo:                  row.SessionNo,
+			Reason:                     packingReopenSentence(row, st, hasPrior),
+			OperationalLocationDisplay: row.OperationalLocationDisplay,
+			SessionLabel:               row.SessionLabel,
+			NewHeadCount:               row.HeadCount,
+			NewTotalKg:                 row.TotalKg,
+		})
+	}
+	return contexts, parkLabel
+}
+
+// packingReopenSentence is the specific reopen sentence for one pen-session: what the bag was
+// packed for, what it must be now, and what to do about it. Every clause degrades independently --
+// a missing old snapshot drops the "was" half, a blocked/zero corrected total drops the kg figure --
+// so the sentence never invents a number it does not have.
+func packingReopenSentence(row domain.PackingRow, prior ports.PackingCompletionStatus, hasPrior bool) string {
+	now := packedBagPhrase(row.TotalKg, row.HeadCount)
+	was := ""
+	if hasPrior && prior.PackedHeadCount != nil {
+		was = packedBagPhrase(prior.PackedTotalKg, *prior.PackedHeadCount)
+	}
+	var b strings.Builder
+	b.WriteString("Animals moved in or out of this pen after you packed.")
+	switch {
+	case was != "" && now != "":
+		b.WriteString(" This bag was " + was + "; it is now " + now + ".")
+	case now != "":
+		b.WriteString(" This bag is now " + now + ".")
+	case was != "":
+		b.WriteString(" This bag was " + was + " and the quantities changed.")
+	default:
+		b.WriteString(" The feed quantities changed.")
+	}
+	b.WriteString(" Pack the new amounts and record a new video.")
+	return b.String()
+}
+
+// packedBagPhrase renders "24 kg for 12 animals" (or the half it can honestly state) from a
+// kg-string total and a head count. Empty when neither is usable.
+func packedBagPhrase(totalKg string, headCount int64) string {
+	kg := displayKg(totalKg)
+	animals := ""
+	if headCount == 1 {
+		animals = "1 animal"
+	} else if headCount > 0 {
+		animals = fmt.Sprintf("%d animals", headCount)
+	}
+	switch {
+	case kg != "" && animals != "":
+		return kg + " kg for " + animals
+	case kg != "":
+		return kg + " kg"
+	case animals != "":
+		return "for " + animals
+	}
+	return ""
+}
+
+// displayKg trims a stored kg-string ("24.000", "4.500") to its display form ("24", "4.5"). A
+// missing, unparseable or non-positive value returns "" so the caller drops the figure rather than
+// showing a zero the farm never directed.
+func displayKg(kg string) string {
+	kg = strings.TrimSpace(kg)
+	if kg == "" {
+		return ""
+	}
+	f, err := strconv.ParseFloat(kg, 64)
+	if err != nil || f <= 0 {
+		return ""
+	}
+	if strings.Contains(kg, ".") {
+		kg = strings.TrimRight(kg, "0")
+		kg = strings.TrimRight(kg, ".")
+	}
+	return kg
+}
 
 // reopenPackingForCorrection throws away the packing videos of pens the correction re-counted.
 //
@@ -142,13 +275,19 @@ func (s *Service) reopenPackingForCorrection(
 	if s.packing == nil || len(pens) == 0 || prep.workflow != domain.WorkflowNormal {
 		return nil, nil
 	}
+	// Session-specific sentences and event facts, composed from the corrected sheet plus each row's
+	// packed-against snapshot -- see packingReopenContexts. The generic Reason below survives as the
+	// fallback for a pen-session the corrected sheet no longer lists.
+	contexts, parkLabel := s.packingReopenContexts(ctx, tenantID, parkID, prep, pens)
 	result, err := s.packing.ReopenPackingForFeedChange(ctx, ports.ReopenPackingParams{
-		TenantID:   tenantID,
-		ParkID:     parkID,
-		TargetDate: prep.feedDayTime,
-		Workflow:   prep.workflow,
-		Pens:       pens,
-		Reason:     packingReopenedReason,
+		TenantID:        tenantID,
+		ParkID:          parkID,
+		TargetDate:      prep.feedDayTime,
+		Workflow:        prep.workflow,
+		Pens:            pens,
+		Reason:          packingReopenedReason,
+		SessionContexts: contexts,
+		ParkLabel:       parkLabel,
 		// ActorID is deliberately EMPTY. The correction is a scheduled system transition with no human
 		// behind it, and audit_log.actor_id is a UUID -- putting the generated_by provenance string
 		// ("goatos-api") there is not a shortened actor, it is `invalid input syntax for type uuid`,
@@ -296,9 +435,9 @@ func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (doma
 		lifecycle = withPendingWorkflows(lifecycle, gate.pending)
 	}
 
-	// Apply the shed and session narrowing to the stored rows, exactly as the live path filtered its
-	// generated rows.
-	scopeRows = filterPreviewRows(scopeRows, q.ShedID, q.SessionNo)
+	// Apply the shed, partition, and session narrowing to the stored rows, exactly as the live path
+	// filtered its generated rows.
+	scopeRows = filterPreviewRows(scopeRows, q.ShedID, q.PartitionLabel, q.SessionNo)
 	// Stamp LifecycleStatus/Completed and apply the status filter over the WHOLE scope BEFORE paging, so
 	// the page and the summary describe the same status set and pagination stays correct.
 	statusMap, err := s.directionStatusMap(ctx, q.TenantID, q.ParkID, q.TargetDate)
@@ -364,19 +503,19 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 		lifecycle = withPendingWorkflows(lifecycle, gate.pending)
 	}
 
-	// Narrow the frozen scope to the requested SESSION before paging and summarizing, so the page and
-	// its summary describe the same set of bags. Zero means every session.
+	// Narrow the frozen scope to the requested SHED, PARTITION, and SESSION before paging and
+	// summarizing, so the page and its summary describe the same set of bags. Zero session means every
+	// session; empty shed/partition means every shed/partition. Live-status polling relies on the
+	// shed+partition narrowing to guarantee its target row lands on page one, mirroring the direction
+	// preview (see PackingQuery.ShedID / PackingQuery.PartitionLabel).
 	//
-	// The shed argument is deliberately empty: the packing worklist has no shed filter, only the
-	// direction preview does.
-	//
-	// This line was DROPPED between 2026-08-10 and 2026-08-11 (the pen-day grain removed the session
-	// from the query entirely) and restoring the query parameter without restoring this filter is a
-	// contract that lies: `session=1` answered 200 with BOTH of every pen's bags, and because the
-	// session is part of the client's cache key those two bags were then cached AS session 1. The
-	// generated/draft paths never showed it, because there the session narrows generation itself --
-	// only this frozen path, the one a packer actually reads, ignored it.
-	scopeRows = filterPreviewRows(scopeRows, "", q.SessionNo)
+	// The SESSION half of this line was DROPPED between 2026-08-10 and 2026-08-11 (the pen-day grain
+	// removed the session from the query entirely) and restoring the query parameter without restoring
+	// this filter is a contract that lies: `session=1` answered 200 with BOTH of every pen's bags, and
+	// because the session is part of the client's cache key those two bags were then cached AS session
+	// 1. The generated/draft paths never showed it, because there the session narrows generation itself
+	// -- only this frozen path, the one a packer actually reads, ignored it.
+	scopeRows = filterPreviewRows(scopeRows, q.ShedID, q.PartitionLabel, q.SessionNo)
 
 	// Filter the underlying DirectionRows by PACKING status BEFORE the shed paging, so the page and
 	// its summary describe the same status set and pagination stays correct.
@@ -462,12 +601,13 @@ func (s *Service) servePreviewGenerated(ctx context.Context, q domain.PreviewQue
 	// only bounds generate's own page; scopeRows is always the full scope, and we re-page it below
 	// AFTER the workflow filter so a shed's grains never straddle a page boundary.
 	result, err := s.generate(ctx, generateRequest{
-		tenantID:   q.TenantID,
-		parkID:     q.ParkID,
-		targetDate: q.TargetDate,
-		shedID:     q.ShedID,
-		sessionNo:  q.SessionNo,
-		limit:      MaxShedPageLimit,
+		tenantID:       q.TenantID,
+		parkID:         q.ParkID,
+		targetDate:     q.TargetDate,
+		shedID:         q.ShedID,
+		partitionLabel: q.PartitionLabel,
+		sessionNo:      q.SessionNo,
+		limit:          MaxShedPageLimit,
 	})
 	if err != nil {
 		return domain.PreviewPage{}, err
@@ -522,11 +662,13 @@ func (s *Service) servePackingGenerated(ctx context.Context, q domain.PackingQue
 		}, nil
 	}
 	result, err := s.generate(ctx, generateRequest{
-		tenantID:   q.TenantID,
-		parkID:     q.ParkID,
-		targetDate: q.TargetDate,
-		sessionNo:  q.SessionNo,
-		limit:      MaxShedPageLimit,
+		tenantID:       q.TenantID,
+		parkID:         q.ParkID,
+		targetDate:     q.TargetDate,
+		shedID:         q.ShedID,
+		partitionLabel: q.PartitionLabel,
+		sessionNo:      q.SessionNo,
+		limit:          MaxShedPageLimit,
 	})
 	if err != nil {
 		return domain.PackingPage{}, err
@@ -756,13 +898,17 @@ func rowsForWorkflow(rows []domain.DirectionRow, workflow string) []domain.Direc
 	return out
 }
 
-func filterPreviewRows(rows []domain.DirectionRow, shedID string, sessionNo int32) []domain.DirectionRow {
-	if shedID == "" && sessionNo == 0 {
+func filterPreviewRows(rows []domain.DirectionRow, shedID, partitionLabel string, sessionNo int32) []domain.DirectionRow {
+	if shedID == "" && partitionLabel == "" && sessionNo == 0 {
 		return rows
 	}
+	wantPartition := domain.PartitionMatchKey(partitionLabel)
 	out := make([]domain.DirectionRow, 0, len(rows))
 	for _, r := range rows {
 		if shedID != "" && r.ShedID != shedID {
+			continue
+		}
+		if partitionLabel != "" && domain.PartitionMatchKey(r.PartitionLabel) != wantPartition {
 			continue
 		}
 		if sessionNo != 0 && r.SessionNo != sessionNo {

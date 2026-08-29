@@ -129,4 +129,22 @@
     <string name="feed_proof_recapture">ಪುರಾವೆಯನ್ನು ಮತ್ತೆ ಸೆರೆಹಿಡಿಯಿರಿ</string>
     <string name="feed_complete_already_submitted_title">ಈಗಾಗಲೇ ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
     <string name="feed_complete_already_submitted_body">ಈ ವೀಡಿಯೋ ಪರಿಶೀಲಕರಿಗೆ ಹೋಗಿದೆ. ಇಲ್ಲಿ ಇನ್ನೇನೂ ರೆಕಾರ್ಡ್ ಮಾಡಬೇಕಿಲ್ಲ.</string>
+    <string name="feed_dist_session_submitted_body">ಈ ಸೆಷನ್‌ನ ಪ್ರೂಫ್‌ಗಳು ಪರಿಶೀಲಕರಿಗೆ ಹೋಗಿವೆ. ಇಲ್ಲಿ ಇನ್ನೇನೂ ರೆಕಾರ್ಡ್ ಮಾಡಬೇಕಿಲ್ಲ — ಪರಿಶೀಲನೆ ನಂತರ ಫಲಿತಾಂಶ ಕಾಣಿಸುತ್ತದೆ.</string>
+    <string name="feed_wastage_title">ಆಹಾರ ವ್ಯರ್ಥ</string>
+    <string name="feed_wastage_caption">ಇಂದು ಪ್ರತಿ ಪ್ರಯೋಗ ಪೆನ್‌ಗೆ ಉಳಿದ ಮೇವನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="feed_wastage_summary_title">ಪೆನ್‌ಗಳು (ಇಡೀ ಫಾರ್ಮ್)</string>
+    <string name="feed_wastage_stat_pens">ಪೆನ್‌ಗಳು</string>
+    <string name="feed_wastage_recorded_fmt">ವ್ಯರ್ಥ ದಾಖಲಾಗಿದೆ: %1$s ಕೆ.ಜಿ</string>
+    <string name="feed_wastage_complete_caption">ಈ ಪೆನ್‌ನಲ್ಲಿ ಉಳಿದ ಮೇವಿನ ಒಂದು ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ. ಪರಿಶೀಲಕರು ವೀಡಿಯೊದಿಂದ ಉಳಿದ ಮೇವಿನ ತೂಕವನ್ನು ಓದಿ ದಾಖಲಿಸುತ್ತಾರೆ.</string>
+    <string name="feed_wastage_video_title">ಉಳಿದ ಮೇವಿನ ವೀಡಿಯೊ (ಅಗತ್ಯ)</string>
+    <string name="feed_wastage_record_video">ಉಳಿದ ಮೇವಿನ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="feed_wastage_video_uploading">ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="feed_wastage_video_recorded">ಉಳಿದ ಮೇವಿನ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಆಗಿದೆ</string>
+    <string name="feed_wastage_submit">ಪರಿಶೀಲನೆಗಾಗಿ ಸಲ್ಲಿಸಿ</string>
+    <string name="feed_wastage_need_video">ಸಲ್ಲಿಸಲು ಉಳಿದ ಮೇವಿನ ವೀಡಿಯೊವನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
+    <string name="feed_wastage_retry_video">ಉಳಿದ ಮೇವಿನ ವೀಡಿಯೊ ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
+    <string name="feed_wastage_waiting_sync">ಉಳಿದ ಮೇವಿನ ವೀಡಿಯೊ ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ. ಸಿದ್ಧವಾದಾಗ ಸಲ್ಲಿಕೆ ಕಾಣುತ್ತದೆ.</string>
+    <string name="feed_wastage_ready_to_submit">ಉಳಿದ ಮೇವಿನ ವೀಡಿಯೊ ಸಿದ್ಧ. ಪರಿಶೀಲನೆಗಾಗಿ ಸಲ್ಲಿಸಿ.</string>
+    <string name="feed_wastage_submitted">ಪರಿಶೀಲನೆಗಾಗಿ ಕಳುಹಿಸಲಾಗಿದೆ.</string>
+    <string name="feed_wastage_retry_submit">ಪರಿಶೀಲನೆಗಾಗಿ ಮತ್ತೆ ಕಳುಹಿಸಿ</string>
 </resources>

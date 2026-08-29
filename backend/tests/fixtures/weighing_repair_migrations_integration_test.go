@@ -33,17 +33,29 @@ func getQADB(tb testing.TB) *pgxpool.Pool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, qaDBURL)
+	dsn := strings.TrimSpace(os.Getenv("GOATOS_QA_DATABASE_URL"))
+	if dsn == "" {
+		dsn = qaDBURL
+	}
+	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		tb.Fatalf("failed to connect QA DB: %v", err)
+	}
+	// This fixture talks to a LIVE, separately-provisioned QA database -- not the throwaway
+	// pgtest container every other Postgres test uses. On a machine where that lane is not
+	// running there is nothing to assert against, so skip rather than fail: an unreachable
+	// side-channel database is an absent prerequisite, not a defect in the code under test.
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		tb.Skipf("QA database %s is not reachable (%v); start the QA lane or set GOATOS_QA_DATABASE_URL", dsn, err)
 	}
 	return pool
 }
 
 func executeMigrationUp(ctx context.Context, t testing.TB, pool *pgxpool.Pool, migrationNum int) error {
-	// Read the actual migration file
-	rootPath := "/Users/ravi/mesha/goatos-main-qa"
-	migrationPath := filepath.Join(rootPath, fmt.Sprintf("backend/migrations/postgres/%06d*.sql", migrationNum))
+	// Read the actual migration file from THIS checkout (the test lives at backend/tests/fixtures),
+	// not from a path hard-coded to one machine's QA clone.
+	migrationPath := filepath.Join("..", "..", "migrations", "postgres", fmt.Sprintf("%06d*.sql", migrationNum))
 
 	// Expand the glob
 	files, err := filepath.Glob(migrationPath)

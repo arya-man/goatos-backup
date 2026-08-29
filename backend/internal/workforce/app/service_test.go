@@ -229,15 +229,15 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
 	wantNav := []domain.BootstrapNavigationItem{
-		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+		{Key: "vaccination", Label: "Drive", Href: "/vaccination"},
 		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). This is a leadership/registry bar, so
 		// it legitimately KEEPS its "you" entry -- only the label went generic.
 		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
-		// One module -> minimal chrome, no drawer, so the bottom bar is the only route to /you
-		// and applyProfileEntryPlacement leaves the backend-composed entry on it.
-		{Key: "you", Label: "You", Href: "/you"},
+		// The baseline Clock module (maintainer decision 2026-08-28: everyone
+		// clocks in) gives every principal >=2 modules, so chrome is expanded
+		// and "You" lives in the drawer footer per the 2026-08-03 placement rule.
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, wantNav)
@@ -247,8 +247,8 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], wantNav[i])
 		}
 	}
-	if got.NavChrome != domain.NavChromeMinimal {
-		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
+	if got.NavChrome != domain.NavChromeExpanded {
+		t.Fatalf("NavChrome=%q want %q (vaccination + baseline clock)", got.NavChrome, domain.NavChromeExpanded)
 	}
 }
 
@@ -269,7 +269,6 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). The Hindi label went generic with it.
 		{Key: "alerts", Label: "अलर्ट", Href: "/vaccination/alerts"},
-		{Key: "you", Label: "आप", Href: "/you"},
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, wantNav)
@@ -428,7 +427,8 @@ func TestBootstrapSingleFeatureVerifierGetsFeatureScopedAlerts(t *testing.T) {
 			want := []domain.BootstrapNavigationItem{
 				{Key: "verify", Label: "Verify", Href: "/verify?module=" + tc.feature + "&category=" + tc.wantCategory},
 				{Key: "alerts", Label: wantAlertsLabel, Href: wantVerifierAlertsHref(tc.feature, tc.wantCategory)},
-				{Key: "you", Label: "You", Href: "/you"},
+				// You moved to the drawer: the baseline Clock module makes even a
+				// single-feature verifier a two-module principal (2026-08-28).
 			}
 			if len(got.VisibleNavigation) != len(want) {
 				t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
@@ -438,11 +438,11 @@ func TestBootstrapSingleFeatureVerifierGetsFeatureScopedAlerts(t *testing.T) {
 					t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], want[i])
 				}
 			}
-			if got.NavChrome != domain.NavChromeMinimal {
-				t.Fatalf("NavChrome=%q want %q (single feature -> no drawer)", got.NavChrome, domain.NavChromeMinimal)
+			if got.NavChrome != domain.NavChromeExpanded {
+				t.Fatalf("NavChrome=%q want %q (verify feature + baseline clock)", got.NavChrome, domain.NavChromeExpanded)
 			}
-			if len(got.Modules) != 1 || got.Modules[0].Key != tc.wantModule {
-				t.Fatalf("Modules=%#v want single %s module", got.Modules, tc.wantModule)
+			if len(got.Modules) != 2 || got.Modules[0].Key != tc.wantModule || got.Modules[1].Key != "clock" {
+				t.Fatalf("Modules=%#v want [%s clock]", got.Modules, tc.wantModule)
 			}
 			if prev, dup := seenCategories[tc.wantCategory]; dup {
 				t.Fatalf("features %q and %q share alerts category %q -- the generic label must not have collapsed the feature scoping", prev, tc.feature, tc.wantCategory)
@@ -469,15 +469,15 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
 	wantNav := []domain.BootstrapNavigationItem{
-		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+		{Key: "vaccination", Label: "Drive", Href: "/vaccination"},
 		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). This is a leadership/registry bar, so
 		// it legitimately KEEPS its "you" entry -- only the label went generic.
 		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
-		// One module -> minimal chrome, no drawer, so the bottom bar is the only route to /you
-		// and applyProfileEntryPlacement leaves the backend-composed entry on it.
-		{Key: "you", Label: "You", Href: "/you"},
+		// The baseline Clock module (maintainer decision 2026-08-28: everyone
+		// clocks in) gives every principal >=2 modules, so chrome is expanded
+		// and "You" lives in the drawer footer per the 2026-08-03 placement rule.
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, wantNav)
@@ -487,8 +487,8 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], wantNav[i])
 		}
 	}
-	if got.NavChrome != domain.NavChromeMinimal {
-		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
+	if got.NavChrome != domain.NavChromeExpanded {
+		t.Fatalf("NavChrome=%q want %q (vaccination + baseline clock)", got.NavChrome, domain.NavChromeExpanded)
 	}
 }
 
@@ -565,7 +565,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
-				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+				{Key: "vaccination", Label: "Drive", Href: "/vaccination"},
 				// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
 				// "You" carries shared_key "you" so it dedupes across modules like the
 				// leadership entries -- the objection was the per-feature REPETITION, not its
@@ -620,7 +620,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			},
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
-				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
+				{Key: "vaccination", Label: "Stock", Href: "/pc/vaccine-stock"},
 				{Key: "videos", Label: "Videos", Href: "/vaccination/videos"},
 				// MAINTAINER DECISION 2026-08-06: leadership and verifier are SEPARATE SURFACES.
 				// Leadership videos nav points to /vaccination/videos (leadership-owned),
@@ -640,7 +640,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"counts", "vaccination"},
 			want: []domain.BootstrapNavigationItem{
-				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
+				{Key: "vaccination", Label: "Drive", Href: "/vaccination"},
 				// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
 				// "You" carries shared_key "you" so it dedupes across modules like the
 				// leadership entries -- the objection was the per-feature REPETITION, not its
@@ -684,23 +684,27 @@ func TestVisibleNavigationFor(t *testing.T) {
 		},
 		{
 			// No grants means no nav, not an implicit vaccination default.
-			name:    "operator with no module grants gets empty nav",
+			// Baseline clock (2026-08-28, decision D2): a person no module owns
+			// still clocks in, so the FLOOR of every bar is My Clock — never
+			// blank. Work modules are still earned by a department grant.
+			name:    "operator with no module grants gets the baseline clock bar",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: nil,
-			want:    []domain.BootstrapNavigationItem{},
+			want:    []domain.BootstrapNavigationItem{{Key: "clock", Label: "My Clock", Href: "/clock"}},
 		},
 		{
-			name:    "unknown module key contributes nothing",
+			name:    "unknown module key contributes nothing beyond the clock floor",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"not_a_real_module"},
-			want:    []domain.BootstrapNavigationItem{},
+			want:    []domain.BootstrapNavigationItem{{Key: "clock", Label: "My Clock", Href: "/clock"}},
 		},
 		{
-			// A "soon" module is a roadmap row, never a servable bar.
+			// A "soon" module is a roadmap row, never a servable bar; the
+			// baseline clock floor is what renders instead.
 			name:    "soon module is not servable",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"breeding"},
-			want:    []domain.BootstrapNavigationItem{},
+			want:    []domain.BootstrapNavigationItem{{Key: "clock", Label: "My Clock", Href: "/clock"}},
 		},
 	}
 	for _, tc := range tests {
@@ -752,10 +756,10 @@ func TestNavChromeFor(t *testing.T) {
 			want:           domain.NavChromeExpanded,
 		},
 		{
-			name:           "operator minimal",
+			name:           "operator gets the drawer once baseline clock joins",
 			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			grantedModules: []string{"vaccination"},
-			want:           domain.NavChromeMinimal,
+			want:           domain.NavChromeExpanded,
 		},
 		{
 			// Operator drawer rollout ENABLED (maintainer decision 2026-07-27): an
@@ -787,10 +791,10 @@ func TestNavChromeFor(t *testing.T) {
 			want:   domain.NavChromeExpanded,
 		},
 		{
-			name:           "single-feature verifier minimal",
+			name:           "single-feature verifier gets the drawer once baseline clock joins",
 			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
 			grantedModules: []string{"vaccination"},
-			want:           domain.NavChromeMinimal,
+			want:           domain.NavChromeExpanded,
 		},
 	}
 	for _, tc := range tests {
@@ -813,10 +817,10 @@ func TestBootstrapNavComposition(t *testing.T) {
 	operatorGrants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
 	leadershipGrants := []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)}
 
-	t.Run("operator with single module gets minimal nav chrome", func(t *testing.T) {
+	t.Run("operator with single work module gets the drawer via baseline clock", func(t *testing.T) {
 		chrome := navChromeFor(operatorGrants, modulesFor(operatorGrants, []string{"vaccination"}, ""))
-		if chrome != domain.NavChromeMinimal {
-			t.Fatalf("navChromeFor(operator)=%q want %q (single module = minimal)", chrome, domain.NavChromeMinimal)
+		if chrome != domain.NavChromeExpanded {
+			t.Fatalf("navChromeFor(operator)=%q want %q (vaccination + baseline clock)", chrome, domain.NavChromeExpanded)
 		}
 	})
 
@@ -922,6 +926,15 @@ func TestBootstrapNavComposition(t *testing.T) {
 		if !contains(hrefs(ceo), "/weighing/tasks") {
 			t.Fatalf("ceo weighing nav=%v want the planner list", hrefs(ceo))
 		}
+		// Maintainer ruling 2026-08-28: Videos, Weights and Growth are retired from the mobile
+		// weighing bar for EVERY principal. The CEO/planner bar is Tasks + Alerts (+You); the
+		// Weights/Growth read-outs stay admin-web-only and evidence review lives in the
+		// verifier/leadership surfaces.
+		for _, retired := range []string{"/weighing/videos", "/weighing/weights", "/weighing/growth"} {
+			if contains(hrefs(ceo), retired) {
+				t.Fatalf("ceo weighing nav=%v must not offer the retired mobile page %q", hrefs(ceo), retired)
+			}
+		}
 
 		// The growth director executes his own sheds and oversees other people's, but does not plan.
 		director := weighingModule([]domain.GrantSummary{grantWithRole(permissions.RoleGrowthDirector)})
@@ -934,6 +947,12 @@ func TestBootstrapNavComposition(t *testing.T) {
 		}
 		if contains(got, "/weighing/tasks") {
 			t.Fatalf("growth director weighing nav=%v must not offer the planner list", got)
+		}
+		// Same 2026-08-28 retirement for the Growth Director: My work / Operators / Alerts only.
+		for _, retired := range []string{"/weighing/videos", "/weighing/weights", "/weighing/growth"} {
+			if contains(got, retired) {
+				t.Fatalf("growth director weighing nav=%v must not offer the retired mobile page %q", got, retired)
+			}
 		}
 	})
 
@@ -971,8 +990,8 @@ func TestBootstrapNavComposition(t *testing.T) {
 	t.Run("growth director gets weighing module only", func(t *testing.T) {
 		directorGrants := []domain.GrantSummary{grantWithRole(permissions.RoleGrowthDirector)}
 		modules := modulesFor(directorGrants, nil, "")
-		if chrome := navChromeFor(directorGrants, modules); chrome != domain.NavChromeMinimal {
-			t.Fatalf("growth director chrome=%q want minimal", chrome)
+		if chrome := navChromeFor(directorGrants, modules); chrome != domain.NavChromeExpanded {
+			t.Fatalf("growth director chrome=%q want expanded (weighing + baseline clock)", chrome)
 		}
 		keys := moduleKeySet(modules)
 		if keys["weighing"] != moduleStatusAvailable {
@@ -1071,8 +1090,14 @@ type fakeRepo struct {
 	grants         []domain.GrantSummary
 	caps           []domain.CapabilityAssignment
 	grantedModules []string
-	device         domain.DeviceSummary
-	deviceErr      error
+	// personMobileModules are the phone modules the person is TICKED for. Empty means no
+	// stored rows, and the service then falls back to grantedModules above.
+	personMobileModules []string
+	// personAssignments are the person's stored access rows. The nav filter resolves what
+	// they may do from these instead of from the retired role map.
+	personAssignments []permissions.ModuleAssignment
+	device            domain.DeviceSummary
+	deviceErr         error
 
 	// registerDeviceResult/registerDeviceErr let tests control what the reactivation self-heal
 	// path (reactivateRecoverableDevice -> repo.RegisterDevice) observes. registerDeviceCalls
@@ -1096,6 +1121,10 @@ func (f *fakeRepo) ListActiveGrantsForActor(context.Context, string, string) ([]
 
 func (f *fakeRepo) ListCapabilities(context.Context, string, string) ([]domain.CapabilityAssignment, error) {
 	return f.caps, nil
+}
+
+func (f *fakeRepo) ListPersonAssignments(context.Context, string, string) ([]permissions.ModuleAssignment, error) {
+	return f.personAssignments, nil
 }
 
 func (f *fakeRepo) ListGrantedModuleKeys(context.Context, string, string) ([]string, error) {
@@ -1255,12 +1284,12 @@ func TestFeedModuleRoleMatrix(t *testing.T) {
 		role      string
 		wantItems []string // nil => module absent
 	}{
-		{permissions.RoleCEOInternal, []string{"feed_direction", "feed_packing", "feed_transport"}},
+		{permissions.RoleCEOInternal, []string{"feed_direction", "feed_packing", "feed_transport", "feed_wastage"}},
 		{permissions.RoleParkHead, nil},
 		{permissions.RoleKey(permissions.TierDirector, permissions.VerticalFeed), []string{"feed_direction"}},
 		{permissions.RoleKey(permissions.TierHead, permissions.VerticalFeed), []string{"feed_direction"}},
 		{permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed), nil},
-		{permissions.RoleOperator, []string{"feed_direction", "feed_packing", "feed_transport"}},
+		{permissions.RoleOperator, []string{"feed_direction", "feed_packing", "feed_transport", "feed_wastage"}},
 		// A standalone verifier does NOT get registry modules at all: modulesFor composes
 		// per-feature verification modules ("verify_counts", "verify_feed_direction", ...),
 		// each with its own [Verify, Alerts, You] bar. Nothing keyed "counts"/"feed_direction".
@@ -1382,10 +1411,12 @@ func TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab(t *testing.T) {
 func TestVisibleNavigationIsEarnedByAModuleGrant(t *testing.T) {
 	grants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
 
-	// A module-less department composes an EMPTY bar. This is the intended outcome for departments
-	// (procurement, growth, infra, milk, sales) that hold no operational module -- not a defect.
-	if nav := visibleNavigationFor(grants, nil, "en"); len(nav) != 0 {
-		t.Fatalf("nav with no granted module=%v, want empty (a module-less department correctly gets a blank bar)", nav)
+	// A module-less department composes ONLY the baseline clock bar (2026-08-28,
+	// decision D2: everyone clocks in). No WORK module is invented for it — the
+	// P1-NAV rule stands for operational modules; attendance is the one floor.
+	nav0 := visibleNavigationFor(grants, nil, "en")
+	if len(nav0) != 1 || nav0[0].Key != "clock" {
+		t.Fatalf("nav with no granted module=%v, want exactly the baseline clock bar", nav0)
 	}
 
 	// A department that DOES hold a module (here Counts) composes that module's non-empty bottom bar.
@@ -1478,7 +1509,7 @@ func TestFeedDirectorSeesEveryFeedPage(t *testing.T) {
 	for _, item := range feed.NavItems {
 		got = append(got, item.Key)
 	}
-	want := []string{"feed_direction", "feed_packing", "feed_transport"}
+	want := []string{"feed_direction", "feed_packing", "feed_transport", "feed_wastage"}
 	if len(got) != len(want) {
 		t.Fatalf("feed_director feed tabs = %v, want %v", got, want)
 	}
@@ -1505,6 +1536,7 @@ func TestFeedNavGatesEqualTheirBackingRoutePermissions(t *testing.T) {
 		"feed_direction": {"GET", "/feed-direction/preview"},
 		"feed_packing":   {"GET", "/feed-packing/worklist"},
 		"feed_transport": {"GET", "/feed-transport/tasks"},
+		"feed_wastage":   {"GET", "/feed-wastage/worklist"},
 	}
 	for _, item := range moduleNavRegistry["feed_direction"].contributions {
 		route, ok := backing[item.key]

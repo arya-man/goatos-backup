@@ -6,12 +6,17 @@ PROJECT_NUMBER="${PROJECT_NUMBER:-514832198871}"
 REGION="${REGION:-asia-south1}"
 ARTIFACT_REPOSITORY="${ARTIFACT_REPOSITORY:-goatos}"
 API_SERVICE="${API_SERVICE:-goatos-api-stg}"
+MCP_SERVICE="${MCP_SERVICE:-goatos-mcp-stg}"
 KERNEL_WORKER_SERVICE="${KERNEL_WORKER_SERVICE:-goatos-kernel-worker-stg}"
+HERD_SIGNALS_MQTT_BRIDGE_SERVICE="${HERD_SIGNALS_MQTT_BRIDGE_SERVICE:-goatos-herd-signals-mqtt-bridge-stg}"
+HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT="${HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT:-goatos-hs-mqtt-bridge-stg@goatos-stg.iam.gserviceaccount.com}"
 ADMIN_WEB_SERVICE="${ADMIN_WEB_SERVICE:-goatos-admin-web-stg}"
 MIGRATE_JOB="${MIGRATE_JOB:-goatos-stg-migrate}"
 VACCINATION_SCHEDULE_PROJECTOR_JOB="${VACCINATION_SCHEDULE_PROJECTOR_JOB:-goatos-stg-vaccination-schedule-projector}"
-STG_API_URL="${STG_API_URL:-https://goatos-api-stg-awtrpmn4za-el.a.run.app}"
-STG_DASHBOARD_URL="${STG_DASHBOARD_URL:-https://stg.dashboard.mesha.sg}"
+STG_API_URL="${STG_API_URL:-https://api.goatos.mesha.sg}"
+STG_DASHBOARD_URL="${STG_DASHBOARD_URL:-https://dashboard.mesha.sg}"
+GOATOS_CANONICAL_DASHBOARD_HOST="${GOATOS_CANONICAL_DASHBOARD_HOST:-dashboard.mesha.sg}"
+GOATOS_API_BASE_URL="${GOATOS_API_BASE_URL:-https://api.goatos.mesha.sg/}"
 
 COMMIT_SHA="${CLOUD_DEPLOY_customTarget_commitSha:-}"
 BACKEND_IMAGE="${CLOUD_DEPLOY_customTarget_backendImage:-}"
@@ -114,8 +119,16 @@ service_image() {
   gcloud run services describe "$1" --project="$PROJECT_ID" --region="$REGION" --format=json | image_from_resource_json
 }
 
+service_uri() {
+  gcloud run services describe "$1" --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)'
+}
+
 job_image() {
   gcloud run jobs describe "$1" --project="$PROJECT_ID" --region="$REGION" --format=json | image_from_resource_json
+}
+
+job_exists() {
+  gcloud run jobs describe "$1" --project="$PROJECT_ID" --region="$REGION" >/dev/null 2>&1
 }
 
 capture_serving_revisions() {
@@ -155,7 +168,19 @@ wait_service_ready() {
       gcloud run services describe "$service" \
         --project="$PROJECT_ID" \
         --region="$REGION" \
-        --format='value(status.latestCreatedRevisionName,status.latestReadyRevisionName,status.conditions[?type="Ready"].status)'
+        --format=json | python3 -c '
+import json
+import sys
+
+doc = json.load(sys.stdin)
+status = doc.get("status", {})
+ready = ""
+for condition in status.get("conditions", []):
+    if condition.get("type") == "Ready":
+        ready = condition.get("status") or ""
+        break
+print(status.get("latestCreatedRevisionName") or "", status.get("latestReadyRevisionName") or "", ready)
+'
     )
     if [[ -n "$latest_created" && "$latest_created" == "$latest_ready" && "$ready_condition" == "True" ]]; then
       return 0
@@ -220,6 +245,7 @@ backend_image=$BACKEND_IMAGE
 migration_image=$MIGRATION_IMAGE
 admin_web_image=$ADMIN_WEB_IMAGE
 rollout_order=quiesce_api_and_kernel_worker,migrate,restore_api_and_kernel_worker,manual_backend_jobs,admin_web,smoke_and_skew
+external_mcp_service=$MCP_SERVICE
 EOF
 
   local manifest_uri="$output_path/goatos-stg-release.txt"
@@ -244,10 +270,14 @@ deploy() {
   # release target. In particular, never migrate and then discover that the
   # consolidated worker service is absent.
   gcloud run services describe "$API_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
+  gcloud run services describe "$MCP_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run services describe "$KERNEL_WORKER_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
   gcloud run services describe "$ADMIN_WEB_SERVICE" --project="$PROJECT_ID" --region="$REGION" >/dev/null
+  gcloud iam service-accounts describe "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT" --project="$PROJECT_ID" >/dev/null
   gcloud run jobs describe "$MIGRATE_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
-  gcloud run jobs describe "$VACCINATION_SCHEDULE_PROJECTOR_JOB" --project="$PROJECT_ID" --region="$REGION" >/dev/null
+  if ! job_exists "$VACCINATION_SCHEDULE_PROJECTOR_JOB"; then
+    echo "optional job $VACCINATION_SCHEDULE_PROJECTOR_JOB is absent; skipping explicit projector execution"
+  fi
 
   # Contract migrations may remove database arbiters used by the prior binary. Quiesce public
   # writers first: admin-web is the public write entrypoint, and the API is also made internal
@@ -326,19 +356,21 @@ deploy() {
     --wait \
     --quiet
 
-  run gcloud run jobs update "$VACCINATION_SCHEDULE_PROJECTOR_JOB" \
-    --project="$PROJECT_ID" \
-    --region="$REGION" \
-    --image="$BACKEND_IMAGE" \
-    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
-    --quiet
+  if job_exists "$VACCINATION_SCHEDULE_PROJECTOR_JOB"; then
+    run gcloud run jobs update "$VACCINATION_SCHEDULE_PROJECTOR_JOB" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --image="$BACKEND_IMAGE" \
+      --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+      --quiet
 
-  run gcloud run jobs execute "$VACCINATION_SCHEDULE_PROJECTOR_JOB" \
-    --project="$PROJECT_ID" \
-    --region="$REGION" \
-    --wait \
-    --quiet
-  updated_jobs+=("$VACCINATION_SCHEDULE_PROJECTOR_JOB")
+    run gcloud run jobs execute "$VACCINATION_SCHEDULE_PROJECTOR_JOB" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --wait \
+      --quiet
+    updated_jobs+=("$VACCINATION_SCHEDULE_PROJECTOR_JOB")
+  fi
 
   run gcloud run services update "$API_SERVICE" \
     --project="$PROJECT_ID" \
@@ -368,6 +400,41 @@ deploy() {
     --quiet
   wait_service_ready "$KERNEL_WORKER_SERVICE" "post-migration restore"
 
+  run gcloud run services update "$MCP_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --image="$BACKEND_IMAGE" \
+    --ingress=all \
+    --update-env-vars="MESHA_MCP_PUBLIC_URL=https://mcp.mesha.sg,MESHA_MCP_TENANT_ID=00000000-0000-4000-8000-000000000001,MESHA_MCP_DEFAULT_PARK_ID=00000000-0000-4000-8000-000000003002" \
+    --update-secrets="GOATOS_FIREBASE_WEB_CONFIG=goatos-stg-firebase-web-config:latest" \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+    --quiet
+  run gcloud run services update-traffic "$MCP_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --to-latest \
+    --quiet
+  wait_service_ready "$MCP_SERVICE" "post-migration restore"
+
+  run gcloud run deploy "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --image="$BACKEND_IMAGE" \
+    --command="/app/bin/herd-signals-mqtt-bridge" \
+    --service-account="$HERD_SIGNALS_MQTT_BRIDGE_SERVICE_ACCOUNT" \
+    --ingress=internal \
+    --min-instances=1 \
+    --max-instances=1 \
+    --cpu=1 \
+    --memory=512Mi \
+    --no-cpu-throttling \
+    --add-cloudsql-instances="${PROJECT_ID}:${REGION}:goatos-stg-core-db" \
+    --set-env-vars="GOATOS_ENV=stg,GOATOS_HEALTH_ADDR=:8080,HERD_SIGNALS_MQTT_TLS=true,HERD_SIGNALS_TENANT_ID=00000000-0000-4000-8000-000000000001,HERD_SIGNALS_DEFAULT_GATEWAY_ID=f130d402dcb4,HERD_SIGNALS_MQTT_BATCH_SIZE=50,HERD_SIGNALS_MQTT_BATCH_INTERVAL=2s,HERD_SIGNALS_MQTT_QUEUE_MAX=5000" \
+    --set-secrets="DATABASE_URL=goatos-stg-database-url:latest,HERD_SIGNALS_MQTT_HOST=herd-signals-mqtt-host:latest,HERD_SIGNALS_MQTT_PORT=herd-signals-mqtt-port:latest,HERD_SIGNALS_MQTT_TOPIC=herd-signals-mqtt-topic:latest,HERD_SIGNALS_MQTT_CLIENT_ID=herd-signals-mqtt-client-id:latest,HERD_SIGNALS_MQTT_USERNAME=herd-signals-mqtt-username:latest,HERD_SIGNALS_MQTT_PASSWORD=herd-signals-mqtt-gateway-514060-password:latest,HERD_SIGNALS_MQTT_CA_CERT=herd-signals-mqtt-ca-crt:latest" \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+    --quiet
+  wait_service_ready "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE" "post-migration restore"
+
   while IFS= read -r job; do
     [[ -n "$job" ]] || continue
     [[ "$job" != "$MIGRATE_JOB" ]] || continue
@@ -396,14 +463,19 @@ deploy() {
     --max=4 \
     --min-instances=1 \
     --max-instances=4 \
+    --update-env-vars="GOATOS_CANONICAL_DASHBOARD_HOST=${GOATOS_CANONICAL_DASHBOARD_HOST},GOATOS_API_BASE_URL=${GOATOS_API_BASE_URL}" \
     --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
     --quiet
 
   [[ "$(service_image "$API_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$API_SERVICE image did not settle on $BACKEND_IMAGE"
+  [[ "$(service_image "$MCP_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$MCP_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$KERNEL_WORKER_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$KERNEL_WORKER_SERVICE image did not settle on $BACKEND_IMAGE"
+  [[ "$(service_image "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$HERD_SIGNALS_MQTT_BRIDGE_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$ADMIN_WEB_SERVICE")" == "$ADMIN_WEB_IMAGE" ]] || die "$ADMIN_WEB_SERVICE image did not settle on $ADMIN_WEB_IMAGE"
   [[ "$(job_image "$MIGRATE_JOB")" == "$MIGRATION_IMAGE" ]] || die "$MIGRATE_JOB image did not settle on $MIGRATION_IMAGE"
-  [[ "$(job_image "$VACCINATION_SCHEDULE_PROJECTOR_JOB")" == "$BACKEND_IMAGE" ]] || die "$VACCINATION_SCHEDULE_PROJECTOR_JOB image did not settle on $BACKEND_IMAGE"
+  if job_exists "$VACCINATION_SCHEDULE_PROJECTOR_JOB"; then
+    [[ "$(job_image "$VACCINATION_SCHEDULE_PROJECTOR_JOB")" == "$BACKEND_IMAGE" ]] || die "$VACCINATION_SCHEDULE_PROJECTOR_JOB image did not settle on $BACKEND_IMAGE"
+  fi
 
   for job in "${updated_jobs[@]}"; do
     [[ "$(job_image "$job")" == "$BACKEND_IMAGE" ]] || die "$job image did not settle on $BACKEND_IMAGE"
@@ -411,10 +483,13 @@ deploy() {
 
   smoke_http "$STG_API_URL/livez" "204"
   smoke_http "$STG_API_URL/readyz" "204"
+  mcp_url="$(service_uri "$MCP_SERVICE")"
+  smoke_http "$mcp_url/livez" "200"
+  smoke_http "$mcp_url/readyz" "200"
   curl -fsSIL "$STG_DASHBOARD_URL/login" >/dev/null
 
-  printf 'cloud-deploy-stg-ok commit=%s backend_jobs=%s api=%s worker=%s admin=%s\n' \
-    "$COMMIT_SHA" "${#updated_jobs[@]}" "$BACKEND_IMAGE" "$BACKEND_IMAGE" "$ADMIN_WEB_IMAGE"
+  printf 'cloud-deploy-stg-ok commit=%s backend_jobs=%s api=%s mcp=%s worker=%s admin=%s\n' \
+    "$COMMIT_SHA" "${#updated_jobs[@]}" "$BACKEND_IMAGE" "$BACKEND_IMAGE" "$BACKEND_IMAGE" "$ADMIN_WEB_IMAGE"
   write_results "SUCCEEDED"
 }
 

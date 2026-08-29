@@ -44,8 +44,10 @@ func TestVerifierBarLinksAreFeatureScopedAndClientResolvable(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Bootstrap() error=%v", err)
 			}
-			if len(got.Modules) != 1 {
-				t.Fatalf("want exactly one verifier module for a single duty; got %#v", got.Modules)
+			// One verify module for the duty, plus the baseline Clock module
+			// every principal carries (maintainer decision 2026-08-28).
+			if len(got.Modules) != 2 || got.Modules[1].Key != "clock" {
+				t.Fatalf("want [verify module, clock] for a single duty; got %#v", got.Modules)
 			}
 			module := got.Modules[0]
 

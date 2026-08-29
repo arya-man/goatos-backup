@@ -1444,9 +1444,23 @@ func TestRecordShiftingEventAdoptsDestinationShedStage(t *testing.T) {
 			wantTarget:    "Non-Pregnant",
 		},
 		{
-			name:          "flushing destination keeps the animal's current stage",
+			// REVERSED 2026-08-15: flushing used to be the one cohort a movement refused to adopt.
+			// The maintainer accepted the consequence (flushing ration + a re-keyed vaccination
+			// schedule) and migration 000169 lists it as writable, so it now behaves like any other
+			// single-cohort destination.
+			name:          "flushing destination hands over its tag",
 			shedStages:    []string{"Flushing"},
 			vocabulary:    []string{"Mother", "Non-Pregnant", "Flushing"},
+			wantStageMode: "destination_stage",
+			wantTarget:    "Flushing",
+		},
+		{
+			// A bare clinical STATE is still refused, and now refused HERE at raise time rather
+			// than at the second gate -- even though this tenant lists it as writable, which a real
+			// tenant can. Stamping it would postpone the animal's vaccinations with no diagnosis.
+			name:          "clinical destination keeps the animal's current stage",
+			shedStages:    []string{"ICU"},
+			vocabulary:    []string{"Mother", "Non-Pregnant", "ICU"},
 			wantStageMode: "keep_current",
 			wantTarget:    "",
 		},
@@ -1519,6 +1533,129 @@ func TestRecordShiftingEventAdoptsDestinationShedStage(t *testing.T) {
 					payload.ManagementStageMode, payload.TargetManagementStage, tc.wantStageMode, tc.wantTarget)
 			}
 		})
+	}
+}
+
+// TestRecordShiftingEventHonoursTheRaisersTagToggle drives the REAL raise path for the maintainer's
+// 2026-08-15 toggle: the raiser chooses whether the animals adopt the destination pen's tag or keep
+// their own, and the choice reaches BOTH downstream gates.
+//
+// Asserting on the stored event AND the approval payload is the point. The stored snapshot is what
+// the completion transaction applies and the payload is what the park head approves; a toggle that
+// reached only one of them would apply a tag nobody approved.
+func TestRecordShiftingEventHonoursTheRaisersTagToggle(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		stageMode     any // any, so a case can omit the field entirely
+		wantStageMode string
+		wantTarget    string
+	}{
+		{
+			// The pre-toggle wire shape. An APK that predates the toggle sends no stage_mode at
+			// all, and must keep behaving exactly as it does today -- adopting the pen's tag.
+			name:          "absent stage_mode defaults to the destination tag",
+			stageMode:     nil,
+			wantStageMode: "destination_stage",
+			wantTarget:    "Non-Pregnant",
+		},
+		{
+			name:          "destination_stage adopts the pen's tag",
+			stageMode:     "destination_stage",
+			wantStageMode: "destination_stage",
+			wantTarget:    "Non-Pregnant",
+		},
+		{
+			// The half that did not exist before: an operator may now decline the pen's tag even
+			// though the pen has a perfectly good one.
+			name:          "keep_current declines a tag the pen could supply",
+			stageMode:     "keep_current",
+			wantStageMode: "keep_current",
+			wantTarget:    "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newFakeShiftingRepo()
+			repo.destinations = domain.ShiftingDestinationCatalog{
+				Parks: []domain.ShiftingDestinationPark{{
+					ParkID: testParkID,
+					Name:   "Channapatna",
+					Sheds: []domain.ShiftingDestinationShed{{
+						ShedID:           testShedID,
+						Name:             "Gandhi 1",
+						ManagementStages: []string{"Non-Pregnant"},
+					}},
+				}},
+				ManagementStages: []string{"Mother", "Non-Pregnant", "Buck"},
+			}
+			repo.goatFacts = map[string]domain.GoatShiftingFact{
+				testGoatID: {
+					GoatID: testGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi",
+					ParkID: strPtrTest(testParkID), ShedID: strPtrTest(testSourceShedID),
+				},
+			}
+			approvals := newFakeApprovalWorkflow()
+			mux := newTestServer(t, countsapp.NewService(repo), approvals, newFakeGoatValidator())
+
+			body := shiftingBodyNoImpacts(testGoatID)
+			if tc.stageMode != nil {
+				body["stage_mode"] = tc.stageMode
+			}
+			res := post(t, mux, appShiftingEventRoute, "shift-toggle-"+tc.name, body)
+			if res.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s, want 200", res.Code, res.Body.String())
+			}
+
+			if got := repo.lastEvent.ManagementStageMode; got != tc.wantStageMode {
+				t.Fatalf("stored management_stage_mode=%q, want %q", got, tc.wantStageMode)
+			}
+			if got := repo.lastEvent.TargetManagementStage; got != tc.wantTarget {
+				t.Fatalf("stored target_management_stage=%q, want %q", got, tc.wantTarget)
+			}
+
+			var payload struct {
+				ManagementStageMode   string `json:"management_stage_mode"`
+				TargetManagementStage string `json:"target_management_stage"`
+			}
+			if err := json.Unmarshal(approvals.lastSubmission.Payload, &payload); err != nil {
+				t.Fatalf("decode approval payload: %v", err)
+			}
+			if payload.ManagementStageMode != tc.wantStageMode || payload.TargetManagementStage != tc.wantTarget {
+				t.Fatalf("approval payload mode=%q target=%q, want mode=%q target=%q -- the park head must approve the SAME tag the completion will apply",
+					payload.ManagementStageMode, payload.TargetManagementStage, tc.wantStageMode, tc.wantTarget)
+			}
+		})
+	}
+}
+
+// TestRecordShiftingEventRejectsAnUnknownTagToggle pins that a present-but-invalid stage_mode FAILS
+// rather than silently falling back to the default.
+//
+// Silently defaulting would stamp the destination pen's tag on a movement whose raiser asked for the
+// opposite -- a wrong tag written on real animals, which is worse than a rejected request.
+func TestRecordShiftingEventRejectsAnUnknownTagToggle(t *testing.T) {
+	repo := newFakeShiftingRepo()
+	repo.goatFacts = map[string]domain.GoatShiftingFact{
+		testGoatID: {
+			GoatID: testGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi",
+			ParkID: strPtrTest(testParkID), ShedID: strPtrTest(testSourceShedID),
+		},
+	}
+	mux := newTestServer(t, countsapp.NewService(repo), newFakeApprovalWorkflow(), newFakeGoatValidator())
+
+	body := shiftingBodyNoImpacts(testGoatID)
+	body["stage_mode"] = "select_stage" // a retired mode from the 2026-07-29 three-mode chooser
+	res := post(t, mux, appShiftingEventRoute, "shift-toggle-invalid", body)
+
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "invalid_stage_mode") {
+		t.Fatalf("body=%s, want invalid_stage_mode", res.Body.String())
+	}
+	// Nothing written: a rejected raise must not leave a movement behind. Validation happens before
+	// any repository call, so the fake's last-event slot is still zero.
+	if repo.lastEvent.DestinationShedID != "" {
+		t.Fatalf("a rejected stage_mode still recorded a movement to shed %q", repo.lastEvent.DestinationShedID)
 	}
 }
 

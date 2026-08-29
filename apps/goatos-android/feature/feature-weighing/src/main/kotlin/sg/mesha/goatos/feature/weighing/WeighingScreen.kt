@@ -165,7 +165,6 @@ data class WeighingUiState(
     val selectedAnimalLabel: String? = null,
     val scanInput: String = "",
     val weightInput: String = "",
-    val animalCountInput: String = "",
     val message: String? = null,
     val actionInFlight: Boolean = false,
     val loading: Boolean = false,
@@ -174,6 +173,13 @@ data class WeighingUiState(
     val shedProofs: List<WeighingProofUiRow> = emptyList(),
     val showSubmitConfirmation: Boolean = false,
     val hasLoadedOnce: Boolean = false,
+    /**
+     * True once THIS scope's OWN submit is durably queued or done (Room-observed outbox state,
+     * never a transient snapshot or a 409 response) -- see WeighingViewModel.scopeSubmitted /
+     * refreshScopeSubmitted(). Re-entering an already-submitted shed must render read-only from
+     * the first emission, so this is folded into [state] the same way showSubmitConfirmation is.
+     */
+    val isReadOnly: Boolean = false,
 ) {
     val isShedPartition: Boolean get() = category.trim().equals("per_shed_partition", ignoreCase = true)
     val individualCompleted: Int get() = individualDrafts.count { it.readyToSubmit }
@@ -202,11 +208,13 @@ data class WeighingUiState(
         else -> 0f
     }
     val canRecordIndividual: Boolean get() =
-        hasScope && !isShedPartition && !actionInFlight && !selectedAnimalId.isNullOrBlank() && weightInput.toDoubleOrNull()?.let { it > 0.0 } == true
+        hasScope && !isReadOnly && !isShedPartition && !actionInFlight && !selectedAnimalId.isNullOrBlank() && weightInput.toDoubleOrNull()?.let { it > 0.0 } == true
+    // No animal-count input: the head count is recorded automatically from the
+    // herd register when the submit lands (backend snapshot, 2026-08-24). The
+    // operator enters the total weight and records the video, nothing else.
     val canRecordShedPartition: Boolean get() =
-        hasScope && isShedPartition && !actionInFlight &&
+        hasScope && !isReadOnly && isShedPartition && !actionInFlight &&
             weightInput.toDoubleOrNull()?.let { it > 0.0 } == true &&
-            animalCountInput.toIntOrNull()?.let { it > 0 } == true &&
             shedProofs.any { it.status == ProofUploadStatus.SYNCED }
 
     /**
@@ -221,10 +229,10 @@ data class WeighingUiState(
     @get:StringRes
     val submitBlockedReason: Int? get() = when {
         !hasScope -> R.string.weighing_blocked_no_shed_open
+        isReadOnly -> R.string.weighing_blocked_already_submitted
         !isShedPartition -> individualSubmitBlockedReason
         actionInFlight -> R.string.weighing_blocked_saving
         weightInput.toDoubleOrNull()?.let { it > 0.0 } != true -> R.string.weighing_blocked_need_weight
-        animalCountInput.toIntOrNull()?.let { it > 0 } != true -> R.string.weighing_blocked_need_count
         shedProofs.isEmpty() -> R.string.weighing_blocked_need_video
         shedProofs.any { it.status == ProofUploadStatus.SYNCED } -> null
         shedProofs.any { it.status == ProofUploadStatus.UPLOADING } -> R.string.weighing_blocked_video_uploading
@@ -417,7 +425,6 @@ fun WeighingScreen(
     onScanInputChange: (String) -> Unit = {},
     onScanSubmit: () -> Unit = {},
     onWeightChange: (String) -> Unit = {},
-    onAnimalCountChange: (String) -> Unit = {},
     onWeightEntryActive: (Boolean) -> Unit = {},
     onAnimalWeightChange: (String, String) -> Unit = { _, _ -> },
     onRecordAnimalWeight: (String, String) -> Unit = { _, _ -> },
@@ -484,7 +491,6 @@ fun WeighingScreen(
             onScanInputChange = onScanInputChange,
                 onScanSubmit = onScanSubmit,
                 onWeightChange = onWeightChange,
-                onAnimalCountChange = onAnimalCountChange,
                 onWeightEntryActive = onWeightEntryActive,
                 onAnimalWeightChange = onAnimalWeightChange,
                 onRecordAnimalWeight = onRecordAnimalWeight,
@@ -1314,7 +1320,6 @@ private fun WeighingExecutionScanScreen(
     onScanInputChange: (String) -> Unit,
     onScanSubmit: () -> Unit,
     onWeightChange: (String) -> Unit,
-    onAnimalCountChange: (String) -> Unit,
     onWeightEntryActive: (Boolean) -> Unit,
     onAnimalWeightChange: (String, String) -> Unit,
     onRecordAnimalWeight: (String, String) -> Unit,
@@ -1503,7 +1508,6 @@ private fun WeighingExecutionScanScreen(
                     WeighingLumpSumCapture(
                         state = state,
                         onWeightChange = onWeightChange,
-                        onAnimalCountChange = onAnimalCountChange,
                         onWeightEntryActive = onWeightEntryActive,
                         onCaptureShedVideo = onCaptureShedVideo,
                         onRetryShedVideo = onRetryShedVideo,
@@ -1882,7 +1886,6 @@ private fun WeighingFreeFlowFeedRow(
 private fun WeighingLumpSumCapture(
     state: WeighingUiState,
     onWeightChange: (String) -> Unit,
-    onAnimalCountChange: (String) -> Unit,
     onWeightEntryActive: (Boolean) -> Unit,
     onCaptureShedVideo: () -> Unit,
     onRetryShedVideo: (String) -> Unit,
@@ -1915,28 +1918,8 @@ private fun WeighingLumpSumCapture(
                 .fillMaxWidth()
                 .onFocusChanged { onWeightEntryActive(it.isFocused) },
         )
-        OutlinedTextField(
-            value = state.animalCountInput,
-            onValueChange = onAnimalCountChange,
-            label = { Text(stringResource(R.string.weighing_field_animal_count)) },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .onFocusChanged { onWeightEntryActive(it.isFocused) },
-        )
-        val totalWeight = state.weightInput.toDoubleOrNull()
-        val animalCount = state.animalCountInput.toIntOrNull()
-        if (totalWeight != null && totalWeight > 0 && animalCount != null && animalCount > 0) {
-            Text(
-                text = stringResource(
-                    R.string.weighing_average_per_animal_fmt,
-                    "%.2f".format(totalWeight / animalCount),
-                ),
-                color = MeshaColors.Ok,
-                style = MeshaType.bodyStrong,
-            )
-        }
+        // No animal-count field: the head count is recorded automatically when
+        // the submit lands, so the operator types only the shed's total weight.
         // What this shed's proof ACTUALLY holds, by upload state. Deliberately not "N / 5":
         // weighing is free-flow and there is no required video count — 5 is the MOST a shed can
         // hold, not a target — so "1 / 5" read as "4 still missing" when nothing was missing, and

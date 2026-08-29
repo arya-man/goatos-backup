@@ -83,6 +83,8 @@ import sg.mesha.goatos.core.model.nav.barItems
 import sg.mesha.goatos.core.model.nav.resolveModule
 import sg.mesha.goatos.push.DevicePushStateViewModel
 import sg.mesha.goatos.push.PushNavigationViewModel
+import sg.mesha.goatos.core.ui.ClockReminderBanner
+import sg.mesha.goatos.viewmodel.ClockStatusViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.SyncStatusViewModel
 
@@ -202,6 +204,12 @@ fun GoatOsShell(navState: NavState) {
     // the on-demand sync sheet — both read the one live SyncRepository flow, no polling.
     val syncVm: SyncStatusViewModel = hiltViewModel()
     val showOffline by syncVm.showOfflineBanner.collectAsStateWithLifecycle()
+
+    // Shell-global not-clocked-in reminder (module clock, plan §4.3): observes the Room-cached
+    // clock status; visible only while the backend's banner_text is non-empty. A reminder, not a
+    // lock — the app stays fully usable.
+    val clockStatusVm: ClockStatusViewModel = hiltViewModel()
+    val clockBanner by clockStatusVm.banner.collectAsStateWithLifecycle()
     val syncStatus by syncVm.status.collectAsStateWithLifecycle()
     var showSyncSheet by remember { mutableStateOf(false) }
 
@@ -273,6 +281,10 @@ fun GoatOsShell(navState: NavState) {
     // label tweak or a translation silently grants or revokes execution.
     val canExecuteWeighing = visibleNavState.featureFlags["weighing_execute"] == true
     val verificationVideoControlsEnabled = visibleNavState.featureFlags["verification_video_controls"] == true
+    // Same backend-owned contract as weighing_execute: which face the PC Care category tabs show,
+    // and whether the plan wizard entry is offered. Never inferred from a role label.
+    val canExecutePcCare = visibleNavState.featureFlags["pc_care_execute"] == true
+    val canPlanPcCare = visibleNavState.featureFlags["pc_care_plan"] == true
 
     // Cold-start / pre-auth notification-tap deep-link. A tap can arrive before this NavHost even
     // exists (MainActivity writes into PendingNavigation as soon as the intent is read, well before
@@ -348,6 +360,17 @@ fun GoatOsShell(navState: NavState) {
             showSyncSheet = true
         })
 
+        // Not shown on the clock screen itself — the person is already where the tap would go.
+        if (backStackEntry?.destination?.route?.routeBase() != Routes.CLOCK) {
+            ClockReminderBanner(
+                state = clockBanner,
+                onTap = {
+                    clockStatusVm.onBannerTapped()
+                    navigate(Routes.CLOCK)
+                },
+            )
+        }
+
         // Mandatory role-based permission gate — NON-DISMISSIBLE dialog shown after bootstrap.
         // Blocks the app until all required permissions (based on role) are granted.
         //
@@ -378,6 +401,8 @@ fun GoatOsShell(navState: NavState) {
             showProtocolAdherenceCard = navState.featureFlags["protocol_adherence_card"] == true,
             canExecuteVaccination = canExecuteVaccination,
             canExecuteWeighing = canExecuteWeighing,
+            canExecutePcCare = canExecutePcCare,
+            canPlanPcCare = canPlanPcCare,
             // The SAME "has this person's own navigation arrived yet" test the push-route effect
             // above applies. Destinations that redirect on an absent capability must not act while
             // every flag still reads false because bootstrap has not answered.
@@ -469,11 +494,21 @@ fun GoatOsShellChrome(
     //
     // Exact membership only — a drill (L1+) must never inherit root chrome, so no
     // prefix/substring matching here. See docs/decisions/android-navigation-stack.md.
+    //
+    // CRITICAL INVARIANT: Chrome derivation must always work, even on cold start.
+    // Drawer-top-level routes include BOTH module landing routes (module.href) and
+    // their bottom-bar items (module.navItems). Module landing routes MUST be top-level
+    // — when an operator selects a module in the drawer, they navigate to module.href,
+    // which must render with chrome. The fallback destination (Routes.CALENDAR on cold
+    // start) is implicitly top-level as a module root. Not including module.hrefs caused
+    // operators on real devices to land on a chrome-less CALENDAR screen at cold start,
+    // unable to access other modules. See bugs: RFID screen race on cold start.
     val topLevelRoutes = barItems.map { it.href }
-    val drawerTopLevelRoutes = navState.availableModules().flatMap { module -> module.navItems.map { it.href } }
+    val drawerTopLevelRoutes = navState.availableModules().flatMap { module ->
+        listOf(module.href) + module.navItems.map { it.href }
+    }.filter { it.isNotBlank() }
     val topLevelRouteKey = topLevelRoutes.joinToString(separator = "\u001F")
     val isTopLevel = isTopLevelRoute(currentRoute, drawerTopLevelRoutes)
-
     // A process/activity restore can resurrect ModalNavigationDrawer in an open or partially
     // offset state while the sheet is not actually visible yet. On real phones that makes the
     // screen look blank because the page content is translated almost entirely off the right
@@ -657,7 +692,7 @@ private fun MeshaNavBar(
         // Backend-composed, MODULE-SCOPED destinations. Labels render verbatim: bootstrap_copy.go
         // already localizes them (en/hi/kn/te), so re-translating client-side would both violate
         // the golden frontend rule and actively mislabel items (the backend calls the vaccination
-        // module's own tab "Drives", not "Vaccination").
+        // module's own tab "Stock", not "Vaccination").
         items.forEach { item ->
             // Compare BASE to BASE. `currentBaseRoute` is already stripped at '?', but a
             // backend-composed href can carry a query -- the verifier's tabs are

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -362,6 +363,13 @@ WHERE tenant_id = $1
 		DraftedBy:     pgconv.NullableUUID(in.DraftedBy),
 	})
 	if err != nil {
+		// protocol_versions_one_draft_per_scope_idx: this scope already has a draft. The
+		// server action checks for one first, but a read-then-write check cannot stop two
+		// callers racing, which is why the invariant lives in the database. Reported as a
+		// conflict the caller can act on -- open the existing draft -- rather than a 500.
+		if isProtocolUniqueViolation(err, "protocol_versions_one_draft_per_scope_idx") {
+			return "", ports.ErrDraftAlreadyExists
+		}
 		return "", fmt.Errorf("protocol: create version: %w", err)
 	}
 	scopeID := optionalString(in.ScopeID)
@@ -385,6 +393,152 @@ WHERE tenant_id = $1
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", fmt.Errorf("protocol: commit create version: %w", err)
+	}
+	return id, nil
+}
+
+// ReplaceDraftVersion swaps one draft for another in a SINGLE transaction: the old draft and
+// its derived rules are removed, then the replacement is created.
+//
+// Saving an edited plan used to be two calls -- create the replacement, then discard the old
+// one -- which meant both drafts existed between them. That is exactly what one-draft-per-scope
+// forbids, so with the invariant enforced in the database every save would have been refused.
+// Doing it the other way round in two calls is worse: a failure after the discard destroys the
+// farm's draft. One transaction is the only ordering that is both allowed and safe -- nothing
+// observes two drafts, and a failure anywhere leaves the original untouched.
+func (r *Repository) ReplaceDraftVersion(ctx context.Context, in domain.NewVersion, replacesVersionID string) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(in.TenantID)
+	if err != nil {
+		return "", fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	protocol, err := pgconv.UUID(in.ProtocolID)
+	if err != nil {
+		return "", fmt.Errorf("protocol: protocol id: %w", err)
+	}
+	oldID, err := pgconv.UUID(replacesVersionID)
+	if err != nil {
+		return "", fmt.Errorf("protocol: replaced version id: %w", err)
+	}
+
+	// A replace DELETES one version and creates another, so a retry cannot tell from the
+	// outside whether the first attempt committed: the id it holds is already gone, and a
+	// naive second attempt reads as "not a draft" rather than replaying. The reservation
+	// makes the retry return the same replacement it created the first time.
+	fingerprint := protocolFingerprint(
+		"version.replace",
+		in.TenantID,
+		in.ProtocolID,
+		replacesVersionID,
+		strings.TrimSpace(in.ScopeType),
+		optionalString(in.ScopeID),
+		strings.TrimSpace(in.VersionLabel),
+		in.EffectiveFrom.UTC().Format(time.RFC3339Nano),
+		optionalTime(in.EffectiveTo),
+		canonicalJSON(in.RuleDsl),
+		canonicalJSON(in.ProofPolicy),
+		optionalString(in.SopVersionID),
+	)
+	key := protocolIdempotencyKey(in.IdempotencyKey, fingerprint)
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("protocol: begin replace draft: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	reservation, err := reserveProtocolIdempotency(ctx, tx, in.TenantID, "protocol.version.replace", key, fingerprint, "protocol_version")
+	if err != nil {
+		return "", fmt.Errorf("protocol: reserve replace idempotency: %w", err)
+	}
+	if !reservation.proceed {
+		return reservation.resultID, nil
+	}
+	qtx := r.queries.WithTx(tx)
+
+	// The old draft goes first, so the replacement never has to coexist with it.
+	if _, err := qtx.DeleteDraftProtocolRules(ctx, protocoldb.DeleteDraftProtocolRulesParams{TenantID: tenant, ProtocolVersionID: oldID}); err != nil {
+		return "", fmt.Errorf("protocol: replace draft rules: %w", err)
+	}
+	if _, err := qtx.DeleteDraftProtocolTriggers(ctx, protocoldb.DeleteDraftProtocolTriggersParams{TenantID: tenant, ProtocolVersionID: oldID}); err != nil {
+		return "", fmt.Errorf("protocol: replace draft triggers: %w", err)
+	}
+	rows, err := qtx.DiscardProtocolVersion(ctx, protocoldb.DiscardProtocolVersionParams{TenantID: tenant, ProtocolVersionID: oldID})
+	if err != nil {
+		return "", fmt.Errorf("protocol: replace discard version: %w", err)
+	}
+	if rows == 0 {
+		// Refusing here rather than creating a second draft anyway: the row is either gone
+		// or already published, and both mean the edit was authored against something that
+		// no longer exists.
+		if _, err := r.GetVersion(ctx, in.TenantID, replacesVersionID); err != nil {
+			return "", err
+		}
+		return "", ports.ErrVersionNotDraft
+	}
+
+	scopeUUID := pgconv.NullableUUID(in.ScopeID)
+	if in.Version <= 0 {
+		lockKey := strings.Join([]string{in.TenantID, in.ProtocolID, strings.TrimSpace(in.ScopeType), optionalString(in.ScopeID)}, ":")
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, lockKey); err != nil {
+			return "", fmt.Errorf("protocol: lock version allocator: %w", err)
+		}
+		if err := tx.QueryRow(ctx, `
+SELECT COALESCE(MAX(version), 0) + 1
+FROM protocol_versions
+WHERE tenant_id = $1
+  AND protocol_id = $2
+  AND scope_type = $3
+  AND scope_id IS NOT DISTINCT FROM $4`, tenant, protocol, in.ScopeType, scopeUUID).Scan(&in.Version); err != nil {
+			return "", fmt.Errorf("protocol: allocate version number: %w", err)
+		}
+	}
+
+	id, err := qtx.CreateProtocolVersion(ctx, protocoldb.CreateProtocolVersionParams{
+		TenantID:      tenant,
+		ProtocolID:    protocol,
+		ScopeType:     in.ScopeType,
+		ScopeID:       scopeUUID,
+		Version:       in.Version,
+		VersionLabel:  in.VersionLabel,
+		Status:        in.Status,
+		EffectiveFrom: pgconv.Date(&in.EffectiveFrom),
+		EffectiveTo:   pgconv.Date(in.EffectiveTo),
+		RuleDsl:       pgconv.JSONB(in.RuleDsl),
+		ProofPolicy:   pgconv.JSONB(in.ProofPolicy),
+		SopVersionID:  pgconv.NullableUUID(in.SopVersionID),
+		DraftedBy:     pgconv.NullableUUID(in.DraftedBy),
+	})
+	if err != nil {
+		if isProtocolUniqueViolation(err, "protocol_versions_one_draft_per_scope_idx") {
+			// Another draft exists for this scope that is not the one being replaced.
+			return "", ports.ErrDraftAlreadyExists
+		}
+		return "", fmt.Errorf("protocol: replace create version: %w", err)
+	}
+	scopeID := optionalString(in.ScopeID)
+	if in.ScopeType == "tenant" {
+		scopeID = ""
+	}
+	if err := recordProtocolCreateAudit(ctx, tx, protocolVersionCreatedAction, in.TenantID, "protocol_version", id, in.ScopeType, scopeID, in.DraftedBy, map[string]any{
+		"protocol_id":    in.ProtocolID,
+		"scope_type":     in.ScopeType,
+		"scope_id":       optionalString(in.ScopeID),
+		"version":        in.Version,
+		"version_label":  in.VersionLabel,
+		"status":         in.Status,
+		"effective_from": in.EffectiveFrom.UTC().Format(time.RFC3339Nano),
+		"effective_to":   optionalTime(in.EffectiveTo),
+		"replaces":       replacesVersionID,
+	}, map[string]any{"idempotency_scope": "protocol.version.replace"}); err != nil {
+		return "", err
+	}
+	if err := completeProtocolIdempotency(ctx, tx, in.TenantID, "protocol.version.replace", key, "protocol_version", id); err != nil {
+		return "", fmt.Errorf("protocol: complete replace idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("protocol: commit replace draft: %w", err)
 	}
 	return id, nil
 }
@@ -578,6 +732,66 @@ RETURNING max_per_day, max_buffer_days, capacity_scope, overflow_policy`,
 
 func (r *Repository) PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error {
 	return r.publishVersion(ctx, tenantID, versionID, publishedBy, nil, idempotencyKey...)
+}
+
+// DiscardVersion permanently deletes a DRAFT version together with its rules and
+// triggers.
+//
+// All three deletes run in ONE transaction, and each carries the same status='draft'
+// predicate, so a published or retired version cannot be touched whatever id is
+// supplied: history stays complete by construction rather than by the caller
+// remembering to check. A draft has never reached the field -- no obligation
+// references it -- so this destroys only unpublished authoring work.
+//
+// The rules and triggers are deleted EXPLICITLY because neither
+// protocol_rules_version_tenant_fk nor protocol_triggers_version_tenant_fk carries
+// ON DELETE CASCADE. Relying on a cascade that does not exist made this endpoint
+// answer 500 for every draft that had been authored -- which is every draft anyone
+// would want to discard.
+//
+// Zero rows affected on the version delete means either "no such version" or "not a
+// draft"; the row is read back to tell the caller which.
+func (r *Repository) DiscardVersion(ctx context.Context, tenantID, versionID string) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	vid, err := pgconv.UUID(versionID)
+	if err != nil {
+		return fmt.Errorf("protocol: version id: %w", err)
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("protocol: begin discard: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	if _, err := qtx.DeleteDraftProtocolRules(ctx, protocoldb.DeleteDraftProtocolRulesParams{TenantID: tenant, ProtocolVersionID: vid}); err != nil {
+		return fmt.Errorf("protocol: discard rules: %w", err)
+	}
+	if _, err := qtx.DeleteDraftProtocolTriggers(ctx, protocoldb.DeleteDraftProtocolTriggersParams{TenantID: tenant, ProtocolVersionID: vid}); err != nil {
+		return fmt.Errorf("protocol: discard triggers: %w", err)
+	}
+	rows, err := qtx.DiscardProtocolVersion(ctx, protocoldb.DiscardProtocolVersionParams{TenantID: tenant, ProtocolVersionID: vid})
+	if err != nil {
+		return fmt.Errorf("protocol: discard version: %w", err)
+	}
+	if rows == 0 {
+		// Nothing was deleted, so the transaction is rolled back by the defer and the
+		// caller is told which of the two reasons applies.
+		if _, err := r.GetVersion(ctx, tenantID, versionID); err != nil {
+			return err
+		}
+		return ports.ErrVersionNotDraft
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("protocol: commit discard: %w", err)
+	}
+	return nil
 }
 
 // PublishVersionWithCapacity publishes a draft version and, in the SAME transaction, upserts and
@@ -1107,6 +1321,7 @@ func derivedDimensionsFingerprint(dimensions []domain.RuleDimension) string {
 			strings.TrimSpace(dim.AnimalStage),
 			strings.TrimSpace(dim.Sex),
 			strings.TrimSpace(dim.Breed),
+			defaultRuleDimensionProcurementPurpose(dim.ProcurementPurpose),
 			fmt.Sprint(dim.OffsetDays),
 			fmt.Sprint(dim.MaxDelayDays),
 		)
@@ -1264,6 +1479,33 @@ FROM retired`, tenant, versionID)
 	return retired, nil
 }
 
+// writeRuleLineage records how a rule is recognised across versions.
+//
+// Lineage is derived, not authored: the publisher computes it from the rule it just wrote. It
+// lives in its own table because protocol_rules holds SOURCED configuration, traceable to the
+// spreadsheets the seed pipeline validates, and mixing derived metadata into that would couple
+// every future change to a fixture contract it has nothing to do with.
+//
+// A blank fingerprint means the rule carried JSON that could not be canonicalised. No row is
+// written, the rule reads as "content unverified", and carry-over passes it over -- the
+// cancel-and-regenerate path that shipped before lineage existed.
+func writeRuleLineageTx(ctx context.Context, tx pgx.Tx, tenant, versionID, ruleID pgtype.UUID, identityKey, fingerprint string) error {
+	if strings.TrimSpace(identityKey) == "" || strings.TrimSpace(fingerprint) == "" {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO protocol_rule_lineage (tenant_id, protocol_version_id, rule_id, identity_key, content_fingerprint)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (tenant_id, rule_id) DO UPDATE
+SET protocol_version_id = EXCLUDED.protocol_version_id,
+    identity_key = EXCLUDED.identity_key,
+    content_fingerprint = EXCLUDED.content_fingerprint`,
+		tenant, versionID, ruleID, identityKey, fingerprint); err != nil {
+		return fmt.Errorf("protocol: write rule lineage: %w", err)
+	}
+	return nil
+}
+
 func insertDerivedProtocolRuleTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, in domain.NewRule) error {
 	ruleID, err := pgconv.UUID(in.RuleID)
 	if err != nil {
@@ -1273,6 +1515,12 @@ func insertDerivedProtocolRuleTx(ctx context.Context, tx pgx.Tx, tenant pgtype.U
 	if err != nil {
 		return fmt.Errorf("protocol: version id: %w", err)
 	}
+	// Rule lineage, written here so every rule row -- whoever authored it -- carries the two
+	// values carry-over compares. A blank fingerprint (unparseable JSON) is stored as NULL and
+	// never matches, which falls the rule back to cancel-and-regenerate.
+	identityKey := domain.RuleIdentityKey(domain.VaccineCodeForRule(in.EligibilityJSON), in.DoseCode, in.Sequence)
+	fingerprint := domain.RuleContentFingerprint(in)
+
 	tag, err := tx.Exec(ctx, `
 INSERT INTO protocol_rules (
   rule_id, tenant_id, protocol_version_id, dose_code, "sequence", trigger_type, offset_days,
@@ -1295,6 +1543,9 @@ WHERE pv.tenant_id = $2
 	}
 	if tag.RowsAffected() == 0 {
 		return ports.ErrVersionNotDraft
+	}
+	if err := writeRuleLineageTx(ctx, tx, tenant, vid, ruleID, identityKey, fingerprint); err != nil {
+		return err
 	}
 	if err := recordProtocolCreateAudit(ctx, tx, protocolRuleCreatedAction, in.TenantID, "protocol_rule", in.RuleID, "tenant", "", in.CreatedBy, map[string]any{
 		"protocol_version_id": in.ProtocolVersionID,
@@ -1788,6 +2039,22 @@ func (r *Repository) CreateRule(ctx context.Context, in domain.NewRule) (string,
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ports.ErrVersionNotDraft
 	}
+	if err == nil {
+		// Same lineage the publisher writes, from the same helpers. A rule authored through this
+		// path and one authored by a publish have to be comparable, or carry-over would see an
+		// edit where there was none.
+		ruleUUID, convErr := pgconv.UUID(id)
+		if convErr != nil {
+			return "", fmt.Errorf("protocol: created rule id: %w", convErr)
+		}
+		if lerr := writeRuleLineageTx(ctx, tx, tenant, vid,
+			ruleUUID,
+			domain.RuleIdentityKey(domain.VaccineCodeForRule(in.EligibilityJSON), in.DoseCode, in.Sequence),
+			domain.RuleContentFingerprint(in),
+		); lerr != nil {
+			return "", lerr
+		}
+	}
 	if err != nil {
 		return "", fmt.Errorf("protocol: create rule: %w", err)
 	}
@@ -1961,15 +2228,15 @@ const insertProtocolRuleDimensionSQL = `
 INSERT INTO protocol_rule_dimensions (
   tenant_id, protocol_version_id, rule_id, category, ruleset_family, matrix_row_id, selector_key,
   dose_code, source_dose_code, vaccine_code, vaccine_type, pathogen_class, compatibility_group,
-  species, animal_stage, sex, breed, lifecycle, health, reproductive, min_age_days, max_age_days,
+  species, animal_stage, sex, breed, lifecycle, health, reproductive, procurement_purpose, min_age_days, max_age_days,
   trigger_type, sequence, offset_days, due_window_days, min_gap_days, repeat, catch_up,
   max_delay_days, revaccination_interval_days, eligibility_json, vaccine_json, schedule_json
 ) VALUES (
   $1, $2, $3, $4, $5, $6, $7,
   $8, $9, $10, $11, $12, $13,
-  $14, $15, $16, $17, $18, $19, $20, $21, $22,
-	$23, $24, $25, $26, $27, $28, $29,
-	$30, $31, $32, $33, $34
+  $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+	$24, $25, $26, $27, $28, $29, $30,
+	$31, $32, $33, $34, $35
 )`
 
 // insertProtocolRuleDimensionsTx preserves the all-or-nothing publish transaction while sending
@@ -1989,7 +2256,7 @@ func insertProtocolRuleDimensionsTx(ctx context.Context, tx pgx.Tx, tenant pgtyp
 		batch.Queue(insertProtocolRuleDimensionSQL, tenant, vid, ruleID,
 			dim.Category, dim.RulesetFamily, dim.MatrixRowID, dim.SelectorKey,
 			dim.DoseCode, dim.SourceDoseCode, dim.VaccineCode, dim.VaccineType, dim.PathogenClass, dim.CompatibilityGroup,
-			dim.Species, dim.AnimalStage, dim.Sex, dim.Breed, dim.Lifecycle, dim.Health, dim.Reproductive, pgconv.Int4(dim.MinAgeDays), pgconv.Int4(dim.MaxAgeDays),
+			dim.Species, dim.AnimalStage, dim.Sex, dim.Breed, dim.Lifecycle, dim.Health, dim.Reproductive, defaultRuleDimensionProcurementPurpose(dim.ProcurementPurpose), pgconv.Int4(dim.MinAgeDays), pgconv.Int4(dim.MaxAgeDays),
 			dim.TriggerType, dim.Sequence, dim.OffsetDays, dim.DueWindowDays, dim.MinGapDays, dim.Repeat, dim.CatchUp,
 			dim.MaxDelayDays, dim.RevaccinationIntervalDays, pgconv.JSONB(defaultJSON(dim.EligibilityJSON)), pgconv.JSONB(defaultJSON(dim.VaccineJSON)), pgconv.JSONB(defaultJSON(dim.ScheduleJSON)),
 		)
@@ -2013,6 +2280,14 @@ func defaultJSON(raw []byte) []byte {
 		return []byte(`{}`)
 	}
 	return raw
+}
+
+func defaultRuleDimensionProcurementPurpose(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "all"
+	}
+	return value
 }
 
 // ListConfigs returns every protocol version (draft/published/retired) in a category for a tenant,
@@ -2061,6 +2336,10 @@ func (r *Repository) ListConfigs(ctx context.Context, tenantID, category string)
 			t := row.PublishedAt.Time
 			item.PublishedAt = &t
 		}
+		if row.RetiredAt.Valid {
+			t := row.RetiredAt.Time
+			item.RetiredAt = &t
+		}
 		if row.UpdatedAt.Valid {
 			t := row.UpdatedAt.Time
 			item.UpdatedAt = &t
@@ -2102,10 +2381,12 @@ func (r *Repository) ListActiveAnimalStages(ctx context.Context, tenantID string
 	out := make([]domain.AnimalStage, 0, len(rows))
 	for _, row := range rows {
 		stage := domain.AnimalStage{
-			AnimalStageID: row.AnimalStageID,
-			StageCode:     row.StageCode,
-			Name:          row.Name,
-			SortOrder:     row.SortOrder,
+			AnimalStageID:      row.AnimalStageID,
+			StageCode:          row.StageCode,
+			Name:               row.Name,
+			AgeBand:            row.AgeBand.String,
+			AssignableAsCohort: !domain.IsClinicalStage(row.StageCode),
+			SortOrder:          row.SortOrder,
 		}
 		if row.MinAgeDays.Valid {
 			v := row.MinAgeDays.Int32
@@ -2177,4 +2458,15 @@ RETURNING max_per_day, max_buffer_days, capacity_scope, overflow_policy`,
 		return domain.PublishedCapacity{}, fmt.Errorf("protocol: sync vaccination capacity config: %w", err)
 	}
 	return got, nil
+}
+
+// isProtocolUniqueViolation reports whether err is a Postgres unique violation raised by a
+// SPECIFIC index. Matching the index by name keeps this from swallowing an unrelated
+// constraint and reporting the wrong thing to the caller.
+func isProtocolUniqueViolation(err error, indexName string) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return false
+	}
+	return pgErr.ConstraintName == indexName
 }

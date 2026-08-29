@@ -55,6 +55,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
+	"github.com/vgoats/goatos/backend/internal/verificationcatalog"
 )
 
 const defaultTenantID = "00000000-0000-4000-8000-000000000001"
@@ -189,8 +190,8 @@ func run(args []string) error {
 	}
 
 	duties, st := deriveDuties(positions)
-	notifiedModules := notificationbridge.PendingNotificationDutyModules()
-	duties = append(duties, deriveVerifierDuties(positions, notifiedModules)...)
+	verifyModules := verifierDutyModules()
+	duties = append(duties, deriveVerifierDuties(positions, verifyModules)...)
 	st.DutiesDerived = len(duties)
 
 	fmt.Printf("derived position duties:\n"+
@@ -212,12 +213,12 @@ func run(args []string) error {
 
 	fmt.Printf("seeded position duties:\n"+
 		"  duties_inserted=%d duties_already_present=%d verify_modules=%v\n",
-		st.DutiesInserted, st.DutiesDerived-st.DutiesInserted, notifiedModules)
+		st.DutiesInserted, st.DutiesDerived-st.DutiesInserted, verifyModules)
 
 	// Closeout runs LAST and is not advisory: a seed that leaves a notified module without a
 	// verify duty holder has produced a notification path that is green in tests and dead in
 	// the field, which is the exact failure this command exists to prevent.
-	if err := assertVerifyDutyCoverage(ctx, pool, *tenantID, notifiedModules); err != nil {
+	if err := assertVerifyDutyCoverage(ctx, pool, *tenantID, verifyModules); err != nil {
 		return err
 	}
 	return nil
@@ -318,6 +319,47 @@ func deriveDuties(positions []positionRow) ([]dutyRow, stats) {
 		return out[i].moduleCode < out[j].moduleCode
 	})
 	return out, st
+}
+
+// verifierDutyModules is the module_code list the verifier seat's 'verify' duty rows are
+// minted for. It is the UNION of two canonical sources, and BOTH matter:
+//
+//   - notificationbridge.PendingNotificationDutyModules(): the exact module_code spellings
+//     ("pc.vaccination", "feed.direction") the pending-proof push consumer joins on. These
+//     must stay verbatim or ResolveModuleDutyRecipients resolves zero devices.
+//   - verificationcatalog.All() NavigationModule keys: EVERY registered verification
+//     category's module. This is what the mobile verifier's per-feature [Verify, Alerts]
+//     bar is composed from (workforce verifierFeatureKeys reads these duty rows), so a
+//     category registered here with no duty row is a queue the WEB lens shows and the
+//     PHONE never composes a tab for. That is exactly how the 2026-08 milk gap shipped:
+//     milk verification split out of Counts into its own navigation module, no
+//     notification profile was declared for it (deliberately — an unclaimed module
+//     notifies nobody loudly), and because THIS seeder read only the notification map,
+//     no seed run could ever emit a milk verify duty.
+//
+// Dedupe is on the NORMALIZED key (strip "pc.", dots → underscores — the same collapse
+// workforce's verifierFeatureKeys applies), preferring the notification spelling when both
+// sources name the same module, so the union never emits "vaccination" beside
+// "pc.vaccination".
+func verifierDutyModules() []string {
+	out := notificationbridge.PendingNotificationDutyModules()
+	seen := make(map[string]bool, len(out))
+	normalize := func(key string) string {
+		key = strings.TrimPrefix(key, "pc.")
+		return strings.ReplaceAll(key, ".", "_")
+	}
+	for _, m := range out {
+		seen[normalize(m)] = true
+	}
+	for _, def := range verificationcatalog.All() {
+		if def.NavigationModule == "" || seen[normalize(def.NavigationModule)] {
+			continue
+		}
+		seen[normalize(def.NavigationModule)] = true
+		out = append(out, def.NavigationModule)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // deriveVerifierDuties emits one 'verify' duty row per notified module for the Video

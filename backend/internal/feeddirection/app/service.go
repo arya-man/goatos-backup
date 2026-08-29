@@ -88,15 +88,29 @@ type Service struct {
 	// CompletePacking fails closed rather than stranding a pending_verification row with nothing for a
 	// verifier to act on.
 	packingEnqueuer FeedPackingVerificationEnqueuer
+	// wastage is the OPTIONAL feed WASTAGE verification-gated store (maintainer decision 2026-08-18;
+	// a SEPARATE table from every sibling store). Without it the wastage worklist overlays no
+	// completion state and CompleteWastage returns ports.ErrWastageStoreUnavailable.
+	wastage ports.WastageCompletionStore
+	// wastageEnqueuer enqueues the verifier queue item for a fresh pending wastage completion.
+	// Without it CompleteWastage fails closed rather than stranding a pending_verification row.
+	wastageEnqueuer FeedWastageVerificationEnqueuer
 	// transports owns the daily, non-session Feed Transport shed task and append-only proof attempts.
 	transports        ports.TransportStore
 	transportEnqueuer FeedTransportVerificationEnqueuer
 	// proofs is the OPTIONAL validator for attached video proofs. Nil skips validation.
 	proofs ports.ProofValidator
+	// proofUploads resolves a completion's stored proof references back to who uploaded them and
+	// when, for the leadership execution table. Optional and set from the same validator; nil leaves
+	// the table's proof slots carrying their reference and no provenance.
+	proofUploads ports.ProofUploadDescriber
 	// alerts is the OPTIONAL reader for the feed module's own lifecycle alerts feed
 	// (backend/internal/feeddirection/domain/alerts.go). Without it, ListAlerts fails closed with
 	// ErrAlertsUnavailable. See alerts.go.
 	alerts ports.AlertsRepository
+	// analytics is the OPTIONAL windowed directed-rollup reader behind the Feed
+	// Analytics page. Without it, DirectedAnalytics fails closed. See analytics.go.
+	analytics ports.DirectedAnalyticsReader
 }
 
 func NewService(config ports.ConfigRepository, counts ports.ShedCountsReader) *Service {
@@ -163,8 +177,17 @@ func (s *Service) WithCompletionStore(store ports.CompletionStore) *Service {
 }
 
 // WithProofValidator wires optional video-proof validation. Nil skips validation.
+//
+// It ALSO picks up the optional ProofUploadDescriber seam when the same validator implements it (the
+// postgres-backed one does), rather than asking every composition root to wire the pair. Deliberate:
+// a second wiring line is a second thing to forget, and forgetting it degrades silently -- the
+// execution table would render every proof with a blank uploader and no time, which reads as "nobody
+// filmed it" rather than as missing wiring.
 func (s *Service) WithProofValidator(proofs ports.ProofValidator) *Service {
 	s.proofs = proofs
+	if describer, ok := proofs.(ports.ProofUploadDescriber); ok {
+		s.proofUploads = describer
+	}
 	return s
 }
 
@@ -197,6 +220,21 @@ func (s *Service) WithPackingStore(store ports.PackingCompletionStore) *Service 
 // queue item.
 func (s *Service) WithPackingVerificationEnqueuer(enqueuer FeedPackingVerificationEnqueuer) *Service {
 	s.packingEnqueuer = enqueuer
+	return s
+}
+
+// WithWastageStore wires the feed WASTAGE verification-gated table. Without it the wastage worklist
+// overlays no completion state and CompleteWastage returns ports.ErrWastageStoreUnavailable.
+func (s *Service) WithWastageStore(store ports.WastageCompletionStore) *Service {
+	s.wastage = store
+	return s
+}
+
+// WithWastageVerificationEnqueuer wires the verifier-queue enqueue seam for wastage. Without it,
+// CompleteWastage fails closed rather than flipping a pen-day to pending_verification with no
+// verifier queue item.
+func (s *Service) WithWastageVerificationEnqueuer(enqueuer FeedWastageVerificationEnqueuer) *Service {
+	s.wastageEnqueuer = enqueuer
 	return s
 }
 
@@ -507,13 +545,14 @@ func (s *Service) Preview(ctx context.Context, q domain.PreviewQuery) (domain.Pr
 // client can never mistake it for a frozen, issued document.
 func (s *Service) previewDraft(ctx context.Context, normalized domain.PreviewQuery) (domain.PreviewPage, error) {
 	result, err := s.generate(ctx, generateRequest{
-		tenantID:   normalized.TenantID,
-		parkID:     normalized.ParkID,
-		targetDate: normalized.TargetDate,
-		shedID:     normalized.ShedID,
-		sessionNo:  normalized.SessionNo,
-		limit:      normalized.Limit,
-		offset:     normalized.Offset,
+		tenantID:       normalized.TenantID,
+		parkID:         normalized.ParkID,
+		targetDate:     normalized.TargetDate,
+		shedID:         normalized.ShedID,
+		partitionLabel: normalized.PartitionLabel,
+		sessionNo:      normalized.SessionNo,
+		limit:          normalized.Limit,
+		offset:         normalized.Offset,
 	})
 	if err != nil {
 		return domain.PreviewPage{}, err
@@ -683,12 +722,14 @@ func (s *Service) buildFilters(ctx context.Context, tenantID, servedParkID strin
 // packingDraft LIVE-COMPUTES the worklist without touching any issue. See previewDraft.
 func (s *Service) packingDraft(ctx context.Context, normalized domain.PackingQuery) (domain.PackingPage, error) {
 	result, err := s.generate(ctx, generateRequest{
-		tenantID:   normalized.TenantID,
-		parkID:     normalized.ParkID,
-		targetDate: normalized.TargetDate,
-		sessionNo:  normalized.SessionNo,
-		limit:      normalized.Limit,
-		offset:     normalized.Offset,
+		tenantID:       normalized.TenantID,
+		parkID:         normalized.ParkID,
+		targetDate:     normalized.TargetDate,
+		shedID:         normalized.ShedID,
+		partitionLabel: normalized.PartitionLabel,
+		sessionNo:      normalized.SessionNo,
+		limit:          normalized.Limit,
+		offset:         normalized.Offset,
 	})
 	if err != nil {
 		return domain.PackingPage{}, err
@@ -716,9 +757,14 @@ type generateRequest struct {
 	parkID     string
 	targetDate time.Time
 	shedID     string
-	sessionNo  int32
-	limit      int32
-	offset     int32
+	// partitionLabel optionally narrows generation to a single operational partition within shedID.
+	// Only meaningful when shedID is also set, mirroring domain.PreviewQuery.PartitionLabel /
+	// domain.PackingQuery.PartitionLabel. Matched via domain.PartitionMatchKey so a trimmed exact
+	// match also catches the "whole shed" sentinel.
+	partitionLabel string
+	sessionNo      int32
+	limit          int32
+	offset         int32
 }
 
 // generateResult carries one generation run: the whole filtered scope, and the page sliced out of
@@ -819,6 +865,19 @@ func (s *Service) generate(ctx context.Context, req generateRequest) (generateRe
 			})
 		}
 	}
+	// Narrow to the requested partition BEFORE generation, so both scopeRows and pageRows below are
+	// already scoped -- the same guarantee shedID gets from ListShedScope above, and the guarantee
+	// live-status polling relies on to land its target row on page one.
+	if req.partitionLabel != "" {
+		wantPartition := domain.PartitionMatchKey(req.partitionLabel)
+		narrowed := make([]domain.ShedInput, 0, len(sheds))
+		for _, in := range sheds {
+			if domain.PartitionMatchKey(in.PartitionLabel) == wantPartition {
+				narrowed = append(narrowed, in)
+			}
+		}
+		sheds = narrowed
+	}
 
 	scopeRows := domain.GenerateDirection(domain.GenerateInput{
 		Config:    config,
@@ -884,6 +943,7 @@ func (s *Service) normalizePreviewQuery(q domain.PreviewQuery) (domain.PreviewQu
 	q.TenantID = strings.TrimSpace(q.TenantID)
 	q.ParkID = strings.TrimSpace(q.ParkID)
 	q.ShedID = strings.TrimSpace(q.ShedID)
+	q.PartitionLabel = strings.TrimSpace(q.PartitionLabel)
 	if q.TenantID == "" || q.ParkID == "" {
 		return domain.PreviewQuery{}, ports.ErrParkRequired
 	}
@@ -934,6 +994,8 @@ func normalizeWorkflowFilter(workflow string) (string, error) {
 func (s *Service) normalizePackingQuery(q domain.PackingQuery) (domain.PackingQuery, error) {
 	q.TenantID = strings.TrimSpace(q.TenantID)
 	q.ParkID = strings.TrimSpace(q.ParkID)
+	q.ShedID = strings.TrimSpace(q.ShedID)
+	q.PartitionLabel = strings.TrimSpace(q.PartitionLabel)
 	if q.TenantID == "" || q.ParkID == "" {
 		return domain.PackingQuery{}, ports.ErrParkRequired
 	}

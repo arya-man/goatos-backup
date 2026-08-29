@@ -29,6 +29,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 backend_dir="$repo_root/backend"
 android_dir="$repo_root/apps/goatos-android"
+bash "$repo_root/tools/dev/ensure-android-cli.sh"
 # Resolve JDK/SDK/PATH independently of ~/.zshrc so agents and CI behave the
 # same in non-interactive shells.
 # shellcheck source=tools/dev/android-env.sh

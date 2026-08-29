@@ -42,6 +42,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/workforce/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the People/HRMS staff directory (keyset paginated). */
+        get: operations["listWorkforcePeople"];
+        put?: never;
+        /** Create a person AND their working login (Firebase account, scope grant, allowlist) in one idempotent call. */
+        post: operations["createWorkforcePerson"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/people/{person_id}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one person's module access, with the vocabulary and options the editor renders. */
+        get: operations["getWorkforcePersonAccess"];
+        /** Replace one person's module access. Version-fenced; a concurrent edit returns 409. */
+        put: operations["saveWorkforcePersonAccess"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/designations/{code}/defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What picking a designation pre-fills, so the editor applies it without a round trip per module. */
+        get: operations["getDesignationDefaults"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/operators/{operator_id}": {
         parameters: {
             query?: never;
@@ -806,6 +859,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats/census-slice/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * How many animals a breed or sex correction would change.
+         * @description Reports the size of one Counts Breakdown row before anything is written. Writes nothing and takes no idempotency key.
+         */
+        post: operations["previewCorrectCensusSlice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/census-slice/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Correct a wrongly recorded breed or sex on one census row.
+         * @description A DATA CORRECTION, not a husbandry event: nothing about the animal changed, only what the register says. Scope is the ROW (park + stage + breed + sex + pen), NOT the pen — breed and sex are properties of the animal, and one pen legitimately holds several of each, so this touches nothing else standing there. Requires `Idempotency-Key`; an exact replay returns the original result without correcting twice.
+         *
+         *     It does NOT re-evaluate anything downstream that keyed on the old value: a vaccination schedule derived from a wrong sex is not recomputed here.
+         */
+        post: operations["commitCorrectCensusSlice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/goats/{goat_id}/stage": {
         parameters: {
             query?: never;
@@ -917,6 +1012,108 @@ export interface paths {
          * @description Accepts the preview_token and row set from preview, re-derives the fingerprint for validation, and enqueues a durable bulk_status_job. Idempotent on (tenant_id, Idempotency-Key); exact replays return the original job without re-enqueueing.
          */
         post: operations["commitBulkStatusUpdate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/sale-locations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Park/shed/pen vocabulary for the sale animal picker.
+         * @description The picker's CATALOG. Legacy partition-alias shed rows are excluded: the farm's pens exist twice in the location register (canonical shed plus its pen catalog, and old rows literally named "Castro 1"), and the alias rows hold no animals and no pens, so offering them gave an operator a choice that could only return an empty list. Sheds that can yield no candidate at all are likewise omitted.
+         */
+        get: operations["listSaleLocations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/sale-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List animals of a park/shed/pen as sale candidates, each already judged against the sale blockers.
+         * @description The animal picker behind "Tag animals to sale". Every row carries the backend's verdict: `sellable` plus, when false, a `blocker` code and a farm-worded `blocked_reason`. Blocked animals are RETURNED rather than hidden -- a person who can see the animal in the pen but not in the list assumes the system is broken, whereas "In quarantine" answers the question. Keyset paged by goat_id.
+         */
+        get: operations["listSaleCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/sale-allocations/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review the picked animals for a sale, shed-wise, without changing anything.
+         * @description The review step. Returns the picked animals grouped by operational shed -- the gather list a person walks the farm with -- plus every refused animal with its reason. MUTATES NOTHING. The confirm re-runs this judgement and never trusts this response, because an animal can be quarantined between the two calls.
+         */
+        post: operations["previewSaleAllocation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/sale-allocations/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tag the picked animals to the sale and mark them sold.
+         * @description Records which animals the sale is made of AND exits each one as sold, in one transaction, through the canonical per-goat exit -- so each animal gets its goat.exited event, decision record and audit row, and its open vaccination obligations are cancelled.
+         *
+         *     FAIL-CLOSED AND ALL-OR-NOTHING. If any named animal is refused by the sale blockers (quarantine, ICU, sick, under treatment, milk-drinking kid, unexpired medicine withdrawal, already exited, already tagged to another sale) the whole confirmation is rejected with `animals_blocked` and NOTHING is written. There is deliberately no override field: an override would put a contagious or residue-carrying animal on a buyer's truck on one person's say-so.
+         */
+        post: operations["confirmSaleAllocation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goats/sale-allocations/{sales_deal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read back the animals one recorded sale is made of, shed-wise.
+         * @description The sales ledger stores no goat_id (the sales module reads no herd table), so the deal-to-animal mapping is read from here. Location and identifier are the SNAPSHOT taken when the animal was tagged, not the goat's present location -- a sold animal's row keeps moving and would make an old sale re-describe itself.
+         */
+        get: operations["getSaleAllocation"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1457,6 +1654,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/workforce/clock-entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The People/HRMS Clock In / Out tab — clockings across the roster.
+         * @description One row per ACTIVE workforce member for the selected date, including people with no punch (they show as not clocked in). Summary tiles are whole-filter aggregates. Reads the same repository page as the phone presence board, so the two surfaces cannot disagree. Leadership only (clock.presence.read).
+         */
+        get: operations["listAdminClockEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/workforce/clock-entries/{clock_entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One clocking in full — both punches with location, device and integrity capture. */
+        get: operations["getAdminClockEntry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1811,6 +2045,156 @@ export interface components {
             operator: components["schemas"]["OperatorProfile"];
             trace_id: string;
         };
+        PersonSummary: {
+            /** Format: uuid */
+            person_id: string;
+            /** Format: uuid */
+            user_id: string | null;
+            first_name: string | null;
+            last_name: string | null;
+            display_name: string;
+            email: string | null;
+            status: string;
+            role_hint: string;
+            designation_grade: string | null;
+            /** Format: uuid */
+            park_id: string | null;
+            park_label: string | null;
+            /** Format: uuid */
+            department_id: string | null;
+            department_label: string | null;
+            created_at: string;
+            row_version: number;
+            proof_uploads: number;
+            proof_approved: number;
+            proof_rejected: number;
+            proof_pending: number;
+            /** @description Proofs settled by the randomization policy rather than by a person (maintainer decision 2026-08-26). Reported rather than hidden because it is the honest difference between "this operator's work was checked" and "this operator's work was accepted": at a 40% share most of a good operator's proofs land here, and that is a fact about the policy, not about him. proof_approved counts only VERIFIER approvals, and neither this nor proof_approved's excluded items appear on either side of proof_rejection_pct. */
+            proof_not_reviewed: number;
+            proof_rejection_pct: number | null;
+            /** @description Today's clock-in time (IST "08:12") when this person has clocked in today, null otherwise — the All People "Clocked in" chip. Backend composed; render verbatim. */
+            clock_in_today_label: string | null;
+        };
+        PeopleCatalogOption: {
+            /** Format: uuid */
+            id: string;
+            code: string;
+            label: string;
+        };
+        PeopleCatalog: {
+            parks: components["schemas"]["PeopleCatalogOption"][];
+            departments: components["schemas"]["PeopleCatalogOption"][];
+        };
+        AccessCapabilityOption: {
+            /** @enum {string} */
+            level: "view" | "do" | "oversee" | "configure";
+            label: string;
+            blurb: string;
+        };
+        AccessModuleRow: {
+            module_key: string;
+            /** @description The farm word for this module. Rendered verbatim; the client never composes a module name. */
+            label: string;
+            blurb: string;
+            /** @description Levels this module can be held at on web. EMPTY means the module does not exist on web at all, which is different from nothing being ticked. */
+            offered_web: string[];
+            offered_mobile: string[];
+            granted_web: string[];
+            granted_mobile: string[];
+            /** @description The module's individually tickable admin-web screens, in sidebar order. EMPTY means the module has no admin-web page of its own -- it is phone-only, or reached from inside another screen. */
+            pages: components["schemas"]["AccessPageOption"][];
+            /** @description The screens this person keeps. Web only -- the phone composes its own navigation and page ticks never reach it. Always explicit; the backend expands a stored empty list (which means every page) before sending. */
+            granted_pages_web: string[];
+        };
+        /** @description One tickable admin-web screen inside a module. The label is the SIDEBAR label, so the tick reads as the thing the person will actually see. */
+        AccessPageOption: {
+            page_key: string;
+            label: string;
+        };
+        AccessParkOption: {
+            /** Format: uuid */
+            park_id: string;
+            label: string;
+        };
+        AccessDesignationOption: {
+            code: string;
+            label: string;
+            grade?: string;
+        };
+        AccessWarning: {
+            module_key: string;
+            /** @description Backend-composed farm copy. Rendered verbatim; never blocks a save. */
+            message: string;
+        };
+        PersonAccessResponse: {
+            /** Format: uuid */
+            person_id: string;
+            display_name: string;
+            email?: string;
+            designation_code?: string;
+            /** @enum {string} */
+            scope_mode: "tenant" | "parks";
+            park_ids: string[];
+            modules: components["schemas"]["AccessModuleRow"][];
+            capabilities: components["schemas"]["AccessCapabilityOption"][];
+            parks: components["schemas"]["AccessParkOption"][];
+            designations: components["schemas"]["AccessDesignationOption"][];
+            warnings: components["schemas"]["AccessWarning"][];
+            /** @description Fences a concurrent save. 0 means this person has never been set up. */
+            row_version: number;
+            trace_id?: string;
+        };
+        AccessModuleWrite: {
+            module_key: string;
+            web: string[];
+            mobile: string[];
+            /** @description Narrows the WEB grant to specific screens of this module. Sent for every rendered row, wholesale like the modules list. A granted module that HAS screens must tick at least one; sending none is refused rather than silently resolved to all of them. */
+            pages?: string[];
+        };
+        /** @description Replaces access WHOLESALE. The editor sends every module row it rendered, so an unticked module arrives as an empty list rather than a missing key -- a patch shape cannot tell "leave alone" from "remove". */
+        SavePersonAccessRequest: {
+            designation_code?: string;
+            /** @enum {string} */
+            scope_mode: "tenant" | "parks";
+            park_ids?: string[];
+            modules: components["schemas"]["AccessModuleWrite"][];
+            row_version: number;
+        };
+        DesignationDefaultsResponse: {
+            code: string;
+            label: string;
+            modules: components["schemas"]["AccessModuleWrite"][];
+            trace_id?: string;
+        };
+        PeopleListResponse: {
+            items: components["schemas"]["PersonSummary"][];
+            next_cursor: string;
+            catalog: components["schemas"]["PeopleCatalog"];
+            trace_id: string;
+        };
+        CreatePersonRequest: {
+            first_name: string;
+            last_name?: string;
+            email: string;
+            /** @enum {string} */
+            role: "operator" | "park_head" | "verifier" | "pc_director" | "growth_director" | "feed_director" | "health_director";
+            /** Format: uuid */
+            park_id?: string;
+            /** Format: uuid */
+            department_id?: string;
+            /** @enum {string} */
+            designation_grade?: "cxo" | "director" | "manager" | "assistant_manager";
+        };
+        PersonLogin: {
+            email: string;
+            /** @enum {string} */
+            account_status: "created" | "existing";
+        };
+        PersonResponse: {
+            person: components["schemas"]["PersonSummary"];
+            login: components["schemas"]["PersonLogin"];
+            trace_id: string;
+        };
         CreateOperatorRequest: {
             /** Format: uuid */
             user_id?: string | null;
@@ -1984,7 +2368,7 @@ export interface components {
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro - 2"; prefixed convention -> "Godel 1 - Part 3". */
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
             operational_location_display: string;
         };
         GoatSummary: {
@@ -2122,6 +2506,65 @@ export interface components {
             management_stage: string;
             /** @description Required on commit, ignored on preview. Recorded in audit and on every animal's event. */
             reason?: string;
+            /** @description Optional; absent means false. Allows the commit to succeed against a location holding NO live animals, writing only the configured cohort. It separates two intents on one write. Absent (false) keeps the original behaviour and suits a caller who means "retag the animals in this pen", where an empty pen almost always means the wrong pen was picked: it receives 409 `reclassify_empty_scope`. The Counts Breakdown Stage editor sets it true, because "this pen's tag is now X" is an ordinary thing to record for a pen standing empty before animals arrive, and receives a success with `reclassified` = 0. Part of the request hash, so the two intents cannot replay onto each other. */
+            configure_empty?: boolean;
+        };
+        CorrectCensusSliceRequest: {
+            /**
+             * Format: uuid
+             * @description The PARENT physical shed of the row's pen.
+             */
+            shed_id: string;
+            /** @description The pen inside shed_id ('1', 'Part 3'); omitted for a shed with no pens. */
+            partition_label?: string;
+            /** @description The row's cohort tag. Part of the predicate, not something this call changes. */
+            management_stage: string;
+            /** @description The row's breed. May be empty — the census renders a blank breed as its own row, and correcting exactly those animals is the commonest reason to use this. */
+            breed: string;
+            /**
+             * @description The row's sex. Part of the predicate, not something this call changes unless field=sex.
+             * @enum {string}
+             */
+            sex: "female" | "male";
+            /**
+             * @description Which column to correct. One field per command, so one audit row states one decision.
+             * @enum {string}
+             */
+            field: "breed" | "sex";
+            /** @description The corrected value. Validated against the tenant's active breed catalog for `breed`, and against female/male for `sex`. A value equal to what the row already carries is rejected rather than written. */
+            value: string;
+            /** @description Required on commit, ignored on preview. This write has no approval step and no proof behind it, so the reason is the account of why the register was changed. */
+            reason?: string;
+        };
+        CensusSliceCorrectionPreviewResponse: {
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            partition_label?: string;
+            operational_location_display: string;
+            /** @enum {string} */
+            field: "breed" | "sex";
+            current_value: string;
+            value: string;
+            /** @description Live animals in the WHOLE row, computed over the same predicate the commit uses. */
+            total_live: number;
+            trace_id?: string;
+        };
+        CensusSliceCorrectionResponse: {
+            /** Format: uuid */
+            shed_id: string;
+            shed_name: string;
+            partition_label?: string;
+            operational_location_display: string;
+            /** @enum {string} */
+            field: "breed" | "sex";
+            current_value: string;
+            value: string;
+            total_live: number;
+            /** @description Animals whose row actually changed. Lower than total_live only when another writer moved animals out of the slice between the preview and the commit. */
+            corrected: number;
+            idempotency_key?: string;
+            trace_id?: string;
         };
         ReclassifyShedStageBucket: {
             management_stage: string;
@@ -2136,7 +2579,7 @@ export interface components {
             shed_name: string;
             /** @description Null for an undivided shed. The 'whole' sentinel is a matching key and never appears here. */
             partition_label: string | null;
-            /** @description Backend-composed ("Castro - 2"). Clients render it verbatim and never recompose it. */
+            /** @description Backend-composed ("Castro 2"). Clients render it verbatim and never recompose it. */
             operational_location_display: string;
             /** @description The canonical resolved target tag. */
             management_stage: string;
@@ -3333,6 +3776,108 @@ export interface components {
         ProcurementHealthState: "pending" | "passed" | "failed" | "deferred";
         /** @enum {unknown} */
         ProcurementArrivalState: "matched" | "missing" | "extra_unresolved" | "health_flag" | "weight_flag" | "accepted" | "rejected" | "deferred" | "blocked";
+        SaleLocationCatalog: {
+            parks: components["schemas"]["SaleLocationPark"][];
+            /** @description Selectable operational locations, PEN-WISE: a pen where the shed is subdivided, the shed itself where it is not. A subdivided shed never offers its bare parent -- "active shed" means active operational location, and a parent-only dropdown forces the operator to guess which pen was meant. */
+            locations: components["schemas"]["SaleLocationEntry"][];
+        };
+        SaleLocationPark: {
+            /** Format: uuid */
+            park_id: string;
+            /** @description Park short code (CBE, CPT) when it has one, else the full name. */
+            label: string;
+        };
+        SaleLocationEntry: {
+            /** Format: uuid */
+            shed_id: string;
+            /** Format: uuid */
+            park_id: string;
+            /** @description HUMAN pen label ('1', 'Part 3'), never the normalized matching key. Absent for an undivided shed. */
+            partition_label?: string;
+            /** @description Composed operational display, rendered verbatim: a numeric pen joins with a space ("Castro 1"), a worded one with a dash ("Godel 1 - Part 3"). */
+            operational_location_display: string;
+        };
+        /** @description One animal as the sale picker shows it: identity, where it stands, and the backend's verdict on whether it may be sold. */
+        SaleCandidate: {
+            /** Format: uuid */
+            goat_id: string;
+            display_id?: string;
+            /** @description The identifier a person reads off the animal -- active RFID first, then a visible tag. */
+            tag_number?: string;
+            /** Format: uuid */
+            park_id?: string;
+            /** @description Park short code (CBE, CPT) when it has one, else the full name. */
+            park_name?: string;
+            /** Format: uuid */
+            shed_id?: string;
+            shed_name?: string;
+            /** @description Human pen label ('Part 3'), absent for an undivided shed. Never the normalized matching key. */
+            partition_label?: string;
+            /** @description Backend-composed park-local shed label; clients render it verbatim. */
+            operational_location_display: string;
+            breed?: string;
+            sex?: string;
+            /** @description Captured when the picker listed the animal and echoed back on confirm, which is what makes the write no-clobber: an animal whose version has since moved is refused rather than overwritten. */
+            row_version: number;
+            sellable: boolean;
+            /**
+             * @description Machine code for WHICH rule refused the animal. Absent when sellable.
+             * @enum {string}
+             */
+            blocker?: "clinical_state" | "milk_drinking_kid" | "medicine_withdrawal" | "already_exited" | "already_tagged";
+            /** @description Farm-worded sentence explaining the refusal ("In quarantine", "Medicine withdrawal until 2026-08-24"). Rendered VERBATIM; clients must not compose their own sentence from `blocker`. */
+            blocked_reason?: string;
+        };
+        SaleCandidateListResponse: {
+            candidates: components["schemas"]["SaleCandidate"][];
+            /** @description Keyset cursor for the next page. Absent on the last page. */
+            next_cursor?: string;
+        };
+        /** @description The sale and the picked animals. Unknown fields are REJECTED, so a client that sends an override flag is told rather than having it silently discarded. */
+        SaleAllocationRequest: {
+            /**
+             * Format: uuid
+             * @description The sales ledger deal these animals belong to.
+             */
+            sales_deal_id: string;
+            /** @description The picked animals. Duplicates collapse to one. The cap keeps one confirmation a bounded transactional write and fits the canonical per-goat exit inside the hot-API latency budget; a larger sale is split into two confirmations, each atomic on its own. */
+            goat_ids: string[];
+            reason?: string;
+        };
+        /** @description The picked animals of ONE operational shed -- the gather list, in the order a person walks the farm. */
+        SaleAllocationShedGroup: {
+            park_name?: string;
+            /** Format: uuid */
+            shed_id?: string;
+            shed_name?: string;
+            partition_label?: string;
+            operational_location_display: string;
+            animals: number;
+            tag_numbers: string[];
+        };
+        /** @description The review step's result. `sellable` and `blocked` are DISJOINT and together cover every named animal, so a client can render "12 ready, 2 blocked" without a third overlapping count. */
+        SaleAllocationPreviewResponse: {
+            /** Format: uuid */
+            sales_deal_id: string;
+            /** @description How many animals the SALE is for. The mapping must hit this exactly -- a sale cannot be tagged half now and half later. */
+            declared_animal_count: number;
+            /** @description How many of them are already tagged to this sale. */
+            already_tagged: number;
+            /** @description Whether the current selection exactly fills what is still to be mapped, with nothing blocked. Clients offer Confirm only when true; the server enforces the same rule regardless. */
+            complete: boolean;
+            sellable: number;
+            blocked: number;
+            /** @description Covers the SELLABLE animals only -- an animal that will not be sold does not belong on the gather list. */
+            shed_groups: components["schemas"]["SaleAllocationShedGroup"][];
+            blocked_animals: components["schemas"]["SaleCandidate"][];
+        };
+        SaleAllocationConfirmResponse: {
+            /** Format: uuid */
+            sales_deal_id: string;
+            /** @description How many animals this sale is now made of. */
+            allocated: number;
+            shed_groups: components["schemas"]["SaleAllocationShedGroup"][];
+        };
         BulkStatusPreviewRequest: {
             /**
              * @description Status dimension being bulk-updated.
@@ -3677,6 +4222,78 @@ export interface components {
             escalation_state?: string | null;
             status: string;
         };
+        ClockFlag: {
+            key: string;
+            label: string;
+        };
+        ClockEntry: {
+            /** @description Empty for a not-clocked-in roster row (no entry exists yet). */
+            clock_entry_id: string;
+            workforce_member_id: string;
+            person_name: string;
+            role_hint?: string;
+            designation?: string;
+            park_id?: string;
+            park_label?: string;
+            department_label?: string;
+            business_date: string;
+            /** @description open | closed | auto_closed; empty for a not-clocked-in row. */
+            status: string;
+            clock_in_at: string;
+            /** @description Backend-composed IST time label ("08:12"). */
+            clock_in_label: string;
+            clock_out_at?: string;
+            clock_out_label?: string;
+            /** @description Backend-owned hours truth; absent while open and forever on auto_closed. */
+            worked_minutes?: number;
+            hours_label?: string;
+            /** @description The clock-in punch's reverse-geocoded address. */
+            location_label?: string;
+            /** @description Device model · app version at clock-in. */
+            device_label?: string;
+            flags: components["schemas"]["ClockFlag"][];
+        };
+        ClockPresenceSummary: {
+            working: number;
+            clocked_out: number;
+            not_clocked_in: number;
+            /** @description Counts flagged ENTRIES; overlaps the working/clocked_out buckets. */
+            flagged: number;
+        };
+        ClockEventDetail: {
+            clock_event_id: string;
+            event_type: string;
+            business_date: string;
+            captured_at: string;
+            recorded_at: string;
+            clock_skew_ms?: number;
+            location_status: string;
+            latitude?: number;
+            longitude?: number;
+            gps_accuracy_m?: number;
+            address?: string;
+            mock_location: boolean;
+            developer_options_enabled?: boolean;
+            device_model?: string;
+            app_version?: string;
+            os_version?: string;
+            /** @description online | offline_queued. */
+            network_type: string;
+            battery_pct?: number;
+        };
+        ClockEntriesListResponse: {
+            summary: components["schemas"]["ClockPresenceSummary"];
+            items: components["schemas"]["ClockEntry"][];
+            next_cursor: string;
+            parks: components["schemas"]["PeopleCatalogOption"][];
+            designations: components["schemas"]["PeopleCatalogOption"][];
+            trace_id: string;
+        };
+        ClockEntryDetailResponse: {
+            entry: components["schemas"]["ClockEntry"];
+            events: components["schemas"]["ClockEventDetail"][];
+            trace_id: string;
+        };
     };
     responses: {
         /** @description Validation error. */
@@ -3927,6 +4544,147 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["WriteConflict"];
+        };
+    };
+    listWorkforcePeople: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                department_id?: string;
+                status?: string;
+                q?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Directory rows plus the parks/departments catalog. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeopleListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createWorkforcePerson: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePersonRequest"];
+            };
+        };
+        responses: {
+            /** @description Created person and login-account outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    getWorkforcePersonAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole access editor payload. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonAccessResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    saveWorkforcePersonAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavePersonAccessRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored access, read back with its new row version and recomputed warnings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonAccessResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    getDesignationDefaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The designation's default module rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesignationDefaultsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     getOperator: {
@@ -5503,6 +6261,65 @@ export interface operations {
             409: components["responses"]["WriteConflict"];
         };
     };
+    previewCorrectCensusSlice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorrectCensusSliceRequest"];
+            };
+        };
+        responses: {
+            /** @description The slice and the number of live animals in it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CensusSliceCorrectionPreviewResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    commitCorrectCensusSlice: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorrectCensusSliceRequest"];
+            };
+        };
+        responses: {
+            /** @description The correction that was applied. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CensusSliceCorrectionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     stageGoat: {
         parameters: {
             query?: never;
@@ -5691,6 +6508,147 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSaleLocations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The picker vocabulary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleLocationCatalog"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listSaleCandidates: {
+        parameters: {
+            query: {
+                park_id: string;
+                shed_id?: string;
+                /** @description Repeatable. Several pens of one shed may be requested at once, because a sale routinely takes animals from more than one. Matched on the catalog's normalized key, so '3' and 'Part 3' mean the same pen. Omit for every pen of the shed. */
+                partition_label?: string[];
+                /** @description Filter by identifier or display id prefix, so one animal in hand can be found without scrolling. */
+                q?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A keyset page of judged sale candidates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleCandidateListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    previewSaleAllocation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaleAllocationRequest"];
+            };
+        };
+        responses: {
+            /** @description Review completed; no state changed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleAllocationPreviewResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    confirmSaleAllocation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaleAllocationRequest"];
+            };
+        };
+        responses: {
+            /** @description Animals tagged to the sale and marked sold, or an exact replay of the same confirmation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleAllocationConfirmResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getSaleAllocation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sales_deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The animals tagged to this sale. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SaleAllocationConfirmResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };
@@ -6712,6 +7670,67 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listAdminClockEntries: {
+        parameters: {
+            query?: {
+                /** @description IST business date (YYYY-MM-DD); absent means today. */
+                date?: string;
+                park_id?: string;
+                /** @description Role-hint filter (operator, park_head, ...). */
+                designation?: string;
+                /** @description working | clocked_out | not_clocked_in | flagged. */
+                bucket?: string;
+                /** @description Person name search. */
+                q?: string;
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The clock-entries page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockEntriesListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getAdminClockEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clock_entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The entry detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockEntryDetailResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["ServerError"];
         };
     };
 }

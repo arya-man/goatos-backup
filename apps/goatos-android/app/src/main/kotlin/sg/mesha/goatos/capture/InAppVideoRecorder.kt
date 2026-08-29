@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -15,6 +16,7 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
+import androidx.camera.view.PreviewView.StreamState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -36,12 +38,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -62,7 +66,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import sg.mesha.goatos.R
+import sg.mesha.goatos.core.data.capture.ProofArtifactValidator
+import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
@@ -82,13 +90,21 @@ import java.io.File
 fun InAppVideoRecorderOverlay(
     captureContext: ProofCaptureContext? = null,
     onResult: (CapturedVideo?) -> Unit,
+    onCameraEvent: (String) -> Unit = {},
+    // MEDIUM: Accept validator as dependency instead of constructing inline
+    artifactValidator: ProofArtifactValidator = remember { FileSystemProofArtifactValidator() },
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraSession = remember { ProofCameraSession() }
     val cameraUnavailableMessage = stringResource(R.string.proof_camera_unavailable)
+    val previewTimeoutMessage = stringResource(R.string.proof_camera_preview_timeout)
+    val invalidVideoMessage = stringResource(R.string.proof_capture_invalid_video)
+    val retryLabel = stringResource(R.string.proof_camera_retry)
 
     var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
+    var boundCamera by remember { mutableStateOf<Camera?>(null) }
+    var torchEnabled by remember { mutableStateOf(false) }
     var activeRecording by remember { mutableStateOf<Recording?>(null) }
     var isRecording by remember { mutableStateOf(false) }
     var startedAtMs by remember { mutableStateOf(0L) }
@@ -96,7 +112,12 @@ fun InAppVideoRecorderOverlay(
     var cancelled by remember { mutableStateOf(false) }
     var resultDelivered by remember { mutableStateOf(false) }
     var cameraReady by remember { mutableStateOf(false) }
+    var previewStreaming by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
+    var previewTimeoutTriggered by remember { mutableStateOf(false) }
+    var previewStreamingReported by remember { mutableStateOf(false) }
+    var retryGeneration by remember { mutableStateOf(0) }
+    var pendingValidation by remember { mutableStateOf<File?>(null) }  // HIGH-2: validation off-main
 
     fun deliver(result: CapturedVideo?) {
         if (resultDelivered) return
@@ -104,15 +125,31 @@ fun InAppVideoRecorderOverlay(
         onResult(result)
     }
 
+    // The torch is a camera CONTROL, not a rebind: switching it on or off never touches the
+    // recording in flight. One helper for both the auto-on at record start and the operator's
+    // toggle, so the light, the chip and the analytics event can never disagree.
+    fun applyTorch(next: Boolean) {
+        val camera = boundCamera ?: return
+        if (!camera.cameraInfo.hasFlashUnit()) return
+        runCatching { camera.cameraControl.enableTorch(next) }
+            .onSuccess {
+                torchEnabled = next
+                onCameraEvent(if (next) "torch_on" else "torch_off")
+            }
+            .onFailure { onCameraEvent("torch_failed") }
+    }
+
     fun startRecording() {
         val capture = videoCapture ?: return
         if (isRecording) return
+        if (pendingValidation != null) return
         val file = newCaptureFile(context)
         val output = FileOutputOptions.Builder(file).build()
         cancelled = false
         startedAtMs = System.currentTimeMillis()
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             file.delete()
+            onCameraEvent("audio_permission_missing")
             deliver(null)
             return
         }
@@ -130,28 +167,31 @@ fun InAppVideoRecorderOverlay(
                 if (event is VideoRecordEvent.Finalize) {
                     isRecording = false
                     activeRecording = null
-                    val endedAtMs = System.currentTimeMillis()
+                    if (torchEnabled) applyTorch(false)
                     if (cancelled) {
                         file.delete()
+                        onCameraEvent("cancelled")
                         deliver(null)
                     } else if (!event.hasError()) {
-                        deliver(
-                            CapturedVideo(
-                                localUri = file.toURI().toString(),
-                                startedAtMs = startedAtMs,
-                                endedAtMs = endedAtMs,
-                            ),
-                        )
+                        onCameraEvent("finalized")
+                        // HIGH-2: Defer validation to LaunchedEffect (off-main) to avoid jank at Stop-tap
+                        pendingValidation = file
                     } else {
                         file.delete()
+                        onCameraEvent("finalize_failed")
                         deliver(null)
                     }
                 }
             }
         isRecording = true
+        onCameraEvent("recording_started")
+        // Sheds are dark and operators film at dusk, so the light comes on WITH the recording and
+        // the operator only ever has to turn it off. A phone with no flash unit simply stays dark.
+        if (!torchEnabled) applyTorch(true)
     }
 
     fun finishRecording() {
+        onCameraEvent("stop_tapped")
         activeRecording?.stop()
     }
 
@@ -159,6 +199,7 @@ fun InAppVideoRecorderOverlay(
         cancelled = true
         val recording = activeRecording
         if (recording == null) {
+            onCameraEvent("cancelled")
             deliver(null)
         } else {
             recording.stop()
@@ -167,9 +208,26 @@ fun InAppVideoRecorderOverlay(
 
     BackHandler(onBack = ::cancelRecording)
 
-    LaunchedEffect(cameraReady, isRecording, resultDelivered) {
-        if (cameraReady && !isRecording && !resultDelivered) {
+    // Gate 1: Preview readiness gate — record only when preview stream is STREAMING
+    LaunchedEffect(previewStreaming, isRecording, pendingValidation, resultDelivered) {
+        if (previewStreaming && !isRecording && pendingValidation == null && !resultDelivered) {
+            if (!previewStreamingReported) {
+                previewStreamingReported = true
+                onCameraEvent("streaming")
+            }
             startRecording()
+        }
+    }
+
+    // Gate 1: Preview timeout (~4s) — if preview never reaches STREAMING, show error + retry
+    LaunchedEffect(cameraReady, previewStreaming, previewTimeoutTriggered) {
+        if (cameraReady && !previewStreaming && !previewTimeoutTriggered) {
+            delay(4000L)
+            if (!previewStreaming) {
+                previewTimeoutTriggered = true
+                cameraError = previewTimeoutMessage
+                onCameraEvent("validation_failed")
+            }
         }
     }
 
@@ -178,6 +236,31 @@ fun InAppVideoRecorderOverlay(
         while (isRecording && startedAtMs > 0L) {
             elapsedRecordingSeconds = ((System.currentTimeMillis() - startedAtMs) / 1000L).coerceAtLeast(0L)
             delay(250L)
+        }
+    }
+
+    // HIGH-2: Validate off-main to avoid jank at Stop-tap
+    LaunchedEffect(pendingValidation) {
+        val fileToValidate = pendingValidation
+                if (fileToValidate != null) {
+            withContext(Dispatchers.IO) {
+                val validation = artifactValidator.validateVideoFile(fileToValidate.toURI().toString())
+                if (validation.isValid) {
+                    deliver(
+                        CapturedVideo(
+                            localUri = fileToValidate.toURI().toString(),
+                            startedAtMs = startedAtMs,
+                            endedAtMs = System.currentTimeMillis(),
+                        ),
+                    )
+                } else {
+                    // CRITICAL-2: Invalid video — DO NOT deliver(null); show error UI with retry/cancel options
+                    fileToValidate.delete()
+                    onCameraEvent("validation_failed")
+                    cameraError = invalidVideoMessage
+                }
+            }
+            pendingValidation = null
         }
     }
 
@@ -199,33 +282,50 @@ fun InAppVideoRecorderOverlay(
             .fillMaxSize()
             .background(MeshaColors.ViewfinderBackdrop),
     ) {
-        androidx.compose.ui.viewinterop.AndroidView(
+        // CRITICAL-1: key() forces AndroidView factory re-run + camera rebind on retry
+        key(retryGeneration) {
+            androidx.compose.ui.viewinterop.AndroidView(
             factory = { ctx ->
                 PreviewView(ctx).also { view ->
                     view.scaleType = PreviewView.ScaleType.FILL_CENTER
+                    // Gate 1: Monitor preview stream state
+                    view.previewStreamState.observe(lifecycleOwner) { streamState ->
+                        previewStreaming = streamState == StreamState.STREAMING
+                        if (previewStreaming) {
+                            previewTimeoutTriggered = false  // Reset timeout on successful streaming
+                        }
+                    }
                     cameraSession.bind(
                         context = ctx,
                         previewView = view,
                         lifecycleOwner = lifecycleOwner,
                         onBound = { capture ->
                             videoCapture = capture
+                            boundCamera = cameraSession.camera
                             cameraReady = true
                             cameraError = null
+                            onCameraEvent("bound")
                         },
                         onError = {
                             cameraReady = false
+                            previewStreaming = false
                             cameraError = cameraUnavailableMessage
+                            onCameraEvent("bind_failed")
                         },
                     )
                 }
             },
             onRelease = {
                 cameraReady = false
+                previewStreaming = false
                 videoCapture = null
+                boundCamera = null
+                torchEnabled = false
                 cameraSession.release()
             },
             modifier = Modifier.fillMaxSize(),
         )
+        }  // end key(retryGeneration)
         // Directional scrims keep the live preview clear while making overlay text legible.
         Box(
             Modifier
@@ -260,6 +360,9 @@ fun InAppVideoRecorderOverlay(
             ProofCardHeader(
                 cameraError = cameraError,
                 captureContext = captureContext,
+                torchEnabled = torchEnabled,
+                torchAvailable = boundCamera?.cameraInfo?.hasFlashUnit() == true,
+                onToggleTorch = { applyTorch(!torchEnabled) },
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(10.dp))
@@ -291,7 +394,21 @@ fun InAppVideoRecorderOverlay(
             Spacer(Modifier.height(12.dp))
             StopRecordingButton(
                 isRecording = isRecording,
-                enabled = cameraReady,
+                enabled = previewStreaming && !previewTimeoutTriggered,
+                cameraError = cameraError,
+                retryLabel = retryLabel,
+                onRetry = {
+                    onCameraEvent("retry_tapped")
+                    cameraError = null
+                    previewTimeoutTriggered = false
+                    cameraSession.release()
+                    cameraReady = false
+                    videoCapture = null
+                    previewStreaming = false
+                    previewStreamingReported = false
+                    retryGeneration++ // CRITICAL-1: increment to force AndroidView factory re-run + rebind
+                },
+                onCancel = ::cancelRecording,
                 onClick = { if (isRecording) finishRecording() else startRecording() },
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -303,6 +420,9 @@ fun InAppVideoRecorderOverlay(
 private fun ProofCardHeader(
     cameraError: String?,
     captureContext: ProofCaptureContext?,
+    torchEnabled: Boolean,
+    torchAvailable: Boolean,
+    onToggleTorch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val promptCopy = captureContext?.prompt?.let(::recorderCopyResources)
@@ -325,7 +445,7 @@ private fun ProofCardHeader(
             Icon(MeshaIcons.Video, contentDescription = null, tint = MeshaColors.BrandD)
         }
         Spacer(Modifier.width(12.dp))
-        Column {
+        Column(Modifier.weight(1f)) {
             Text(
                 text = if (cameraError == null) {
                     recorderHeaderTitle(captureContext?.headerTitle, fallbackTitle)
@@ -339,6 +459,21 @@ private fun ProofCardHeader(
                 text = cameraError ?: stringResource(R.string.proof_camera_auto_opened),
                 color = if (cameraError == null) MeshaColors.BrandD else MeshaColors.Danger,
                 style = MeshaType.caption,
+            )
+        }
+        IconButton(
+            onClick = onToggleTorch,
+            enabled = torchAvailable && cameraError == null,
+            modifier = Modifier.semantics {
+                contentDescription = if (torchEnabled) "Turn flash off" else "Turn flash on"
+                stateDescription = if (torchEnabled) "Flash on" else "Flash off"
+                role = Role.Button
+            },
+        ) {
+            Icon(
+                imageVector = MeshaIcons.Flash,
+                contentDescription = null,
+                tint = if (torchEnabled) MeshaColors.BrandD else MeshaColors.Muted,
             )
         }
     }
@@ -467,6 +602,10 @@ internal fun recorderCopyResources(prompt: ProofCapturePrompt): RecorderCopyReso
         R.string.proof_camera_title,
         R.string.proof_camera_instruction,
     )
+    ProofCapturePrompt.INVENTORY_VACCINE_STOCK -> RecorderCopyResources(
+        R.string.proof_camera_title,
+        R.string.proof_camera_instruction,
+    )
     ProofCapturePrompt.BIRTH -> RecorderCopyResources(
         R.string.proof_camera_birth_title,
         R.string.proof_camera_birth_instruction,
@@ -499,6 +638,10 @@ internal fun recorderCopyResources(prompt: ProofCapturePrompt): RecorderCopyReso
         R.string.proof_camera_feed_packing_title,
         R.string.proof_camera_feed_packing_instruction,
     )
+    ProofCapturePrompt.FEED_WASTAGE -> RecorderCopyResources(
+        R.string.proof_camera_feed_wastage_title,
+        R.string.proof_camera_feed_wastage_instruction,
+    )
     ProofCapturePrompt.FEED_TRANSPORT -> RecorderCopyResources(
         R.string.proof_camera_feed_transport_title,
         R.string.proof_camera_feed_transport_instruction,
@@ -524,6 +667,10 @@ private fun StopRecordingButton(
     isRecording: Boolean,
     enabled: Boolean,
     modifier: Modifier = Modifier,
+    cameraError: String? = null,
+    retryLabel: String = "Retry",
+    onRetry: () -> Unit = {},
+    onCancel: () -> Unit = {},
     onClick: () -> Unit,
 ) {
     val actionDescription = stringResource(
@@ -532,32 +679,74 @@ private fun StopRecordingButton(
     val recordingState = stringResource(
         if (isRecording) R.string.proof_camera_state_recording else R.string.proof_camera_state_ready,
     )
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MeshaColors.Brand,
-            contentColor = MeshaColors.OnBrand,
-            disabledContainerColor = MeshaColors.Surf3,
-            disabledContentColor = MeshaColors.Faint,
-        ),
-        shape = RoundedCornerShape(20.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .minimumInteractiveComponentSize()
-            .height(58.dp)
-            .semantics {
-                contentDescription = actionDescription
-                stateDescription = recordingState
-                role = Role.Button
-            },
-    ) {
-        Icon(MeshaIcons.Video, contentDescription = null)
-        Spacer(Modifier.width(10.dp))
-        Text(
-            text = if (isRecording) stringResource(R.string.proof_camera_stop_label) else stringResource(R.string.proof_camera_start_label),
-            style = MeshaType.button,
-        )
+
+    if (cameraError != null && !isRecording) {
+        // Show retry UI when preview timeout or invalid video occurs
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(58.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Button(
+                onClick = onRetry,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MeshaColors.Brand,
+                    contentColor = MeshaColors.OnBrand,
+                ),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(58.dp)
+                    .semantics {
+                        contentDescription = retryLabel
+                        role = Role.Button
+                    },
+            ) {
+                Text(text = retryLabel, style = MeshaType.button)
+            }
+            Button(
+                onClick = onCancel,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MeshaColors.Surf3,
+                    contentColor = MeshaColors.Muted,
+                ),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(58.dp),
+            ) {
+                Text(text = stringResource(R.string.proof_camera_cancel), style = MeshaType.button)
+            }
+        }
+    } else {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MeshaColors.Brand,
+                contentColor = MeshaColors.OnBrand,
+                disabledContainerColor = MeshaColors.Surf3,
+                disabledContentColor = MeshaColors.Faint,
+            ),
+            shape = RoundedCornerShape(20.dp),
+            modifier = modifier
+                .fillMaxWidth()
+                .minimumInteractiveComponentSize()
+                .height(58.dp)
+                .semantics {
+                    contentDescription = actionDescription
+                    stateDescription = recordingState
+                    role = Role.Button
+                },
+        ) {
+            Icon(MeshaIcons.Video, contentDescription = null)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = if (isRecording) stringResource(R.string.proof_camera_stop_label) else stringResource(R.string.proof_camera_start_label),
+                style = MeshaType.button,
+            )
+        }
     }
 }
 
@@ -569,6 +758,8 @@ private class ProofCameraSession {
     private var provider: ProcessCameraProvider? = null
     private var preview: Preview? = null
     private var capture: VideoCapture<Recorder>? = null
+    var camera: Camera? = null
+        private set
 
     fun bind(
         context: Context,
@@ -590,7 +781,7 @@ private class ProofCameraSession {
                     val recorder = Recorder.Builder().setQualitySelector(QualitySelector.from(Quality.HD)).build()
                     val videoCapture = VideoCapture.withOutput(recorder)
                     cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
+                    val boundCamera = cameraProvider.bindToLifecycle(
                         lifecycleOwner,
                         CameraSelector.DEFAULT_BACK_CAMERA,
                         cameraPreview,
@@ -599,6 +790,7 @@ private class ProofCameraSession {
                     provider = cameraProvider
                     preview = cameraPreview
                     capture = videoCapture
+                    camera = boundCamera
                     onBound(videoCapture)
                 }.onFailure(onError)
             },
@@ -613,6 +805,7 @@ private class ProofCameraSession {
         capture?.let { useCase -> runCatching { currentProvider?.unbind(useCase) } }
         preview = null
         capture = null
+        camera = null
         provider = null
     }
 }

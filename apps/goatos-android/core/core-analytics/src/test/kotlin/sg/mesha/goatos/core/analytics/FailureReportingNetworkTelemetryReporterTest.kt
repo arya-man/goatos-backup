@@ -121,22 +121,22 @@ class FailureReportingNetworkTelemetryReporterTest {
     }
 
     @Test
-    fun `analytics endpoint failure keeps local signal but does not recursively mirror analytics`() {
+    fun `analytics endpoint failure keeps local signal only`() {
         reporter().onNetworkCall(event(403, route = "/app/analytics/events", method = "POST"))
 
         assertEquals(1, logs.size)
         assertEquals(1, crash.breadcrumbs.size)
-        assertEquals(1, crash.nonFatals.size)
+        assertTrue(crash.nonFatals.isEmpty())
         assertTrue(analytics.events.isEmpty())
     }
 
     @Test
-    fun `auth session telemetry endpoint failure keeps local signal but does not mirror analytics`() {
+    fun `auth session telemetry endpoint failure keeps local signal only`() {
         reporter().onNetworkCall(event(403, route = "/auth/session-events", method = "POST"))
 
         assertEquals(1, logs.size)
         assertEquals(1, crash.breadcrumbs.size)
-        assertEquals(1, crash.nonFatals.size)
+        assertTrue(crash.nonFatals.isEmpty())
         assertTrue(analytics.events.isEmpty())
     }
 

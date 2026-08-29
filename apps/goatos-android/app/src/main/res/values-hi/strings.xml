@@ -18,6 +18,8 @@
     <string name="proof_camera_water_distribution_instruction">पानी वितरण का काम साफ़ दिखाई देना चाहिए</string>
     <string name="proof_camera_feed_packing_title">चारा पैकिंग रिकॉर्ड करें</string>
     <string name="proof_camera_feed_packing_instruction">चारा पैकिंग का काम साफ़ दिखाई देना चाहिए</string>
+    <string name="proof_camera_feed_wastage_title">बची हुई फ़ीड रिकॉर्ड करें</string>
+    <string name="proof_camera_feed_wastage_instruction">नांद में बची हुई फ़ीड साफ़ दिखाई देनी चाहिए</string>
     <string name="proof_camera_milk_preparation_title">दूध तैयारी चरण रिकॉर्ड करें</string>
     <string name="proof_camera_milk_preparation_instruction">इस तैयारी चरण और उसके माप को साफ़ दिखाई देने दें</string>
     <string name="proof_camera_feed_transport_title">चारा परिवहन वीडियो</string>
@@ -30,6 +32,9 @@
     <string name="proof_camera_start_label">रिकॉर्डिंग शुरू करें</string>
     <string name="proof_camera_recording_time">रिकॉर्डिंग · %1$s</string>
     <string name="proof_camera_unavailable">कैमरा उपलब्ध नहीं है। रद्द करें और फिर कोशिश करें।</string>
+    <string name="proof_camera_preview_timeout">कैमरा प्रिव्यू शुरू नहीं हुआ। दोबारा कोशिश करें या रद्द करें।</string>
+    <string name="proof_camera_retry">दोबारा कोशिश करें</string>
+    <string name="proof_capture_invalid_video">रिकॉर्डिंग सहेजी नहीं जा सकी। कृपया फिर से रिकॉर्ड करें।</string>
     <string name="proof_camera_cancel">प्रमाण रिकॉर्डिंग रद्द करें</string>
     <string name="proof_camera_start_recording">प्रमाण रिकॉर्डिंग शुरू करें</string>
     <string name="proof_camera_stop_recording">रोकें और प्रमाण रिकॉर्डिंग सहेजें</string>
@@ -51,4 +56,7 @@
     <string name="bootstrap_action_retry">फिर से कोशिश करें</string>
     <string name="bootstrap_error_access_not_provisioned">आपकी पहुँच अभी सेट नहीं हुई है। अपने मैनेजर से जुड़वाने को कहें, फिर दोबारा कोशिश करें।</string>
     <string name="sheds_toast_already_submitted_fmt">%1$s पहले ही सत्यापन के लिए सबमिट किया जा चुका है</string>
+    <string name="proof_photo_toxin_strip_title">स्ट्रिप की फ़ोटो लें</string>
+    <string name="proof_photo_toxin_strip_instruction">स्ट्रिप को सीधा और स्थिर रखें ताकि दोनों लाइनें साफ़ दिखें</string>
+    <string name="proof_video_toxin_step_header">एफ़्लाटॉक्सिन जाँच</string>
 </resources>

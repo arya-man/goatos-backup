@@ -9,6 +9,7 @@ import java.time.ZoneId
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -30,19 +31,27 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SubmittedGrainsSource
+import sg.mesha.goatos.core.data.sync.submittedGrainKey
 import sg.mesha.goatos.core.data.FeedTransportRepository
+import sg.mesha.goatos.core.data.FeedTransportStatusSource
 import sg.mesha.goatos.core.data.FeedTransportQuery
 import sg.mesha.goatos.core.data.CaptureDraft
 import sg.mesha.goatos.core.data.CaptureDraftRepository
 import sg.mesha.goatos.core.data.CaptureFlow
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.EvidenceSlot
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofFlow
+import sg.mesha.goatos.core.data.capture.ProofIdentity
 import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
-import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.network.isConnectivityFailure
 import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
+import sg.mesha.goatos.feature.feed.feedSessionCanCapture
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureUiState
 import sg.mesha.goatos.feature.feed.FeedTransportEvent
@@ -68,6 +77,7 @@ private const val TRANSPORT_PAGE_SIZE = 20
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
 class FeedTransportViewModel @Inject constructor(
+    private val submittedGrains: SubmittedGrainsSource,
     private val repo: FeedTransportRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
@@ -98,7 +108,12 @@ class FeedTransportViewModel @Inject constructor(
                 FeedTransportQuery(businessDate = today) to FeedTransportTaskPageDto(emptyList(), null),
             )
 
-    val state: StateFlow<FeedTransportUiState> = combine(observedPage, flags, window) { (selected, page), current, size ->
+    val state: StateFlow<FeedTransportUiState> = combine(
+        observedPage,
+        flags,
+        window,
+        submittedGrains.observe(),
+    ) { (selected, page), current, size, locallySubmitted ->
         val parks = page.filters.parks.map { FeedDropdownOption(it.id, it.label) }
         val sheds = page.filters.sheds.map {
             FeedDropdownOption(it.id, it.label)
@@ -128,7 +143,16 @@ class FeedTransportViewModel @Inject constructor(
                     it.shedId,
                     it.operationalLocationDisplay.ifBlank { operationalLocationLabel(it.shedLabel, it.partitionLabel) },
                     it.parkLabel,
-                    it.status,
+                    // A submit that is still only in the outbox leaves the backend status at "due",
+                    // so the chip read "Pending" for work the operator had already sent (254.mp4,
+                    // same defect fixed for Packing/Direction/Distribution). Transport is
+                    // TASK-grain, hence transportKey rather than the shed-session key.
+                    overlayVerificationStatus(
+                        backendStatus = it.status,
+                        reworkReason = it.reworkReason,
+                        isLocallySubmitted = locallySubmitted.contains(it.submittedGrainKey()),
+                        inReviewToken = IN_REVIEW_VERIFICATION_DUE,
+                    ),
                     it.reworkReason,
                 )
             },
@@ -147,7 +171,14 @@ class FeedTransportViewModel @Inject constructor(
     )
 
     init {
-        analytics.track(AnalyticsEvents.FEED_TRANSPORT_VIEWED)
+        analytics.track(
+            AnalyticsEvents.FEED_TRANSPORT_VIEWED,
+            mapOf(
+                AnalyticsEvents.Params.SOURCE to SCREEN_FEED_TRANSPORT,
+                AnalyticsEvents.Params.KIND to KIND_TRANSPORT,
+                PARAM_ACTION to ACTION_DETAIL_OPENED,
+            ),
+        )
         refresh()
     }
 
@@ -169,8 +200,12 @@ class FeedTransportViewModel @Inject constructor(
             is FeedTransportEvent.Open -> analytics.track(
                 AnalyticsEvents.FEED_ROW_TAPPED,
                 mapOf(
+                    AnalyticsEvents.Params.SOURCE to SCREEN_FEED_TRANSPORT,
                     AnalyticsEvents.Params.KIND to KIND_TRANSPORT,
                     AnalyticsEvents.Params.SHED_ID to event.row.shedId,
+                    PARAM_SHED_LABEL to event.row.shedLabel,
+                    PARAM_PARK_LABEL to event.row.parkLabel,
+                    PARAM_ACTION to ACTION_OPEN_ROW,
                 ),
             )
         }
@@ -182,7 +217,7 @@ class FeedTransportViewModel @Inject constructor(
         // A refresh replaces the scope's rows, so a previous "nothing left" verdict no longer holds
         // and the window goes back to one page — the same reset a fresh screen entry would give.
         window.value = TRANSPORT_PAGE_SIZE
-        flags.value = flags.value.copy(isRefreshing = false, isOffline = result.isFailure, endReached = false)
+        flags.value = flags.value.copy(isRefreshing = false, isOffline = result.exceptionOrNull().isConnectivityFailure(), endReached = false)
         result.exceptionOrNull()?.let { error ->
             crashReporter.recordException(error, "feed transport refresh failed")
             analytics.track(
@@ -218,7 +253,7 @@ class FeedTransportViewModel @Inject constructor(
             val after = repo.observe(scope, grown).first().items.size
             flags.value = flags.value.copy(
                 isLoadingMore = false,
-                isOffline = result.isFailure,
+                isOffline = result.exceptionOrNull().isConnectivityFailure(),
                 // Only latch the end when the fetch SUCCEEDED and still produced no new row; a
                 // failed network page must stay retryable, not permanently end the list.
                 endReached = result.isSuccess && after <= before,
@@ -268,6 +303,7 @@ class FeedTransportViewModel @Inject constructor(
 
     private companion object {
         const val KIND_TRANSPORT = "transport"
+        const val SCREEN_FEED_TRANSPORT = "feed_transport"
         const val DIMENSION_FARM = "farm"
         const val DIMENSION_SHED = "shed"
         const val DIMENSION_STATUS = "status"
@@ -275,6 +311,11 @@ class FeedTransportViewModel @Inject constructor(
         const val DIMENSION_ALL = "all"
         const val ACTION_SET = "set"
         const val ACTION_CLEARED = "cleared"
+        const val ACTION_DETAIL_OPENED = "detail_opened"
+        const val ACTION_OPEN_ROW = "open_row"
+        const val PARAM_ACTION = "action"
+        const val PARAM_SHED_LABEL = "shed_label"
+        const val PARAM_PARK_LABEL = "park_label"
     }
 }
 
@@ -288,9 +329,44 @@ private fun analyticsReason(error: Throwable): String =
  * task: they used to sit in `SavedStateHandle`, so Back + re-entry lost the clip and asked for it
  * again while the first one uploaded anyway (maintainer report 2026-07-30).
  */
-@HiltViewModel class FeedTransportCaptureViewModel @Inject constructor(private val sync:SyncRepository,private val capture:ProofCaptureSource,private val proofCaptureRepository:ProofCaptureRepository,private val drafts:CaptureDraftRepository,private val analytics:AnalyticsPort,private val crashReporter:CrashReporter,saved:SavedStateHandle):ViewModel(){
-    private val taskId=saved.get<String>(ARG_TASK_ID).orEmpty();private val shedId=saved.get<String>(ARG_SHED_ID).orEmpty();private val shedLabel=saved.get<String>(ARG_SHED_LABEL).orEmpty();private val parkLabel=saved.get<String>(ARG_PARK_LABEL).orEmpty();private val group="feed-transport:$taskId";private val proofKey=DraftIdempotencyKey(saved,"transport_proof_key","feed-transport-video");private var draft=CaptureDraft();private var proofRowId:String?=null;private val _state=MutableStateFlow(FeedTransportCaptureUiState(shedLabel=shedLabel));val state:StateFlow<FeedTransportCaptureUiState> = _state
-    init{analytics.track(AnalyticsEvents.FEED_TRANSPORT_OPENED,mapOf(AnalyticsEvents.Params.SHED_ID to shedId));viewModelScope.launch{draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);_state.update{it.copy(videoCaptured=draft.hasProof(STEP_VIDEO))};draft.proofs[STEP_VIDEO]?.let(::observeProofItem);draft.submitOutboxItemId?.let(::observeOutboxItem)};observeSyncStatus();observeDurableProof()}
+@HiltViewModel class FeedTransportCaptureViewModel @Inject constructor(private val sync:SyncRepository,private val capture:ProofCaptureSource,private val proofCaptureRepository:ProofCaptureRepository,private val drafts:CaptureDraftRepository,private val analytics:AnalyticsPort,private val crashReporter:CrashReporter,private val feedTransportRepository:FeedTransportStatusSource,saved:SavedStateHandle):ViewModel(){
+    private val taskId=saved.get<String>(ARG_TASK_ID).orEmpty();private val shedId=saved.get<String>(ARG_SHED_ID).orEmpty();private val shedLabel=saved.get<String>(ARG_SHED_LABEL).orEmpty();private val parkLabel=saved.get<String>(ARG_PARK_LABEL).orEmpty();private val group="feed-transport:$taskId";private val proofKey=DraftIdempotencyKey(saved,"transport_proof_key","feed-transport-video");private var draft=CaptureDraft();private var proofRowId:String?=null
+    // The server poll (fetchTaskStatus) needs a business date and transport tasks are always
+    // TODAY's only (see alreadySubmitted's isToday=true below) -- mirrors FeedTransportViewModel's
+    // own `today`.
+    private val today=LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
+    // The task's backend-owned status AT THE MOMENT the row was tapped — a FIRST-PAINT hint only.
+    // [observeLiveLifecycleStatus] supersedes it with the Room-backed live value the moment Room has
+    // one, so a status change while this screen stays open flips it to read-only live rather than on
+    // next entry. Mirrors FeedPackingCompleteViewModel.observeLiveLifecycleStatus (STG 2026-08-09).
+    private val lifecycleStatusHint:String=saved.get<String>(ARG_LIFECYCLE_STATUS).orEmpty()
+    private val alreadySubmitted:Boolean=!feedSessionCanCapture(lifecycleStatusHint,isToday=true)
+    private val _state=MutableStateFlow(FeedTransportCaptureUiState(shedLabel=shedLabel,alreadySubmitted=alreadySubmitted));val state:StateFlow<FeedTransportCaptureUiState> = _state
+    init{analytics.track(AnalyticsEvents.FEED_TRANSPORT_OPENED,transportEventProps(ACTION_DETAIL_OPENED));viewModelScope.launch{draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);_state.update{it.copy(videoCaptured=draft.hasProof(STEP_VIDEO))};draft.proofs[STEP_VIDEO]?.let(::observeProofItem);draft.submitOutboxItemId?.let(::observeOutboxItem)};observeSyncStatus();observeDurableProof();observeLiveLifecycleStatus()}
+    /** A `null` emission (no cached row for this task yet) is ignored so the screen keeps
+     *  [lifecycleStatusHint] rather than forcing itself editable. */
+    private fun observeLiveLifecycleStatus(){viewModelScope.launch{feedTransportRepository.observeTaskStatus(taskId).collect{liveStatus->applyLiveStatus(liveStatus)}};startServerStatusPolling()}
+
+    /** Shared by the Room-backed observer above and the SERVER poll below. `null` (no answer yet /
+     *  poll failed) is ignored: this must never flip editable -> locked on a guess, and never flips
+     *  locked -> editable at all. */
+    private fun applyLiveStatus(liveStatus:String?){if(liveStatus==null)return;_state.update{it.copy(alreadySubmitted=!feedSessionCanCapture(liveStatus,isToday=true))}}
+
+    /**
+     * Periodic SERVER read of this transport task's status while the screen stays open, so a
+     * TEAMMATE'S submit on another phone flips this screen read-only without back/reopen --
+     * [observeTaskStatus] above only changes when THIS phone's own list refresh writes a fresh Room
+     * row. Reuses the existing `GET /feed-transport/tasks` read via
+     * [FeedTransportStatusSource.fetchTaskStatus] (no new backend endpoint). See
+     * [FeedDistributionCompleteViewModel.startServerStatusPolling]'s kdoc for why this is bounded at
+     * [MAX_SERVER_STATUS_POLLS] rather than a bare `while (isActive)`.
+     */
+    private fun startServerStatusPolling(){viewModelScope.launch{repeat(MAX_SERVER_STATUS_POLLS){delay(SERVER_STATUS_POLL_INTERVAL_MS);pollServerStatusOnce()}}}
+
+    /** A poll failure (offline/timeout/5xx) is swallowed and leaves state exactly as it was -- see
+     *  [applyLiveStatus]'s null-is-unknown contract. */
+    // exception:exempt expected poll failure (offline/timeout/5xx); see kdoc above — null-is-unknown is the contract, not an error to record
+    private suspend fun pollServerStatusOnce(){if(shedId.isBlank()||taskId.isBlank())return;val status=runCatching{feedTransportRepository.fetchTaskStatus(today,shedId,taskId)}.getOrNull();applyLiveStatus(status)}
 
     /**
      * Follow the queued submit to its REAL outcome.
@@ -311,30 +387,54 @@ private fun analyticsReason(error: Throwable): String =
                 .collect{item->
                     val write=item.toWriteResult("Submitted for verification","Submitted for verification")
                     if(!write.isCommitted&&_state.value.result?.status!=FeedTransportSubmitStatus.FAILED){crashReporter.log("feed transport submit failed item=$itemId");analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,mapOf(AnalyticsEvents.Params.REASON to item.writeFailureReason()))}
+                    // Reset submitInFlight latch on terminal failure so the user can retry.
+                    if(item.status==SyncItemStatus.FAILED){
+                        submitInFlight=false
+                    }
                     _state.update{it.copy(result=FeedTransportResultUi(write.status.toTransportStatus(),write.message.orEmpty()))}
                 }
         }
     }
     fun onEvent(e:FeedTransportCaptureEvent){when(e){FeedTransportCaptureEvent.RecordVideo->record();FeedTransportCaptureEvent.ReRecordVideo->reRecord();FeedTransportCaptureEvent.Submit->submit();FeedTransportCaptureEvent.SyncNow->syncNow();FeedTransportCaptureEvent.Back->Unit}}
-    /** Captures the replacement before deleting the old row, so cancel/failure keeps existing proof. */
+    /** Manohar ordering: the new video is captured AND durably persisted via
+     *  [ProofCaptureRepository.captureReplacingLatest] before the OLD row is ever touched -- that
+     *  repository call only removes the previous active row(s) for the slot AFTER the new capture
+     *  returns [AppResult.Ok], so a camera cancel, a capture-repo failure, or process death mid-flow
+     *  all leave the old proof exactly where it was. Same contract as
+     *  [FeedDistributionCompleteViewModel]'s capture functions. */
     private fun reRecord(){if(_state.value.isCapturing)return;record(replacing=true)}
-    private fun record(replacing:Boolean=false){if(_state.value.isCapturing||(_state.value.videoCaptured&&!replacing))return;_state.update{it.copy(isCapturing=true)};viewModelScope.launch{val v=capture.captureVideo(ProofCaptureContext(title=feedTransportProofCaption(),primaryTag=shedLabel.ifBlank{shedId},workLabel="Transport",prompt=ProofCapturePrompt.FEED_TRANSPORT));if(v==null){_state.update{it.copy(isCapturing=false)};return@launch};if(replacing&&!discardExistingProof()){_state.update{it.copy(isCapturing=false,videoMessage=it.videoMessage?:"Video cannot be replaced yet.")};return@launch};when(val r=proofCaptureRepository.capture(taskId=group,fieldKey=FIELD_FEED_TRANSPORT_VIDEO,subject=ProofSubject.SHED,subjectId=shedId,localUri=v.localUri,mimeType=v.mimeType,caption=feedTransportProofCaption(),scopeType="shed",scopeId=shedId,capturedStartMs=v.startedAtMs,capturedEndMs=v.endedAtMs,capturedByPrincipalId=null,proofPolicy=feedShedProofPolicy(v.captureSource),awaitUploadEnqueue=true,uploadGroupKey=group)){is AppResult.Ok->{proofRowId=r.value.id;val proofOutboxId=r.value.outboxItemId;if(proofOutboxId.isNullOrBlank()){_state.update{it.copy(isCapturing=false,videoCaptured=false,videoMessage="Video could not be queued")};return@launch};if(replacing){drafts.clearProof(CaptureFlow.FEED_TRANSPORT,taskId,STEP_VIDEO);proofKey.invalidate()};drafts.putProof(CaptureFlow.FEED_TRANSPORT,taskId,STEP_VIDEO,proofOutboxId);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);observeProofItem(proofOutboxId);analytics.track(AnalyticsEvents.FEED_TRANSPORT_VIDEO_CAPTURED);_state.update{it.copy(isCapturing=false,videoCaptured=true,videoMessage="Video queued")}};is AppResult.Err->{proofKey.invalidate();r.cause?.let{crashReporter.recordException(it,"feed transport video enqueue failed")};analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,mapOf(AnalyticsEvents.Params.REASON to r.analyticsReason("video_enqueue_failed")));_state.update{it.copy(isCapturing=false,videoCaptured=false,videoMessage=r.message)}}}}}
+    private fun record(replacing:Boolean=false){if(_state.value.isCapturing||_state.value.alreadySubmitted||(_state.value.videoCaptured&&!replacing))return;analytics.track(AnalyticsEvents.FEED_TRANSPORT_OPENED,transportEventProps(if(replacing)ACTION_RE_RECORD_VIDEO else ACTION_RECORD_VIDEO));_state.update{it.copy(isCapturing=true)};viewModelScope.launch{var captureThrew=false;val v=try{capture.captureVideo(ProofCaptureContext(title=feedTransportProofCaption(),primaryTag=shedLabel.ifBlank{shedId},workLabel="Transport",prompt=ProofCapturePrompt.FEED_TRANSPORT))}catch(error:Exception){crashReporter.recordException(error,"feed transport video capture failed");captureThrew=true;null};if(v==null){analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,transportEventProps(ACTION_CAPTURE_FAILED,mapOf(AnalyticsEvents.Params.REASON to if(captureThrew)"camera_exception" else "camera_cancelled")));_state.update{it.copy(isCapturing=false,videoMessage=if(captureThrew)"Video capture failed. Try again." else it.videoMessage)};return@launch};val slot=EvidenceSlot(identity=ProofIdentity(flow=ProofFlow.FEED_TRANSPORT,taskId=group,shedId=shedId,subjectKey=shedId),fieldKey=FIELD_FEED_TRANSPORT_VIDEO);when(val r=proofCaptureRepository.captureReplacingLatest(slot=slot,subject=ProofSubject.SHED,subjectId=shedId,localUri=v.localUri,mimeType=v.mimeType,caption=feedTransportProofCaption(),scopeType="shed",scopeId=shedId,capturedStartMs=v.startedAtMs,capturedEndMs=v.endedAtMs,capturedByPrincipalId=null,proofPolicy=feedShedProofPolicy(v.captureSource),awaitUploadEnqueue=true,uploadGroupKey=group)){is AppResult.Ok->{proofRowId=r.value.id;val proofOutboxId=r.value.outboxItemId;if(proofOutboxId.isNullOrBlank()){analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,transportEventProps(ACTION_CAPTURE_FAILED,mapOf(AnalyticsEvents.Params.REASON to "missing_proof_outbox_id",PARAM_PROOF_ID to r.value.id)));_state.update{it.copy(isCapturing=false,videoCaptured=false,videoMessage="Video could not be queued")};return@launch};if(replacing){drafts.clearProof(CaptureFlow.FEED_TRANSPORT,taskId,STEP_VIDEO);proofKey.invalidate()};drafts.putProof(CaptureFlow.FEED_TRANSPORT,taskId,STEP_VIDEO,proofOutboxId);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);observeProofItem(proofOutboxId);analytics.track(AnalyticsEvents.FEED_TRANSPORT_VIDEO_CAPTURED,transportEventProps(ACTION_CAPTURED,mapOf(PARAM_PROOF_ID to r.value.id,PARAM_OUTBOX_ITEM_ID to proofOutboxId)));_state.update{it.copy(isCapturing=false,videoCaptured=true,videoMessage="Video queued")}};is AppResult.Err->{proofKey.invalidate();r.cause?.let{crashReporter.recordException(it,"feed transport video enqueue failed")};analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,transportEventProps(ACTION_CAPTURE_FAILED,mapOf(AnalyticsEvents.Params.REASON to r.analyticsReason("video_enqueue_failed"))));_state.update{it.copy(isCapturing=false,videoCaptured=false,videoMessage=r.message)}}}}}
+
     private fun feedTransportProofCaption():String=proofOverlayContextLine("Feed transport",parkLabel,shedLabel.ifBlank{shedId})
     private var proofStatusJob:Job?=null
     private fun observeProofItem(itemId:String){proofStatusJob?.cancel();proofStatusJob=viewModelScope.launch{sync.observeItem(itemId).filterNotNull().distinctUntilChanged().collect(::updateProofStatus)}}
     private fun observeDurableProof(){viewModelScope.launch{proofCaptureRepository.observeProofs(group).collect{rows->val row=rows.filter{it.fieldKey==FIELD_FEED_TRANSPORT_VIDEO&&it.syncStatus!=CaptureSyncStatus.FAILED}.maxByOrNull{it.capturedAtMs}?:return@collect;hydrateFromProof(row)}}}
     private suspend fun hydrateFromProof(row:ProofCaptureRow){proofRowId=row.id;row.outboxItemId?.takeIf{it.isNotBlank()}?.let{outboxId->if(draft.proofs[STEP_VIDEO]!=outboxId){drafts.putProof(CaptureFlow.FEED_TRANSPORT,taskId,STEP_VIDEO,outboxId);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId)};observeProofItem(outboxId)};val status=row.toProofStatus();_state.update{it.copy(videoCaptured=true,videoPreviewPath=row.previewUri()?:it.videoPreviewPath,videoStatus=status,videoMessage=row.toProofMessage(status,"Transport video saved on this phone. It will upload automatically.","Transport video upload is in progress.","Transport video is ready.","Video could not be queued"),canSubmit=status.isQueuedForSubmit())}}
     private fun updateProofStatus(item:SyncQueueItem){val proofStatus=when(item.status){SyncItemStatus.QUEUED->FeedDistributionProofStatus.QUEUED;SyncItemStatus.IN_FLIGHT->FeedDistributionProofStatus.UPLOADING;SyncItemStatus.SUCCEEDED->FeedDistributionProofStatus.SYNCED;SyncItemStatus.FAILED->FeedDistributionProofStatus.FAILED};val message=when(proofStatus){FeedDistributionProofStatus.QUEUED->"Transport video saved on this phone. It will upload automatically.";FeedDistributionProofStatus.UPLOADING->"Transport video upload is in progress.";FeedDistributionProofStatus.SYNCED->"Transport video is ready.";FeedDistributionProofStatus.FAILED->item.lastError?:"Video could not be queued";FeedDistributionProofStatus.EMPTY->null};_state.update{it.copy(videoCaptured=it.videoCaptured||item.localFilePath!=null,videoPreviewPath=item.localFilePath?:it.videoPreviewPath,videoStatus=proofStatus,videoMessage=message,canSubmit=proofStatus.isQueuedForSubmit())}}
-    private suspend fun discardExistingProof():Boolean{val proofOutboxItemId=draft.proofs[STEP_VIDEO];val rowId=proofRowId?:proofCaptureRepository.observeProofs(group).first().firstOrNull{it.outboxItemId==proofOutboxItemId}?.id;if(rowId.isNullOrBlank()){proofRowId=null;return true};return when(val removed=proofCaptureRepository.remove(group,rowId)){is AppResult.Ok->{proofRowId=null;true};is AppResult.Err->{removed.cause?.let{crashReporter.recordException(it,"feed transport proof discard failed")};analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,mapOf(AnalyticsEvents.Params.REASON to removed.message));_state.update{it.copy(videoMessage=removed.message)};false}}}
     private var statusJob:Job?=null
     private var syncStatusJob:Job?=null
     private fun observeSyncStatus(){syncStatusJob?.cancel();syncStatusJob=viewModelScope.launch{sync.observeStatus().map{it.inFlightCount>0}.distinctUntilChanged().collect{syncing->_state.update{it.copy(isSyncing=syncing)}}}}
-    private fun syncNow(){viewModelScope.launch{sync.triggerDrain()}}
-    private fun submit(){val current=_state.value;val proof=draft.proofs[STEP_VIDEO];if(proof.isNullOrBlank()||!current.submitEnabled){_state.update{it.copy(canSubmit=false,videoMessage="Record the transport video before submitting.")};return};viewModelScope.launch{
+    private fun syncNow(){analytics.track(AnalyticsEvents.FEED_TRANSPORT_SYNC_TAPPED,transportEventProps(ACTION_REFRESH));viewModelScope.launch{sync.triggerDrain();pollServerStatusOnce()}}
+    // Established idiom (SubmitViewModel.submitInFlight): a plain latch checked-and-set BEFORE the
+    // enqueue coroutine launches, so a second tap landing in the async gap between the tap and the
+    // state update reflecting it (`result`/`canSubmit`) cannot slip past submitEnabled and enqueue
+    // a second write. Outbox idempotency-key dedup alone was not enough — it collapses a RETRY of
+    // the identical payload, but two concurrent taps that both read submitEnabled=true before either
+    // write lands would still both reach sync.enqueueFeedTransportSubmit. Reset on any terminal
+    // outcome (success or enqueue failure) so a real failure stays retryable.
+    private var submitInFlight = false
+    private fun submit(){val current=_state.value;val proof=draft.proofs[STEP_VIDEO];if(submitInFlight||proof.isNullOrBlank()||!current.submitEnabled){_state.update{it.copy(canSubmit=false,videoMessage="Record the transport video before submitting.")};return};submitInFlight=true;viewModelScope.launch{
         val submitIdempotencyKey="feed-transport-submit:$taskId:$proof"
         if(draft.submitIdempotencyKey!=submitIdempotencyKey){drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,null);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId)}
-        when(val r=sync.enqueueFeedTransportSubmit(group,submitIdempotencyKey,taskId,proof)){is AppResult.Ok->{drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,r.value);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);observeOutboxItem(r.value);analytics.track(AnalyticsEvents.FEED_TRANSPORT_SUBMITTED);_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.QUEUED,"Submitted for verification"))}};is AppResult.Err->{r.cause?.let{crashReporter.recordException(it,"feed transport complete enqueue failed")};analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,mapOf(AnalyticsEvents.Params.REASON to r.analyticsReason("submit_enqueue_failed")));_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.FAILED,r.message))}}}}}
-    companion object{const val ARG_TASK_ID="task_id";const val ARG_SHED_ID="shed_id";const val ARG_SHED_LABEL="shed_label";const val ARG_PARK_LABEL="park_label";private const val STEP_VIDEO="video";private const val FIELD_FEED_TRANSPORT_VIDEO="feed_transport_video"}
+        when(val r=sync.enqueueFeedTransportSubmit(group,submitIdempotencyKey,taskId,proof)){is AppResult.Ok->{drafts.putSubmit(CaptureFlow.FEED_TRANSPORT,taskId,submitIdempotencyKey,r.value);draft=drafts.find(CaptureFlow.FEED_TRANSPORT,taskId);observeOutboxItem(r.value);analytics.track(AnalyticsEvents.FEED_TRANSPORT_SUBMITTED,transportEventProps(ACTION_SUBMIT,mapOf(PARAM_PROOF_OUTBOX_ITEM_ID to proof,PARAM_OUTBOX_ITEM_ID to r.value)));_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.QUEUED,"Submitted for verification"))}};is AppResult.Err->{submitInFlight=false;r.cause?.let{crashReporter.recordException(it,"feed transport complete enqueue failed")};analytics.track(AnalyticsEvents.FEED_TRANSPORT_FAILURE,transportEventProps(ACTION_SUBMIT_FAILED,mapOf(AnalyticsEvents.Params.REASON to r.analyticsReason("submit_enqueue_failed"),PARAM_PROOF_OUTBOX_ITEM_ID to proof)));_state.update{it.copy(result=FeedTransportResultUi(FeedTransportSubmitStatus.FAILED,r.message))}}}}}
+    private fun transportEventProps(action:String,extra:Map<String,String> = emptyMap()):Map<String,String> = buildMap{put(AnalyticsEvents.Params.SOURCE,SCREEN_FEED_TRANSPORT_DETAIL);put(AnalyticsEvents.Params.KIND,KIND_TRANSPORT);put(PARAM_ACTION,action);put(AnalyticsEvents.Params.SHED_ID,shedId);put(PARAM_SHED_LABEL,shedLabel);put(PARAM_PARK_LABEL,parkLabel);put(AnalyticsEvents.Params.FIELD,FIELD_FEED_TRANSPORT_VIDEO);put(PARAM_GROUP_KEY,group);putAll(extra)}
+    companion object{const val ARG_TASK_ID="task_id";const val ARG_SHED_ID="shed_id";const val ARG_SHED_LABEL="shed_label";const val ARG_PARK_LABEL="park_label";const val ARG_LIFECYCLE_STATUS="lifecycle_status";private const val STEP_VIDEO="video";private const val FIELD_FEED_TRANSPORT_VIDEO="feed_transport_video";private const val KIND_TRANSPORT="transport";private const val SCREEN_FEED_TRANSPORT_DETAIL="feed_transport_complete";private const val ACTION_DETAIL_OPENED="detail_opened";private const val ACTION_RECORD_VIDEO="record_video";private const val ACTION_RE_RECORD_VIDEO="re_record_video";private const val ACTION_CAPTURED="captured";private const val ACTION_CAPTURE_FAILED="capture_failed";private const val ACTION_REFRESH="refresh";private const val ACTION_SUBMIT="submit";private const val ACTION_SUBMIT_FAILED="submit_failed";private const val PARAM_ACTION="action";private const val PARAM_SHED_LABEL="shed_label";private const val PARAM_PARK_LABEL="park_label";private const val PARAM_GROUP_KEY="group_key";private const val PARAM_PROOF_ID="proof_id";private const val PARAM_OUTBOX_ITEM_ID="outbox_item_id";private const val PARAM_PROOF_OUTBOX_ITEM_ID="proof_outbox_item_id"
+        /** How often [startServerStatusPolling] re-checks this task's status directly from the
+         *  server while the screen stays open. */
+        private const val SERVER_STATUS_POLL_INTERVAL_MS = 30_000L
+        /** Bound for [startServerStatusPolling] — see its kdoc for why this cannot be unbounded. */
+        private const val MAX_SERVER_STATUS_POLLS = 2_880
+    }
 }
 
 private fun sg.mesha.goatos.feature.counts.CountsWriteStatus.toTransportStatus(): FeedTransportSubmitStatus = when (this) {
