@@ -999,8 +999,8 @@ func insertFeedPackingReopenedOutbox(ctx context.Context, tx pgx.Tx, o feedPacki
 		TenantID:       o.TenantID,
 		ParkID:         o.ParkID,
 		ShedID:         o.ShedID,
-		// No ActorID: the correction is a scheduled system transition (the envelope emits actor_type
-		// "system" for a blank actor), same as the reopen's audit row.
+		// No ActorID: the correction is a scheduled system transition (the envelope builder emits
+		// actor_type "system_rule" for a blank actor), same spirit as the reopen's audit row.
 		ActorID: "",
 		// The FEED DAY: the business fact is that this feed day's bag must be packed again.
 		OccurredAt: businessInstant(o.TargetDate),
