@@ -2404,7 +2404,7 @@ SELECT DISTINCT ON (d.vaccine_code)
 FROM obligation_instances oi
 JOIN protocol_rules pr
   ON pr.tenant_id = oi.tenant_id
- AND pr.version_id = oi.protocol_version_id
+ AND pr.protocol_version_id = oi.protocol_version_id
  AND pr.rule_id = oi.rule_id
 JOIN protocol_rule_dimensions d
   ON d.tenant_id = oi.tenant_id
