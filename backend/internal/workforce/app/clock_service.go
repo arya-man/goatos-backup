@@ -567,7 +567,7 @@ func clockCopyFor(localeTag string) map[string]string {
 
 var clockCopyEN = map[string]string{
 	"module.title":            "Clock In / Out",
-	"banner.not_clocked_in":   "You haven't clocked in today — tap to clock in",
+	"banner.not_clocked_in":   "You haven't clocked in today — please clock in",
 	"action.clock_in":         "Clock In",
 	"action.clock_out":        "Clock Out",
 	"state.not_clocked_in":    "Not clocked in yet",
@@ -632,7 +632,7 @@ var clockCopyEN = map[string]string{
 
 var clockCopyHI = map[string]string{
 	"module.title":            "हाज़िरी (क्लॉक इन/आउट)",
-	"banner.not_clocked_in":   "आज क्लॉक इन नहीं हुआ है — क्लॉक इन करने के लिए दबाएँ",
+	"banner.not_clocked_in":   "आज क्लॉक इन नहीं हुआ है — कृपया क्लॉक इन करें",
 	"action.clock_in":         "क्लॉक इन",
 	"action.clock_out":        "क्लॉक आउट",
 	"state.not_clocked_in":    "अभी क्लॉक इन नहीं हुआ",
@@ -697,7 +697,7 @@ var clockCopyHI = map[string]string{
 
 var clockCopyKN = map[string]string{
 	"module.title":            "ಹಾಜರಾತಿ (ಕ್ಲಾಕ್ ಇನ್/ಔಟ್)",
-	"banner.not_clocked_in":   "ಇಂದು ಕ್ಲಾಕ್ ಇನ್ ಆಗಿಲ್ಲ — ಕ್ಲಾಕ್ ಇನ್ ಮಾಡಲು ಒತ್ತಿರಿ",
+	"banner.not_clocked_in":   "ಇಂದು ಕ್ಲಾಕ್ ಇನ್ ಆಗಿಲ್ಲ — ದಯವಿಟ್ಟು ಕ್ಲಾಕ್ ಇನ್ ಮಾಡಿ",
 	"action.clock_in":         "ಕ್ಲಾಕ್ ಇನ್",
 	"action.clock_out":        "ಕ್ಲಾಕ್ ಔಟ್",
 	"state.not_clocked_in":    "ಇನ್ನೂ ಕ್ಲಾಕ್ ಇನ್ ಆಗಿಲ್ಲ",
@@ -762,7 +762,7 @@ var clockCopyKN = map[string]string{
 
 var clockCopyTE = map[string]string{
 	"module.title":            "హాజరు (క్లాక్ ఇన్/అవుట్)",
-	"banner.not_clocked_in":   "ఈరోజు క్లాక్ ఇన్ కాలేదు — క్లాక్ ఇన్ చేయడానికి నొక్కండి",
+	"banner.not_clocked_in":   "ఈరోజు క్లాక్ ఇన్ కాలేదు — దయచేసి క్లాక్ ఇన్ చేయండి",
 	"action.clock_in":         "క్లాక్ ఇన్",
 	"action.clock_out":        "క్లాక్ అవుట్",
 	"state.not_clocked_in":    "ఇంకా క్లాక్ ఇన్ కాలేదు",
