@@ -43,8 +43,13 @@ import (
 //     human label; normalized_label remains an internal matching key and never drives display copy.
 //   - animal_count is computed per operational location using the SAME normalization:
 //     count of goats whose goat_shed_partitions.partition_label matches, zero for empty partitions.
-//   - management_stages is computed per SHED (not per partition): the cohort vocabulary offered to
-//     the operator is a shed-level fact today: goats do not carry a partition-scoped stage set.
+//   - management_stages is computed per OPERATIONAL LOCATION (per pen for a partitioned shed, per
+//     shed otherwise), on the same goat_shed_partitions normalization as animal_count. It was
+//     originally shed-grain; once the typed-raise rulebook (2026-08-20) started resolving THE
+//     PEN's adoptable tag from this field, shed grain made a homogeneous pen inside a mixed shed
+//     read as "a mix of tags" and refused legitimate health raises (live incident: Godel 1 -
+//     Part 1, CBE, 2026-08-29). A partitioned shed's animal with no partition row contributes to
+//     no pen -- consistent with the head count, never smeared across every pen.
 //   - ORDER BY name then id then partition_label: name is the human sort, the id tiebreak keeps the
 //     order stable across calls when two sheds in the same park share a name (which happens), and
 //     partition_label last keeps a partitioned shed's rows adjacent and stably ordered.
@@ -114,12 +119,27 @@ LEFT JOIN animal_stage_lookup pen_stage
        ON pen_stage.tenant_id = partitions.tenant_id
       AND pen_stage.animal_stage_id = partitions.animal_stage_id
       AND pen_stage.status = 'active'
+-- projection-review: membership=live non-exited goats standing in THIS operational location -- the
+-- same per-pen partition normalization the animal_count lateral above uses, so the stages a pen
+-- offers and the heads a pen counts come from the SAME animal set; group_key=(shed_id, normalized
+-- partition label) via the correlated partitions row; join_cardinality=goats 1:0..1
+-- goat_shed_partitions (PK tenant_id, goat_id), so no fan-out; a partitioned shed's animal with NO
+-- partition row matches no pen and contributes to neither stages nor count -- excluded on the same
+-- grain rather than smeared across every pen.
 LEFT JOIN LATERAL (
     SELECT array_agg(DISTINCT btrim(g.management_stage) ORDER BY btrim(g.management_stage)) AS stages
     FROM goats g
+    LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
     WHERE g.tenant_id = park.tenant_id AND g.shed_id = shed.location_id
       AND g.lifecycle_status = 'alive' AND g.exited_at IS NULL
       AND btrim(COALESCE(g.management_stage, '')) <> ''
+      AND (
+        CASE WHEN partitions.normalized_label IS NOT NULL THEN
+          regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = partitions.normalized_label
+        ELSE
+          regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = 'whole'
+        END
+      )
 ) stage_agg ON shed.location_id IS NOT NULL
 WHERE park.tenant_id = $1::uuid
   AND park.location_type = 'park'
