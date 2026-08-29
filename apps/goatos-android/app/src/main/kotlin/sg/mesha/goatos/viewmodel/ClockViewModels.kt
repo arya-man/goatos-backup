@@ -205,6 +205,16 @@ class ClockViewModel @Inject constructor(
                         checkAgainLabel = state.value.checkAgainLabel,
                     )
                 }
+                is ClockPunchOutcome.NoLocation -> {
+                    analytics.track(
+                        AnalyticsEventsClock.CLOCK_REFUSED_NO_LOCATION,
+                        mapOf(AnalyticsEvents.Params.REASON to if (outcome.permissionMissing) "permission" else "no_fix"),
+                    )
+                    _refusal.value = ClockRefusalUi(
+                        message = state.value.locationRequiredMessage,
+                        checkAgainLabel = state.value.checkAgainLabel,
+                    )
+                }
                 is ClockPunchOutcome.Enqueued -> {
                     analytics.track(
                         if (direction == ClockPunchDirection.IN) {
@@ -309,6 +319,10 @@ class ClockViewModel @Inject constructor(
             stateKey = stateKey,
             refusalTemplate = dto?.punchRefusedCopy.orEmpty(),
             checkAgainLabel = copy["check_again"].orEmpty(),
+            locationRequiredMessage = copy["refusal.location"].orEmpty()
+                // A cached status from before the location-mandatory rule shipped has no
+                // key yet; the refusal panel must still say the business thing.
+                .ifBlank { "Turn on location to clock in — your location is required." },
         )
     }
 }

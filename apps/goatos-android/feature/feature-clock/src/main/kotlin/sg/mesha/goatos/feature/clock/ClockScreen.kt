@@ -81,6 +81,8 @@ data class ClockUiState(
     val refusalTemplate: String = "",
     /** Backend copy `check_again`. */
     val checkAgainLabel: String = "",
+    /** Backend copy `refusal.location` — the location-is-mandatory punch refusal. */
+    val locationRequiredMessage: String = "",
 )
 
 sealed interface ClockEvent {

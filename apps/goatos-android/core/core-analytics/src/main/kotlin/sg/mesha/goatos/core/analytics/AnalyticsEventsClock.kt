@@ -22,6 +22,9 @@ object AnalyticsEventsClock {
     /** The client-side mock-location gate refused the punch (mock fix or installed fake-GPS app). */
     const val CLOCK_IN_REFUSED_MOCK = "clock_in_refused_mock"
 
+    /** The punch was refused because no real location fix was available (permission or GPS). */
+    const val CLOCK_REFUSED_NO_LOCATION = "clock_refused_no_location"
+
     /** A clock-out tap started. */
     const val CLOCK_OUT_ATTEMPTED = "clock_out_attempted"
 
