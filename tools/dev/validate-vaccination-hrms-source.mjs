@@ -857,7 +857,7 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // open obligation generation excludes Blue Tongue and PPR by policy until later
 // stock-confirmed scheduling.
 // Coupling review 2026-08-29: accepted dose 1/manual dose-1 anchors now drive
-// Blue Tongue adult W2/booster timing (+28 days). Source validation continues
+// Blue Tongue adult W2/booster timing (+21 days). Source validation continues
 // to check only source date order/minimum gap; no fixture bytes, HRMS rows,
 // parser inputs, SOP proof grain, or source-date semantics change.
 

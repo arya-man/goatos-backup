@@ -135,7 +135,7 @@ the safe scheduling range is **earliest safe date through earliest safe date +
 | Vaccine/course | Minimum gap |
 |---|---:|
 | Z1+Z3 dose 1 -> Z1+Z3 dose 2 / booster | 21 days / 3 weeks |
-| Blue Tongue kid dose 1 -> Blue Tongue kid dose 2 / booster | 28 days / 4 weeks |
+| Blue Tongue kid dose 1 -> Blue Tongue kid dose 2 / booster | 21 days / 3 weeks |
 | Z1+Z3 repeat/revaccination | Starts only after dose 2 / course completion; repeats every 182 days |
 
 The Z1+Z3 21-day booster rule applies to **adults and kids**. Do not treat adult
@@ -263,7 +263,7 @@ the rule source and must stay aligned with Config presets and kernel behavior.
 | Live-to-live gap: 4 weeks? | Yes. | Live vaccine spacing is a hard 28-day floor. |
 | Vaccinated at source then warm-up: 7 days from warm-up entry or source dose? | Seven days from warm-up entry. | Warm-up hold anchors to farm-entry date. |
 | After delivery: all missed doses in 2 weeks or by priority? | By priority and whatever is due; ideally mothers are fully vaccinated before delivery. | Post-delivery catch-up uses vaccine priority and should be rare because breeding/pregnancy vaccination is planned earlier. |
-| Sheep adults: Blue Tongue booster timing vs pox step? | Z1+Z3 booster can be given after 3 weeks for both kid and adult courses. Blue Tongue kid booster remains 4 weeks. | Z1+Z3 course rows keep a 21-day minimum gap; Blue Tongue kid course keeps 28 days. |
+| Sheep adults: Blue Tongue booster timing vs pox step? | Z1+Z3 and Blue Tongue boosters can be given after 3 weeks for both kid and adult courses. | Z1+Z3 and Blue Tongue course rows keep a 21-day minimum gap. |
 | Untrusted procurement vaccine notes: full catch-up or trust with review? | Never trust vaccine outside our supervision; trust only our parks or procurement holding parks. | Procurement holding-park vaccination starts the GoatOS schedule there; third-party/vendor claims do not suppress scheduled work. |
 | Pregnancy month 1-5: what date starts the clock? | Rough known breeding date. | Pregnancy month calculation starts from breeding date when available. |
 | Mother vaccinated: how is it recorded? | Mother ID is known and mother vaccines are ensured before gestation month 4. | Dam link may be stored for lineage/audit, but kid scheduling must not branch on dam vaccination status. |
@@ -602,7 +602,7 @@ The shared V1 policy must author:
 - same-day compatibility allowed flags;
 - live/killed spacing days;
 - Z1+Z3 course booster minimum gap of 21 days for both kid and adult courses;
-- Blue Tongue kid booster minimum gap of 28 days;
+- Blue Tongue kid booster minimum gap of 21 days;
 - first and second procurement waves.
 
 The V1 kernel must enforce:
@@ -655,7 +655,7 @@ narrowed by an admin after loading when the source rule needs a specific combo.
 | goat | HS | killed | bacterial | single | 84 | 84 | 365 | 2 ml | 100 | 5 |
 | sheep source | Z1+Z3 | killed | bacterial/toxoid | booster | 28d, 49d | dose 1, dose 2 after 21d | 182 after dose 2 | 2 ml | 100 | 1 |
 | sheep source | PPR | live | viral | single | 112 | 112 | 1095 | 1 ml | 100 | 2 |
-| sheep source | Blue Tongue | killed | viral | booster | 112, 140 | 112, 140 | 365 | 2 ml | 100 | 4 |
+| sheep source | Blue Tongue | killed | viral | booster | 112, 133 | 112, 133 | 365 | 2 ml | 100 | 4 |
 | sheep source | Sheep Pox | live | viral | single | 112 | 112 | 365 | 1 ml | 100 | 3 |
 | sheep source | FMD | killed | viral | single | 84 | 84 | 274 | 1 ml | 30 | 5 |
 | sheep source | HS | killed | bacterial | single | 84 | 84 | 365 | 2 ml | 100 | 5 |

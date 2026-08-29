@@ -134,7 +134,8 @@ approved goat/sheep kid path, the fixed due points are:
 | 7w | ET+TT booster | ET+TT booster |
 | 12w | FMD + HS | FMD + HS + Sheep Pox |
 | 16w | PPR | PPR + Blue Tongue dose 1 |
-| 20w | Goat Pox, only when moved after 16w PPR to satisfy live-live gap | Blue Tongue booster |
+| 19w | - | Blue Tongue booster |
+| 20w | Goat Pox, only when moved after 16w PPR to satisfy live-live gap | - |
 
 K0, K1, and early K2 have no approved-schedule vaccine due before 4w. After
 20w, the fixed kid course is complete; steady-state adult/fattening vaccination
@@ -153,7 +154,8 @@ spacing window.
 | K2 late | 10-77 days | Tail end of K2 timing. | goat + sheep kids where park data allows | 7w | ET+TT booster | ET+TT booster | ET+TT: 2 ml / vial 100 | ET+TT repeats every 6 months after the course. |
 | K3 Weaning | 78-84 days | Weaning stage; milk feeding normally ends around 60-90 days. | goat + sheep kids where park data allows | 12w | FMD + HS | FMD + HS; Sheep Pox also due | FMD: 1 ml / vial 30; HS: 2 ml / vial 100; Sheep Pox: 1 ml / vial 100 | FMD repeats every 9 months. HS and Sheep Pox repeat every 1 year. Sheep 3-way administration is pairwise-legal but Preventive Care should confirm before treating it as an approved 3-way drive. |
 | Fattening Male / Fattening Female | 120-240 days | Post-weaning kid. | goat + sheep when tag policy allows | 16w | PPR; Goat Pox raw source also says 16w | PPR + Blue Tongue dose 1 | PPR: 1 ml / vial 100; Goat Pox: 1 ml / vial 25; Blue Tongue: 2 ml / vial 100 | PPR repeats every 3 years. Blue Tongue repeats every 1 year. Goat Pox has a live-live conflict if PPR is also administered at 16w. |
-| Fattening Male / Fattening Female | 120-240 days | Post-weaning kid. | goat + sheep when tag policy allows | 20w derived | Goat Pox if PPR was administered at 16w | Blue Tongue booster | Goat Pox: 1 ml / vial 25; Blue Tongue: 2 ml / vial 100 | Goat Pox is moved to 20w only to satisfy the mandatory 4-week live-live gap after PPR. Goat Pox repeats every 1 year. |
+| Fattening Male / Fattening Female | 120-240 days | Post-weaning kid. | goat + sheep when tag policy allows | 19w | - | Blue Tongue booster | Blue Tongue: 2 ml / vial 100 | Blue Tongue booster is 21 days after the 16w first dose. |
+| Fattening Male / Fattening Female | 120-240 days | Post-weaning kid. | goat + sheep when tag policy allows | 20w derived | Goat Pox if PPR was administered at 16w | - | Goat Pox: 1 ml / vial 25 | Goat Pox is moved to 20w only to satisfy the mandatory 4-week live-live gap after PPR. Goat Pox repeats every 1 year. |
 | Fattening Male Warmup / Fattening Female Warmup | 120-240 days | Purchased kid on warmup diet before park diet. | goat + sheep when tag policy allows | age-based after 7-day hold | ET+TT 2 ml / vial 100; FMD 1 ml / vial 30; HS 2 ml / vial 100; PPR 1 ml / vial 100; Goat Pox 1 ml / vial 25 when age-due | ET+TT 2 ml / vial 100; FMD 1 ml / vial 30; HS 2 ml / vial 100; Sheep Pox 1 ml / vial 100; PPR 1 ml / vial 100; Blue Tongue 2 ml / vial 100 when age-due | ET+TT 2 ml / vial 100; PPR 1 ml / vial 100; Goat Pox 1 ml / vial 25; Sheep Pox 1 ml / vial 100; FMD 1 ml / vial 30; HS 2 ml / vial 100; Blue Tongue 2 ml / vial 100 | Kids up to 16w follow the normal age schedule after the 7-day hold. If PPR was given at 16w, Goat Pox moves to 20w. |
 | Adult Warmup | 300+ days | Purchased adult on warmup diet, generally maximum 14 days. | species-specific adult tag policy | first eligible day after 7-day hold | ET+TT + PPR | ET+TT + PPR | ET+TT: 2 ml / vial 100; PPR: 1 ml / vial 100 | Pregnant month 4-5 skip overrides this procurement step. |
 | Adult procured ET+TT dose 2 | 300+ days | Adult procured animal after first eligible procurement ET+TT dose. | species-specific adult tag policy | 21d after ET+TT dose 1 | ET+TT booster | ET+TT booster | ET+TT: 2 ml / vial 100 | ET+TT repeats every 6 months only after dose 2/course completion. |
@@ -176,7 +178,7 @@ spacing window.
 | Sheep Pox | Sheep | Virus live | Single | 1 ml | 100 | 12w; adult procurement step 2 | 1 year | - |
 | FMD | Goat + sheep | Virus killed | Single | 1 ml | 30 | 12w | 9 months | - |
 | HS | Goat + sheep | Bacteria killed | Single | 2 ml | 100 | 12w | 1 year | - |
-| Blue Tongue | Sheep | Virus killed | Booster | 2 ml | 100 | 16w, 20w | 1 year | - |
+| Blue Tongue | Sheep | Virus killed | Booster | 2 ml | 100 | 16w, 19w | 1 year | - |
 
 ## Compatibility And Gap Rules
 
@@ -188,7 +190,7 @@ spacing window.
 | PPR + Blue Tongue | Allowed by live-viral + killed-viral same-day rule. |
 | FMD + HS | Allowed by bacterial + viral same-day rule. |
 | PPR + Goat Pox | Not same day; both are live, so a 4w gap is mandatory. |
-| Sheep Pox + Blue Tongue booster | Not a source same-day bundle. Sheep Pox is 12w; Blue Tongue booster is 20w. |
+| Sheep Pox + Blue Tongue booster | Not a source same-day bundle. Sheep Pox is 12w; Blue Tongue booster is 19w. |
 | FMD + HS + Sheep Pox at 12w sheep | Pairwise legal, but 3-way administration should be Preventive Care-confirmed before product or drive logic treats it as approved. |
 | Any live -> live | 4w gap mandatory. |
 | Kid booster | Minimum 3w after the prior kid dose. |

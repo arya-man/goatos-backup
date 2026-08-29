@@ -290,7 +290,7 @@
     },
     {
       "date": "2026-08-29",
-      "change": "Blue Tongue adult W2/booster is published as the second post-arrival wave and generator replay anchors all multi-dose boosters to accepted dose 1 or a manual dose-1 anchor. A 2026-08-12 accepted Blue Tongue dose 1 therefore produces the +28 day booster on 2026-09-09 instead of a DOB/adult no-history row.",
+      "change": "Blue Tongue adult W2/booster is published as the second post-arrival wave and generator replay anchors all multi-dose boosters to accepted dose 1 or a manual dose-1 anchor. A 2026-08-12 accepted Blue Tongue dose 1 therefore produces the +21 day booster on 2026-09-02 instead of a DOB/adult no-history row; the kid path is 16w first dose plus 19w booster.",
       "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, file counts, HRMS rows, SOP contracts, proof grain, source vaccination dates, roster capacity, or seed closeout. The change is derived schedule publication/replay semantics only; source validation still preserves the same date cells and minimum-gap checks."
     }
   ],

@@ -4055,9 +4055,9 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			Species: []string{"sheep"},
 			BirthAgeWaves: []birthAgeWave{
 				{DoseCode: "blue_tongue_kid_16w", Days: 112, MinGapDays: 0},
-				{DoseCode: "blue_tongue_kid_20w", Days: 140, MinGapDays: 28},
+				{DoseCode: "blue_tongue_kid_19w", Days: 133, MinGapDays: 21},
 			},
-			PostArrivalWaves:  []postArrivalWave{{Days: 35}, {Days: 28, MinGapDays: 28}},
+			PostArrivalWaves:  []postArrivalWave{{Days: 35}, {Days: 21, MinGapDays: 21}},
 			RevaccinationDays: 365,
 		},
 		"Sheep Pox": {

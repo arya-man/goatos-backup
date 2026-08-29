@@ -156,9 +156,9 @@ test("visible drive selector campaigns are sorted by date oldest to newest", () 
     }),
     option({
       driveBatchId: "future-sep",
-      plannedDate: "2026-09-09T00:00:00+05:30",
-      windowStart: "2026-09-09T00:00:00+05:30",
-      windowEnd: "2026-09-09T00:00:00+05:30",
+      plannedDate: "2026-09-02T00:00:00+05:30",
+      windowStart: "2026-09-02T00:00:00+05:30",
+      windowEnd: "2026-09-02T00:00:00+05:30",
     }),
   ]));
   const executedCampaigns = executedDriveCampaigns([
@@ -193,7 +193,7 @@ test("visible drive selector campaigns are sorted by date oldest to newest", () 
     "2026-07-24",
     "2026-08-05",
     "2026-08-12",
-    "2026-09-09",
+    "2026-09-02",
     "2027-01-09",
   ]);
 });

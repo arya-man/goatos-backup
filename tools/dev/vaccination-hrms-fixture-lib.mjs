@@ -718,7 +718,7 @@ export function updateManifestHashes(directory, manifest) {
 // seed rows before the anchor. This library remains unchanged because the fixture source still
 // describes imported rows/dates, not runtime manual-anchor replay behavior.
 // Coupling review 2026-08-29: Blue Tongue adult W2/booster timing now follows accepted dose 1
-// or a manual dose-1 anchor (+28 days) instead of falling back to DOB/adult no-history timing.
+// or a manual dose-1 anchor (+21 days) instead of falling back to DOB/adult no-history timing.
 // The committed HRMS fixture bytes, source date cells, SOP proof grain, row counts, hashes,
 // operator capacity, and validation parser stay unchanged; this exported invariant pins the
 // loader contract so a validator or seeder cannot reinterpret booster rows as first-dose rows.

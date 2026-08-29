@@ -677,7 +677,7 @@ func TestApprovedVaccineRepeatIntervalsContinueAcrossFutureCycles(t *testing.T) 
 			name:         "Blue Tongue repeats yearly after kid dose 2",
 			rule:         protodomain.Rule{RuleID: "rule-blue-tongue-revac", DoseCode: "blue_tongue_revac", Sequence: 3, TriggerType: "after_previous_completion", OffsetDays: 365, MinGapDays: 365, Repeat: "yearly"},
 			vaccineCode:  "BLUE_TONGUE",
-			doseCode:     "blue_tongue_kid_20w",
+			doseCode:     "blue_tongue_kid_19w",
 			sequence:     2,
 			administered: time.Date(2026, time.August, 1, 8, 0, 0, 0, time.UTC),
 			want:         businessDayStart(time.Date(2027, time.August, 1, 8, 0, 0, 0, time.UTC)),
@@ -721,7 +721,7 @@ func TestPrimaryCourseContinuationFromHistoryKeepsKidAndBlueTongueGaps(t *testin
 
 	blueTongue := []protodomain.Rule{
 		{RuleID: "rule-bt-16w", DoseCode: "blue_tongue_kid_16w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 112},
-		{RuleID: "rule-bt-20w", DoseCode: "blue_tongue_kid_20w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 140, MinGapDays: 28},
+		{RuleID: "rule-bt-19w", DoseCode: "blue_tongue_kid_19w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 133, MinGapDays: 21},
 	}
 	blueTongueAt := time.Date(2026, time.July, 3, 8, 0, 0, 0, time.UTC)
 	due, found, err = primaryCourseContinuationDueFromHistory(blueTongue[1], vaccineProfile{Code: "BLUE_TONGUE"}, blueTongue, genEligibility{}, vaccineProfile{Code: "BLUE_TONGUE"}, schedulePathKid, []domain.RecentVaccineAdministration{{
@@ -733,7 +733,7 @@ func TestPrimaryCourseContinuationFromHistoryKeepsKidAndBlueTongueGaps(t *testin
 	if err != nil {
 		t.Fatalf("blue tongue continuation: %v", err)
 	}
-	want = businessDayStart(blueTongueAt).AddDate(0, 0, 28)
+	want = businessDayStart(blueTongueAt).AddDate(0, 0, 21)
 	if !found || !due.Equal(want) {
 		t.Fatalf("blue tongue due=%s found=%v, want %s", due, found, want)
 	}
