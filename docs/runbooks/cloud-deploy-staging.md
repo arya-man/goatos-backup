@@ -104,6 +104,20 @@ Cloud Build is an operator-controlled button, not a push-on-every-commit
 deployment. The same release helper still refuses non-`origin/main` commits and
 waits for Cloud Deploy rollout/image verification.
 
+Codex/Claude/agent-triggered staging deploys must use the same remote build
+authority. Do not require or assume Docker on a laptop. If an agent is driving a
+deploy outside Slack, it should start the `goatos-stg-deploy-main` Cloud Build
+trigger when the trigger can resolve `main`; otherwise submit the checked-out
+`origin/main` source to Cloud Build with `cloudbuild.stg.yaml` and an explicit
+`COMMIT_SHA=<12-char-main-sha>` substitution. The local
+`tools/deploy/stg-clouddeploy-release.sh` path is break-glass only for an OCI or
+other remote builder that actually has Docker; it is not the Mac/laptop path.
+
+`cloudbuild.stg.yaml` posts a Slack "build started" card before image builds, so
+Slack shows progress even when Codex or Claude starts the deploy directly. The
+later deploy helper still posts Cloud Deploy started/succeeded/failed cards once
+the release step begins.
+
 The card has two deploy buttons:
 
 - `Deploy main to STG`: if the `Also distribute Android mobile` checkbox is

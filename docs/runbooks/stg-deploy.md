@@ -33,12 +33,33 @@ authority for `goatos-stg`. GitHub Actions / Cloud Build / a local operator may
 only build images and create a release; Cloud Run staging services and jobs are
 mutated by the Cloud Deploy rollout task only.
 
+Do not require laptop Docker for staging. Slack deploys and agent deploys
+should build images in Cloud Build. If local Docker is needed for diagnosis,
+run that on the OCI builder environment, not on a developer Mac.
+
 Scripts:
 
 ```bash
 tools/deploy/stg-clouddeploy-release.sh   # build/create the release
 tools/deploy/stg-clouddeploy-task.sh      # custom-target rollout task
 ```
+
+For Codex/Claude, prefer the Cloud Build path:
+
+```bash
+gcloud builds triggers run goatos-stg-deploy-main --project=goatos-stg
+```
+
+If the trigger API cannot resolve the GitHub ref, submit the already-pushed
+clean `origin/main` checkout directly:
+
+```bash
+gcloud builds submit --project=goatos-stg --config=cloudbuild.stg.yaml \
+  --substitutions=COMMIT_SHA="$(git rev-parse --short=12 origin/main)",_DEPLOY_STG=true,_DEPLOY_MOBILE=false,_TRIGGERED_BY="Codex"
+```
+
+Both paths use Cloud Build for Docker image creation and post Slack status
+cards.
 
 Do not hand-write long `RELEASE_ID` values. Cloud Deploy generates rollout ids
 from the release id, target, and attempt suffix, and the final rollout id must

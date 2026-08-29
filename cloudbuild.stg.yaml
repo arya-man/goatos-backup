@@ -12,6 +12,56 @@ substitutions:
   _TRIGGERED_BY: "unknown Slack user"
 
 steps:
+  - id: notify-slack-started
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
+    entrypoint: bash
+    env:
+      - PROJECT_ID=goatos-stg
+      - PROJECT_NUMBER=514832198871
+      - REGION=asia-south1
+      - COMMIT_SHA=$COMMIT_SHA
+      - BUILD_ID=$BUILD_ID
+      - DEPLOY_STG=${_DEPLOY_STG}
+      - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
+      - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
+      - TRIGGERED_BY=${_TRIGGERED_BY}
+    args:
+      - -ceu
+      - |
+        webhook="$$(gcloud secrets versions access latest --project="$${PROJECT_ID}" --secret="$${SLACK_WEBHOOK_SECRET}" 2>/dev/null || true)"
+        if [[ -z "$${webhook}" ]]; then
+          echo "Slack deploy webhook is not configured; Cloud Build logs remain the source of truth."
+          exit 0
+        fi
+        tag="$$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
+        build_url="https://console.cloud.google.com/cloud-build/builds/$${BUILD_ID}?project=$${PROJECT_NUMBER}"
+        python3 - "$${tag}" "$${BUILD_ID}" "$${TRIGGERED_BY}" "$${DEPLOY_STG}" "$${DEPLOY_MOBILE}" "$${build_url}" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
+        import json
+        import sys
+
+        sha, build_id, triggered_by, deploy_stg, deploy_mobile, build_url = sys.argv[1:]
+        modes = []
+        if deploy_stg == "true":
+            modes.append("backend/web")
+        if deploy_mobile == "true":
+            modes.append("Android mobile")
+        mode_text = " + ".join(modes) or "no deploy targets"
+        payload = {
+            "attachments": [{
+                "color": "#439FE0",
+                "title": "GoatOS deploy build started",
+                "text": f"Cloud Build started for {mode_text}. Image builds may run before Cloud Deploy creates a release.",
+                "fields": [
+                    {"title": "Commit", "value": sha, "short": True},
+                    {"title": "Build", "value": build_id, "short": True},
+                    {"title": "Triggered by", "value": triggered_by, "short": False},
+                ],
+                "actions": [{"type": "button", "text": "Cloud Build logs", "url": build_url}],
+            }]
+        }
+        print(json.dumps(payload))
+        PY
+
   - id: configure-docker-auth
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
     entrypoint: sh
