@@ -11,7 +11,6 @@ PUBLIC_DASHBOARD_HOST="${PUBLIC_DASHBOARD_HOST:-dashboard.mesha.sg}"
 PUBLIC_API_HOST="${PUBLIC_API_HOST:-api.goatos.mesha.sg}"
 EXPECTED_LB_IP="${EXPECTED_LB_IP:-8.233.143.24}"
 URL_MAP_NAME="${URL_MAP_NAME:-goatos-stg-dashboard-map}"
-HERD_SIGNALS_MQTT_CREDENTIAL_SECRET="${HERD_SIGNALS_MQTT_CREDENTIAL_SECRET:-herd-signals-mqtt-gateway-514060-password}"
 
 if repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
   :
@@ -224,7 +223,7 @@ deploy_herd_signals_mqtt_bridge() {
     --no-cpu-throttling \
     --add-cloudsql-instances="${PROJECT_ID}:${REGION}:goatos-stg-core-db" \
     --set-env-vars="GOATOS_ENV=stg,GOATOS_HEALTH_ADDR=:8080,HERD_SIGNALS_MQTT_TLS=true,HERD_SIGNALS_TENANT_ID=00000000-0000-4000-8000-000000000001,HERD_SIGNALS_DEFAULT_GATEWAY_ID=f130d402dcb4,HERD_SIGNALS_MQTT_BATCH_SIZE=50,HERD_SIGNALS_MQTT_BATCH_INTERVAL=2s,HERD_SIGNALS_MQTT_QUEUE_MAX=5000" \
-    --set-secrets="DATABASE_URL=goatos-stg-database-url:latest,HERD_SIGNALS_MQTT_HOST=herd-signals-mqtt-host:latest,HERD_SIGNALS_MQTT_PORT=herd-signals-mqtt-port:latest,HERD_SIGNALS_MQTT_TOPIC=herd-signals-mqtt-topic:latest,HERD_SIGNALS_MQTT_CLIENT_ID=herd-signals-mqtt-client-id:latest,HERD_SIGNALS_MQTT_USERNAME=herd-signals-mqtt-username:latest,HERD_SIGNALS_MQTT_PASSWORD=${HERD_SIGNALS_MQTT_CREDENTIAL_SECRET}:latest,HERD_SIGNALS_MQTT_CA_CERT=herd-signals-mqtt-ca-crt:latest" \
+    --set-secrets="DATABASE_URL=goatos-stg-database-url:latest,HERD_SIGNALS_MQTT_HOST=herd-signals-mqtt-host:latest,HERD_SIGNALS_MQTT_PORT=herd-signals-mqtt-port:latest,HERD_SIGNALS_MQTT_TOPIC=herd-signals-mqtt-topic:latest,HERD_SIGNALS_MQTT_CLIENT_ID=herd-signals-mqtt-client-id:latest,HERD_SIGNALS_MQTT_USERNAME=herd-signals-mqtt-username:latest,HERD_SIGNALS_MQTT_PASSWORD=herd-signals-mqtt-gateway-514060-password:latest,HERD_SIGNALS_MQTT_CA_CERT=herd-signals-mqtt-ca-crt:latest" \
     --update-labels="commit_sha=${commit_sha},deployed_by=cloud-build-release" \
     --quiet
 

@@ -3859,6 +3859,15 @@ func (r *Repository) UpsertOperatorAssignmentConfig(ctx context.Context, tenantI
 	}
 	defer tx.Rollback(ctx)
 
+	if err := validateVaccinationOperatorPark(ctx, tx, tenantID, cfg.ParkID, cfg.DefaultOperatorID); err != nil {
+		return domain.OperatorAssignmentConfig{}, err
+	}
+	for _, operatorID := range cfg.SelectedOperatorIDs {
+		if err := validateVaccinationOperatorPark(ctx, tx, tenantID, cfg.ParkID, operatorID); err != nil {
+			return domain.OperatorAssignmentConfig{}, err
+		}
+	}
+
 	// Capture the pre-write state (locked) so we can emit precisely which cascade event(s) fired:
 	// vaccination.capacity.changed when N (active operators/day) changed, vaccination.roster.changed
 	// when the default operator changed. A first write emits both. FOR UPDATE serializes concurrent
@@ -4026,6 +4035,15 @@ func (r *Repository) ReassignPlannedDrives(ctx context.Context, tenantID, parkID
 	}
 	defer tx.Rollback(ctx)
 
+	if err := validateVaccinationOperatorPark(ctx, tx, tenantID, parkID, defaultOperatorID); err != nil {
+		return 0, err
+	}
+	for _, operatorID := range selectedOperatorIDs {
+		if err := validateVaccinationOperatorPark(ctx, tx, tenantID, parkID, operatorID); err != nil {
+			return 0, err
+		}
+	}
+
 	rows, err := tx.Query(ctx, `
 WITH target_assignments AS (
   SELECT
@@ -4132,6 +4150,35 @@ SELECT 'assignment' AS kind, count(*)::bigint FROM updated_assignments;
 		return 0, fmt.Errorf("vaccination execution: commit planned drive reassignment tx: %w", err)
 	}
 	return changed, nil
+}
+
+func validateVaccinationOperatorPark(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, tenantID, parkID, operatorID string) error {
+	if strings.TrimSpace(operatorID) == "" {
+		return fmt.Errorf("vaccination execution: operator assignment missing operator id")
+	}
+	var ok bool
+	if err := q.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM workforce_members wm
+  JOIN locations park
+    ON park.tenant_id = wm.tenant_id
+   AND park.location_id = $2::uuid
+   AND park.location_type = 'park'
+   AND park.status = 'active'
+  WHERE wm.tenant_id = $1::uuid
+    AND wm.workforce_member_id = $3::uuid
+    AND wm.status = 'active'
+    AND wm.primary_location_id = park.location_id
+)`, tenantID, parkID, operatorID).Scan(&ok); err != nil {
+		return fmt.Errorf("vaccination execution: validate operator park: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("vaccination execution: operator %s is not an active operator for park %s", operatorID, parkID)
+	}
+	return nil
 }
 
 // authorizedParkOptionsSQL reads the tenant's active parks from canonical `locations`, optionally

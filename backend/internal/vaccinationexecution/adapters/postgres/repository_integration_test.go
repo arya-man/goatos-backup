@@ -461,6 +461,7 @@ func TestReassignPlannedDrivesSelectedOperatorsOneToManyPageBoundaryScheduledDat
 		"selected operator ranking":  "COALESCE(array_position($4::uuid[], osc.operator_id), 999)",
 		"planned-only membership":    "AND ob.status = 'planned'",
 		"park scope":                 "AND vda.park_id = $2::uuid",
+		"operator primary park":      "wm.primary_location_id = park.location_id",
 		"scheduled effective date":   "AND vda.planned_date >= $6::date",
 		"page-boundary distribution": "WHERE ranked.roster_rank = ((ta.assignment_rank - 1) % GREATEST(ranked.available_count, 1)) + 1",
 		"status-preserving update":   "UPDATE vaccination_drive_assignments vda",

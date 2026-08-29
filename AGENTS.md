@@ -69,7 +69,14 @@ Required behavior:
    unrelated sheds when they fit safely under the cap. If complete buckets total
    180 and the next whole shed would exceed 200, keep 180 and carry the next
    shed/group forward instead of splitting it.
-7. After generation, report what actually happened: animals scheduled on the
+7. Never invent an operator fallback. A vaccination drive assignment's
+   `operator_id` must be an active workforce member whose
+   `primary_location_id` is the same park as the assignment's `park_id`.
+   If `vaccination_operator_assignment_config` is missing for a park, stop and
+   fix the park config; do not use another park's default operator. Any manual
+   SQL repair must include a pre-commit check that no assigned operator belongs
+   to a different park.
+8. After generation, report what actually happened: animals scheduled on the
    requested anchor date, animals pushed to another date, the reason for each
    push, remaining missing work, and next booster/revaccination dates.
 
