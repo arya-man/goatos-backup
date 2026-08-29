@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -737,5 +738,172 @@ func TestPackingVerifiedQuantitiesUpsertAndVariance(t *testing.T) {
 	}
 	if got := exec.PackingVariance[1]; got.FeedItemKey != "hay" || got.VarianceKg != "0.000" {
 		t.Errorf("variance after replace match = %+v, want hay exact match", got)
+	}
+}
+
+// THE PACKED-AGAINST SNAPSHOT + THE SESSION-SPECIFIC REOPEN (maintainer decision 2026-08-29,
+// closing the STG 2026-08-28 confusion): the submit freezes what the card directed onto the row;
+// the reopen stores each session's own old-vs-new sentence and emits one feed.packing.reopened
+// outbox event per reopened bag, carrying the packer and both sets of numbers.
+func TestReopenPackingStoresSessionReasonsAndEmitsReopenEvents(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := setupFeedDirectionDB(t, ctx)
+
+	oldHeads := int64(2)
+	snapshot := &ports.PackedAgainstSnapshot{
+		HeadCount: oldHeads,
+		TotalKg:   "4.000",
+		Items: []ports.PackedItemSnapshot{
+			{Key: "hay", Label: "Hay", QuantityKg: "3.000"},
+			{Key: "concentrate", Label: "Concentrate", QuantityKg: "1.000"},
+		},
+	}
+	submit := func(sessionNo int32, proof, key string, snap *ports.PackedAgainstSnapshot) ports.CompletePackingResult {
+		t.Helper()
+		p := packingParams()
+		p.SessionNo = sessionNo
+		p.PackingProofRef = proof
+		p.IdempotencyKey = key
+		p.PackedAgainst = snap
+		res, err := repo.CompletePacking(ctx, p)
+		if err != nil {
+			t.Fatalf("CompletePacking(session %d): %v", sessionNo, err)
+		}
+		return res
+	}
+	morning := submit(1, "proof-snap-morning", "feed-packing-snap-morning", snapshot)
+	// The evening bag was submitted by an older build with no snapshot at all.
+	evening := submit(2, "proof-snap-evening", "feed-packing-snap-evening", nil)
+
+	// (a) The snapshot ROUND-TRIPS: the row stores exactly what the card directed at submit time.
+	var storedHeads *int64
+	var storedTotal, storedItems string
+	if err := pool.QueryRow(ctx, `
+SELECT packed_head_count, coalesce(packed_total_kg::text, ''), coalesce(packed_items::text, '')
+FROM feed_packing_completions WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`,
+		fdTenant, morning.CompletionID).Scan(&storedHeads, &storedTotal, &storedItems); err != nil {
+		t.Fatalf("read snapshot columns: %v", err)
+	}
+	if storedHeads == nil || *storedHeads != oldHeads {
+		t.Fatalf("packed_head_count = %v, want %d", storedHeads, oldHeads)
+	}
+	if storedTotal != "4.000" {
+		t.Fatalf("packed_total_kg = %q, want 4.000", storedTotal)
+	}
+	if !strings.Contains(storedItems, `"key": "hay"`) && !strings.Contains(storedItems, `"key":"hay"`) {
+		t.Fatalf("packed_items = %q, want the hay item recorded", storedItems)
+	}
+	var eveningHeads *int64
+	if err := pool.QueryRow(ctx, `
+SELECT packed_head_count FROM feed_packing_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, evening.CompletionID).Scan(&eveningHeads); err != nil {
+		t.Fatalf("read evening snapshot: %v", err)
+	}
+	if eveningHeads != nil {
+		t.Fatalf("a snapshot-less submit stored packed_head_count = %d, want NULL -- NULL means 'not snapshotted', never zero", *eveningHeads)
+	}
+
+	// (b) The reopen stores EACH SESSION'S OWN sentence; a session with no context gets the fallback.
+	morningReason := "Animals moved in or out of this pen after you packed. This bag was 4 kg for 2 animals; it is now 24 kg for 12 animals. Pack the new amounts and record a new video."
+	res, err := repo.ReopenPackingForFeedChange(ctx, ports.ReopenPackingParams{
+		TenantID:   fdTenant,
+		ParkID:     fdPark,
+		TargetDate: businessDay(2026, 7, 22),
+		Workflow:   domain.WorkflowNormal,
+		Pens:       []domain.PenKey{{ShedID: fdShedA, PartitionKey: domain.PartitionMatchKey("")}},
+		Reason:     "Animals moved in or out of this pen, so the feed quantities changed. Pack the new amounts and record a new video.",
+		SessionContexts: []ports.ReopenSessionContext{{
+			ShedID:                     fdShedA,
+			PartitionKey:               domain.PartitionMatchKey(""),
+			SessionNo:                  1,
+			Reason:                     morningReason,
+			OperationalLocationDisplay: "Shed A",
+			SessionLabel:               "Morning",
+			NewHeadCount:               12,
+			NewTotalKg:                 "24.000",
+		}},
+		ParkLabel: "Channapatna",
+		TraceID:   "trace-reopen-snapshot",
+	})
+	if err != nil {
+		t.Fatalf("ReopenPackingForFeedChange: %v", err)
+	}
+	if len(res.ReopenedCompletionIDs) != 2 {
+		t.Fatalf("reopened %d rows, want both sessions", len(res.ReopenedCompletionIDs))
+	}
+	reasonOf := func(completionID string) string {
+		t.Helper()
+		var reason string
+		if err := pool.QueryRow(ctx, `
+SELECT coalesce(rework_reason, '') FROM feed_packing_completions
+WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`, fdTenant, completionID).Scan(&reason); err != nil {
+			t.Fatalf("read reason: %v", err)
+		}
+		return reason
+	}
+	if got := reasonOf(morning.CompletionID); got != morningReason {
+		t.Errorf("morning reason = %q, want the session-specific old-vs-new sentence", got)
+	}
+	if got := reasonOf(evening.CompletionID); !strings.Contains(got, "so the feed quantities changed") {
+		t.Errorf("evening (context-less) reason = %q, want the generic fallback", got)
+	}
+
+	// (c) ONE feed.packing.reopened event per reopened bag, in the same transaction, carrying the
+	// packer and the numbers.
+	rows, err := pool.Query(ctx, `
+SELECT payload FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = 'feed.packing.reopened'
+ORDER BY created_at`, fdTenant)
+	if err != nil {
+		t.Fatalf("read reopen outbox: %v", err)
+	}
+	defer rows.Close()
+	payloads := []string{}
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			t.Fatalf("scan outbox payload: %v", err)
+		}
+		payloads = append(payloads, payload)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate outbox: %v", err)
+	}
+	if len(payloads) != 2 {
+		t.Fatalf("reopen emitted %d feed.packing.reopened events, want one per reopened bag (2)", len(payloads))
+	}
+	joined := strings.Join(payloads, "\n")
+	for _, want := range []string{
+		`"operator_id": "` + fdActor + `"`, // the packer the push is addressed to
+		`"packed_head_count": 2`,           // the packed-against numbers (morning row)
+		`"new_head_count": 12`,             // the corrected numbers (morning row's context)
+		`"park_label": "Channapatna"`,
+	} {
+		if !strings.Contains(joined, want) && !strings.Contains(joined, strings.ReplaceAll(want, ": ", ":")) {
+			t.Errorf("reopen event payloads missing %s; payloads = %s", want, joined)
+		}
+	}
+
+	// (d) A re-submit after the reopen REFRESHES the snapshot: the operator repacked against the
+	// corrected sheet, so the old snapshot no longer describes the new video.
+	resubmitSnap := &ports.PackedAgainstSnapshot{HeadCount: 12, TotalKg: "24.000"}
+	resubmit := packingParams()
+	resubmit.SessionNo = 1
+	resubmit.PackingProofRef = "proof-snap-morning-2"
+	resubmit.IdempotencyKey = "feed-packing-snap-morning-2"
+	resubmit.PackedAgainst = resubmitSnap
+	if _, err := repo.CompletePacking(ctx, resubmit); err != nil {
+		t.Fatalf("CompletePacking (re-submit): %v", err)
+	}
+	var refreshedHeads *int64
+	var refreshedTotal string
+	if err := pool.QueryRow(ctx, `
+SELECT packed_head_count, coalesce(packed_total_kg::text, '')
+FROM feed_packing_completions WHERE tenant_id = $1::uuid AND completion_id = $2::uuid`,
+		fdTenant, morning.CompletionID).Scan(&refreshedHeads, &refreshedTotal); err != nil {
+		t.Fatalf("read refreshed snapshot: %v", err)
+	}
+	if refreshedHeads == nil || *refreshedHeads != 12 || refreshedTotal != "24.000" {
+		t.Errorf("re-submit snapshot = (%v, %q), want (12, 24.000) -- the operator repacked against the corrected sheet", refreshedHeads, refreshedTotal)
 	}
 }

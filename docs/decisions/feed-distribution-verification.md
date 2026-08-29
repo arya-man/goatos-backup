@@ -356,6 +356,45 @@ genuinely watched and passed that video — what protects the operator is the co
 `TestReopenPackingWithdrawsPendingItemsAndKeepsCastVerdicts`, mutation-tested two ways (a session
 predicate on the reopen; withdrawing a cast verdict).
 
+### The reopened card names the numbers, and the packer is TOLD — 2026-08-29
+
+STG incident 2026-08-28: a pen's sheet was issued at 07:00 for two animals and its bag was packed
+and filmed that morning; a shifting before the 13:30 cutoff moved animals in, the 14:00 correction
+(correctly) reopened the packing — and the card silently showed the corrected quantity with the one
+generic sentence. Nothing anywhere kept what the operator had actually packed against, so the number
+rewrote itself under the packer's feet with no explanation and no notification. Three additions fix
+the visibility (the reopen mechanics above are unchanged):
+
+1. **The submit snapshots what the card directed** (migration `000222`,
+   `feed_packing_completions.packed_head_count` / `packed_total_kg` / `packed_items`). Read from the
+   same frozen sheet row the worklist card renders, in the same read that already composes the
+   verifier's measurement fields, so the snapshot and the card cannot disagree. NULL means "not
+   snapshotted" (legacy rows, unreadable sheet) — never zero — and the snapshot is decoration: a
+   submit never fails because it could not be composed. A rework RE-SUBMIT refreshes it, because the
+   operator repacked against the then-current sheet. This is a HISTORICAL record; the worklist still
+   renders the frozen sheet's live instruction.
+2. **The reopen reason is session-specific and names both numbers.**
+   `packingReopenContexts` composes, per reopened pen-session, *"Animals moved in or out of this pen
+   after you packed. This bag was 4 kg for 2 animals; it is now 24 kg for 12 animals. Pack the new
+   amounts and record a new video."* — old from the row's snapshot, new from the corrected sheet via
+   the same `BuildPackingRows` the cards render from. Every clause degrades independently (no
+   snapshot → new-values-only; a pen-session the corrected sheet no longer lists → the generic
+   fallback sentence). Still backend-owned copy, rendered verbatim through the existing
+   `rework_reason` plumbing — no client change was needed.
+3. **`feed.packing.reopened` is emitted and pushed.** One event per reopened completion, in the SAME
+   transaction as the state flip, carrying the packer (`operator_id` = `completed_by`), the display
+   labels, and both sets of numbers; idempotency key is completion + the reopen's `row_version`, so
+   one bag reopened twice (reopen → re-submit → later correction) is two facts while a retried
+   reopen collapses onto one message. `FeedPackingReopenNotifyConsumer` sends a DOWNWARD push to the
+   packer only — routine daily work, no leadership leg — naming park, pen, session, old-vs-new
+   quantities, and the feed day. Registered in `context/architecture/domain-event-registry.json`.
+
+Pinned by `TestCompletePackingSnapshotsThePackedAgainstSheet`,
+`TestAfternoonCorrectionReopenReasonNamesOldAndNewQuantities` (mutation-tested: stubbing the context
+composition to nil turns it red), `TestAfternoonCorrectionReopenReasonDegradesWithoutASnapshot`,
+`TestReopenPackingStoresSessionReasonsAndEmitsReopenEvents` (the Postgres round-trip, outbox
+included) and the `TestFeedPackingReopenPush*` consumer trio.
+
 ## Feed packing (also gated) — follow-up, 2026-07-26
 
 > **Grain note** — briefly superseded on 2026-08-10 by a pen-DAY grain and RESTORED on 2026-08-11;

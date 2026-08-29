@@ -1160,6 +1160,7 @@
       ],
       "surfaces": [
         "backend",
+        "frontend",
         "mobile"
       ]
     },
