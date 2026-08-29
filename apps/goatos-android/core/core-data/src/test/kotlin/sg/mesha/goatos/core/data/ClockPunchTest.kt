@@ -1,6 +1,7 @@
 package sg.mesha.goatos.core.data
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -150,6 +151,26 @@ class ClockPunchTest {
         }
     }
 
+    @Test
+    fun `pending punch from previous IST day remains visible after midnight`() = runTest {
+        val repo = repository(
+            RecordingSyncRepository(),
+            MockLocationVerdict.Clean,
+            now = { OffsetDateTime.parse("2026-08-29T00:05:00+05:30") },
+            activePunchGroups = { opType ->
+                flowOf(
+                    if (opType == "CLOCK_IN") {
+                        setOf(clockPunchGroupKey("2026-08-28"))
+                    } else {
+                        emptySet()
+                    },
+                )
+            },
+        )
+
+        assertEquals("clock_in", repo.observePendingPunch().first())
+    }
+
     // --- fixtures -----------------------------------------------------------------------------
 
     private fun repository(
@@ -157,6 +178,7 @@ class ClockPunchTest {
         verdict: MockLocationVerdict,
         now: () -> OffsetDateTime = { OffsetDateTime.parse("2026-08-28T10:15:00+05:30") },
         location: ClockLocationDto = ClockLocationDto(status = "captured", latitude = 12.9, longitude = 77.5),
+        activePunchGroups: (opType: String) -> Flow<Set<String>> = { flowOf(emptySet()) },
     ): DefaultClockRepository = DefaultClockRepository(
         api = FakeAppApi(),
         dao = InMemoryClockDao(),
@@ -170,6 +192,7 @@ class ClockPunchTest {
                 offline = false,
             )
         },
+        activePunchGroups = activePunchGroups,
         now = now,
     )
 

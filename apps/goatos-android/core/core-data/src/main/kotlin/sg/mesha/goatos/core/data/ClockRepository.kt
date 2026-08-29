@@ -234,15 +234,13 @@ class DefaultClockRepository(
     }
 
     override fun observePendingPunch(): Flow<String?> {
-        val today = { now().atZoneSameInstant(IST).toLocalDate().toString() }
         return combine(
             activePunchGroups("CLOCK_IN"),
             activePunchGroups("CLOCK_OUT"),
         ) { ins, outs ->
-            val group = clockPunchGroupKey(today())
             when {
-                group in ins -> "clock_in"
-                group in outs -> "clock_out"
+                ins.isNotEmpty() -> "clock_in"
+                outs.isNotEmpty() -> "clock_out"
                 else -> null
             }
         }
