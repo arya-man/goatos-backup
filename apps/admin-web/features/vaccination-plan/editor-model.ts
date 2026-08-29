@@ -75,10 +75,9 @@ export type NewVaccineInput = {
 
 /**
  * Turns what the panel collected into the same shape the rest of the editor
- * already edits. A booster is just a second kid dose whose offset is the first
- * dose plus the gap -- the existing dose UI (plan-editor's "Give it when the
- * animal is …" rows, the Booster label at index > 0) needs nothing new to show
- * or edit it.
+ * already edits. Booster follow-ups must be anchored to the accepted first
+ * dose date, so manual/adult drives continue the same course instead of
+ * waiting for another DOB bucket.
  */
 export function newVaccineToEditor(input: NewVaccineInput): EditorVaccine {
   const code = input.code.trim();
@@ -105,6 +104,15 @@ export function newVaccineToEditor(input: NewVaccineInput): EditorVaccine {
         triggerType: "manual_campaign",
         doseCode: `${code.toLowerCase()}_adult_w1`,
       },
+      ...(input.courseType === "booster"
+        ? [
+            {
+              offsetDays: input.boosterGapDays,
+              triggerType: "after_previous_completion" as const,
+              doseCode: `${code.toLowerCase()}_adult_w2`,
+            },
+          ]
+        : []),
     ],
     maxLateDays: input.maxLateDays,
     repeatDays: input.repeatDays,

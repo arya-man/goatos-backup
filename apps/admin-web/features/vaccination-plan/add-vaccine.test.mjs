@@ -46,7 +46,7 @@ const BASE_DOC = {
   schedule: [],
 };
 
-test("newVaccineToEditor turns a booster course into two kid doses, second offset by the gap", () => {
+test("newVaccineToEditor turns a booster course into kid timing plus adult follow-up", () => {
   const v = newVaccineToEditor({
     name: "Brucella",
     code: "BRU",
@@ -64,6 +64,10 @@ test("newVaccineToEditor turns a booster course into two kid doses, second offse
   assert.equal(v.kidDoses.length, 2);
   assert.equal(v.kidDoses[0].offsetDays, 119);
   assert.equal(v.kidDoses[1].offsetDays, 140); // 119 + 21
+  assert.equal(v.driveDoses.length, 2);
+  assert.equal(v.driveDoses[0].triggerType, "manual_campaign");
+  assert.equal(v.driveDoses[1].triggerType, "after_previous_completion");
+  assert.equal(v.driveDoses[1].offsetDays, 21);
   assert.equal(v.on, true);
   assert.equal(v.repeatDays, 365);
 });

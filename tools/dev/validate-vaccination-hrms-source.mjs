@@ -56,6 +56,7 @@ import {
   OPERATOR_ROSTER_VERIFIER_IDENTITY_PROVIDER,
   OPERATOR_ROSTER_VERIFIER_ROLE,
   ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END,
+  BOOSTER_TIMING_ANCHORS_TO_ACCEPTED_DOSE1,
   ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS,
   ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE,
   VACCINATION_MEDICAL_DATE_FIELD,
@@ -75,6 +76,9 @@ if (!ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END) {
 }
 if (!ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE) {
   throw new Error("adult blank-history seed contract must automatically join the normal generated drive");
+}
+if (!BOOSTER_TIMING_ANCHORS_TO_ACCEPTED_DOSE1) {
+  throw new Error("multi-dose booster timing must anchor to accepted dose 1, not DOB/adult no-history timing");
 }
 if (VACCINATION_MEDICAL_DATE_FIELD !== "vaccination_completions.administered_at") {
   throw new Error("vaccination repeat timing must use the operator-administered medical date");
@@ -852,6 +856,10 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // position upserts do not alter HRMS source rows, hashes, or counts. Current
 // open obligation generation excludes Blue Tongue and PPR by policy until later
 // stock-confirmed scheduling.
+// Coupling review 2026-08-29: accepted dose 1/manual dose-1 anchors now drive
+// Blue Tongue adult W2/booster timing (+28 days). Source validation continues
+// to check only source date order/minimum gap; no fixture bytes, HRMS rows,
+// parser inputs, SOP proof grain, or source-date semantics change.
 
 // Coupling review 2026-08-05 (preventive_care module grants): reviewed against this source audit and
 // found nothing to validate. Removing milk/aas_health from the preventive_care department affects

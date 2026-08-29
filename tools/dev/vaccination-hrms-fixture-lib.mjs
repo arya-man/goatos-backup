@@ -133,6 +133,10 @@ export const ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END = true;
 // a field executor mislabelled supervisor/park_head (the Amit/Darshan/Sagar STG
 // incident). Capacity tier "manager" is NOT a role and never a non-operator hint.
 export const OPERATOR_ROSTER_OPERATOR_RESOLVES_TO_OPERATOR_ROLE_HINT = true;
+// Multi-dose vaccination courses anchor dose 2/booster timing to the accepted
+// dose-1 completion/manual dose-1 anchor. DOB/age rules are only the no-history
+// first-dose entry point; once dose 1 exists they must not delay the booster.
+export const BOOSTER_TIMING_ANCHORS_TO_ACCEPTED_DOSE1 = true;
 // The same CPT operator-roster contract also owns Android field-login setup
 // after DB seed: every executable vaccination operator must have a distinct
 // email/password identity derived from operators[].email_hint. Shared operator
@@ -713,3 +717,8 @@ export function updateManifestHashes(directory, manifest) {
 // Coupling review 2026-08-29: manual vaccination anchors now suppress same-family manual_campaign
 // seed rows before the anchor. This library remains unchanged because the fixture source still
 // describes imported rows/dates, not runtime manual-anchor replay behavior.
+// Coupling review 2026-08-29: Blue Tongue adult W2/booster timing now follows accepted dose 1
+// or a manual dose-1 anchor (+28 days) instead of falling back to DOB/adult no-history timing.
+// The committed HRMS fixture bytes, source date cells, SOP proof grain, row counts, hashes,
+// operator capacity, and validation parser stay unchanged; this exported invariant pins the
+// loader contract so a validator or seeder cannot reinterpret booster rows as first-dose rows.
