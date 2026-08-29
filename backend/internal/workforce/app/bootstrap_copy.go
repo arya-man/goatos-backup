@@ -425,8 +425,15 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		// LANDING bar — a person with a real work module still lands there.
 		priority: 0,
 		contributions: []moduleNavContribution{
-			{key: "clock", labelKey: "nav.clock", href: "/clock", shared_key: "", priority: 1},                                                                   //nav-composition:ignore: registry entry
-			{key: "clock_team", labelKey: "nav.clock_team", href: "/clock/team", shared_key: "", priority: 2, requiredPermission: permissions.ClockPresenceRead}, //nav-composition:ignore: registry entry
+			{key: "clock", labelKey: "nav.clock", href: "/clock", shared_key: "", priority: 1}, //nav-composition:ignore: registry entry
+			// The Team presence board is DELIBERATELY HIDDEN on mobile for now
+			// (maintainer decision 2026-08-29: "no need of this for some time").
+			// The screen, route, permission (ClockPresenceRead), and the
+			// /app/clock/presence reads all stay built — restoring it is
+			// re-adding this one row:
+			//   {key: "clock_team", labelKey: "nav.clock_team", href: "/clock/team", shared_key: "", priority: 2, requiredPermission: permissions.ClockPresenceRead}
+			// Leadership sees the same board on admin-web /people → Clock tab,
+			// which stays live and is the surface that matters today.
 		},
 		// The standalone verifier's lens composes from reviewContributions, and
 		// she clocks in like everyone else (decision D2) — without this row her

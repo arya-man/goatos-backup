@@ -225,12 +225,15 @@ func (r *Repository) ClockDayForMember(ctx context.Context, params ports.ClockSt
 		limit = 14
 	}
 	rows, err := r.pool.Query(ctx, `
-SELECT clock_entry_id::text, workforce_member_id::text, business_date::text, status,
-       clock_in_at, clock_out_at, worked_minutes, offline_punch, location_missing
-FROM workforce_clock_entries
-WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid
-  AND business_date <= $3::date
-ORDER BY business_date DESC
+SELECT e.clock_entry_id::text, e.workforce_member_id::text, e.business_date::text, e.status,
+       e.clock_in_at, e.clock_out_at, e.worked_minutes, e.offline_punch, e.location_missing,
+       COALESCE(ein.address, '')
+FROM workforce_clock_entries e
+LEFT JOIN workforce_clock_events ein
+  ON ein.tenant_id = e.tenant_id AND ein.clock_event_id = e.clock_in_event_id
+WHERE e.tenant_id = $1::uuid AND e.workforce_member_id = $2::uuid
+  AND e.business_date <= $3::date
+ORDER BY e.business_date DESC
 LIMIT $4`,
 		params.TenantID, params.WorkforceMemberID, params.BusinessDate, limit+1)
 	if err != nil {
@@ -262,7 +265,8 @@ func scanClockEntries(rows pgx.Rows) ([]ports.ClockEntryRow, error) {
 	for rows.Next() {
 		var e ports.ClockEntryRow
 		if err := rows.Scan(&e.ClockEntryID, &e.WorkforceMemberID, &e.BusinessDate, &e.Status,
-			&e.ClockInAt, &e.ClockOutAt, &e.WorkedMinutes, &e.OfflinePunch, &e.LocationMissing); err != nil {
+			&e.ClockInAt, &e.ClockOutAt, &e.WorkedMinutes, &e.OfflinePunch, &e.LocationMissing,
+			&e.Address); err != nil {
 			return nil, err
 		}
 		items = append(items, e)

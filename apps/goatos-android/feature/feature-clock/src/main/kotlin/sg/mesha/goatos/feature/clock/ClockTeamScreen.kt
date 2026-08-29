@@ -69,6 +69,8 @@ data class ClockTeamRowUi(
     val subtitle: String,
     /** Backend `time_label` verbatim, plus the client-ticked live elapsed for working-today. */
     val timeLine: String,
+    /** Backend `location_label` verbatim — where the punch was actually made. */
+    val locationLine: String,
     val flags: List<String>,
     val bucket: String,
 )
@@ -349,6 +351,9 @@ private fun ClockTeamRow(row: ClockTeamRowUi, onOpen: () -> Unit) {
             }
             if (row.timeLine.isNotBlank()) {
                 Text(text = row.timeLine, style = MeshaType.cardSubtitle, color = MeshaColors.Ink)
+            }
+            if (row.locationLine.isNotBlank()) {
+                Text(text = row.locationLine, style = MeshaType.caption, color = MeshaColors.Muted)
             }
             if (row.flags.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))

@@ -56,17 +56,6 @@ import javax.inject.Inject
 
 private val IST: ZoneId = ZoneId.of("Asia/Kolkata")
 
-/** "3h 40m" / "45m" from a backend-served RFC3339 instant to now. Rendering only. */
-private fun elapsedLabel(fromRfc3339: String, now: OffsetDateTime): String {
-    // exception:exempt an unparseable backend instant just hides the cosmetic elapsed figure.
-    val start = runCatching { OffsetDateTime.parse(fromRfc3339) }.getOrNull() ?: return ""
-    val minutes = Duration.between(start, now).toMinutes()
-    if (minutes < 0) return ""
-    val h = minutes / 60
-    val m = minutes % 60
-    return if (h > 0) "${h}h ${m}m" else "${m}m"
-}
-
 /** Applies a backend `%s` template; a template without `%s` is returned verbatim. */
 private fun template(copyLine: String, value: String): String =
     if (copyLine.contains("%s")) copyLine.replace("%s", value) else copyLine
@@ -141,18 +130,7 @@ class ClockViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(false)
     private val _refusal = MutableStateFlow<ClockRefusalUi?>(null)
     private val _punchInFlight = MutableStateFlow(false)
-    private val tick = MutableStateFlow(OffsetDateTime.now())
     private var pendingWatch: Job? = null
-
-    init {
-        // Minute tick drives the live elapsed line; rendering only, hours truth stays backend's.
-        viewModelScope.launch {
-            while (true) {
-                delay(30_000)
-                tick.value = OffsetDateTime.now()
-            }
-        }
-    }
 
     val state: StateFlow<ClockUiState> = combine(
         repo.observeStatus(),
@@ -164,9 +142,8 @@ class ClockViewModel @Inject constructor(
         combine(repo.observePendingPunch(), _punchInFlight) { queued, inFlight ->
             queued ?: if (inFlight) "in_flight" else null
         },
-        tick,
-    ) { dto, refreshing, refusal, pending, now ->
-        composeState(dto, refreshing, refusal, pending, now)
+    ) { dto, refreshing, refusal, pending ->
+        composeState(dto, refreshing, refusal, pending)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ClockUiState())
 
     fun refresh() {
@@ -269,7 +246,6 @@ class ClockViewModel @Inject constructor(
         refreshing: Boolean,
         refusal: ClockRefusalUi?,
         pending: String?,
-        now: OffsetDateTime,
     ): ClockUiState {
         val copy = dto?.copy.orEmpty()
         val stateKey = dto?.state.orEmpty()
@@ -293,11 +269,6 @@ class ClockViewModel @Inject constructor(
             else -> null
         }
         val headline = pendingKey?.let { copy[it].orEmpty().ifBlank { baseHeadline } } ?: baseHeadline
-        val elapsed = if (stateKey == "clocked_in" && entry != null) {
-            template(copy["hours.so_far"].orEmpty(), elapsedLabel(entry.clockInAt, now))
-        } else {
-            ""
-        }
         val punchLabel = when (stateKey) {
             "clocked_in" -> copy["action.clock_out"]?.takeIf { it.isNotBlank() }
             "clocked_out" -> null
@@ -308,7 +279,7 @@ class ClockViewModel @Inject constructor(
             isRefreshing = refreshing,
             hasStatus = dto != null,
             stateHeadline = headline,
-            elapsedLine = elapsed,
+            locationLine = entry?.locationLabel.orEmpty(),
             flags = entry?.flags?.map { it.label }.orEmpty(),
             punchLabel = punchLabel,
             punchEnabled = !inFlight,
@@ -534,6 +505,7 @@ class ClockTeamViewModel @Inject constructor(
                         // elapsed on screen; the live per-second tick belongs to My
                         // Clock's own entry, not this roster read.
                         timeLine = row.timeLabel,
+                        locationLine = row.locationLabel,
                         flags = row.flags.map { it.label },
                         bucket = row.bucket,
                     )

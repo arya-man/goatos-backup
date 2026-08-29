@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
@@ -63,8 +64,10 @@ data class ClockUiState(
     val hasStatus: Boolean = false,
     /** Backend copy `state.*`, with the clock-in label substituted for the clocked-in state. */
     val stateHeadline: String = "",
-    /** Client-ticked elapsed rendering of the backend-served clock_in_at; empty when closed. */
-    val elapsedLine: String = "",
+    /** Backend `location_label` — the captured punch address, rendered verbatim.
+     *  Replaces the retired elapsed line (maintainer 2026-08-29: the card shows
+     *  WHEN and WHERE you clocked in; the hours figure appears once the day closes). */
+    val locationLine: String = "",
     val flags: List<String> = emptyList(),
     /** Backend copy `action.clock_in` / `action.clock_out`; null hides the button. */
     val punchLabel: String? = null,
@@ -142,9 +145,9 @@ fun ClockScreen(
                     if (state.stateHeadline.isNotBlank()) {
                         Text(text = state.stateHeadline, style = MeshaType.screenTitle, color = MeshaColors.Ink)
                     }
-                    if (state.elapsedLine.isNotBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(text = state.elapsedLine, style = MeshaType.cardSubtitle, color = MeshaColors.Muted)
+                    if (state.locationLine.isNotBlank()) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(text = state.locationLine, style = MeshaType.caption, color = MeshaColors.Muted)
                     }
                     if (state.flags.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))
@@ -153,10 +156,16 @@ fun ClockScreen(
                     val punchLabel = state.punchLabel
                     if (punchLabel != null) {
                         Spacer(Modifier.height(16.dp))
+                        // Clock Out is the day-ENDING act, so it wears the danger red
+                        // (maintainer ask 2026-08-29); Clock In keeps the brand green.
+                        val isClockOut = state.stateKey == "clocked_in"
                         Button(
                             onClick = { onEvent(ClockEvent.Punch) },
                             enabled = state.punchEnabled,
-                            colors = ButtonDefaults.buttonColors(containerColor = MeshaColors.Brand, contentColor = MeshaColors.OnBrand),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isClockOut) MeshaColors.Danger else MeshaColors.Brand,
+                                contentColor = if (isClockOut) Color.White else MeshaColors.OnBrand,
+                            ),
                             modifier = Modifier.fillMaxWidth().height(52.dp),
                         ) {
                             Text(text = punchLabel, style = MeshaType.button)
