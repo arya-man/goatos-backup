@@ -112,11 +112,12 @@ func TestOfflinePunchAnchorsOnDeviceCapturedAt(t *testing.T) {
 	svc := newClockServiceForTest(repo)
 
 	captured := time.Now().Add(-30 * time.Hour)
+	lat, lng := 12.65, 77.21
 	_, err := svc.Punch(context.Background(), "t1", "u1", "clock_in", domain.ClockPunchRequest{
 		IdempotencyKey: "k1",
 		CapturedAt:     captured.Format(time.RFC3339),
 		Offline:        true,
-		Location:       domain.ClockLocation{Status: "captured"},
+		Location:       domain.ClockLocation{Status: "captured", Latitude: &lat, Longitude: &lng},
 	}, httpmiddleware.ClientInfo{DeviceModel: "SM-A15"}, "en", "trace")
 	if err != nil {
 		t.Fatalf("Punch() error=%v", err)
@@ -150,12 +151,13 @@ func TestPunchMapsRepositoryRefusals(t *testing.T) {
 		{ports.ErrAlreadyClockedOut, "already_clocked_out"},
 		{ports.ErrIdempotencyConflict, "idempotency_conflict"},
 	}
+	lat, lng := 12.65, 77.21
 	for _, tc := range cases {
 		repo := &fakeClockRepo{punchErr: tc.err}
 		svc := newClockServiceForTest(repo)
 		_, err := svc.Punch(context.Background(), "t1", "u1", "clock_out", domain.ClockPunchRequest{
 			IdempotencyKey: "k1",
-			Location:       domain.ClockLocation{Status: "captured"},
+			Location:       domain.ClockLocation{Status: "captured", Latitude: &lat, Longitude: &lng},
 		}, httpmiddleware.ClientInfo{}, "en", "trace")
 		appErr, ok := err.(*Error)
 		if !ok || appErr.Code != tc.code {
@@ -198,29 +200,45 @@ func TestStatusBannerShowsOnlyBeforeClockIn(t *testing.T) {
 	}
 }
 
-// PR-131 review P1: a "captured" claim WITHOUT coordinates is downgraded and
-// flagged — a tampered client must not dodge the "No location" honesty signal
-// by naming the status without the fix.
-func TestPunchDowngradesCapturedClaimWithoutCoordinates(t *testing.T) {
+// Maintainer decision 2026-08-29 (supersedes the record-and-flag half of D3
+// and the PR-131 P1 downgrade): LOCATION IS MANDATORY. A punch without a real
+// coordinate-bearing fix — missing permission, no fix, or a bare "captured"
+// claim with no coordinates — is refused 422 location_required and never
+// reaches the repository. A coordinate-carrying capture is the only way in.
+func TestPunchRequiresARealLocationFix(t *testing.T) {
+	locationless := []domain.ClockLocation{
+		{Status: "captured", Address: "somewhere plausible"}, // claim without the fix
+		{Status: "permission_missing"},
+		{Status: "unavailable"},
+		{},
+	}
+	for _, loc := range locationless {
+		repo := &fakeClockRepo{}
+		svc := newClockServiceForTest(repo)
+		_, err := svc.Punch(context.Background(), "t1", "u1", "clock_in", domain.ClockPunchRequest{
+			IdempotencyKey: "k1",
+			Location:       loc,
+		}, httpmiddleware.ClientInfo{}, "en", "trace")
+		appErr, ok := err.(*Error)
+		if !ok || appErr.Code != "location_required" || appErr.HTTPStatus != 422 {
+			t.Fatalf("location %+v: want 422 location_required, got %#v", loc, err)
+		}
+		if appErr.Message == "" {
+			t.Fatalf("location_required must carry farm-worded copy")
+		}
+		if repo.lastPunch != nil {
+			t.Fatalf("repository must not be reached for a location-less punch")
+		}
+	}
+
+	// A REAL capture with coordinates is accepted and stays captured.
 	repo := &fakeClockRepo{punchEntry: ports.ClockEntryRow{
 		ClockEntryID: "e1", WorkforceMemberID: "member-1",
 		BusinessDate: biztime.BusinessDate(time.Now()), Status: "open", ClockInAt: time.Now(),
 	}}
 	svc := newClockServiceForTest(repo)
-	_, err := svc.Punch(context.Background(), "t1", "u1", "clock_in", domain.ClockPunchRequest{
-		IdempotencyKey: "k1",
-		Location:       domain.ClockLocation{Status: "captured", Address: "somewhere plausible"},
-	}, httpmiddleware.ClientInfo{}, "en", "trace")
-	if err != nil {
-		t.Fatalf("Punch() error=%v", err)
-	}
-	got := repo.lastPunch.Location
-	if got.Status != "unavailable" || got.Address != "" || got.Latitude != nil {
-		t.Fatalf("coordinate-less captured claim must downgrade to unavailable and drop the address; got %+v", got)
-	}
-	// A REAL capture with coordinates stays captured.
 	lat, lng := 12.65, 77.21
-	if _, err := svc.Punch(context.Background(), "t1", "u1", "clock_out", domain.ClockPunchRequest{
+	if _, err := svc.Punch(context.Background(), "t1", "u1", "clock_in", domain.ClockPunchRequest{
 		IdempotencyKey: "k2",
 		Location:       domain.ClockLocation{Status: "captured", Latitude: &lat, Longitude: &lng},
 	}, httpmiddleware.ClientInfo{}, "en", "trace"); err != nil {

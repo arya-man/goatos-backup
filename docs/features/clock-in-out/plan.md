@@ -441,12 +441,19 @@ time is used, and the flag + skew make it auditable.
 heads, directors, verifier, CEO. Everyone sees the reminder banner until
 clocked in. Exemptions, if ever needed, come later as per-person ticks.
 
-**D3 — Location: record + distance flag, no hard geofence in V1.** Every
-punch stores its location; the web view shows distance-from-park as a flag.
-A refusal geofence is a later decision once real farm GPS accuracy is known.
-Sub-task this creates: park reference coordinates must exist (a
-lat/lng per park in config — `locations` carries none today); until a park
-has coordinates, the distance flag simply doesn't render for it.
+**D3 — Location: record + distance flag, no hard geofence in V1.**
+**SUPERSEDED IN PART (maintainer decision 2026-08-29): LOCATION IS MANDATORY.**
+The record-and-flag half is retired for NEW punches: a punch without a real
+coordinate-bearing fix is refused on both halves — the phone blocks it before
+enqueue (`ClockPunchOutcome.NoLocation`, refusal panel with Check again) and
+the server refuses independently (422 `location_required`), so a tampered
+client cannot skip it. `ACCESS_FINE_LOCATION` joined the mandatory permission
+gate for EVERY role (everyone clocks, D2). The `no_location` flag survives
+only for rows recorded before this rule. What still stands from D3: the
+distance flag (not a geofence) — a refusal geofence remains a later decision
+once real farm GPS accuracy is known, and park reference coordinates are
+still the named sub-task (`locations` carries none today; until a park has
+coordinates, the distance flag simply doesn't render for it).
 
 **D4 — One pair per day + midnight auto-close.** A single in/out pair per IST
 business day (the `UNIQUE (tenant, member, business_date)` in §3.1 stands). A

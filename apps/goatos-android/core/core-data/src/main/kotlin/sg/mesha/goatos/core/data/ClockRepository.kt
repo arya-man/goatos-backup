@@ -55,6 +55,13 @@ sealed interface ClockPunchOutcome {
     /** The client-side mock-location gate refused the punch; nothing was enqueued. */
     data class Blocked(val verdict: MockLocationVerdict) : ClockPunchOutcome
 
+    /**
+     * No real coordinate-bearing fix (maintainer decision 2026-08-29: location is MANDATORY for
+     * every punch); nothing was enqueued. [permissionMissing] separates "grant location access"
+     * from "waiting for a fix — try again".
+     */
+    data class NoLocation(val permissionMissing: Boolean) : ClockPunchOutcome
+
     /** The punch is DURABLE on the outbox (offline included); [outboxItemId] is observable. */
     data class Enqueued(val outboxItemId: String) : ClockPunchOutcome
 
@@ -147,6 +154,13 @@ class DefaultClockRepository(
             // The server refuses independently (422 mock_location_detected); blocking here just
             // spares an honest queue slot for a punch that can never land.
             return ClockPunchOutcome.Blocked(facts.verdict)
+        }
+        // LOCATION IS MANDATORY (maintainer decision 2026-08-29, superseding the
+        // record-and-flag half of D3): a punch without a real coordinate-bearing fix
+        // never queues — the server refuses it independently (422 location_required),
+        // so enqueuing would only dead-letter a punch that can never land.
+        if (facts.location.status != "captured" || facts.location.latitude == null || facts.location.longitude == null) {
+            return ClockPunchOutcome.NoLocation(permissionMissing = facts.location.status == "permission_missing")
         }
         val tap = now()
         // The IST business day is the idempotency scope. The SERVER still derives its own

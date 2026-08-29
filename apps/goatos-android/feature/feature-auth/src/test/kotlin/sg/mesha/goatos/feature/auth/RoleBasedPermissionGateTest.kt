@@ -76,11 +76,13 @@ class RoleBasedPermissionGateTest {
 
         val required = deriveRequiredPermissions(navState)
 
-        // Verifier requires only notifications
+        // Verifier: notifications + precise location (everyone clocks, and a punch
+        // requires a real fix — maintainer decision 2026-08-29), nothing more.
         assertTrue(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
+        assertTrue(required.contains(Manifest.permission.ACCESS_FINE_LOCATION))
         assertFalse(required.contains(AppPermission.CAMERA.manifestPermission))
         assertFalse(required.contains(AppPermission.BLUETOOTH_CONNECT.manifestPermission))
-        assertEquals(1, required.size)
+        assertEquals(2, required.size)
     }
 
     @Test
@@ -130,9 +132,10 @@ class RoleBasedPermissionGateTest {
 
         val required = deriveRequiredPermissions(navState)
 
-        // Director only gets notifications
+        // Director: notifications + precise location (the clock punch needs a fix).
         assertTrue(required.contains(AppPermission.NOTIFICATIONS.manifestPermission))
-        assertEquals(1, required.size)
+        assertTrue(required.contains(Manifest.permission.ACCESS_FINE_LOCATION))
+        assertEquals(2, required.size)
     }
 
     @Test

@@ -50,20 +50,15 @@ func (s *ClockService) Punch(ctx context.Context, tenantID, actorID, eventType s
 	if req.Integrity.MockLocation || len(req.Integrity.MockProviderPackages) > 0 {
 		return nil, &Error{Code: "mock_location_detected", Message: clockCopyFor(localeTag)["refusal.mock"], HTTPStatus: 422}
 	}
-	switch req.Location.Status {
-	case "captured", "permission_missing", "unavailable":
-	case "":
-		req.Location.Status = "unavailable"
-	default:
-		return nil, BadRequest("invalid_location_status", "unknown location status")
-	}
-	// A "captured" claim must carry coordinates. A tampered or buggy client
-	// could otherwise send status=captured with nil lat/lng and dodge the
-	// "No location" flag the honesty signal depends on (PR-131 review P1).
-	// Downgrade rather than refuse: an old client stays usable, the row is
-	// flagged, and the unproven address claim is dropped with the fix.
-	if req.Location.Status == "captured" && (req.Location.Latitude == nil || req.Location.Longitude == nil) {
-		req.Location = domain.ClockLocation{Status: "unavailable"}
+	// LOCATION IS MANDATORY (maintainer decision 2026-08-29, superseding the
+	// record-and-flag half of D3 and the PR-131 P1 downgrade): a punch must
+	// carry a real coordinate-bearing fix or it is refused outright, 422.
+	// The client blocks first (permission gate + fix wait); this is the
+	// tamper-proof backstop, so status=captured with nil lat/lng is refused
+	// too, not downgraded. The no_location flag survives only for rows
+	// recorded before this rule.
+	if req.Location.Status != "captured" || req.Location.Latitude == nil || req.Location.Longitude == nil {
+		return nil, &Error{Code: "location_required", Message: clockCopyFor(localeTag)["refusal.location"], HTTPStatus: 422}
 	}
 	if req.NetworkKind != "" && req.NetworkKind != "wifi" && req.NetworkKind != "cellular" {
 		req.NetworkKind = ""
@@ -594,6 +589,7 @@ var clockCopyEN = map[string]string{
 	"flag.no_location":        "No location",
 	"flag.not_clocked_out":    "Not clocked out",
 	"refusal.mock":            "This phone has an app that fakes its location. Remove it, then clock in.",
+	"refusal.location":        "Turn on location to clock in — your location is required.",
 	"refusal.mock_named":      "Remove %s to clock in — it changes this phone's location.",
 	"refusal.already_in":      "You have already clocked in today.",
 	"refusal.not_in":          "Clock in first — there is no clock-in for today.",
@@ -658,6 +654,7 @@ var clockCopyHI = map[string]string{
 	"flag.no_location":        "लोकेशन नहीं",
 	"flag.not_clocked_out":    "क्लॉक आउट नहीं",
 	"refusal.mock":            "इस फ़ोन में लोकेशन बदलने वाला ऐप है। उसे हटाएँ, फिर क्लॉक इन करें।",
+	"refusal.location":        "क्लॉक इन के लिए लोकेशन चालू करें — आपकी लोकेशन ज़रूरी है।",
 	"refusal.mock_named":      "क्लॉक इन के लिए %s हटाएँ — यह फ़ोन की लोकेशन बदलता है।",
 	"refusal.already_in":      "आज आप पहले ही क्लॉक इन कर चुके हैं।",
 	"refusal.not_in":          "पहले क्लॉक इन करें — आज का क्लॉक इन नहीं है।",
@@ -722,6 +719,7 @@ var clockCopyKN = map[string]string{
 	"flag.no_location":        "ಸ್ಥಳ ಇಲ್ಲ",
 	"flag.not_clocked_out":    "ಕ್ಲಾಕ್ ಔಟ್ ಇಲ್ಲ",
 	"refusal.mock":            "ಈ ಫೋನ್‌ನಲ್ಲಿ ಸ್ಥಳ ಬದಲಿಸುವ ಆ್ಯಪ್ ಇದೆ. ಅದನ್ನು ತೆಗೆದುಹಾಕಿ, ನಂತರ ಕ್ಲಾಕ್ ಇನ್ ಮಾಡಿ.",
+	"refusal.location":        "ಕ್ಲಾಕ್ ಇನ್ ಮಾಡಲು ಸ್ಥಳ (ಲೊಕೇಶನ್) ಆನ್ ಮಾಡಿ — ನಿಮ್ಮ ಸ್ಥಳ ಅಗತ್ಯವಿದೆ.",
 	"refusal.mock_named":      "ಕ್ಲಾಕ್ ಇನ್ ಮಾಡಲು %s ತೆಗೆದುಹಾಕಿ — ಅದು ಫೋನ್‌ನ ಸ್ಥಳ ಬದಲಿಸುತ್ತದೆ.",
 	"refusal.already_in":      "ಇಂದು ನೀವು ಈಗಾಗಲೇ ಕ್ಲಾಕ್ ಇನ್ ಮಾಡಿದ್ದೀರಿ.",
 	"refusal.not_in":          "ಮೊದಲು ಕ್ಲಾಕ್ ಇನ್ ಮಾಡಿ — ಇಂದಿನ ಕ್ಲಾಕ್ ಇನ್ ಇಲ್ಲ.",
@@ -786,6 +784,7 @@ var clockCopyTE = map[string]string{
 	"flag.no_location":        "లొకేషన్ లేదు",
 	"flag.not_clocked_out":    "క్లాక్ అవుట్ లేదు",
 	"refusal.mock":            "ఈ ఫోన్‌లో లొకేషన్ మార్చే యాప్ ఉంది. దాన్ని తీసివేసి, తర్వాత క్లాక్ ఇన్ చేయండి.",
+	"refusal.location":        "క్లాక్ ఇన్ చేయడానికి లొకేషన్ ఆన్ చేయండి — మీ లొకేషన్ తప్పనిసరి.",
 	"refusal.mock_named":      "క్లాక్ ఇన్ చేయడానికి %s తీసివేయండి — అది ఫోన్ లొకేషన్ మారుస్తుంది.",
 	"refusal.already_in":      "ఈరోజు మీరు ఇప్పటికే క్లాక్ ఇన్ చేశారు.",
 	"refusal.not_in":          "ముందుగా క్లాక్ ఇన్ చేయండి — ఈరోజు క్లాక్ ఇన్ లేదు.",

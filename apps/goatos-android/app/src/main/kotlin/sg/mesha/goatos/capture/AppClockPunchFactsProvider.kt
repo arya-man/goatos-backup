@@ -113,7 +113,11 @@ class AppClockPunchFactsProvider @Inject constructor(
             .filter { provider -> runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false) }
         if (providers.isEmpty()) return null
 
-        return withTimeoutOrNull(3500) {
+        // Location is MANDATORY for a punch (maintainer decision 2026-08-29), so a
+        // fix that arrives late is worth waiting for: 8s covers a cold GPS start
+        // while the network provider usually answers in well under one. On timeout
+        // the last-known fix still counts; only a phone with neither is refused.
+        return withTimeoutOrNull(8_000) {
             suspendCancellableCoroutine { continuation ->
                 var resumed = false
                 val listeners = mutableListOf<LocationListener>()

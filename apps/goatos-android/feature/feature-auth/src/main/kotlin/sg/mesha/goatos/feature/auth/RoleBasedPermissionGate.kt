@@ -235,7 +235,8 @@ fun RoleBasedPermissionGate(
  *
  * Operator: the full proof/scan bundle up front: camera, microphone, precise
  * location, BLE/Nearby Devices, notifications.
- * Verifier/Director/CEO: notifications only (for now)
+ * Verifier/Director/CEO: notifications + precise location (everyone clocks,
+ * and a clock punch requires a real fix — maintainer decision 2026-08-29).
  *
  * Uses module availability as the source, not hardcoded role strings.
  */
@@ -251,12 +252,17 @@ fun deriveRequiredPermissions(navState: NavState): List<String> {
         required.add(AppPermission.NOTIFICATIONS.manifestPermission)
     }
 
+    // Everyone clocks (module clock, plan §9 D2) and a clock punch REQUIRES a real
+    // location fix (maintainer decision 2026-08-29) — so precise location is mandatory
+    // for EVERY role, not just operators. Without this, a leadership login's gate never
+    // asked for location and their clock-in was refused location_required.
+    required.add(Manifest.permission.ACCESS_FINE_LOCATION)
+
     if (isOperator) {
         // Operators record proof from the field. Ask for the same mandatory bundle the
         // capture gate enforces, before the operator enters Feed/Vaccination/Weighing.
         required.add(Manifest.permission.CAMERA)
         required.add(Manifest.permission.RECORD_AUDIO)
-        required.add(Manifest.permission.ACCESS_FINE_LOCATION)
 
         // Operator requires Android 12+ Nearby Devices permissions for RFID reader readiness and
         // future scan/pairing affordances.

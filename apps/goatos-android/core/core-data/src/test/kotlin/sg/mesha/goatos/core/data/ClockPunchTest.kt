@@ -129,19 +129,41 @@ class ClockPunchTest {
         assertEquals(0, sync.calls.size)
     }
 
+    // Location is MANDATORY (maintainer decision 2026-08-29): a punch without a real
+    // coordinate-bearing fix never queues — the server would refuse it 422 anyway, so
+    // enqueuing would only dead-letter a punch that can never land.
+    @Test
+    fun `a punch without a real location fix never enqueues`() = runTest {
+        val locationless = listOf(
+            ClockLocationDto(status = "permission_missing") to true,
+            ClockLocationDto(status = "unavailable") to false,
+            // A "captured" claim with no coordinates is a fix nobody has.
+            ClockLocationDto(status = "captured") to false,
+        )
+        for ((location, wantPermissionMissing) in locationless) {
+            val sync = RecordingSyncRepository()
+            val repo = repository(sync, MockLocationVerdict.Clean, location = location)
+            val outcome = repo.punch(ClockPunchDirection.IN)
+            assertTrue("location $location must refuse", outcome is ClockPunchOutcome.NoLocation)
+            assertEquals(wantPermissionMissing, (outcome as ClockPunchOutcome.NoLocation).permissionMissing)
+            assertEquals(0, sync.calls.size)
+        }
+    }
+
     // --- fixtures -----------------------------------------------------------------------------
 
     private fun repository(
         sync: RecordingSyncRepository,
         verdict: MockLocationVerdict,
         now: () -> OffsetDateTime = { OffsetDateTime.parse("2026-08-28T10:15:00+05:30") },
+        location: ClockLocationDto = ClockLocationDto(status = "captured", latitude = 12.9, longitude = 77.5),
     ): DefaultClockRepository = DefaultClockRepository(
         api = FakeAppApi(),
         dao = InMemoryClockDao(),
         syncRepository = sync,
         factsProvider = {
             ClockPunchFacts(
-                location = ClockLocationDto(status = "captured", latitude = 12.9, longitude = 77.5),
+                location = location,
                 verdict = verdict,
                 batteryPct = 80,
                 networkKind = "wifi",
