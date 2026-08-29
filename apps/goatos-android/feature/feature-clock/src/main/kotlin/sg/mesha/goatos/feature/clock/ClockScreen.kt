@@ -25,7 +25,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
@@ -164,7 +163,7 @@ fun ClockScreen(
                             enabled = state.punchEnabled,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (isClockOut) MeshaColors.Danger else MeshaColors.Brand,
-                                contentColor = if (isClockOut) Color.White else MeshaColors.OnBrand,
+                                contentColor = if (isClockOut) MeshaColors.Ink else MeshaColors.OnBrand,
                             ),
                             modifier = Modifier.fillMaxWidth().height(52.dp),
                         ) {
