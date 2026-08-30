@@ -84,6 +84,7 @@ history.
 
 | Evidence available for the vaccine being scheduled | Required behavior |
 | --- | --- |
+| Manual anchor campaign for the same vaccine | Use the manual campaign date as the course base for the selected animals, whether it is dose 1, booster, or revaccination. Follow-on doses schedule from that anchor or its accepted completion; DOB/entry/calendar rows before the anchor must not reappear. |
 | Accepted administration history for the same vaccine | Use the latest accepted administration (or accepted course completion where the matrix defines a course) plus that vaccine's configured next-dose/repeat interval. Ignore DOB/entry as due-date anchors for that vaccine. |
 | No same-vaccine history, but trusted DOB is available | Use DOB only for an eligible new age-based course. Do not fabricate historical administrations. |
 | No same-vaccine history or DOB, but trusted herd-entry date is available | Use entry date only for the applicable procurement/adult-primary path and its warmup constraints. |

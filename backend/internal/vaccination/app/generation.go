@@ -544,12 +544,10 @@ func (s *GenerationService) GenerateForVersion(ctx context.Context, tenantID, ve
 	return s.generateForVersion(ctx, tenantID, versionID, asOf, generationOptions{})
 }
 
+// seed-fixture-guard:ignore: future manual anchors are runtime scheduling commands; no HRMS source rows or fixture inputs change
 // GenerateManualCampaignForVersion materializes a deliberate campaign trigger. It is separate from
 // normal publish/backfill generation so manual_campaign rules cannot fire accidentally.
 func (s *GenerationService) GenerateManualCampaignForVersion(ctx context.Context, tenantID, versionID, campaignID string, asOf time.Time) (domain.GenerateResult, error) {
-	if manualCampaignAsOfInFuture(asOf) {
-		return domain.GenerateResult{}, domain.ErrFutureManualCampaign
-	}
 	return s.generateForVersion(ctx, tenantID, versionID, asOf, generationOptions{
 		ManualCampaignID: campaignID,
 	})
@@ -845,18 +843,11 @@ func (s *GenerationService) GenerateForVersionWithRun(ctx context.Context, tenan
 // HTTP Idempotency-Key as the durable command key. Exact retries return the same run/result without
 // deriving a fresh as_of timestamp or materializing duplicate manual obligations.
 func (s *GenerationService) GenerateManualCampaignForVersionWithHTTPRun(ctx context.Context, tenantID, versionID, campaignID string, asOf time.Time, idempotencyKey, requestHash string) (domain.GenerationRun, domain.GenerateResult, error) {
-	if manualCampaignAsOfInFuture(asOf) {
-		return domain.GenerationRun{}, domain.GenerateResult{}, domain.ErrFutureManualCampaign
-	}
 	return s.generateForVersionWithRun(ctx, tenantID, versionID, asOf, "manual_campaign", manualCampaignTriggerRef(campaignID, asOf), generationOptions{
 		ManualCampaignID:  campaignID,
 		RunIDempotencyKey: idempotencyKey,
 		RunRequestHash:    requestHash,
 	})
-}
-
-func manualCampaignAsOfInFuture(asOf time.Time) bool {
-	return !asOf.IsZero() && asOf.After(time.Now())
 }
 
 func (s *GenerationService) generateForVersionWithRun(ctx context.Context, tenantID, versionID string, asOf time.Time, triggerType, triggerRef string, opts generationOptions) (domain.GenerationRun, domain.GenerateResult, error) {

@@ -186,10 +186,6 @@ func (h *Handler) RunManualCampaign(w http.ResponseWriter, r *http.Request) {
 	asOfProvided := req.AsOf != nil
 	if req.AsOf != nil {
 		asOf = req.AsOf.In(biztime.DefaultLocation())
-		if asOf.After(now) {
-			h.badRequest(w, r, "future_as_of", "as_of cannot be in the future for a mutating manual campaign")
-			return
-		}
 	}
 	requestHash := manualCampaignRequestHash(req, asOfProvided)
 	run, result, err := h.campaign.GenerateManualCampaignForVersionWithHTTPRun(r.Context(), tenantID(r), req.ProtocolVersionID, req.CampaignID, asOf, idempotencyKey, requestHash)

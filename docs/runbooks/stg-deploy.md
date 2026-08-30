@@ -37,6 +37,12 @@ Do not require laptop Docker for staging. Slack deploys and agent deploys
 should build images in Cloud Build. If local Docker is needed for diagnosis,
 run that on the OCI builder environment, not on a developer Mac.
 
+Vaccination generator/sweeper changes have an extra pre-deploy gate: prove them
+against an OCI database or local clone of staging before creating the Cloud
+Deploy release. The clone must carry the same migrations, published vaccination
+matrix, HRMS/operator roster, manual anchors, and capacity config as the target
+staging seed. Do not deploy from a laptop-only local Docker rehearsal.
+
 Scripts:
 
 ```bash

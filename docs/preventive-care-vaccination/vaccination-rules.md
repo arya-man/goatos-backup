@@ -59,11 +59,20 @@ non-core rows blank).
 
 Operations may set a manual campaign date as the first known anchor for any
 vaccine family when historical/base vaccination data is missing or intentionally
-reset. That anchor applies to every selected animal for that vaccine family,
-kids and adults included. From that date onward, repeats and boosters follow the
-published vaccine rules; DOB, arrival, and calendar base rules must not recreate
+reset. That anchor can represent dose 1, a booster, or a revaccination campaign:
+the selected date is the course base for that vaccine family and those animals,
+kids and adults included. From that date onward, next doses, boosters, and
+revaccination cycles follow the published vaccine rules from the anchor or its
+accepted completion; DOB, arrival, and calendar base rules must not recreate
 older work before the manual anchor, including after the anchor row becomes
 `missed`.
+
+Before landing or deploying an anchor-rule change, replay the vaccination
+generator/sweeper against a staging-data clone on the maintainer OCI Postgres
+path. The proof must include deleting/canceling stale pre-anchor rows, inserting
+the requested anchor date, running the same generator/sweeper command path, and
+showing that no older DOB/arrival/calendar rows reappear while configured
+follow-on doses still schedule from the anchor/completion date.
 
 When scheduling an anchor campaign, split operator work at the common cap of 200
 animals per operator/day. Prefer whole shed/partition groups: if adding the next

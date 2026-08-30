@@ -791,7 +791,7 @@ func TestManualCampaignHTTPRunReplaysByIdempotencyKey(t *testing.T) {
 	}
 }
 
-func TestManualCampaignHTTPRunRejectsFutureAsOfBeforeStartingRun(t *testing.T) {
+func TestManualCampaignHTTPRunAllowsFutureAnchorDate(t *testing.T) {
 	ctx := context.Background()
 	proto := &generationProtoFake{}
 	goats := &generationGoatFake{}
@@ -799,12 +799,16 @@ func TestManualCampaignHTTPRunRejectsFutureAsOfBeforeStartingRun(t *testing.T) {
 	runs := &generationRunRecorderFake{byKey: map[string]domain.GenerationRun{}}
 	gen := NewGenerationService(proto, goats, obl).WithGenerationRunRecorder(runs)
 
-	_, _, err := gen.GenerateManualCampaignForVersionWithHTTPRun(ctx, "tenant-1", "version-1", "catchup", time.Now().Add(48*time.Hour), "manual-key-future", "hash-future")
-	if !errors.Is(err, domain.ErrFutureManualCampaign) {
-		t.Fatalf("err=%v, want future manual campaign error", err)
+	future := time.Now().Add(48 * time.Hour)
+	run, result, err := gen.GenerateManualCampaignForVersionWithHTTPRun(ctx, "tenant-1", "version-1", "catchup", future, "manual-key-future", "hash-future")
+	if err != nil {
+		t.Fatalf("future manual campaign anchor: %v", err)
 	}
-	if len(runs.startInputs) != 0 || len(obl.inserted) != 0 {
-		t.Fatalf("future HTTP run started work: startInputs=%#v inserted=%#v", runs.startInputs, obl.inserted)
+	if run.IdempotencyKey != "manual-key-future" || result.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("run=%#v result=%#v inserted=%#v", run, result, obl.inserted)
+	}
+	if !obl.inserted[0].DueAt.Equal(businessDayStart(future)) {
+		t.Fatalf("due_at=%s, want future anchor day %s", obl.inserted[0].DueAt, businessDayStart(future))
 	}
 }
 

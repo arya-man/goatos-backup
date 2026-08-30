@@ -118,7 +118,7 @@ func TestRunManualCampaignCallsGenerator(t *testing.T) {
 	}
 }
 
-func TestRunManualCampaignRejectsFutureAsOf(t *testing.T) {
+func TestRunManualCampaignAcceptsFutureAsAnchorDate(t *testing.T) {
 	campaign := &fakeCampaign{}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(&fakeImpact{}, nil).WithManualCampaignGenerator(campaign))
@@ -131,14 +131,14 @@ func TestRunManualCampaignRejectsFutureAsOf(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d (%s)", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("want 202, got %d (%s)", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "future_as_of") {
-		t.Fatalf("body = %s", rec.Body.String())
+	if !campaign.called {
+		t.Fatal("generator was not called for future anchor date")
 	}
-	if campaign.called {
-		t.Fatalf("generator was called for future as_of")
+	if !campaign.asOf.After(time.Now()) {
+		t.Fatalf("as_of = %s, want future anchor date", campaign.asOf.Format(time.RFC3339))
 	}
 }
 
