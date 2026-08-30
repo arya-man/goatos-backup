@@ -26,9 +26,10 @@ export default async function Page() {
   ]);
 
   const versions = configs.ok ? (configs.data.items ?? []) : [];
+  const readableVersions = versions.filter((item) => item.protocol_version_id);
 
   // Newest first, so "the version before this one" is the next element.
-  const ordered = [...versions].sort((a, b) => (b.version ?? 0) - (a.version ?? 0));
+  const ordered = [...readableVersions].sort((a, b) => (b.version ?? 0) - (a.version ?? 0));
   const recent = ordered.slice(0, HISTORY_DEPTH);
 
   const documents = await Promise.all(
