@@ -63,6 +63,8 @@ export type AnchorConfig = {
   anchorDate: string;
   reason: string;
   sourceRef: string;
+  scopeType?: "tenant" | "park" | "shed" | "partition" | "animal_set";
+  scopePayload?: Record<string, unknown>;
   suppressBeforeAnchor: boolean;
   chainFutureFromAnchor: boolean;
   enforceAgeEligibility: boolean;
@@ -522,6 +524,8 @@ function mergeAnchorConfig(vaccines: EditorVaccine[], raw: unknown): EditorVacci
         anchorDate,
         reason: String(r.reason ?? "Anchor/base date for this vaccine rule"),
         sourceRef: String(r.source_ref ?? ""),
+        scopeType: anchorScopeType(r.scope_type),
+        scopePayload: asObject(r.scope_payload),
         suppressBeforeAnchor: r.suppress_before_anchor !== false,
         chainFutureFromAnchor: r.chain_future_from_anchor !== false,
         enforceAgeEligibility: r.enforce_age_eligibility !== false,
@@ -540,12 +544,13 @@ function writeAnchorConfig(doc: Record<string, unknown>, plan: EditorPlan) {
         vaccine_code: vaccine.code,
         dose_code: doseCode,
         anchor_date: anchor.anchorDate,
-        scope_type: "tenant",
+        scope_type: anchor.scopeType ?? "tenant",
         suppress_before_anchor: anchor.suppressBeforeAnchor,
         chain_future_from_anchor: anchor.chainFutureFromAnchor,
         enforce_age_eligibility: anchor.enforceAgeEligibility,
         reason: anchor.reason.trim() || "Anchor/base date for this vaccine rule",
       };
+      if (anchor.scopePayload && Object.keys(anchor.scopePayload).length > 0) item.scope_payload = anchor.scopePayload;
       if (anchor.sourceRef.trim()) item.source_ref = anchor.sourceRef.trim();
       rules.push(item);
     }
@@ -555,6 +560,18 @@ function writeAnchorConfig(doc: Record<string, unknown>, plan: EditorPlan) {
     return;
   }
   doc.anchor_config = { rules };
+}
+
+function anchorScopeType(raw: unknown): AnchorConfig["scopeType"] {
+  switch (String(raw ?? "tenant")) {
+    case "park":
+    case "shed":
+    case "partition":
+    case "animal_set":
+      return String(raw) as AnchorConfig["scopeType"];
+    default:
+      return "tenant";
+  }
 }
 
 /**

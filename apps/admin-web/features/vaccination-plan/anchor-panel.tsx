@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { CircleSlash, Pencil, Plus } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 
 import { todayIso } from "@/lib/format";
 import type { AnchorConfig } from "./editor-model";
@@ -49,14 +49,6 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
     setState((current) => ({ ...current, [key]: value }));
   }
 
-  function skipAnchor(key: string) {
-    const row = rows.find((item) => rowKey(item) === key);
-    if (row?.rule.dose_code) onChange?.(row.rule.dose_code, null);
-    if (editingKey === key) {
-      setEditingKey(null);
-    }
-  }
-
   if (rows.length === 0) return null;
 
   return (
@@ -89,28 +81,15 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
                   <td>{repeatLabel(row.rule)}</td>
                   <td>{anchorDate || "No anchor"}</td>
                   <td>
-                    <div className="anchorrow-actions">
-                      <button
-                        className="btn ghost sm icon"
-                        type="button"
-                        aria-label={anchorDate ? "Edit anchor" : "Add anchor"}
-                        title={anchorDate ? "Edit anchor" : "Add anchor"}
-                        onClick={() => openEditor(row)}
-                      >
-                        {anchorDate ? <Pencil size={18} strokeWidth={2.6} aria-hidden /> : <Plus size={18} strokeWidth={2.8} aria-hidden />}
-                      </button>
-                      {anchorDate ? (
-                        <button
-                          className="btn ghost sm icon"
-                          type="button"
-                          aria-label="Skip anchor"
-                          title="Skip anchor"
-                          onClick={() => skipAnchor(key)}
-                        >
-                          <CircleSlash size={18} strokeWidth={2.6} aria-hidden />
-                        </button>
-                      ) : null}
-                    </div>
+                    <button
+                      className="btn ghost sm icon"
+                      type="button"
+                      aria-label={anchorDate ? "Edit anchor" : "Add anchor"}
+                      title={anchorDate ? "Edit anchor" : "Add anchor"}
+                      onClick={() => openEditor(row)}
+                    >
+                      {anchorDate ? <Pencil size={18} strokeWidth={2.6} aria-hidden /> : <Plus size={18} strokeWidth={2.8} aria-hidden />}
+                    </button>
                   </td>
                 </tr>
                 {editing ? (

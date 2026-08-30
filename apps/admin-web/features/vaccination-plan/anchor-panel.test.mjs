@@ -19,11 +19,10 @@ test("anchor panel is a simple draft rule setting", () => {
   assert.match(panel, /No anchor/);
   assert.match(panel, /Plus/);
   assert.match(panel, /Pencil/);
-  assert.match(panel, /CircleSlash/);
   assert.match(panel, /aria-label=\{anchorDate \? "Edit anchor" : "Add anchor"\}/);
-  assert.match(panel, /aria-label="Skip anchor"/);
-  assert.match(panel, /anchorDate \? \([\s\S]*aria-label="Skip anchor"/);
-  assert.match(panel, /onChange\?\.\(row\.rule\.dose_code, null\)/);
+  assert.doesNotMatch(panel, /CircleSlash/);
+  assert.doesNotMatch(panel, /aria-label="Skip anchor"/);
+  assert.doesNotMatch(panel, /onChange\?\.\(row\.rule\.dose_code, null\)/);
   assert.match(panel, /onChange\?\.\(row\.rule\.dose_code, state\)/);
   assert.match(panel, /disabled=\{!canSave\}/);
   assert.match(panel, /isValidIsoDate\(state\.anchorDate\)/);

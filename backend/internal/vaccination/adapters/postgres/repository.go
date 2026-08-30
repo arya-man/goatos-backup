@@ -3862,6 +3862,7 @@ anchor_admins AS (
    AND vae.chain_future_from_anchor
    AND vae.protocol_version_id IS NOT NULL
    AND vae.dose_code IS NOT NULL
+   AND vae.source_system <> 'vaccination_plan_publish'
    AND vae.anchor_date < $3::date
    AND (
      vae.scope_type = 'tenant'

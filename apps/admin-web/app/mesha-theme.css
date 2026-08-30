@@ -3771,6 +3771,15 @@ select:disabled { opacity: .45; }
 .vplan .btn.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
 .vplan .btn.ghost:hover:not(:disabled) { border-color: var(--brand); color: var(--brand-d); filter: none; }
 .vplan .btn.sm { padding: 7px 14px; font-size: 13.5px; }
+.vplan .btn.icon {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  justify-content: center;
+  color: var(--brand-d);
+}
+.vplan .btn.icon svg { width: 18px; height: 18px; display: block; flex: 0 0 auto; }
 .vplan .btn:disabled { opacity: .42; cursor: not-allowed; }
 
 .vplan .scroll { overflow-x: auto; margin-top: 14px; }
