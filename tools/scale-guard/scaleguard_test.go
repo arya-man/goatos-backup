@@ -431,3 +431,87 @@ func TestBaselineRequiresOwnedUnexpiredMetadata(t *testing.T) {
 		})
 	}
 }
+
+// writeGoAt writes src at a chosen repo-relative path so path-scoped rules can be exercised.
+func writeGoAt(t *testing.T, relPath, src string) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	p := filepath.Join(dir, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir, p
+}
+
+// TestHotPathInlineSQLRejectsAFunctionLocalStatement is the adversarial fixture for
+// hot-path-inline-sql.
+//
+// The positive case is the shape GET /vaccination/command actually shipped: a multi-line statement
+// declared as a local inside the repository method that runs it. Nothing could address it -- not a
+// plan test, not this scanner -- so its plan regressed into a 15s pool timeout with every test
+// green and the board showing "Unable to load command board".
+func TestHotPathInlineSQLRejectsAFunctionLocalStatement(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"func (r *R) Board(ctx context.Context) {\n" +
+		"\tboardSQL := `\nSELECT g.goat_id, o.status\nFROM obligation_instances o\nJOIN goats g ON g.goat_id = o.target_id\nWHERE o.tenant_id = $1\n`\n" +
+		"\t_, _ = r.pool.Query(ctx, boardSQL, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/vaccinationexecution/adapters/postgres/repository.go", src)
+	got := rules(scanFile(repo, path))
+	if got["hot-path-inline-sql"] != 1 {
+		t.Fatalf("hot-path-inline-sql = %d, want 1; the guard does not reject a function-local hot-path statement, "+
+			"which is the exact shape that hid the command board's plan regression", got["hot-path-inline-sql"])
+	}
+}
+
+// TestHotPathInlineSQLAcceptsANamedPackageLevelStatement is the negative half.
+//
+// The SAME statement as a package-level const must pass: it has a name, so a query-plan test can
+// EXPLAIN it and a reviewer can diff it. A guard that flagged this too would be telling authors to
+// stop writing SQL rather than to name it.
+func TestHotPathInlineSQLAcceptsANamedPackageLevelStatement(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"const boardSQL = `\nSELECT g.goat_id, o.status\nFROM obligation_instances o\nJOIN goats g ON g.goat_id = o.target_id\nWHERE o.tenant_id = $1\n`\n\n" +
+		"func (r *R) Board(ctx context.Context) {\n\t_, _ = r.pool.Query(ctx, boardSQL, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/vaccinationexecution/adapters/postgres/repository.go", src)
+	if got := rules(scanFile(repo, path)); got["hot-path-inline-sql"] != 0 {
+		t.Fatalf("hot-path-inline-sql = %d, want 0; a NAMED package-level statement is the fix this rule asks for "+
+			"and must not itself be flagged", got["hot-path-inline-sql"])
+	}
+}
+
+// TestHotPathInlineSQLIsScopedToPostgresAdapters keeps the rule where serving SQL lives. The same
+// literal in a one-off command or a test helper is not a hot path, and flagging it would train
+// authors to reach for scale-guard:ignore -- which is how a guard stops meaning anything.
+func TestHotPathInlineSQLIsScopedToPostgresAdapters(t *testing.T) {
+	src := "package tool\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"func (r *R) Board(ctx context.Context) {\n" +
+		"\tboardSQL := `\nSELECT g.goat_id, o.status\nFROM obligation_instances o\nJOIN goats g ON g.goat_id = o.target_id\nWHERE o.tenant_id = $1\n`\n" +
+		"\t_, _ = r.pool.Query(ctx, boardSQL, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/tools/importer/importer.go", src)
+	if got := rules(scanFile(repo, path)); got["hot-path-inline-sql"] != 0 {
+		t.Fatalf("hot-path-inline-sql = %d, want 0 outside a postgres adapter", got["hot-path-inline-sql"])
+	}
+}
+
+// TestHotPathInlineSQLIgnoresShortLiterals pins the multi-line threshold. A short single-table
+// lookup is not the shape that hides a plan regression.
+func TestHotPathInlineSQLIgnoresShortLiterals(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"func (r *R) One(ctx context.Context) {\n" +
+		"\t_, _ = r.pool.Query(ctx, `SELECT name FROM locations WHERE location_id = $1`, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/x/adapters/postgres/repository.go", src)
+	if got := rules(scanFile(repo, path)); got["hot-path-inline-sql"] != 0 {
+		t.Fatalf("hot-path-inline-sql = %d, want 0 for a short single-line lookup", got["hot-path-inline-sql"])
+	}
+}

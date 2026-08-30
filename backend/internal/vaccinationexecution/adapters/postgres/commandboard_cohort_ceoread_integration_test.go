@@ -167,7 +167,7 @@ func TestVaccinationCommandBoardCohortCEOReadHeadCountDaySplitAndDoseSequenceExc
 		cell := &resp.CohortMatrix[i]
 		t.Logf("cohort cell vaccine=%q animals=%d pending=%d submitted=%d verified=%d exceptions=%d days=%v",
 			cell.VaccineLabel, cell.Cohort.AnimalCount, cell.PendingCount, cell.SubmittedCount,
-			cell.VerifiedCount, cell.MissingPriorDoseCount, cell.AdministeredDays)
+			cell.VerifiedCount, cell.MissingPriorDoseCount, cell.DoseCodes)
 		switch cell.VaccineLabel {
 		case "ET+TT · Dose 1":
 			dose1 = cell
@@ -196,23 +196,24 @@ func TestVaccinationCommandBoardCohortCEOReadHeadCountDaySplitAndDoseSequenceExc
 		t.Fatalf("Dose 1 verified = %d, want %d (fixture did not seed the accepted doses it intended)",
 			dose1.VerifiedCount, withDose1)
 	}
-	if len(dose1.AdministeredDays) != 2 {
+	dose1Days := cohortAdministeredDays(t, ctx, pool, tenantID, dose1)
+	if len(dose1Days) != 2 {
 		t.Fatalf("Dose 1 administeredDays = %v, want 2 days -- a two-day drive rendered as the range "+
-			"'30 Jun-1 Jul' hides that most of the work happened on one of them", dose1.AdministeredDays)
+			"'30 Jun-1 Jul' hides that most of the work happened on one of them", dose1Days)
 	}
 	wantDays := []domain.CommandBoardCohortDay{
 		{Date: dayOne.Format("2006-01-02"), AnimalCount: dosedDayOne},
 		{Date: dayTwo.Format("2006-01-02"), AnimalCount: dosedDayTwo},
 	}
 	for i, want := range wantDays {
-		got := dose1.AdministeredDays[i]
+		got := dose1Days[i]
 		if got.Date != want.Date || got.AnimalCount != want.AnimalCount {
 			t.Errorf("Dose 1 administeredDays[%d] = %+v, want %+v -- days must be ascending IST business "+
 				"dates carrying DISTINCT animals dosed on that date", i, got, want)
 		}
 	}
 	total := 0
-	for _, day := range dose1.AdministeredDays {
+	for _, day := range dose1Days {
 		total += day.AnimalCount
 	}
 	if total != dose1.VerifiedCount {
@@ -227,11 +228,12 @@ func TestVaccinationCommandBoardCohortCEOReadHeadCountDaySplitAndDoseSequenceExc
 			"their Dose 1 was never accepted, and a cohort with that gap must not read as cleanly closed",
 			dose1.MissingPriorDoseCount, exceptions, exceptions)
 	}
-	if got := len(dose1.MissingPriorDoseGoats); got != exceptions {
+	dose1Exceptions := cohortExceptionAnimals(t, ctx, pool, tenantID, dose1)
+	if got := len(dose1Exceptions); got != exceptions {
 		t.Errorf("Dose 1 missingPriorDoseGoats length = %d, want %d -- the CEO must be able to hand the "+
 			"named animals to a park head", got, exceptions)
 	}
-	for _, animal := range dose1.MissingPriorDoseGoats {
+	for _, animal := range dose1Exceptions {
 		if animal.GoatID == "" || animal.DisplayID == "" {
 			t.Errorf("exception animal %+v is missing identity -- an unnamed exception is not actionable", animal)
 		}
@@ -348,12 +350,13 @@ func TestVaccinationCommandBoardCohortExceptionListPaginationPageBoundaryMultiPa
 			"defect: %d animals past the page boundary would never be chased",
 			dose1.MissingPriorDoseCount, overCap, overCap-domain.CommandBoardCohortExceptionListCap)
 	}
-	if got := len(dose1.MissingPriorDoseGoats); got != domain.CommandBoardCohortExceptionListCap {
+	dose1Exceptions := cohortExceptionAnimals(t, ctx, pool, tenantID, dose1)
+	if got := len(dose1Exceptions); got != domain.CommandBoardCohortExceptionListCap {
 		t.Errorf("missingPriorDoseGoats length = %d, want the cap %d -- the LIST is bounded so one cell can "+
 			"never return an unbounded page", got, domain.CommandBoardCohortExceptionListCap)
 	}
 	seen := map[string]bool{}
-	for _, animal := range dose1.MissingPriorDoseGoats {
+	for _, animal := range dose1Exceptions {
 		if seen[animal.GoatID] {
 			t.Errorf("animal %s appears twice in the capped list -- the exception probe must contribute one "+
 				"row per animal regardless of how many later doses it holds", animal.GoatID)
@@ -451,18 +454,19 @@ func TestVaccinationCommandBoardCohortAdministeredDaySplitDateShiftUsesISTBusine
 		t.Fatalf("cohort matrix missing the ET+TT Dose 1 cell: %+v", resp.CohortMatrix)
 	}
 
-	if len(dose1.AdministeredDays) != 2 {
+	dose1Days := cohortAdministeredDays(t, ctx, pool, tenantID, dose1)
+	if len(dose1Days) != 2 {
 		t.Fatalf("administeredDays = %v, want 2 IST business days -- 23:30 IST and 00:30 IST are two farm "+
 			"days even though they share one UTC date; grouping by the UTC instant loses a day the operator "+
-			"actually worked", dose1.AdministeredDays)
+			"actually worked", dose1Days)
 	}
 	want := []domain.CommandBoardCohortDay{
 		{Date: wantDayOne, AnimalCount: 1},
 		{Date: wantDayTwo, AnimalCount: 1},
 	}
 	for i, expected := range want {
-		if dose1.AdministeredDays[i] != expected {
-			t.Errorf("administeredDays[%d] = %+v, want %+v", i, dose1.AdministeredDays[i], expected)
+		if dose1Days[i] != expected {
+			t.Errorf("administeredDays[%d] = %+v, want %+v", i, dose1Days[i], expected)
 		}
 	}
 }
@@ -640,12 +644,13 @@ func TestVaccinationCommandBoardClosedWithoutDoseAnimalsMatchTheTileAndCarryPart
 			resp.KPIs.ClosedWithoutDose, closedCount)
 	}
 	// (1) The list is exactly the tile's animals -- same predicate, same key set.
-	if got := len(resp.ClosedWithoutDoseAnimals); got != closedCount {
+	closedAnimals := closedWithoutDoseAnimals(t, ctx, pool, tenantID, asOf)
+	if got := len(closedAnimals); got != closedCount {
 		t.Fatalf("closedWithoutDoseAnimals = %d animals, want %d -- the list and the tile must be "+
 			"selected by the same per-animal residual predicate, or the CEO chases animals the tile "+
 			"never counted", got, closedCount)
 	}
-	for _, animal := range resp.ClosedWithoutDoseAnimals {
+	for _, animal := range closedAnimals {
 		if animal.GoatID == verifiedGoat {
 			t.Errorf("verified animal %s appears in the closed-without-dose list -- an accepted dose "+
 				"belongs to the verified tile", verifiedGoat)
@@ -662,9 +667,9 @@ func TestVaccinationCommandBoardClosedWithoutDoseAnimalsMatchTheTileAndCarryPart
 
 	// (2) The partitioned animal reports its ground location, not the parent shed.
 	var partitioned *domain.CommandBoardClosedWithoutDoseAnimal
-	for i := range resp.ClosedWithoutDoseAnimals {
-		if resp.ClosedWithoutDoseAnimals[i].GoatID == partitionedGoat {
-			partitioned = &resp.ClosedWithoutDoseAnimals[i]
+	for i := range closedAnimals {
+		if closedAnimals[i].GoatID == partitionedGoat {
+			partitioned = &closedAnimals[i]
 		}
 	}
 	if partitioned == nil {
@@ -673,7 +678,7 @@ func TestVaccinationCommandBoardClosedWithoutDoseAnimalsMatchTheTileAndCarryPart
 	// The animal with two active identifiers of one type appears exactly once, carrying its PRIMARY
 	// tag. Duplication here would also mean the list no longer matches the tile.
 	occurrences := 0
-	for _, animal := range resp.ClosedWithoutDoseAnimals {
+	for _, animal := range closedAnimals {
 		if animal.GoatID == partitionedGoat {
 			occurrences++
 		}
@@ -692,7 +697,7 @@ func TestVaccinationCommandBoardClosedWithoutDoseAnimalsMatchTheTileAndCarryPart
 			"parent shed sends a park head to the wrong side of the shed", partitioned.LocationDisplay,
 			"Godel 1 - Part 3")
 	}
-	for _, animal := range resp.ClosedWithoutDoseAnimals {
+	for _, animal := range closedAnimals {
 		if animal.LocationDisplay == "whole" || animal.PartitionLabel == "whole" {
 			t.Errorf("animal %s leaked the 'whole' matching sentinel to a display field: %+v",
 				animal.DisplayID, animal)
@@ -702,4 +707,59 @@ func TestVaccinationCommandBoardClosedWithoutDoseAnimalsMatchTheTileAndCarryPart
 				"renders as its own name", animal.LocationDisplay, "Godel 1")
 		}
 	}
+}
+
+// cohortExceptionAnimals and cohortAdministeredDays fetch the two cohort drawers for ONE cell.
+//
+// Both used to ride on the board response (cell.MissingPriorDoseGoats, cell.AdministeredDays),
+// computed for every cell on every render. They are now per-cell reads addressed by the cell's own
+// park/stage/sex/doseCodes, so these tests open them the way the UI does. The assertions are
+// unchanged; only where the rows come from moved.
+func cohortExceptionAnimals(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID string, cell *domain.CommandBoardCohortCell) []domain.CommandBoardCohortAnimal {
+	t.Helper()
+	repo := NewRepository(pool, 5*time.Second)
+	page, err := repo.CommandBoardCohortExceptions(ctx, cohortCellQuery(tenantID, cell))
+	if err != nil {
+		t.Fatalf("CommandBoardCohortExceptions() error = %v", err)
+	}
+	return page.Animals
+}
+
+func cohortAdministeredDays(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID string, cell *domain.CommandBoardCohortCell) []domain.CommandBoardCohortDay {
+	t.Helper()
+	repo := NewRepository(pool, 5*time.Second)
+	page, err := repo.CommandBoardCohortDays(ctx, cohortCellQuery(tenantID, cell))
+	if err != nil {
+		t.Fatalf("CommandBoardCohortDays() error = %v", err)
+	}
+	return page.Days
+}
+
+func cohortCellQuery(tenantID string, cell *domain.CommandBoardCohortCell) domain.CommandBoardCohortCellQuery {
+	return domain.CommandBoardCohortCellQuery{
+		CommandBoardDrilldownQuery: domain.CommandBoardDrilldownQuery{TenantID: tenantID},
+		CohortParkID:               cell.Cohort.ParkID,
+		ManagementStage:            cell.Cohort.ManagementStage,
+		Sex:                        cell.Cohort.Sex,
+		DoseCodes:                  cell.DoseCodes,
+	}
+}
+
+// closedWithoutDoseAnimals fetches the ClosedWithoutDose tile's animal list.
+//
+// The list used to ship eagerly on the board; on the staging-scale tenant that statement exhausted
+// the 15s pool timeout and returned a 500. It is now keyset-paginated behind its own endpoint. The
+// page is asked for larger than the fixture so the assertions below still see the whole list.
+func closedWithoutDoseAnimals(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID string, asOf time.Time) []domain.CommandBoardClosedWithoutDoseAnimal {
+	t.Helper()
+	repo := NewRepository(pool, 5*time.Second)
+	page, err := repo.CommandBoardClosedWithoutDoseAnimals(ctx, domain.CommandBoardDrilldownQuery{
+		TenantID: tenantID,
+		AsOf:     asOf,
+		Limit:    domain.CommandBoardDrilldownMaxLimit,
+	})
+	if err != nil {
+		t.Fatalf("CommandBoardClosedWithoutDoseAnimals() error = %v", err)
+	}
+	return page.Animals
 }
