@@ -71,6 +71,58 @@ export type ImpactPreviewResult = AppApiComponents["schemas"]["ImpactPreviewResu
 export type ProtocolConfigItem = AppApiComponents["schemas"]["ProtocolConfigItem"];
 export type ProtocolConfigListResponse = AppApiComponents["schemas"]["ProtocolConfigListResponse"];
 export type ProtocolVersionResponse = AppApiComponents["schemas"]["ProtocolVersionResponse"];
+export type VaccinationAnchorScopeType = "tenant" | "park" | "shed" | "partition" | "animal_set";
+export type VaccinationAnchorRequest = {
+  vaccine_code: string;
+  dose_code?: string;
+  anchor_date: string;
+  scope_type: VaccinationAnchorScopeType;
+  scope_payload?: Record<string, unknown>;
+  reason: string;
+  source_ref?: string;
+  flags?: {
+    suppress_before_anchor?: boolean;
+    chain_future_from_anchor?: boolean;
+    enforce_age_eligibility?: boolean;
+  };
+};
+export type VaccinationAnchorAnimal = {
+  goat_id: string;
+  identifier: string;
+  species?: string;
+  date_of_birth?: string;
+  reason?: string;
+};
+export type VaccinationAnchorRuleOption = {
+  protocol_version_id: string;
+  protocol_id: string;
+  rule_id: string;
+  vaccine_code: string;
+  dose_code: string;
+  sequence: number;
+  trigger_type: string;
+  offset_days: number;
+  species: string[];
+};
+export type VaccinationAnchorPreview = {
+  anchor_event_id?: string;
+  applied: boolean;
+  preview_only: boolean;
+  vaccine_code: string;
+  dose_code: string;
+  anchor_date: string;
+  total_resolved_animals: number;
+  eligible_animals: number;
+  excluded_underage_animals: number;
+  species_mismatch_animals: number;
+  open_rows_before_anchor: number;
+  same_day_rows_preserved: number;
+  canceled_open_rows: number;
+  eligible_sample: VaccinationAnchorAnimal[];
+  underage_sample: VaccinationAnchorAnimal[];
+  species_mismatch_sample: VaccinationAnchorAnimal[];
+  rule_options: VaccinationAnchorRuleOption[];
+};
 export type AnimalStageItem = AppApiComponents["schemas"]["AnimalStageItem"];
 export type AnimalStageListResponse = AppApiComponents["schemas"]["AnimalStageListResponse"];
 export type VaccinationPassportDue = AppApiComponents["schemas"]["VaccinationPassportDue"];
@@ -2479,6 +2531,36 @@ export async function previewVaccinationImpact(body: ImpactPreviewInput): Promis
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() => client.request<ImpactPreviewResult>("/protocols/vaccination/impact-preview", { method: "POST", cache: "no-store", body }));
+}
+
+export async function previewVaccinationAnchor(body: VaccinationAnchorRequest): Promise<ApiResult<VaccinationAnchorPreview>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationAnchorPreview>("/vaccination/anchors/preview" as keyof AppApiPaths & string, {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function createVaccinationAnchor(
+  body: VaccinationAnchorRequest,
+  idempotencyKey = `vaccination-anchor-${randomUUID()}`,
+): Promise<ApiResult<VaccinationAnchorPreview>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationAnchorPreview>("/vaccination/anchors" as keyof AppApiPaths & string, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
 }
 
 // listProtocolConfigs reads the Config authority list (B3): every protocol version (draft/published/

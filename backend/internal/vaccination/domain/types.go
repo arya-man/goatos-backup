@@ -12,6 +12,7 @@ var (
 	ErrCompletionNotOpen     = errors.New("vaccination: completion obligation is not open")
 	ErrFutureManualCampaign  = errors.New("vaccination: manual campaign as_of is in the future")
 	ErrInvalidCursor         = errors.New("vaccination: invalid cursor")
+	ErrInvalidAnchor         = errors.New("vaccination: invalid anchor")
 )
 
 // NewCompletion is the input to record one administered dose against an obligation.
@@ -226,6 +227,69 @@ type RecentVaccineAdministration struct {
 	Sequence          int32
 	ProtocolVersionID string
 	ProtocolID        string
+}
+
+type AnchorScope struct {
+	Type    string
+	Payload []byte
+}
+
+type AnchorCommand struct {
+	TenantID              string
+	VaccineCode           string
+	DoseCode              string
+	AnchorDate            time.Time
+	Scope                 AnchorScope
+	Reason                string
+	SourceSystem          string
+	SourceRef             string
+	CreatedBy             string
+	SuppressBeforeAnchor  bool
+	ChainFutureFromAnchor bool
+	EnforceAgeEligibility bool
+	IdempotencyKey        string
+	RequestHash           string
+	PreviewOnly           bool
+}
+
+type AnchorAnimal struct {
+	GoatID     string `json:"goat_id"`
+	Identifier string `json:"identifier"`
+	Species    string `json:"species"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+type AnchorRuleOption struct {
+	ProtocolVersionID string   `json:"protocol_version_id"`
+	ProtocolID        string   `json:"protocol_id"`
+	RuleID            string   `json:"rule_id"`
+	VaccineCode       string   `json:"vaccine_code"`
+	DoseCode          string   `json:"dose_code"`
+	Sequence          int32    `json:"sequence"`
+	TriggerType       string   `json:"trigger_type"`
+	OffsetDays        int32    `json:"offset_days"`
+	Species           []string `json:"species"`
+}
+
+type AnchorPreview struct {
+	AnchorEventID           string             `json:"anchor_event_id,omitempty"`
+	Applied                 bool               `json:"applied"`
+	PreviewOnly             bool               `json:"preview_only"`
+	VaccineCode             string             `json:"vaccine_code"`
+	DoseCode                string             `json:"dose_code,omitempty"`
+	AnchorDate              string             `json:"anchor_date"`
+	ScopeType               string             `json:"scope_type"`
+	TotalResolvedAnimals    int64              `json:"total_resolved_animals"`
+	EligibleAnimals         int64              `json:"eligible_animals"`
+	ExcludedUnderageAnimals int64              `json:"excluded_underage_animals"`
+	SpeciesMismatchAnimals  int64              `json:"species_mismatch_animals"`
+	OpenRowsBeforeAnchor    int64              `json:"open_rows_before_anchor"`
+	SameDayRowsPreserved    int64              `json:"same_day_rows_preserved"`
+	CanceledOpenRows        int                `json:"canceled_open_rows"`
+	EligibleSample          []AnchorAnimal     `json:"eligible_sample"`
+	UnderageSample          []AnchorAnimal     `json:"underage_sample"`
+	SpeciesMismatchSample   []AnchorAnimal     `json:"species_mismatch_sample"`
+	RuleOptions             []AnchorRuleOption `json:"rule_options"`
 }
 
 // GenerateResult summarises an SM-1 generation run.

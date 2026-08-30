@@ -20,20 +20,26 @@ import { revalidatePath } from "next/cache";
 import { todayIso } from "@/lib/format";
 
 import type { ProtocolConfigItem } from "@/lib/api/server";
+import type { VaccinationAnchorPreview, VaccinationAnchorRequest } from "@/lib/api/server";
 
 import type { EditorPlan } from "./editor-model";
 import { toRuleDsl } from "./editor-model";
 import {
   createProtocolVersion,
+  createVaccinationAnchor,
   discardProtocolVersion,
   replaceProtocolDraftVersion,
   getProtocolVersion,
   listProtocolConfigs,
+  previewVaccinationAnchor,
   publishProtocolVersion,
 } from "@/lib/api/server";
 
 export type PlanActionResult =
   | { ok: true; versionId?: string }
+  | { ok: false; error: string };
+export type AnchorActionResult =
+  | { ok: true; preview: VaccinationAnchorPreview }
   | { ok: false; error: string };
 
 const PLAN_ROUTE = "/vaccination/plan";
@@ -65,6 +71,32 @@ function isUnreachable(detail: unknown): boolean {
         ? String((detail as { message: unknown }).message)
         : "";
   return /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket hang up|network|timeout/i.test(text);
+}
+
+function anchorFailure(prefix: string, detail: unknown): AnchorActionResult {
+  if (isUnreachable(detail)) {
+    return { ok: false, error: `${prefix}: the server could not be reached. Nothing was changed — try again.` };
+  }
+  const message =
+    typeof detail === "string"
+      ? detail
+      : detail && typeof detail === "object" && "message" in detail
+        ? String((detail as { message: unknown }).message)
+        : "unexpected error";
+  return { ok: false, error: `${prefix}: ${message}` };
+}
+
+export async function previewAnchor(input: VaccinationAnchorRequest): Promise<AnchorActionResult> {
+  const preview = await previewVaccinationAnchor(input);
+  if (!preview.ok) return anchorFailure("could not preview the anchor", preview.error);
+  return { ok: true, preview: preview.data };
+}
+
+export async function createAnchor(input: VaccinationAnchorRequest): Promise<AnchorActionResult> {
+  const created = await createVaccinationAnchor(input);
+  if (!created.ok) return anchorFailure("could not create the anchor", created.error);
+  revalidatePath(PLAN_ROUTE);
+  return { ok: true, preview: created.data };
 }
 
 /**

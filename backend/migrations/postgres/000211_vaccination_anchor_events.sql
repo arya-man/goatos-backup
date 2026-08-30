@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS vaccination_anchor_events (
   canceled_by uuid NULL,
   cancel_reason text NULL,
   idempotency_key text NOT NULL,
+  request_hash text NOT NULL DEFAULT '',
   CONSTRAINT vaccination_anchor_events_scope_type_chk
     CHECK (scope_type IN ('animal_set', 'park', 'shed', 'partition', 'tenant')),
   CONSTRAINT vaccination_anchor_events_vaccine_code_chk
@@ -33,6 +34,8 @@ CREATE TABLE IF NOT EXISTS vaccination_anchor_events (
     CHECK (btrim(source_system) <> ''),
   CONSTRAINT vaccination_anchor_events_idempotency_key_chk
     CHECK (btrim(idempotency_key) <> ''),
+  CONSTRAINT vaccination_anchor_events_request_hash_chk
+    CHECK (request_hash = '' OR length(request_hash) = 64),
   CONSTRAINT vaccination_anchor_events_cancel_state_chk
     CHECK (
       (canceled_at IS NULL AND canceled_by IS NULL AND cancel_reason IS NULL)

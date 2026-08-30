@@ -2,13 +2,84 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
+	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
+
+func TestCreateAnchorValidatesAndIsIdempotent(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	vacc := NewRepository(pool, 5*time.Second)
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{TenantID: impTenant, Code: "vaccination.create.anchor", Name: "Create anchor", Category: "vaccination", Status: "draft"})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"vaccine":{"code":"vaccination.matrix"}}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if _, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "ppr_kid", Sequence: 1, TriggerType: "birth_age", OffsetDays: 84,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"},"eligibility":{"species":["goat","sheep"]}}`), ProofPolicy: []byte(`{}`),
+	}); err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE protocol_versions SET status='published' WHERE tenant_id=$1 AND protocol_version_id=$2`, impTenant, versionID); err != nil {
+		t.Fatalf("publish version: %v", err)
+	}
+	const goatID = "30000000-0000-4000-8000-0000000000cf"
+	seedGenGoatWithStage(t, ctx, pool, goatID, "alive", "K1")
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', 'RFID-PPR-001', 'RFID-PPR-001', 'global', true, 'active', now(), 'test_v1')`, impTenant, goatID); err != nil {
+		t.Fatalf("identifier: %v", err)
+	}
+	payload, _ := json.Marshal(map[string]any{"animal_ids": []string{goatID}})
+	cmd := domain.AnchorCommand{
+		TenantID: impTenant, VaccineCode: "PPR", DoseCode: "ppr_kid",
+		AnchorDate: time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC),
+		Scope:      domain.AnchorScope{Type: "animal_set", Payload: payload},
+		Reason:     "Sep 8 PPR drive", SourceSystem: "test", IdempotencyKey: "create-anchor-ppr-1", RequestHash: strings.Repeat("a", 64),
+		SuppressBeforeAnchor: true, ChainFutureFromAnchor: true, EnforceAgeEligibility: true,
+	}
+	preview, err := vacc.CreateAnchor(ctx, cmd)
+	if err != nil {
+		t.Fatalf("create anchor: %v", err)
+	}
+	if !preview.Applied || preview.AnchorEventID == "" || preview.EligibleAnimals != 1 || preview.EligibleSample[0].Identifier != "RFID-PPR-001" {
+		t.Fatalf("preview=%+v", preview)
+	}
+	replay, err := vacc.CreateAnchor(ctx, cmd)
+	if err != nil {
+		t.Fatalf("replay anchor: %v", err)
+	}
+	if replay.Applied || replay.AnchorEventID != preview.AnchorEventID {
+		t.Fatalf("replay=%+v first=%+v", replay, preview)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM vaccination_anchor_events WHERE tenant_id=$1 AND idempotency_key='create-anchor-ppr-1'`, impTenant).Scan(&count); err != nil {
+		t.Fatalf("count anchors: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("anchor rows=%d, want 1", count)
+	}
+}
 
 func TestRecentVaccineAdministrationsIncludesActiveAnchorEvents(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)

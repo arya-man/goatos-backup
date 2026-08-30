@@ -13,7 +13,17 @@ import (
 
 // Service coordinates vaccination use-cases over the repository boundary.
 type Service struct {
-	repo ports.Repository
+	repo              ports.Repository
+	anchorObligations anchorObligationSuppressor
+}
+
+type anchorObligationSuppressor interface {
+	CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx context.Context, tenantID string, goatIDs []string, occurredAt time.Time) (int, error)
+}
+
+type anchorRepository interface {
+	PreviewAnchor(ctx context.Context, in domain.AnchorCommand) (domain.AnchorPreview, error)
+	CreateAnchor(ctx context.Context, in domain.AnchorCommand) (domain.AnchorPreview, error)
 }
 
 // NewService constructs a Service.
@@ -21,9 +31,58 @@ func NewService(repo ports.Repository) *Service {
 	return &Service{repo: repo}
 }
 
+func (s *Service) WithAnchorObligationSuppressor(obl anchorObligationSuppressor) *Service {
+	s.anchorObligations = obl
+	return s
+}
+
 // RecordCompletion records an administered dose (idempotent).
 func (s *Service) RecordCompletion(ctx context.Context, in domain.NewCompletion) (string, bool, error) {
 	return s.repo.RecordCompletion(ctx, in)
+}
+
+func (s *Service) PreviewAnchor(ctx context.Context, in domain.AnchorCommand) (domain.AnchorPreview, error) {
+	in.PreviewOnly = true
+	repo, ok := s.repo.(anchorRepository)
+	if !ok {
+		return domain.AnchorPreview{}, ports.ErrNotFound
+	}
+	return repo.PreviewAnchor(ctx, in)
+}
+
+func (s *Service) CreateAnchor(ctx context.Context, in domain.AnchorCommand) (domain.AnchorPreview, error) {
+	repo, ok := s.repo.(anchorRepository)
+	if !ok {
+		return domain.AnchorPreview{}, ports.ErrNotFound
+	}
+	preview, err := repo.CreateAnchor(ctx, in)
+	if err != nil || preview.PreviewOnly || !preview.Applied || s.anchorObligations == nil || !in.SuppressBeforeAnchor {
+		return preview, err
+	}
+	ids := make([]string, 0, len(preview.EligibleSample))
+	seen := map[string]struct{}{}
+	for _, animal := range preview.EligibleSample {
+		if animal.GoatID == "" {
+			continue
+		}
+		if _, ok := seen[animal.GoatID]; ok {
+			continue
+		}
+		seen[animal.GoatID] = struct{}{}
+		ids = append(ids, animal.GoatID)
+	}
+	// Large scopes are re-resolved inside the repository suppression query through the anchor row.
+	// Passing an empty slice would intentionally no-op, so use the preview sample only for narrow
+	// animal-set requests and let the repository's own apply result report the previewed count.
+	if len(ids) == 0 || int64(len(ids)) != preview.EligibleAnimals {
+		return preview, nil
+	}
+	canceled, err := s.anchorObligations.CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx, in.TenantID, ids, in.AnchorDate)
+	if err != nil {
+		return preview, err
+	}
+	preview.CanceledOpenRows = canceled
+	return preview, nil
 }
 
 // AcceptCompletion accepts a recorded completion on verification, returning its verification context

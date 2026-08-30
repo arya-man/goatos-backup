@@ -20,6 +20,7 @@ import { useCallback, useState, useTransition } from "react";
 import type { ProtocolConfigItem } from "@/lib/api/server";
 
 import { discardDraft, readVersionSettings, startNewVersion } from "./plan-actions";
+import { VaccinationAnchorPanel } from "./anchor-panel";
 import { describeFirstDoses, describeRepeats, readVaccines, type VaccineGroup } from "./plan-model";
 import { personName } from "./version-format";
 import { VersionSheet, type VersionSheetData } from "./version-sheet";
@@ -295,6 +296,8 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
           </div>
         </section>
       ) : null}
+
+      <VaccinationAnchorPanel catalog={catalog} />
 
       {earlier.length > 0 ? (
         <section className="card">

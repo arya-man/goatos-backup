@@ -3722,6 +3722,7 @@ select:disabled { opacity: .45; }
 .vplan .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
   box-shadow: var(--shadow); margin: 0 0 16px; overflow: hidden; }
 .vplan .card.livecard { border-color: var(--brand); }
+.vplan .card.anchorcard { border-color: var(--line); }
 .vplan .card-h { padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; gap: 14px;
   align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
 .vplan .card-h h2 { font-size: 19px; font-weight: 700; letter-spacing: -.018em; }
@@ -3741,6 +3742,20 @@ select:disabled { opacity: .45; }
 .vplan .draftnudge b { color: var(--ink); }
 .vplan .dn-l { color: var(--muted); }
 .vplan .ab-spacer { flex: 1; min-width: 8px; }
+.vplan .anchorform { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: end; }
+@media (max-width: 880px) { .vplan .anchorform { grid-template-columns: 1fr; } }
+.vplan .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.vplan .field.span2 { grid-column: span 2; }
+@media (max-width: 880px) { .vplan .field.span2 { grid-column: auto; } }
+.vplan .field > span { font-size: 11px; letter-spacing: .11em; text-transform: uppercase; color: var(--faint); font-weight: 700; }
+.vplan .field input, .vplan .field select, .vplan .field textarea { width: 100%; min-width: 0; min-height: 38px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); padding: 8px 10px; font: inherit; font-size: 13.5px; }
+.vplan .field textarea { resize: vertical; line-height: 1.4; }
+.vplan .field input:focus, .vplan .field select:focus, .vplan .field textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.vplan .anchorflags { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 14px; color: var(--muted); font-size: 13px; }
+.vplan .anchorflags label { display: inline-flex; align-items: center; gap: 7px; }
+.vplan .anchoractions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 14px; }
+.vplan .anchorpreview { margin-top: 16px; }
+.vplan .anchordetail { margin-top: 16px; }
 
 .vplan .btn { font-weight: 600; font-size: 14px; border-radius: 9px; padding: 9px 18px;
   border: 1px solid var(--brand); background: var(--brand); color: var(--on-brand);

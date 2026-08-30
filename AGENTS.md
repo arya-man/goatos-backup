@@ -115,6 +115,16 @@ OCI/staging-like data. If a stale `goatos-local-current` container or Colima VM 
 running while the active dev stack uses OCI, stop it instead of treating it as
 canonical.
 
+**HARD RULE - OCI/STG E2E data repair is delta-only.** Ravi's OCI database is a
+maintained staging-like clone, not a disposable target. For any OCI/STG E2E,
+parity, or validation task, first identify exactly which tables/rows differ from
+STG and repair only that delta. Do not replace, reset, drop schemas from, or
+full-restore the entire OCI database from STG unless the maintainer explicitly
+asks for a full refresh using those words after being told it will overwrite the
+OCI database. A normal request to "make OCI match STG" means: run a diff, capture
+the mismatched table/row delta, apply the smallest targeted SQL or copy for that
+delta, then re-run parity.
+
 ## Legacy Local Stack Canonical Ports
 
 For local Goat OS browser/debug work, use one shared local stack unless the user

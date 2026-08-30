@@ -36,10 +36,16 @@ type ManualCampaignGenerator interface {
 	GenerateManualCampaignForVersionWithHTTPRun(ctx context.Context, tenantID, versionID, campaignID string, asOf time.Time, idempotencyKey, requestHash string) (domain.GenerationRun, domain.GenerateResult, error)
 }
 
+type AnchorManager interface {
+	PreviewAnchor(ctx context.Context, in domain.AnchorCommand) (domain.AnchorPreview, error)
+	CreateAnchor(ctx context.Context, in domain.AnchorCommand) (domain.AnchorPreview, error)
+}
+
 // Handler serves vaccination endpoints.
 type Handler struct {
 	svc      Reads
 	campaign ManualCampaignGenerator
+	anchors  AnchorManager
 	log      *slog.Logger
 }
 
@@ -62,10 +68,17 @@ func (h *Handler) WithManualCampaignGenerator(gen ManualCampaignGenerator) *Hand
 	return h
 }
 
+func (h *Handler) WithAnchorManager(manager AnchorManager) *Handler {
+	h.anchors = manager
+	return h
+}
+
 // Register mounts the vaccination routes.
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /protocols/vaccination/impact-preview", h.ImpactPreview)
 	mux.HandleFunc("POST /vaccination/manual-campaigns", h.RunManualCampaign)
+	mux.HandleFunc("POST /vaccination/anchors/preview", h.PreviewAnchor)
+	mux.HandleFunc("POST /vaccination/anchors", h.CreateAnchor)
 	mux.HandleFunc("GET /vaccination/verification-queue", h.VerificationQueue)
 	mux.HandleFunc("GET /app/tasks/{task_id}/shed-completion-summary", h.ShedCompletionSummary)
 }
@@ -143,6 +156,107 @@ type manualCampaignRunResponse struct {
 	ResultFailedGoats                int        `json:"result_failed_goats"`
 	ResultSkippedNoDueDate           int        `json:"result_skipped_no_due_date"`
 	ResultSuppressedByTrustedHistory int        `json:"result_suppressed_by_trusted_history"`
+}
+
+type anchorRequest struct {
+	VaccineCode           string          `json:"vaccine_code"`
+	DoseCode              string          `json:"dose_code,omitempty"`
+	AnchorDate            string          `json:"anchor_date"`
+	ScopeType             string          `json:"scope_type"`
+	ScopePayload          json.RawMessage `json:"scope_payload"`
+	Reason                string          `json:"reason"`
+	SourceRef             string          `json:"source_ref,omitempty"`
+	SuppressBeforeAnchor  *bool           `json:"suppress_before_anchor,omitempty"`
+	ChainFutureFromAnchor *bool           `json:"chain_future_from_anchor,omitempty"`
+	EnforceAgeEligibility *bool           `json:"enforce_age_eligibility,omitempty"`
+}
+
+func (h *Handler) PreviewAnchor(w http.ResponseWriter, r *http.Request) {
+	h.handleAnchor(w, r, false)
+}
+
+func (h *Handler) CreateAnchor(w http.ResponseWriter, r *http.Request) {
+	h.handleAnchor(w, r, true)
+}
+
+func (h *Handler) handleAnchor(w http.ResponseWriter, r *http.Request, apply bool) {
+	if h.anchors == nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
+			errorEnvelope{Code: "anchor_unavailable", Message: "vaccination anchor creation is not wired", TraceID: traceID(r)}, nil)
+		return
+	}
+	var idempotencyKey string
+	if apply {
+		var ok bool
+		idempotencyKey, ok = h.manualCampaignIdempotencyKey(w, r)
+		if !ok {
+			return
+		}
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		h.badRequest(w, r, "invalid_body", "request body could not be read")
+		return
+	}
+	if len(body) == 0 {
+		h.badRequest(w, r, "invalid_json", "request body is required")
+		return
+	}
+	var req anchorRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.badRequest(w, r, "invalid_json", "request body is not valid JSON")
+		return
+	}
+	anchorDate, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(req.AnchorDate), biztime.DefaultLocation())
+	if err != nil {
+		h.badRequest(w, r, "invalid_anchor_date", "anchor_date must be YYYY-MM-DD")
+		return
+	}
+	if len(req.ScopePayload) == 0 {
+		req.ScopePayload = json.RawMessage(`{}`)
+	}
+	suppress := boolDefault(req.SuppressBeforeAnchor, true)
+	chain := boolDefault(req.ChainFutureFromAnchor, true)
+	enforceAge := boolDefault(req.EnforceAgeEligibility, true)
+	cmd := domain.AnchorCommand{
+		TenantID:              tenantID(r),
+		VaccineCode:           strings.TrimSpace(req.VaccineCode),
+		DoseCode:              strings.TrimSpace(req.DoseCode),
+		AnchorDate:            anchorDate,
+		Scope:                 domain.AnchorScope{Type: strings.TrimSpace(req.ScopeType), Payload: req.ScopePayload},
+		Reason:                strings.TrimSpace(req.Reason),
+		SourceSystem:          "admin-web",
+		SourceRef:             strings.TrimSpace(req.SourceRef),
+		CreatedBy:             httpmiddleware.ActorIDFromContext(r.Context()),
+		SuppressBeforeAnchor:  suppress,
+		ChainFutureFromAnchor: chain,
+		EnforceAgeEligibility: enforceAge,
+		IdempotencyKey:        idempotencyKey,
+		RequestHash:           anchorRequestHash(req),
+	}
+	var preview domain.AnchorPreview
+	if apply {
+		preview, err = h.anchors.CreateAnchor(r.Context(), cmd)
+	} else {
+		preview, err = h.anchors.PreviewAnchor(r.Context(), cmd)
+	}
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidAnchor) {
+			h.badRequest(w, r, "invalid_anchor", err.Error())
+			return
+		}
+		if errors.Is(err, vaccports.ErrIdempotencyConflict) {
+			h.conflict(w, r, "idempotency_conflict", "Idempotency-Key was reused with a different anchor request")
+			return
+		}
+		h.internal(w, r, err)
+		return
+	}
+	status := http.StatusOK
+	if apply {
+		status = http.StatusCreated
+	}
+	httpresponse.WriteJSON(w, status, preview)
 }
 
 // RunManualCampaign deliberately fires manual_campaign rows for a published vaccination protocol
@@ -501,6 +615,41 @@ func manualCampaignRequestHash(req manualCampaignRequest, asOfProvided bool) str
 	})
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
+}
+
+func anchorRequestHash(req anchorRequest) string {
+	raw, _ := json.Marshal(struct {
+		VaccineCode           string          `json:"vaccine_code"`
+		DoseCode              string          `json:"dose_code"`
+		AnchorDate            string          `json:"anchor_date"`
+		ScopeType             string          `json:"scope_type"`
+		ScopePayload          json.RawMessage `json:"scope_payload"`
+		Reason                string          `json:"reason"`
+		SourceRef             string          `json:"source_ref"`
+		SuppressBeforeAnchor  bool            `json:"suppress_before_anchor"`
+		ChainFutureFromAnchor bool            `json:"chain_future_from_anchor"`
+		EnforceAgeEligibility bool            `json:"enforce_age_eligibility"`
+	}{
+		VaccineCode:           strings.TrimSpace(req.VaccineCode),
+		DoseCode:              strings.TrimSpace(req.DoseCode),
+		AnchorDate:            strings.TrimSpace(req.AnchorDate),
+		ScopeType:             strings.TrimSpace(req.ScopeType),
+		ScopePayload:          req.ScopePayload,
+		Reason:                strings.TrimSpace(req.Reason),
+		SourceRef:             strings.TrimSpace(req.SourceRef),
+		SuppressBeforeAnchor:  boolDefault(req.SuppressBeforeAnchor, true),
+		ChainFutureFromAnchor: boolDefault(req.ChainFutureFromAnchor, true),
+		EnforceAgeEligibility: boolDefault(req.EnforceAgeEligibility, true),
+	})
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+func boolDefault(v *bool, fallback bool) bool {
+	if v == nil {
+		return fallback
+	}
+	return *v
 }
 
 func (h *Handler) manualCampaignIdempotencyKey(w http.ResponseWriter, r *http.Request) (string, bool) {
