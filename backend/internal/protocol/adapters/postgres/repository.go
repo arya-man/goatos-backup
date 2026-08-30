@@ -913,6 +913,11 @@ WHERE tenant_id = $1
 			return err
 		}
 	}
+	if published.Category == "vaccination" {
+		if err := retireVaccinationPlanAnchorsTx(ctx, tx, tenant, published.ProtocolID, published.VersionID, publishedBy); err != nil {
+			return err
+		}
+	}
 	if len(anchors) > 0 {
 		if err := insertVaccinationAnchorConfigsTx(ctx, tx, tenant, vid, anchors); err != nil {
 			return err
@@ -920,6 +925,33 @@ WHERE tenant_id = $1
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("protocol: commit publish: %w", err)
+	}
+	return nil
+}
+
+func retireVaccinationPlanAnchorsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, protocolID, replacingVersionID string, canceledBy *string) error {
+	var actor pgtype.UUID
+	if canceledBy != nil && strings.TrimSpace(*canceledBy) != "" {
+		if err := actor.Scan(strings.TrimSpace(*canceledBy)); err != nil {
+			return fmt.Errorf("protocol: retire vaccination plan anchors canceled_by: %w", err)
+		}
+	}
+	_, err := tx.Exec(ctx, `
+UPDATE vaccination_anchor_events vae
+SET canceled_at = now(),
+    canceled_by = $4,
+    cancel_reason = 'replaced_by_protocol_publish',
+    updated_at = now()
+FROM protocol_versions pv
+WHERE vae.tenant_id = $1
+  AND vae.protocol_version_id = pv.protocol_version_id
+  AND pv.tenant_id = vae.tenant_id
+  AND pv.protocol_id = $2::uuid
+  AND vae.source_system = 'vaccination_plan_publish'
+  AND vae.canceled_at IS NULL
+  AND vae.protocol_version_id <> $3::uuid`, tenant, protocolID, replacingVersionID, actor)
+	if err != nil {
+		return fmt.Errorf("protocol: retire prior vaccination plan anchors: %w", err)
 	}
 	return nil
 }
@@ -1340,6 +1372,11 @@ RETURNING pv.protocol_version_id::text,
 	}
 	if capacity != nil {
 		if err := upsertVaccinationCapacityConfigTx(ctx, tx, tenantID, *capacity); err != nil {
+			return err
+		}
+	}
+	if published.Category == "vaccination" {
+		if err := retireVaccinationPlanAnchorsTx(ctx, tx, tenant, published.ProtocolID, published.VersionID, publishedBy); err != nil {
 			return err
 		}
 	}

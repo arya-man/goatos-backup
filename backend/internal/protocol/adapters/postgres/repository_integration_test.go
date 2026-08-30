@@ -641,6 +641,78 @@ WHERE tenant_id = $1
 	}
 }
 
+func TestPublishVersionRetiresPreviousPlanPublishedAnchors(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	protocolID, err := repo.CreateDefinition(ctx, domain.NewDefinition{
+		TenantID: testTenantID, Code: "vaccination.anchor.lifecycle", Name: "Vaccination Anchor Lifecycle",
+		Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("create definition: %v", err)
+	}
+	v1, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID:      testTenantID,
+		ProtocolID:    protocolID,
+		ScopeType:     "tenant",
+		Version:       1,
+		Status:        "draft",
+		EffectiveFrom: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"category":"vaccination"}`),
+		ProofPolicy:   []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create v1: %v", err)
+	}
+	if err := repo.PublishVersion(ctx, testTenantID, v1, nil, "anchor-lifecycle-v1"); err != nil {
+		t.Fatalf("publish v1: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_anchor_events (
+  vaccination_anchor_event_id, tenant_id, protocol_version_id, vaccine_code, dose_code, anchor_date,
+  scope_type, scope_payload, reason, source_system, idempotency_key, request_hash
+) VALUES (
+  '10000000-0000-4000-8000-000000000211', $1::uuid, $2::uuid, 'PPR', 'ppr_kid_16w', '2026-09-08',
+  'tenant', '{}'::jsonb, 'old plan anchor', 'vaccination_plan_publish', 'old-plan-anchor', repeat('a', 64)
+)`, testTenantID, v1); err != nil {
+		t.Fatalf("seed old anchor: %v", err)
+	}
+
+	v2, err := repo.CreateVersion(ctx, domain.NewVersion{
+		TenantID:      testTenantID,
+		ProtocolID:    protocolID,
+		ScopeType:     "tenant",
+		Version:       2,
+		Status:        "draft",
+		EffectiveFrom: time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"category":"vaccination"}`),
+		ProofPolicy:   []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create v2: %v", err)
+	}
+	if err := repo.PublishVersion(ctx, testTenantID, v2, nil, "anchor-lifecycle-v2"); err != nil {
+		t.Fatalf("publish v2: %v", err)
+	}
+
+	var canceled bool
+	var reason string
+	if err := pool.QueryRow(ctx, `
+SELECT canceled_at IS NOT NULL, COALESCE(cancel_reason, '')
+FROM vaccination_anchor_events
+WHERE tenant_id = $1::uuid
+  AND idempotency_key = 'old-plan-anchor'`, testTenantID).Scan(&canceled, &reason); err != nil {
+		t.Fatalf("read old anchor: %v", err)
+	}
+	if !canceled || reason != "replaced_by_protocol_publish" {
+		t.Fatalf("old anchor canceled=%v reason=%q, want replaced_by_protocol_publish", canceled, reason)
+	}
+}
+
 func TestListEffectiveVaccinationVersionsForGoatUsesKolkataCutoverDate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
