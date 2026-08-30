@@ -673,6 +673,7 @@ func (r *Repository) commandBoardDriveOptionsPage(ctx context.Context, q domain.
 		cursorBatch   *string
 		cursorParkNil *bool
 		cursorPark    *string
+		cursorParkID  *string
 	)
 	if q.Cursor != "" {
 		cursor, err := domain.DecodeCommandBoardDriveCursor(q.Cursor)
@@ -681,13 +682,18 @@ func (r *Repository) commandBoardDriveOptionsPage(ctx context.Context, q domain.
 		}
 		rank, planned, window := cursor.StatusRank, cursor.PlannedDate, cursor.WindowStart
 		batch, parkNil, park := cursor.BatchID, cursor.ParkIsNull, cursor.ParkName
+		parkID := cursor.ParkID
+		if parkID == "" {
+			parkID = zeroUUID
+		}
 		cursorRank, cursorPlanned, cursorWindow = &rank, &planned, &window
 		cursorBatch, cursorParkNil, cursorPark = &batch, &parkNil, &park
+		cursorParkID = &parkID
 	}
 
 	rows, err := r.pool.Query(ctx, driveOptionsSQL,
 		q.TenantID, q.ParkID, q.Limit+1,
-		cursorRank, cursorPlanned, cursorWindow, cursorBatch, cursorParkNil, cursorPark)
+		cursorRank, cursorPlanned, cursorWindow, cursorBatch, cursorParkNil, cursorPark, cursorParkID)
 	if err != nil {
 		return page, false, fmt.Errorf("vaccination command board: drive options query: %w", err)
 	}
@@ -709,9 +715,10 @@ func (r *Repository) commandBoardDriveOptionsPage(ctx context.Context, q domain.
 		var sortWindow pgtype.Timestamptz
 		var parkIsNull bool
 		var sortPark string
+		var sortParkID string
 		if err := rows.Scan(&batchID, &parkOptionID, &parkOptionName, &status, &plannedDate, &windowStart, &windowEnd,
 			&doseCodes, &targetCount, &doseCount, &operatorDaysJSON, &shedNames, &shedLocationsJSON,
-			&statusRank, &sortPlanned, &sortWindow, &parkIsNull, &sortPark); err != nil {
+			&statusRank, &sortPlanned, &sortWindow, &parkIsNull, &sortPark, &sortParkID); err != nil {
 			return page, false, fmt.Errorf("vaccination command board: drive options scan: %w", err)
 		}
 		if len(page.Options) >= q.Limit {
@@ -786,6 +793,7 @@ func (r *Repository) commandBoardDriveOptionsPage(ctx context.Context, q domain.
 			BatchID:     batchID,
 			ParkIsNull:  parkIsNull,
 			ParkName:    sortPark,
+			ParkID:      sortParkID,
 		}
 	}
 	if err := rows.Err(); err != nil {

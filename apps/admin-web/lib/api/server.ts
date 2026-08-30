@@ -205,6 +205,13 @@ export type PCCareInventoryRequirement = AppApiComponents["schemas"]["PCCareInve
 
 // CEO vaccination command board read model.
 export type VaccinationCommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoardResponse"];
+// The command board's drilldown pages. Each is one drawer's worth of the evidence behind a board
+// number, fetched when the reader opens that cell.
+export type CommandBoardClosedWithoutDosePage = AppApiComponents["schemas"]["CommandBoardClosedWithoutDosePage"];
+export type CommandBoardShedVaccineAnimalsPage = AppApiComponents["schemas"]["CommandBoardShedVaccineAnimalsPage"];
+export type CommandBoardCohortExceptionsPage = AppApiComponents["schemas"]["CommandBoardCohortExceptionsPage"];
+export type CommandBoardCohortDaysPage = AppApiComponents["schemas"]["CommandBoardCohortDaysPage"];
+export type CommandBoardDriveOptionsPage = AppApiComponents["schemas"]["CommandBoardDriveOptionsPage"];
 export type VaccinationCommandBoardKPI = AppApiComponents["schemas"]["VaccinationCommandBoardKPI"];
 export type VaccinationCommandBoardCohortCell = AppApiComponents["schemas"]["VaccinationCommandBoardCohortCell"];
 export type ShedDoseMatrixCell = AppApiComponents["schemas"]["ShedDoseMatrixCell"];
@@ -2447,6 +2454,138 @@ export async function getVaccinationCommandBoard(params: {
         park_id: params.parkId,
         as_of: params.asOf,
         drive_park_id: params.driveParkId,
+      }),
+    }),
+  );
+}
+
+// The command board's DRILLDOWNS and its paginated drive picker.
+//
+// These lists used to ship inside /vaccination/command, computed tenant-wide for every cell on
+// every render: ~62% of an endpoint that took ~8.6s of SQL on staging-scale data and returned 500
+// when one of them exhausted the 15s pool timeout ("Unable to load command board"). Each is now
+// scoped to the cell it explains and keyset-paginated. The board keeps every COUNT they sat under.
+//
+// They are read through route handlers rather than on the server render because the board opens a
+// drawer from data it already has and fetches only the missing detail inside it — the repo's
+// local-overlay rule. Opening a drawer must not re-run the page.
+
+export type CommandBoardDrilldownScope = {
+  driveBatchId?: string;
+  parkId?: string;
+  asOf?: string;
+  limit?: number;
+  cursor?: string;
+};
+
+function commandBoardDrilldownQuery(scope: CommandBoardDrilldownScope) {
+  return {
+    drive_batch_id: scope.driveBatchId,
+    park_id: scope.parkId,
+    as_of: scope.asOf,
+    limit: scope.limit ? String(scope.limit) : undefined,
+    cursor: scope.cursor,
+  };
+}
+
+export async function getCommandBoardClosedWithoutDose(
+  scope: CommandBoardDrilldownScope = {},
+): Promise<ApiResult<CommandBoardClosedWithoutDosePage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CommandBoardClosedWithoutDosePage>("/vaccination/command/closed-without-dose", {
+      cache: "no-store",
+      query: compactQuery(commandBoardDrilldownQuery(scope)),
+    }),
+  );
+}
+
+export async function getCommandBoardShedVaccineAnimals(
+  params: CommandBoardDrilldownScope & { shedId: string; vaccineCode: string; partitionLabel?: string },
+): Promise<ApiResult<CommandBoardShedVaccineAnimalsPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CommandBoardShedVaccineAnimalsPage>("/vaccination/command/shed-vaccine-animals", {
+      cache: "no-store",
+      query: compactQuery({
+        ...commandBoardDrilldownQuery(params),
+        shed_id: params.shedId,
+        vaccine_code: params.vaccineCode,
+        // Sent even when empty: an unpartitioned shed's cell key IS the empty label, so dropping it
+        // would ask for a different cell than the one the reader clicked.
+        partition_label: params.partitionLabel ?? "",
+      }),
+    }),
+  );
+}
+
+export type CommandBoardCohortCellParams = CommandBoardDrilldownScope & {
+  cohortParkId: string;
+  managementStage: string;
+  sex: string;
+  doseCodes: string[];
+};
+
+function commandBoardCohortCellQuery(params: CommandBoardCohortCellParams) {
+  return {
+    ...commandBoardDrilldownQuery(params),
+    // Sent verbatim even when empty: "" addresses the park-less cohort, which is a real cell.
+    cohort_park_id: params.cohortParkId ?? "",
+    management_stage: params.managementStage,
+    sex: params.sex,
+    // The board collapses several dose codes onto one displayed vaccine label, so the whole set
+    // must go or the drawer under-reports the column it was opened from.
+    dose_codes: params.doseCodes.join(","),
+  };
+}
+
+export async function getCommandBoardCohortExceptions(
+  params: CommandBoardCohortCellParams,
+): Promise<ApiResult<CommandBoardCohortExceptionsPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CommandBoardCohortExceptionsPage>("/vaccination/command/cohort-exceptions", {
+      cache: "no-store",
+      query: compactQuery(commandBoardCohortCellQuery(params)),
+    }),
+  );
+}
+
+export async function getCommandBoardCohortDays(
+  params: CommandBoardCohortCellParams,
+): Promise<ApiResult<CommandBoardCohortDaysPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CommandBoardCohortDaysPage>("/vaccination/command/cohort-days", {
+      cache: "no-store",
+      query: compactQuery(commandBoardCohortCellQuery(params)),
+    }),
+  );
+}
+
+// The drive picker's full catalogue. The board carries only its first page (20); the catalogue was
+// 448ms and 753 KB, more than the endpoint's entire 512 KB budget, for a dropdown.
+export async function getCommandBoardDriveOptions(
+  params: { parkId?: string; limit?: number; cursor?: string } = {},
+): Promise<ApiResult<CommandBoardDriveOptionsPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CommandBoardDriveOptionsPage>("/vaccination/command/drives", {
+      cache: "no-store",
+      query: compactQuery({
+        park_id: params.parkId,
+        limit: params.limit ? String(params.limit) : undefined,
+        cursor: params.cursor,
       }),
     }),
   );

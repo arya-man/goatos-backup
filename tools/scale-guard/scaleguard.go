@@ -100,8 +100,13 @@ var (
 	// GET /vaccination/command carried FOURTEEN of them and its plans regressed until the endpoint
 	// returned 500 in staging. Hoist it to a package-level const (or SQLC) and give it a plan test.
 	inlineSQLStartRe = regexp.MustCompile(`(?is)^\s*(WITH|SELECT|INSERT|UPDATE|DELETE)\b`)
-	inlineSQLBodyRe  = regexp.MustCompile(`(?is)\bFROM\b|\bJOIN\b|\bWHERE\b`)
-	godCTELimit      = 8
+	// Leading SQL comments and blank lines are stripped before the start match. A
+	// "-- name: closed-without-dose residual bucket" header is this repo's HOUSE STYLE, so anchoring
+	// the match at the literal's first character made the rule a pure false negative for the most
+	// idiomatic way to write the very statement it exists to catch -- no evasion intent required.
+	inlineSQLLeadingCommentRe = regexp.MustCompile(`(?m)\A(?:\s*(?:--[^\n]*|/\*.*?\*/)?\s*\n)+`)
+	inlineSQLBodyRe           = regexp.MustCompile(`(?is)\bFROM\b|\bJOIN\b|\bWHERE\b`)
+	godCTELimit               = 8
 	// n-plus-one-fanout: the receiver field of an in-loop ctx-taking call must
 	// name an injected I/O dependency (repo/reader/port/client/roster/proto/...)
 	// for the call to count as a round trip. Descriptive field naming is the
@@ -442,18 +447,19 @@ func detectInlineHotPathSQL(file *ast.File) []inlineSQLFinding {
 			if !ok || lit.Kind != token.STRING {
 				return true
 			}
-			text := lit.Value
-			if len(text) >= 2 && text[0] == '`' {
-				text = text[1 : len(text)-1]
-			} else {
-				// Only raw literals can realistically hold a multi-line statement; an interpreted
-				// literal with escaped newlines is not the shape this rule is about.
+			// BOTH literal kinds. Restricting this to raw literals left a one-keystroke evasion
+			// (backtick -> quote plus \n escapes) that gofmt will not undo, and an interpreted
+			// literal carrying a whole statement is the same unreachable hot-path SQL.
+			text, err := strconv.Unquote(lit.Value)
+			if err != nil {
 				return true
 			}
 			if strings.Count(text, "\n") < 3 {
 				return true
 			}
-			if !inlineSQLStartRe.MatchString(text) || !inlineSQLBodyRe.MatchString(text) {
+			// Strip leading comment/blank lines before deciding whether this is SQL.
+			body := inlineSQLLeadingCommentRe.ReplaceAllString(text, "")
+			if !inlineSQLStartRe.MatchString(body) || !inlineSQLBodyRe.MatchString(body) {
 				return true
 			}
 			out = append(out, inlineSQLFinding{

@@ -1129,15 +1129,19 @@ validate-sqlc-plans:
 # discarding tenant-scale rows, or a large sort before the LIMIT. All four are shapes that actually
 # shipped and together returned a 500 in staging on ~71k obligation rows.
 #
-# It carries its own MUTATION TEST: TestCommandBoardPlanGuardRejectsThePreFixShapes runs the guard
-# against the statement as it stood before the fix and fails if the guard passes it, so the gate
-# cannot quietly become decoration.
+# It carries its own MUTATION TESTS: TestCommandBoardPlanGuardRejectsThePreFixShapes and
+# TestCommandBoardPlanGuardRejectsTheTenantWideDrilldown run the guard against the two statements as
+# they stood before the fix, each asserting the SPECIFIC detector that must catch it, so the gate
+# cannot quietly become decoration or pass for the wrong reason.
 #
-# Postgres-gated like every other DB proof in this repo, so it is opt-in and not part of the default
-# ci-local run. Background and thresholds: docs/runbooks/vaccination-command-board-latency.md.
+# It runs in ci-local's query-plans job alongside validate-sqlc-plans, and like that gate it stays
+# OUTSIDE the broad Postgres/E2E opt-in: a plan regression on the CEO board must fail ordinary PR,
+# push and local landing CI. It resolves a database from a supplied admin DSN, the maintainer OCI
+# clone, or Docker -- and FAILS when it can reach none, because a plan gate that skips is a guard
+# that reports green having asserted nothing.
+# Background and thresholds: docs/runbooks/vaccination-command-board-latency.md.
 commandboard-query-plan-guard:
-	cd backend && GOATOS_RUN_POSTGRES_TESTS=1 go test ./internal/vaccinationexecution/adapters/postgres/ \
-	  -run 'TestCommandBoardQueryPlansAreBoundedByTheAnswerNotTheTenant|TestCommandBoardPlanGuardRejectsThePreFixShapes|TestCommandBoardTileAndDrilldownRangeOverTheSameAnimals' -v
+	bash tools/dev/commandboard-query-plan-guard.sh
 
 pre-google-readiness:
 	bash tools/dev/pre-google-readiness.sh

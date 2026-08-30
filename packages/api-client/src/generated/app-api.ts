@@ -1460,6 +1460,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/command/closed-without-dose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Animals behind the command board's closedWithoutDose KPI tile.
+         * @description A command-board DRILLDOWN: the evidence behind one board number, fetched when a reader opens that cell rather than computed for every cell on every render.
+         *
+         *     These lists used to ship inside GET /vaccination/command. On a staging-scale tenant (~71k obligation rows) they cost ~5.3s of that endpoint's ~8.6s and one of them exhausted the 15s pool timeout, returning 500 and "Unable to load command board". Each list is now scoped to the cell it explains and keyset-paginated, so the database does a drawer's work instead of the tenant's. The board keeps every COUNT these lists sat under — the numbers are the board, the lists never were.
+         */
+        get: operations["getCommandBoardClosedWithoutDose"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/command/shed-vaccine-animals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Animals behind ONE shed x vaccine cell, with that shed's proof videos.
+         * @description A command-board DRILLDOWN: the evidence behind one board number, fetched when a reader opens that cell rather than computed for every cell on every render.
+         *
+         *     These lists used to ship inside GET /vaccination/command. On a staging-scale tenant (~71k obligation rows) they cost ~5.3s of that endpoint's ~8.6s and one of them exhausted the 15s pool timeout, returning 500 and "Unable to load command board". Each list is now scoped to the cell it explains and keyset-paginated, so the database does a drawer's work instead of the tenant's. The board keeps every COUNT these lists sat under — the numbers are the board, the lists never were.
+         */
+        get: operations["getCommandBoardShedVaccineAnimals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/command/cohort-exceptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dose-sequence exceptions behind ONE cohort matrix cell.
+         * @description A command-board DRILLDOWN: the evidence behind one board number, fetched when a reader opens that cell rather than computed for every cell on every render.
+         *
+         *     These lists used to ship inside GET /vaccination/command. On a staging-scale tenant (~71k obligation rows) they cost ~5.3s of that endpoint's ~8.6s and one of them exhausted the 15s pool timeout, returning 500 and "Unable to load command board". Each list is now scoped to the cell it explains and keyset-paginated, so the database does a drawer's work instead of the tenant's. The board keeps every COUNT these lists sat under — the numbers are the board, the lists never were.
+         */
+        get: operations["getCommandBoardCohortExceptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/command/cohort-days": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Administered-day split for ONE cohort matrix cell.
+         * @description A command-board DRILLDOWN: the evidence behind one board number, fetched when a reader opens that cell rather than computed for every cell on every render.
+         *
+         *     These lists used to ship inside GET /vaccination/command. On a staging-scale tenant (~71k obligation rows) they cost ~5.3s of that endpoint's ~8.6s and one of them exhausted the 15s pool timeout, returning 500 and "Unable to load command board". Each list is now scoped to the cell it explains and keyset-paginated, so the database does a drawer's work instead of the tenant's. The board keeps every COUNT these lists sat under — the numbers are the board, the lists never were.
+         */
+        get: operations["getCommandBoardCohortDays"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/vaccination/command/drives": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The command board's drive picker catalogue, keyset-paginated.
+         * @description The full drive catalogue. GET /vaccination/command carries only its first page (20).
+         *
+         *     The picker used to ship whole on first paint: 200 fully decorated drives, 448ms and 753 KB — more than the endpoint's entire 512 KB budget, for a dropdown — and it was the command board's critical path once the drilldowns had moved off it. The statement now resolves and pages the drive rows from cheap columns BEFORE computing per-drive counts, shed-location JSON and day history, so its cost is proportional to the page requested.
+         *
+         *     Park scope is the CALLER's own, never the selected drive's park: narrowing the catalogue to the park of the drive already chosen deletes every other park's drive from the dropdown and strands the reader there.
+         */
+        get: operations["getCommandBoardDriveOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/live-tracker": {
         parameters: {
             query?: never;
@@ -9512,6 +9624,8 @@ export interface components {
         };
         /** @description One farm × cohort × dose-qualified-vaccine cell, at OBLIGATION grain (COUNT(DISTINCT obligation_id)). pendingCount, submittedCount and verifiedCount are a DISJOINT partition of the cell's obligations along "who owes the next move": the operator, the verifier, nobody. pendingCount previously fused the first two, because obligation status advances only on VERIFICATION and never on submission — a park whose every animal had been vaccinated and submitted rendered byte-identically to a park nobody had touched, and the page showed "40 awaiting verification" in the KPI row above "40 pending" in this matrix with no column reconciling them. submittedCount is that reconciling column. GRAIN NOTE: these counts are obligation grain while VaccinationCommandBoardKPI is animal grain; the two agree exactly at one-obligation-per-animal-per-vaccine, the grain every live drive uses, and the matrix stays obligation grain by design so a multi-vaccine animal is visible once per vaccine. */
         VaccinationCommandBoardCohortCell: {
+            /** @description The raw dose codes folded into this cell's single displayed vaccineLabel, sorted. Send them as the `dose_codes` parameter of /vaccination/command/cohort-exceptions and /vaccination/command/cohort-days to open this cell's drawers. */
+            doseCodes: string[];
             cohort: components["schemas"]["VaccinationCommandBoardCohort"];
             /** @description Human-readable vaccine label (e.g., ET+TT, PPR · Booster). */
             vaccineLabel: string;
@@ -9531,12 +9645,36 @@ export interface components {
              * @description Latest actual operator-administered date among accepted vaccinations in this cohort cell.
              */
             maxAdministeredDate?: string;
-            /** @description Per-IST-business-day split of this cell's verified doses, ascending. A minAdministeredDate..maxAdministeredDate span of "30 Jun-1 Jul" hides that 84 animals were dosed on the first day and 237 on the second; this array carries that split so leadership reads the actual operator story rather than a range. */
-            administeredDays?: components["schemas"]["VaccinationCommandBoardCohortDay"][];
-            /** @description Dose-sequence EXCEPTION count for this cell: animals of this cohort holding an accepted LATER dose of the same vaccine course while THIS dose has no accepted completion (for example an accepted ET+TT Dose 2 with no accepted Dose 1). Whole-cohort truth, never capped. Cohort scope and key set are identical to verifiedCount, so "321 verified · 3 exceptions" compares like with like. */
+            /** @description Dose-sequence EXCEPTION count for this cell: animals of this cohort holding an accepted LATER dose of the same vaccine course while THIS dose has no accepted completion (for example an accepted ET+TT Dose 2 with no accepted Dose 1). Whole-cohort truth, never capped. Cohort scope and key set are identical to verifiedCount, so "321 verified · 3 exceptions" compares like with like. The ANIMALS behind it are fetched per cell from /vaccination/command/cohort-exceptions; they used to ship here, computed tenant-wide for every cell on every render. */
             missingPriorDoseCount: number;
-            /** @description The animals behind missingPriorDoseCount, capped at 25 per cell so a cell can never return an unbounded list. missingPriorDoseCount remains the full count when capped. */
-            missingPriorDoseGoats?: components["schemas"]["VaccinationCommandBoardCohortAnimal"][];
+        };
+        CommandBoardClosedWithoutDosePage: {
+            /** @description One page of the animals behind kpis.closedWithoutDose. Selected by the SAME per-animal residual predicate the tile counts with, so the list and the number can never describe different animals. */
+            animals: components["schemas"]["VaccinationCommandBoardClosedWithoutDoseAnimal"][];
+            /** @description Position to resume from. ABSENT means the list is exhausted, which is a different fact from an empty page. */
+            nextCursor?: string;
+        };
+        CommandBoardShedVaccineAnimalsPage: {
+            /** @description One page of the animals behind this shed x vaccine cell's behindAnimals count. */
+            animals: components["schemas"]["CommandBoardShedVaccineAnimal"][];
+            /** @description The shed's completed proof videos for the IST days this page's animals were recorded. Correlated by SHED and DAY, never by animal: vaccination proof is filmed per shed for the operator day — one clip covers dozens of goats — so hanging a video off each animal row would repeat one link and imply per-goat footage that does not exist. */
+            proofVideos: components["schemas"]["CommandBoardShedVideo"][];
+            nextCursor?: string;
+        };
+        CommandBoardCohortExceptionsPage: {
+            /** @description One page of the animals behind this cell's missingPriorDoseCount. Built from the same predicate as that count, so the tile and the drawer cannot describe different animals. */
+            animals: components["schemas"]["VaccinationCommandBoardCohortAnimal"][];
+            nextCursor?: string;
+        };
+        CommandBoardCohortDaysPage: {
+            /** @description This cell's verified doses split by IST business day, ascending. No cursor: the row count is bounded by the days in the drive window, and paginating a bar chart would only let a caller render half of one. */
+            days: components["schemas"]["VaccinationCommandBoardCohortDay"][];
+        };
+        CommandBoardDriveOptionsPage: {
+            /** @description One page of drives, in the same order the board's own first page uses. */
+            options: components["schemas"]["VaccinationCommandBoardDriveOption"][];
+            /** @description Position to resume from. Absent means the catalogue is exhausted. */
+            nextCursor?: string;
         };
         /** @description One animal behind the Closed, No Dose tile, with the identity and ground location a park head needs to act on it. */
         VaccinationCommandBoardClosedWithoutDoseAnimal: {
@@ -9741,10 +9879,6 @@ export interface components {
             behindAnimals: number;
             /** @description DISTINCT animals in this shed carrying any obligation for this vaccine. behindAnimals is a subset of the same key set, so behindAnimals <= totalAnimals always. */
             totalAnimals: number;
-            /** @description The shed's vaccination clips for the day these doses were recorded. SHED-and-day grain, not per animal: proof is filmed per shed for the operator day (Sumathi 1 has five clips covering 76 goats), so attaching one to every animal repeats a single link 76 times and implies per-goat footage that does not exist. Absent when nothing was filmed, which is a finding — a verification queue with nothing to watch cannot be drained. */
-            proofVideos?: components["schemas"]["CommandBoardShedVideo"][];
-            /** @description The animals behind BOTH flagged states — genuinely behind AND waiting on a verifier — capped across all flagged cells in one board read. Each row carries awaitingVerification, which is what tells the two apart; clients must read that rather than infer it from the cell's state. Previously named behindAnimalsList and documented as behind-only while it already carried verifier-backlog rows, so the field name asserted the opposite of the payload. Evidence for the flag, not the flag itself: behindAnimals and verifyingAnimals stay whole-scope truth, so when this list is shorter than their sum the client must say the list is partial rather than present it as complete. */
-            flaggedAnimals?: components["schemas"]["CommandBoardShedVaccineAnimal"][];
         };
         /** @description One proof clip a verifier has to watch, at shed-and-day grain. */
         CommandBoardShedVideo: {
@@ -10018,12 +10152,16 @@ export interface components {
             kpis: components["schemas"]["VaccinationCommandBoardKPI"];
             /** @description Drives the board can be narrowed to, newest executable day first, park-scoped and bounded to 200 rows. Not filtered by the currently selected drive, so the selector can still offer the others. One row is one (batch, park): a drive whose work spans two parks is two operator days in two places and is offered as two choices, so it spends two of the 200 rows. When the bound is reached, driveOptionsTruncated is true and the list is incomplete — surface that, do not present the list as the full programme. */
             driveOptions: components["schemas"]["VaccinationCommandBoardDriveOption"][];
+            /**
+             * @description OPTIONAL board sections whose read failed on this render, named so the UI can show one panel as unavailable instead of showing nothing.
+             *     The board used to be all-or-nothing: any one of its fourteen reads failing returned 500 and the page showed "Unable to load command board" with no numbers at all. That is a bad trade on a leadership dashboard — a verification queue that times out is a missing panel, not a missing board, and blanking the KPI row over it destroys the reading the CEO came for. kpis and driveOptions remain REQUIRED and still fail the request.
+             *     Values are section keys: cohortMatrix, cohortHeadCounts, cohortExceptions, shedDoseMatrix, shedVaccineMatrix, shedVaccineColumns, weeklyGiven, verificationQueue. Sorted, and absent on a fully successful render — which is the overwhelmingly common case. A client that ignores this field renders a silently incomplete board rather than a degraded one.
+             */
+            unavailableSections?: string[];
             /** @description True when driveOptions hit its bound and drives were left out. The list has always been bounded, but it used to stop silently, so a scheduled drive past the bound was indistinguishable from a drive that was never planned. Clients must show that more drives exist (e.g. "narrow by park") rather than presenting a truncated picker as complete. */
             driveOptionsTruncated: boolean;
             /** @description Cohort (management_stage × sex) × vaccine matrix; rows are cohort+vaccine cells. */
             cohortMatrix: components["schemas"]["VaccinationCommandBoardCohortCell"][];
-            /** @description The animals behind kpis.closedWithoutDose, capped at 50. The tile answers "how many", which is where the question starts: the next one is always "which animals, and why did their work close with no dose". Selected by the SAME per-animal residual predicate the tile counts with, so the list and the number can never describe different animals. The tile's count stays whole-scope truth when this list is capped. */
-            closedWithoutDoseAnimals: components["schemas"]["VaccinationCommandBoardClosedWithoutDoseAnimal"][];
             /** @description Shed × dose rule state matrix; each row is a shed+dose combination with state and date range. */
             shedDoseMatrix: components["schemas"]["ShedDoseMatrixCell"][];
             /** @description Weekly aggregation of doses given (ISO week × vaccine × completion status). Ordered by week descending. */
@@ -16908,6 +17046,195 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VaccinationCommandBoardResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getCommandBoardClosedWithoutDose: {
+        parameters: {
+            query?: {
+                /** @description The same drive filter the board was rendered under, so the drawer explains the number the reader clicked. */
+                drive_batch_id?: string;
+                /** @description The same park filter the board was rendered under. Clamped to the caller's grants exactly as on /vaccination/command — a drilldown is a different route, not a different trust boundary. */
+                park_id?: string;
+                /** @description The as-of the board was rendered at. Carried because the overdue/behind predicates are IST business-DATE comparisons against it: a drawer resolved at a different as-of would list a different animal set than the tile that raised it. */
+                as_of?: string;
+                /** @description Page size. Defaults to 50, clamped to 200. */
+                limit?: number;
+                /** @description Opaque keyset position from the previous page's nextCursor. Absent means the first page. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of animals whose obligations all closed with no dose recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommandBoardClosedWithoutDosePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getCommandBoardShedVaccineAnimals: {
+        parameters: {
+            query: {
+                /** @description The cell's shed. REQUIRED — without it this is the tenant-wide scan the split exists to remove, which sorted an estimated 57,176 rows to return 500 and took 2.4s to return zero. */
+                shed_id: string;
+                /** @description The cell's vaccine code, from the board cell's vaccineCode. */
+                vaccine_code: string;
+                /** @description The cell's partition label, from the board cell's partition_label. An unpartitioned shed's cell carries an empty label, which is a real cell key and not a missing parameter. */
+                partition_label?: string;
+                /** @description The same drive filter the board was rendered under, so the drawer explains the number the reader clicked. */
+                drive_batch_id?: string;
+                /** @description The same park filter the board was rendered under. Clamped to the caller's grants exactly as on /vaccination/command — a drilldown is a different route, not a different trust boundary. */
+                park_id?: string;
+                /** @description The as-of the board was rendered at. Carried because the overdue/behind predicates are IST business-DATE comparisons against it: a drawer resolved at a different as-of would list a different animal set than the tile that raised it. */
+                as_of?: string;
+                /** @description Page size. Defaults to 50, clamped to 200. */
+                limit?: number;
+                /** @description Opaque keyset position from the previous page's nextCursor. Absent means the first page. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of flagged animals for the cell, plus the shed's proof videos for the days those animals were recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommandBoardShedVaccineAnimalsPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getCommandBoardCohortExceptions: {
+        parameters: {
+            query: {
+                /** @description The CELL's park, from the board cell's cohort.parkId. Distinct from park_id, which scopes the board: the board may be tenant-wide while the cell belongs to one park. An empty value addresses the park-less cohort and is a real cell, not "unfiltered". */
+                cohort_park_id: string;
+                management_stage: string;
+                sex: string;
+                /** @description Comma-separated dose codes identifying the cell, taken verbatim from the board cell's doseCodes. The board collapses several dose codes onto one displayed vaccineLabel, so a request naming one code under-reports the column it was opened from. */
+                dose_codes: string;
+                /** @description The same drive filter the board was rendered under, so the drawer explains the number the reader clicked. */
+                drive_batch_id?: string;
+                /** @description The same park filter the board was rendered under. Clamped to the caller's grants exactly as on /vaccination/command — a drilldown is a different route, not a different trust boundary. */
+                park_id?: string;
+                /** @description The as-of the board was rendered at. Carried because the overdue/behind predicates are IST business-DATE comparisons against it: a drawer resolved at a different as-of would list a different animal set than the tile that raised it. */
+                as_of?: string;
+                /** @description Page size. Defaults to 50, clamped to 200. */
+                limit?: number;
+                /** @description Opaque keyset position from the previous page's nextCursor. Absent means the first page. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of animals holding an accepted LATER dose of the same course while this dose has none. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommandBoardCohortExceptionsPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getCommandBoardCohortDays: {
+        parameters: {
+            query: {
+                /** @description The CELL's park, from the board cell's cohort.parkId. Distinct from park_id, which scopes the board: the board may be tenant-wide while the cell belongs to one park. An empty value addresses the park-less cohort and is a real cell, not "unfiltered". */
+                cohort_park_id: string;
+                management_stage: string;
+                sex: string;
+                /** @description Comma-separated dose codes identifying the cell, taken verbatim from the board cell's doseCodes. The board collapses several dose codes onto one displayed vaccineLabel, so a request naming one code under-reports the column it was opened from. */
+                dose_codes: string;
+                /** @description The same drive filter the board was rendered under, so the drawer explains the number the reader clicked. */
+                drive_batch_id?: string;
+                /** @description The same park filter the board was rendered under. Clamped to the caller's grants exactly as on /vaccination/command — a drilldown is a different route, not a different trust boundary. */
+                park_id?: string;
+                /** @description The as-of the board was rendered at. Carried because the overdue/behind predicates are IST business-DATE comparisons against it: a drawer resolved at a different as-of would list a different animal set than the tile that raised it. */
+                as_of?: string;
+                /** @description Page size. Defaults to 50, clamped to 200. */
+                limit?: number;
+                /** @description Opaque keyset position from the previous page's nextCursor. Absent means the first page. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cell's verified doses split by IST business day, ascending. Bounded by the drive window, so it carries no cursor. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommandBoardCohortDaysPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getCommandBoardDriveOptions: {
+        parameters: {
+            query?: {
+                /** @description Optional park narrowing, clamped to the caller's grants. */
+                park_id?: string;
+                /** @description Page size. Defaults to 20, clamped to 100. */
+                limit?: number;
+                /** @description Opaque keyset position from the previous page's nextCursor. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of drive options. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommandBoardDriveOptionsPage"];
                 };
             };
             400: components["responses"]["BadRequest"];

@@ -137,8 +137,12 @@ type explainPlanNode struct {
 	// RowsRemovedByJoinFilter is how many rows a join evaluated and threw away, PER LOOP. A nested
 	// loop chosen off a bad row estimate shows up here and almost nowhere else: the cohort-exception
 	// probes discarded 13.9 MILLION rows this way while every node's own row count stayed small.
-	RowsRemovedByJoinFilter float64           `json:"Rows Removed by Join Filter"`
-	Plans                   []explainPlanNode `json:"Plans"`
+	RowsRemovedByJoinFilter float64 `json:"Rows Removed by Join Filter"`
+	// RowsRemovedByFilter is how many rows a SCAN evaluated and discarded, per loop. A scan node
+	// reports only the rows that survived its filter, so without this a statement that reads the
+	// whole tenant and returns forty rows looks like a forty-row read.
+	RowsRemovedByFilter float64           `json:"Rows Removed by Filter"`
+	Plans               []explainPlanNode `json:"Plans"`
 }
 
 // explainAnalyzeResult is one top-level EXPLAIN (ANALYZE, FORMAT JSON) result object.
