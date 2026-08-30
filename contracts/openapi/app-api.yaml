@@ -3349,6 +3349,438 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /vaccination/command/closed-without-dose:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardClosedWithoutDose
+      summary: Animals behind the command board's closedWithoutDose KPI tile.
+      description: >-
+        A command-board DRILLDOWN: the evidence behind one board number, fetched when a reader opens
+        that cell rather than computed for every cell on every render.
+
+
+        These lists used to ship inside GET /vaccination/command. On a staging-scale tenant (~71k
+        obligation rows) they cost ~5.3s of that endpoint's ~8.6s and one of them exhausted the 15s
+        pool timeout, returning 500 and "Unable to load command board". Each list is now scoped to
+        the cell it explains and keyset-paginated, so the database does a drawer's work instead of
+        the tenant's. The board keeps every COUNT these lists sat under — the numbers are the board,
+        the lists never were.
+      parameters:
+        - name: drive_batch_id
+          in: query
+          required: false
+          description: The same drive filter the board was rendered under, so the drawer explains the number the reader clicked.
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            The same park filter the board was rendered under. Clamped to the caller's grants
+            exactly as on /vaccination/command — a drilldown is a different route, not a different
+            trust boundary.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          description: >-
+            The as-of the board was rendered at. Carried because the overdue/behind predicates are
+            IST business-DATE comparisons against it: a drawer resolved at a different as-of would
+            list a different animal set than the tile that raised it.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 50, clamped to 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset position from the previous page's nextCursor. Absent means the first page.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of animals whose obligations all closed with no dose recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardClosedWithoutDosePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/command/shed-vaccine-animals:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardShedVaccineAnimals
+      summary: Animals behind ONE shed x vaccine cell, with that shed's proof videos.
+      description: >-
+        A command-board DRILLDOWN: the evidence behind one board number, fetched when a reader opens
+        that cell rather than computed for every cell on every render.
+
+
+        These lists used to ship inside GET /vaccination/command. On a staging-scale tenant (~71k
+        obligation rows) they cost ~5.3s of that endpoint's ~8.6s and one of them exhausted the 15s
+        pool timeout, returning 500 and "Unable to load command board". Each list is now scoped to
+        the cell it explains and keyset-paginated, so the database does a drawer's work instead of
+        the tenant's. The board keeps every COUNT these lists sat under — the numbers are the board,
+        the lists never were.
+      parameters:
+        - name: shed_id
+          in: query
+          required: true
+          description: >-
+            The cell's shed. REQUIRED — without it this is the tenant-wide scan the split exists to
+            remove, which sorted an estimated 57,176 rows to return 500 and took 2.4s to return zero.
+          schema:
+            type: string
+            format: uuid
+        - name: vaccine_code
+          in: query
+          required: true
+          description: The cell's vaccine code, from the board cell's vaccineCode.
+          schema:
+            type: string
+        - name: partition_label
+          in: query
+          required: false
+          description: >-
+            The cell's partition label, from the board cell's partition_label. An unpartitioned
+            shed's cell carries an empty label, which is a real cell key and not a missing parameter.
+          schema:
+            type: string
+        - name: drive_batch_id
+          in: query
+          required: false
+          description: The same drive filter the board was rendered under, so the drawer explains the number the reader clicked.
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            The same park filter the board was rendered under. Clamped to the caller's grants
+            exactly as on /vaccination/command — a drilldown is a different route, not a different
+            trust boundary.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          description: >-
+            The as-of the board was rendered at. Carried because the overdue/behind predicates are
+            IST business-DATE comparisons against it: a drawer resolved at a different as-of would
+            list a different animal set than the tile that raised it.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 50, clamped to 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset position from the previous page's nextCursor. Absent means the first page.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of flagged animals for the cell, plus the shed's proof videos for the days those animals were recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardShedVaccineAnimalsPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/command/cohort-exceptions:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardCohortExceptions
+      summary: Dose-sequence exceptions behind ONE cohort matrix cell.
+      description: >-
+        A command-board DRILLDOWN: the evidence behind one board number, fetched when a reader opens
+        that cell rather than computed for every cell on every render.
+
+
+        These lists used to ship inside GET /vaccination/command. On a staging-scale tenant (~71k
+        obligation rows) they cost ~5.3s of that endpoint's ~8.6s and one of them exhausted the 15s
+        pool timeout, returning 500 and "Unable to load command board". Each list is now scoped to
+        the cell it explains and keyset-paginated, so the database does a drawer's work instead of
+        the tenant's. The board keeps every COUNT these lists sat under — the numbers are the board,
+        the lists never were.
+      parameters:
+        - name: cohort_park_id
+          in: query
+          required: true
+          description: >-
+            The CELL's park, from the board cell's cohort.parkId. Distinct from park_id, which
+            scopes the board: the board may be tenant-wide while the cell belongs to one park. An
+            empty value addresses the park-less cohort and is a real cell, not "unfiltered".
+          schema:
+            type: string
+        - name: management_stage
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: sex
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: dose_codes
+          in: query
+          required: true
+          description: >-
+            Comma-separated dose codes identifying the cell, taken verbatim from the board cell's
+            doseCodes. The board collapses several dose codes onto one displayed vaccineLabel, so a
+            request naming one code under-reports the column it was opened from.
+          schema:
+            type: string
+        - name: drive_batch_id
+          in: query
+          required: false
+          description: The same drive filter the board was rendered under, so the drawer explains the number the reader clicked.
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            The same park filter the board was rendered under. Clamped to the caller's grants
+            exactly as on /vaccination/command — a drilldown is a different route, not a different
+            trust boundary.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          description: >-
+            The as-of the board was rendered at. Carried because the overdue/behind predicates are
+            IST business-DATE comparisons against it: a drawer resolved at a different as-of would
+            list a different animal set than the tile that raised it.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 50, clamped to 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset position from the previous page's nextCursor. Absent means the first page.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of animals holding an accepted LATER dose of the same course while this dose has none.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardCohortExceptionsPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/command/cohort-days:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardCohortDays
+      summary: Administered-day split for ONE cohort matrix cell.
+      description: >-
+        A command-board DRILLDOWN: the evidence behind one board number, fetched when a reader opens
+        that cell rather than computed for every cell on every render.
+
+
+        These lists used to ship inside GET /vaccination/command. On a staging-scale tenant (~71k
+        obligation rows) they cost ~5.3s of that endpoint's ~8.6s and one of them exhausted the 15s
+        pool timeout, returning 500 and "Unable to load command board". Each list is now scoped to
+        the cell it explains and keyset-paginated, so the database does a drawer's work instead of
+        the tenant's. The board keeps every COUNT these lists sat under — the numbers are the board,
+        the lists never were.
+      parameters:
+        - name: cohort_park_id
+          in: query
+          required: true
+          description: >-
+            The CELL's park, from the board cell's cohort.parkId. Distinct from park_id, which
+            scopes the board: the board may be tenant-wide while the cell belongs to one park. An
+            empty value addresses the park-less cohort and is a real cell, not "unfiltered".
+          schema:
+            type: string
+        - name: management_stage
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: sex
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: dose_codes
+          in: query
+          required: true
+          description: >-
+            Comma-separated dose codes identifying the cell, taken verbatim from the board cell's
+            doseCodes. The board collapses several dose codes onto one displayed vaccineLabel, so a
+            request naming one code under-reports the column it was opened from.
+          schema:
+            type: string
+        - name: drive_batch_id
+          in: query
+          required: false
+          description: The same drive filter the board was rendered under, so the drawer explains the number the reader clicked.
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            The same park filter the board was rendered under. Clamped to the caller's grants
+            exactly as on /vaccination/command — a drilldown is a different route, not a different
+            trust boundary.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          description: >-
+            The as-of the board was rendered at. Carried because the overdue/behind predicates are
+            IST business-DATE comparisons against it: a drawer resolved at a different as-of would
+            list a different animal set than the tile that raised it.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 50, clamped to 200.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset position from the previous page's nextCursor. Absent means the first page.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The cell's verified doses split by IST business day, ascending. Bounded by the drive window, so it carries no cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardCohortDaysPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/command/drives:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardDriveOptions
+      summary: The command board's drive picker catalogue, keyset-paginated.
+      description: >-
+        The full drive catalogue. GET /vaccination/command carries only its first page (20).
+
+
+        The picker used to ship whole on first paint: 200 fully decorated drives, 448ms and 753 KB —
+        more than the endpoint's entire 512 KB budget, for a dropdown — and it was the command
+        board's critical path once the drilldowns had moved off it. The statement now resolves and
+        pages the drive rows from cheap columns BEFORE computing per-drive counts, shed-location
+        JSON and day history, so its cost is proportional to the page requested.
+
+
+        Park scope is the CALLER's own, never the selected drive's park: narrowing the catalogue to
+        the park of the drive already chosen deletes every other park's drive from the dropdown and
+        strands the reader there.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: Optional park narrowing, clamped to the caller's grants.
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          required: false
+          description: Page size. Defaults to 20, clamped to 100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset position from the previous page's nextCursor.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of drive options.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardDriveOptionsPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/live-tracker:
     get:
       tags:
@@ -23104,7 +23536,20 @@ components:
         # answer "this cohort is clean", not "the server did not say". Optional here would make
         # the generated client type it `number | undefined` and invite a client-side default.
         - missingPriorDoseCount
+        # Addresses this cell in the drilldown endpoints. The board collapses several dose codes
+        # onto one displayed vaccineLabel, so the label alone cannot identify the cell, and making
+        # the client re-derive the mapping would put a second, drifting copy of the dose-labelling
+        # table in the frontend.
+        - doseCodes
       properties:
+        doseCodes:
+          type: array
+          items:
+            type: string
+          description: >-
+            The raw dose codes folded into this cell's single displayed vaccineLabel, sorted. Send
+            them as the `dose_codes` parameter of /vaccination/command/cohort-exceptions and
+            /vaccination/command/cohort-days to open this cell's drawers.
         cohort:
           $ref: "#/components/schemas/VaccinationCommandBoardCohort"
         vaccineLabel:
@@ -23139,15 +23584,6 @@ components:
           type: string
           format: date-time
           description: Latest actual operator-administered date among accepted vaccinations in this cohort cell.
-        administeredDays:
-          type: array
-          items:
-            $ref: "#/components/schemas/VaccinationCommandBoardCohortDay"
-          description: >-
-            Per-IST-business-day split of this cell's verified doses, ascending. A
-            minAdministeredDate..maxAdministeredDate span of "30 Jun-1 Jul" hides that 84 animals
-            were dosed on the first day and 237 on the second; this array carries that split so
-            leadership reads the actual operator story rather than a range.
         missingPriorDoseCount:
           type: integer
           description: >-
@@ -23155,14 +23591,94 @@ components:
             LATER dose of the same vaccine course while THIS dose has no accepted completion (for
             example an accepted ET+TT Dose 2 with no accepted Dose 1). Whole-cohort truth, never
             capped. Cohort scope and key set are identical to verifiedCount, so "321 verified · 3
-            exceptions" compares like with like.
-        missingPriorDoseGoats:
+            exceptions" compares like with like. The ANIMALS behind it are fetched per cell from
+            /vaccination/command/cohort-exceptions; they used to ship here, computed tenant-wide for
+            every cell on every render.
+    CommandBoardClosedWithoutDosePage:
+      type: object
+      additionalProperties: false
+      required:
+        - animals
+      properties:
+        animals:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationCommandBoardClosedWithoutDoseAnimal"
+          description: >-
+            One page of the animals behind kpis.closedWithoutDose. Selected by the SAME per-animal
+            residual predicate the tile counts with, so the list and the number can never describe
+            different animals.
+        nextCursor:
+          type: string
+          description: >-
+            Position to resume from. ABSENT means the list is exhausted, which is a different fact
+            from an empty page.
+    CommandBoardShedVaccineAnimalsPage:
+      type: object
+      additionalProperties: false
+      required:
+        - animals
+        - proofVideos
+      properties:
+        animals:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommandBoardShedVaccineAnimal"
+          description: One page of the animals behind this shed x vaccine cell's behindAnimals count.
+        proofVideos:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommandBoardShedVideo"
+          description: >-
+            The shed's completed proof videos for the IST days this page's animals were recorded.
+            Correlated by SHED and DAY, never by animal: vaccination proof is filmed per shed for
+            the operator day — one clip covers dozens of goats — so hanging a video off each animal
+            row would repeat one link and imply per-goat footage that does not exist.
+        nextCursor:
+          type: string
+    CommandBoardCohortExceptionsPage:
+      type: object
+      additionalProperties: false
+      required:
+        - animals
+      properties:
+        animals:
           type: array
           items:
             $ref: "#/components/schemas/VaccinationCommandBoardCohortAnimal"
           description: >-
-            The animals behind missingPriorDoseCount, capped at 25 per cell so a cell can never
-            return an unbounded list. missingPriorDoseCount remains the full count when capped.
+            One page of the animals behind this cell's missingPriorDoseCount. Built from the same
+            predicate as that count, so the tile and the drawer cannot describe different animals.
+        nextCursor:
+          type: string
+    CommandBoardCohortDaysPage:
+      type: object
+      additionalProperties: false
+      required:
+        - days
+      properties:
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationCommandBoardCohortDay"
+          description: >-
+            This cell's verified doses split by IST business day, ascending. No cursor: the row
+            count is bounded by the days in the drive window, and paginating a bar chart would only
+            let a caller render half of one.
+    CommandBoardDriveOptionsPage:
+      type: object
+      additionalProperties: false
+      required:
+        - options
+      properties:
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationCommandBoardDriveOption"
+          description: One page of drives, in the same order the board's own first page uses.
+        nextCursor:
+          type: string
+          description: Position to resume from. Absent means the catalogue is exhausted.
     VaccinationCommandBoardClosedWithoutDoseAnimal:
       type: object
       additionalProperties: false
@@ -23592,30 +24108,6 @@ components:
           description: >-
             DISTINCT animals in this shed carrying any obligation for this vaccine. behindAnimals is
             a subset of the same key set, so behindAnimals <= totalAnimals always.
-        proofVideos:
-          type: array
-          items:
-            $ref: "#/components/schemas/CommandBoardShedVideo"
-          description: >-
-            The shed's vaccination clips for the day these doses were recorded. SHED-and-day grain,
-            not per animal: proof is filmed per shed for the operator day (Sumathi 1 has five clips
-            covering 76 goats), so attaching one to every animal repeats a single link 76 times and
-            implies per-goat footage that does not exist. Absent when nothing was filmed, which is a
-            finding — a verification queue with nothing to watch cannot be drained.
-        flaggedAnimals:
-          type: array
-          items:
-            $ref: "#/components/schemas/CommandBoardShedVaccineAnimal"
-          description: >-
-            The animals behind BOTH flagged states — genuinely behind AND waiting on a verifier —
-            capped across all flagged cells in one board read. Each row carries
-            awaitingVerification, which is what tells the two apart; clients must read that rather
-            than infer it from the cell's state.
-            Previously named behindAnimalsList and documented as behind-only while it already
-            carried verifier-backlog rows, so the field name asserted the opposite of the payload.
-            Evidence for the flag, not the flag itself: behindAnimals and verifyingAnimals stay
-            whole-scope truth, so when this list is shorter than their sum the client must say the
-            list is partial rather than present it as complete.
     CommandBoardShedVideo:
       type: object
       additionalProperties: false
@@ -24210,10 +24702,6 @@ components:
         - source
         - kpis
         - cohortMatrix
-        # Always emitted (the Go field carries no omitempty and the repository initialises it), so
-        # an empty residual bucket is the answer "no animals closed without a dose", never a field
-        # the server declined to send.
-        - closedWithoutDoseAnimals
         - shedDoseMatrix
         - shedVaccineMatrix
         - shedVaccineColumns
@@ -24269,6 +24757,25 @@ components:
             parks is two operator days in two places and is offered as two choices, so it spends
             two of the 200 rows. When the bound is reached, driveOptionsTruncated is true and the
             list is incomplete — surface that, do not present the list as the full programme.
+        unavailableSections:
+          type: array
+          items:
+            type: string
+          description: >-
+            OPTIONAL board sections whose read failed on this render, named so the UI can show one
+            panel as unavailable instead of showing nothing.
+
+            The board used to be all-or-nothing: any one of its fourteen reads failing returned 500
+            and the page showed "Unable to load command board" with no numbers at all. That is a bad
+            trade on a leadership dashboard — a verification queue that times out is a missing panel,
+            not a missing board, and blanking the KPI row over it destroys the reading the CEO came
+            for. kpis and driveOptions remain REQUIRED and still fail the request.
+
+            Values are section keys: cohortMatrix, cohortHeadCounts, cohortExceptions,
+            shedDoseMatrix, shedVaccineMatrix, shedVaccineColumns, weeklyGiven, verificationQueue.
+            Sorted, and absent on a fully successful render — which is the overwhelmingly common case.
+            A client that ignores this field renders a silently incomplete board rather than a
+            degraded one.
         driveOptionsTruncated:
           type: boolean
           description: >-
@@ -24282,16 +24789,6 @@ components:
           items:
             $ref: "#/components/schemas/VaccinationCommandBoardCohortCell"
           description: Cohort (management_stage × sex) × vaccine matrix; rows are cohort+vaccine cells.
-        closedWithoutDoseAnimals:
-          type: array
-          items:
-            $ref: "#/components/schemas/VaccinationCommandBoardClosedWithoutDoseAnimal"
-          description: >-
-            The animals behind kpis.closedWithoutDose, capped at 50. The tile answers "how many",
-            which is where the question starts: the next one is always "which animals, and why did
-            their work close with no dose". Selected by the SAME per-animal residual predicate the
-            tile counts with, so the list and the number can never describe different animals. The
-            tile's count stays whole-scope truth when this list is capped.
         shedDoseMatrix:
           type: array
           items:

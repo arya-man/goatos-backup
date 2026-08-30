@@ -147,14 +147,11 @@ func (r *Repository) CommandBoardShedVaccineAnimals(ctx context.Context, q domai
 		if err != nil {
 			return page, fmt.Errorf("vaccination command board: shed vaccine animals cursor: %w", err)
 		}
+		// A nil DueAt is passed through as NULL: the SQL COALESCEs it to 'infinity', which is where
+		// the NULLS LAST tail sits, and the resume is gated on goat_id rather than on this value so
+		// a NULL here still resumes instead of restarting.
 		cursorDue = cursor.DueAt
 		cursorGoat = &cursor.GoatID
-		if cursorDue == nil {
-			// The NULLS LAST tail. The SQL COALESCEs to 'infinity', and a nil here would take the
-			// first-page branch instead of resuming, so pass the sentinel explicitly.
-			infinity := time.Unix(1<<40, 0).UTC()
-			cursorDue = &infinity
-		}
 	}
 
 	asOf := q.AsOf
@@ -248,7 +245,7 @@ func (r *Repository) CommandBoardShedVaccineAnimals(ctx context.Context, q domai
 		for _, day := range recordedDays {
 			days = append(days, day)
 		}
-		videos, err := r.commandBoardShedVideos(ctx, q.TenantID, []string{q.ShedID}, days)
+		videos, err := r.commandBoardShedVideos(ctx, q.TenantID, []string{q.ShedID}, days, q.ParkID)
 		if err != nil {
 			return page, err
 		}
@@ -257,8 +254,8 @@ func (r *Repository) CommandBoardShedVaccineAnimals(ctx context.Context, q domai
 	return page, nil
 }
 
-func (r *Repository) commandBoardShedVideos(ctx context.Context, tenantID string, shedIDs []string, days []time.Time) ([]domain.CommandBoardShedVideo, error) {
-	rows, err := r.pool.Query(ctx, commandBoardShedVideoSQL, tenantID, shedIDs, days)
+func (r *Repository) commandBoardShedVideos(ctx context.Context, tenantID string, shedIDs []string, days []time.Time, parkID *string) ([]domain.CommandBoardShedVideo, error) {
+	rows, err := r.pool.Query(ctx, commandBoardShedVideoSQL, tenantID, shedIDs, days, parkID)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination command board: shed video query: %w", err)
 	}

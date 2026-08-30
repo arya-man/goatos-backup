@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -260,8 +261,13 @@ func (h *Handler) GetCommandBoardDriveOptions(w http.ResponseWriter, r *http.Req
 // A malformed cursor is the caller's fault and must read as a 400, not a 500: the cursor is opaque
 // to the client but it is still client input, and a 500 sends an operator to look for a server
 // fault that is not there.
+//
+// Matched on a SENTINEL, not on message text. Substring-matching "cursor" also caught genuine
+// server failures — a cursor-ENCODE error wraps as "... closed-without-dose cursor: ..." — and told
+// a caller who had sent a perfectly valid cursor that their cursor was bad, which sends them to
+// debug the one thing that was working.
 func (h *Handler) commandBoardDrilldownError(w http.ResponseWriter, r *http.Request, err error) {
-	if strings.Contains(err.Error(), "cursor") {
+	if errors.Is(err, vaccexecd.ErrInvalidCursor) {
 		h.badRequest(w, r, "invalid_cursor", "cursor is not a valid page position for this list")
 		return
 	}

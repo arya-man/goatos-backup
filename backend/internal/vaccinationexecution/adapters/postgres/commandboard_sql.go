@@ -83,10 +83,17 @@ package postgres
 //	whose dose window closed unvaccinated: missed is not progress, it is the failure the board
 //	exists to report, so it outranks every state an animal can simultaneously be in.
 //
-//	any_missed is deliberately NOT gated on no_completion. A missed obligation routinely holds
-//	a recorded-unverified completion (the operator submitted proof after the window shut, or
-//	the sweeper closed it while proof sat in the verification queue). Gating on no_completion
-//	is exactly what hid all 137 rows.
+//	any_missed IS gated on no_completion -- bool_or(is_missed AND no_completion) -- and this
+//	paragraph used to claim the opposite of the code sitting under it. The claim was wrong, not the
+//	SQL: a missed obligation carrying a recorded-unverified completion is reported through
+//	awaiting_verification, which is the bucket that actually describes it, while a missed dose with
+//	NOTHING recorded is the failure missed_not_given exists to name.
+//
+//	The drilldown (commandBoardClosedWithoutDoseSQL) had copied this COMMENT rather than the code:
+//	it folded any_missed ungated AND never applied it, so its drawer listed animals this tile does
+//	not count. Both statements spell the fold identically now, and
+//	commandboard_query_plan_test.go asserts the tile and the drawer agree ON DATA rather than
+//	trusting either comment -- which is the only thing that would have caught this.
 //
 //	CLOSED WITHOUT DOSE is why the sum used to be <= targets rather than = targets. An
 //	animal whose every obligation reached a closed status with no completion row against it
@@ -479,14 +486,18 @@ const commandBoardShedVaccineSQL = `
 -- remaining section once the drilldowns moved out, and therefore the whole board's critical path.
 --
 -- (1) rule_vaccine DE-FANS protocol_rule_dimensions BEFORE the join. That table is 1..N per
---     rule_id (publish compiles one rule into one row per selector combination), and vaccine_code
---     is INVARIANT across a rule's dimension rows -- which is exactly why the old query could
---     tolerate the fan-out and still count correctly. Tolerating it is not the same as paying for
---     it: on the live tenant 528 dimension rows reduce to 170 distinct (rule, vaccine) pairs, so
---     the join was multiplying all ~71k obligation rows by ~3 before aggregating, purely to
---     rediscover a value that is constant per rule. Same rows out, a third of the rows in.
---     TestVaccinationCommandBoardShedVaccineOneToManyMultipleDimensions pins the count under a
---     deliberate 3-dimension fan-out and is the mutation test for this change.
+--     rule_id (publish compiles one rule into one row per selector combination) and carries the
+--     SAME vaccine_code on every dimension row of a rule, so the join was multiplying all ~71k
+--     obligation rows by ~3 before aggregating, purely to rediscover a value it already had. On the
+--     live tenant 528 dimension rows reduce to 170 distinct (rule, vaccine) pairs.
+--
+--     NOTE, because an earlier version of this comment claimed otherwise: the rewrite does NOT
+--     depend on vaccine_code being invariant per rule. DISTINCT (rule_id, tenant_id, vaccine_code)
+--     preserves two codes as two rows, and vaccine_code is in per_animal's GROUP BY, so a rule that
+--     ever compiled two codes still counts correctly -- exactly as the old COUNT(DISTINCT
+--     target_id) did. The de-fan is a cost fix that happens to be safe for a stronger reason than
+--     invariance. TestVaccinationCommandBoardShedVaccineOneToManyMultipleDimensions pins the count
+--     under a deliberate 3-dimension fan-out.
 --
 -- (2) goat_partition resolves the partition label ONCE PER (goat, shed) instead of once per
 --     obligation row. The label needs a regexp_replace to match shed_partitions.normalized_label;
@@ -742,30 +753,62 @@ ORDER BY shed_name, partition_label, pr.dose_code
 // docs/runbooks/vaccination-command-board-latency.md.
 // scale-guard:ignore: 5k-50k-envelope — see the paragraph above; the CTE count is the paging fix.
 const driveOptionsSQL = `
-WITH scoped AS (
-  -- One row per in-scope obligation. protocol_rules stays an INNER join (an obligation whose rule
-  -- is missing was never offered) and both locations joins are 1:1, so this CTE does not fan out.
-  SELECT
+-- PAIRS FIRST (lean), PAGE, THEN THE FAT SCAN RESTRICTED TO THE PAGE.
+--
+-- The previous rewrite paged before DECORATING but still built one wide scoped CTE over every
+-- obligation in the tenant and re-scanned it three more times (pairs, counts, shed_locs): 70,843
+-- rows materialised and walked four times, which is why the statement stayed at 448ms and remained
+-- the board's slowest section. The header used to claim its cost was "proportional to the ~20 rows
+-- a caller asked for"; that was false, and this is the shape that makes it true.
+--
+--   pairs   reads obligation_instances ONCE and keeps only what the picker's ROW SET needs:
+--           (batch_id, park_id, park_name). No rule columns, no target_id, no shed columns.
+--   page    orders and keysets those pairs, and takes the caller's page.
+--   scoped  is the wide row set, built ONLY for the batches on that page -- so counts and
+--           shed_locs read a page's obligations instead of the tenant's.
+--
+-- protocol_rules stays an INNER join in BOTH pairs and scoped: an obligation whose rule is missing
+-- was never offered, and dropping it from pairs alone would let the picker list a drive whose
+-- counts then came back empty.
+--
+-- KEYSET, NOT OFFSET, because OFFSET re-walks the skipped prefix on every page and is a banned
+-- scale anti-pattern in this repo. The sort is mixed-direction (status rank ascending, dates
+-- descending, then batch, park-null, park name and park id ascending), which a single row
+-- comparison cannot express, so the resume predicate is the explicit lexicographic OR-chain below.
+-- sort_planned, sort_window and park_is_null exist so the ORDER BY and the keyset compare the SAME
+-- expressions -- a keyset over NULLS FIRST/LAST that the ORDER BY spells differently silently skips
+-- the boundary row.
+--
+-- park_id IS THE FINAL TIE-BREAK, and it is what makes the order TOTAL. Park NAME is not unique:
+-- nothing in the schema stops two parks under one tenant sharing a name (the live tenant has none
+-- today, which is exactly why this would have gone unnoticed), and two same-named parks on one
+-- batch would otherwise produce identical keys and drop a row at the page boundary.
+--
+-- projection-review: membership=obligation_instances in scope reduced to their distinct
+-- (batch, park) pairs; group_key=(batch_id, park_id), the row grain the picker renders;
+-- join_cardinality=protocol_rules INNER on the rule PK and both locations joins 1:1 so neither
+-- pairs nor scoped fans out, and every decorating CTE joins page on its own group key;
+-- pagination=keyset, applied before the wide scan and before decoration; scope=tenant_id plus the
+-- caller's park scope.
+--
+-- scale-guard:ignore: 5k-50k-envelope -- this statement has eleven CTEs and the count is the fix,
+-- not the defect: pairs/ordered/page exist to bound the work that follows them. Bounded by
+-- commandboard_query_plan_test.go, which gates the executed plan rather than the CTE count, and by
+-- the /vaccination/command entry in tools/perf/hot-paths.vaccination.json. The anchor-date boundary
+-- on serving this from a projection instead is recorded in
+-- docs/runbooks/vaccination-command-board-latency.md.
+WITH pairs AS (
+  -- The picker's ROW SET, from three columns. No counts, no arrays, no jsonb, no per-goat table.
+  SELECT DISTINCT
     oi.batch_id,
-    oi.obligation_id,
-    oi.target_id,
-    oi.scope_id,
-    pr.dose_code,
-    loc.location_id AS shed_id,
-    loc.name        AS shed_name,
-    loc.location_code AS shed_code,
     park.location_id AS park_id,
-    park.name        AS park_name
+    park.name AS park_name
   FROM obligation_instances oi
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
   LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
   LEFT JOIN locations park ON park.location_id = loc.parent_location_id AND park.tenant_id = loc.tenant_id
   WHERE oi.tenant_id = $1::uuid
     AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $2::uuid)
-),
--- The picker's ROW SET, from three cheap columns. No counts, no arrays, no jsonb.
-pairs AS (
-  SELECT DISTINCT s.batch_id, s.park_id, s.park_name FROM scoped s
 ),
 ordered AS (
   SELECT
@@ -784,7 +827,8 @@ ordered AS (
     COALESCE(b.planned_date, '-infinity'::date) AS sort_planned,
     COALESCE(b.window_start, '-infinity'::timestamptz) AS sort_window,
     (p.park_name IS NULL) AS park_is_null,
-    COALESCE(p.park_name, '') AS sort_park
+    COALESCE(p.park_name, '') AS sort_park,
+    COALESCE(p.park_id, '00000000-0000-0000-0000-000000000000'::uuid) AS sort_park_id
   FROM pairs p
   JOIN obligation_batches b ON b.batch_id = p.batch_id AND b.tenant_id = $1::uuid
 ),
@@ -797,10 +841,32 @@ page AS (
     OR (status_rank = $4::int AND sort_planned = $5::date AND sort_window < $6::timestamptz)
     OR (status_rank = $4::int AND sort_planned = $5::date AND sort_window = $6::timestamptz AND batch_id > $7::uuid)
     OR (status_rank = $4::int AND sort_planned = $5::date AND sort_window = $6::timestamptz AND batch_id = $7::uuid
-        AND (park_is_null, sort_park) > ($8::boolean, $9::text))
+        AND (park_is_null, sort_park, sort_park_id) > ($8::boolean, $9::text, $10::uuid))
   ))
-  ORDER BY status_rank, sort_planned DESC, sort_window DESC, batch_id, park_is_null, sort_park
+  ORDER BY status_rank, sort_planned DESC, sort_window DESC, batch_id, park_is_null, sort_park, sort_park_id
   LIMIT $3
+),
+scoped AS (
+  -- The WIDE row set, built only for the batches this page names. This is the scan that used to run
+  -- over the whole tenant and then get re-walked three times.
+  SELECT
+    oi.batch_id,
+    oi.obligation_id,
+    oi.target_id,
+    oi.scope_id,
+    pr.dose_code,
+    loc.location_id AS shed_id,
+    loc.name        AS shed_name,
+    loc.location_code AS shed_code,
+    park.location_id AS park_id,
+    park.name        AS park_name
+  FROM obligation_instances oi
+  JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
+  LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
+  LEFT JOIN locations park ON park.location_id = loc.parent_location_id AND park.tenant_id = loc.tenant_id
+  WHERE oi.tenant_id = $1::uuid
+    AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $2::uuid)
+    AND oi.batch_id IN (SELECT batch_id FROM page)
 ),
 counts AS (
   SELECT
@@ -820,10 +886,8 @@ counts AS (
 ),
 shed_locs AS (
   -- The ONLY place the per-goat partition table is touched, and the jsonb object is built AFTER the
-  -- DISTINCT rather than before it.
-  --
-  -- Built before, jsonb_build_object ran once per obligation row -- 70,843 times on the live tenant
-  -- -- and the DISTINCT then sorted 46,603 jsonb values down to 278. Constructing the objects from
+  -- DISTINCT rather than before it. Built before, jsonb_build_object ran once per obligation row and
+  -- the DISTINCT then sorted the results down to a few hundred. Constructing the objects from
   -- de-duplicated scalar (shed, partition) pairs produces the identical array: same members, and
   -- jsonb_agg(... ORDER BY obj) still sorts by the object exactly as it did.
   SELECT batch_id, park_id, jsonb_agg(shed_obj ORDER BY shed_obj) AS shed_locations
@@ -852,13 +916,13 @@ shed_locs AS (
       LEFT JOIN goat_shed_partitions gsp
         ON gsp.tenant_id = $1::uuid AND gsp.goat_id = s.target_id AND gsp.shed_id = s.scope_id
       WHERE s.shed_id IS NOT NULL
-    ) pairs
+    ) pairs_inner
   ) objs
   GROUP BY batch_id, park_id
 ),
 day_park AS (
-  -- The former LATERAL, evaluated ONCE per (batch, park) instead of once per fanned row, and now
-  -- only for the batches on this page.
+  -- The former LATERAL, evaluated ONCE per (batch, park) instead of once per fanned row, and only
+  -- for the batches on this page.
   SELECT
     vc.batch_id,
     day_loc.parent_location_id AS park_id,
@@ -918,13 +982,14 @@ SELECT
   pg.sort_planned,
   pg.sort_window,
   pg.park_is_null,
-  pg.sort_park
+  pg.sort_park,
+  pg.sort_park_id
 FROM page pg
 JOIN counts c ON c.batch_id = pg.batch_id AND c.park_id IS NOT DISTINCT FROM pg.park_id
 LEFT JOIN shed_locs ON shed_locs.batch_id = pg.batch_id AND shed_locs.park_id IS NOT DISTINCT FROM pg.park_id
 LEFT JOIN day_park_json ON day_park_json.batch_id = pg.batch_id AND day_park_json.park_id = pg.park_id
 LEFT JOIN day_any_json ON day_any_json.batch_id = pg.batch_id
-ORDER BY pg.status_rank, pg.sort_planned DESC, pg.sort_window DESC, pg.batch_id, pg.park_is_null, pg.sort_park
+ORDER BY pg.status_rank, pg.sort_planned DESC, pg.sort_window DESC, pg.batch_id, pg.park_is_null, pg.sort_park, pg.sort_park_id
 `
 
 // commandBoardCohortExceptionCTE is the dose-sequence exception set: animals holding an accepted
@@ -1023,9 +1088,31 @@ candidate AS MATERIALIZED (
     AND ($7::text[] IS NULL OR df.dose_code = ANY($7::text[]))
 ),
 exceptions AS (
-  SELECT c.*
+  -- THE OUTPUT GRAIN IS (cell, ANIMAL), and dropping sequence/family here is load-bearing.
+  --
+  -- candidate carries df.sequence because the later-dose join needs it, but a dose_code does NOT
+  -- map to a single sequence: on the live tenant EIGHTEEN (tenant_id, dose_code) pairs carry more
+  -- than one distinct sequence across rule versions, and 2,671 (animal, dose_code) pairs already
+  -- hold obligations under rules whose sequences differ. Projecting c.* would then emit one row per
+  -- (animal, sequence) and the tile would count an animal twice, while the drilldown's
+  -- SELECT DISTINCT goat_id showed it once -- a tile reading 2 over a drawer listing 1, which is
+  -- precisely the divergence this shared CTE exists to make impossible.
+  --
+  -- This is latent rather than live today only because the one dose code currently producing
+  -- exceptions has a single sequence, which is why the old and new statements still returned
+  -- byte-identical rows when diffed. Equal on today's data is not equal.
+  SELECT DISTINCT
+    c.park_id,
+    c.management_stage,
+    c.sex,
+    c.dose_code,
+    c.goat_id,
+    c.display_id,
+    c.tenant_id
   FROM candidate c
-  -- THE LATER ACCEPTED DOSE. Inner join: no later dose, no exception.
+  -- THE LATER ACCEPTED DOSE. Inner join: no later dose, no exception. An animal whose dose_code
+  -- resolves at two sequences qualifies if ANY of them has a later accepted dose, which is the same
+  -- answer the old correlated EXISTS gave.
   JOIN max_accepted m
     ON m.target_id = c.goat_id AND m.family = c.family AND m.max_sequence > c.sequence
   -- THIS DOSE NOT ACCEPTED. Anti-join spelled as LEFT JOIN ... IS NULL so it hashes.

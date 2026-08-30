@@ -76,6 +76,23 @@ type commandBoardPlanLimits struct {
 // cell-scoped plan are separated by more than noise, small enough to stay a unit-speed test.
 const commandBoardPlanFixtureAnimals = 400
 
+// commandBoardPlanFixtureSheds spreads the herd so ONE CELL IS A SMALL SHARE OF THE TENANT.
+//
+// With two sheds a cell held half the herd and a cell-scoped read was within a factor of two of a
+// tenant-wide one -- no ceiling can separate those, so the gate would have been asserting nothing
+// about scoping. Eight sheds put ~50 animals (200 obligations) in a cell against 1,600 in the
+// tenant, which is the separation the drilldown ceilings are written against.
+const commandBoardPlanFixtureSheds = 8
+
+// commandBoardPlanFixtureResidual is how many animals hold ONLY closed-with-no-dose obligations.
+//
+// The fixture cannot be uniformly 'missed': missed is its own KPI bucket and is excluded from
+// closed_without_dose, so a herd of missed animals gives a residual bucket of ZERO -- and the
+// closed-without-dose statement then has no candidate rows, its LATERAL never executes, and the
+// mutation test proving the guard catches that LATERAL passes vacuously. Every fourth animal is
+// therefore 'canceled' with no completion, which is the real residual shape.
+const commandBoardPlanFixtureResidual = commandBoardPlanFixtureAnimals / 4
+
 // commandBoardPlanFixture seeds one park, two sheds and commandBoardPlanFixtureAnimals goats, each
 // carrying several obligations across two vaccines, so a "cell" (one shed x one vaccine) is a small
 // fraction of the tenant. A guard written against a fixture where the cell IS the tenant proves
@@ -95,17 +112,20 @@ func seedCommandBoardPlanFixture(t *testing.T, ctx context.Context, pool *pgxpoo
 	f := commandBoardPlanFixture{
 		tenantID:    "00000000-0000-4000-8000-0000000000f1",
 		parkID:      uuidFromSuffix("01", "qp"),
-		shedID:      uuidFromSuffix("02", "qp"),
-		otherShedID: uuidFromSuffix("02", "qp2"),
+		shedID:      "85000000-0000-4000-8000-000000000000",
+		otherShedID: "85000000-0000-4000-8000-000000000001",
 		vaccineCode: "ET_TT",
 		asOf:        time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC),
 		doseCodes:   []string{"ppr_adult"},
 	}
 	protocolVersionID, ruleID := seedCommandBoardProtocol(t, ctx, pool, f.tenantID, "qp")
 	seedCommandBoardPark(t, ctx, pool, f.tenantID, f.parkID, f.shedID, "QueryPlan")
-	execProjectionSQL(t, ctx, pool, "second shed",
+	execProjectionSQL(t, ctx, pool, "plan fixture sheds",
 		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
-		 VALUES ($1, $2, 'Shed QueryPlan Two', 'shed', $3, 'active')`, f.otherShedID, f.tenantID, f.parkID)
+		 SELECT ('85000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
+		        $1, 'Shed QueryPlan ' || i, 'shed', $2, 'active'
+		 FROM generate_series(1, $3) i`,
+		f.tenantID, f.parkID, commandBoardPlanFixtureSheds-1)
 	seedVaccineDimension(t, ctx, pool, f.tenantID, protocolVersionID, ruleID,
 		uuidFromSuffix("0b", "qpd"), "qp-sel", f.vaccineCode)
 
@@ -118,11 +138,11 @@ func seedCommandBoardPlanFixture(t *testing.T, ctx context.Context, pool *pgxpoo
 	execProjectionSQL(t, ctx, pool, "plan fixture goats",
 		`INSERT INTO goats (goat_id, tenant_id, display_id, sex, lifecycle_status, management_stage, shed_id, custodian_party_id, dob)
 		 SELECT ('81000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
-		        $1, 'G' || lpad(i::text, 5, '0'), 'female', 'alive', 'Non-Pregnant',
-		        CASE WHEN i % 2 = 0 THEN $2::uuid ELSE $3::uuid END,
+		        $1, 'G-' || lpad(i::text, 6, '0'), 'female', 'alive', 'Non-Pregnant',
+		        ('85000000-0000-4000-8000-' || lpad((i % $2)::text, 12, '0'))::uuid,
 		        ('80000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid, '2025-01-01'
-		 FROM generate_series(1, $4) i`,
-		f.tenantID, f.shedID, f.otherShedID, commandBoardPlanFixtureAnimals)
+		 FROM generate_series(1, $3) i`,
+		f.tenantID, commandBoardPlanFixtureSheds, commandBoardPlanFixtureAnimals)
 	// Several doses per animal, so an animal-grain fold has something to fold and a per-obligation
 	// plan is visibly wider than a per-animal one.
 	execProjectionSQL(t, ctx, pool, "plan fixture obligations",
@@ -130,18 +150,63 @@ func seedCommandBoardPlanFixture(t *testing.T, ctx context.Context, pool *pgxpoo
 		 SELECT ('82000000-0000-4000-8000-' || lpad((i * 10 + d)::text, 12, '0'))::uuid,
 		        $1, $2,
 		        ('81000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid, 'goat', 'shed',
-		        CASE WHEN i % 2 = 0 THEN $3::uuid ELSE $4::uuid END,
-		        $5, 'missed',
+		        ('85000000-0000-4000-8000-' || lpad((i % $3)::text, 12, '0'))::uuid,
+		        $4,
+		        -- Every fourth animal is CLOSED WITH NO DOSE (the residual bucket the tile counts
+		        -- and the drawer lists); the rest are 'missed', which is the behind shape the
+		        -- shed-vaccine cell reports. A single-status herd makes one of the two empty.
+		        CASE WHEN i % 4 = 1 THEN 'canceled' ELSE 'missed' END,
 		        ('2026-08-01'::timestamptz + (d || ' days')::interval),
 		        'qp-' || i || '-' || d
-		 FROM generate_series(1, $6) i, generate_series(1, 4) d`,
-		f.tenantID, protocolVersionID, f.shedID, f.otherShedID, ruleID, commandBoardPlanFixtureAnimals)
+		 FROM generate_series(1, $5) i, generate_series(1, 4) d`,
+		f.tenantID, protocolVersionID, commandBoardPlanFixtureSheds, ruleID, commandBoardPlanFixtureAnimals)
+
+	// THE DECORATING TABLES ARE SEEDED, and this is not fixture padding.
+	//
+	// hotTables for the closed-without-dose and drive-option statements are goat_identifiers and
+	// goat_shed_partitions -- the per-goat tables whose access must stay bounded to the page. Left
+	// empty, those scans return zero rows and detector (1) can NEVER fire for either statement: the
+	// ceiling would be compared against nothing and the gate would pass any regression touching
+	// them. A guard that cannot fail on its own subject is decoration.
+	execProjectionSQL(t, ctx, pool, "plan fixture identifiers",
+		`INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value,
+		   normalized_value, scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+		 SELECT ('83000000-0000-4000-8000-' || lpad((i * 10 + k)::text, 12, '0'))::uuid,
+		        $1,
+		        ('81000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
+		        CASE k WHEN 1 THEN 'animal_identifier_1' ELSE 'animal_identifier_2' END,
+		        'TAG' || i || '-' || k, 'tag' || i || '-' || k, 'tenant', k = 1, 'active', now(), 'v1'
+		 FROM generate_series(1, $2) i, generate_series(1, 2) k`,
+		f.tenantID, commandBoardPlanFixtureAnimals)
+	execProjectionSQL(t, ctx, pool, "plan fixture partitions",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+		 SELECT $1,
+		        ('81000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
+		        ('85000000-0000-4000-8000-' || lpad((i % $2)::text, 12, '0'))::uuid,
+		        'Part ' || ((i % 3) + 1), 'Shed QueryPlan', now()
+		 FROM generate_series(1, $3) i`,
+		f.tenantID, commandBoardPlanFixtureSheds, commandBoardPlanFixtureAnimals)
+	// Completions, so the comp CTE is an aggregate over real rows rather than an empty-relation
+	// plan the planner treats as free. Every fourth animal's first dose is accepted, which also
+	// makes the residual bucket smaller than the herd -- a drilldown whose filter selects everything
+	// is not a test of a filter.
+	execProjectionSQL(t, ctx, pool, "plan fixture completions",
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, goat_id, status,
+		   adverse_reaction, cold_chain_verified, administered_at, idempotency_key)
+		 SELECT ('84000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
+		        $1,
+		        ('82000000-0000-4000-8000-' || lpad((i * 10 + 1)::text, 12, '0'))::uuid,
+		        ('81000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
+		        'accepted', false, true, '2026-08-02'::timestamptz, 'qp-completion-' || i
+		 FROM generate_series(1, $2) i WHERE i % 4 = 0`,
+		f.tenantID, commandBoardPlanFixtureAnimals)
 
 	// Real statistics, or every plan below is a guess about an empty table. This mirrors the
 	// mandatory post-seed ANALYZE contract in AGENTS.md.
 	execProjectionSQL(t, ctx, pool, "analyze plan fixture",
 		`ANALYZE obligation_instances, vaccination_completions, goats, locations, protocol_rules,
-		   protocol_rule_dimensions, goat_shed_partitions, shed_partitions, obligation_batches`)
+		   protocol_rule_dimensions, goat_shed_partitions, shed_partitions, obligation_batches,
+		   goat_identifiers`)
 	return f
 }
 
@@ -265,7 +330,7 @@ func TestCommandBoardQueryPlansAreBoundedByTheAnswerNotTheTenant(t *testing.T) {
 			// The picker pages BEFORE it decorates, so goat_shed_partitions -- the per-goat table --
 			// must only be touched for the page's drives.
 			sql:  driveOptionsSQL,
-			args: []any{f.tenantID, nil, domain.CommandBoardDriveOptionsPageSize + 1, nil, nil, nil, nil, nil, nil},
+			args: []any{f.tenantID, nil, domain.CommandBoardDriveOptionsPageSize + 1, nil, nil, nil, nil, nil, nil, nil},
 		},
 	} {
 		t.Run(tc.limits.label, func(t *testing.T) {
@@ -299,14 +364,33 @@ func commandBoardPlanViolations(limits commandBoardPlanLimits, res explainAnalyz
 		totalRows := n.ActualRows * loops
 
 		// (1) Broad scan of a hot canonical table where scoped access is expected.
-		if hot[n.RelationName] && n.ActualRows > limits.maxScanRows {
-			out = append(out, fmt.Sprintf("%s on %s read %.0f rows (ceiling %.0f) - the scope is being applied after the scan, not in it",
-				n.NodeType, n.RelationName, n.ActualRows, limits.maxScanRows))
+		//
+		// Rows the scan PROPAGATES, with the rows it discarded reported alongside for diagnosis.
+		//
+		// Gating on rows-scanned instead was tried and is wrong AT THIS FIXTURE SIZE: 1,600 rows is
+		// below the point where Postgres will choose an index over a sequential scan, so every
+		// statement -- correct ones included -- reads the whole table and a scanned-rows ceiling
+		// fails everything. What this fixture CAN prove is that the scope actually reduces the row
+		// set the statement carries forward, which is exactly the difference between a cell in the
+		// WHERE clause and a cell applied in Go afterwards. The limitation is recorded in
+		// docs/runbooks/vaccination-command-board-latency.md rather than papered over: this gate
+		// asserts work is proportional to the answer, NOT that a particular index was chosen.
+		propagated := n.ActualRows * loops
+		if hot[n.RelationName] && propagated > limits.maxScanRows {
+			out = append(out, fmt.Sprintf("%s on %s carried %.0f rows forward (%.0f discarded at the scan, x%.0f loops; ceiling %.0f) - the scope is being applied after the scan, not in it",
+				n.NodeType, n.RelationName, propagated, n.RowsRemovedByFilter, loops, limits.maxScanRows))
 		}
 
-		// (2) rows x loops at one node. This is the nested-loop-inner-scan and repeated-CTE-scan
-		// detector: neither shows up as a large single scan, both show up here.
-		if totalRows > limits.maxNodeTotalRows {
+		// (2) rows x loops at one node: the nested-loop-inner-scan detector, which neither a single
+		// scan's row count nor a blocking-node ceiling can see.
+		//
+		// Applied to HOT TABLES and to relation-less nodes (joins, aggregates, CTE scans) only. A
+		// nested loop whose inner side is a small DIMENSION table is the planner doing the right
+		// thing: locations holds a few hundred rows here and stays small at a million animals, so
+		// re-scanning it 50 times costs nothing and flagging it fails correct statements. The rule
+		// is about tenant-scale rows, and hotTables is where this file says which those are.
+		relational := n.RelationName != ""
+		if (!relational || hot[n.RelationName]) && totalRows > limits.maxNodeTotalRows {
 			out = append(out, fmt.Sprintf("%s%s handled %.0f rows x %.0f loops = %.0f (ceiling %.0f) - repeated scan or nested-loop inner over tenant-scale rows",
 				n.NodeType, relationSuffix(n), n.ActualRows, loops, totalRows, limits.maxNodeTotalRows))
 		}
@@ -325,7 +409,12 @@ func commandBoardPlanViolations(limits commandBoardPlanLimits, res explainAnalyz
 		// materialised tuplestore is not proportional to the rows it returns, so the loop count is
 		// the only honest signal, and a re-scanned CTE is never the right shape on a hot path: join
 		// it, or fold it set-wise.
-		if (strings.Contains(n.NodeType, "CTE Scan") || n.NodeType == "Materialize") && loops > 1 {
+		// CTE Scan ONLY, not Materialize. A Materialize node is the ordinary buffer Postgres puts on
+		// a nested loop's inner side and it is re-scanned by design -- flagging it made the gate
+		// fail on correct statements at fixture scale, which is how a guard gets switched off. The
+		// pathology is re-walking a MATERIALISED CTE, whose cost is unrelated to the rows it
+		// returns; an abusive Materialize is caught by the rows x loops ceiling instead.
+		if strings.Contains(n.NodeType, "CTE Scan") && loops > 1 {
 			out = append(out, fmt.Sprintf("%s%s was executed %.0f times - a materialised result re-scanned per outer row; join it set-wise instead",
 				n.NodeType, cteSuffix(n), loops))
 		}
@@ -456,6 +545,51 @@ ORDER BY g.display_id
 LIMIT $5
 `
 
+// commandBoardPreFixShedVaccineAnimalSQL is the shed-vaccine drilldown as it stood before this
+// change, kept so the gate can be shown to reject its shape too.
+//
+// The defect is what is ABSENT: there is no cell predicate. It selected every behind animal in the
+// tenant, ordered them by due date, took the first 500, and let Go bucket them into cells. On the
+// live tenant that sorted an estimated 57,176 rows and spent 2.4s returning ZERO. It was also wrong
+// as a drilldown independently of speed: a global 500-row cap starves whichever cells sort late, so
+// a red cell could show an empty drawer while its animals sat under another shed's rows.
+const commandBoardPreFixShedVaccineAnimalSQL = `
+WITH comp AS (
+  SELECT obligation_id,
+         bool_or(status = 'accepted') AS has_accepted,
+         bool_or(status = 'recorded' AND verified_at IS NULL) AS has_recorded_unverified
+  FROM vaccination_completions
+  WHERE tenant_id = $1::uuid
+  GROUP BY obligation_id
+)
+SELECT DISTINCT ON (oi.scope_id, d.vaccine_code, g.goat_id)
+  oi.scope_id::text AS shed_id,
+  d.vaccine_code,
+  g.goat_id::text,
+  g.display_id,
+  oi.status,
+  oi.due_at
+FROM obligation_instances oi
+JOIN protocol_rule_dimensions d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
+JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
+LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
+WHERE oi.tenant_id = $1::uuid
+  AND oi.scope_type = 'shed'
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND g.merged_into_goat_id IS NULL
+  AND d.vaccine_code <> ''
+  AND NOT COALESCE(comp.has_accepted, false)
+  AND (
+    COALESCE(comp.has_recorded_unverified, false)
+    OR oi.status = 'missed'
+    OR (oi.status IN ('scheduled','due','in_progress','deferred')
+        AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date)
+  )
+ORDER BY oi.scope_id, d.vaccine_code, g.goat_id, oi.due_at ASC NULLS LAST
+LIMIT $3
+`
+
+// TestCommandBoardPlanGuardRejectsThePreFixShapes is the guard's own mutation test.
 // TestCommandBoardPlanGuardRejectsThePreFixShapes is the guard's own mutation test.
 //
 // It runs commandBoardPlanViolations against the statement as it stood BEFORE the fix and requires
@@ -485,13 +619,83 @@ func TestCommandBoardPlanGuardRejectsThePreFixShapes(t *testing.T) {
 		f.tenantID, f.asOf, nil, nil, 50)
 
 	violations := commandBoardPlanViolations(limits, res)
-	if len(violations) == 0 {
-		t.Fatalf("the plan guard PASSED the pre-fix closed-without-dose statement, so it would not have caught the "+
-			"staging 500. Guard is not enforcing anything.\nfixture: %d animals, %.0f obligations; execTime=%.1fms",
-			commandBoardPlanFixtureAnimals, obligations, res.ExecutionTime)
+	// THE SPECIFIC DETECTOR, not merely "something fired".
+	//
+	// len(violations) > 0 would let this test go green for the wrong reason: with the decorating
+	// tables now seeded, detector (1) plausibly fires on this statement too, so a future relaxation
+	// of detector (4) -- the only one that can see a re-scanned CTE -- would leave the guard's own
+	// proof passing while the guard had stopped catching the actual staging 500.
+	//
+	// Detector (4) is the one that matters here and the reason is measured, not assumed: the LATERAL
+	// re-walks the materialised scoped CTE once per residual animal, but its inner LIMIT 1 means the
+	// node reports about one row per loop, so every ROW-COUNT ceiling in this file passes it.
+	if !commandBoardHasViolation(violations, "CTE Scan", "executed") {
+		t.Fatalf("the plan guard did not flag the pre-fix closed-without-dose statement's re-scanned CTE, which is the "+
+			"shape that produced the staging 500. Row-count ceilings cannot see it (the LATERAL's inner LIMIT 1 keeps "+
+			"per-loop rows tiny), so detector (4) is the only thing standing between us and that incident.\n"+
+			"violations=%v\nfixture: %d animals, %.0f obligations; execTime=%.1fms",
+			violations, commandBoardPlanFixtureAnimals, obligations, res.ExecutionTime)
 	}
-	t.Logf("guard correctly rejected the pre-fix shape with %d violation(s):\n  %s",
+	t.Logf("guard rejected the pre-fix closed-without-dose shape with %d violation(s):\n  %s",
 		len(violations), strings.Join(violations, "\n  "))
+}
+
+// TestCommandBoardPlanGuardRejectsTheTenantWideDrilldown is the second mutation case: a drilldown
+// with NO cell predicate.
+//
+// It is a separate test from the one above because it must be rejected by a DIFFERENT detector.
+// The closed-without-dose defect is a re-scanned CTE; this one is an honest single scan that simply
+// reads the whole tenant to produce a capped list, and only the drilldown-scoped scan ceiling can
+// see it. Proving one shape and assuming the other would leave the gate half-blind.
+func TestCommandBoardPlanGuardRejectsTheTenantWideDrilldown(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	f := seedCommandBoardPlanFixture(t, ctx, pool)
+	obligations := float64(commandBoardPlanFixtureAnimals * 4)
+
+	// The SAME ceilings the real shed-vaccine drilldown is held to. That is the point: the fixed
+	// statement passes them and the pre-fix one must not.
+	limits := commandBoardPlanLimits{
+		label:                      "commandBoardPreFixShedVaccineAnimalSQL",
+		maxScanRows:                obligations / 4,
+		maxPreLimitRows:            obligations / 4,
+		maxNodeTotalRows:           obligations / 2,
+		maxRowsRemovedByJoinFilter: obligations,
+		hotTables:                  []string{"obligation_instances"},
+	}
+	res := explainAnalyzeJSON(t, ctx, pool, commandBoardPreFixShedVaccineAnimalSQL, f.tenantID, f.asOf, 500)
+
+	violations := commandBoardPlanViolations(limits, res)
+	if !commandBoardHasViolation(violations, "obligation_instances", "ceiling") {
+		t.Fatalf("the plan guard PASSED a drilldown with no cell predicate -- the shape that sorted an estimated "+
+			"57,176 rows to return 500 and took 2.4s to return zero on the live tenant.\nviolations=%v\n"+
+			"fixture: %d animals, %.0f obligations; execTime=%.1fms",
+			violations, commandBoardPlanFixtureAnimals, obligations, res.ExecutionTime)
+	}
+	t.Logf("guard rejected the tenant-wide drilldown shape with %d violation(s):\n  %s",
+		len(violations), strings.Join(violations, "\n  "))
+}
+
+// commandBoardHasViolation reports whether any violation names all of the given fragments. It
+// matches on the SHAPE being reported rather than on exact wording, so failure messages stay
+// editable while the assertion stays about the right detector.
+func commandBoardHasViolation(violations []string, fragments ...string) bool {
+	for _, v := range violations {
+		all := true
+		for _, fragment := range fragments {
+			if !strings.Contains(v, fragment) {
+				all = false
+				break
+			}
+		}
+		if all {
+			return true
+		}
+	}
+	return false
 }
 
 // TestCommandBoardTileAndDrilldownRangeOverTheSameAnimals is the PREDICATE-DRIFT gate.
@@ -518,12 +722,13 @@ func TestCommandBoardTileAndDrilldownRangeOverTheSameAnimals(t *testing.T) {
 		t.Fatalf("VaccinationCommandBoard() error = %v", err)
 	}
 
-	// Every animal in the fixture holds only 'missed' obligations with no completion, so none is
-	// verified, awaiting, overdue or scheduled: the whole herd is the residual bucket. That makes
-	// the fixture a real test of the tile rather than a check that 0 == 0.
-	if board.KPIs.ClosedWithoutDose != commandBoardPlanFixtureAnimals {
-		t.Fatalf("tile closedWithoutDose = %d, want %d; the fixture herd is entirely residual",
-			board.KPIs.ClosedWithoutDose, commandBoardPlanFixtureAnimals)
+	// Every fourth animal holds only 'canceled' obligations with no completion: not verified, not
+	// awaiting, not overdue, not scheduled and not missed. That is the residual bucket, and it being
+	// a PROPER SUBSET of the herd is what makes this a test of the predicate rather than a check
+	// that everything equals everything.
+	if board.KPIs.ClosedWithoutDose != commandBoardPlanFixtureResidual {
+		t.Fatalf("tile closedWithoutDose = %d, want %d; the fixture puts every fourth animal in the residual bucket",
+			board.KPIs.ClosedWithoutDose, commandBoardPlanFixtureResidual)
 	}
 
 	// Page the drilldown to exhaustion and count. Paging is part of the assertion: a drawer that

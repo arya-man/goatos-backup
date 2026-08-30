@@ -54,14 +54,18 @@ func StartDedicatedPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
 
 	for i := 0; i < 60; i++ {
 		if exec.Command("docker", "exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "goatos").Run() == nil {
-			if err := applyMigrations(container, "goatos"); err != nil {
+			// The dedicated path is Docker-only by definition (it exists to validate
+			// database-level and container behaviour), so it uses a Docker-model harness rather
+			// than the external-DSN one.
+			ded := &pkgHarness{container: container}
+			if err := ded.applyMigrations("goatos"); err != nil {
 				t.Fatalf("pgtest: dedicated migrate: %v", err)
 			}
 			port, err := containerPort(container)
 			if err != nil {
 				t.Fatalf("pgtest: dedicated port: %v", err)
 			}
-			return openPool(t, ctx, port, "goatos")
+			return openPool(t, ctx, dsn(port, "goatos"), "goatos")
 		}
 		time.Sleep(500 * time.Millisecond)
 	}

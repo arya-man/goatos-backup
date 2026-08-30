@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
@@ -122,6 +123,14 @@ type CommandBoardCohortDaysPage struct {
 	Days []CommandBoardCohortDay `json:"days"`
 }
 
+// ErrInvalidCursor marks a cursor the CLIENT got wrong, so the HTTP adapter can answer 400 without
+// pattern-matching on message text.
+//
+// Substring-matching "cursor" in the error string mapped a genuine SERVER failure to 400 too: a
+// cursor-ENCODE failure is wrapped as "... closed-without-dose cursor: ..." and would have told a
+// caller who sent a perfectly valid cursor that their cursor was bad.
+var ErrInvalidCursor = errors.New("invalid command board cursor")
+
 // maxCommandBoardCursorBytes caps the decoded cursor payload so a hostile client cannot force an
 // oversized JSON parse. A legitimate cursor is a timestamp or a display id plus a UUID.
 const maxCommandBoardCursorBytes = 256
@@ -149,19 +158,19 @@ func EncodeCommandBoardAnimalCursor(cursor CommandBoardAnimalCursor) (string, er
 func DecodeCommandBoardAnimalCursor(raw string) (CommandBoardAnimalCursor, error) {
 	decoded, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil {
-		return CommandBoardAnimalCursor{}, err
+		return CommandBoardAnimalCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
 	}
 	if len(decoded) > maxCommandBoardCursorBytes {
-		return CommandBoardAnimalCursor{}, errors.New("invalid command board cursor: payload too large")
+		return CommandBoardAnimalCursor{}, fmt.Errorf("%w: payload too large", ErrInvalidCursor)
 	}
 	var cursor CommandBoardAnimalCursor
 	if err := json.Unmarshal(decoded, &cursor); err != nil {
-		return CommandBoardAnimalCursor{}, err
+		return CommandBoardAnimalCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
 	}
 	// goat_id is cast to ::uuid in the keyset SQL — validate here so a malformed cursor is a 400
 	// (invalid_cursor) rather than a DB 500 (invalid input syntax for type uuid).
 	if !uuidutil.IsUUIDString(cursor.GoatID) {
-		return CommandBoardAnimalCursor{}, errors.New("invalid command board cursor")
+		return CommandBoardAnimalCursor{}, ErrInvalidCursor
 	}
 	return cursor, nil
 }
@@ -190,17 +199,17 @@ func EncodeCommandBoardDueCursor(cursor CommandBoardDueCursor) (string, error) {
 func DecodeCommandBoardDueCursor(raw string) (CommandBoardDueCursor, error) {
 	decoded, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil {
-		return CommandBoardDueCursor{}, err
+		return CommandBoardDueCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
 	}
 	if len(decoded) > maxCommandBoardCursorBytes {
-		return CommandBoardDueCursor{}, errors.New("invalid command board cursor: payload too large")
+		return CommandBoardDueCursor{}, fmt.Errorf("%w: payload too large", ErrInvalidCursor)
 	}
 	var cursor CommandBoardDueCursor
 	if err := json.Unmarshal(decoded, &cursor); err != nil {
-		return CommandBoardDueCursor{}, err
+		return CommandBoardDueCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
 	}
 	if !uuidutil.IsUUIDString(cursor.GoatID) {
-		return CommandBoardDueCursor{}, errors.New("invalid command board cursor")
+		return CommandBoardDueCursor{}, ErrInvalidCursor
 	}
 	return cursor, nil
 }
@@ -252,6 +261,12 @@ type CommandBoardDriveCursor struct {
 	BatchID     string `json:"batchId"`
 	ParkIsNull  bool   `json:"parkIsNull"`
 	ParkName    string `json:"parkName"`
+	// ParkID is the FINAL tie-break and it is what makes the ordering total. Park name is not
+	// unique -- nothing in the schema stops two parks under one tenant sharing a name -- so without
+	// it two same-named parks on one batch produce identical keys and a row is dropped at the page
+	// boundary. The live tenant has no such pair today, which is exactly why this would have gone
+	// unnoticed.
+	ParkID string `json:"parkId"`
 }
 
 // maxCommandBoardDriveCursorBytes caps the decoded payload. A legitimate cursor is a UUID, two
@@ -272,24 +287,29 @@ func EncodeCommandBoardDriveCursor(cursor CommandBoardDriveCursor) (string, erro
 func DecodeCommandBoardDriveCursor(raw string) (CommandBoardDriveCursor, error) {
 	decoded, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil {
-		return CommandBoardDriveCursor{}, err
+		return CommandBoardDriveCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
 	}
 	if len(decoded) > maxCommandBoardDriveCursorBytes {
-		return CommandBoardDriveCursor{}, errors.New("invalid command board drive cursor: payload too large")
+		return CommandBoardDriveCursor{}, fmt.Errorf("%w: payload too large", ErrInvalidCursor)
 	}
 	var cursor CommandBoardDriveCursor
 	if err := json.Unmarshal(decoded, &cursor); err != nil {
-		return CommandBoardDriveCursor{}, err
+		return CommandBoardDriveCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
 	}
 	// batch_id is cast to ::uuid in the keyset SQL — validate here so a malformed cursor is a 400
 	// (invalid_cursor) rather than a DB 500 (invalid input syntax for type uuid).
 	if !uuidutil.IsUUIDString(cursor.BatchID) {
-		return CommandBoardDriveCursor{}, errors.New("invalid command board drive cursor")
+		return CommandBoardDriveCursor{}, ErrInvalidCursor
+	}
+	// ParkID is bound into a ::uuid cast. The all-zero uuid is the sentinel a park-less row carries,
+	// so it is valid; anything that is not a uuid at all is a malformed cursor.
+	if cursor.ParkID != "" && !uuidutil.IsUUIDString(cursor.ParkID) {
+		return CommandBoardDriveCursor{}, ErrInvalidCursor
 	}
 	// The date keys are bound into ::date / ::timestamptz casts. Refuse anything that is not a date
 	// Postgres will accept, so a hostile cursor cannot reach the planner as a cast error.
 	if !isCommandBoardCursorDate(cursor.PlannedDate) || !isCommandBoardCursorTimestamp(cursor.WindowStart) {
-		return CommandBoardDriveCursor{}, errors.New("invalid command board drive cursor")
+		return CommandBoardDriveCursor{}, ErrInvalidCursor
 	}
 	return cursor, nil
 }

@@ -602,6 +602,11 @@ run_query_plans() {
   # index regressions in production queries must fail ordinary PR, push, and local landing CI.
   prepare_query_plan_database
   step "required PostgreSQL query plans" make validate-sqlc-plans
+  # The command board's plan gate runs here for the same reason validate-sqlc-plans does: it is an
+  # index/plan-regression gate on a production read, and /vaccination/command already returned 500
+  # in staging once because nothing could see its plans. It resolves its own database (supplied DSN,
+  # OCI clone, or Docker) and fails rather than skipping when it can reach none.
+  step "command-board query plans" make commandboard-query-plan-guard
   return 0
 }
 

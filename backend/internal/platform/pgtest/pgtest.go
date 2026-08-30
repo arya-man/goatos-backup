@@ -24,6 +24,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,6 +39,21 @@ import (
 )
 
 const defaultPostgresImage = "postgres:16.9-alpine"
+
+// ExternalAdminDSN is the sanctioned NO-DOCKER path for a deliberate database gate.
+//
+// It mirrors GOATOS_SQLC_PLAN_ADMIN_DSN, which validate-sqlc-query-plans.sh already uses for the
+// same reason: a plan gate needs POSTGRES, not laptop Docker specifically, and on machines where
+// Docker/Colima is disallowed the alternative is not "run it another way" but "the gate never
+// runs" -- which is how a guard silently stops guarding.
+//
+// When set, the harness creates its migrated template and per-test clones on that server instead
+// of starting a container, and SkipIfNoDocker no longer skips. It must point at a THROWAWAY server
+// or one the operator is content to have databases created and dropped on: every clone is named
+// goatos_test_* and dropped on test cleanup, and the template is dropped at package teardown.
+func ExternalAdminDSN() string {
+	return strings.TrimSpace(os.Getenv("GOATOS_PGTEST_ADMIN_DSN"))
+}
 
 // Enabled reports whether this process was explicitly authorized to run Postgres tests.
 // Postgres tests are intentionally opt-in because container startup dominates normal local and
@@ -60,6 +76,10 @@ func skipUnlessEnabled(t *testing.T) {
 func SkipIfNoDocker(t *testing.T) {
 	t.Helper()
 	skipUnlessEnabled(t)
+	if ExternalAdminDSN() != "" {
+		// A database was supplied; Docker is irrelevant to whether this gate can run.
+		return
+	}
 	if _, err := exec.LookPath("docker"); err != nil {
 		if requireDocker() {
 			t.Fatalf("GOATOS_REQUIRE_DOCKER is set but docker is unavailable: the required Postgres integration gate must run, not skip")
@@ -100,6 +120,12 @@ type pkgHarness struct {
 	cloneMu  sync.Mutex // serializes CREATE DATABASE ... TEMPLATE; also the future-parallel guard
 	cloneSeq atomic.Uint64
 	started  atomic.Bool
+
+	// external is the no-Docker model: template and clones are created on a Postgres server the
+	// operator supplied through GOATOS_PGTEST_ADMIN_DSN instead of on a container this harness
+	// starts. baseDSN is that connection string; dsnFor swaps its database name per clone.
+	external bool
+	baseDSN  string
 }
 
 var pkg = &pkgHarness{}
@@ -128,7 +154,7 @@ func StartPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
 		t.Fatalf("pgtest: clone database from template: %v", err)
 	}
 
-	pool := openPool(t, ctx, pkg.port, clone)
+	pool := openPool(t, ctx, pkg.dsnFor(clone), clone)
 	t.Cleanup(func() { dropTestDatabase(t, pool, pkg.admin, clone) })
 	return pool
 }
@@ -146,6 +172,21 @@ func (h *pkgHarness) ensure(t *testing.T, ctx context.Context) {
 func (h *pkgHarness) start(ctx context.Context) error {
 	h.container = "goatos-pgtest-" + processTag
 	h.template = "goatos_tmpl_" + processTag
+
+	if base := ExternalAdminDSN(); base != "" {
+		h.external = true
+		h.baseDSN = base
+		admin, err := pgxpool.New(ctx, h.dsnFor("postgres"))
+		if err != nil {
+			return fmt.Errorf("open admin pool on GOATOS_PGTEST_ADMIN_DSN: %w", err)
+		}
+		if err := admin.Ping(ctx); err != nil {
+			admin.Close()
+			return fmt.Errorf("ping admin pool on GOATOS_PGTEST_ADMIN_DSN: %w", err)
+		}
+		h.admin = admin
+		return h.buildTemplate(ctx)
+	}
 
 	image := os.Getenv("GOATOS_POSTGRES_IMAGE")
 	if image == "" {
@@ -179,7 +220,7 @@ func (h *pkgHarness) start(ctx context.Context) error {
 	}
 	h.port = port
 
-	admin, err := pgxpool.New(ctx, dsn(port, "postgres"))
+	admin, err := pgxpool.New(ctx, h.dsnFor("postgres"))
 	if err != nil {
 		return fmt.Errorf("open admin pool: %w", err)
 	}
@@ -202,7 +243,7 @@ func (h *pkgHarness) buildTemplate(ctx context.Context) error {
 	if _, err := h.admin.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %s`, quoteIdent(h.template))); err != nil {
 		return fmt.Errorf("create template database: %w", err)
 	}
-	if err := applyMigrations(h.container, h.template); err != nil {
+	if err := h.applyMigrations(h.template); err != nil {
 		return err
 	}
 	// psql has exited, so the template has no live sessions. Forbid future connections so a stray
@@ -216,6 +257,15 @@ func (h *pkgHarness) buildTemplate(ctx context.Context) error {
 // teardown closes the admin pool and force-removes the package container and its volume. Safe to
 // call multiple times and safe when the harness never started.
 func (h *pkgHarness) teardown() {
+	// In the external model nothing is thrown away with a container, so the template must be
+	// dropped explicitly or it accumulates one abandoned database per test process on a server the
+	// operator did not volunteer for that.
+	if h.external && h.admin != nil && h.template != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_, _ = h.admin.Exec(ctx, fmt.Sprintf(`ALTER DATABASE %s WITH ALLOW_CONNECTIONS true`, quoteIdent(h.template)))
+		_, _ = h.admin.Exec(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS %s`, quoteIdent(h.template)))
+		cancel()
+	}
 	if h.admin != nil {
 		h.admin.Close()
 		h.admin = nil
@@ -228,7 +278,10 @@ func (h *pkgHarness) teardown() {
 
 // applyMigrations extracts each migration's goose Up section, concatenates them in filename order,
 // and pipes the whole script through one psql process targeting the given database.
-func applyMigrations(container, db string) error {
+//
+// The psql process runs INSIDE the container in the Docker model and on the HOST against the
+// supplied DSN in the external model; the script is byte-identical either way.
+func (h *pkgHarness) applyMigrations(db string) error {
 	root, err := repoRootFromWD()
 	if err != nil {
 		return err
@@ -252,7 +305,15 @@ func applyMigrations(container, db string) error {
 		script.WriteString(upSQL)
 		script.WriteByte('\n')
 	}
-	cmd := exec.Command("docker", "exec", "-i", container, "psql", "-v", "ON_ERROR_STOP=1", "-h", "127.0.0.1", "-U", "postgres", "-d", db)
+	var cmd *exec.Cmd
+	if h.external {
+		if _, err := exec.LookPath("psql"); err != nil {
+			return fmt.Errorf("GOATOS_PGTEST_ADMIN_DSN is set but psql is not on PATH: %w", err)
+		}
+		cmd = exec.Command("psql", "-v", "ON_ERROR_STOP=1", h.dsnFor(db))
+	} else {
+		cmd = exec.Command("docker", "exec", "-i", h.container, "psql", "-v", "ON_ERROR_STOP=1", "-h", "127.0.0.1", "-U", "postgres", "-d", db)
+	}
 	cmd.Stdin = strings.NewReader(script.String())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("psql migrate %s failed: %v\n%s", db, err, out)
@@ -336,9 +397,9 @@ func dropClonedDatabaseAsync(admin, pool *pgxpool.Pool, db string) (error, <-cha
 	return nil, closed
 }
 
-func openPool(t *testing.T, ctx context.Context, port, db string) *pgxpool.Pool {
+func openPool(t *testing.T, ctx context.Context, connString, db string) *pgxpool.Pool {
 	t.Helper()
-	pool, err := pgxpool.New(ctx, dsn(port, db))
+	pool, err := pgxpool.New(ctx, connString)
 	if err != nil {
 		t.Fatalf("pgtest: open pool for %s: %v", db, err)
 	}
@@ -360,6 +421,24 @@ func containerPort(container string) (string, error) {
 
 func dsn(port, db string) string {
 	return "postgres://postgres:goatos@127.0.0.1:" + port + "/" + db + "?sslmode=disable"
+}
+
+// dsnFor returns a connection string for one database on whichever server this harness is using.
+//
+// In the external model the supplied DSN's PATH is swapped for the target database and every other
+// component -- host, port, credentials, sslmode and any other query parameters -- is preserved, so
+// a tunnelled or TLS-bearing DSN keeps working.
+func (h *pkgHarness) dsnFor(db string) string {
+	if !h.external {
+		return dsn(h.port, db)
+	}
+	parsed, err := url.Parse(h.baseDSN)
+	if err != nil {
+		// Not a URL DSN (libpq keyword form). Append dbname, which overrides any earlier one.
+		return h.baseDSN + " dbname=" + db
+	}
+	parsed.Path = "/" + db
+	return parsed.String()
 }
 
 // quoteIdent double-quotes a SQL identifier. Database names here are generated internally from
