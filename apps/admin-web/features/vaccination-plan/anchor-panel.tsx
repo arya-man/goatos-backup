@@ -5,7 +5,7 @@ import { Fragment, useMemo, useState, useTransition } from "react";
 import { todayIso } from "@/lib/format";
 import type { VaccinationAnchorPreview, VaccinationAnchorRequest } from "@/lib/api/server";
 
-import { createAnchor, previewAnchor } from "./plan-actions";
+import { previewAnchor } from "./plan-actions";
 import type { ScheduleRule, VaccineGroup } from "./plan-model";
 
 type AnchorState = {
@@ -27,7 +27,7 @@ type Props = {
   rows?: RuleRow[];
 };
 
-const DEFAULT_REASON = "Start this vaccine from this date";
+const DEFAULT_REASON = "Anchor/base date for this vaccine rule";
 
 export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Props) {
   const catalogRows = useMemo(
@@ -47,7 +47,7 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
   const [pending, startTransition] = useTransition();
   const [preview, setPreview] = useState<VaccinationAnchorPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState<Record<string, string>>({});
+  const [configured, setConfigured] = useState<Record<string, string>>({});
 
   function openEditor(row: RuleRow) {
     setEditingKey(rowKey(row));
@@ -79,21 +79,6 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
     });
   }
 
-  function runCreate() {
-    const row = selectedRow();
-    if (!row) return;
-    setError(null);
-    startTransition(async () => {
-      const result = await createAnchor(buildAnchorPayload(row, state));
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      setPreview(result.preview);
-      setCreated((current) => ({ ...current, [rowKey(row)]: result.preview.anchor_date }));
-    });
-  }
-
   if (rows.length === 0) return null;
 
   return (
@@ -113,7 +98,7 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
           {rows.map((row) => {
             const key = rowKey(row);
             const editing = editingKey === key;
-            const anchorDate = created[key];
+            const anchorDate = configured[key];
             return (
               <Fragment key={key}>
                 <tr className={editing ? "selrow" : undefined}>
@@ -123,19 +108,19 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
                   <td>{row.rule.dose_code}</td>
                   <td>{ruleTiming(row.rule)}</td>
                   <td>{repeatLabel(row.rule)}</td>
-                  <td>{anchorDate || "-"}</td>
+                  <td>{anchorDate || "No anchor"}</td>
                   <td>
                     <div className="anchorrow-actions">
                       <button className="btn ghost sm" type="button" onClick={() => openEditor(row)}>
-                        {anchorDate ? "Edit anchor" : "Set anchor"}
+                        {anchorDate ? "Edit anchor" : "Add anchor"}
                       </button>
                       {anchorDate ? (
                         <button
                           className="btn ghost sm"
                           type="button"
-                          onClick={() => setCreated((current) => clearKey(current, key))}
+                          onClick={() => setConfigured((current) => clearKey(current, key))}
                         >
-                          Clear anchor
+                          Skip anchor
                         </button>
                       ) : null}
                     </div>
@@ -206,9 +191,14 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
                           className="btn sm"
                           type="button"
                           disabled={pending || !preview || preview.eligible_animals === 0}
-                          onClick={runCreate}
+                          onClick={() => {
+                            const row = selectedRow();
+                            if (!row) return;
+                            setConfigured((current) => ({ ...current, [rowKey(row)]: state.anchorDate }));
+                            setEditingKey(null);
+                          }}
                         >
-                          {pending ? "Saving..." : "Start this vaccine from this date"}
+                          Save anchor to draft
                         </button>
                         <button className="btn ghost sm" type="button" disabled={pending} onClick={() => setEditingKey(null)}>
                           Close

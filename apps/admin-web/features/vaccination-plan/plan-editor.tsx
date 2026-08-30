@@ -387,7 +387,7 @@ export function VaccinationPlanEditor(props: Props) {
 
               {current.on && currentAnchorRows.length > 0 ? (
                 <div className="dose" style={{ marginBottom: 18 }}>
-                  <div className="sec-label">Anchor settings</div>
+                  <div className="sec-label">Optional anchor/base dates</div>
                   <VaccinationAnchorPanel rows={currentAnchorRows} />
                 </div>
               ) : null}
