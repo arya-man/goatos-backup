@@ -292,7 +292,7 @@ func versionedAnchorsForPublish(v domain.Version, env ruleDSLEnvelope, published
 			EnforceAgeEligibility: enforceAge,
 			SourceSystem:          "vaccination_plan_publish",
 			CreatedBy:             publishedBy,
-			IdempotencyKey:        fmt.Sprintf("vaccination-anchor-config:%s:%s:%s:%s", v.ProtocolVersionID, vaccineCode, doseCode, anchorDate),
+			IdempotencyKey:        fmt.Sprintf("vaccination-anchor-config:%s", requestHash),
 			RequestHash:           requestHash,
 		})
 	}

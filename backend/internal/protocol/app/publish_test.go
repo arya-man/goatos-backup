@@ -1028,6 +1028,29 @@ func TestPublishVersionAppliesAnchorConfigAtomicallyWithMatrixPublish(t *testing
 	}
 }
 
+func TestPublishVersionAnchorIdempotencyIncludesScope(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	dsl := validVaccinationMatrixRulesetDSL()
+	dsl = strings.Replace(dsl, `"matrix_rows":[`, `"anchor_config":{"rules":[{"vaccine_code":"Sheep Pox","dose_code":"sheep_pox_adult_second_wave","anchor_date":"2026-09-08","scope_type":"park","scope_payload":{"park_id":"cpt"},"reason":"Start this vaccine from this date"},{"vaccine_code":"Sheep Pox","dose_code":"sheep_pox_adult_second_wave","anchor_date":"2026-09-08","scope_type":"park","scope_payload":{"park_id":"cbe"},"reason":"Start this vaccine from this date"}]},"matrix_rows":[`, 1)
+	repo.version.RuleDsl = []byte(dsl)
+	service := NewService(repo)
+
+	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); err != nil {
+		t.Fatalf("publish with scoped anchor_config: %v", err)
+	}
+	if len(repo.anchorsApplied) != 2 {
+		t.Fatalf("anchors applied = %d, want 2", len(repo.anchorsApplied))
+	}
+	if repo.anchorsApplied[0].IdempotencyKey == repo.anchorsApplied[1].IdempotencyKey {
+		t.Fatalf("scoped anchors share idempotency key: %q", repo.anchorsApplied[0].IdempotencyKey)
+	}
+	if repo.anchorsApplied[0].RequestHash == repo.anchorsApplied[1].RequestHash {
+		t.Fatalf("scoped anchors share request hash: %q", repo.anchorsApplied[0].RequestHash)
+	}
+}
+
 func validPublishVersion(status string) domain.Version {
 	return domain.Version{
 		ProtocolVersionID: "version-1",
