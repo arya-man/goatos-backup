@@ -79,6 +79,15 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
     });
   }
 
+  function skipAnchor(key: string) {
+    setConfigured((current) => clearKey(current, key));
+    if (editingKey === key) {
+      setEditingKey(null);
+      setPreview(null);
+      setError(null);
+    }
+  }
+
   if (rows.length === 0) return null;
 
   return (
@@ -114,15 +123,9 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
                       <button className="btn ghost sm" type="button" onClick={() => openEditor(row)}>
                         {anchorDate ? "Edit anchor" : "Add anchor"}
                       </button>
-                      {anchorDate ? (
-                        <button
-                          className="btn ghost sm"
-                          type="button"
-                          onClick={() => setConfigured((current) => clearKey(current, key))}
-                        >
-                          Skip anchor
-                        </button>
-                      ) : null}
+                      <button className="btn ghost sm" type="button" onClick={() => skipAnchor(key)}>
+                        Skip anchor
+                      </button>
                     </div>
                   </td>
                 </tr>
