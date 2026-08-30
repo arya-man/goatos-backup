@@ -515,3 +515,54 @@ func TestHotPathInlineSQLIgnoresShortLiterals(t *testing.T) {
 		t.Fatalf("hot-path-inline-sql = %d, want 0 for a short single-line lookup", got["hot-path-inline-sql"])
 	}
 }
+
+// TestHotPathInlineSQLRejectsConcatenatedStatements closes a one-keystroke evasion.
+//
+// Splitting a statement across a `+` is gofmt-stable and leaves each half under the newline
+// threshold, so measuring literals individually let the whole shape through. The rule is about SQL
+// a plan test can NAME; assembling it from two anonymous halves is no more nameable than one.
+func TestHotPathInlineSQLRejectsConcatenatedStatements(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"func (r *R) Board(ctx context.Context) {\n" +
+		"\tq := \"SELECT g.goat_id\\nFROM obligation_instances o\\n\" + \"JOIN goats g ON g.goat_id = o.target_id\\nWHERE o.tenant_id = $1\\n\"\n" +
+		"\t_, _ = r.pool.Query(ctx, q, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/x/adapters/postgres/repository.go", src)
+	if got := rules(scanFile(repo, path))["hot-path-inline-sql"]; got != 1 {
+		t.Fatalf("hot-path-inline-sql = %d, want 1; a statement split across a `+` is still unnameable hot-path SQL", got)
+	}
+}
+
+// TestHotPathInlineSQLRejectsBlockCommentHeader pins the multi-line /* */ case. The single-line
+// `--` header was already covered; a block comment spanning two lines slipped the start match
+// because the regex was not in dot-matches-newline mode.
+func TestHotPathInlineSQLRejectsBlockCommentHeader(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"func (r *R) Board(ctx context.Context) {\n" +
+		"\tq := `/* board read\n   owner: preventive care */\nSELECT g.goat_id\nFROM obligation_instances o\nJOIN goats g ON g.goat_id = o.target_id\nWHERE o.tenant_id = $1\n`\n" +
+		"\t_, _ = r.pool.Query(ctx, q, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/x/adapters/postgres/repository.go", src)
+	if got := rules(scanFile(repo, path))["hot-path-inline-sql"]; got != 1 {
+		t.Fatalf("hot-path-inline-sql = %d, want 1; a multi-line block-comment header must not hide the statement under it", got)
+	}
+}
+
+// TestHotPathInlineSQLIgnoresBuiltQueries keeps the rule off dynamic assembly. A `+` chain carrying
+// a variable is a query being BUILT, not a statement this rule can read or a plan test can pin, and
+// flagging it would push authors toward scale-guard:ignore.
+func TestHotPathInlineSQLIgnoresBuiltQueries(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"const filterClause = \"AND o.status = $2\"\n\n" +
+		"func (r *R) Board(ctx context.Context, extra string) {\n" +
+		"\tq := \"SELECT g.goat_id\\nFROM obligation_instances o\\nJOIN goats g ON g.goat_id = o.target_id\\n\" + extra\n" +
+		"\t_, _ = r.pool.Query(ctx, q, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/x/adapters/postgres/repository.go", src)
+	if got := rules(scanFile(repo, path))["hot-path-inline-sql"]; got != 0 {
+		t.Fatalf("hot-path-inline-sql = %d, want 0 for a query assembled from a variable", got)
+	}
+}

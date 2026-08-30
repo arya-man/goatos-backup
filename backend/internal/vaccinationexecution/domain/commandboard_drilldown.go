@@ -116,6 +116,23 @@ type CommandBoardCohortExceptionsPage struct {
 	NextCursor string                     `json:"nextCursor,omitempty"`
 }
 
+// CommandBoardCohortMatrixPage is the cohort (park x stage x sex) x vaccine matrix.
+//
+// It is a SECTION, not a drilldown, and it left the board for the same reason the drilldowns did:
+// cost. Its three statements -- the cell aggregate, the true herd head count and the dose-sequence
+// exception count -- were ~420ms of the board's ~850ms of SQL, which held the endpoint at p90 416ms
+// against a 300ms budget that is a hard, non-relaxable ceiling in
+// tools/perf/api-latency-policy.mjs. Everything else on first paint (KPIs, both shed matrices, the
+// weekly summary, the verification queue and the picker's first page) fits inside the budget
+// without it.
+//
+// This is a REAL PRODUCT CHANGE and is recorded as one: the CEO's cohort grid now arrives a moment
+// after the rest of the board instead of with it. The numbers are identical and whole-scope; only
+// their arrival moved.
+type CommandBoardCohortMatrixPage struct {
+	Cells []CommandBoardCohortCell `json:"cells"`
+}
+
 // CommandBoardCohortDaysPage is a cohort cell's administered-day split. It carries no cursor: the
 // row count is bounded by the days in the drive window, which is a drawer-sized list by
 // construction, and paginating a bar chart would only let a caller render half of one.

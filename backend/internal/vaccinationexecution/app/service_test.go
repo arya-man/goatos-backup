@@ -30,6 +30,10 @@ func (r fakeRepo) VaccinationCommandBoard(_ context.Context, _ domain.CommandBoa
 // The command-board drilldowns. Stubs: the Service is a pass-through for these, so the behaviour
 // under test lives in the repository's SQL and its own integration tests.
 
+func (r fakeRepo) CommandBoardCohortMatrix(_ context.Context, _ domain.CommandBoardDrilldownQuery) (domain.CommandBoardCohortMatrixPage, error) {
+	return domain.CommandBoardCohortMatrixPage{}, nil
+}
+
 func (r fakeRepo) CommandBoardClosedWithoutDoseAnimals(_ context.Context, _ domain.CommandBoardDrilldownQuery) (domain.CommandBoardClosedWithoutDosePage, error) {
 	return domain.CommandBoardClosedWithoutDosePage{}, nil
 }

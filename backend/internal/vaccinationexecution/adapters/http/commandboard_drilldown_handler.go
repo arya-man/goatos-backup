@@ -128,6 +128,26 @@ func (h *Handler) commandBoardCohortCell(w http.ResponseWriter, r *http.Request,
 	return cell, true
 }
 
+// GetCommandBoardCohortMatrix returns the cohort matrix as its own section.
+// GET /vaccination/command/cohort-matrix
+//
+// A SECTION, not a drilldown: it carries no cell keys and no cursor, because the matrix is a bounded
+// per-cohort aggregate. It is a separate request only because its three statements were ~420ms of
+// the board's ~850ms of SQL -- enough on their own to hold /vaccination/command over a budget that
+// tools/perf/api-latency-policy.mjs will not let anyone raise.
+func (h *Handler) GetCommandBoardCohortMatrix(w http.ResponseWriter, r *http.Request) {
+	scope, ok := h.commandBoardDrilldownScope(w, r)
+	if !ok {
+		return
+	}
+	page, err := h.reader.CommandBoardCohortMatrix(r.Context(), scope)
+	if err != nil {
+		h.commandBoardDrilldownError(w, r, err)
+		return
+	}
+	writeJSON(w, page)
+}
+
 // GetCommandBoardClosedWithoutDose lists the animals behind the ClosedWithoutDose KPI tile.
 // GET /vaccination/command/closed-without-dose
 func (h *Handler) GetCommandBoardClosedWithoutDose(w http.ResponseWriter, r *http.Request) {

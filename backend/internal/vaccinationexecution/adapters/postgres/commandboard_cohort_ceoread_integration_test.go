@@ -156,15 +156,17 @@ func TestVaccinationCommandBoardCohortCEOReadHeadCountDaySplitAndDoseSequenceExc
 		seedGoat(i)
 	}
 
+	// The board is still read so this test keeps exercising the endpoint end to end, but the cohort
+	// cells now come from their own section.
 	repo := NewRepository(pool, 5*time.Second)
-	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
-	if err != nil {
+	if _, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf}); err != nil {
 		t.Fatalf("VaccinationCommandBoard() error = %v", err)
 	}
 
 	var dose1, dose2 *domain.CommandBoardCohortCell
-	for i := range resp.CohortMatrix {
-		cell := &resp.CohortMatrix[i]
+	cohortMatrix := cohortMatrixCells(t, ctx, pool, tenantID, asOf)
+	for i := range cohortMatrix {
+		cell := &cohortMatrix[i]
 		t.Logf("cohort cell vaccine=%q animals=%d pending=%d submitted=%d verified=%d exceptions=%d days=%v",
 			cell.VaccineLabel, cell.Cohort.AnimalCount, cell.PendingCount, cell.SubmittedCount,
 			cell.VerifiedCount, cell.MissingPriorDoseCount, cell.DoseCodes)
@@ -176,7 +178,7 @@ func TestVaccinationCommandBoardCohortCEOReadHeadCountDaySplitAndDoseSequenceExc
 		}
 	}
 	if dose1 == nil || dose2 == nil {
-		t.Fatalf("cohort matrix missing a dose-qualified ET+TT cell: %+v", resp.CohortMatrix)
+		t.Fatalf("cohort matrix missing a dose-qualified ET+TT cell: %+v", cohortMatrix)
 	}
 
 	// (1) HEAD COUNT is the live herd, not the obligation targets. This is the 229-vs-324 defect.
@@ -329,19 +331,19 @@ func TestVaccinationCommandBoardCohortExceptionListPaginationPageBoundaryMultiPa
 	}
 
 	repo := NewRepository(pool, 5*time.Second)
-	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
-	if err != nil {
+	if _, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf}); err != nil {
 		t.Fatalf("VaccinationCommandBoard() error = %v", err)
 	}
 
 	var dose1 *domain.CommandBoardCohortCell
-	for i := range resp.CohortMatrix {
-		if resp.CohortMatrix[i].VaccineLabel == "ET+TT · Dose 1" {
-			dose1 = &resp.CohortMatrix[i]
+	cohortMatrix := cohortMatrixCells(t, ctx, pool, tenantID, asOf)
+	for i := range cohortMatrix {
+		if cohortMatrix[i].VaccineLabel == "ET+TT · Dose 1" {
+			dose1 = &cohortMatrix[i]
 		}
 	}
 	if dose1 == nil {
-		t.Fatalf("cohort matrix missing the ET+TT Dose 1 cell: %+v", resp.CohortMatrix)
+		t.Fatalf("cohort matrix missing the ET+TT Dose 1 cell: %+v", cohortMatrix)
 	}
 
 	if dose1.MissingPriorDoseCount != overCap {
@@ -439,19 +441,19 @@ func TestVaccinationCommandBoardCohortAdministeredDaySplitDateShiftUsesISTBusine
 	}
 
 	repo := NewRepository(pool, 5*time.Second)
-	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
-	if err != nil {
+	if _, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf}); err != nil {
 		t.Fatalf("VaccinationCommandBoard() error = %v", err)
 	}
 
 	var dose1 *domain.CommandBoardCohortCell
-	for i := range resp.CohortMatrix {
-		if resp.CohortMatrix[i].VaccineLabel == "ET+TT · Dose 1" {
-			dose1 = &resp.CohortMatrix[i]
+	cohortMatrix := cohortMatrixCells(t, ctx, pool, tenantID, asOf)
+	for i := range cohortMatrix {
+		if cohortMatrix[i].VaccineLabel == "ET+TT · Dose 1" {
+			dose1 = &cohortMatrix[i]
 		}
 	}
 	if dose1 == nil {
-		t.Fatalf("cohort matrix missing the ET+TT Dose 1 cell: %+v", resp.CohortMatrix)
+		t.Fatalf("cohort matrix missing the ET+TT Dose 1 cell: %+v", cohortMatrix)
 	}
 
 	dose1Days := cohortAdministeredDays(t, ctx, pool, tenantID, dose1)
@@ -762,4 +764,28 @@ func closedWithoutDoseAnimals(t *testing.T, ctx context.Context, pool *pgxpool.P
 		t.Fatalf("CommandBoardClosedWithoutDoseAnimals() error = %v", err)
 	}
 	return page.Animals
+}
+
+// cohortMatrixCells fetches the cohort matrix from its own section endpoint.
+//
+// It used to ride on the board response. Its three statements -- the cell aggregate, the true herd
+// head count and the dose-sequence exception count -- were ~420ms of the board's ~850ms of SQL and
+// were what held GET /vaccination/command at p90 416ms against a 300ms budget that
+// tools/perf/api-latency-policy.mjs will not allow anyone to raise. The numbers below are unchanged;
+// only where they are read from moved.
+func cohortMatrixCells(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID string, asOf time.Time) []domain.CommandBoardCohortCell {
+	t.Helper()
+	return cohortMatrixCellsScoped(t, ctx, pool, domain.CommandBoardDrilldownQuery{TenantID: tenantID, AsOf: asOf})
+}
+
+// cohortMatrixCellsScoped is the same read under an explicit drive/park scope, so scope-leak
+// assertions are made against the section that actually serves the cells.
+func cohortMatrixCellsScoped(t *testing.T, ctx context.Context, pool *pgxpool.Pool, q domain.CommandBoardDrilldownQuery) []domain.CommandBoardCohortCell {
+	t.Helper()
+	repo := NewRepository(pool, 30*time.Second)
+	page, err := repo.CommandBoardCohortMatrix(ctx, q)
+	if err != nil {
+		t.Fatalf("CommandBoardCohortMatrix() error = %v", err)
+	}
+	return page.Cells
 }

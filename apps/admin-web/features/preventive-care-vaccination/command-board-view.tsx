@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useMemo, useState, useTransition, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
+import type { CommandBoardCohortMatrixPage } from "@/lib/api/server";
 import {
   useClosedWithoutDoseAnimals,
+  useCohortMatrix,
   useCohortCellDetail,
   useDriveCatalogue,
   useShedVaccineAnimals,
@@ -329,7 +331,9 @@ function buildShedGrid(
 // both REQUIRED by the contract -- were dropped before they reached the render. Deriving makes the
 // next dropped field a type error instead of a silent hole in the page.
 type CommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoardResponse"];
-type CohortCell = CommandBoardResponse["cohortMatrix"][number];
+// The cohort cell shape. It is no longer on the board response -- the matrix is its own section --
+// so it is taken from that section's page type.
+type CohortCell = NonNullable<CommandBoardCohortMatrixPage["cells"]>[number];
 type ShedDoseCell = CommandBoardResponse["shedDoseMatrix"][number];
 type CommandBoardKpis = CommandBoardResponse["kpis"] & {
   missedNotGiven?: number;
@@ -505,6 +509,22 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   const [isPending, startTransition] = useTransition();
   const currentSearch = searchParams?.toString() ?? "";
   const [optimisticDrive, setOptimisticDrive] = useState<{ from: string; value: string } | null>(null);
+  // The scope every drilldown is resolved under: the SAME filter the board was rendered with, so a
+  // drawer explains the number the reader actually clicked. drive_park_id wins over park_id for the
+  // same reason it does on the board's own sections — a selected drive is one park's operator day.
+  const drilldownScope = useMemo(
+    () => ({
+      driveBatchId: driveBatchId || undefined,
+      parkId: driveParkId || searchParams?.get("park_id") || undefined,
+      asOf: searchParams?.get("as_of") || undefined,
+    }),
+    [driveBatchId, driveParkId, searchParams],
+  );
+
+  // The cohort grid is a SECTION loaded after first paint, not a drawer. See useCohortMatrix.
+  const cohortSection = useCohortMatrix<CohortCell>(drilldownScope);
+  const cohortMatrix = cohortSection.data;
+
   // The board carries only the FIRST PAGE of drives (20). The catalogue used to ship whole and was
   // 448ms and 753 KB — more than the endpoint's entire 512 KB budget — for a dropdown, and it was
   // the board's critical path once the drilldowns had moved off it. This completes it in the
@@ -516,8 +536,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     searchParams?.get("park_id") || undefined,
   );
   const driveOptions = useMemo(
-    () => enrichDriveOptions(driveCatalogue.options, board.shedDoseMatrix ?? [], board.cohortMatrix ?? [], board.kpis.targets),
-    [driveCatalogue.options, board.shedDoseMatrix, board.cohortMatrix, board.kpis.targets],
+    () => enrichDriveOptions(driveCatalogue.options, board.shedDoseMatrix ?? [], cohortMatrix, board.kpis.targets),
+    [driveCatalogue.options, board.shedDoseMatrix, cohortMatrix, board.kpis.targets],
   );
   const futureDrives = useMemo(() => scheduledDriveRows(driveOptions), [driveOptions]);
   const executedCampaigns = useMemo(() => executedDriveCampaigns(driveOptions), [driveOptions]);
@@ -540,7 +560,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   };
 
   const vaccineOptions = useMemo(() => {
-    const labels = (board.cohortMatrix ?? []).map((c) => c.vaccineLabel).filter(Boolean);
+    // Sourced from the SHED DOSE matrix, which is still on the board, so the vaccine filter is
+    // usable on first paint instead of appearing when the cohort section lands.
+    const labels = (board.shedDoseMatrix ?? []).map((c) => c.doseRule).filter(Boolean);
     return Array.from(new Set(labels)).sort();
   }, [board]);
   const [vaccine, setVaccine] = useState<string>("");
@@ -559,18 +581,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   // The behind cell's animals travel IN the board payload, so opening a red cell is a local
   // overlay, not a second fetch (local-overlay rule).
   const [selectedShedVaccine, setSelectedShedVaccine] = useState<ShedVaccineCell | null>(null);
-  // The scope every drilldown is resolved under: the SAME filter the board was rendered with, so a
-  // drawer explains the number the reader actually clicked. drive_park_id wins over park_id for the
-  // same reason it does on the board's own sections — a selected drive is one park's operator day.
-  const drilldownScope = useMemo(
-    () => ({
-      driveBatchId: driveBatchId || undefined,
-      parkId: driveParkId || searchParams?.get("park_id") || undefined,
-      asOf: searchParams?.get("as_of") || undefined,
-    }),
-    [driveBatchId, driveParkId, searchParams],
-  );
-
   // The tile's animals, fetched when the drawer opens. They used to ship on the board payload,
   // computed tenant-wide on every render; that statement is the one that exhausted the pool timeout
   // and returned the 500 this whole change exists to fix.
@@ -618,7 +628,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     shedDoseMatrix: (board.shedDoseMatrix ?? []).filter(
       (c) => matchesVaccine(c.doseRule) && isStatusVisible(c.state),
     ),
-    cohortMatrix: (board.cohortMatrix ?? []).filter((c) => matchesVaccine(c.vaccineLabel)),
+    cohortMatrix: cohortMatrix.filter((c) => matchesVaccine(c.vaccineLabel)),
     verificationQueue: (board.verificationQueue ?? []).filter((r) => matchesVaccine(r.doseRule)),
     };
   }, [board, vaccine, statuses]);
@@ -1140,7 +1150,27 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
         {/* Cohort matrix, FARMWISE: one table per farm, cohort ladder down the side, vaccines
             across the top, pending count in the cell (red when > 0) with the verified count
             beneath it so closure is readable without subtracting from the head count. */}
+        {/* The cohort grid is loaded AFTER first paint. Its three statements were ~420ms of the
+            board's ~850ms of SQL and alone held /vaccination/command over its latency budget, so it
+            became its own section. An explicit loading state matters here: an empty grid during the
+            gap would read as "this tenant has no cohorts", which is a different and alarming fact. */}
+        {cohortSection.loading && cohortMatrix.length === 0 ? (
+          <div className="cbm-section-state" role="status" aria-live="polite">
+            {copy(pageContract, "command_board.cohort_matrix.loading")}
+          </div>
+        ) : null}
+        {cohortSection.error ? (
+          <div className="cbm-section-state cbm-section-state-error" role="status">
+            {copy(pageContract, "command_board.cohort_matrix.unavailable")}
+          </div>
+        ) : null}
+        {!cohortSection.loading && !cohortSection.error && cohortMatrix.length === 0 ? (
+          <div className="cbm-section-state">
+            {copy(pageContract, "command_board.cohort_matrix.empty")}
+          </div>
+        ) : null}
         {(() => {
+          if (cohortMatrix.length === 0) return null;
           // MATCHING ladder (catch-all last) and READING order are different backend lists: the
           // Adults catch-all must stay last for bucketing, but the CEO reads Adults before the
           // not-adult cohorts.
@@ -1675,7 +1705,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                         </li>
                       ))}
                     </ul>
-                    {selectedCell.exceptionCount > cohortDrilldown.data.exceptionGoats.length ? (
+                    {/* Driven by a REMAINING CURSOR, not by count-vs-length. The list is
+                        de-duplicated across the cell's dose codes while the count is a per-cell
+                        total, so comparing them labelled a complete list as truncated. */}
+                    {cohortDrilldown.data.truncated ? (
                       <span className="cbm-cohort-detail-muted">
                         {copy(pageContract, "command_board.cohort_matrix.detail.capped")} {selectedCell.exceptionCount}
                       </span>

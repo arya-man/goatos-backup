@@ -147,12 +147,13 @@ func TestVaccinationCommandBoardOneToManyMultipleDimensions(t *testing.T) {
 	}
 
 	// Verify cohort matrix: should have 2 cells (ET and PPR) with 1 animal count each, not 2
-	if len(resp.CohortMatrix) != 2 {
-		t.Fatalf("cohort matrix length = %d, want 2", len(resp.CohortMatrix))
+	cohortMatrix := cohortMatrixCells(t, ctx, pool, cmdBoardTestTenant, asOf)
+	if len(cohortMatrix) != 2 {
+		t.Fatalf("cohort matrix length = %d, want 2", len(cohortMatrix))
 	}
 
 	cohortAnimalCounts := make(map[string]int)
-	for _, cell := range resp.CohortMatrix {
+	for _, cell := range cohortMatrix {
 		cohortAnimalCounts[cell.VaccineLabel] += cell.Cohort.AnimalCount
 	}
 
@@ -169,7 +170,7 @@ func TestVaccinationCommandBoardOneToManyMultipleDimensions(t *testing.T) {
 	}
 
 	t.Run("CohortAdministeredRangeOneToManyMultipleDimensions", func(t *testing.T) {
-		for _, cell := range resp.CohortMatrix {
+		for _, cell := range cohortMatrix {
 			if cell.MinAdministeredDate != nil || cell.MaxAdministeredDate != nil {
 				t.Fatalf("unaccepted %s cell has administered range %v..%v", cell.VaccineLabel, cell.MinAdministeredDate, cell.MaxAdministeredDate)
 			}
@@ -233,7 +234,8 @@ func TestVaccinationCommandBoardDateShiftScheduledDateExecutionDateCohortAdminis
 	// The CEO cohort matrix must carry the operator's actual vaccination date at the
 	// exact cohort × dose grain instead of forcing leadership to cross-reference another table.
 	foundCohortDate := false
-	for _, cell := range resp.CohortMatrix {
+	cohortMatrix := cohortMatrixCells(t, ctx, pool, cmdBoardTestTenant, asOf)
+	for _, cell := range cohortMatrix {
 		if cell.VaccineLabel != "ET+TT · Dose 1" || cell.VerifiedCount == 0 {
 			continue
 		}
@@ -310,7 +312,19 @@ func TestVaccinationCommandBoardParkScopeTenantIsolation(t *testing.T) {
 		if respPark.KPIs.Targets != 1 {
 			t.Fatalf("park 1 targets = %d, want 1", respPark.KPIs.Targets)
 		}
-		for _, cell := range respPark.CohortMatrix {
+		// The cohort matrix is its own section now, so the park-scope assertion has to be made
+		// against THAT read -- and it must be, because a section on a separate route is a separate
+		// place for a scope to leak.
+		parkCells := cohortMatrixCellsScoped(t, ctx, pool, domain.CommandBoardDrilldownQuery{
+			TenantID:     cmdBoardTestTenant,
+			AsOf:         asOf,
+			DriveBatchID: stringPtr(cmdBoardBatch1),
+			ParkID:       stringPtr(cmdBoardPark1),
+		})
+		if len(parkCells) == 0 {
+			t.Fatalf("park-scoped cohort matrix is empty; the scope assertion below would pass vacuously")
+		}
+		for _, cell := range parkCells {
 			if cell.Cohort.ParkID != cmdBoardPark1 {
 				t.Fatalf("park-scoped cohort leaked park %s", cell.Cohort.ParkID)
 			}
@@ -419,7 +433,8 @@ func TestVaccinationCommandBoardStatusMatrixEveryStatusStatusBuckets(t *testing.
 
 	t.Run("CohortAdministeredRangeStatusMatrixEveryStatusStatusBuckets", func(t *testing.T) {
 		acceptedAt := asOf.Add(-2 * 24 * time.Hour)
-		for _, cell := range resp.CohortMatrix {
+		cohortMatrix := cohortMatrixCells(t, ctx, pool, cmdBoardTestTenant, asOf)
+		for _, cell := range cohortMatrix {
 			if cell.VerifiedCount == 0 {
 				continue
 			}
@@ -515,7 +530,8 @@ func TestVaccinationCommandBoardPaginationPageBoundaryMultiPage(t *testing.T) {
 		if resp.DriveOptions[0].TargetCount != 1 || resp.DriveOptions[0].DoseCount != 3 {
 			t.Fatalf("drive option counts = %d animals/%d doses, want 1/3", resp.DriveOptions[0].TargetCount, resp.DriveOptions[0].DoseCount)
 		}
-		for _, cell := range resp.CohortMatrix {
+		cohortMatrix := cohortMatrixCells(t, ctx, pool, cmdBoardTestTenant, asOf)
+		for _, cell := range cohortMatrix {
 			if cell.MinAdministeredDate != nil || cell.MaxAdministeredDate != nil {
 				t.Fatalf("recorded-only cohort has accepted administered range %v..%v", cell.MinAdministeredDate, cell.MaxAdministeredDate)
 			}
@@ -1164,17 +1180,17 @@ func TestVaccinationCommandBoardCohortFarmwiseScopeHierarchyOneToManyStatusBucke
 		cmdBoardTestTenant, cmdBoardGoat2, asOf)
 
 	repo := NewRepository(pool, 5*time.Second)
-	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
+	if _, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
 		TenantID: cmdBoardTestTenant,
 		AsOf:     asOf,
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("VaccinationCommandBoard() error = %v", err)
 	}
 
 	type cellKey struct{ park, stage, vaccine string }
 	cells := map[cellKey]domain.CommandBoardCohortCell{}
-	for _, cell := range resp.CohortMatrix {
+	cohortMatrix := cohortMatrixCells(t, ctx, pool, cmdBoardTestTenant, asOf)
+	for _, cell := range cohortMatrix {
 		key := cellKey{cell.Cohort.ParkName, cell.Cohort.ManagementStage, cell.VaccineLabel}
 		if _, dup := cells[key]; dup {
 			t.Fatalf("Pagination: duplicate cohort cell for %+v — cells must be unique per farm/stage/vaccine", key)
@@ -1422,7 +1438,8 @@ func TestVaccinationCommandBoardDueStatusEveryStatusBucketsExhaustiveOverTargets
 		// landed in a single "pending" number, so a fully vaccinated park was indistinguishable from
 		// one nobody had touched.
 		pending, submitted, verified := 0, 0, 0
-		for _, cell := range resp.CohortMatrix {
+		cohortMatrix := cohortMatrixCells(t, ctx, pool, tenantID, asOf)
+		for _, cell := range cohortMatrix {
 			pending += cell.PendingCount
 			submitted += cell.SubmittedCount
 			verified += cell.VerifiedCount

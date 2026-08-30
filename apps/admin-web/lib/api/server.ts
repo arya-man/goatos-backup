@@ -207,6 +207,7 @@ export type PCCareInventoryRequirement = AppApiComponents["schemas"]["PCCareInve
 export type VaccinationCommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoardResponse"];
 // The command board's drilldown pages. Each is one drawer's worth of the evidence behind a board
 // number, fetched when the reader opens that cell.
+export type CommandBoardCohortMatrixPage = AppApiComponents["schemas"]["CommandBoardCohortMatrixPage"];
 export type CommandBoardClosedWithoutDosePage = AppApiComponents["schemas"]["CommandBoardClosedWithoutDosePage"];
 export type CommandBoardShedVaccineAnimalsPage = AppApiComponents["schemas"]["CommandBoardShedVaccineAnimalsPage"];
 export type CommandBoardCohortExceptionsPage = AppApiComponents["schemas"]["CommandBoardCohortExceptionsPage"];
@@ -2486,6 +2487,26 @@ function commandBoardDrilldownQuery(scope: CommandBoardDrilldownScope) {
     limit: scope.limit ? String(scope.limit) : undefined,
     cursor: scope.cursor,
   };
+}
+
+// The cohort matrix as its own SECTION. It left the board because its three statements alone were
+// ~420ms of the endpoint's ~850ms of SQL and held it over a non-relaxable 300ms budget.
+export async function getCommandBoardCohortMatrix(
+  scope: CommandBoardDrilldownScope = {},
+): Promise<ApiResult<CommandBoardCohortMatrixPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CommandBoardCohortMatrixPage>("/vaccination/command/cohort-matrix", {
+      cache: "no-store",
+      query: compactQuery({
+        drive_batch_id: scope.driveBatchId,
+        park_id: scope.parkId,
+        as_of: scope.asOf,
+      }),
+    }),
+  );
 }
 
 export async function getCommandBoardClosedWithoutDose(

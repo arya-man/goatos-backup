@@ -157,7 +157,8 @@ func TestVaccinationCommandBoardCohortMatrixReconcilesWithKPIsStatusBucketsCross
 	}
 
 	pending, submitted, verified := 0, 0, 0
-	for _, cell := range resp.CohortMatrix {
+	cohortMatrix := cohortMatrixCells(t, ctx, pool, tenantID, asOf)
+	for _, cell := range cohortMatrix {
 		t.Logf("cohort cell park=%s stage=%s sex=%s vaccine=%s animals=%d pending=%d submitted=%d verified=%d",
 			cell.Cohort.ParkName, cell.Cohort.ManagementStage, cell.Cohort.Sex, cell.VaccineLabel,
 			cell.Cohort.AnimalCount, cell.PendingCount, cell.SubmittedCount, cell.VerifiedCount)
@@ -195,7 +196,7 @@ func TestVaccinationCommandBoardCohortMatrixReconcilesWithKPIsStatusBucketsCross
 	}
 
 	// (c) The three buckets are disjoint and never exceed the obligation total in the cell.
-	for _, cell := range resp.CohortMatrix {
+	for _, cell := range cohortMatrix {
 		if cell.PendingCount+cell.SubmittedCount+cell.VerifiedCount > cell.Cohort.AnimalCount {
 			t.Errorf("cohort cell %s/%s/%s/%s: pending %d + submitted %d + verified %d exceeds animal count %d -- "+
 				"the buckets must be disjoint",

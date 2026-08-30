@@ -1215,9 +1215,8 @@ type CommandBoardResponse struct {
 	// was indistinguishable from a drive that was never planned -- the reader goes looking, finds
 	// nothing, and concludes the work does not exist. Surfacing the overflow lets the UI say
 	// "more drives exist, narrow by park" instead of lying by omission.
-	DriveOptionsTruncated bool                     `json:"driveOptionsTruncated"`
-	CohortMatrix          []CommandBoardCohortCell `json:"cohortMatrix"`
-	ShedDoseMatrix        []ShedDoseMatrixCell     `json:"shedDoseMatrix"`
+	DriveOptionsTruncated bool                 `json:"driveOptionsTruncated"`
+	ShedDoseMatrix        []ShedDoseMatrixCell `json:"shedDoseMatrix"`
 	// ShedVaccineMatrix is the dose-collapsed red/green companion to ShedDoseMatrix. Every shed in
 	// scope appears against every vaccine the tenant's protocol defines, including vaccines that
 	// generated no obligations, so "this column is missing" and "this column is clean" stay

@@ -3349,6 +3349,61 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /vaccination/command/cohort-matrix:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardCohortMatrix
+      summary: The command board's cohort (park x stage x sex) x vaccine matrix.
+      description: >-
+        A board SECTION on its own route, not a drilldown: it takes no cell keys and no cursor,
+        because the matrix is a bounded per-cohort aggregate.
+
+
+        It is a separate request only because of cost. Its three statements — the cell aggregate, the
+        true herd head count and the dose-sequence exception count — were roughly 420ms of the
+        board's ~850ms of SQL, enough on their own to hold GET /vaccination/command over a p90 300ms
+        budget that tools/perf/api-latency-policy.mjs hard-caps and will not let anyone raise.
+
+
+        This is a real product change and is recorded as one: the CEO's cohort grid now arrives a
+        moment after the rest of the board. Every number in it is the same whole-scope figure it was
+        when it shipped inline; only its arrival moved.
+      parameters:
+        - name: drive_batch_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          description: Clamped to the caller's grants exactly as on /vaccination/command.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: The cohort matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardCohortMatrixPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/command/closed-without-dose:
     get:
       tags:
@@ -23594,6 +23649,19 @@ components:
             exceptions" compares like with like. The ANIMALS behind it are fetched per cell from
             /vaccination/command/cohort-exceptions; they used to ship here, computed tenant-wide for
             every cell on every render.
+    CommandBoardCohortMatrixPage:
+      type: object
+      additionalProperties: false
+      required:
+        - cells
+      properties:
+        cells:
+          type: array
+          items:
+            $ref: "#/components/schemas/VaccinationCommandBoardCohortCell"
+          description: >-
+            Cohort (park x management_stage x sex) x vaccine cells. Whole-scope figures, identical to
+            what shipped inline on the board before this section was split out for cost.
     CommandBoardClosedWithoutDosePage:
       type: object
       additionalProperties: false
@@ -24701,7 +24769,6 @@ components:
       required:
         - source
         - kpis
-        - cohortMatrix
         - shedDoseMatrix
         - shedVaccineMatrix
         - shedVaccineColumns
@@ -24784,11 +24851,6 @@ components:
             indistinguishable from a drive that was never planned. Clients must show that more
             drives exist (e.g. "narrow by park") rather than presenting a truncated picker as
             complete.
-        cohortMatrix:
-          type: array
-          items:
-            $ref: "#/components/schemas/VaccinationCommandBoardCohortCell"
-          description: Cohort (management_stage × sex) × vaccine matrix; rows are cohort+vaccine cells.
         shedDoseMatrix:
           type: array
           items:

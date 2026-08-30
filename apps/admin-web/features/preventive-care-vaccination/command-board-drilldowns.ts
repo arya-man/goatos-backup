@@ -95,9 +95,10 @@ async function fetchAllPages<TItem, TPage extends { nextCursor?: string }>(
   select: (page: TPage) => TItem[],
   signal: AbortSignal,
   maxPages = 4,
-): Promise<TItem[]> {
+): Promise<{ items: TItem[]; truncated: boolean }> {
   const items: TItem[] = [];
   let cursor: string | undefined;
+  let truncated = false;
   for (let page = 0; page < maxPages; page += 1) {
     const query = new URLSearchParams(params);
     if (cursor) query.set("cursor", cursor);
@@ -105,8 +106,12 @@ async function fetchAllPages<TItem, TPage extends { nextCursor?: string }>(
     items.push(...select(result));
     if (!result.nextCursor) break;
     cursor = result.nextCursor;
+    // A cursor still standing after the last allowed page means rows were left behind. Reported,
+    // never inferred by the caller from a count comparison: the lists are de-duplicated while the
+    // board's counts are not, so length-vs-count labels a complete list as truncated.
+    if (page === maxPages - 1) truncated = true;
   }
-  return items;
+  return { items, truncated };
 }
 
 // useDrilldown runs `load` whenever `key` changes to a non-null value, and cancels in flight when
@@ -163,12 +168,46 @@ function useDrilldown<T>(
   };
 }
 
+// CohortMatrixCell mirrors the wire contract's cell. It is a SECTION, not a drilldown: the whole
+// matrix arrives in one read, keyed only by the board's own filter.
+export type CohortMatrixCell = Record<string, unknown>;
+
+const NO_COHORT_MATRIX: CohortMatrixCell[] = [];
 const NO_CLOSED: ClosedWithoutDoseRow[] = [];
 const NO_SHED_VACCINE: { animals: ShedVaccineAnimalRow[]; proofVideos: Array<{ path: string }> } = {
   animals: [],
   proofVideos: [],
 };
-const NO_COHORT: { days: CohortDayRow[]; exceptionGoats: CohortAnimalRow[] } = { days: [], exceptionGoats: [] };
+const NO_COHORT: { days: CohortDayRow[]; exceptionGoats: CohortAnimalRow[]; truncated: boolean } = {
+  days: [],
+  exceptionGoats: [],
+  truncated: false,
+};
+
+// useCohortMatrix loads the cohort grid after first paint.
+//
+// It used to ship inside /vaccination/command. Its three statements -- the cell aggregate, the true
+// herd head count and the dose-sequence exception count -- were ~420ms of that endpoint's ~850ms of
+// SQL, enough on their own to hold it over a p90 300ms budget the latency policy hard-caps. The
+// numbers are unchanged and whole-scope; only their arrival moved, and the caller renders an
+// explicit loading state for the gap rather than an empty grid that reads as "no cohorts".
+export function useCohortMatrix<T = CohortMatrixCell>(scope: DrilldownScope): DrilldownState<T[]> {
+  const params = scopeParams(scope);
+  const query = params.toString();
+  return useDrilldown<T[]>(
+    // Keyed on the scope alone and never null: this section always loads, unlike a drawer that
+    // waits for a click.
+    query || "all",
+    async (signal) => {
+      const page = await fetchJson<{ cells: T[] }>(
+        `/api/vaccination/command/cohort-matrix${query ? `?${query}` : ""}`,
+        signal,
+      );
+      return page.cells ?? [];
+    },
+    NO_COHORT_MATRIX as unknown as T[],
+  );
+}
 
 export function useClosedWithoutDoseAnimals(open: boolean, scope: DrilldownScope): DrilldownState<ClosedWithoutDoseRow[]> {
   const params = scopeParams(scope);
@@ -176,13 +215,15 @@ export function useClosedWithoutDoseAnimals(open: boolean, scope: DrilldownScope
   const query = params.toString();
   return useDrilldown<ClosedWithoutDoseRow[]>(
     open ? query : null,
-    (signal) =>
-      fetchAllPages<ClosedWithoutDoseRow, { animals: ClosedWithoutDoseRow[]; nextCursor?: string }>(
+    async (signal) => {
+      const result = await fetchAllPages<ClosedWithoutDoseRow, { animals: ClosedWithoutDoseRow[]; nextCursor?: string }>(
         "/api/vaccination/command/closed-without-dose",
         params,
         (page) => page.animals ?? [],
         signal,
-      ),
+      );
+      return result.items;
+    },
     NO_CLOSED,
   );
 }
@@ -235,7 +276,7 @@ export function useShedVaccineAnimals(
 export function useCohortCellDetail(
   refs: CohortCellRef[] | null,
   scope: DrilldownScope,
-): DrilldownState<{ days: CohortDayRow[]; exceptionGoats: CohortAnimalRow[] }> {
+): DrilldownState<{ days: CohortDayRow[]; exceptionGoats: CohortAnimalRow[]; truncated: boolean }> {
   const key = refs && refs.length > 0
     ? JSON.stringify([refs, scope])
     : null;
@@ -264,14 +305,16 @@ export function useCohortCellDetail(
               signal,
             ),
           ]);
-          return { days: days.days ?? [], exceptions };
+          return { days: days.days ?? [], exceptions: exceptions.items, truncated: exceptions.truncated };
         }),
       );
 
       const byDate = new Map<string, number>();
       const exceptionGoats: CohortAnimalRow[] = [];
       const seenGoat = new Set<string>();
+      let truncated = false;
       for (const result of results) {
+        truncated = truncated || result.truncated;
         for (const day of result.days) {
           byDate.set(day.date, (byDate.get(day.date) ?? 0) + day.animalCount);
         }
@@ -286,7 +329,7 @@ export function useCohortCellDetail(
       const days = [...byDate.entries()]
         .map(([date, animalCount]) => ({ date, animalCount }))
         .sort((a, b) => a.date.localeCompare(b.date));
-      return { days, exceptionGoats };
+      return { days, exceptionGoats, truncated };
     },
     NO_COHORT,
   );
@@ -324,9 +367,9 @@ export function useDriveCatalogue<T extends { driveBatchId?: string; parkId?: st
       // read at, and driveOptionsTruncated keeps the UI honest if a tenant ever exceeds it.
       4,
     )
-      .then((options) => {
+      .then((result) => {
         if (controller.signal.aborted) return;
-        setState({ key: requestKey, options });
+        setState({ key: requestKey, options: result.items });
       })
       .catch(() => {
         if (controller.signal.aborted) return;

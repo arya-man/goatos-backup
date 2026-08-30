@@ -766,3 +766,129 @@ func TestCommandBoardTileAndDrilldownRangeOverTheSameAnimals(t *testing.T) {
 			board.KPIs.ClosedWithoutDose, len(seen))
 	}
 }
+
+// TestCohortExceptionTileAndDrawerRangeOverTheSameAnimals extends the predicate-drift gate to the
+// SECOND tile/drawer pair on this board.
+//
+// The closed-without-dose pair was covered; the cohort-exception pair was not, and that gap is
+// exactly how a divergence survived a full review round. The count and the drawer had drifted at
+// two different grains in turn -- first dose SEQUENCE, then dose CODE -- because several dose codes
+// collapse onto one displayed vaccine label (et_tt_kid_4w and et_tt_kid_7w are both "ET+TT"), so a
+// per-code count double-counted an animal the drawer lists once.
+//
+// The fixture is built to make that specific divergence visible: one animal is an exception under
+// TWO dose codes of the SAME displayed label. A per-code count reports 2; the correct answer, and
+// what the drawer pages, is 1.
+func TestCohortExceptionTileAndDrawerRangeOverTheSameAnimals(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tenantID := "00000000-0000-4000-8000-0000000000e1"
+	parkID := uuidFromSuffix("01", "xd")
+	shedID := uuidFromSuffix("02", "xd")
+	asOf := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
+
+	protocolID := uuidFromSuffix("06", "xdp")
+	protocolVersionID := uuidFromSuffix("06", "xdv")
+	execProjectionSQL(t, ctx, pool, "tenant",
+		`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Test Org', 'active')
+		 ON CONFLICT (tenant_id) DO NOTHING`, tenantID)
+	execProjectionSQL(t, ctx, pool, "protocol definition",
+		`INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+		 VALUES ($1, $2, 'vaccination_xd', 'Vaccination XD', 'vaccination', 'active')`, protocolID, tenantID)
+	execProjectionSQL(t, ctx, pool, "protocol version",
+		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl)
+		 VALUES ($1, $2, $3, 'tenant', 1, 'draft', '2026-01-01', '{}')`, protocolVersionID, tenantID, protocolID)
+	seedCommandBoardPark(t, ctx, pool, tenantID, parkID, shedID, "Drift")
+
+	// TWO kid dose codes that render as the SAME label, plus the later dose whose acceptance makes
+	// both of them exceptions.
+	rules := map[string]struct {
+		id       string
+		sequence int
+	}{
+		"et_tt_kid_4w": {uuidFromSuffix("07", "xd4"), 1},
+		"et_tt_kid_7w": {uuidFromSuffix("07", "xd7"), 2},
+		// The later accepted dose must be in the SAME COURSE FAMILY. Family strips the position
+		// suffix, so et_tt_kid_4w and et_tt_kid_7w are both "et_tt_kid" -- but et_tt_REVAC strips to
+		// "et_tt", a different family, and would make neither earlier dose an exception.
+		"et_tt_kid_12w": {uuidFromSuffix("07", "xdr"), 3},
+	}
+	for code, rule := range rules {
+		execProjectionSQL(t, ctx, pool, "rule "+code,
+			`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type)
+			 VALUES ($1, $2, $3, $4, $5, 'birth_age')`,
+			rule.id, tenantID, protocolVersionID, code, rule.sequence)
+	}
+
+	// Published only AFTER the rules are written: published config is immutable, so seeding rules
+	// against an already-published version is rejected by the schema.
+	execProjectionSQL(t, ctx, pool, "publish protocol version",
+		`UPDATE protocol_versions SET status = 'published', published_at = now() WHERE protocol_version_id = $1`,
+		protocolVersionID)
+
+	goatID := uuidFromSuffix("03", "xda")
+	seedBareGoat(t, ctx, pool, tenantID, shedID, goatID, uuidFromSuffix("0a", "xda"))
+	// Both kid doses exist and neither is accepted.
+	seedObligation(t, ctx, pool, tenantID, protocolVersionID, rules["et_tt_kid_4w"].id, shedID, goatID,
+		uuidFromSuffix("08", "xd4"), "missed", asOf.Add(-30*24*time.Hour), "xd-4w")
+	seedObligation(t, ctx, pool, tenantID, protocolVersionID, rules["et_tt_kid_7w"].id, shedID, goatID,
+		uuidFromSuffix("08", "xd7"), "missed", asOf.Add(-20*24*time.Hour), "xd-7w")
+	// The LATER dose of the same course IS accepted, which is what makes both earlier doses
+	// exceptions.
+	revacObligation := uuidFromSuffix("08", "xdr")
+	seedObligation(t, ctx, pool, tenantID, protocolVersionID, rules["et_tt_kid_12w"].id, shedID, goatID,
+		revacObligation, "completed", asOf.Add(-10*24*time.Hour), "xd-revac")
+	execProjectionSQL(t, ctx, pool, "accepted revac completion",
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, goat_id, status,
+		   adverse_reaction, cold_chain_verified, administered_at, idempotency_key)
+		 VALUES ($1, $2, $3, $4, 'accepted', false, true, $5::timestamptz, 'xd-completion')`,
+		uuidFromSuffix("09", "xdc"), tenantID, revacObligation, goatID, asOf.Add(-10*24*time.Hour))
+
+	execProjectionSQL(t, ctx, pool, "analyze drift fixture",
+		`ANALYZE obligation_instances, vaccination_completions, goats, locations, protocol_rules`)
+
+	repo := NewRepository(pool, 30*time.Second)
+	matrix, err := repo.CommandBoardCohortMatrix(ctx, domain.CommandBoardDrilldownQuery{TenantID: tenantID, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("CommandBoardCohortMatrix() error = %v", err)
+	}
+
+	var cell *domain.CommandBoardCohortCell
+	for i := range matrix.Cells {
+		if matrix.Cells[i].MissingPriorDoseCount > 0 {
+			cell = &matrix.Cells[i]
+			break
+		}
+	}
+	if cell == nil {
+		t.Fatalf("no cohort cell reports an exception; the fixture cannot test the drift it was built for: %+v", matrix.Cells)
+	}
+	if len(cell.DoseCodes) < 2 {
+		t.Fatalf("cell %q folds %d dose codes, want at least 2 — the divergence only appears where codes collapse onto one label",
+			cell.VaccineLabel, len(cell.DoseCodes))
+	}
+
+	page, err := repo.CommandBoardCohortExceptions(ctx, domain.CommandBoardCohortCellQuery{
+		CommandBoardDrilldownQuery: domain.CommandBoardDrilldownQuery{TenantID: tenantID, AsOf: asOf, Limit: 200},
+		CohortParkID:               cell.Cohort.ParkID,
+		ManagementStage:            cell.Cohort.ManagementStage,
+		Sex:                        cell.Cohort.Sex,
+		DoseCodes:                  cell.DoseCodes,
+	})
+	if err != nil {
+		t.Fatalf("CommandBoardCohortExceptions() error = %v", err)
+	}
+
+	if cell.MissingPriorDoseCount != len(page.Animals) {
+		t.Fatalf("cell %q says %d exceptions but the drawer lists %d animals; the tile counts per dose code "+
+			"while the drawer counts animals, so a cell folding two codes double-counts an animal the drawer names once",
+			cell.VaccineLabel, cell.MissingPriorDoseCount, len(page.Animals))
+	}
+	if cell.MissingPriorDoseCount != 1 {
+		t.Fatalf("cell %q says %d exceptions, want 1: ONE animal is an exception, under two dose codes that render as one label",
+			cell.VaccineLabel, cell.MissingPriorDoseCount)
+	}
+}

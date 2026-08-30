@@ -1460,6 +1460,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/command/cohort-matrix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The command board's cohort (park x stage x sex) x vaccine matrix.
+         * @description A board SECTION on its own route, not a drilldown: it takes no cell keys and no cursor, because the matrix is a bounded per-cohort aggregate.
+         *
+         *     It is a separate request only because of cost. Its three statements — the cell aggregate, the true herd head count and the dose-sequence exception count — were roughly 420ms of the board's ~850ms of SQL, enough on their own to hold GET /vaccination/command over a p90 300ms budget that tools/perf/api-latency-policy.mjs hard-caps and will not let anyone raise.
+         *
+         *     This is a real product change and is recorded as one: the CEO's cohort grid now arrives a moment after the rest of the board. Every number in it is the same whole-scope figure it was when it shipped inline; only its arrival moved.
+         */
+        get: operations["getCommandBoardCohortMatrix"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/command/closed-without-dose": {
         parameters: {
             query?: never;
@@ -9648,6 +9672,10 @@ export interface components {
             /** @description Dose-sequence EXCEPTION count for this cell: animals of this cohort holding an accepted LATER dose of the same vaccine course while THIS dose has no accepted completion (for example an accepted ET+TT Dose 2 with no accepted Dose 1). Whole-cohort truth, never capped. Cohort scope and key set are identical to verifiedCount, so "321 verified · 3 exceptions" compares like with like. The ANIMALS behind it are fetched per cell from /vaccination/command/cohort-exceptions; they used to ship here, computed tenant-wide for every cell on every render. */
             missingPriorDoseCount: number;
         };
+        CommandBoardCohortMatrixPage: {
+            /** @description Cohort (park x management_stage x sex) x vaccine cells. Whole-scope figures, identical to what shipped inline on the board before this section was split out for cost. */
+            cells: components["schemas"]["VaccinationCommandBoardCohortCell"][];
+        };
         CommandBoardClosedWithoutDosePage: {
             /** @description One page of the animals behind kpis.closedWithoutDose. Selected by the SAME per-animal residual predicate the tile counts with, so the list and the number can never describe different animals. */
             animals: components["schemas"]["VaccinationCommandBoardClosedWithoutDoseAnimal"][];
@@ -10160,8 +10188,6 @@ export interface components {
             unavailableSections?: string[];
             /** @description True when driveOptions hit its bound and drives were left out. The list has always been bounded, but it used to stop silently, so a scheduled drive past the bound was indistinguishable from a drive that was never planned. Clients must show that more drives exist (e.g. "narrow by park") rather than presenting a truncated picker as complete. */
             driveOptionsTruncated: boolean;
-            /** @description Cohort (management_stage × sex) × vaccine matrix; rows are cohort+vaccine cells. */
-            cohortMatrix: components["schemas"]["VaccinationCommandBoardCohortCell"][];
             /** @description Shed × dose rule state matrix; each row is a shed+dose combination with state and date range. */
             shedDoseMatrix: components["schemas"]["ShedDoseMatrixCell"][];
             /** @description Weekly aggregation of doses given (ISO week × vaccine × completion status). Ordered by week descending. */
@@ -17046,6 +17072,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VaccinationCommandBoardResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getCommandBoardCohortMatrix: {
+        parameters: {
+            query?: {
+                drive_batch_id?: string;
+                /** @description Clamped to the caller's grants exactly as on /vaccination/command. */
+                park_id?: string;
+                as_of?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The cohort matrix. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommandBoardCohortMatrixPage"];
                 };
             };
             400: components["responses"]["BadRequest"];
