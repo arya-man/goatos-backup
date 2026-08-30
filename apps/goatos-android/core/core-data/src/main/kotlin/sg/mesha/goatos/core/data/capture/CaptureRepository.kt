@@ -1735,22 +1735,29 @@ class DefaultProofCaptureRepository(
         errorClass: String? = null,
         retryable: Boolean? = null,
     ) {
-        dao.insertStateEvent(
-            ProofCaptureStateEventEntity(
-                id = idGenerator(),
-                proofId = entity.id,
-                fromState = entity.processingState,
-                toState = toState,
-                stage = stage,
-                attempt = attempt,
-                occurredAtMs = clock(),
-                durationMs = durationMs,
-                bytesIn = bytesIn,
-                bytesOut = bytesOut,
-                errorClass = errorClass,
-                retryable = retryable,
-            ),
-        )
+        val current = dao.findById(entity.id) ?: return
+        try {
+            dao.insertStateEvent(
+                ProofCaptureStateEventEntity(
+                    id = idGenerator(),
+                    proofId = current.id,
+                    fromState = current.processingState,
+                    toState = toState,
+                    stage = stage,
+                    attempt = attempt,
+                    occurredAtMs = clock(),
+                    durationMs = durationMs,
+                    bytesIn = bytesIn,
+                    bytesOut = bytesOut,
+                    errorClass = errorClass,
+                    retryable = retryable,
+                ),
+            )
+        } catch (error: SQLException) {
+            if (!error.message.orEmpty().contains("FOREIGN KEY constraint failed", ignoreCase = true)) {
+                throw error
+            }
+        }
     }
 
     private fun proofUploadGroupKey(entity: ProofCaptureEntity, scopeId: String): String =
