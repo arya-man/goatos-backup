@@ -56,6 +56,51 @@ test("readVaccines ignores null matrix rows from older imported plans", () => {
   assert.equal(vaccines[0].code, "ET+TT");
 });
 
+test("readVaccines lets active derived rules override stale matrix schedule display", () => {
+  const vaccines = readVaccines(
+    {
+      matrix_rows: [
+        {
+          row_id: "real-seed-hs",
+          vaccine: { code: "HS", name: "HS", type: "killed" },
+          schedule: [{ dose_code: "hs_kid_16w", sequence: 9, trigger_type: "birth_age", offset_days: 84 }],
+        },
+      ],
+    },
+    [
+      {
+        rule_id: "rule-hs",
+        protocol_version_id: "v1",
+        protocol_id: "p1",
+        dose_code: "hs_kid_12w",
+        sequence: 9,
+        trigger_type: "birth_age",
+        offset_days: 84,
+        repeat: "none",
+        eligibility_json: { vaccine: { code: "HS", name: "HS", type: "killed" } },
+      },
+      {
+        rule_id: "rule-ppr",
+        protocol_version_id: "v1",
+        protocol_id: "p1",
+        dose_code: "ppr_kid_16w",
+        sequence: 6,
+        trigger_type: "birth_age",
+        offset_days: 112,
+        repeat: "none",
+        eligibility_json: { vaccine: { code: "PPR", name: "PPR", type: "live" } },
+      },
+    ],
+  );
+
+  const hs = vaccines.find((item) => item.code === "HS");
+  const ppr = vaccines.find((item) => item.code === "PPR");
+  assert.equal(hs?.firstDoses[0]?.dose_code, "hs_kid_12w");
+  assert.equal(hs?.firstDoses[0]?.offset_days, 84);
+  assert.equal(ppr?.inPlan, true);
+  assert.equal(ppr?.firstDoses[0]?.offset_days, 112);
+});
+
 test("newVaccineToEditor turns a booster course into kid timing plus adult follow-up", () => {
   const v = newVaccineToEditor({
     name: "Brucella",

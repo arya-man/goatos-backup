@@ -37,7 +37,7 @@ export default async function Page() {
       const doc = await getProtocolVersion(item.protocol_version_id);
       return {
         versionId: item.protocol_version_id,
-        groups: doc.ok ? readVaccines(doc.data.rule_dsl) : ([] as VaccineGroup[]),
+        groups: doc.ok ? readVaccines(doc.data.rule_dsl, doc.data.rules ?? []) : ([] as VaccineGroup[]),
         loaded: doc.ok,
       };
     }),

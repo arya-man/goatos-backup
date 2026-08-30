@@ -70,7 +70,25 @@ export type ImpactPreviewInput = AppApiComponents["schemas"]["ImpactPreviewInput
 export type ImpactPreviewResult = AppApiComponents["schemas"]["ImpactPreviewResult"];
 export type ProtocolConfigItem = AppApiComponents["schemas"]["ProtocolConfigItem"];
 export type ProtocolConfigListResponse = AppApiComponents["schemas"]["ProtocolConfigListResponse"];
-export type ProtocolVersionResponse = AppApiComponents["schemas"]["ProtocolVersionResponse"];
+export type ProtocolVersionRule = {
+  rule_id: string;
+  protocol_version_id: string;
+  protocol_id: string;
+  dose_code: string;
+  sequence: number;
+  trigger_type: string;
+  offset_days: number;
+  due_window_days?: number;
+  min_gap_days?: number;
+  repeat?: string;
+  repeat_until_after_age?: string;
+  catch_up?: string;
+  eligibility_json?: unknown;
+  sort_order?: number;
+};
+export type ProtocolVersionResponse = AppApiComponents["schemas"]["ProtocolVersionResponse"] & {
+  rules?: ProtocolVersionRule[];
+};
 export type VaccinationAnchorScopeType = "tenant" | "park" | "shed" | "partition" | "animal_set";
 export type VaccinationAnchorRequest = {
   vaccine_code: string;

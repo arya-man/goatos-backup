@@ -7,15 +7,22 @@ const actions = readFileSync(new URL("./plan-actions.ts", import.meta.url), "utf
 const server = readFileSync(new URL("../../lib/api/server.ts", import.meta.url), "utf8");
 
 test("anchor panel defaults all safety flags to true", () => {
+  assert.match(panel, /applyEligibleScope:\s*true/);
   assert.match(panel, /suppressBeforeAnchor:\s*true/);
   assert.match(panel, /chainFutureFromAnchor:\s*true/);
   assert.match(panel, /enforceAgeEligibility:\s*true/);
 });
 
-test("anchor panel reports animals by RFID identifier, not internal goat id", () => {
-  assert.match(panel, /<th>RFID<\/th>/);
-  assert.match(panel, /animal\.identifier/);
-  assert.doesNotMatch(panel, /<td>\s*\{animal\.goat_id\}/);
+test("anchor panel is a rule setting with summary-only preview", () => {
+  assert.match(panel, /Anchor\/base date/);
+  assert.match(panel, /Start this vaccine from this date/);
+  assert.match(panel, /Apply anchor to this rule's eligible scope/);
+  assert.match(panel, /Chain boosters\/revacs from anchor/);
+  assert.match(panel, /Suppress earlier catch-up rows before anchor/);
+  assert.doesNotMatch(panel, /Seed a completed vaccine date/);
+  assert.doesNotMatch(panel, /Animal IDs/);
+  assert.doesNotMatch(panel, /<th>RFID<\/th>/);
+  assert.doesNotMatch(panel, /animal\.identifier/);
 });
 
 test("anchor actions call preview and create endpoints with idempotency", () => {

@@ -3753,6 +3753,8 @@ select:disabled { opacity: .45; }
 .vplan .field input:focus, .vplan .field select:focus, .vplan .field textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
 .vplan .anchorflags { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 14px; color: var(--muted); font-size: 13px; }
 .vplan .anchorflags label { display: inline-flex; align-items: center; gap: 7px; }
+.vplan .anchor-rules { margin-top: 16px; }
+.vplan .tabl tr.selrow td { background: var(--brand-soft); }
 .vplan .anchoractions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 14px; }
 .vplan .anchorpreview { margin-top: 16px; }
 .vplan .anchordetail { margin-top: 16px; }

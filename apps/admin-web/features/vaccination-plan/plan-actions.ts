@@ -19,7 +19,7 @@ import { revalidatePath } from "next/cache";
 
 import { todayIso } from "@/lib/format";
 
-import type { ProtocolConfigItem } from "@/lib/api/server";
+import type { ProtocolConfigItem, ProtocolVersionRule } from "@/lib/api/server";
 import type { VaccinationAnchorPreview, VaccinationAnchorRequest } from "@/lib/api/server";
 
 import type { EditorPlan } from "./editor-model";
@@ -292,10 +292,10 @@ function nextVersionLabel(items: ProtocolConfigItem[]): string {
  */
 export async function readVersionSettings(
   versionId: string,
-): Promise<{ ok: true; ruleDsl: unknown } | { ok: false; error: string }> {
+): Promise<{ ok: true; ruleDsl: unknown; rules: ProtocolVersionRule[] } | { ok: false; error: string }> {
   const version = await getProtocolVersion(versionId);
   if (!version.ok) return { ok: false, error: "Those settings could not be loaded." };
-  return { ok: true, ruleDsl: version.data.rule_dsl };
+  return { ok: true, ruleDsl: version.data.rule_dsl, rules: version.data.rules ?? [] };
 }
 
 /**

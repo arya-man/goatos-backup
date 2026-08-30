@@ -94,7 +94,7 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
       label: version.version_label || `V${version.version}`,
       inForce: formatInForceRange(version),
       published: formatDate(version.published_at),
-      vaccines: readVaccines(result.ruleDsl),
+      vaccines: readVaccines(result.ruleDsl, result.rules),
     });
   }, []);
 
