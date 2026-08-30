@@ -17,10 +17,9 @@ import { ArrowLeft, Check, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { DurationField, formatDays } from "./duration-field";
-import type { EditorPlan, EditorVaccine, NewVaccineInput, ProcurementPurpose } from "./editor-model";
-import type { AnchorConfig } from "./editor-model";
+import type { AnchorConfig, EditorPlan, EditorVaccine, NewVaccineInput, ProcurementPurpose } from "./editor-model";
 import { newVaccineToEditor } from "./editor-model";
-import { publishPlanWithAnchors, saveDraftPlan } from "./plan-actions";
+import { publishPlan, saveDraftPlan } from "./plan-actions";
 import { VaccinationAnchorPanel } from "./anchor-panel";
 import { humanDays } from "./plan-model";
 import type { ScheduleRule } from "./plan-model";
@@ -198,7 +197,7 @@ export function VaccinationPlanEditor(props: Props) {
       // client action and leave the user on a saved-but-unpublished draft.
       const liveId = savedResult.versionId ?? liveVersionId.current;
       liveVersionId.current = liveId;
-      const published = await publishPlanWithAnchors(liveId, plan);
+      const published = await publishPlan(liveId);
       if (!published.ok) {
         setError(published.error);
         if (liveId !== props.draftVersionId) {

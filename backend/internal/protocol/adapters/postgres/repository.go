@@ -731,7 +731,7 @@ RETURNING max_per_day, max_buffer_days, capacity_scope, overflow_policy`,
 }
 
 func (r *Repository) PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error {
-	return r.publishVersion(ctx, tenantID, versionID, publishedBy, nil, idempotencyKey...)
+	return r.publishVersion(ctx, tenantID, versionID, publishedBy, nil, nil, idempotencyKey...)
 }
 
 // DiscardVersion permanently deletes a DRAFT version together with its rules and
@@ -798,10 +798,23 @@ func (r *Repository) DiscardVersion(ctx context.Context, tenantID, versionID str
 // parity-checks its versioned vaccination capacity into vaccination_capacity_config. If the capacity
 // sync or parity check fails, the whole publish rolls back and the version stays draft.
 func (r *Repository) PublishVersionWithCapacity(ctx context.Context, tenantID, versionID string, publishedBy *string, capacity domain.PublishedCapacity, idempotencyKey ...string) error {
-	return r.publishVersion(ctx, tenantID, versionID, publishedBy, &capacity, idempotencyKey...)
+	return r.publishVersion(ctx, tenantID, versionID, publishedBy, &capacity, nil, idempotencyKey...)
 }
 
-func (r *Repository) publishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, capacity *domain.PublishedCapacity, idempotencyKey ...string) error {
+// PublishVersionWithAnchors publishes a draft version and applies config-level
+// vaccination anchors in the same transaction. If any anchor is invalid, the
+// version stays draft.
+func (r *Repository) PublishVersionWithAnchors(ctx context.Context, tenantID, versionID string, publishedBy *string, anchors []domain.PublishedAnchorConfig, idempotencyKey ...string) error {
+	return r.publishVersion(ctx, tenantID, versionID, publishedBy, nil, anchors, idempotencyKey...)
+}
+
+// PublishVersionWithCapacityAndAnchors publishes a draft version, syncs capacity,
+// and applies config-level vaccination anchors in one transaction.
+func (r *Repository) PublishVersionWithCapacityAndAnchors(ctx context.Context, tenantID, versionID string, publishedBy *string, capacity domain.PublishedCapacity, anchors []domain.PublishedAnchorConfig, idempotencyKey ...string) error {
+	return r.publishVersion(ctx, tenantID, versionID, publishedBy, &capacity, anchors, idempotencyKey...)
+}
+
+func (r *Repository) publishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, capacity *domain.PublishedCapacity, anchors []domain.PublishedAnchorConfig, idempotencyKey ...string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -900,8 +913,128 @@ WHERE tenant_id = $1
 			return err
 		}
 	}
+	if len(anchors) > 0 {
+		if err := insertVaccinationAnchorConfigsTx(ctx, tx, tenant, vid, anchors); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("protocol: commit publish: %w", err)
+	}
+	return nil
+}
+
+func insertVaccinationAnchorConfigsTx(ctx context.Context, tx pgx.Tx, tenant, versionID pgtype.UUID, anchors []domain.PublishedAnchorConfig) error {
+	for idx, anchor := range anchors {
+		if err := validateVaccinationAnchorConfigTx(ctx, tx, tenant, versionID, anchor, idx); err != nil {
+			return err
+		}
+		var actor pgtype.UUID
+		if anchor.CreatedBy != nil && strings.TrimSpace(*anchor.CreatedBy) != "" {
+			if err := actor.Scan(strings.TrimSpace(*anchor.CreatedBy)); err != nil {
+				return fmt.Errorf("protocol: anchor_config.rules[%d].created_by: %w", idx, err)
+			}
+		}
+		eventID := platformoutbox.DeterministicUUID(anchor.IdempotencyKey)
+		_, err := tx.Exec(ctx, `
+INSERT INTO vaccination_anchor_events (
+  vaccination_anchor_event_id, tenant_id, protocol_version_id, vaccine_code, dose_code, anchor_date,
+  scope_type, scope_payload, suppress_before_anchor, chain_future_from_anchor, enforce_age_eligibility,
+  reason, source_system, source_ref, created_by, idempotency_key, request_hash
+) VALUES (
+  $1::uuid, $2, $3, $4, $5, $6::date,
+  $7, $8::jsonb, $9, $10, $11,
+  $12, $13, NULLIF($14, ''), $15, $16, $17
+)
+ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
+SET protocol_version_id = EXCLUDED.protocol_version_id,
+    vaccine_code = EXCLUDED.vaccine_code,
+    dose_code = EXCLUDED.dose_code,
+    anchor_date = EXCLUDED.anchor_date,
+    scope_type = EXCLUDED.scope_type,
+    scope_payload = EXCLUDED.scope_payload,
+    suppress_before_anchor = EXCLUDED.suppress_before_anchor,
+    chain_future_from_anchor = EXCLUDED.chain_future_from_anchor,
+    enforce_age_eligibility = EXCLUDED.enforce_age_eligibility,
+    reason = EXCLUDED.reason,
+    source_system = EXCLUDED.source_system,
+    source_ref = EXCLUDED.source_ref,
+    created_by = EXCLUDED.created_by,
+    request_hash = EXCLUDED.request_hash,
+    updated_at = now(),
+    canceled_at = NULL,
+    canceled_by = NULL,
+    cancel_reason = NULL`,
+			eventID, tenant, versionID, anchor.VaccineCode, anchor.DoseCode, anchor.AnchorDate,
+			anchor.ScopeType, json.RawMessage(anchor.ScopePayload), anchor.SuppressBeforeAnchor, anchor.ChainFutureFromAnchor, anchor.EnforceAgeEligibility,
+			anchor.Reason, anchor.SourceSystem, anchor.SourceRef, actor, anchor.IdempotencyKey, anchor.RequestHash)
+		if err != nil {
+			return fmt.Errorf("protocol: insert anchor_config.rules[%d]: %w", idx, err)
+		}
+	}
+	return nil
+}
+
+func validateVaccinationAnchorConfigTx(ctx context.Context, tx pgx.Tx, tenant, versionID pgtype.UUID, anchor domain.PublishedAnchorConfig, idx int) error {
+	var ruleCount, resolved, eligible int
+	err := tx.QueryRow(ctx, `
+WITH rule AS (
+  SELECT pr.rule_id,
+         pr.trigger_type,
+         pr.offset_days,
+         COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')) AS vaccine_code,
+         COALESCE(pr.eligibility_json -> 'eligibility' -> 'species', pr.eligibility_json -> 'species', pv.rule_dsl -> 'eligibility' -> 'species', '["all"]'::jsonb) AS species_json
+  FROM protocol_rules pr
+  JOIN protocol_versions pv ON pv.tenant_id = pr.tenant_id AND pv.protocol_version_id = pr.protocol_version_id
+  WHERE pr.tenant_id = $1
+    AND pr.protocol_version_id = $2
+    AND lower(btrim(pr.dose_code)) = lower(btrim($4))
+    AND lower(btrim(COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))) = lower(btrim($3))
+),
+resolved AS (
+  SELECT g.goat_id,
+         COALESCE(NULLIF(g.species, ''), '') AS species,
+         g.dob,
+         COALESCE(gsp.partition_label, 'whole') AS partition_label
+  FROM goats g
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+  WHERE g.tenant_id = $1
+    AND g.lifecycle_status = 'alive'
+    AND (
+      $6 = 'tenant'
+      OR ($6 = 'animal_set' AND $7::jsonb ? 'animal_ids' AND ($7::jsonb -> 'animal_ids') ? g.goat_id::text)
+      OR ($6 = 'park' AND COALESCE($7::jsonb ->> 'park_id', '') = g.park_id::text)
+      OR ($6 = 'shed' AND COALESCE($7::jsonb ->> 'shed_id', '') = g.shed_id::text)
+      OR ($6 = 'partition' AND COALESCE($7::jsonb ->> 'shed_id', '') = g.shed_id::text AND COALESCE($7::jsonb ->> 'partition_label', '') = COALESCE(gsp.partition_label, 'whole'))
+    )
+),
+classified AS (
+  SELECT r.goat_id
+  FROM resolved r
+  JOIN rule ON true
+  WHERE (
+      rule.species_json ? 'all'
+      OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(rule.species_json) s(value) WHERE lower(btrim(s.value)) = lower(btrim(r.species)))
+    )
+    AND (
+      NOT $8::boolean
+      OR rule.trigger_type <> 'birth_age'
+      OR (r.dob IS NOT NULL AND r.dob + rule.offset_days <= $5::date)
+    )
+)
+SELECT (SELECT count(*) FROM rule), (SELECT count(*) FROM resolved), (SELECT count(*) FROM classified)`,
+		tenant, versionID, anchor.VaccineCode, anchor.DoseCode, anchor.AnchorDate, anchor.ScopeType, json.RawMessage(anchor.ScopePayload), anchor.EnforceAgeEligibility).Scan(&ruleCount, &resolved, &eligible)
+	if err != nil {
+		return fmt.Errorf("protocol: validate anchor_config.rules[%d]: %w", idx, err)
+	}
+	if ruleCount == 0 {
+		return fmt.Errorf("protocol: invalid anchor_config.rules[%d]: dose_code %q does not belong to vaccine %q in this version", idx, anchor.DoseCode, anchor.VaccineCode)
+	}
+	if resolved == 0 {
+		return fmt.Errorf("protocol: invalid anchor_config.rules[%d]: scope resolves to no live animals", idx)
+	}
+	if eligible == 0 {
+		return fmt.Errorf("protocol: invalid anchor_config.rules[%d]: no eligible animals for anchor", idx)
 	}
 	return nil
 }
@@ -1039,6 +1172,17 @@ ON CONFLICT (tenant_id, idempotency_key) WHERE event_type = 'vaccination.capacit
 // the version in one transaction. The matrix JSON is the authoring source of truth; protocol_rules
 // and protocol_rule_dimensions are regenerated execution indexes, never hand-authored authority.
 func (r *Repository) PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, seedOwnedGuardActor string, idempotencyKey ...string) error {
+	return r.publishVersionWithDerivedRules(ctx, tenantID, v, rules, dimensions, publishedBy, capacity, nil, seedOwnedGuardActor, idempotencyKey...)
+}
+
+// PublishVersionWithDerivedRulesAndAnchors publishes matrix-derived rules and
+// config-level anchors in one transaction. If an anchor cannot be validated
+// against the derived rule rows, nothing goes live.
+func (r *Repository) PublishVersionWithDerivedRulesAndAnchors(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, anchors []domain.PublishedAnchorConfig, seedOwnedGuardActor string, idempotencyKey ...string) error {
+	return r.publishVersionWithDerivedRules(ctx, tenantID, v, rules, dimensions, publishedBy, capacity, anchors, seedOwnedGuardActor, idempotencyKey...)
+}
+
+func (r *Repository) publishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, anchors []domain.PublishedAnchorConfig, seedOwnedGuardActor string, idempotencyKey ...string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -1196,6 +1340,11 @@ RETURNING pv.protocol_version_id::text,
 	}
 	if capacity != nil {
 		if err := upsertVaccinationCapacityConfigTx(ctx, tx, tenantID, *capacity); err != nil {
+			return err
+		}
+	}
+	if len(anchors) > 0 {
+		if err := insertVaccinationAnchorConfigsTx(ctx, tx, tenant, vid, anchors); err != nil {
 			return err
 		}
 	}

@@ -70,6 +70,25 @@ type PublishedCapacity struct {
 	OverflowPolicy string
 }
 
+// PublishedAnchorConfig is the draft-authored vaccination anchor/base date that
+// publish applies atomically with the protocol version.
+type PublishedAnchorConfig struct {
+	VaccineCode           string
+	DoseCode              string
+	AnchorDate            string
+	ScopeType             string
+	ScopePayload          []byte
+	Reason                string
+	SourceRef             string
+	SuppressBeforeAnchor  bool
+	ChainFutureFromAnchor bool
+	EnforceAgeEligibility bool
+	SourceSystem          string
+	CreatedBy             *string
+	IdempotencyKey        string
+	RequestHash           string
+}
+
 // NewRule is the input to create one dose/phase rule under a version.
 type NewRule struct {
 	RuleID              string

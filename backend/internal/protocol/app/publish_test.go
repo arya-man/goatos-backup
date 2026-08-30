@@ -998,6 +998,36 @@ func TestPublishVersionRejectsPurposePlanSecondWaveGapWithWrongType(t *testing.T
 	}
 }
 
+func TestPublishVersionAppliesAnchorConfigAtomicallyWithMatrixPublish(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	dsl := validVaccinationMatrixRulesetDSL()
+	dsl = strings.Replace(dsl, `"matrix_rows":[`, `"anchor_config":{"rules":[{"vaccine_code":"Sheep Pox","dose_code":"sheep_pox_adult_second_wave","anchor_date":"2026-09-08","scope_type":"tenant","scope_payload":{},"reason":"Start this vaccine from this date","suppress_before_anchor":true,"chain_future_from_anchor":false,"enforce_age_eligibility":true}]},"matrix_rows":[`, 1)
+	repo.version.RuleDsl = []byte(dsl)
+	service := NewService(repo)
+
+	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); err != nil {
+		t.Fatalf("publish with anchor_config: %v", err)
+	}
+	if !repo.publishWithDerivedCalled {
+		t.Fatalf("matrix publish path was not used")
+	}
+	if len(repo.anchorsApplied) != 1 {
+		t.Fatalf("anchors applied = %d, want 1", len(repo.anchorsApplied))
+	}
+	got := repo.anchorsApplied[0]
+	if got.VaccineCode != "Sheep Pox" || got.DoseCode != "sheep_pox_adult_second_wave" || got.AnchorDate != "2026-09-08" {
+		t.Fatalf("anchor applied = %+v", got)
+	}
+	if got.ChainFutureFromAnchor {
+		t.Fatalf("explicit false chain_future_from_anchor was not preserved")
+	}
+	if got.IdempotencyKey == "" || got.RequestHash == "" {
+		t.Fatalf("anchor idempotency/hash not populated: %+v", got)
+	}
+}
+
 func validPublishVersion(status string) domain.Version {
 	return domain.Version{
 		ProtocolVersionID: "version-1",
@@ -1040,6 +1070,7 @@ type fakeProtocolRepo struct {
 	createdRules                []domain.NewRule
 	rules                       []domain.Rule
 	dimensions                  []domain.RuleDimension
+	anchorsApplied              []domain.PublishedAnchorConfig
 	capacitySyncWant            *domain.PublishedCapacity
 	capacitySyncReturn          *domain.PublishedCapacity
 }
@@ -1083,6 +1114,27 @@ func (f *fakeProtocolRepo) PublishVersionWithCapacity(_ context.Context, _, _ st
 	f.publishCalled = true
 	f.genericPublishCalled = true
 	f.publishCalls++
+	f.version.Status = "published"
+	return nil
+}
+
+func (f *fakeProtocolRepo) PublishVersionWithAnchors(_ context.Context, _, _ string, _ *string, anchors []domain.PublishedAnchorConfig, _ ...string) error {
+	f.publishCalled = true
+	f.genericPublishCalled = true
+	f.publishCalls++
+	f.anchorsApplied = append([]domain.PublishedAnchorConfig(nil), anchors...)
+	f.version.Status = "published"
+	return nil
+}
+
+func (f *fakeProtocolRepo) PublishVersionWithCapacityAndAnchors(_ context.Context, _, _ string, _ *string, capacity domain.PublishedCapacity, anchors []domain.PublishedAnchorConfig, _ ...string) error {
+	if err := f.applyCapacityAtomic(&capacity); err != nil {
+		return err
+	}
+	f.publishCalled = true
+	f.genericPublishCalled = true
+	f.publishCalls++
+	f.anchorsApplied = append([]domain.PublishedAnchorConfig(nil), anchors...)
 	f.version.Status = "published"
 	return nil
 }
@@ -1172,6 +1224,14 @@ func (f *fakeProtocolRepo) PublishVersionWithDerivedRules(_ context.Context, _ s
 	}
 	f.dimensions = append([]domain.RuleDimension(nil), dimensions...)
 	f.version.Status = "published"
+	return nil
+}
+
+func (f *fakeProtocolRepo) PublishVersionWithDerivedRulesAndAnchors(_ context.Context, _ string, _ domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, anchors []domain.PublishedAnchorConfig, seedOwnedGuardActor string, idempotencyKey ...string) error {
+	if err := f.PublishVersionWithDerivedRules(context.Background(), "", domain.Version{}, rules, dimensions, publishedBy, capacity, seedOwnedGuardActor, idempotencyKey...); err != nil {
+		return err
+	}
+	f.anchorsApplied = append([]domain.PublishedAnchorConfig(nil), anchors...)
 	return nil
 }
 func (f *fakeProtocolRepo) PublishPublishedMatrixReplay(context.Context, string, domain.Version, *string, ...string) error {

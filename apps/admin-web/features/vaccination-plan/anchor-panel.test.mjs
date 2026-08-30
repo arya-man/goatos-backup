@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 const panel = readFileSync(new URL("./anchor-panel.tsx", import.meta.url), "utf8");
+const actions = readFileSync(new URL("./plan-actions.ts", import.meta.url), "utf8");
+const editor = readFileSync(new URL("./plan-editor.tsx", import.meta.url), "utf8");
 const server = readFileSync(new URL("../../lib/api/server.ts", import.meta.url), "utf8");
 
 test("anchor panel defaults all safety flags to true", () => {
@@ -46,6 +48,9 @@ test("anchor panel is a simple draft rule setting", () => {
 test("draft anchor row editor does not apply operational anchors directly", () => {
   assert.doesNotMatch(panel, /createAnchor/);
   assert.doesNotMatch(panel, /runCreate/);
+  assert.doesNotMatch(actions, /publishPlanWithAnchors/);
+  assert.doesNotMatch(editor, /publishPlanWithAnchors/);
+  assert.match(editor, /publishPlan\(liveId\)/);
 });
 
 test("anchor API request shape still uses top-level booleans", () => {

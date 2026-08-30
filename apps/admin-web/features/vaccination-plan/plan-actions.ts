@@ -242,48 +242,6 @@ export async function publishPlan(draftVersionId: string): Promise<PlanActionRes
   return { ok: true, versionId: draftVersionId };
 }
 
-export async function publishPlanWithAnchors(
-  draftVersionId: string,
-  plan: EditorPlan,
-): Promise<PlanActionResult> {
-  const published = await publishProtocolVersion(draftVersionId);
-  if (!published.ok) return failure("could not publish the plan", published.error);
-
-  for (const anchor of anchorRequestsFromPlan(plan)) {
-    const created = await createVaccinationAnchor(anchor.body, anchor.idempotencyKey);
-    if (!created.ok) return failure("could not apply anchor/base date", created.error);
-  }
-
-  revalidatePath(PLAN_ROUTE);
-  return { ok: true, versionId: draftVersionId };
-}
-
-function anchorRequestsFromPlan(plan: EditorPlan): Array<{ body: VaccinationAnchorRequest; idempotencyKey: string }> {
-  const out: Array<{ body: VaccinationAnchorRequest; idempotencyKey: string }> = [];
-  for (const vaccine of plan.vaccines) {
-    for (const [doseCode, anchor] of Object.entries(vaccine.anchors ?? {})) {
-      if (!anchor.anchorDate) continue;
-      const body: VaccinationAnchorRequest = {
-        vaccine_code: vaccine.code,
-        dose_code: doseCode,
-        anchor_date: anchor.anchorDate,
-        scope_type: "tenant",
-        scope_payload: {},
-        reason: anchor.reason.trim() || "Anchor/base date for this vaccine rule",
-        suppress_before_anchor: anchor.suppressBeforeAnchor,
-        chain_future_from_anchor: anchor.chainFutureFromAnchor,
-        enforce_age_eligibility: anchor.enforceAgeEligibility,
-      };
-      if (anchor.sourceRef.trim()) body.source_ref = anchor.sourceRef.trim();
-      out.push({
-        body,
-        idempotencyKey: `vaccination-anchor-config-${vaccine.code}-${doseCode}-${anchor.anchorDate}`,
-      });
-    }
-  }
-  return out;
-}
-
 /**
  * Today as a full RFC 3339 timestamp.
  *
