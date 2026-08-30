@@ -23,7 +23,7 @@ import type { ProtocolConfigItem, ProtocolVersionRule } from "@/lib/api/server";
 import type { VaccinationAnchorPreview, VaccinationAnchorRequest } from "@/lib/api/server";
 
 import type { EditorPlan } from "./editor-model";
-import { toRuleDsl } from "./editor-model";
+import { sanitizeRuleDslForSave, toRuleDsl } from "./editor-model";
 import {
   createProtocolVersion,
   createVaccinationAnchor,
@@ -145,7 +145,7 @@ export async function startNewVersion(): Promise<PlanActionResult> {
     // because effective_to is immutable on a published row, which would leave a
     // window with no effective plan. See ADR "Open" item 2.
     effective_from: today(),
-    rule_dsl: current.data.rule_dsl,
+    rule_dsl: sanitizeRuleDslForSave(current.data.rule_dsl),
     proof_policy: current.data.proof_policy,
     sop_version_id: current.data.sop_version_id || undefined,
   });

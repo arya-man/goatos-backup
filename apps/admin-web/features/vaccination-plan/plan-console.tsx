@@ -20,8 +20,7 @@ import { useCallback, useState, useTransition } from "react";
 import type { ProtocolConfigItem } from "@/lib/api/server";
 
 import { discardDraft, readVersionSettings, startNewVersion } from "./plan-actions";
-import { VaccinationAnchorPanel } from "./anchor-panel";
-import { readVaccines, type VaccineGroup } from "./plan-model";
+import { describeFirstDoses, describeRepeats, readVaccines, type VaccineGroup } from "./plan-model";
 import { personName } from "./version-format";
 import { VersionSheet, type VersionSheetData } from "./version-sheet";
 
@@ -197,7 +196,49 @@ export function VaccinationPlanConsole({ versions, catalog, changeNotes, loadFai
               </div>
             </div>
 
-            <VaccinationAnchorPanel catalog={catalog} />
+            {catalog.length > 0 ? (
+              <div className="scroll" tabIndex={0}>
+                <table className="tabl">
+                  <thead>
+                    <tr>
+                      <th>Vaccine</th>
+                      <th>First doses</th>
+                      <th>Repeats</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {catalog.map((v) => (
+                      <tr className={v.inPlan ? undefined : "voff"} key={v.code}>
+                        <td>
+                          <b>{v.name}</b>
+                        </td>
+                        <td>{v.inPlan ? describeFirstDoses(v.firstDoses) : "—"}</td>
+                        <td>{v.inPlan ? describeRepeats(v.repeats) : "—"}</td>
+                        <td>
+                          {v.inPlan ? (
+                            <span className="tag on">in the plan</span>
+                          ) : (
+                            <span className="tag">not in this plan</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="pager2">
+                  <span className="muted small">
+                    Page 1 · {catalog.length} vaccine{catalog.length === 1 ? "" : "s"} on this page
+                  </span>
+                  <span className="btn sm" aria-disabled style={{ opacity: 0.45, cursor: "not-allowed" }}>
+                    Previous
+                  </span>
+                  <span className="btn sm" aria-disabled style={{ opacity: 0.45, cursor: "not-allowed" }}>
+                    Next
+                  </span>
+                </div>
+              </div>
+            ) : null}
 
             {draft ? (
               <div className="draftnudge">

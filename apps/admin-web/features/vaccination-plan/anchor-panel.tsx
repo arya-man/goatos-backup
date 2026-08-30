@@ -18,18 +18,19 @@ type AnchorState = {
 };
 
 type RuleRow = {
-  vaccine: VaccineGroup;
+  vaccine: Pick<VaccineGroup, "code" | "name">;
   rule: ScheduleRule;
 };
 
 type Props = {
-  catalog: VaccineGroup[];
+  catalog?: VaccineGroup[];
+  rows?: RuleRow[];
 };
 
 const DEFAULT_REASON = "Start this vaccine from this date";
 
-export function VaccinationAnchorPanel({ catalog }: Props) {
-  const rows = useMemo(
+export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Props) {
+  const catalogRows = useMemo(
     () =>
       catalog
         .filter((vaccine) => vaccine.inPlan)
@@ -40,6 +41,7 @@ export function VaccinationAnchorPanel({ catalog }: Props) {
         ),
     [catalog],
   );
+  const rows = providedRows ?? catalogRows;
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [state, setState] = useState<AnchorState>(() => defaultState());
   const [pending, startTransition] = useTransition();
@@ -95,7 +97,7 @@ export function VaccinationAnchorPanel({ catalog }: Props) {
   if (rows.length === 0) return null;
 
   return (
-    <div className="scroll" tabIndex={0}>
+    <div className="scroll anchor-rule-table" tabIndex={0}>
       <table className="tabl">
         <thead>
           <tr>

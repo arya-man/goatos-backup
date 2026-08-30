@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { fromRuleDsl, newVaccineToEditor, toRuleDsl } from "./editor-model.ts";
+import { fromRuleDsl, newVaccineToEditor, sanitizeRuleDslForSave, toRuleDsl } from "./editor-model.ts";
 import { describeChange, readVaccines } from "./plan-model.ts";
 
 /**
@@ -470,4 +470,14 @@ test("history change notes use the current display name for an added vaccine cod
   const note = describeChange(oldName, previous, new Map([["Z13", "Z1+Z3"]]));
 
   assert.equal(note, "Added Z1+Z3.");
+});
+
+test("draft save strips unsupported top-level rule_dsl notes instead of publishing them", () => {
+  const doc = sanitizeRuleDslForSave({
+    ...BASE_DOC,
+    notes: [{ text: "legacy import note that publish must not see" }],
+  });
+
+  assert.equal(Object.hasOwn(doc, "notes"), false);
+  assert.ok(Array.isArray(doc.matrix_rows));
 });

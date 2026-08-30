@@ -20,7 +20,9 @@ import { DurationField, formatDays } from "./duration-field";
 import type { EditorPlan, EditorVaccine, NewVaccineInput, ProcurementPurpose } from "./editor-model";
 import { newVaccineToEditor } from "./editor-model";
 import { publishPlan, saveDraftPlan } from "./plan-actions";
+import { VaccinationAnchorPanel } from "./anchor-panel";
 import { humanDays } from "./plan-model";
+import type { ScheduleRule } from "./plan-model";
 
 type Props = {
   protocolId: string;
@@ -91,6 +93,7 @@ export function VaccinationPlanEditor(props: Props) {
   );
   const selectedSetting = selected === "__procurement" || selected === "__safety" ? selected : null;
   const current = plan.vaccines.find((v) => v.code === selected) ?? plan.vaccines[0];
+  const currentAnchorRows = useMemo(() => ruleRowsForVaccine(current), [current]);
   const onCount = plan.vaccines.filter((v) => v.on).length;
 
   // A vaccine switched on with no doses is not in the plan: "off" IS an empty
@@ -380,6 +383,13 @@ export function VaccinationPlanEditor(props: Props) {
                   This vaccine is in the plan but has no doses yet. Add at least one below, or
                   switch it off.
                 </p>
+              ) : null}
+
+              {current.on && currentAnchorRows.length > 0 ? (
+                <div className="dose" style={{ marginBottom: 18 }}>
+                  <div className="sec-label">Anchor settings</div>
+                  <VaccinationAnchorPanel rows={currentAnchorRows} />
+                </div>
               ) : null}
 
               {current.kidDoses.length > 0 ? (
@@ -1198,6 +1208,28 @@ function toggleVaccineSelection(selected: string[], vaccineName: string): string
 
 function normaliseVaccineName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function ruleRowsForVaccine(vaccine: EditorVaccine | undefined): Array<{
+  vaccine: { code: string; name: string };
+  rule: ScheduleRule;
+}> {
+  if (!vaccine) return [];
+  const vaccineRef = { code: vaccine.code, name: vaccine.name };
+  const firstDoseRules = [...vaccine.kidDoses, ...vaccine.driveDoses]
+    .filter((dose) => dose.doseCode)
+    .map((dose, index) => ({
+      vaccine: vaccineRef,
+      rule: {
+        dose_code: dose.doseCode,
+        source_dose_code: dose.doseCode,
+        offset_days: dose.offsetDays,
+        trigger_type: dose.triggerType,
+        repeat: "none",
+        sequence: index + 1,
+      } as ScheduleRule,
+    }));
+  return firstDoseRules;
 }
 
 /**

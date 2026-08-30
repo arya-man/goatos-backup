@@ -261,7 +261,7 @@ function toDose(rule: ScheduleRule): Dose {
  * and can turn it back on without re-authoring it.
  */
 export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
-  const doc = structuredClone(asObject(original));
+  const doc = sanitizeRuleDslForSave(structuredClone(asObject(original)));
   const byCode = new Map(plan.vaccines.map((v) => [v.code, v]));
 
   const rows = Array.isArray(doc.matrix_rows) ? (doc.matrix_rows as unknown[]) : [];
@@ -365,6 +365,17 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
   proc.sheep_second_wave = purposePlansPayload.breeding.sheep_second_wave;
   doc.procurement_policy = proc;
 
+  return doc;
+}
+
+/**
+ * Draft authoring must not preserve legacy/import-only keys that publish now
+ * rejects. Anchors are written through vaccination_anchor_events, not by hiding
+ * notes or config under rule_dsl.
+ */
+export function sanitizeRuleDslForSave(ruleDsl: unknown): Record<string, unknown> {
+  const doc = structuredClone(asObject(ruleDsl));
+  delete doc.notes;
   return doc;
 }
 
