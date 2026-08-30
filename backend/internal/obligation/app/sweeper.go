@@ -663,10 +663,13 @@ func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.T
 	if len(assignments) == 0 || len(operators) == 0 {
 		return assignments, nil
 	}
-	blocks := make([]vaccexecapp.DriveWorkBlock, 0, len(assignments))
-	byID := make(map[string]domain.DriveAssignment, len(assignments))
-	for i, assignment := range assignments {
-		id := strconv.Itoa(i)
+	type assignmentBlock struct {
+		block       vaccexecapp.DriveWorkBlock
+		assignments []domain.DriveAssignment
+	}
+	blocksByKey := make(map[string]*assignmentBlock, len(assignments))
+	blockOrder := make([]string, 0, len(assignments))
+	for _, assignment := range assignments {
 		physicalShed := strings.TrimSpace(assignment.PhysicalShed)
 		if physicalShed == "" {
 			physicalShed = "park"
@@ -675,16 +678,45 @@ func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.T
 		if partition == "" {
 			partition = "whole"
 		}
-		byID[id] = assignment
-		blocks = append(blocks, vaccexecapp.DriveWorkBlock{
-			ID:             id,
-			Park:           strings.TrimSpace(assignment.ParkID),
-			PhysicalShed:   physicalShed,
-			Partition:      partition,
-			Animals:        int(assignment.AnimalCount),
-			DueDate:        plannedDate,
-			LatestSafeDate: plannedDate,
-		})
+		key := strings.Join([]string{strings.TrimSpace(assignment.ParkID), physicalShed, partition}, "\x00")
+		group := blocksByKey[key]
+		if group == nil {
+			id := strconv.Itoa(len(blockOrder))
+			group = &assignmentBlock{
+				block: vaccexecapp.DriveWorkBlock{
+					ID:             id,
+					Park:           strings.TrimSpace(assignment.ParkID),
+					PhysicalShed:   physicalShed,
+					Partition:      partition,
+					DueDate:        plannedDate,
+					LatestSafeDate: plannedDate,
+				},
+			}
+			blocksByKey[key] = group
+			blockOrder = append(blockOrder, key)
+		}
+		if int(assignment.AnimalCount) > group.block.Animals {
+			group.block.Animals = int(assignment.AnimalCount)
+		}
+		group.assignments = append(group.assignments, assignment)
+	}
+	blocks := make([]vaccexecapp.DriveWorkBlock, 0, len(assignments))
+	byID := make(map[string][]domain.DriveAssignment, len(assignments))
+	for _, key := range blockOrder {
+		group := blocksByKey[key]
+		if vaccinationAssignmentLaneCountsMatch(group.assignments) {
+			group.block.ID = strconv.Itoa(len(blocks))
+			blocks = append(blocks, group.block)
+			byID[group.block.ID] = group.assignments
+			continue
+		}
+		for _, assignment := range group.assignments {
+			block := group.block
+			block.ID = strconv.Itoa(len(blocks))
+			block.Animals = int(assignment.AnimalCount)
+			blocks = append(blocks, block)
+			byID[block.ID] = []domain.DriveAssignment{assignment}
+		}
 	}
 	ops := make([]vaccexecapp.DriveOperator, 0, len(operators))
 	for _, operator := range operators {
@@ -731,47 +763,77 @@ func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.T
 		return nil, err
 	}
 	out := make([]domain.DriveAssignment, 0, len(assignments)+len(blocks))
+	remainingByBlockID := make(map[string]int32, len(blocks))
+	for _, block := range blocks {
+		remainingByBlockID[block.ID] = int32(block.Animals)
+	}
 	for _, day := range plan.Days {
 		for _, planned := range day.Assignments {
 			operatorID := strings.TrimSpace(planned.OperatorID)
 			uniqueBlockIDs := uniqueStrings(planned.BlockIDs)
 			for _, blockID := range uniqueBlockIDs {
-				base, ok := byID[blockID]
+				bases, ok := byID[blockID]
 				if !ok {
 					continue
 				}
-				next := base
-				next.PlannedDate = plannedDate
-				if operatorID != "" {
-					next.OperatorID = &operatorID
+				chunkAnimals := remainingByBlockID[blockID]
+				if len(uniqueBlockIDs) == 1 && planned.Animals > 0 && int32(planned.Animals) < chunkAnimals {
+					chunkAnimals = int32(planned.Animals)
 				}
-				if len(uniqueBlockIDs) == 1 && planned.Animals > 0 && int32(planned.Animals) < next.AnimalCount {
-					next.TotalDoses = proportionalDoseCount(next.TotalDoses, next.AnimalCount, int32(planned.Animals))
-					next.AnimalCount = int32(planned.Animals)
+				if chunkAnimals <= 0 {
+					continue
 				}
-				if hasDrivePlanWarning(planned.Warnings, "over_cap_required_latest_safe") && next.CapacityStatus == "within_cap" {
-					next.CapacityStatus = "over_cap_required"
-					next.Warnings = append(next.Warnings, "operator animal cap exceeded to keep latest safe vaccination window")
+				for _, base := range bases {
+					next := base
+					next.PlannedDate = plannedDate
+					if operatorID != "" {
+						next.OperatorID = &operatorID
+					}
+					if chunkAnimals < next.AnimalCount {
+						next.TotalDoses = proportionalDoseCount(next.TotalDoses, next.AnimalCount, chunkAnimals)
+						next.AnimalCount = chunkAnimals
+					}
+					if hasDrivePlanWarning(planned.Warnings, "over_cap_required_latest_safe") && next.CapacityStatus == "within_cap" {
+						next.CapacityStatus = "over_cap_required"
+						next.Warnings = append(next.Warnings, "operator animal cap exceeded to keep latest safe vaccination window")
+					}
+					if hasDrivePlanWarning(planned.Warnings, "forced_partition_split") {
+						next.Warnings = append(next.Warnings, "partition split because one partition exceeded available operator capacity")
+					}
+					out = append(out, next)
 				}
-				if hasDrivePlanWarning(planned.Warnings, "forced_partition_split") {
-					next.Warnings = append(next.Warnings, "partition split because one partition exceeded available operator capacity")
-				}
-				out = append(out, next)
+				remainingByBlockID[blockID] -= chunkAnimals
 			}
 		}
 	}
 	for _, block := range plan.Unassigned {
-		if base, ok := byID[block.ID]; ok {
-			base.AnimalCount = int32(block.Animals)
-			base.CapacityStatus = "capacity_action"
-			base.Warnings = append(base.Warnings, "no vaccination operator has capacity for the whole shed/partition under the configured animal cap")
-			out = append(out, base)
+		if bases, ok := byID[block.ID]; ok {
+			for _, base := range bases {
+				base.AnimalCount = int32(block.Animals)
+				base.OperatorID = nil
+				base.CapacityStatus = "capacity_action"
+				base.Warnings = append(base.Warnings, "no vaccination operator has capacity for the whole shed/partition under the configured animal cap")
+				out = append(out, base)
+			}
 		}
 	}
 	if len(out) == 0 {
 		return assignments, nil
 	}
 	return out, nil
+}
+
+func vaccinationAssignmentLaneCountsMatch(assignments []domain.DriveAssignment) bool {
+	if len(assignments) <= 1 {
+		return true
+	}
+	animals := assignments[0].AnimalCount
+	for _, assignment := range assignments[1:] {
+		if assignment.AnimalCount != animals {
+			return false
+		}
+	}
+	return true
 }
 
 func proportionalDoseCount(totalDoses int32, originalAnimals int32, plannedAnimals int32) int32 {

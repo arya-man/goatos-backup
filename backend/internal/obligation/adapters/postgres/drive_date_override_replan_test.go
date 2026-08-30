@@ -49,3 +49,46 @@ func TestPlanMovedDriveAssignmentsKeepsWholePartitionWhenTargetDateHasOnlyResidu
 		t.Fatalf("fixture sanity: source %s should not be after target %s", source, target)
 	}
 }
+
+func TestPlanMovedDriveAssignmentsOneToManyPaginationDateShiftParkScopeStatusMatrixDoesNotInflateAsymmetricVaccineLanes(t *testing.T) {
+	target := time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)
+	rows := []movedDriveAssignment{
+		{
+			batchID:          "10000000-0000-4000-8000-000000000001",
+			parkID:           "30000000-0000-4000-8000-000000000001",
+			physicalShed:     "Mandela 1",
+			partitionLabel:   "Part 1",
+			movedRuleIDs:     []string{"large-rule"},
+			movedAnimalCount: 120,
+			movedDoseCount:   120,
+		},
+		{
+			batchID:          "10000000-0000-4000-8000-000000000001",
+			parkID:           "30000000-0000-4000-8000-000000000001",
+			physicalShed:     "Mandela 1",
+			partitionLabel:   "Part 1",
+			movedRuleIDs:     []string{"small-rule"},
+			movedAnimalCount: 60,
+			movedDoseCount:   60,
+		},
+	}
+	planned := planMovedDriveAssignments(rows, []vaccexecapp.DriveDateAvailability{
+		{Date: target, Operators: []vaccexecapp.DriveOperator{
+			{ID: "op-1", Name: "Op 1", Cap: 100, ConfiguredCap: 100, Available: true},
+			{ID: "op-2", Name: "Op 2", Cap: 100, ConfiguredCap: 100, Available: true},
+		}},
+	}, target)
+
+	var animals int32
+	var doses int32
+	for _, row := range planned {
+		animals += row.animalCount
+		doses += row.totalDoses
+	}
+	if animals != 180 {
+		t.Fatalf("planned animals = %d, want 180 and no inflation from asymmetric lanes: %+v", animals, planned)
+	}
+	if doses != 180 {
+		t.Fatalf("planned doses = %d, want 180 and no inflation from asymmetric lanes: %+v", doses, planned)
+	}
+}

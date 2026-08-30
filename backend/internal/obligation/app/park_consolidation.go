@@ -96,10 +96,11 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 			continue
 		}
 		parkID := rows[0].ParkID
+		groupSession := parkConsolidationSessionFromGroupKey(key)
 		remaining := append([]domain.ParkConsolidationCandidate(nil), rows...)
 		fullDates := make(map[string]struct{})
 		for uniqueParkTargetCount(remaining) >= int(minMergeTargets) {
-			next, attached, plannedDate, animalCapReached, stop, err := s.parkMergeStep(ctx, tenantID, versionID, cfg, planner, now, asOf, session, parkID, remaining, minMergeTargets, fullDates)
+			next, attached, plannedDate, animalCapReached, stop, err := s.parkMergeStep(ctx, tenantID, versionID, cfg, planner, now, asOf, session, parkID, groupSession, remaining, minMergeTargets, fullDates)
 			if err != nil {
 				return res, err
 			}
@@ -128,7 +129,7 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 // stop is true when the caller's merge loop should not attempt another iteration for this park
 // (nothing left to merge, or a hard cap/error condition), whether or not this call itself attached
 // anything.
-func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, now, asOf time.Time, session *SweepSession, parkID string, remaining []domain.ParkConsolidationCandidate, minMergeTargets int32, excludedDates map[string]struct{}) (newRemaining []domain.ParkConsolidationCandidate, attached int64, plannedDate *time.Time, animalCapReached bool, stop bool, err error) {
+func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, now, asOf time.Time, session *SweepSession, parkID, groupSession string, remaining []domain.ParkConsolidationCandidate, minMergeTargets int32, excludedDates map[string]struct{}) (newRemaining []domain.ParkConsolidationCandidate, attached int64, plannedDate *time.Time, animalCapReached bool, stop bool, err error) {
 	remaining, err = s.applyParkDriveDateOverrides(ctx, tenantID, cfg, remaining)
 	if err != nil {
 		return remaining, 0, nil, false, true, err
@@ -220,7 +221,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		ProtocolVersionID: versionID,
 		ScopeType:         "park",
 		ScopeID:           parkID,
-		Session:           parkConsolidationSession(selected),
+		Session:           parkConsolidationBatchSession(groupSession, selected),
 		PlannedDate:       plannedDate,
 		WindowStart:       windowStart,
 		WindowEnd:         windowEnd,
@@ -437,8 +438,15 @@ func parkConsolidationDriveGroupKey(cfg SweepConfig, row domain.ParkConsolidatio
 		return "combo:Sheep Pox+Blue Tongue"
 	}
 	if parkCandidateUsesDriveDateOverrideWindow(row) {
-		if session := batchSession(row.RuleID, identity.VaccineCode); strings.HasPrefix(strings.TrimSpace(session), "combo:") {
+		switch normalizedVaccineMatrixCode(identity.VaccineCode) {
+		case "ppr", "fmd", "hs":
+			return "combo:PPR+FMD+HS"
+		}
+		if session := sweepConfigApprovedComboWithPartner(cfg, identity.VaccineCode); session != "" {
 			return session
+		}
+		if !row.DueAt.IsZero() {
+			return "manual-anchor:" + businessDate(row.DueAt).Format("2006-01-02")
 		}
 		if code := strings.TrimSpace(identity.VaccineCode); code != "" {
 			return "vaccine:" + normalizedVaccineMatrixCode(code)
@@ -456,6 +464,35 @@ func parkConsolidationDriveGroupKey(cfg SweepConfig, row domain.ParkConsolidatio
 	return "vaccine:unknown"
 }
 
+func sweepConfigHasComboPartner(cfg SweepConfig, vaccineCode, session string) bool {
+	session = strings.TrimSpace(session)
+	if session == "" {
+		return false
+	}
+	want := normalizedVaccineMatrixCode(vaccineCode)
+	for _, identity := range cfg.RuleVaccineIDs {
+		if normalizedVaccineMatrixCode(identity.VaccineCode) == want {
+			continue
+		}
+		for _, candidateSession := range vaccineComboSessionsForCode(identity.VaccineCode) {
+			if candidateSession == session {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func sweepConfigApprovedComboWithPartner(cfg SweepConfig, vaccineCode string) string {
+	for _, session := range vaccineComboSessionsForCode(vaccineCode) {
+		session = strings.TrimSpace(session)
+		if strings.HasPrefix(session, "combo:") && sweepConfigHasComboPartner(cfg, vaccineCode, session) {
+			return session
+		}
+	}
+	return ""
+}
+
 func sweepConfigHasVaccine(cfg SweepConfig, vaccineCode string) bool {
 	want := normalizedVaccineMatrixCode(vaccineCode)
 	for _, identity := range cfg.RuleVaccineIDs {
@@ -471,13 +508,12 @@ func parkConsolidationGroupKey(cfg SweepConfig, row domain.ParkConsolidationCand
 }
 
 func parkCandidateUsesDriveDateOverrideWindow(row domain.ParkConsolidationCandidate) bool {
-	if row.DueAt.IsZero() || row.WindowStart == nil || row.WindowEnd == nil {
+	if row.DueAt.IsZero() || row.WindowStart == nil {
 		return false
 	}
 	start := businessDate(*row.WindowStart)
 	due := businessDate(row.DueAt)
-	end := businessDate(*row.WindowEnd)
-	return start.Equal(due) && end.Equal(due.AddDate(0, 0, 1)) && row.BatchingHoldCount == 0 && row.FirstBatchingHoldUntil == nil
+	return start.Equal(due) && row.BatchingHoldCount == 0 && row.FirstBatchingHoldUntil == nil
 }
 
 func parkSelectionUsesDriveDateOverrideWindow(rows []domain.ParkConsolidationCandidate) bool {
@@ -576,6 +612,22 @@ func parkConsolidationSession(selected []string) string {
 		return "park-consolidation"
 	}
 	return "park-consolidation:" + selected[0]
+}
+
+func parkConsolidationBatchSession(groupSession string, selected []string) string {
+	groupSession = strings.TrimSpace(groupSession)
+	if strings.HasPrefix(groupSession, "combo:") {
+		return groupSession
+	}
+	return parkConsolidationSession(selected)
+}
+
+func parkConsolidationSessionFromGroupKey(key string) string {
+	_, session, ok := strings.Cut(strings.TrimSpace(key), "|")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(session)
 }
 
 func parkDrivePlannedQuantity(cfg SweepConfig, rows []domain.ParkConsolidationCandidate) string {

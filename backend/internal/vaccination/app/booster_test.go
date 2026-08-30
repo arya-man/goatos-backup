@@ -547,6 +547,10 @@ func (f *boosterObligationWriterFake) CancelOpenObligationByIdempotencyKey(conte
 	return "", false, nil
 }
 
+func (f *boosterObligationWriterFake) CancelOpenVaccinationObligationsForGoatDose(context.Context, string, string, string, string, time.Time) (int, error) {
+	return 0, nil
+}
+
 func (f *boosterObligationWriterFake) OpenObligationForRepeatCycle(context.Context, string, string, string, string, string, int32, string) (obldomain.ObligationRef, bool, error) {
 	return obldomain.ObligationRef{}, false, nil
 }

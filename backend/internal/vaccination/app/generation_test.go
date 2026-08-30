@@ -739,6 +739,58 @@ func TestPrimaryCourseContinuationFromHistoryKeepsKidAndBlueTongueGaps(t *testin
 	}
 }
 
+func TestAcceptedVaccineHistorySuppressesDOBPrimarySeedsForSameFamily(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.August, 30, 0, 0, 0, 0, time.UTC)
+	dob := time.Date(2026, time.May, 9, 0, 0, 0, 0, time.UTC)
+	administered := time.Date(2026, time.August, 12, 8, 0, 0, 0, time.UTC)
+	rules := []protodomain.Rule{
+		{RuleID: "rule-bt-16w", DoseCode: "blue_tongue_kid_16w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 112, EligibilityJSON: []byte(`{"vaccine":{"code":"BLUE_TONGUE","type":"killed","pathogen_class":"viral"}}`)},
+		{RuleID: "rule-bt-19w", DoseCode: "blue_tongue_kid_19w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 133, MinGapDays: 21, EligibilityJSON: []byte(`{"vaccine":{"code":"BLUE_TONGUE","type":"killed","pathogen_class":"viral"}}`)},
+	}
+	proto := &generationProtoFake{
+		rules:   rules,
+		ruleDSL: []byte(`{"eligibility":{"species":["sheep"],"lifecycle":["alive"],"health":["healthy"]},"matrix_rows":[{"vaccine":{"code":"BLUE_TONGUE","name":"Blue Tongue"},"eligibility":{"species":["sheep"],"lifecycle":["alive"],"health":["healthy"]},"schedule":[{"dose_code":"blue_tongue_kid_16w"},{"dose_code":"blue_tongue_kid_19w"}]}]}`),
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "sheep-early-bt", Species: "sheep", LifecycleStatus: "alive", HealthStatus: "healthy", DOB: &dob,
+		}},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"sheep-early-bt": {{
+				AdministeredAt: administered,
+				VaccineCode:    "BLUE_TONGUE",
+				DoseCode:       "blue_tongue_adult_w1",
+				Sequence:       1,
+			}},
+		},
+	}
+	obl := &generationObligationFake{
+		seen:         map[string]bool{},
+		ruleDoseByID: map[string]string{"rule-bt-16w": "blue_tongue_kid_16w", "rule-bt-19w": "blue_tongue_kid_19w"},
+	}
+	staleDue := businessDayStart(dob).AddDate(0, 0, 112)
+	staleKey := primarySeedObligationKey("tenant-1", "version-1", rules[0], goats.list[0], staleDue)
+	obl.seen[staleKey] = true
+	obl.keyIndex = map[string]int{staleKey: 0}
+	obl.inserted = []obldomain.NewObligation{{
+		TenantID: "tenant-1", ProtocolVersionID: "version-1", RuleID: rules[0].RuleID,
+		TargetType: "goat", TargetID: "sheep-early-bt", Sequence: 1, DueAt: staleDue,
+		Status: "scheduled", IdempotencyKey: staleKey,
+	}}
+
+	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("GenerateForVersion: %v", err)
+	}
+	if result.Generated != 0 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want no DOB primary rows beside accepted BT history", result, obl.inserted)
+	}
+	if len(obl.canceledDoses) != 1 || obl.canceledDoses[0] != "blue_tongue_kid_16w" {
+		t.Fatalf("canceledDoses=%#v, want stale 16w DOB row canceled", obl.canceledDoses)
+	}
+}
+
 func TestSingleDoseRepeatDoesNotWaitForMissingPrimaryCourseDose(t *testing.T) {
 	administered := time.Date(2026, time.March, 20, 8, 0, 0, 0, time.UTC)
 	rules := []protodomain.Rule{
@@ -3209,12 +3261,14 @@ type generationObligationFake struct {
 	carryOverCount             int
 	seen                       map[string]bool
 	keyIndex                   map[string]int
+	ruleDoseByID               map[string]string
 	inserted                   []obldomain.NewObligation
 	deferredKeys               []string
 	deferReasons               []string
 	reopenedKeys               []string
 	realignedKeys              []string
 	canceledKeys               []string
+	canceledDoses              []string
 	canceledVersions           []string
 	canceledExceptVersions     [][]string
 	cancelReasons              []string
@@ -3365,6 +3419,30 @@ func (o *generationObligationFake) CancelOpenObligationByIdempotencyKey(_ contex
 	o.cancelReasonsByKey[idempotencyKey] = reason
 	o.canceledKeys = append(o.canceledKeys, idempotencyKey)
 	return "obligation-1", true, nil
+}
+
+func (o *generationObligationFake) CancelOpenVaccinationObligationsForGoatDose(_ context.Context, _, goatID, doseCode, reason string, _ time.Time) (int, error) {
+	if o.cancelReasonsByKey == nil {
+		o.cancelReasonsByKey = map[string]string{}
+	}
+	count := 0
+	for i := range o.inserted {
+		row := &o.inserted[i]
+		if row.TargetID != goatID || o.ruleDoseByID[row.RuleID] != doseCode {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(row.Status)) {
+		case "scheduled", "due", "in_progress", "deferred":
+		default:
+			continue
+		}
+		row.Status = "canceled"
+		o.canceledDoses = append(o.canceledDoses, doseCode)
+		o.cancelReasons = append(o.cancelReasons, reason)
+		o.cancelReasonsByKey[row.IdempotencyKey] = reason
+		count++
+	}
+	return count, nil
 }
 
 // Returns every animal asked about, so the generation tests exercise the supersede path
@@ -4742,6 +4820,9 @@ func TestManualVaccineAnchorSuppressesManualCampaignCatchup(t *testing.T) {
 	}
 	if len(obl.inserted) != 0 {
 		t.Fatalf("manual campaign generated despite later manual anchor: %#v", obl.inserted)
+	}
+	if len(obl.canceledDoses) != 0 {
+		t.Fatalf("canceledDoses=%#v, want manual anchor preserved", obl.canceledDoses)
 	}
 	if res.SuppressedByTrustedHistory != 1 {
 		t.Fatalf("suppressed count = %d, want 1; inserted=%#v result=%#v", res.SuppressedByTrustedHistory, obl.inserted, res)

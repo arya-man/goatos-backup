@@ -84,6 +84,7 @@ type ObligationWriter interface {
 	RealignOpenObligationForGeneration(ctx context.Context, tenantID, idempotencyKey string, dueAt time.Time, windowEnd *time.Time, occurredAt time.Time) (obldomain.ObligationRef, bool, error)
 	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, vaccineCode, shedID, parkID string, from, to time.Time) (*time.Time, error)
 	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
+	CancelOpenVaccinationObligationsForGoatDose(ctx context.Context, tenantID, goatID, doseCode, reason string, occurredAt time.Time) (int, error)
 	CancelOpenVaccinationObligationsForExitedGoats(ctx context.Context, tenantID, reason string, occurredAt time.Time) (int, error)
 	CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error)
 	// Bounded pre-filter for plan replacement: which of these animals still hold open work
@@ -1547,7 +1548,21 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !goatMatchesEligibility(g, ruleEligibility, policies.Pregnancy, asOf) {
 			continue
 		}
+		if adultHistorySuppressesKidSeed(rule, ruleVaccine, vaccineHistory) {
+			// seed-fixture-guard:ignore: reconciles generated obligations against accepted/manual-anchor history without changing HRMS source fixture input.
+			res.SuppressedByTrustedHistory++
+			if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_history_outranks_primary_seed", asOf); err != nil {
+				return err
+			}
+			continue
+		}
 		if !ruleMatchesSchedulePath(rule, path) {
+			if staleSeedSuppressedAcrossSchedulePath(rule, ruleVaccine, path, vaccineHistory) {
+				res.SuppressedByTrustedHistory++
+				if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_history_outranks_primary_seed", asOf); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		procPurposeDue, procPurposeOK := procurementPurposePrimaryDue(g, rule, ruleVaccine, policies.Procurement)
@@ -1594,6 +1609,18 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			ok = true
 		} else {
 			baseDue, ok, skip = dueAt(versionID, rule, g, asOf, opts, policies)
+			if ok && primarySeedSuppressedByVaccineHistory(rule, ruleVaccine, vaccineHistory) {
+				res.SuppressedByTrustedHistory++
+				if staleKey := primarySeedObligationKey(tenantID, versionID, rule, g, baseDue); staleKey != "" {
+					if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, staleKey, "vaccine_history_outranks_primary_seed", asOf); err != nil {
+						return err
+					}
+				}
+				if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_history_outranks_primary_seed", asOf); err != nil {
+					return err
+				}
+				continue
+			}
 		}
 		if ok && !procPurposeDue.IsZero() {
 			baseDue = procPurposeDue
@@ -1713,6 +1740,11 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if manualAnchorSuppressesSeedRule(rule) {
 			if _, found := manualAnchors[vaccineAnchorLookupKey(ruleVaccine.Code)]; found {
 				res.SuppressedByTrustedHistory++
+				if !strings.EqualFold(strings.TrimSpace(rule.TriggerType), "manual_campaign") {
+					if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "manual_anchor_outranks_primary_seed", asOf); err != nil {
+						return err
+					}
+				}
 				continue
 			}
 		}
@@ -2440,6 +2472,88 @@ func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time, nearbyDriveD
 
 func obligationKeyDue(rule protodomain.Rule, baseDue, materializedDue time.Time) time.Time {
 	return baseDue
+}
+
+func primarySeedSuppressedByVaccineHistory(rule protodomain.Rule, vaccine vaccineProfile, history []domain.RecentVaccineAdministration) bool {
+	if !isPrimaryCourseRule(rule) {
+		return false
+	}
+	for _, admin := range history {
+		if admin.AdministeredAt.IsZero() {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(admin.VaccineCode), strings.TrimSpace(vaccine.Code)) {
+			continue
+		}
+		ruleDose := strings.ToLower(strings.TrimSpace(rule.DoseCode))
+		adminDose := strings.ToLower(strings.TrimSpace(admin.DoseCode))
+		if rule.Sequence > 0 && admin.Sequence == rule.Sequence {
+			return true
+		}
+		if strings.Contains(adminDose, "adult") && strings.Contains(ruleDose, "kid") {
+			return true
+		}
+	}
+	return false
+}
+
+func adultHistorySuppressesKidSeed(rule protodomain.Rule, vaccine vaccineProfile, history []domain.RecentVaccineAdministration) bool {
+	if !isPrimaryCourseRule(rule) || !strings.EqualFold(strings.TrimSpace(rule.TriggerType), "birth_age") {
+		return false
+	}
+	if !strings.Contains(strings.ToLower(strings.TrimSpace(rule.DoseCode)), "kid") {
+		return false
+	}
+	for _, admin := range history {
+		if admin.AdministeredAt.IsZero() {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(admin.VaccineCode), strings.TrimSpace(vaccine.Code)) {
+			continue
+		}
+		if strings.Contains(strings.ToLower(strings.TrimSpace(admin.DoseCode)), "adult") {
+			return true
+		}
+	}
+	return false
+}
+
+func staleSeedSuppressedAcrossSchedulePath(rule protodomain.Rule, vaccine vaccineProfile, currentPath string, history []domain.RecentVaccineAdministration) bool {
+	if currentPath == schedulePathKid || !isPrimaryCourseRule(rule) {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(rule.TriggerType), "birth_age") {
+		return false
+	}
+	ruleDose := strings.ToLower(strings.TrimSpace(rule.DoseCode))
+	if !strings.Contains(ruleDose, "kid") {
+		return false
+	}
+	for _, admin := range history {
+		if admin.AdministeredAt.IsZero() {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(admin.VaccineCode), strings.TrimSpace(vaccine.Code)) {
+			continue
+		}
+		adminDose := strings.ToLower(strings.TrimSpace(admin.DoseCode))
+		if strings.Contains(adminDose, "adult") {
+			return true
+		}
+		if admin.Sequence > 0 && rule.Sequence > 0 && admin.Sequence <= rule.Sequence {
+			return true
+		}
+	}
+	return false
+}
+
+func primarySeedObligationKey(tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat, baseDue time.Time) string {
+	keyDue := obligationKeyDue(rule, baseDue, baseDue)
+	keyDueToken := keyDue.UTC().Format(time.RFC3339)
+	if isStableAdultCampaignObligationKey(rule, g) {
+		keyDueToken = "adult_campaign"
+	}
+	return obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, keyDueToken, strconv.Itoa(int(rule.Sequence)))
 }
 
 func isStableAdultCampaignObligationKey(rule protodomain.Rule, g domain.EligibleGoat) bool {

@@ -1939,6 +1939,80 @@ SELECT EXISTS (
 	return exists, nil
 }
 
+// CancelOpenVaccinationObligationsForGoatDose cancels one animal's open vaccination work for one
+// dose code, even when an earlier generation pass already moved the row away from its original
+// idempotency-key date or it was minted by an older protocol version/rule id.
+func (r *Repository) CancelOpenVaccinationObligationsForGoatDose(ctx context.Context, tenantID, goatID, doseCode, reason string, occurredAt time.Time) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if _, err := pgconv.UUID(goatID); err != nil {
+		return 0, fmt.Errorf("obligation: goat id: %w", err)
+	}
+	if strings.TrimSpace(doseCode) == "" {
+		return 0, fmt.Errorf("obligation: dose code is required")
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "superseded"
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: begin goat dose cancel tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	rows, err := tx.Query(ctx, `
+WITH target AS (
+  SELECT oi.obligation_id, oi.batch_id
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id
+   AND pr.rule_id = oi.rule_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.target_type = 'goat'
+    AND oi.target_id = $2::uuid
+    AND lower(pr.dose_code) = lower($3::text)
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+    AND pd.category = 'vaccination'
+  FOR UPDATE OF oi
+)
+UPDATE obligation_instances oi
+SET status = 'canceled',
+    batch_id = NULL,
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM target
+WHERE oi.obligation_id = target.obligation_id
+RETURNING oi.obligation_id::text, COALESCE(target.batch_id::text, '')`, tenantID, goatID, doseCode)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: cancel vaccination goat dose obligations: %w", err)
+	}
+	count, err := recordCanceledObligationRows(ctx, tx, qtx, tenant, tenantID, goatID, reason, occurredAt, rows, map[string]any{
+		"dose_code": doseCode,
+	}, "obligation.CancelOpenVaccinationObligationsForGoatDose")
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit goat dose cancel: %w", err)
+	}
+	return count, nil
+}
+
 // CancelOpenVaccinationObligationsForGoatExceptVersions cancels open vaccination work whose protocol
 // version is no longer effective for the goat after a recheck. Terminal and in-progress work are left
 // untouched; each changed row gets the same cancellation status event and outbox used by SM-3.

@@ -465,7 +465,11 @@ func (s *SweepSession) vaccineFeasibleOnPlannerDate(now, day time.Time, row driv
 	if !s.sameDayCompatibleWithPlannedVaccines(row.TargetID, identity, day) {
 		return false
 	}
-	if s.sameDayPlannedVaccineCount(row.TargetID, identity, day) >= 2 {
+	maxShots := planner.MaxShotsPerAnimalPerDrive
+	if maxShots <= 0 {
+		maxShots = domain.DefaultMaxShotsPerAnimalPerDrive
+	}
+	if s.sameDayPlannedVaccineCount(row.TargetID, identity, day) >= int(maxShots) {
 		return false
 	}
 	if driveCandidateFeasibleOnPlannerDate(now, day, row, planner) {
@@ -895,7 +899,11 @@ func parkShotCapGroups(now time.Time, rows []domain.ParkConsolidationCandidate, 
 			continue
 		}
 		physicalShed, partition := normalizeAssignmentShed(row.ShedName)
-		key := strings.TrimSpace(row.ParkID) + "\x00" + strings.TrimSpace(row.ShedID) + "\x00" + physicalShed + "\x00" + partition + "\x00" + strings.TrimSpace(row.RuleID)
+		ruleKey := strings.TrimSpace(row.RuleID)
+		if parkCandidateUsesDriveDateOverrideWindow(row) {
+			ruleKey = "manual-anchor:" + businessDate(row.DueAt).Format("2006-01-02")
+		}
+		key := strings.TrimSpace(row.ParkID) + "\x00" + strings.TrimSpace(row.ShedID) + "\x00" + physicalShed + "\x00" + partition + "\x00" + ruleKey
 		idx, ok := byKey[key]
 		if !ok {
 			idx = len(groups)
