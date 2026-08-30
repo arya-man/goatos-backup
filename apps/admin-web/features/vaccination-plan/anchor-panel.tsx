@@ -246,11 +246,9 @@ export function buildAnchorPayload(row: RuleRow, state: AnchorState): Vaccinatio
     scope_type: "tenant",
     scope_payload: {},
     reason: state.reason.trim() || DEFAULT_REASON,
-    flags: {
-      suppress_before_anchor: state.suppressBeforeAnchor,
-      chain_future_from_anchor: state.chainFutureFromAnchor,
-      enforce_age_eligibility: state.enforceAgeEligibility,
-    },
+    suppress_before_anchor: state.suppressBeforeAnchor,
+    chain_future_from_anchor: state.chainFutureFromAnchor,
+    enforce_age_eligibility: state.enforceAgeEligibility,
   };
   if (state.sourceRef.trim()) payload.source_ref = state.sourceRef.trim();
   return payload;

@@ -169,6 +169,13 @@ type anchorRequest struct {
 	SuppressBeforeAnchor  *bool           `json:"suppress_before_anchor,omitempty"`
 	ChainFutureFromAnchor *bool           `json:"chain_future_from_anchor,omitempty"`
 	EnforceAgeEligibility *bool           `json:"enforce_age_eligibility,omitempty"`
+	Flags                 *anchorFlags    `json:"flags,omitempty"`
+}
+
+type anchorFlags struct {
+	SuppressBeforeAnchor  *bool `json:"suppress_before_anchor,omitempty"`
+	ChainFutureFromAnchor *bool `json:"chain_future_from_anchor,omitempty"`
+	EnforceAgeEligibility *bool `json:"enforce_age_eligibility,omitempty"`
 }
 
 func (h *Handler) PreviewAnchor(w http.ResponseWriter, r *http.Request) {
@@ -215,9 +222,9 @@ func (h *Handler) handleAnchor(w http.ResponseWriter, r *http.Request, apply boo
 	if len(req.ScopePayload) == 0 {
 		req.ScopePayload = json.RawMessage(`{}`)
 	}
-	suppress := boolDefault(req.SuppressBeforeAnchor, true)
-	chain := boolDefault(req.ChainFutureFromAnchor, true)
-	enforceAge := boolDefault(req.EnforceAgeEligibility, true)
+	suppress := boolDefault(coalesceBool(req.SuppressBeforeAnchor, req.Flags, "suppress_before_anchor"), true)
+	chain := boolDefault(coalesceBool(req.ChainFutureFromAnchor, req.Flags, "chain_future_from_anchor"), true)
+	enforceAge := boolDefault(coalesceBool(req.EnforceAgeEligibility, req.Flags, "enforce_age_eligibility"), true)
 	cmd := domain.AnchorCommand{
 		TenantID:              tenantID(r),
 		VaccineCode:           strings.TrimSpace(req.VaccineCode),
@@ -637,9 +644,9 @@ func anchorRequestHash(req anchorRequest) string {
 		ScopePayload:          req.ScopePayload,
 		Reason:                strings.TrimSpace(req.Reason),
 		SourceRef:             strings.TrimSpace(req.SourceRef),
-		SuppressBeforeAnchor:  boolDefault(req.SuppressBeforeAnchor, true),
-		ChainFutureFromAnchor: boolDefault(req.ChainFutureFromAnchor, true),
-		EnforceAgeEligibility: boolDefault(req.EnforceAgeEligibility, true),
+		SuppressBeforeAnchor:  boolDefault(coalesceBool(req.SuppressBeforeAnchor, req.Flags, "suppress_before_anchor"), true),
+		ChainFutureFromAnchor: boolDefault(coalesceBool(req.ChainFutureFromAnchor, req.Flags, "chain_future_from_anchor"), true),
+		EnforceAgeEligibility: boolDefault(coalesceBool(req.EnforceAgeEligibility, req.Flags, "enforce_age_eligibility"), true),
 	})
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
@@ -650,6 +657,22 @@ func boolDefault(v *bool, fallback bool) bool {
 		return fallback
 	}
 	return *v
+}
+
+func coalesceBool(top *bool, flags *anchorFlags, key string) *bool {
+	if top != nil || flags == nil {
+		return top
+	}
+	switch key {
+	case "suppress_before_anchor":
+		return flags.SuppressBeforeAnchor
+	case "chain_future_from_anchor":
+		return flags.ChainFutureFromAnchor
+	case "enforce_age_eligibility":
+		return flags.EnforceAgeEligibility
+	default:
+		return nil
+	}
 }
 
 func (h *Handler) manualCampaignIdempotencyKey(w http.ResponseWriter, r *http.Request) (string, bool) {

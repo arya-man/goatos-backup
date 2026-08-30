@@ -1229,7 +1229,22 @@ function ruleRowsForVaccine(vaccine: EditorVaccine | undefined): Array<{
         sequence: index + 1,
       } as ScheduleRule,
     }));
-  return firstDoseRules;
+  if (vaccine.repeatDays === null || !vaccine.repeatDoseCode) return firstDoseRules;
+  return [
+    ...firstDoseRules,
+    {
+      vaccine: vaccineRef,
+      rule: {
+        dose_code: vaccine.repeatDoseCode,
+        source_dose_code: vaccine.repeatDoseCode,
+        offset_days: vaccine.repeatDays,
+        trigger_type: "after_previous_completion",
+        repeat: "every_n_days",
+        min_gap_days: vaccine.repeatDays,
+        sequence: firstDoseRules.length + 1,
+      } as ScheduleRule,
+    },
+  ];
 }
 
 /**

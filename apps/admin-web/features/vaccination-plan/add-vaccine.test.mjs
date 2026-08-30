@@ -101,6 +101,58 @@ test("readVaccines lets active derived rules override stale matrix schedule disp
   assert.equal(ppr?.firstDoses[0]?.offset_days, 112);
 });
 
+test("draft editor reads active materialized rules including repeat anchors", () => {
+  const plan = fromRuleDsl(
+    {
+      matrix_rows: [
+        {
+          row_id: "ppr",
+          vaccine: { code: "PPR", name: "PPR", type: "live" },
+          schedule: [
+            {
+              dose_code: "stale_ppr",
+              sequence: 1,
+              trigger_type: "birth_age",
+              offset_days: 84,
+              repeat: "none",
+            },
+          ],
+        },
+      ],
+    },
+    {},
+    [
+      {
+        protocol_version_id: "v1",
+        protocol_id: "p1",
+        rule_id: "r1",
+        dose_code: "ppr_16w",
+        sequence: 1,
+        trigger_type: "birth_age",
+        offset_days: 112,
+        repeat: "none",
+        eligibility_json: { vaccine: { code: "PPR", name: "PPR", type: "live" } },
+      },
+      {
+        protocol_version_id: "v1",
+        protocol_id: "p1",
+        rule_id: "r2",
+        dose_code: "ppr_revac",
+        sequence: 2,
+        trigger_type: "after_previous_completion",
+        offset_days: 1095,
+        repeat: "every_n_days",
+        eligibility_json: { vaccine: { code: "PPR", name: "PPR", type: "live" } },
+      },
+    ],
+  );
+
+  assert.equal(plan.vaccines[0].kidDoses[0].doseCode, "ppr_16w");
+  assert.equal(plan.vaccines[0].kidDoses[0].offsetDays, 112);
+  assert.equal(plan.vaccines[0].repeatDays, 1095);
+  assert.equal(plan.vaccines[0].repeatDoseCode, "ppr_revac");
+});
+
 test("newVaccineToEditor turns a booster course into kid timing plus adult follow-up", () => {
   const v = newVaccineToEditor({
     name: "Brucella",

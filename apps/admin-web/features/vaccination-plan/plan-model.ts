@@ -86,7 +86,10 @@ function mergeActiveRules(
 ): void {
   const reset = new Set<string>();
   for (const rule of activeRules) {
-    const vaccine = vaccineByDose.get(String(rule.dose_code).trim().toLowerCase()) ?? vaccineFromEligibility(rule.eligibility_json);
+    const eligibilityVaccine = vaccineFromEligibility(rule.eligibility_json);
+    const vaccine = eligibilityVaccine.code
+      ? eligibilityVaccine
+      : vaccineByDose.get(String(rule.dose_code).trim().toLowerCase()) ?? eligibilityVaccine;
     const code = vaccine.code;
     if (!code) continue;
     let group = groups.find((g) => sameCode(g.code, code));

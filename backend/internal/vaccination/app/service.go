@@ -59,25 +59,7 @@ func (s *Service) CreateAnchor(ctx context.Context, in domain.AnchorCommand) (do
 	if err != nil || preview.PreviewOnly || !preview.Applied || s.anchorObligations == nil || !in.SuppressBeforeAnchor {
 		return preview, err
 	}
-	ids := make([]string, 0, len(preview.EligibleSample))
-	seen := map[string]struct{}{}
-	for _, animal := range preview.EligibleSample {
-		if animal.GoatID == "" {
-			continue
-		}
-		if _, ok := seen[animal.GoatID]; ok {
-			continue
-		}
-		seen[animal.GoatID] = struct{}{}
-		ids = append(ids, animal.GoatID)
-	}
-	// Large scopes are re-resolved inside the repository suppression query through the anchor row.
-	// Passing an empty slice would intentionally no-op, so use the preview sample only for narrow
-	// animal-set requests and let the repository's own apply result report the previewed count.
-	if len(ids) == 0 || int64(len(ids)) != preview.EligibleAnimals {
-		return preview, nil
-	}
-	canceled, err := s.anchorObligations.CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx, in.TenantID, ids, in.AnchorDate)
+	canceled, err := s.anchorObligations.CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx, in.TenantID, nil, in.AnchorDate)
 	if err != nil {
 		return preview, err
 	}

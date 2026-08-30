@@ -35,3 +35,12 @@ test("anchor actions call preview and create endpoints with idempotency", () => 
   assert.match(server, /\/vaccination\/anchors"/);
   assert.match(server, /Idempotency-Key/);
 });
+
+test("anchor payload sends behavior booleans as top-level API fields", () => {
+  assert.match(panel, /suppress_before_anchor:\s*state\.suppressBeforeAnchor/);
+  assert.match(panel, /chain_future_from_anchor:\s*state\.chainFutureFromAnchor/);
+  assert.match(panel, /enforce_age_eligibility:\s*state\.enforceAgeEligibility/);
+  assert.doesNotMatch(panel, /flags:\s*{/);
+  assert.match(server, /suppress_before_anchor\?: boolean/);
+  assert.doesNotMatch(server, /flags\?:/);
+});

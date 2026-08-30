@@ -98,3 +98,67 @@ INSERT INTO vaccination_anchor_events (
 	assertUntouched(t, ctx, pool, "same-day anchor", sameDayID)
 	assertUntouched(t, ctx, pool, "post-anchor", afterID)
 }
+
+func TestCancelOpenVaccinationObligationsBeforeTenantAnchorResolvesScope(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, shed_id, dob)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4, $4, DATE '2026-05-01')`,
+		testGoatID, tenantID, meshaParty, cbePark); err != nil {
+		t.Fatalf("seed goat: %v", err)
+	}
+	proto := protocolpg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protocoldomain.NewDefinition{TenantID: tenantID, Code: "vaccination.anchor.tenant", Name: "Anchor tenant", Category: "vaccination", Status: "draft"})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protocoldomain.NewVersion{
+		TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protocoldomain.NewRule{
+		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "ppr_kid", Sequence: 1, TriggerType: "birth_age", OffsetDays: 112,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	beforeID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID, TargetType: "goat", TargetID: testGoatID,
+		ScopeType: "park", ScopeID: cbePark, DueAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: "anchor-tenant-before", Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("insert before: applied=%v err=%v", applied, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE protocol_versions SET status='published' WHERE tenant_id=$1 AND protocol_version_id=$2`, tenantID, versionID); err != nil {
+		t.Fatalf("publish version: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_anchor_events (
+  vaccination_anchor_event_id, tenant_id, protocol_version_id, vaccine_code, dose_code, anchor_date,
+  scope_type, scope_payload, reason, source_system, idempotency_key
+) VALUES (
+  '40000000-0000-4000-8000-0000000000b1', $1, $2, 'PPR', 'ppr_kid', DATE '2026-09-08',
+  'tenant', '{}'::jsonb, 'tenant Sep 8 anchor', 'test', 'anchor-ppr-sep8-tenant'
+)`, tenantID, versionID); err != nil {
+		t.Fatalf("insert anchor: %v", err)
+	}
+	changed, err := repo.CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx, tenantID, nil, time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("cancel before tenant anchor: %v", err)
+	}
+	if changed != 1 {
+		t.Fatalf("changed=%d, want 1", changed)
+	}
+	assertCanceledOnce(t, ctx, pool, "tenant pre-anchor", beforeID)
+}

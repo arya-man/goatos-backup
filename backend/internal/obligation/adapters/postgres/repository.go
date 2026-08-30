@@ -2030,9 +2030,6 @@ RETURNING oi.obligation_id::text, COALESCE(target.batch_id::text, '')`, tenantID
 func (r *Repository) CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx context.Context, tenantID string, goatIDs []string, occurredAt time.Time) (int, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-	if len(goatIDs) == 0 {
-		return 0, nil
-	}
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: tenant id: %w", err)
@@ -2091,7 +2088,7 @@ WITH candidates AS (
    AND anchor_lineage.rule_id = anchor_pr.rule_id
   WHERE oi.tenant_id = $1
     AND oi.target_type = 'goat'
-    AND oi.target_id = ANY($2::uuid[])
+    AND (cardinality($2::uuid[]) = 0 OR oi.target_id = ANY($2::uuid[]))
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
     AND oi.due_at::date < vae.anchor_date
     AND (

@@ -49,6 +49,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   const items = configs.ok ? (configs.data.items ?? []) : [];
   const draft = items.find((i) => i.protocol_version_id === versionId);
   const live = items.find((i) => i.status === "published");
+  const liveVersion =
+    (version.data.rules ?? []).length === 0 && live?.protocol_version_id
+      ? await getProtocolVersion(live.protocol_version_id)
+      : null;
+  const editorRules = (version.data.rules ?? []).length > 0 ? (version.data.rules ?? []) : liveVersion?.ok ? (liveVersion.data.rules ?? []) : [];
 
   return (
     <VaccinationPlanEditor
@@ -60,7 +65,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
       scopeType={version.data.scope_type}
       originalRuleDsl={version.data.rule_dsl}
       proofPolicy={version.data.proof_policy}
-      initialPlan={fromRuleDsl(version.data.rule_dsl, version.data.proof_policy)}
+      initialPlan={fromRuleDsl(version.data.rule_dsl, version.data.proof_policy, editorRules)}
       impact={impact}
       // The publish gate is the backend's, not this screen's. The header says
       // "only you and the COO can publish", and that was decoration: the button

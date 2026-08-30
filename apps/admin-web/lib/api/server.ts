@@ -98,11 +98,9 @@ export type VaccinationAnchorRequest = {
   scope_payload?: Record<string, unknown>;
   reason: string;
   source_ref?: string;
-  flags?: {
-    suppress_before_anchor?: boolean;
-    chain_future_from_anchor?: boolean;
-    enforce_age_eligibility?: boolean;
-  };
+  suppress_before_anchor?: boolean;
+  chain_future_from_anchor?: boolean;
+  enforce_age_eligibility?: boolean;
 };
 export type VaccinationAnchorAnimal = {
   goat_id: string;

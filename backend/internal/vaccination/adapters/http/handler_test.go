@@ -245,6 +245,44 @@ func TestPreviewAnchorDefaultsFlagsAndReturnsCounts(t *testing.T) {
 	}
 }
 
+func TestPreviewAnchorPreservesExplicitFalseFlags(t *testing.T) {
+	anchors := &fakeAnchorManager{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithAnchorManager(anchors))
+
+	body := `{"vaccine_code":"PPR","dose_code":"ppr_kid","anchor_date":"2026-09-08","scope_type":"tenant","scope_payload":{},"reason":"Sep 8 drive","suppress_before_anchor":false,"chain_future_from_anchor":false,"enforce_age_eligibility":false}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/anchors/preview", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if anchors.got.SuppressBeforeAnchor || anchors.got.ChainFutureFromAnchor || anchors.got.EnforceAgeEligibility {
+		t.Fatalf("explicit false flags were ignored: %+v", anchors.got)
+	}
+}
+
+func TestPreviewAnchorAcceptsLegacyNestedFlags(t *testing.T) {
+	anchors := &fakeAnchorManager{}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeImpact{}, nil).WithAnchorManager(anchors))
+
+	body := `{"vaccine_code":"PPR","dose_code":"ppr_kid","anchor_date":"2026-09-08","scope_type":"tenant","scope_payload":{},"reason":"Sep 8 drive","flags":{"suppress_before_anchor":false,"chain_future_from_anchor":false,"enforce_age_eligibility":false}}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/anchors/preview", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if anchors.got.SuppressBeforeAnchor || anchors.got.ChainFutureFromAnchor || anchors.got.EnforceAgeEligibility {
+		t.Fatalf("legacy false flags were ignored: %+v", anchors.got)
+	}
+}
+
 func TestCreateAnchorRequiresIdempotencyKey(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(&fakeImpact{}, nil).WithAnchorManager(&fakeAnchorManager{}))
