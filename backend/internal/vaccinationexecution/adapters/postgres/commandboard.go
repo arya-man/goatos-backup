@@ -22,11 +22,15 @@ import (
 // commandBoardSummaryConcurrency bounds how many of the board's sections are in flight at once.
 //
 // The sections are independent reads, so the endpoint's wall clock is the SLOWEST section rather
-// than their sum once they overlap -- which on the staging-scale tenant is the difference between
-// ~3.4s of serialised summary SQL and the slowest single statement. The bound exists so one CEO
-// board render cannot claim nine pool connections: /vaccination/command is not the only caller of
-// this pool, and an unbounded fan-out turns a slow board into a tenant-wide connection stall. Four
-// is the whole win (the tail is one or two statements) at a quarter of the pool pressure.
+// than their sum once they overlap -- on the staging-scale tenant, the difference between ~850ms of
+// serialised summary SQL and roughly its longest statement.
+//
+// FOUR, not more, and that is measured rather than assumed: raising it to six moved p90 by less
+// than the run-to-run noise (446ms vs 455ms over twenty samples), because the makespan is set by
+// the two longest statements rather than by queue depth. The bound exists so one CEO board render
+// cannot claim most of the pool -- GOATOS_PG_MAX_CONNS defaults to 10, /vaccination/command is not
+// its only caller, and with the drilldowns now on their own routes a single reader can already have
+// a board and a drawer in flight at once. Four takes the whole win at 40% of the pool.
 const commandBoardSummaryConcurrency = 4
 
 // VaccinationCommandBoard returns the CEO closure view: KPIs, cohort matrix, shed dose matrix,

@@ -366,6 +366,15 @@ var protectedRoutes = []Route{
 	{OperationID: "listVaccinationExecution", Method: "GET", Pattern: "/vaccination/execution", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationExecutionShedDrilldown", Method: "GET", Pattern: "/vaccination/execution/sheds/{shed_id}", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationCommandBoard", Method: "GET", Pattern: "/vaccination/command", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	// The command board's DRILLDOWNS and its paginated drive picker carry the SAME permissions as the
+	// board itself: they are the evidence behind numbers that principal can already read, split onto
+	// their own routes for cost, not for access. Anyone who may read the tile may read the animals
+	// behind it; nobody else reaches either.
+	{OperationID: "getCommandBoardClosedWithoutDose", Method: "GET", Pattern: "/vaccination/command/closed-without-dose", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{OperationID: "getCommandBoardShedVaccineAnimals", Method: "GET", Pattern: "/vaccination/command/shed-vaccine-animals", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{OperationID: "getCommandBoardCohortExceptions", Method: "GET", Pattern: "/vaccination/command/cohort-exceptions", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{OperationID: "getCommandBoardCohortDays", Method: "GET", Pattern: "/vaccination/command/cohort-days", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{OperationID: "getCommandBoardDriveOptions", Method: "GET", Pattern: "/vaccination/command/drives", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	// Live drive-day tracker: same park-scope authority and same permission triple as its command-board
 	// sibling — it is the same vaccination execution data at administration grain, read live.
 	{OperationID: "getVaccinationLiveTracker", Method: "GET", Pattern: "/vaccination/live-tracker", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},

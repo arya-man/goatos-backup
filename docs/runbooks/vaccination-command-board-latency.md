@@ -98,18 +98,37 @@ available yet** (§4).
 
 ### Measured after
 
-| | before | after |
-|---|---|---|
-| `GET /vaccination/command` | **8611 ms / 753 KB** | **352 ms / 443 KB** |
-| closed-without-dose | 2341 (eager) | 164 (lazy, page 50) |
-| cohort exceptions | 436 eager, **18.3 s** when cell-scoped | 99 |
-| cohort administered days | 103 (eager) | 50 |
-| `shedVaccineSQL` | 1594 | 127 |
-| `driveOptionsSQL` | 693 | 448 → paged out of the board |
-| `cohortSQL` | 491 | 270 |
+Per-statement, same measurement path as the "before" table:
 
-Every SQL rewrite was diffed row-for-row against the original on live data; `driveOptionsSQL`,
-`cohortSQL` and the cohort-exception predicate return **byte-identical output**.
+| statement | before | after |
+|---|---|---|
+| `closedWithoutDoseSQL` | 2341 (eager, tenant-wide) | **164** (lazy, page of 50) |
+| `shedVaccineAnimalSQL` | 2379, returning **0 rows** | cell-scoped, ~1ms on a live cell |
+| cohort exceptions | 436 eager; **18,300** once cell-scoped | **99** list / **212** board count |
+| `shedVaccineSQL` | 1594 | **127** |
+| `cohortSQL` | 491 | **209** |
+| `driveOptionsSQL` | 693 | **202**, and paged off the board |
+| `cohortDaySQL` | 103 (eager) | **50** (lazy, per cell) |
+
+`driveOptionsSQL`, `cohortSQL` and the cohort-exception predicate were each diffed row-for-row
+against the original on live data and return **byte-identical output**.
+
+### End-to-end, over HTTP
+
+Measured through the running API against the OCI clone, 20 samples per endpoint via
+`tools/perf/api-latency-gate.mjs`:
+
+| endpoint | p50 | p90 | p95 | bytes | budget |
+|---|---|---|---|---|---|
+| `GET /vaccination/command` | 398 | **416** | 426 | 443,663 | p90 300 / 512 KB |
+| `GET /vaccination/command/drives` | 182 | **185** | 188 | 44,361 | **passes** |
+| `GET /vaccination/command/closed-without-dose` | 217 | **222** | 223 | 12,914 | **passes** |
+
+**The board no longer 500s** — it returns 200 in every sample, down from 8,611ms of SQL and a
+timeout. The payload is inside its 512 KB budget with 15% headroom, where it was 753 KB before.
+
+**IT DOES NOT MEET THE 300ms p90 BUDGET, and that is stated rather than worked around.** 416ms is
+not the 200-300ms class the fix was asked for. Read §7 before concluding anything about it.
 
 ## 4. THE ANCHOR-DATE BOUNDARY — no command-board projection or backfill yet
 
@@ -190,8 +209,8 @@ these as production latency; quote them as a before/after ratio.
 
 | guard | command | catches |
 |---|---|---|
-| API latency gate | `make api-latency-gate` | `/vaccination/command` over p90 300 / p95 500 / p99 500 ms, or over its 512 KB budget. The policy hard-caps p90 at 300ms, so this budget **cannot be relaxed** per-endpoint. |
-| Command-board query-plan gate | `make commandboard-query-plan-guard` | The four plan shapes in §2: broad scan of a hot table where the cell should be a predicate, a materialised CTE re-scanned per outer row, a nested loop discarding tenant-scale rows, a large sort before the LIMIT. |
+| API latency gate | `make api-latency-gate` | `/vaccination/command` over p90 300 / p95 500 / p99 500 ms, or over its 512 KB budget. The policy hard-caps p90 at 300ms, so this budget **cannot be relaxed** per-endpoint. NOTE: in CI this job runs only on a `workflow_dispatch` with `run_postgres_tests` enabled (`.github/workflows/ci.yml` gates `live-api-latency` on the `postgres` scope) — it does **not** run on an ordinary PR, and that predates this change. |
+| Command-board query-plan gate | `make commandboard-query-plan-guard`, and in `ci-local`'s query-plans job | The four plan shapes in §2: broad scan of a hot table where the cell should be a predicate, a materialised CTE re-scanned per outer row, a nested loop discarding tenant-scale rows, a large sort before the LIMIT. |
 | `hot-path-inline-sql` (scale-guard) | `make scale-guard` | New multi-line SQL declared inside a function in a postgres adapter — root cause 5, the one that made the others invisible. |
 
 The plan gate carries its **own mutation test**:
@@ -204,13 +223,48 @@ recorded in `tools/scale-guard/baseline.txt` as a shrink-only ratchet: new inlin
 existing debt is visible and burns down. Raising a baseline count is not an accepted way to land a
 change.
 
-## 7. Residual risks
+## 7. Residual risks and what is NOT proven
 
-- **`driveOptionsSQL` is still the board's heaviest single statement** even paged. It is bounded and
-  gated, but it is the first place to look if the board drifts.
-- **`unavailableSections` is a new contract field.** A client that ignores it will render a silently
-  incomplete board rather than a degraded one.
-- **The `cohortSQL` group-by still spills to disk** on the representative dataset. It is inside
-  budget today; a materially larger cohort matrix would need an index or a narrower grain.
-- **Plan-gate thresholds are fixture-relative**, so growing the fixture without revisiting the
-  ceilings weakens the gate.
+**The board misses its own latency budget.** `GET /vaccination/command` measures p90 416ms against a
+gate set at 300ms, so the entry added to `tools/perf/hot-paths.vaccination.json` **fails today**. The
+budget was deliberately not relaxed: the policy in `tools/perf/api-latency-policy.mjs` hard-caps p90
+at 300ms and refuses any per-endpoint value above it, and lowering the bar would turn the one gate
+that can catch a recurrence into a rubber stamp. What is left is honest, ordinary aggregate work,
+not a pathological shape:
+
+- The floor is two ~210ms statements — the cohort matrix and the cohort-exception count — running
+  concurrently over ~71k obligations. Nothing about either is a re-scan, a fan-out or a late LIMIT
+  any more; they are hash aggregates over the tenant's obligations, which is what the board asks for.
+- The measurement path adds real overhead: a warm pooled round-trip to the OCI clone is **18.8ms**,
+  paid by every one of the board's nine statements. The transport does parallelise (six concurrent
+  200ms queries complete in 258ms), so this is roughly 50-60ms on the critical path, not 170ms.
+  Same-region production would recover that but would still land near 360ms.
+- Raising the fan-out from 4 to 6 moved p90 by less than run-to-run noise, and `work_mem` at 64MB
+  made the exception count *worse* (a plan flip, 212ms → 340ms). Neither is a lever.
+
+Getting to 300ms from here needs a product decision, not another query rewrite: either fewer sections
+on first paint, or the projection §4 currently forbids. That decision is open.
+
+**The shed-vaccine drilldown is not browser-verified.** `vaccineCodeSQL` returns zero rows on this
+clone (no published vaccination protocol version), so `shedVaccineColumns` and `shedVaccineMatrix`
+are empty and that drawer cannot be opened against this data. It was empty on `origin/main` too, so
+this is the dataset, not the change. The path is covered by the Postgres integration tests and by
+the query-plan gate, not by a rendered screenshot.
+
+**The plan gate's fixture is 400 animals / 1,600 obligations.** At that size Postgres will not choose
+an index over a sequential scan, so the gate asserts that work is **proportional to the answer** — a
+cell predicate actually reduces the row set, no CTE is re-scanned, nothing multiplies — and NOT that
+a particular index was chosen. A regression that reads the tenant exactly once still passes every
+summary-statement ceiling by design. Growing the fixture without revisiting the ceilings weakens it.
+
+**`unavailableSections` is a new contract field.** A client that ignores it renders a silently
+incomplete board rather than a degraded one.
+
+**The baseline is a single ratchet wearing 116 hats.** Every `hot-path-inline-sql` entry carries the
+same owner and the same 2027-02-28 expiry, so it will expire as one cliff and invite a bulk
+extension. The ratchet also only blocks growth: a file whose real count later drops leaves silent
+headroom.
+
+**`driveOptionsSQL` remains the heaviest single statement** even paged, and the cohort matrix's
+`animal_count` still needs a DISTINCT over the tenant's obligations. Both are the first places to
+look if the board drifts.
