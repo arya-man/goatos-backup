@@ -2062,14 +2062,14 @@ WITH candidates AS (
          COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', ''), '') AS vaccine_code
   FROM obligation_instances oi
   JOIN protocol_versions pv ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
-  LEFT JOIN protocol_rules pr ON pr.tenant_id = oi.tenant_id AND pr.protocol_version_id = oi.protocol_version_id AND pr.rule_id = oi.rule_id
+  JOIN protocol_rules pr ON pr.tenant_id = oi.tenant_id AND pr.protocol_version_id = oi.protocol_version_id AND pr.rule_id = oi.rule_id
+  LEFT JOIN protocol_rule_lineage oi_lineage ON oi_lineage.tenant_id = oi.tenant_id AND oi_lineage.protocol_version_id = oi.protocol_version_id AND oi_lineage.rule_id = oi.rule_id
   JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
   LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
   JOIN vaccination_anchor_events vae
     ON vae.tenant_id = oi.tenant_id
    AND vae.canceled_at IS NULL
    AND vae.suppress_before_anchor
-   AND (vae.protocol_version_id IS NULL OR vae.protocol_version_id = oi.protocol_version_id)
    AND lower(btrim(vae.vaccine_code)) = lower(btrim(COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', ''), '')))
    AND (vae.dose_code IS NULL OR lower(btrim(vae.dose_code)) = lower(btrim(COALESCE(pr.dose_code, ''))))
    AND (
@@ -2079,11 +2079,41 @@ WITH candidates AS (
      OR (vae.scope_type = 'shed' AND COALESCE(vae.scope_payload ->> 'shed_id', '') = g.shed_id::text)
      OR (vae.scope_type = 'partition' AND COALESCE(vae.scope_payload ->> 'shed_id', '') = g.shed_id::text AND COALESCE(vae.scope_payload ->> 'partition_label', '') = COALESCE(gsp.partition_label, 'whole'))
    )
+  LEFT JOIN protocol_versions anchor_pv ON anchor_pv.tenant_id = vae.tenant_id AND anchor_pv.protocol_version_id = vae.protocol_version_id
+  LEFT JOIN protocol_rules anchor_pr
+    ON anchor_pr.tenant_id = anchor_pv.tenant_id
+   AND anchor_pr.protocol_version_id = anchor_pv.protocol_version_id
+   AND lower(btrim(anchor_pr.dose_code)) = lower(btrim(COALESCE(vae.dose_code, '')))
+   AND lower(btrim(COALESCE(NULLIF(anchor_pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(anchor_pv.rule_dsl -> 'vaccine' ->> 'code', '')))) = lower(btrim(vae.vaccine_code))
+  LEFT JOIN protocol_rule_lineage anchor_lineage
+    ON anchor_lineage.tenant_id = anchor_pr.tenant_id
+   AND anchor_lineage.protocol_version_id = anchor_pr.protocol_version_id
+   AND anchor_lineage.rule_id = anchor_pr.rule_id
   WHERE oi.tenant_id = $1
     AND oi.target_type = 'goat'
     AND oi.target_id = ANY($2::uuid[])
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
-    AND oi.due_at::date <= vae.anchor_date
+    AND oi.due_at::date < vae.anchor_date
+    AND (
+      vae.protocol_version_id IS NULL
+      OR (
+        anchor_pv.protocol_id = pv.protocol_id
+        AND anchor_pr.rule_id IS NOT NULL
+        AND (
+          (anchor_lineage.identity_key IS NOT NULL AND oi_lineage.identity_key = anchor_lineage.identity_key)
+          OR (
+            anchor_lineage.identity_key IS NULL
+            AND lower(btrim(anchor_pr.dose_code)) = lower(btrim(pr.dose_code))
+            AND anchor_pr.sequence = pr.sequence
+          )
+        )
+      )
+    )
+    AND (
+      NOT vae.enforce_age_eligibility
+      OR pr.trigger_type <> 'birth_age'
+      OR (g.dob IS NOT NULL AND g.dob + pr.offset_days <= vae.anchor_date)
+    )
   FOR UPDATE OF oi
 ),
 updated AS (

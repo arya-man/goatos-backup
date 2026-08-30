@@ -20,8 +20,8 @@ func TestCancelOpenVaccinationObligationsBeforeActiveAnchors(t *testing.T) {
 
 	repo := NewRepository(pool, 5*time.Second)
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, shed_id)
-		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4, $4)`,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, shed_id, dob)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4, $4, DATE '2026-05-01')`,
 		testGoatID, tenantID, meshaParty, cbePark); err != nil {
 		t.Fatalf("seed goat: %v", err)
 	}
@@ -73,6 +73,9 @@ func TestCancelOpenVaccinationObligationsBeforeActiveAnchors(t *testing.T) {
 	if err != nil || !applied {
 		t.Fatalf("insert in-progress: applied=%v err=%v", applied, err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE protocol_versions SET status='published' WHERE tenant_id=$1 AND protocol_version_id=$2`, tenantID, versionID); err != nil {
+		t.Fatalf("publish version: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 INSERT INTO vaccination_anchor_events (
   vaccination_anchor_event_id, tenant_id, protocol_version_id, vaccine_code, dose_code, anchor_date,
@@ -87,11 +90,11 @@ INSERT INTO vaccination_anchor_events (
 	if err != nil {
 		t.Fatalf("cancel before anchors: %v", err)
 	}
-	if changed != 3 {
-		t.Fatalf("changed=%d, want 3", changed)
+	if changed != 2 {
+		t.Fatalf("changed=%d, want 2", changed)
 	}
 	assertCanceledOnce(t, ctx, pool, "pre-anchor", beforeID)
-	assertCanceledOnce(t, ctx, pool, "same-day anchor", sameDayID)
 	assertCanceledOnce(t, ctx, pool, "in-progress pre-anchor", inProgressID)
+	assertUntouched(t, ctx, pool, "same-day anchor", sameDayID)
 	assertUntouched(t, ctx, pool, "post-anchor", afterID)
 }
