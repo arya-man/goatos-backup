@@ -5,6 +5,7 @@ options:
 serviceAccount: projects/goatos-stg/serviceAccounts/goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
 
 substitutions:
+  _COMMIT_SHA: ""
   _SLACK_WEBHOOK_SECRET: goatos-stg-deploy-slack-webhook-url
   _DEPLOY_STG: "true"
   _DEPLOY_MOBILE: "false"
@@ -19,7 +20,7 @@ steps:
       - PROJECT_ID=goatos-stg
       - PROJECT_NUMBER=514832198871
       - REGION=asia-south1
-      - COMMIT_SHA=$COMMIT_SHA
+      - COMMIT_SHA=${_COMMIT_SHA}
       - BUILD_ID=$BUILD_ID
       - DEPLOY_STG=${_DEPLOY_STG}
       - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
@@ -84,7 +85,7 @@ steps:
     entrypoint: sh
     env:
       - DEPLOY_STG=${_DEPLOY_STG}
-      - COMMIT_SHA=$COMMIT_SHA
+      - COMMIT_SHA=${_COMMIT_SHA}
       - DOCKER_CONFIG=/workspace/.docker
       - DOCKER_BUILDKIT=1
     args:
@@ -105,7 +106,7 @@ steps:
     entrypoint: sh
     env:
       - DEPLOY_STG=${_DEPLOY_STG}
-      - COMMIT_SHA=$COMMIT_SHA
+      - COMMIT_SHA=${_COMMIT_SHA}
       - DOCKER_CONFIG=/workspace/.docker
       - DOCKER_BUILDKIT=1
     args:
@@ -126,7 +127,7 @@ steps:
     entrypoint: sh
     env:
       - DEPLOY_STG=${_DEPLOY_STG}
-      - COMMIT_SHA=$COMMIT_SHA
+      - COMMIT_SHA=${_COMMIT_SHA}
       - DOCKER_CONFIG=/workspace/.docker
       - DOCKER_BUILDKIT=1
     args:
@@ -149,7 +150,7 @@ steps:
       - PROJECT_ID=goatos-stg
       - PROJECT_NUMBER=514832198871
       - REGION=asia-south1
-      - COMMIT_SHA=$COMMIT_SHA
+      - COMMIT_SHA=${_COMMIT_SHA}
       - BUILD_ID=$BUILD_ID
       - ARTIFACT_REPOSITORY=goatos
       - DELIVERY_PIPELINE=goatos-stg
@@ -179,7 +180,7 @@ steps:
       - PROJECT_NUMBER=514832198871
       - REGION=asia-south1
       - BUILD_ID=$BUILD_ID
-      - COMMIT_SHA=$COMMIT_SHA
+      - COMMIT_SHA=${_COMMIT_SHA}
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
       - TRIGGERED_BY=${_TRIGGERED_BY}
       - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
@@ -202,7 +203,7 @@ steps:
       - PROJECT_NUMBER=514832198871
       - REGION=asia-south1
       - BUILD_ID=$BUILD_ID
-      - COMMIT_SHA=$COMMIT_SHA
+      - COMMIT_SHA=${_COMMIT_SHA}
       - DEPLOY_STG=${_DEPLOY_STG}
       - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
