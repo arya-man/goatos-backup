@@ -2027,6 +2027,123 @@ RETURNING oi.obligation_id::text, COALESCE(target.batch_id::text, '')`, tenantID
 //
 // This is the cheap pre-filter for that: one query per page instead of one cancel per animal,
 // so the common case -- nothing to supersede -- costs a single indexed read.
+func (r *Repository) CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx context.Context, tenantID string, goatIDs []string, occurredAt time.Time) (int, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if len(goatIDs) == 0 {
+		return 0, nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	ids := make([]pgtype.UUID, 0, len(goatIDs))
+	for _, goatID := range goatIDs {
+		id, err := pgconv.UUID(goatID)
+		if err != nil {
+			return 0, fmt.Errorf("obligation: goat id %q: %w", goatID, err)
+		}
+		ids = append(ids, id)
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: begin anchor suppression tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	rows, err := tx.Query(ctx, `
+WITH candidates AS (
+  SELECT oi.obligation_id,
+         vae.vaccination_anchor_event_id,
+         vae.anchor_date,
+         COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', ''), '') AS vaccine_code
+  FROM obligation_instances oi
+  JOIN protocol_versions pv ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+  LEFT JOIN protocol_rules pr ON pr.tenant_id = oi.tenant_id AND pr.protocol_version_id = oi.protocol_version_id AND pr.rule_id = oi.rule_id
+  JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+  LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
+  JOIN vaccination_anchor_events vae
+    ON vae.tenant_id = oi.tenant_id
+   AND vae.canceled_at IS NULL
+   AND vae.suppress_before_anchor
+   AND (vae.protocol_version_id IS NULL OR vae.protocol_version_id = oi.protocol_version_id)
+   AND lower(btrim(vae.vaccine_code)) = lower(btrim(COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', ''), '')))
+   AND (vae.dose_code IS NULL OR lower(btrim(vae.dose_code)) = lower(btrim(COALESCE(pr.dose_code, ''))))
+   AND (
+     vae.scope_type = 'tenant'
+     OR (vae.scope_type = 'animal_set' AND vae.scope_payload ? 'animal_ids' AND (vae.scope_payload -> 'animal_ids') ? oi.target_id::text)
+     OR (vae.scope_type = 'park' AND COALESCE(vae.scope_payload ->> 'park_id', '') = g.park_id::text)
+     OR (vae.scope_type = 'shed' AND COALESCE(vae.scope_payload ->> 'shed_id', '') = g.shed_id::text)
+     OR (vae.scope_type = 'partition' AND COALESCE(vae.scope_payload ->> 'shed_id', '') = g.shed_id::text AND COALESCE(vae.scope_payload ->> 'partition_label', '') = COALESCE(gsp.partition_label, 'whole'))
+   )
+  WHERE oi.tenant_id = $1
+    AND oi.target_type = 'goat'
+    AND oi.target_id = ANY($2::uuid[])
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+    AND oi.due_at::date <= vae.anchor_date
+  FOR UPDATE OF oi
+),
+updated AS (
+  UPDATE obligation_instances oi
+  SET status = 'canceled',
+      batch_id = NULL,
+      row_version = row_version + 1,
+      updated_at = now()
+  FROM candidates c
+  WHERE oi.tenant_id = $1
+    AND oi.obligation_id = c.obligation_id
+  RETURNING oi.obligation_id, c.vaccination_anchor_event_id, c.anchor_date, c.vaccine_code
+),
+events AS (
+  INSERT INTO obligation_status_events (tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key)
+  SELECT $1,
+         u.obligation_id,
+         'canceled',
+         $3,
+         jsonb_build_object('reason', 'vaccination_anchor_suppressed_before_anchor', 'vaccination_anchor_event_id', u.vaccination_anchor_event_id::text, 'anchor_date', u.anchor_date::text, 'vaccine_code', u.vaccine_code),
+         u.obligation_id::text || ':canceled:vaccination_anchor_suppressed_before_anchor:' || u.vaccination_anchor_event_id::text
+  FROM updated u
+  ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+)
+SELECT obligation_id::text FROM updated`, tenant, ids, pgconv.Timestamptz(occurredAt))
+	if err != nil {
+		return 0, fmt.Errorf("obligation: cancel before active anchors: %w", err)
+	}
+	detachedIDs := make([]string, 0)
+	for rows.Next() {
+		var obligationID string
+		if err := rows.Scan(&obligationID); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("obligation: scan anchor cancellation: %w", err)
+		}
+		detachedIDs = append(detachedIDs, obligationID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, fmt.Errorf("obligation: anchor cancellation rows: %w", err)
+	}
+	rows.Close()
+	if len(detachedIDs) > 0 {
+		if err := pruneDetachedDriveMembershipTx(ctx, tx, tenant, detachedIDs); err != nil {
+			return 0, err
+		}
+	}
+	for _, obligationID := range detachedIDs {
+		if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, obligationID, obligationCanceledEventType, "canceled", occurredAt, map[string]any{
+			"reason": "vaccination_anchor_suppressed_before_anchor",
+		}, "obligation.CancelOpenVaccinationObligationsBeforeActiveAnchors"); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("obligation: commit anchor suppression: %w", err)
+	}
+	return len(detachedIDs), nil
+}
+
 // OpenObligationForRepeatCycle finds the open row that already holds a repeat cycle, by its
 // CAUSE rather than its idempotency key.
 //

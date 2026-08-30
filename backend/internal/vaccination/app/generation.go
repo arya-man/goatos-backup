@@ -100,6 +100,7 @@ type ObligationWriter interface {
 	// NextSuccessorSuffix computes the next free numeric successor suffix for a base idempotency key
 	// in one bounded query (R50-011), avoiding O(N) probe round trips on large collision histories.
 	NextSuccessorSuffix(ctx context.Context, tenantID, baseKey string) (int, error)
+	CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx context.Context, tenantID string, goatIDs []string, occurredAt time.Time) (int, error)
 }
 
 // ManualVaccineAnchorReader is implemented by the production obligation store.
@@ -612,6 +613,9 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 		// scheduled, due and deferred only, so an animal being worked right now is never
 		// pulled out from under the operator by a publish.
 		if err := s.supersedeRetiredPlanWork(ctx, tenantID, activeGoats, effectiveVersionsByPark, asOf); err != nil {
+			return res, err
+		}
+		if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, activeGoats, asOf); err != nil {
 			return res, err
 		}
 		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
@@ -1236,6 +1240,9 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		// scheduled, due and deferred only, so an animal being worked right now is never
 		// pulled out from under the operator by a publish.
 		if err := s.supersedeRetiredPlanWork(ctx, tenantID, activeGoats, effectiveVersionsByPark, asOf); err != nil {
+			return res, err
+		}
+		if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, activeGoats, asOf); err != nil {
 			return res, err
 		}
 		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
@@ -2285,6 +2292,9 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 	if _, err := s.obl.CancelOpenVaccinationObligationsForGoatExceptVersions(ctx, tenantID, goatID, versionIDs, "version_no_longer_effective_after_recheck", asOf); err != nil {
 		return res, err
 	}
+	if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, []domain.EligibleGoat{g}, asOf); err != nil {
+		return res, err
+	}
 	pagePlans := make([]goatGenerationPlan, 0, len(versionIDs))
 	plans := make(map[string]cachedVersionPlan, len(versionIDs))
 	if err := s.loadVersionPlans(ctx, tenantID, versionIDs, plans); err != nil {
@@ -2331,6 +2341,29 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 		}
 	}
 	return res, nil
+}
+
+func (s *GenerationService) suppressOpenWorkBeforeAnchors(ctx context.Context, tenantID string, goats []domain.EligibleGoat, asOf time.Time) error {
+	if len(goats) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(goats))
+	seen := make(map[string]struct{}, len(goats))
+	for _, goat := range goats {
+		if strings.TrimSpace(goat.GoatID) == "" {
+			continue
+		}
+		if _, exists := seen[goat.GoatID]; exists {
+			continue
+		}
+		seen[goat.GoatID] = struct{}{}
+		ids = append(ids, goat.GoatID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := s.obl.CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx, tenantID, ids, asOf)
+	return err
 }
 
 func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, ruleVaccine vaccineProfile, g domain.EligibleGoat, asOf time.Time, recovery genRecoveryPolicy, compatibility genCompatibilityPolicy, vaccineHistory []domain.RecentVaccineAdministration) (*obldomain.RecoveryReschedule, error) {

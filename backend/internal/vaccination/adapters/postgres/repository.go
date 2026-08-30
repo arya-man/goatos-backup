@@ -3839,6 +3839,46 @@ prearrival_admins AS (
     AND ph.review_status = 'accepted'
     AND ph.administered_at <= $3::timestamptz
     AND ph.reviewed_at <= $3::timestamptz
+),
+anchor_admins AS (
+  SELECT g.goat_id::text AS goat_id,
+         vae.anchor_date::timestamptz AS administered_at,
+         vae.vaccine_code::text AS vaccine_code,
+         COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'type', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'type', ''), '')::text AS vaccine_type,
+         COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'pathogen_class', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'pathogen_class', ''), '')::text AS pathogen_class,
+         pr.dose_code::text AS dose_code,
+         pr.sequence::int AS sequence,
+         pv.protocol_version_id::text AS protocol_version_id,
+         pv.protocol_id::text AS protocol_id
+  FROM goats g
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = g.shed_id
+  JOIN vaccination_anchor_events vae
+    ON vae.tenant_id = g.tenant_id
+   AND vae.canceled_at IS NULL
+   AND vae.chain_future_from_anchor
+   AND vae.protocol_version_id IS NOT NULL
+   AND vae.dose_code IS NOT NULL
+   AND vae.anchor_date <= $3::date
+   AND (
+     vae.scope_type = 'tenant'
+     OR (vae.scope_type = 'animal_set' AND vae.scope_payload ? 'animal_ids' AND (vae.scope_payload -> 'animal_ids') ? g.goat_id::text)
+     OR (vae.scope_type = 'park' AND COALESCE(vae.scope_payload ->> 'park_id', '') = g.park_id::text)
+     OR (vae.scope_type = 'shed' AND COALESCE(vae.scope_payload ->> 'shed_id', '') = g.shed_id::text)
+     OR (vae.scope_type = 'partition' AND COALESCE(vae.scope_payload ->> 'shed_id', '') = g.shed_id::text AND COALESCE(vae.scope_payload ->> 'partition_label', '') = COALESCE(gsp.partition_label, 'whole'))
+   )
+  JOIN protocol_versions pv
+    ON pv.tenant_id = g.tenant_id
+   AND pv.protocol_version_id = vae.protocol_version_id
+  JOIN protocol_rules pr
+    ON pr.tenant_id = pv.tenant_id
+   AND pr.protocol_version_id = pv.protocol_version_id
+   AND lower(btrim(pr.dose_code)) = lower(btrim(vae.dose_code))
+   AND lower(btrim(COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))) = lower(btrim(vae.vaccine_code))
+  WHERE g.tenant_id = $1
+    AND g.goat_id = ANY($2::uuid[])
 )
 SELECT goat_id, administered_at, vaccine_code, vaccine_type, pathogen_class, dose_code, sequence, protocol_version_id, protocol_id
 FROM (
@@ -3847,6 +3887,8 @@ FROM (
   SELECT * FROM trusted_admins
   UNION ALL
   SELECT * FROM prearrival_admins
+  UNION ALL
+  SELECT * FROM anchor_admins
 ) admins
 ORDER BY goat_id, administered_at DESC`, tenant, uuids, pgconv.Timestamptz(before))
 	if err != nil {

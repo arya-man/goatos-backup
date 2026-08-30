@@ -3281,6 +3281,7 @@ type generationObligationFake struct {
 	failed                     bool
 	recordedStatusEvents       []obldomain.NewStatusEvent
 	manualAnchorsByGoatVaccine map[string]obldomain.ObligationRef
+	anchorSuppressedGoats      []string
 }
 
 type nearestBatchLookup struct {
@@ -3552,6 +3553,11 @@ func (o *generationObligationFake) RecordStatusEvent(_ context.Context, ev obldo
 
 func (o *generationObligationFake) NextSuccessorSuffix(_ context.Context, _, _ string) (int, error) {
 	return 1, nil
+}
+
+func (o *generationObligationFake) CancelOpenVaccinationObligationsBeforeActiveAnchors(_ context.Context, _ string, goatIDs []string, _ time.Time) (int, error) {
+	o.anchorSuppressedGoats = append(o.anchorSuppressedGoats, goatIDs...)
+	return len(goatIDs), nil
 }
 
 type generationRunRecorderFake struct {
