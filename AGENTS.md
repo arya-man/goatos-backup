@@ -40,6 +40,9 @@ drive, anchor date, campaign date, baseline date, or "start from this date" for
 one or more vaccines, treat that date as a **vaccine timeline anchor**, not as a
 manual one-off obligation insert.
 
+Read the detailed operational runbook before changing anchor code, config, or
+data: `docs/preventive-care-vaccination/vaccination-anchor-runbook.md`.
+
 Required behavior:
 
 1. Resolve the exact vaccine/program name the maintainer used. For example,
@@ -163,6 +166,28 @@ For any Android/operator-mobile change, open the app on the physical phone or
 emulator target required by the task and verify the changed screen there.
 Static tests, typecheck, backend API checks, and screenshots from before the
 last edit are not enough.
+
+**HARD RULE - UI work requires BOTH visual regression and E2E.** For every
+browser-visible `apps/admin-web` change, after the final code edit and before
+reporting done or pushing as ready, agents must complete both checks on the real
+surface:
+
+1. Visual regression proof: open the exact changed route in Chrome, capture the
+   rendered screen after the final edit, inspect it for layout/copy/state
+   regressions, and compare it to the authoritative mock/design or the user
+   screenshot that reported the defect.
+2. Click-through E2E proof: exercise the changed controls end to end in Chrome,
+   including disabled/enabled states, changed checkbox/select/input values,
+   preview/apply/save/publish buttons, close/cancel paths, and the expected
+   backend result or blocked-safe boundary.
+
+Do not stop at one of the two. A screenshot without clicks is not E2E; a passing
+click path without a post-edit screenshot is not visual regression. If either
+check is blocked by server startup, auth, data, network, or a browser-control
+failure, diagnose and fix the blocker when it is in-repo or local-state
+controllable. Only report "blocked" after naming the exact blocker and the exact
+command/browser step that proved it. Do not say the UI work is done until both
+visual regression and E2E are actually complete after the final edit.
 
 For any change that touches `apps/admin-web` Weights UI, Weights page copy,
 Weights charts, generated API contracts used by Weights, or backend read-model
