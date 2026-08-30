@@ -251,21 +251,32 @@ FROM per_animal
 //	0. They carry the real medical dates so a clubbed adult drive does not report its planned
 //	date as the administration date.
 const commandBoardCohortSQL = `
--- TWO HASH AGGREGATES, NOT ONE SORTED ONE. The buckets are folded per (cell, ANIMAL) first and the
--- cell totals are summed off that fold.
+-- TWO NARROW HASH AGGREGATES OVER ONE SCAN SET, not one wide fold.
 --
--- Written as a single GROUP BY with COUNT(DISTINCT g.goat_id) in it, Postgres cannot hash: a
--- DISTINCT aggregate forces sorted aggregation over the whole input including goat_id, and on the
--- staging-scale tenant that sort SPILLED TO DISK (external merge, 7.7 MB) -- 362ms of this
--- statement's 441ms, and the board's entire critical path once the drilldowns and the picker moved
--- off it. Folding to one row per (cell, animal) and counting those rows removes every DISTINCT, so
--- both steps hash in memory.
+-- Three shapes were measured on the staging-scale tenant:
 --
--- The numbers are unchanged and the equalities are exact: animal_count is COUNT(*) over one row per
--- animal, which is what COUNT(DISTINCT goat_id) counted; the three bucket totals are SUMs of
--- per-animal obligation counts, which is what COUNT(*) FILTER over the flat set counted, because
--- every obligation belongs to exactly one animal. Verified against the live staging-scale tenant:
--- the flat statement and this one return byte-identical rows.
+--   COUNT(DISTINCT g.goat_id) beside three COUNT(DISTINCT obligation_id) in one GROUP BY: a DISTINCT
+--   aggregate forces SORTED aggregation over the whole input, which spilled to disk (external merge,
+--   7.7 MB) -- 362ms of 441ms.
+--
+--   A per-(cell, animal) fold, then summing off it: removed the DISTINCTs, but the fold itself runs
+--   at ~70k groups carrying two timestamps and three counters, so the planner still chose a sorted
+--   GroupAggregate and STILL spilled (7.0 MB, 237ms of 265ms). Grouping on the park uuid instead of
+--   its name shaved 5ms. The width was the problem, not the key.
+--
+--   This shape: the cell aggregates are computed DIRECTLY at cell grain, where there are a few
+--   hundred groups, and the only figure that genuinely needs animal grain -- animal_count -- comes
+--   from a DISTINCT over five narrow columns carrying no payload at all. Both hash in memory.
+--
+-- The equalities are exact, not approximate. pending/submitted/verified summed over a per-animal
+-- fold equal COUNT(*) FILTER over the flat set, because every obligation belongs to exactly one
+-- animal; MIN(MIN(x)) = MIN(x) and MAX(MAX(x)) = MAX(x); and COUNT(*) over one row per animal is
+-- COUNT(DISTINCT goat_id). Verified against the live staging-scale tenant: this statement and the
+-- original return byte-identical rows.
+--
+-- animal_count KEEPS its distinct grain because goat_id genuinely repeats -- that is the multi-dose
+-- animal the matrix exists to show. The three bucket counts are obligation grain and must not be
+-- deduplicated.
 WITH comp AS (
   SELECT
     obligation_id,
@@ -277,30 +288,26 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
-per_animal AS (
+scoped AS (
   SELECT
-    COALESCE(park.location_id::text, '') AS park_id,
-    COALESCE(park.name, '') AS park_name,
+    park.location_id AS park_id,
     g.management_stage,
     g.sex,
     pr.dose_code,
     g.goat_id,
-    -- Obligation grain, and COUNT(*) FILTER rather than COUNT(DISTINCT obligation_id): this query
-    -- emits exactly one row per obligation (comp is pre-aggregated per obligation_id, and
+    -- Obligation grain. COUNT(*) FILTER rather than COUNT(DISTINCT obligation_id): this set emits
+    -- exactly one row per obligation (comp is pre-aggregated per obligation_id, and
     -- goats/protocol_rules/locations are all 1:1 on a primary key), so the DISTINCT could never
     -- remove a row and only forced a sort.
-    COUNT(*) FILTER (
-      WHERE NOT COALESCE(comp.has_accepted, false)
-        AND NOT COALESCE(comp.has_recorded_unverified, false)
-        AND oi.status IN ('scheduled','due','in_progress','deferred','missed')
-        AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
-    ) AS pending_count,
-    COUNT(*) FILTER (
-      WHERE NOT COALESCE(comp.has_accepted, false) AND COALESCE(comp.has_recorded_unverified, false)
-    ) AS submitted_count,
-    COUNT(*) FILTER (WHERE comp.has_accepted) AS verified_count,
-    MIN(CASE WHEN comp.has_accepted THEN comp.min_administered_at END) AS min_administered_at,
-    MAX(CASE WHEN comp.has_accepted THEN comp.max_administered_at END) AS max_administered_at
+    (NOT COALESCE(comp.has_accepted, false)
+      AND NOT COALESCE(comp.has_recorded_unverified, false)
+      AND oi.status IN ('scheduled','due','in_progress','deferred','missed')
+      AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    ) AS is_pending,
+    (NOT COALESCE(comp.has_accepted, false) AND COALESCE(comp.has_recorded_unverified, false)) AS is_submitted,
+    COALESCE(comp.has_accepted, false) AS is_verified,
+    CASE WHEN comp.has_accepted THEN comp.min_administered_at END AS min_administered_at,
+    CASE WHEN comp.has_accepted THEN comp.max_administered_at END AS max_administered_at
   FROM obligation_instances oi
   JOIN goats g ON oi.target_id = g.goat_id AND oi.tenant_id = g.tenant_id
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
@@ -314,23 +321,45 @@ per_animal AS (
     ))
     AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
     AND g.merged_into_goat_id IS NULL
-  GROUP BY park.location_id, park.name, g.management_stage, g.sex, pr.dose_code, g.goat_id
+),
+cell_totals AS (
+  SELECT
+    park_id, management_stage, sex, dose_code,
+    COUNT(*) FILTER (WHERE is_pending)::bigint AS pending_count,
+    COUNT(*) FILTER (WHERE is_submitted)::bigint AS submitted_count,
+    COUNT(*) FILTER (WHERE is_verified)::bigint AS verified_count,
+    MIN(min_administered_at) AS min_administered_at,
+    MAX(max_administered_at) AS max_administered_at
+  FROM scoped
+  GROUP BY park_id, management_stage, sex, dose_code
+),
+cell_animals AS (
+  SELECT park_id, management_stage, sex, dose_code, COUNT(*)::bigint AS animal_count
+  FROM (
+    SELECT DISTINCT park_id, management_stage, sex, dose_code, goat_id FROM scoped
+  ) d
+  GROUP BY park_id, management_stage, sex, dose_code
 )
 SELECT
-  park_id,
-  park_name,
-  management_stage,
-  sex,
-  dose_code,
-  COUNT(*)::bigint AS animal_count,
-  SUM(pending_count)::bigint AS pending_count,
-  SUM(submitted_count)::bigint AS submitted_count,
-  SUM(verified_count)::bigint AS verified_count,
-  MIN(min_administered_at) AS min_administered_at,
-  MAX(max_administered_at) AS max_administered_at
-FROM per_animal
-GROUP BY park_id, park_name, management_stage, sex, dose_code
-ORDER BY park_name, management_stage, sex, dose_code
+  COALESCE(t.park_id::text, '') AS park_id,
+  COALESCE(park.name, '') AS park_name,
+  t.management_stage,
+  t.sex,
+  t.dose_code,
+  a.animal_count,
+  t.pending_count,
+  t.submitted_count,
+  t.verified_count,
+  t.min_administered_at,
+  t.max_administered_at
+FROM cell_totals t
+JOIN cell_animals a
+  ON a.park_id IS NOT DISTINCT FROM t.park_id
+ AND a.management_stage = t.management_stage
+ AND a.sex = t.sex
+ AND a.dose_code = t.dose_code
+LEFT JOIN locations park ON park.location_id = t.park_id AND park.tenant_id = $1::uuid
+ORDER BY park.name, t.management_stage, t.sex, t.dose_code
 `
 
 // 2a-bis. TRUE cohort head count, read from the live herd rather than from the obligations.
@@ -1041,6 +1070,12 @@ ORDER BY pg.status_rank, pg.sort_planned DESC, pg.sort_window DESC, pg.batch_id,
 // scope=tenant + optional batch + optional park EXISTS, plus the optional cell.
 const commandBoardCohortExceptionCTE = `
 WITH accepted AS MATERIALIZED (
+  -- The family regexp is computed INLINE, per obligation row, and an attempt to hoist it into a
+  -- small per-rule CTE (204 rows instead of ~71k evaluations) made this statement THREE TIMES
+  -- SLOWER -- 230ms to 725ms -- because a CTE carries no statistics and the planner mis-estimated
+  -- the join off it. That is the same blindness that produced the 18-second cell-scoped list before
+  -- this predicate was made set-based. Redundant CPU on a real table beats a cheap-looking CTE the
+  -- planner cannot cost; do not "optimise" this back into a CTE without measuring it.
   SELECT DISTINCT
     oi.target_id,
     pr.dose_code,
@@ -1065,9 +1100,11 @@ candidate AS MATERIALIZED (
     df.dose_code,
     regexp_replace(df.dose_code, '_(w[0-9]+|[0-9]+w|revac|booster|first)$', '') AS family,
     df.sequence,
-    g.goat_id,
-    g.display_id,
-    g.tenant_id
+    g.goat_id
+    -- display_id and tenant_id are NOT carried here. They are only needed by the drilldown LIST,
+    -- and this DISTINCT runs over every obligation in the tenant -- so carrying two extra columns
+    -- widened seventy thousand rows to spare one join over a page of fifty. The list joins goats
+    -- back by goat_id.
   FROM obligation_instances oi
   JOIN goats g ON oi.target_id = g.goat_id AND oi.tenant_id = g.tenant_id
   JOIN protocol_rules df ON oi.rule_id = df.rule_id AND oi.tenant_id = df.tenant_id
@@ -1106,9 +1143,7 @@ exceptions AS (
     c.management_stage,
     c.sex,
     c.dose_code,
-    c.goat_id,
-    c.display_id,
-    c.tenant_id
+    c.goat_id
   FROM candidate c
   -- THE LATER ACCEPTED DOSE. Inner join: no later dose, no exception. An animal whose dose_code
   -- resolves at two sequences qualifies if ANY of them has a later accepted dose, which is the same

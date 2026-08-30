@@ -367,10 +367,15 @@ const commandBoardCohortExceptionListSQL = commandBoardCohortExceptionCTE + `,
 page AS (
   -- DISTINCT because one animal can be an exception in several dose codes of the same cell (the
   -- board collapses those onto one displayed vaccine label), and the drawer names ANIMALS.
-  SELECT DISTINCT e.goat_id, e.display_id, e.tenant_id
+  --
+  -- display_id comes from a join here rather than from the shared CTE: the CTE's DISTINCT runs over
+  -- every obligation in the tenant, so carrying display_id through it widened seventy thousand rows
+  -- to spare this one join over a page of fifty.
+  SELECT DISTINCT e.goat_id, g.display_id, g.tenant_id
   FROM exceptions e
-  WHERE ($8::text IS NULL OR (e.display_id, e.goat_id) > ($8::text, $9::uuid))
-  ORDER BY e.display_id, e.goat_id
+  JOIN goats g ON g.goat_id = e.goat_id AND g.tenant_id = $1::uuid
+  WHERE ($8::text IS NULL OR (g.display_id, e.goat_id) > ($8::text, $9::uuid))
+  ORDER BY g.display_id, e.goat_id
   LIMIT $10
 )
 SELECT

@@ -17,12 +17,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 export type CohortDayRow = { date: string; animalCount: number };
 export type CohortAnimalRow = { goatId: string; displayId: string; tag?: string | null };
 
+// Field names mirror the wire contract exactly (VaccinationCommandBoardClosedWithoutDoseAnimal).
 export type ClosedWithoutDoseRow = {
   goatId: string;
   displayId: string;
-  tag?: string | null;
+  tag1?: string | null;
   tag2?: string | null;
-  operational_location_display?: string | null;
+  locationDisplay?: string | null;
+  parkName?: string | null;
+  shedName?: string | null;
+  partitionLabel?: string | null;
   reason?: string | null;
   vaccineLabel?: string | null;
 };
@@ -115,34 +119,48 @@ function useDrilldown<T>(
   load: (signal: AbortSignal) => Promise<T>,
   empty: T,
 ): DrilldownState<T> {
-  const [state, setState] = useState<DrilldownState<T>>({ data: empty, loading: false, error: null });
+  // State is KEYED. Deriving "is this result for the cell I am looking at" from a stored key,
+  // rather than resetting state when the key changes, keeps every setState inside an async callback
+  // — a synchronous setState in an effect cascades an extra render pass on every open, and React's
+  // own lint rule rejects it.
+  const [state, setState] = useState<{ key: string | null; data: T; error: string | null }>({
+    key: null,
+    data: empty,
+    error: null,
+  });
   const loadRef = useRef(load);
-  loadRef.current = load;
+
+  // The loader is read through a ref so an inline closure at the call site does not retrigger the
+  // fetch on every parent render. Assigned in an effect, not during render: a ref written while
+  // rendering is not safe under concurrent rendering.
+  useEffect(() => {
+    loadRef.current = load;
+  });
 
   useEffect(() => {
-    if (!key) {
-      setState({ data: empty, loading: false, error: null });
-      return;
-    }
+    if (!key) return;
     const controller = new AbortController();
-    setState({ data: empty, loading: true, error: null });
     loadRef
       .current(controller.signal)
       .then((data) => {
         if (controller.signal.aborted) return;
-        setState({ data, loading: false, error: null });
+        setState({ key, data, error: null });
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
-        setState({ data: empty, loading: false, error: err instanceof Error ? err.message : "error" });
+        setState({ key, data: empty, error: err instanceof Error ? err.message : "error" });
       });
     return () => controller.abort();
-    // `empty` is a stable module-level constant at every call site; `load` is read through a ref so
-    // an inline closure does not retrigger the fetch.
+    // `empty` is a stable module-level constant at every call site.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  return state;
+  const settled = key !== null && state.key === key;
+  return {
+    data: settled ? state.data : empty,
+    loading: key !== null && !settled,
+    error: settled ? state.error : null,
+  };
 }
 
 const NO_CLOSED: ClosedWithoutDoseRow[] = [];
@@ -286,17 +304,14 @@ export function useDriveCatalogue<T extends { driveBatchId?: string; parkId?: st
   truncated: boolean,
   parkId?: string,
 ): { options: T[]; loading: boolean } {
-  const [extra, setExtra] = useState<T[]>([]);
-  const [loading, setLoading] = useState(false);
   const firstPageKey = firstPage.map((option) => `${option.driveBatchId}|${option.parkId ?? ""}`).join(",");
+  const requestKey = truncated ? `${parkId ?? ""}|${firstPageKey}` : null;
+  // Keyed for the same reason useDrilldown is: no synchronous setState in an effect.
+  const [state, setState] = useState<{ key: string | null; options: T[] }>({ key: null, options: [] });
 
   useEffect(() => {
-    if (!truncated) {
-      setExtra([]);
-      return;
-    }
+    if (!requestKey) return;
     const controller = new AbortController();
-    setLoading(true);
     const params = new URLSearchParams();
     if (parkId) params.set("park_id", parkId);
     params.set("limit", "100");
@@ -306,28 +321,30 @@ export function useDriveCatalogue<T extends { driveBatchId?: string; parkId?: st
       (page) => page.options ?? [],
       controller.signal,
       // The catalogue is bounded in the product too: 400 drives is far past what a picker can be
-      // read at, and DriveOptionsTruncated keeps the UI honest if a tenant ever exceeds it.
+      // read at, and driveOptionsTruncated keeps the UI honest if a tenant ever exceeds it.
       4,
     )
       .then((options) => {
         if (controller.signal.aborted) return;
-        setExtra(options);
-        setLoading(false);
+        setState({ key: requestKey, options });
       })
       .catch(() => {
         if (controller.signal.aborted) return;
         // The board already rendered from its first page. A failed background completion leaves the
-        // picker short, which DriveOptionsTruncated already declares; it must not blank the board.
-        setLoading(false);
+        // picker short, which driveOptionsTruncated already declares; it must not blank the board.
+        setState({ key: requestKey, options: [] });
       });
     return () => controller.abort();
-  }, [truncated, parkId, firstPageKey]);
+  }, [requestKey, parkId]);
+
+  const settled = requestKey !== null && state.key === requestKey;
+  const extra = settled ? state.options : [];
 
   const options = useMemo(() => {
     if (extra.length === 0) return firstPage;
     // The catalogue endpoint returns the SAME ordering the board's first page uses and starts from
-    // the beginning, so it is a superset. De-duplicate on the row key -- (batch, park), because a
-    // drive spanning two parks is two rows -- and prefer the catalogue copy.
+    // the beginning, so it is a superset. De-duplicate on the row key — (batch, park), because a
+    // drive spanning two parks is two rows — and prefer the catalogue copy.
     const merged = new Map<string, T>();
     for (const option of [...firstPage, ...extra]) {
       merged.set(`${option.driveBatchId}|${option.parkId ?? ""}`, option);
@@ -336,5 +353,5 @@ export function useDriveCatalogue<T extends { driveBatchId?: string; parkId?: st
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstPageKey, extra]);
 
-  return { options, loading };
+  return { options, loading: requestKey !== null && !settled };
 }
