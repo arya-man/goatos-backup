@@ -11,12 +11,13 @@ Docker-specific test, or disposable mutation database.
 
 ## Vaccination Anchor Dates
 
-Follow the vaccination anchor-date rule in `AGENTS.md`. In short: an anchor date
-is baseline vaccine history/start-date semantics for the selected animals, not a
-blind one-off drive insert. Use the vaccination kernel/generation path, verify
-live/live and live/killed spacing plus same-day caps, and report actual RFID/tag
-identifiers rather than internal goat ids. `Z1+Z3` is one vaccine/program label,
-not separate `Z1`, `Z2`, and `Z3` stages.
+Follow the vaccination anchor-date rule in `AGENTS.md` and the detailed runbook
+in `docs/preventive-care-vaccination/vaccination-anchor-runbook.md`. In short:
+an anchor date is baseline vaccine history/start-date semantics for the selected
+animals, not a blind one-off drive insert. Use the vaccination kernel/generation
+path, verify live/live and live/killed spacing plus same-day caps, and report
+actual RFID/tag identifiers rather than internal goat ids. `Z1+Z3` is one
+vaccine/program label, not separate `Z1`, `Z2`, and `Z3` stages.
 
 For vaccination drive packing, follow the 200-animals-per-operator-day rule in
 `AGENTS.md` and `docs/preventive-care-vaccination/vaccination-rules.md`: pack
