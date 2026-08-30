@@ -1,12 +1,9 @@
 "use client";
 
-import { Fragment, useMemo, useState, useTransition } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { CircleSlash, Pencil, Plus } from "lucide-react";
 
 import { todayIso } from "@/lib/format";
-import type { VaccinationAnchorPreview, VaccinationAnchorRequest } from "@/lib/api/server";
-
-import { previewAnchor } from "./plan-actions";
 import type { ScheduleRule, VaccineGroup } from "./plan-model";
 
 type AnchorState = {
@@ -45,47 +42,21 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
   const rows = providedRows ?? catalogRows;
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [state, setState] = useState<AnchorState>(() => defaultState());
-  const [pending, startTransition] = useTransition();
-  const [preview, setPreview] = useState<VaccinationAnchorPreview | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [configured, setConfigured] = useState<Record<string, string>>({});
 
   function openEditor(row: RuleRow) {
     setEditingKey(rowKey(row));
     setState(defaultState());
-    setPreview(null);
-    setError(null);
   }
 
   function update<K extends keyof AnchorState>(key: K, value: AnchorState[K]) {
     setState((current) => ({ ...current, [key]: value }));
   }
 
-  function selectedRow(): RuleRow | null {
-    return rows.find((row) => rowKey(row) === editingKey) ?? null;
-  }
-
-  function runPreview() {
-    const row = selectedRow();
-    if (!row) return;
-    setError(null);
-    startTransition(async () => {
-      const result = await previewAnchor(buildAnchorPayload(row, state));
-      if (!result.ok) {
-        setPreview(null);
-        setError(result.error);
-        return;
-      }
-      setPreview(result.preview);
-    });
-  }
-
   function skipAnchor(key: string) {
     setConfigured((current) => clearKey(current, key));
     if (editingKey === key) {
       setEditingKey(null);
-      setPreview(null);
-      setError(null);
     }
   }
 
@@ -195,34 +166,21 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
                           Enforce age eligibility
                         </label>
                       </div>
-                      {error ? (
-                        <div className="alert" style={{ marginTop: 14 }}>
-                          <span className="ic">!</span>
-                          <span>{error}</span>
-                        </div>
-                      ) : null}
                       <div className="anchoractions">
-                        <button className="btn ghost sm" type="button" disabled={pending} onClick={runPreview}>
-                          {pending ? "Checking..." : "Preview"}
-                        </button>
                         <button
                           className="btn sm"
                           type="button"
-                          disabled={pending || !preview || preview.eligible_animals === 0}
                           onClick={() => {
-                            const row = selectedRow();
-                            if (!row) return;
-                            setConfigured((current) => ({ ...current, [rowKey(row)]: state.anchorDate }));
+                            setConfigured((current) => ({ ...current, [key]: state.anchorDate }));
                             setEditingKey(null);
                           }}
                         >
                           Save anchor to draft
                         </button>
-                        <button className="btn ghost sm" type="button" disabled={pending} onClick={() => setEditingKey(null)}>
+                        <button className="btn ghost sm" type="button" onClick={() => setEditingKey(null)}>
                           Close
                         </button>
                       </div>
-                      {preview ? <AnchorPreview preview={preview} /> : null}
                     </td>
                   </tr>
                 ) : null}
@@ -244,45 +202,6 @@ function defaultState(): AnchorState {
     chainFutureFromAnchor: true,
     enforceAgeEligibility: true,
   };
-}
-
-export function buildAnchorPayload(row: RuleRow, state: AnchorState): VaccinationAnchorRequest {
-  const payload: VaccinationAnchorRequest = {
-    vaccine_code: row.vaccine.code,
-    dose_code: row.rule.dose_code,
-    anchor_date: state.anchorDate,
-    scope_type: "tenant",
-    scope_payload: {},
-    reason: state.reason.trim() || DEFAULT_REASON,
-    suppress_before_anchor: state.suppressBeforeAnchor,
-    chain_future_from_anchor: state.chainFutureFromAnchor,
-    enforce_age_eligibility: state.enforceAgeEligibility,
-  };
-  if (state.sourceRef.trim()) payload.source_ref = state.sourceRef.trim();
-  return payload;
-}
-
-function AnchorPreview({ preview }: { preview: VaccinationAnchorPreview }) {
-  return (
-    <div className="anchorpreview">
-      <div className="impact">
-        <Stat label="eligible" value={preview.eligible_animals} />
-        <Stat label="underage excluded" value={preview.excluded_underage_animals} />
-        <Stat label="species mismatch" value={preview.species_mismatch_animals} />
-        <Stat label="earlier open rows to cancel" value={preview.open_rows_before_anchor} />
-        <Stat label="same-day rows kept" value={preview.same_day_rows_preserved} />
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="stat">
-      <div className="n">{value.toLocaleString("en-IN")}</div>
-      <div className="l">{label}</div>
-    </div>
-  );
 }
 
 function rowKey(row: RuleRow): string {

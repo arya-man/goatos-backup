@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 const panel = readFileSync(new URL("./anchor-panel.tsx", import.meta.url), "utf8");
-const actions = readFileSync(new URL("./plan-actions.ts", import.meta.url), "utf8");
 const server = readFileSync(new URL("../../lib/api/server.ts", import.meta.url), "utf8");
 
 test("anchor panel defaults all safety flags to true", () => {
@@ -13,7 +12,7 @@ test("anchor panel defaults all safety flags to true", () => {
   assert.match(panel, /enforceAgeEligibility:\s*true/);
 });
 
-test("anchor panel is a rule setting with summary-only preview", () => {
+test("anchor panel is a simple draft rule setting", () => {
   assert.match(panel, /Anchor\/base date/);
   assert.match(panel, /No anchor/);
   assert.match(panel, /Plus/);
@@ -27,6 +26,9 @@ test("anchor panel is a rule setting with summary-only preview", () => {
   assert.match(panel, /Chain boosters\/revacs from anchor/);
   assert.match(panel, /Suppress earlier catch-up rows before anchor/);
   assert.match(panel, /Rule\/dose/);
+  assert.doesNotMatch(panel, /Preview/);
+  assert.doesNotMatch(panel, /previewAnchor/);
+  assert.doesNotMatch(panel, /buildAnchorPayload/);
   assert.doesNotMatch(panel, /Clear anchor/);
   assert.doesNotMatch(panel, /Seed a completed vaccine date/);
   assert.doesNotMatch(panel, /Animal IDs/);
@@ -36,23 +38,12 @@ test("anchor panel is a rule setting with summary-only preview", () => {
   assert.doesNotMatch(panel, /Start this vaccine from this date/);
 });
 
-test("anchor actions call preview and create endpoints with idempotency", () => {
-  assert.match(actions, /previewAnchor/);
-  assert.match(actions, /createAnchor/);
-  assert.match(server, /\/vaccination\/anchors\/preview/);
-  assert.match(server, /\/vaccination\/anchors"/);
-  assert.match(server, /Idempotency-Key/);
-});
-
 test("draft anchor row editor does not apply operational anchors directly", () => {
   assert.doesNotMatch(panel, /createAnchor/);
   assert.doesNotMatch(panel, /runCreate/);
 });
 
-test("anchor payload sends behavior booleans as top-level API fields", () => {
-  assert.match(panel, /suppress_before_anchor:\s*state\.suppressBeforeAnchor/);
-  assert.match(panel, /chain_future_from_anchor:\s*state\.chainFutureFromAnchor/);
-  assert.match(panel, /enforce_age_eligibility:\s*state\.enforceAgeEligibility/);
+test("anchor API request shape still uses top-level booleans", () => {
   assert.doesNotMatch(panel, /flags:\s*{/);
   assert.match(server, /suppress_before_anchor\?: boolean/);
   assert.doesNotMatch(server, /flags\?:/);
