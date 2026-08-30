@@ -588,6 +588,10 @@ func (f *boosterObligationWriterFake) NextSuccessorSuffix(_ context.Context, _, 
 	return 1, nil
 }
 
+func (f *boosterObligationWriterFake) CancelOpenVaccinationObligationsBeforeActiveAnchors(context.Context, string, []string, time.Time) (int, error) {
+	return 0, nil
+}
+
 // The successor a completion mints must carry the cause that produced it, in the SAME
 // vocabulary generation uses when it recomputes that cycle from history. Without this
 // assertion the whole writer half of repeat-cycle identity is unprotected: deleting the

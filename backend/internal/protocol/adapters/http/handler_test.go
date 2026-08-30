@@ -21,6 +21,8 @@ type fakeConfig struct {
 	createErr     error
 	versionErr    error
 	getErr        error
+	rules         []domain.Rule
+	rulesErr      error
 	addRuleErr    error
 	publishErr    error
 	listItems     []domain.ConfigListItem
@@ -49,6 +51,9 @@ func (f *fakeConfig) AddRule(_ context.Context, in domain.NewRule) (string, erro
 }
 func (f *fakeConfig) GetVersion(context.Context, string, string) (domain.Version, error) {
 	return domain.Version{}, f.getErr
+}
+func (f *fakeConfig) ListRules(context.Context, string, string) ([]domain.Rule, error) {
+	return f.rules, f.rulesErr
 }
 func (f *fakeConfig) PublishVersion(context.Context, string, string, *string, ...string) error {
 	return f.publishErr

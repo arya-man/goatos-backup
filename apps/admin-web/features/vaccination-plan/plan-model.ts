@@ -16,6 +16,7 @@
  */
 
 import { formatDays } from "./duration-format.ts";
+import type { ProtocolVersionRule } from "@/lib/api/server";
 
 export type ScheduleRule = {
   dose_code?: string;
@@ -26,6 +27,7 @@ export type ScheduleRule = {
   max_delay_days?: number;
   repeat?: string;
   min_gap_days?: number;
+  source_dose_code?: string;
 };
 
 export type VaccineGroup = {
@@ -54,9 +56,10 @@ type MatrixRow = {
  * Order matters: a reader scans the live plan far more often than the retired
  * rows, so the ones in force must not be interleaved with the ones that are not.
  */
-export function readVaccines(ruleDsl: unknown): VaccineGroup[] {
+export function readVaccines(ruleDsl: unknown, activeRules: ProtocolVersionRule[] = []): VaccineGroup[] {
   const rows = readMatrixRows(ruleDsl);
-  if (rows.length === 0) return [];
+  if (rows.length === 0 && activeRules.length === 0) return [];
+  const vaccineByDose = vaccineLookupByDose(rows);
 
   const groups = rows.map((row) => {
     const schedule = Array.isArray(row.schedule) ? row.schedule : [];
@@ -71,14 +74,120 @@ export function readVaccines(ruleDsl: unknown): VaccineGroup[] {
       repeats: schedule.filter((r) => r.repeat && r.repeat !== "none"),
     };
   });
+  mergeActiveRules(groups, activeRules, vaccineByDose);
 
   return [...groups.filter((g) => g.inPlan), ...groups.filter((g) => !g.inPlan)];
+}
+
+function mergeActiveRules(
+  groups: VaccineGroup[],
+  activeRules: ProtocolVersionRule[],
+  vaccineByDose: ReadonlyMap<string, { code: string; name: string; type: string; disease: string }>,
+): void {
+  const reset = new Set<string>();
+  for (const rule of activeRules) {
+    const eligibilityVaccine = vaccineFromEligibility(rule.eligibility_json);
+    const vaccine = eligibilityVaccine.code
+      ? eligibilityVaccine
+      : vaccineByDose.get(String(rule.dose_code).trim().toLowerCase()) ?? eligibilityVaccine;
+    const code = vaccine.code;
+    if (!code) continue;
+    let group = groups.find((g) => sameCode(g.code, code));
+    if (!group) {
+      group = {
+        code,
+        name: vaccine.name || prettyCode(code),
+        vaccineClass: vaccine.type,
+        disease: vaccine.disease,
+        inPlan: true,
+        firstDoses: [],
+        repeats: [],
+      };
+      groups.push(group);
+    }
+    const key = code.trim().toLowerCase();
+    if (!reset.has(key)) {
+      group.firstDoses = [];
+      group.repeats = [];
+      reset.add(key);
+    }
+    group.code = code;
+    group.name = vaccine.name || group.name || prettyCode(code);
+    group.vaccineClass = vaccine.type || group.vaccineClass;
+    group.disease = vaccine.disease || group.disease;
+    group.inPlan = true;
+    const scheduleRule: ScheduleRule = {
+      dose_code: rule.dose_code,
+      sequence: rule.sequence,
+      trigger_type: rule.trigger_type,
+      offset_days: rule.offset_days,
+      due_window_days: rule.due_window_days,
+      max_delay_days: undefined,
+      repeat: rule.repeat,
+      min_gap_days: rule.min_gap_days,
+    };
+    const target = rule.repeat && rule.repeat !== "none" ? group.repeats : group.firstDoses;
+    const existing = target.findIndex((item) => item.dose_code === rule.dose_code);
+    if (existing >= 0) {
+      target[existing] = scheduleRule;
+    } else {
+      target.push(scheduleRule);
+    }
+  }
+  for (const group of groups) {
+    group.firstDoses.sort(compareRules);
+    group.repeats.sort(compareRules);
+  }
+}
+
+function vaccineLookupByDose(rows: MatrixRow[]): Map<string, { code: string; name: string; type: string; disease: string }> {
+  const out = new Map<string, { code: string; name: string; type: string; disease: string }>();
+  for (const row of rows) {
+    const code = row.vaccine?.code ?? row.row_id ?? "";
+    if (!code) continue;
+    const vaccine = {
+      code,
+      name: row.vaccine?.name?.trim() || prettyCode(code),
+      type: row.vaccine?.type ?? "",
+      disease: row.vaccine?.disease ?? "",
+    };
+    for (const rule of Array.isArray(row.schedule) ? row.schedule : []) {
+      if (rule.dose_code) out.set(rule.dose_code.trim().toLowerCase(), vaccine);
+      if (rule.source_dose_code) out.set(rule.source_dose_code.trim().toLowerCase(), vaccine);
+    }
+  }
+  return out;
+}
+
+function vaccineFromEligibility(value: unknown): { code: string; name: string; type: string; disease: string } {
+  if (!value || typeof value !== "object") return { code: "", name: "", type: "", disease: "" };
+  const vaccine = (value as { vaccine?: unknown }).vaccine;
+  if (!vaccine || typeof vaccine !== "object") return { code: "", name: "", type: "", disease: "" };
+  const v = vaccine as { code?: unknown; name?: unknown; type?: unknown; disease?: unknown };
+  return {
+    code: typeof v.code === "string" ? v.code : "",
+    name: typeof v.name === "string" ? v.name : "",
+    type: typeof v.type === "string" ? v.type : "",
+    disease: typeof v.disease === "string" ? v.disease : "",
+  };
+}
+
+function sameCode(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+function compareRules(a: ScheduleRule, b: ScheduleRule): number {
+  return (a.sequence ?? 0) - (b.sequence ?? 0) || String(a.dose_code ?? "").localeCompare(String(b.dose_code ?? ""));
 }
 
 function readMatrixRows(ruleDsl: unknown): MatrixRow[] {
   if (!ruleDsl || typeof ruleDsl !== "object") return [];
   const rows = (ruleDsl as { matrix_rows?: unknown }).matrix_rows;
-  return Array.isArray(rows) ? (rows as MatrixRow[]) : [];
+  return Array.isArray(rows) ? rows.filter(isMatrixRow) : [];
+}
+
+function isMatrixRow(value: unknown): value is MatrixRow {
+  return typeof value === "object" && value !== null;
 }
 
 /** Only for a row with no name of its own: "GOAT_POX" -> "Goat Pox". */

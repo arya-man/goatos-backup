@@ -300,6 +300,8 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/protocols/versions/65000000-0000-4000-8000-000000000001"},
 		{"POST", "/protocols/versions/65000000-0000-4000-8000-000000000001/publish"},
 		{"POST", "/protocols/vaccination/impact-preview"},
+		{"POST", "/vaccination/anchors/preview"},
+		{"POST", "/vaccination/anchors"},
 		{"POST", "/vaccination/manual-campaigns"},
 		{"GET", "/action-center/obligations"},
 		{"GET", "/vaccination/action-center"},

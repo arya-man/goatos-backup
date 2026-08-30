@@ -25,6 +25,7 @@ type ProtocolConfig interface {
 	CreateVersion(ctx context.Context, in domain.NewVersion) (string, error)
 	AddRule(ctx context.Context, in domain.NewRule) (string, error)
 	GetVersion(ctx context.Context, tenantID, versionID string) (domain.Version, error)
+	ListRules(ctx context.Context, tenantID, versionID string) ([]domain.Rule, error)
 	PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error
 	DiscardVersion(ctx context.Context, tenantID, versionID string) error
 	ReplaceDraftVersion(ctx context.Context, in domain.NewVersion, replacesVersionID string) (string, error)
@@ -364,6 +365,25 @@ type versionResponse struct {
 	ProofPolicy       json.RawMessage `json:"proof_policy"`
 	SopVersionID      string          `json:"sop_version_id,omitempty"`
 	RowVersion        int32           `json:"row_version"`
+	Rules             []ruleResponse  `json:"rules,omitempty"`
+}
+
+type ruleResponse struct {
+	RuleID              string          `json:"rule_id"`
+	ProtocolVersionID   string          `json:"protocol_version_id"`
+	ProtocolID          string          `json:"protocol_id"`
+	DoseCode            string          `json:"dose_code"`
+	Sequence            int32           `json:"sequence"`
+	TriggerType         string          `json:"trigger_type"`
+	OffsetDays          int32           `json:"offset_days"`
+	DueWindowDays       int32           `json:"due_window_days"`
+	MinGapDays          int32           `json:"min_gap_days"`
+	Repeat              string          `json:"repeat"`
+	RepeatUntilAfterAge string          `json:"repeat_until_after_age,omitempty"`
+	CatchUp             string          `json:"catch_up"`
+	EligibilityJSON     json.RawMessage `json:"eligibility_json"`
+	SopVersionID        string          `json:"sop_version_id,omitempty"`
+	SortOrder           int32           `json:"sort_order"`
 }
 
 func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
@@ -377,13 +397,35 @@ func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
 		h.internal(w, r, err)
 		return
 	}
+	rules, err := h.config.ListRules(r.Context(), tenantID(r), r.PathValue("version_id"))
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
 	httpresponse.WriteJSON(w, http.StatusOK, versionResponse{
 		ProtocolVersionID: v.ProtocolVersionID, ProtocolID: v.ProtocolID,
 		ScopeType: v.ScopeType, ScopeID: v.ScopeID, Version: v.Version, Status: v.Status,
 		EffectiveFrom: v.EffectiveFrom, EffectiveTo: v.EffectiveTo,
 		RuleDsl: rawOrNull(v.RuleDsl), ProofPolicy: rawOrNull(v.ProofPolicy),
-		SopVersionID: v.SopVersionID, RowVersion: v.RowVersion,
+		SopVersionID: v.SopVersionID, RowVersion: v.RowVersion, Rules: toRuleResponses(rules),
 	})
+}
+
+func toRuleResponses(rules []domain.Rule) []ruleResponse {
+	if len(rules) == 0 {
+		return nil
+	}
+	out := make([]ruleResponse, 0, len(rules))
+	for _, rule := range rules {
+		out = append(out, ruleResponse{
+			RuleID: rule.RuleID, ProtocolVersionID: rule.ProtocolVersionID, ProtocolID: rule.ProtocolID,
+			DoseCode: rule.DoseCode, Sequence: rule.Sequence, TriggerType: rule.TriggerType,
+			OffsetDays: rule.OffsetDays, DueWindowDays: rule.DueWindowDays, MinGapDays: rule.MinGapDays,
+			Repeat: rule.Repeat, RepeatUntilAfterAge: rule.RepeatUntilAfterAge, CatchUp: rule.CatchUp,
+			EligibilityJSON: rawOrNull(rule.EligibilityJSON), SopVersionID: rule.SopVersionID, SortOrder: rule.SortOrder,
+		})
+	}
+	return out
 }
 
 // ---- publish ----

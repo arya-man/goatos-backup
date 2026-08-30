@@ -673,7 +673,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	salesHandler := saleshttp.NewSalesHandler(
 		salesapp.NewSalesService(salespg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	vaccinationRepo := vaccinationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
-	vaccinationService := vaccinationapp.NewService(vaccinationRepo)
+	vaccinationService := vaccinationapp.NewService(vaccinationRepo).WithAnchorObligationSuppressor(obligationRepo)
 	inventoryService := inventoryapp.NewService(inventorypg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService)
 	vaccinationBooster := vaccinationapp.NewBoosterService(protocolRepo, obligationRepo).WithGoatReader(vaccinationRepo).WithCrossVaccineGapReader(vaccinationRepo)
@@ -1009,7 +1009,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, bus))
 	sopHandler := sophttp.NewHandler(sopService, log)
 	vaccinationHandler := vaccinationhttp.NewHandler(vaccinationService, vaccinationCompletion, log).
-		WithManualCampaignGenerator(vaccinationGeneration)
+		WithManualCampaignGenerator(vaccinationGeneration).
+		WithAnchorManager(vaccinationService)
 	passportService := passportapp.NewService(vaccinationService, obligationRepo, obligationRepo)
 	passportHandler := passporthttp.NewHandler(passportService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)

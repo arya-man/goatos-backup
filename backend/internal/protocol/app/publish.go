@@ -1,12 +1,16 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -44,11 +48,22 @@ type protocolMatrixPublisher interface {
 	PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, seedOwnedGuardActor string, idempotencyKey ...string) error
 }
 
+type protocolMatrixAnchorPublisher interface {
+	PublishVersionWithDerivedRulesAndAnchors(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, anchors []domain.PublishedAnchorConfig, seedOwnedGuardActor string, idempotencyKey ...string) error
+}
+
 // capacityAtomicPublisher publishes a non-matrix vaccination version and upserts + parity-checks its
 // versioned capacity in the SAME transaction, so a capacity failure rolls the publish back. Repositories
 // that do not implement it fall back to the (non-atomic) best-effort post-publish sync.
 type capacityAtomicPublisher interface {
 	PublishVersionWithCapacity(ctx context.Context, tenantID, versionID string, publishedBy *string, capacity domain.PublishedCapacity, idempotencyKey ...string) error
+}
+
+// anchorAtomicPublisher applies config-level vaccination anchors in the same
+// database transaction that flips the draft version live.
+type anchorAtomicPublisher interface {
+	PublishVersionWithAnchors(ctx context.Context, tenantID, versionID string, publishedBy *string, anchors []domain.PublishedAnchorConfig, idempotencyKey ...string) error
+	PublishVersionWithCapacityAndAnchors(ctx context.Context, tenantID, versionID string, publishedBy *string, capacity domain.PublishedCapacity, anchors []domain.PublishedAnchorConfig, idempotencyKey ...string) error
 }
 
 type protocolPublishedMatrixReplayer interface {
@@ -71,8 +86,26 @@ type ruleDSLEnvelope struct {
 	ProcurementPolicy   json.RawMessage `json:"procurement_policy"`
 	CompatibilityPolicy json.RawMessage `json:"compatibility_policy"`
 	Capacity            json.RawMessage `json:"capacity"`
+	AnchorConfig        json.RawMessage `json:"anchor_config"`
 	Schedule            []scheduleRow   `json:"schedule"`
 	MatrixRows          []matrixRow     `json:"matrix_rows"`
+}
+
+type anchorConfigEnvelope struct {
+	Rules []anchorConfigRule `json:"rules"`
+}
+
+type anchorConfigRule struct {
+	VaccineCode           string          `json:"vaccine_code"`
+	DoseCode              string          `json:"dose_code"`
+	AnchorDate            string          `json:"anchor_date"`
+	ScopeType             string          `json:"scope_type"`
+	ScopePayload          json.RawMessage `json:"scope_payload"`
+	Reason                string          `json:"reason"`
+	SourceRef             string          `json:"source_ref"`
+	SuppressBeforeAnchor  *bool           `json:"suppress_before_anchor"`
+	ChainFutureFromAnchor *bool           `json:"chain_future_from_anchor"`
+	EnforceAgeEligibility *bool           `json:"enforce_age_eligibility"`
 }
 
 // capacityConfigSyncer is the optional repository capability that upserts the operational capacity
@@ -191,6 +224,109 @@ func versionedCapacityForPublish(v domain.Version, env ruleDSLEnvelope) (*domain
 	return &want, nil
 }
 
+func versionedAnchorsForPublish(v domain.Version, env ruleDSLEnvelope, publishedBy *string) ([]domain.PublishedAnchorConfig, error) {
+	if !isVaccinationVersion(v, env) {
+		return nil, nil
+	}
+	if len(env.AnchorConfig) == 0 || strings.TrimSpace(string(env.AnchorConfig)) == "" || strings.TrimSpace(string(env.AnchorConfig)) == "null" {
+		return nil, nil
+	}
+	var cfg anchorConfigEnvelope
+	if err := json.Unmarshal(env.AnchorConfig, &cfg); err != nil {
+		return nil, fmt.Errorf("%w: rule_dsl.anchor_config must be a JSON object: %v", ErrInvalidRuleDSL, err)
+	}
+	out := make([]domain.PublishedAnchorConfig, 0, len(cfg.Rules))
+	for idx, rule := range cfg.Rules {
+		vaccineCode := strings.TrimSpace(rule.VaccineCode)
+		doseCode := strings.TrimSpace(rule.DoseCode)
+		anchorDate := strings.TrimSpace(rule.AnchorDate)
+		reason := strings.TrimSpace(rule.Reason)
+		scopeType := strings.TrimSpace(rule.ScopeType)
+		if scopeType == "" {
+			scopeType = "tenant"
+		}
+		if vaccineCode == "" || doseCode == "" || anchorDate == "" || reason == "" {
+			return nil, fmt.Errorf("%w: rule_dsl.anchor_config.rules[%d] requires vaccine_code, dose_code, anchor_date, and reason", ErrInvalidRuleDSL, idx)
+		}
+		if _, err := time.Parse("2006-01-02", anchorDate); err != nil {
+			return nil, fmt.Errorf("%w: rule_dsl.anchor_config.rules[%d].anchor_date must be YYYY-MM-DD", ErrInvalidRuleDSL, idx)
+		}
+		switch scopeType {
+		case "tenant", "park", "shed", "partition", "animal_set":
+		default:
+			return nil, fmt.Errorf("%w: rule_dsl.anchor_config.rules[%d].scope_type is not supported", ErrInvalidRuleDSL, idx)
+		}
+		scopePayload := rule.ScopePayload
+		if len(scopePayload) == 0 {
+			scopePayload = json.RawMessage(`{}`)
+		}
+		if !json.Valid(scopePayload) {
+			return nil, fmt.Errorf("%w: rule_dsl.anchor_config.rules[%d].scope_payload must be valid JSON", ErrInvalidRuleDSL, idx)
+		}
+		if !jsonObject(scopePayload) {
+			return nil, fmt.Errorf("%w: rule_dsl.anchor_config.rules[%d].scope_payload must be an object", ErrInvalidRuleDSL, idx)
+		}
+		suppress := true
+		if rule.SuppressBeforeAnchor != nil {
+			suppress = *rule.SuppressBeforeAnchor
+		}
+		chain := true
+		if rule.ChainFutureFromAnchor != nil {
+			chain = *rule.ChainFutureFromAnchor
+		}
+		enforceAge := true
+		if rule.EnforceAgeEligibility != nil {
+			enforceAge = *rule.EnforceAgeEligibility
+		}
+		requestHash := anchorRequestHash(v.ProtocolVersionID, vaccineCode, doseCode, anchorDate, scopeType, canonicalAnchorJSON(scopePayload), strconv.FormatBool(suppress), strconv.FormatBool(chain), strconv.FormatBool(enforceAge), reason, strings.TrimSpace(rule.SourceRef))
+		out = append(out, domain.PublishedAnchorConfig{
+			VaccineCode:           vaccineCode,
+			DoseCode:              doseCode,
+			AnchorDate:            anchorDate,
+			ScopeType:             scopeType,
+			ScopePayload:          []byte(scopePayload),
+			Reason:                reason,
+			SourceRef:             strings.TrimSpace(rule.SourceRef),
+			SuppressBeforeAnchor:  suppress,
+			ChainFutureFromAnchor: chain,
+			EnforceAgeEligibility: enforceAge,
+			SourceSystem:          "vaccination_plan_publish",
+			CreatedBy:             publishedBy,
+			IdempotencyKey:        fmt.Sprintf("vaccination-anchor-config:%s", requestHash),
+			RequestHash:           requestHash,
+		})
+	}
+	return out, nil
+}
+
+func anchorRequestHash(parts ...string) string {
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x1f")))
+	return hex.EncodeToString(sum[:])
+}
+
+func canonicalAnchorJSON(raw []byte) string {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return string(raw)
+	}
+	out, err := json.Marshal(v)
+	if err != nil {
+		return string(raw)
+	}
+	return string(out)
+}
+
+func jsonObject(raw json.RawMessage) bool {
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return false
+	}
+	_, ok := v.(map[string]any)
+	return ok
+}
+
 // mapCapacityParityErr translates the repository's in-transaction parity sentinel into the app-level
 // ErrNotPublishable the API and tests expect. Any other error (or nil) passes through unchanged.
 func mapCapacityParityErr(err error) error {
@@ -259,6 +395,7 @@ var (
 		"procurement_policy":   true,
 		"pregnancy_policy":     true,
 		"capacity":             true,
+		"anchor_config":        true,
 		"recovery_policy":      true,
 		"drive_policy":         true,
 		"parameter_template":   true,
@@ -1370,6 +1507,20 @@ func (s *Service) publishVersion(ctx context.Context, tenantID, versionID string
 		if err != nil {
 			return err
 		}
+		anchors, err := versionedAnchorsForPublish(v, env, publishedBy)
+		if err != nil {
+			return err
+		}
+		if len(anchors) > 0 {
+			anchorPublisher, ok := s.repo.(protocolMatrixAnchorPublisher)
+			if !ok {
+				return fmt.Errorf("%w: repository cannot atomically publish vaccination anchors", ErrNotPublishable)
+			}
+			if err := anchorPublisher.PublishVersionWithDerivedRulesAndAnchors(ctx, tenantID, v, rules, dimensions, publishedBy, capacity, anchors, seedGuardActor, idempotencyKey...); err != nil {
+				return mapCapacityParityErr(err)
+			}
+			return nil
+		}
 		if err := publisher.PublishVersionWithDerivedRules(ctx, tenantID, v, rules, dimensions, publishedBy, capacity, seedGuardActor, idempotencyKey...); err != nil {
 			return mapCapacityParityErr(err)
 		}
@@ -1390,10 +1541,28 @@ func (s *Service) publishVersion(ctx context.Context, tenantID, versionID string
 	if err != nil {
 		return err
 	}
+	anchors, err := versionedAnchorsForPublish(v, env, publishedBy)
+	if err != nil {
+		return err
+	}
 	if capacity != nil {
+		if len(anchors) > 0 {
+			atomic, ok := s.repo.(anchorAtomicPublisher)
+			if !ok {
+				return fmt.Errorf("%w: repository cannot atomically publish vaccination anchors", ErrNotPublishable)
+			}
+			return mapCapacityParityErr(atomic.PublishVersionWithCapacityAndAnchors(ctx, tenantID, versionID, publishedBy, *capacity, anchors, idempotencyKey...))
+		}
 		if atomic, ok := s.repo.(capacityAtomicPublisher); ok {
 			return mapCapacityParityErr(atomic.PublishVersionWithCapacity(ctx, tenantID, versionID, publishedBy, *capacity, idempotencyKey...))
 		}
+	}
+	if len(anchors) > 0 {
+		atomic, ok := s.repo.(anchorAtomicPublisher)
+		if !ok {
+			return fmt.Errorf("%w: repository cannot atomically publish vaccination anchors", ErrNotPublishable)
+		}
+		return atomic.PublishVersionWithAnchors(ctx, tenantID, versionID, publishedBy, anchors, idempotencyKey...)
 	}
 	if err := s.repo.PublishVersion(ctx, tenantID, versionID, publishedBy, idempotencyKey...); err != nil {
 		return err

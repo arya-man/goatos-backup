@@ -100,6 +100,7 @@ type ObligationWriter interface {
 	// NextSuccessorSuffix computes the next free numeric successor suffix for a base idempotency key
 	// in one bounded query (R50-011), avoiding O(N) probe round trips on large collision histories.
 	NextSuccessorSuffix(ctx context.Context, tenantID, baseKey string) (int, error)
+	CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx context.Context, tenantID string, goatIDs []string, occurredAt time.Time) (int, error)
 }
 
 // ManualVaccineAnchorReader is implemented by the production obligation store.
@@ -152,6 +153,7 @@ type cachedVersionPlan struct {
 	eligibility    genEligibility
 	policies       genVersionPolicies
 	vaccineProfile vaccineProfile
+	anchors        genAnchorConfig
 }
 
 type goatGenerationPlan struct {
@@ -163,6 +165,7 @@ type goatGenerationPlan struct {
 	eligibility    genEligibility
 	policies       genVersionPolicies
 	vaccineProfile vaccineProfile
+	anchors        genAnchorConfig
 }
 
 type trustedEvidenceLookup struct {
@@ -382,11 +385,27 @@ type genDSL struct {
 	PregnancyPolicy     genPregnancyPolicy     `json:"pregnancy_policy"`
 	RecoveryPolicy      genRecoveryPolicy      `json:"recovery_policy"`
 	MissedDosePolicy    genMissedDosePolicy    `json:"missed_dose_policy"`
+	AnchorConfig        genAnchorConfig        `json:"anchor_config"`
 }
 
 type genRuleMetadata struct {
 	Eligibility json.RawMessage `json:"eligibility"`
 	Vaccine     genVaccineMeta  `json:"vaccine"`
+}
+
+type genAnchorConfig struct {
+	Rules []genAnchorRule `json:"rules"`
+}
+
+type genAnchorRule struct {
+	VaccineCode           string          `json:"vaccine_code"`
+	DoseCode              string          `json:"dose_code"`
+	AnchorDate            string          `json:"anchor_date"`
+	ScopeType             string          `json:"scope_type"`
+	ScopePayload          json.RawMessage `json:"scope_payload"`
+	SuppressBeforeAnchor  *bool           `json:"suppress_before_anchor"`
+	ChainFutureFromAnchor *bool           `json:"chain_future_from_anchor"`
+	EnforceAgeEligibility *bool           `json:"enforce_age_eligibility"`
 }
 
 func versionPoliciesFromDSL(dsl genDSL) genVersionPolicies {
@@ -614,6 +633,9 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 		if err := s.supersedeRetiredPlanWork(ctx, tenantID, activeGoats, effectiveVersionsByPark, asOf); err != nil {
 			return res, err
 		}
+		if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, activeGoats, asOf); err != nil {
+			return res, err
+		}
 		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
 		for _, g := range activeGoats {
 			for _, versionID := range effectiveVersionsByPark[generationParkCacheKey(g.ParkID)] {
@@ -630,6 +652,7 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 					eligibility:    p.eligibility,
 					policies:       p.policies,
 					vaccineProfile: p.vaccineProfile,
+					anchors:        p.anchors,
 				})
 			}
 		}
@@ -644,6 +667,7 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 		return res, err
 	}
 	runOpts := baseOpts
+	runOpts.anchorDueByGoatRule = anchorDueOverrides(allPlans, asOf)
 	runOpts.campaignDueByGoat, runOpts.cohortAlignedCampaignByGoat, err = campaignDueOverrides(allPlans, asOf, vaccineHistoryByGoat)
 	if err != nil {
 		return res, err
@@ -814,6 +838,7 @@ func cacheVersionPlan(versionID string, v protodomain.Version, rules []protodoma
 		eligibility:    dsl.Eligibility,
 		policies:       versionPoliciesFromDSL(dsl),
 		vaccineProfile: vaccineProfileFromDSL(dsl),
+		anchors:        dsl.AnchorConfig,
 	}
 	return nil
 }
@@ -906,6 +931,7 @@ type generationOptions struct {
 	RunRequestHash              string
 	campaignDueByGoat           map[string]time.Time
 	cohortAlignedCampaignByGoat map[string]bool
+	anchorDueByGoatRule         map[string]time.Time
 	// healthRecoveryAlign enables sick/ICU/quarantine recovery replanning: align to a nearby planned
 	// drive within recovery_policy.max_nearby_drive_align_days (default 7), else micro-drive now.
 	healthRecoveryAlign bool
@@ -919,12 +945,135 @@ func campaignDueGoatKey(versionID, ruleID, goatID string) string {
 	return strings.TrimSpace(versionID) + "\x00" + strings.TrimSpace(ruleID) + "\x00" + strings.TrimSpace(goatID)
 }
 
+func anchorDueGoatRuleKey(versionID, ruleID, goatID string) string {
+	return strings.TrimSpace(versionID) + "\x00" + strings.TrimSpace(ruleID) + "\x00" + strings.TrimSpace(goatID)
+}
+
 func adultCampaignCohortKey(versionID, parkID, vaccineCode string) string {
 	return strings.TrimSpace(versionID) + "\x00" + strings.TrimSpace(parkID) + "\x00" + strings.ToLower(strings.TrimSpace(vaccineCode))
 }
 
 func adultCampaignStart(asOf time.Time) time.Time {
 	return businessDayStart(asOf).AddDate(0, 0, 1)
+}
+
+func anchorDueOverrides(plans []goatGenerationPlan, asOf time.Time) map[string]time.Time {
+	out := make(map[string]time.Time)
+	for _, plan := range plans {
+		if len(plan.anchors.Rules) == 0 {
+			continue
+		}
+		for _, rule := range plan.rules {
+			ruleEligibility, ruleVaccine, err := ruleGenerationContext(rule, plan.eligibility, plan.vaccineProfile)
+			if err != nil {
+				continue
+			}
+			anchor, ok := matchingConfigAnchor(plan.anchors, rule, ruleVaccine, plan.goat, asOf)
+			if !ok {
+				continue
+			}
+			if !goatMatchesEligibility(plan.goat, ruleEligibility, plan.policies.Pregnancy, asOf) {
+				continue
+			}
+			if anchor.enforceAge() && rule.TriggerType == "birth_age" {
+				if plan.goat.DOB == nil || businessDayStart(*plan.goat.DOB).AddDate(0, 0, int(rule.OffsetDays)).After(anchor.date) {
+					continue
+				}
+			}
+			out[anchorDueGoatRuleKey(plan.versionID, rule.RuleID, plan.goat.GoatID)] = anchor.date
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+type matchedConfigAnchor struct {
+	date time.Time
+	genAnchorRule
+}
+
+func matchingConfigAnchor(config genAnchorConfig, rule protodomain.Rule, vaccine vaccineProfile, goat domain.EligibleGoat, asOf time.Time) (matchedConfigAnchor, bool) {
+	for _, anchor := range config.Rules {
+		if !strings.EqualFold(strings.TrimSpace(anchor.DoseCode), strings.TrimSpace(rule.DoseCode)) {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(anchor.VaccineCode), strings.TrimSpace(vaccine.Code)) {
+			continue
+		}
+		date, err := time.Parse("2006-01-02", strings.TrimSpace(anchor.AnchorDate))
+		if err != nil {
+			continue
+		}
+		date = businessDayStart(date)
+		// Config anchors schedule real work. Once the date has passed, completed operator evidence
+		// owns future chaining; do not mint stale "as if completed" obligations from config alone.
+		if date.Before(businessDayStart(asOf)) {
+			continue
+		}
+		if !anchor.scopeMatches(goat) {
+			continue
+		}
+		return matchedConfigAnchor{date: date, genAnchorRule: anchor}, true
+	}
+	return matchedConfigAnchor{}, false
+}
+
+func (a genAnchorRule) enforceAge() bool {
+	return a.EnforceAgeEligibility == nil || *a.EnforceAgeEligibility
+}
+
+func (a genAnchorRule) scopeMatches(g domain.EligibleGoat) bool {
+	scopeType := strings.TrimSpace(a.ScopeType)
+	if scopeType == "" {
+		scopeType = "tenant"
+	}
+	switch scopeType {
+	case "tenant":
+		return true
+	case "animal_set":
+		var payload struct {
+			AnimalIDs []string `json:"animal_ids"`
+		}
+		if err := json.Unmarshal(a.ScopePayload, &payload); err != nil {
+			return false
+		}
+		for _, id := range payload.AnimalIDs {
+			if strings.TrimSpace(id) == g.GoatID {
+				return true
+			}
+		}
+		return false
+	case "park":
+		var payload struct {
+			ParkID string `json:"park_id"`
+		}
+		if err := json.Unmarshal(a.ScopePayload, &payload); err != nil {
+			return false
+		}
+		return strings.TrimSpace(payload.ParkID) == strings.TrimSpace(g.ParkID)
+	case "shed":
+		var payload struct {
+			ShedID string `json:"shed_id"`
+		}
+		if err := json.Unmarshal(a.ScopePayload, &payload); err != nil {
+			return false
+		}
+		return strings.TrimSpace(payload.ShedID) == strings.TrimSpace(g.ShedID)
+	case "partition":
+		var payload struct {
+			ShedID         string `json:"shed_id"`
+			PartitionLabel string `json:"partition_label"`
+		}
+		if err := json.Unmarshal(a.ScopePayload, &payload); err != nil {
+			return false
+		}
+		return strings.TrimSpace(payload.ShedID) == strings.TrimSpace(g.ShedID) &&
+			strings.EqualFold(strings.TrimSpace(payload.PartitionLabel), strings.TrimSpace(g.PartitionLabel))
+	default:
+		return false
+	}
 }
 
 func businessDayEnd(asOf time.Time) time.Time {
@@ -1238,6 +1387,9 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		if err := s.supersedeRetiredPlanWork(ctx, tenantID, activeGoats, effectiveVersionsByPark, asOf); err != nil {
 			return res, err
 		}
+		if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, activeGoats, asOf); err != nil {
+			return res, err
+		}
 		pagePlans := make([]goatGenerationPlan, 0, len(activeGoats))
 		for _, g := range activeGoats {
 			if !goatMatchesEligibility(g, elig, policies.Pregnancy, asOf) {
@@ -1263,6 +1415,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 				eligibility:    elig,
 				policies:       policies,
 				vaccineProfile: vaccineProf,
+				anchors:        dsl.AnchorConfig,
 			})
 		}
 		allPlans = append(allPlans, pagePlans...)
@@ -1279,6 +1432,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		return res, err
 	}
 	runOpts := opts
+	runOpts.anchorDueByGoatRule = anchorDueOverrides(allPlans, asOf)
 	runOpts.campaignDueByGoat, runOpts.cohortAlignedCampaignByGoat, err = campaignDueOverrides(allPlans, asOf, vaccineHistoryByGoat)
 	if err != nil {
 		return res, err
@@ -1624,6 +1778,13 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 		if ok && !procPurposeDue.IsZero() {
 			baseDue = procPurposeDue
+		}
+		if anchorDue, found := opts.anchorDueByGoatRule[anchorDueGoatRuleKey(versionID, rule.RuleID, g.GoatID)]; found {
+			baseDue = anchorDue
+			ok = true
+			skip = false
+			anchorCatchUpKey = ""
+			historyAnchor = nil
 		}
 		if skip {
 			trusted, err := s.hasTrustedCompletionEvidence(ctx, tenantID, versionID, rule, g, asOf, asOf, trustedLookup)
@@ -2285,6 +2446,9 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 	if _, err := s.obl.CancelOpenVaccinationObligationsForGoatExceptVersions(ctx, tenantID, goatID, versionIDs, "version_no_longer_effective_after_recheck", asOf); err != nil {
 		return res, err
 	}
+	if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, []domain.EligibleGoat{g}, asOf); err != nil {
+		return res, err
+	}
 	pagePlans := make([]goatGenerationPlan, 0, len(versionIDs))
 	plans := make(map[string]cachedVersionPlan, len(versionIDs))
 	if err := s.loadVersionPlans(ctx, tenantID, versionIDs, plans); err != nil {
@@ -2314,6 +2478,7 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 		return res, err
 	}
 	runOpts := opts
+	runOpts.anchorDueByGoatRule = anchorDueOverrides(pagePlans, asOf)
 	runOpts.campaignDueByGoat, runOpts.cohortAlignedCampaignByGoat, err = campaignDueOverrides(pagePlans, asOf, vaccineHistoryByGoat)
 	if err != nil {
 		return res, err
@@ -2331,6 +2496,29 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 		}
 	}
 	return res, nil
+}
+
+func (s *GenerationService) suppressOpenWorkBeforeAnchors(ctx context.Context, tenantID string, goats []domain.EligibleGoat, asOf time.Time) error {
+	if len(goats) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(goats))
+	seen := make(map[string]struct{}, len(goats))
+	for _, goat := range goats {
+		if strings.TrimSpace(goat.GoatID) == "" {
+			continue
+		}
+		if _, exists := seen[goat.GoatID]; exists {
+			continue
+		}
+		seen[goat.GoatID] = struct{}{}
+		ids = append(ids, goat.GoatID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := s.obl.CancelOpenVaccinationObligationsBeforeActiveAnchors(ctx, tenantID, ids, asOf)
+	return err
 }
 
 func (s *GenerationService) recoveryRescheduleForRule(ctx context.Context, tenantID, versionID string, rule protodomain.Rule, ruleVaccine vaccineProfile, g domain.EligibleGoat, asOf time.Time, recovery genRecoveryPolicy, compatibility genCompatibilityPolicy, vaccineHistory []domain.RecentVaccineAdministration) (*obldomain.RecoveryReschedule, error) {
