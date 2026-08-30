@@ -325,6 +325,8 @@ var protectedRoutes = []Route{
 	{OperationID: "discardProtocolVersion", Method: "POST", Pattern: "/protocols/versions/{version_id}/discard", Permissions: []string{ProtocolWrite}},
 	{OperationID: "replaceProtocolDraftVersion", Method: "POST", Pattern: "/protocols/versions/{version_id}/replace", Permissions: []string{ProtocolWrite}},
 	{OperationID: "vaccinationImpactPreview", Method: "POST", Pattern: "/protocols/vaccination/impact-preview", Permissions: []string{ProtocolRead}},
+	{OperationID: "previewVaccinationAnchor", Method: "POST", Pattern: "/vaccination/anchors/preview", Permissions: []string{ProtocolRead}},
+	{OperationID: "createVaccinationAnchor", Method: "POST", Pattern: "/vaccination/anchors", Permissions: []string{VaccinationCampaign}},
 	{OperationID: "runVaccinationManualCampaign", Method: "POST", Pattern: "/vaccination/manual-campaigns", Permissions: []string{VaccinationCampaign}},
 	{OperationID: "listActionCenterObligations", Method: "GET", Pattern: "/action-center/obligations", Permissions: []string{ObligationRead}},
 	{OperationID: "listVaccinationActionCenter", Method: "GET", Pattern: "/vaccination/action-center", Permissions: []string{ObligationRead, VaccinationRead}},

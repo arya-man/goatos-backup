@@ -191,22 +191,21 @@ func (r *Repository) anchorPreviewRows(ctx context.Context, tenant pgtype.UUID, 
 			if _, ok := ruleSeen[key]; !ok {
 				ruleSeen[key] = struct{}{}
 				out.RuleOptions = append(out.RuleOptions, rule)
-				if out.DoseCode == "" {
+				if len(ruleSeen) == 1 || out.DoseCode == "" {
 					out.DoseCode = rule.DoseCode
 				}
 			}
 		case "eligible":
-			out.TotalResolvedAnimals++
 			out.EligibleAnimals++
 			out.EligibleSample = append(out.EligibleSample, domain.AnchorAnimal{GoatID: goatID, Identifier: identifier, Species: species})
 		case "underage":
-			out.TotalResolvedAnimals++
 			out.ExcludedUnderageAnimals++
 			out.UnderageSample = append(out.UnderageSample, domain.AnchorAnimal{GoatID: goatID, Identifier: identifier, Species: species, Reason: reason})
 		case "species_mismatch":
-			out.TotalResolvedAnimals++
 			out.SpeciesMismatchAnimals++
 			out.SpeciesMismatchSample = append(out.SpeciesMismatchSample, domain.AnchorAnimal{GoatID: goatID, Identifier: identifier, Species: species, Reason: reason})
+		case "resolved_total":
+			out.TotalResolvedAnimals++
 		case "before_open":
 			out.OpenRowsBeforeAnchor++
 		case "same_day_open":
@@ -235,12 +234,31 @@ WITH rules AS (
   JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id AND pd.category = 'vaccination'
   JOIN protocol_rules pr ON pr.tenant_id = pv.tenant_id AND pr.protocol_version_id = pv.protocol_version_id
   JOIN protocol_rule_lineage l ON l.tenant_id = pr.tenant_id AND l.protocol_version_id = pr.protocol_version_id AND l.rule_id = pr.rule_id
+  LEFT JOIN LATERAL (
+    SELECT row AS matrix_row
+    FROM jsonb_array_elements(COALESCE(pv.rule_dsl -> 'matrix_rows', '[]'::jsonb)) row
+    WHERE lower(btrim(row -> 'vaccine' ->> 'code')) = lower(btrim(COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', ''))))
+    LIMIT 1
+  ) matrix ON true
+  LEFT JOIN LATERAL (
+    SELECT sched AS matrix_schedule
+    FROM jsonb_array_elements(COALESCE(matrix.matrix_row -> 'schedule', '[]'::jsonb)) sched
+    WHERE NULLIF(sched ->> 'sequence', '')::integer = pr.sequence
+      AND COALESCE(NULLIF(sched ->> 'trigger_type', ''), pr.trigger_type) = pr.trigger_type
+      AND COALESCE(NULLIF(sched ->> 'offset_days', '')::integer, pr.offset_days) = pr.offset_days
+    LIMIT 1
+  ) schedule_alias ON true
   WHERE pv.tenant_id = $1
     AND pv.status = 'published'
     AND pv.effective_from <= $4::date
     AND (pv.effective_to IS NULL OR pv.effective_to > $4::date)
     AND lower(btrim(COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))) = lower(btrim($2))
-    AND (NULLIF($3, '') IS NULL OR lower(btrim(pr.dose_code)) = lower(btrim($3)))
+    AND (
+      NULLIF($3, '') IS NULL
+      OR lower(btrim(pr.dose_code)) = lower(btrim($3))
+      OR lower(btrim(COALESCE(schedule_alias.matrix_schedule ->> 'dose_code', ''))) = lower(btrim($3))
+      OR lower(btrim(COALESCE(schedule_alias.matrix_schedule ->> 'source_dose_code', ''))) = lower(btrim($3))
+    )
   ORDER BY lower(btrim(COALESCE(NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))), lower(btrim(pr.dose_code)), pv.effective_from DESC, pv.protocol_version_id
 ),
 resolved AS (
@@ -323,6 +341,9 @@ SELECT 'rule', '', '', '', '', jsonb_build_object(
   'species', COALESCE((SELECT jsonb_agg(value) FROM jsonb_array_elements_text(species_json)), '[]'::jsonb)
 )::text::bytea
 FROM rules
+UNION ALL
+SELECT 'resolved_total', goat_id::text, identifier, species, '', NULL::bytea
+FROM resolved
 UNION ALL
 SELECT bucket, goat_id::text, identifier, species,
        CASE WHEN bucket = 'underage' THEN 'younger_than_rule_offset' WHEN bucket = 'species_mismatch' THEN 'species_not_allowed_for_rule' ELSE '' END,

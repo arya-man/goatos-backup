@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -78,6 +79,75 @@ VALUES ($1::uuid, $2::uuid, 'animal_identifier_1', 'RFID-PPR-001', 'RFID-PPR-001
 	}
 	if count != 1 {
 		t.Fatalf("anchor rows=%d, want 1", count)
+	}
+}
+
+func TestCreateAnchorAcceptsActiveMatrixDoseAliasAsCanonicalRule(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	vacc := NewRepository(pool, 5*time.Second)
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{TenantID: impTenant, Code: "vaccination.anchor.alias", Name: "Anchor alias", Category: "vaccination", Status: "draft"})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl: []byte(`{"vaccine":{"code":"vaccination.matrix"},"matrix_rows":[{"vaccine":{"code":"HS"},"schedule":[` +
+			`{"dose_code":"hs_kid_16w","source_dose_code":"hs_kid_16w","sequence":9,"trigger_type":"birth_age","offset_days":84}` +
+			`]}]}`),
+		ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if _, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "hs_kid_12w", Sequence: 9, TriggerType: "birth_age", OffsetDays: 84,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"HS","type":"killed","pathogen_class":"bacterial"},"eligibility":{"species":["goat","sheep"]}}`), ProofPolicy: []byte(`{}`),
+	}); err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE protocol_versions SET status='published' WHERE tenant_id=$1 AND protocol_version_id=$2`, impTenant, versionID); err != nil {
+		t.Fatalf("publish version: %v", err)
+	}
+	const goatID = "30000000-0000-4000-8000-0000000000d0"
+	seedGenGoatWithStage(t, ctx, pool, goatID, "alive", "K1")
+	if _, err := pool.Exec(ctx, `UPDATE goats SET dob=DATE '2026-01-01' WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID); err != nil {
+		t.Fatalf("set dob: %v", err)
+	}
+	payload, _ := json.Marshal(map[string]any{"animal_ids": []string{goatID}})
+	cmd := domain.AnchorCommand{
+		TenantID: impTenant, VaccineCode: "HS", DoseCode: "hs_kid_16w",
+		AnchorDate: time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC),
+		Scope:      domain.AnchorScope{Type: "animal_set", Payload: payload},
+		Reason:     "HS alias drive", SourceSystem: "test", IdempotencyKey: "create-anchor-hs-alias", RequestHash: strings.Repeat("b", 64),
+		SuppressBeforeAnchor: true, ChainFutureFromAnchor: true, EnforceAgeEligibility: true,
+	}
+	preview, err := vacc.CreateAnchor(ctx, cmd)
+	if err != nil {
+		t.Fatalf("create alias anchor: %v", err)
+	}
+	if preview.DoseCode != "hs_kid_12w" || preview.EligibleAnimals != 1 {
+		t.Fatalf("preview=%+v, want canonical hs_kid_12w with one eligible animal", preview)
+	}
+	var storedDose string
+	if err := pool.QueryRow(ctx, `SELECT dose_code FROM vaccination_anchor_events WHERE tenant_id=$1 AND idempotency_key='create-anchor-hs-alias'`, impTenant).Scan(&storedDose); err != nil {
+		t.Fatalf("stored dose: %v", err)
+	}
+	if storedDose != "hs_kid_12w" {
+		t.Fatalf("stored dose=%q, want canonical hs_kid_12w", storedDose)
+	}
+
+	cmd.IdempotencyKey = "create-anchor-hs-bad"
+	cmd.RequestHash = strings.Repeat("c", 64)
+	cmd.DoseCode = "hs_kid_20w"
+	if _, err := vacc.CreateAnchor(ctx, cmd); !errors.Is(err, domain.ErrInvalidAnchor) {
+		t.Fatalf("bad alias err=%v, want invalid anchor", err)
 	}
 }
 

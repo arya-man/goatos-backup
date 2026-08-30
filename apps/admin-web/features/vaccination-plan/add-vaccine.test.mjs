@@ -46,6 +46,16 @@ const BASE_DOC = {
   schedule: [],
 };
 
+test("readVaccines ignores null matrix rows from older imported plans", () => {
+  const vaccines = readVaccines({
+    ...BASE_DOC,
+    matrix_rows: [null, ...BASE_DOC.matrix_rows],
+  });
+
+  assert.equal(vaccines.length, 1);
+  assert.equal(vaccines[0].code, "ET+TT");
+});
+
 test("newVaccineToEditor turns a booster course into kid timing plus adult follow-up", () => {
   const v = newVaccineToEditor({
     name: "Brucella",

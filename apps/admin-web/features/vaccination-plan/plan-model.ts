@@ -78,7 +78,11 @@ export function readVaccines(ruleDsl: unknown): VaccineGroup[] {
 function readMatrixRows(ruleDsl: unknown): MatrixRow[] {
   if (!ruleDsl || typeof ruleDsl !== "object") return [];
   const rows = (ruleDsl as { matrix_rows?: unknown }).matrix_rows;
-  return Array.isArray(rows) ? (rows as MatrixRow[]) : [];
+  return Array.isArray(rows) ? rows.filter(isMatrixRow) : [];
+}
+
+function isMatrixRow(value: unknown): value is MatrixRow {
+  return typeof value === "object" && value !== null;
 }
 
 /** Only for a row with no name of its own: "GOAT_POX" -> "Goat Pox". */
