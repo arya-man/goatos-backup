@@ -123,7 +123,7 @@ import, or match on mother vaccination status.
 | --- | --- | --- |
 | ET+TT | 4 wk + 7 wk | 6 months |
 | PPR | 16 wk | 3 years |
-| Blue Tongue (sheep) | 16 wk + 20 wk | 1 year |
+| Blue Tongue (sheep) | 16 wk + 19 wk | 1 year |
 | Goat Pox | 16 wk | 1 year |
 | Sheep Pox | 12 wk | 1 year |
 | FMD | 12 wk | 9 months |
@@ -149,7 +149,7 @@ import, or match on mother vaccination status.
 
 Algorithm: generate dose obligations in sequence. ET+TT dose 2 uses a 21-day
 minimum gap after ET+TT dose 1 for both kid and adult courses; Blue Tongue kid
-dose 2 keeps a 28-day gap.
+dose 2 keeps a 21-day gap.
 
 ---
 
@@ -206,8 +206,8 @@ These apply **between any two administered vaccines**, not only within one serie
 - Explicit combo groups from PDF (FMD+HS, PPR+Blue Tongue, etc.)
 
 **Same-day shot cap:** even if more rows are medically compatible, GoatOS
-plans at most **2 shots per animal per drive/doctor visit**. If 3+ vaccines are
-due, choose the highest-priority compatible pair and schedule the remaining
+plans at most **3 shots per animal per drive/doctor visit**. If 4+ vaccines are
+due, choose the highest-priority compatible group and schedule the remaining
 vaccines on the next safe date.
 
 **Same-day forbidden (unless in approved combo group):**
@@ -288,7 +288,7 @@ dimensions; they are not the maximum grouping boundary.
    postponement: execute, micro-drive, defer for a real blocker, or mark a
    process exception.
 
-7. **Apply the max-shots rule.** At most 2 shots per animal per visit. If more
+7. **Apply the max-shots rule.** At most 3 shots per animal per visit. If more
    due rows exist, keep the highest-priority compatible pair in this drive and
    schedule the rest by live/killed and row-specific gap rules.
 

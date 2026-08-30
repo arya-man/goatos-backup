@@ -982,7 +982,7 @@ func normalizedIdentityKey(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
-const maxVaccinesPerComboSession = 2
+const maxVaccinesPerComboSession = 3
 
 func validateVaccinationComboLimits(env ruleDSLEnvelope) error {
 	if len(env.CompatibilityPolicy) > 0 && string(env.CompatibilityPolicy) != "null" {

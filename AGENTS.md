@@ -793,8 +793,8 @@ before the 182-day repeat. Dose 2 is due 21 days after dose 1 for both kid and
 adult courses. Imported/seeded Z1+Z3 dose 1 must create the dose 2 obligation
 first; it must not jump straight to the 182-day repeat. The 182-day repeat
 starts only after accepted Z1+Z3 dose 2/course completion. Blue Tongue kid dose
-2 remains 28 days after dose 1; pox vaccines still obey the 28-day live-to-live
-spacing after PPR.
+2 is due 21 days after dose 1, at 19 weeks/133 days; pox vaccines still obey
+the 28-day live-to-live spacing after PPR.
 
 Hard seed/generation guard: after real vaccination seeding, any accepted
 legacy `et_tt_adult_w1` completion without a same-goat legacy `et_tt_adult_w2` obligation or

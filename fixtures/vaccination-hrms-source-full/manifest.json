@@ -40,7 +40,7 @@
     "adult_blank_history_joins_normal_drive": true,
     "schedule_path_policy": "shared_schedule_path_for_goat",
     "vaccination_medical_date_field": "vaccination_completions.administered_at",
-    "source_policy_sha256": "f74ef1bd5b9f8723ca76b78382af9a13b5967c71fa0ce0627d749d5c3df49e91"
+    "source_policy_sha256": "605677fda7377a8c1bdf9bd74ab35005871f3e93212c6c0d9029261b17e926b1"
   },
   "counts": {
     "animals": 1311,

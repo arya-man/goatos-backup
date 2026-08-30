@@ -881,3 +881,6 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // Coupling review 2026-08-29: later manual anchors suppress generated manual_campaign seed rows for
 // the same vaccine family. This validator remains source-only: no raw fixture date, HRMS row, SOP
 // proof field, or hash validation changes.
+// Coupling review 2026-08-30: same-day vaccination cap moves from 2 to 3 in the scheduler policy
+// and runtime capacity override. Source validation still checks source dates/history only; no raw
+// HRMS row, vaccination cell, parser input, or SOP proof field changes.

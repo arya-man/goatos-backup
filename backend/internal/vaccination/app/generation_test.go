@@ -3397,20 +3397,33 @@ func (o *generationObligationFake) OpenObligationForRepeatCycle(_ context.Contex
 	return obldomain.ObligationRef{}, false, nil
 }
 
-func (o *generationObligationFake) ManualVaccineAnchorsForGoat(_ context.Context, _, goatID string, vaccineCodes []string) (map[string]obldomain.ObligationRef, error) {
+func (o *generationObligationFake) ManualVaccineAnchorsForGoat(_ context.Context, _, goatID string, vaccineCodes []string, asOf time.Time) (map[string]obldomain.ObligationRef, error) {
 	if o.manualAnchorsByGoatVaccine == nil {
 		return nil, nil
 	}
+	anchorDay := businessDayStart(asOf)
 	anchors := map[string]obldomain.ObligationRef{}
 	for _, vaccineCode := range vaccineCodes {
 		for _, candidate := range []string{vaccineCode, strings.ReplaceAll(vaccineCode, "+", "_")} {
 			ref, ok := o.manualAnchorsByGoatVaccine[goatID+"|"+candidate]
-			if ok {
+			if ok && isManualAnchorRefCurrentOrFuture(ref, anchorDay) {
 				anchors[candidate] = ref
 			}
 		}
 	}
 	return anchors, nil
+}
+
+func isManualAnchorRefCurrentOrFuture(ref obldomain.ObligationRef, anchorDay time.Time) bool {
+	if ref.DueAt.IsZero() || ref.DueAt.Before(anchorDay) {
+		return false
+	}
+	switch strings.TrimSpace(ref.Status) {
+	case "scheduled", "due", "in_progress", "deferred":
+		return true
+	default:
+		return false
+	}
 }
 
 func (o *generationObligationFake) GoatsWithVaccinationObligationsOutsideVersions(_ context.Context, _ string, goatIDs, _ []string) ([]string, error) {
@@ -4732,6 +4745,79 @@ func TestManualVaccineAnchorSuppressesManualCampaignCatchup(t *testing.T) {
 	}
 	if res.SuppressedByTrustedHistory != 1 {
 		t.Fatalf("suppressed count = %d, want 1; inserted=%#v result=%#v", res.SuppressedByTrustedHistory, obl.inserted, res)
+	}
+}
+
+func TestManualVaccineAnchorSuppressesPostArrivalAndCalendarBaseRules(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
+	entry := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	rules := []protodomain.Rule{
+		{
+			RuleID: "hs-post-arrival", DoseCode: "hs_adult_w1", Sequence: 1, TriggerType: "post_arrival",
+			OffsetDays: 12, DueWindowDays: 7,
+			EligibilityJSON: []byte(`{"vaccine":{"code":"HS","type":"killed","pathogen_class":"bacterial"}}`),
+		},
+		{
+			RuleID: "hs-calendar", DoseCode: "hs_calendar", Sequence: 2, TriggerType: "calendar",
+			OffsetDays: 0, DueWindowDays: 7,
+			EligibilityJSON: []byte(`{"vaccine":{"code":"HS","type":"killed","pathogen_class":"bacterial"}}`),
+		},
+	}
+	goat := defaultPlacedGoat(domain.EligibleGoat{
+		GoatID: "goat-1", LifecycleStatus: "alive", Species: "goat", Stage: "adult",
+		OriginType: "procured", EntryDate: &entry, WarmingEntryAt: &entry,
+	})
+	obl := &generationObligationFake{
+		manualAnchorsByGoatVaccine: map[string]obldomain.ObligationRef{
+			"goat-1|HS": {ObligationID: "anchor-1", Status: "scheduled", DueAt: time.Date(2026, 9, 8, 0, 0, 0, 0, time.UTC)},
+		},
+	}
+	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl)
+	res := domain.GenerateResult{}
+
+	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
+		generationOptions{}, genVersionPolicies{}, vaccineProfile{}, nil, newTrustedEvidenceLookup(), &res); err != nil {
+		t.Fatalf("generation failed: %v", err)
+	}
+	if len(obl.inserted) != 0 {
+		t.Fatalf("post-arrival/calendar generated despite future manual anchor: %#v", obl.inserted)
+	}
+	if res.SuppressedByTrustedHistory != 2 {
+		t.Fatalf("suppressed count = %d, want 2; result=%#v", res.SuppressedByTrustedHistory, res)
+	}
+}
+
+func TestOldMissedManualVaccineAnchorDoesNotSuppressFreshGeneration(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
+	rule := protodomain.Rule{
+		RuleID: "hs-adult-w1", DoseCode: "hs_adult_w1", Sequence: 1, TriggerType: "manual_campaign",
+		OffsetDays: 0, DueWindowDays: 7,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"HS","type":"killed","pathogen_class":"bacterial"}}`),
+	}
+	goat := defaultPlacedGoat(domain.EligibleGoat{
+		GoatID: "goat-1", LifecycleStatus: "alive", Species: "goat", Stage: "adult",
+	})
+	obl := &generationObligationFake{
+		manualAnchorsByGoatVaccine: map[string]obldomain.ObligationRef{
+			"goat-1|HS": {ObligationID: "old-missed", Status: "missed", DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
+		},
+	}
+	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl)
+	res := domain.GenerateResult{}
+	opts := generationOptions{
+		campaignDueByGoat: map[string]time.Time{
+			campaignDueGoatKey("version-1", rule.RuleID, goat.GoatID): businessDayStart(asOf),
+		},
+	}
+
+	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", []protodomain.Rule{rule}, nil, genEligibility{}, goat, asOf,
+		opts, genVersionPolicies{}, vaccineProfile{}, nil, newTrustedEvidenceLookup(), &res); err != nil {
+		t.Fatalf("generation failed: %v", err)
+	}
+	if len(obl.inserted) != 1 {
+		t.Fatalf("old missed manual anchor suppressed generation: inserted=%#v result=%#v", obl.inserted, res)
 	}
 }
 

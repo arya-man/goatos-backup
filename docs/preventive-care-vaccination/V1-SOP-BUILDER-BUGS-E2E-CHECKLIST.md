@@ -1318,7 +1318,7 @@ and compatibility spacing are V1.
 - Add batching thresholds:
   minimum herd animals per park drive group, `max_batching_hold_days = 7`,
   `max_batching_hold_count = 1`, force micro-drive rule before medical window
-  expiry, max 2 shots per animal per visit, and small-shed/tag fairness rule.
+  expiry, max 3 shots per animal per visit, and small-shed/tag fairness rule.
 - Add an explicit medical-window vs batching-window proof case:
   if one shed has a small due count now and a compatible same-park shed/tag
   cohort becomes due within the allowed batching hold, combine them only when
@@ -1358,7 +1358,7 @@ and compatibility spacing are V1.
 | Species-specific vaccines | Goat Pox never targets sheep; Sheep Pox and Blue Tongue never target goats |
 | 1 live + 1 killed due same day | Same-day plan is allowed when no other blocker exists |
 | Next live after a live dose | Planned date is at least 4 weeks after the prior live vaccine |
-| More than 2 vaccines due | Highest-priority compatible pair is selected; overflow vaccines are scheduled from that session date using the cross-vaccine gap matrix, not the next operator-cap day |
+| More than 3 vaccines due | Highest-priority compatible trio is selected; overflow vaccines are scheduled from that session date using the cross-vaccine gap matrix, not the next operator-cap day |
 | Two-vaccine session followed by overflow | A goat receiving ET+TT + PPR today must not receive Blue Tongue/FMD tomorrow; killed overflow waits at least 14 days plus the +7-day scheduling buffer |
 | Warm-up / ICU / quarantine / sick / late pregnancy / post-breeding blocker | Safety blocker beats batching and creates defer/block/exception, not a drive |
 | Recovered animal, compatible drive within 7 days | Animal joins that nearest compatible same-park drive if all medical/vaccine rules stay safe |

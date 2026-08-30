@@ -130,7 +130,7 @@ Expected behavior:
 1. The screen looks like a guided matrix plan, not a raw engineering table.
 2. Vaccine cards show readable timing such as `primary: 4w`, `booster: 7w`,
    and `repeat 6 months`.
-3. Predefined safety rules are visible as read-only facts: max 2 vaccines per
+3. Predefined safety rules are visible as read-only facts: max 3 vaccines per
    visit, live-live 28-day gap, live/killed safety spacing, pregnancy months
    4-5 skip, clinical defer states, mother unknown ignored, and one 7-day
    batching buffer.
@@ -390,7 +390,7 @@ Proof:
 | Matrix selectors | `any` wildcard keeps old semantics through compiled dimensions | `TestPublishVersionMatrixInheritsVersionEligibilityAndCanonicalizesAny` | PASS |
 | Scale prefilter | Derived dimensions exist for indexed rule prefilter, Go re-checks full eligibility | Protocol adapter/app tests | PASS |
 | Bad authoring | Unknown sex, negative days, duplicate row/source aliases rejected | Protocol publish tests | PASS |
-| Procurement combo | More than 2 vaccines in one procurement combo rejected | `TestPublishVersionRejectsProcurementComboOverTwoVaccines` | PASS |
+| Procurement combo | More than 3 vaccines in one procurement combo rejected | `TestPublishVersionRejectsProcurementComboOverThreeVaccines` | PASS |
 | Trusted source | Our supervised holding/park history suppresses duplicate dose and schedules next | `vaccination-trusted-history-proof.sh` | PASS |
 | Untrusted source | Third-party claims do not suppress GoatOS schedule | Contract in `vaccination-rules.md`; trusted proof path scopes accepted evidence | PASS |
 | Recovery | July 4/5 recovery can join July 10; July 4 cannot wait for July 12 | `TestRecoveryRescheduleDueUsesOneWeekMaxBuffer` | PASS |

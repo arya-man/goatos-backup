@@ -25,7 +25,7 @@ Includes **planned vs built** so you can see what we aimed for and what the repo
 | **Combo session** (FMD+HS, etc.) | **Partial** | Same visit date aligned; **separate batch per vaccine version** |
 | **Combo align** across versions | **Yes** | `combo_align.go`, `AlignComboDrives` |
 | Species split in shed (goat vs sheep) | **Yes** | `target_species` in group key + park merge |
-| Max 2 vaccines per combo visit | **Yes** | `combo_session.go`, publish validation |
+| Max 3 vaccines per combo visit | **Yes** | `combo_session.go`, publish validation |
 | Deferred goats **not batched** | **Yes** | SQL: `status IN ('scheduled','due','missed')` only |
 | Stock FEFO reserve on batch | **Yes** | `finalizePlannedBatches` → `ReserveForBatch` |
 | Stock blocked batch | **Yes** | `MarkBatchStockBlocked` |

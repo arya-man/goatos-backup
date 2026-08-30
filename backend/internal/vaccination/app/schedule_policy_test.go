@@ -22,7 +22,7 @@ func TestSchedulePathForGoat(t *testing.T) {
 		t.Fatalf("farm-born past 20w cutoff, no kid tag = %q, want adult_procurement", got)
 	}
 
-	// The 16-20w finishing window is CONTINUATION-ONLY. A goat already in the kid course
+	// The post-16w finishing window is CONTINUATION-ONLY. A goat already in the kid course
 	// (recorded kid-course administration) may finish its spacing-shifted dose (e.g. 20w-derived
 	// Goat Pox after 16w PPR).
 	finishingWindowAsOf := dob.AddDate(0, 0, 126) // 18 weeks
@@ -34,17 +34,17 @@ func TestSchedulePathForGoat(t *testing.T) {
 		t.Fatalf("farm-born within 16-20w window WITH started course = %q, want kid", got)
 	}
 
-	// A goat in the 16-20w window that NEVER started the kid course (no kid tag, no history) must
+	// A goat in the post-16w continuation window that NEVER started the kid course (no kid tag, no history) must
 	// route adult — a new course may not start after 16 weeks (locked rule section 3).
 	if got := schedulePathForGoat(farmBornFinishing, proc, finishingWindowAsOf, nil); got != schedulePathAdultProcurement {
 		t.Fatalf("farm-born within 16-20w window with no started course = %q, want adult_procurement", got)
 	}
 
-	// A K-stage tag is still a FRESH in-course signal within the 16-20w finishing window (unlike a
+	// A K-stage tag is still a FRESH in-course signal within the post-16w continuation window (unlike a
 	// stale tag past 20w), so a K-tagged goat finishing its course routes kid.
 	kidTaggedFinishing := domain.EligibleGoat{OriginType: "procured", DOB: &dob, Stage: "K1"}
 	if got := schedulePathForGoat(kidTaggedFinishing, proc, finishingWindowAsOf, nil); got != schedulePathKid {
-		t.Fatalf("K1 tag within 16-20w finishing window = %q, want kid", got)
+		t.Fatalf("K1 tag within post-16w continuation window = %q, want kid", got)
 	}
 
 	// A procured goat within the <=16w start window routes kid (a new kid course may start).

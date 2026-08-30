@@ -2364,7 +2364,7 @@ ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
 // same animal and vaccine family. Vaccination generation treats this as the
 // animal's base date for that family, suppressing DOB/arrival/calendar rows that
 // would otherwise be regenerated before the anchor has been completed.
-func (r *Repository) ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, goatID string, vaccineCodes []string) (map[string]domain.ObligationRef, error) {
+func (r *Repository) ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, goatID string, vaccineCodes []string, asOf time.Time) (map[string]domain.ObligationRef, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	normalizedCodes := make([]string, 0, len(vaccineCodes)*2)
@@ -2385,6 +2385,7 @@ func (r *Repository) ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, 
 	if len(normalizedCodes) == 0 {
 		return nil, nil
 	}
+	anchorDay := biztime.BusinessDayStart(asOf)
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: tenant id: %w", err)
@@ -2412,11 +2413,12 @@ JOIN protocol_rule_dimensions d
 WHERE oi.tenant_id = $1
   AND oi.target_type = 'goat'
   AND oi.target_id = $2
-  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND oi.due_at >= $4
   AND pr.trigger_type = 'manual_campaign'
   AND d.category = 'vaccination'
   AND d.vaccine_code = ANY($3::text[])
-ORDER BY d.vaccine_code, oi.due_at ASC, oi.created_at ASC, oi.obligation_id ASC`, tenant, goat, normalizedCodes)
+ORDER BY d.vaccine_code, oi.due_at ASC, oi.created_at ASC, oi.obligation_id ASC`, tenant, goat, normalizedCodes, anchorDay)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: find manual vaccine anchors: %w", err)
 	}

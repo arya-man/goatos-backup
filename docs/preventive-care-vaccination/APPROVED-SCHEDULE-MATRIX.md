@@ -25,13 +25,15 @@ vaccination authoring, review, seed data, config, obligation/rule generation,
 tests, drive planning, and admin-web/operator UI. They are stated in full in the
 sections below; this block makes them binding law, not commentary.
 
-1. **Kid-course rendering rule (4w → 20w only).** Schedule boards, drive
+1. **Kid-course rendering rule (4w through approved due points).** Schedule boards, drive
    previews, and generated obligations show ages where a vaccine is actually
    **due** for the selected species/path — not every week of life. The goat/sheep
-   kid path has exactly five due points: 4w, 7w, 12w, 16w, and 20w (20w only when
-   it applies). K0 / K1 / early K2 have **no** approved-schedule vaccine before
-   4w. After 20w the kid course is complete and the animal moves to steady-state
-   repeat scheduling driven by accepted completion dates, not fixed week slots.
+   kid path starts/eligibility timing is 16w; its due points are 4w, 7w, 12w,
+   16w, 19w for Blue Tongue sheep boosters, and 20w only for the Goat Pox
+   live-live spacing exception. K0 / K1 / early K2 have **no** approved-schedule
+   vaccine before 4w. After the applicable kid-course continuation point, the
+   animal moves to steady-state repeat scheduling driven by accepted completion
+   dates, not fixed week slots.
    Adult procurement is a separate path: first eligible day after the 7-day
    warmup hold, ET+TT dose 2 after 21 days, and pox after the 28-day
    live-to-live spacing window. See "Kid Course Rendering Rule".

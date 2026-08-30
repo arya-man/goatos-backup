@@ -18,7 +18,7 @@
     { "index": 12, "vaccine": "ET+TT", "dose": "Booster", "minimum_age_days": 49, "minimum_gap_from_previous_days": 21, "species": ["goat", "sheep"] },
     { "index": 13, "vaccine": "PPR", "dose": "First Dose", "minimum_age_days": 112, "species": ["goat", "sheep"] },
     { "index": 14, "vaccine": "Blue tongue", "dose": "First Dose", "minimum_age_days": 112, "species": ["sheep"] },
-    { "index": 15, "vaccine": "Blue tongue", "dose": "Booster", "minimum_age_days": 140, "minimum_gap_from_previous_days": 28, "species": ["sheep"] },
+    { "index": 15, "vaccine": "Blue tongue", "dose": "Booster", "minimum_age_days": 133, "minimum_gap_from_previous_days": 21, "species": ["sheep"] },
     { "index": 16, "vaccine": "FMD", "dose": "First Dose", "minimum_age_days": 84, "species": ["goat", "sheep"] },
     { "index": 17, "vaccine": "FMD", "dose": "Booster", "minimum_age_days": 84, "species": ["goat", "sheep"] },
     { "index": 18, "vaccine": "HS", "dose": "First Dose", "minimum_age_days": 84, "species": ["goat", "sheep"] },
@@ -30,7 +30,7 @@
     "killed_to_killed_gap_days": 14,
     "live_to_live_gap_days": 28,
     "kid_booster_min_gap_days": 21,
-    "max_vaccines_per_combo_session": 2
+    "max_vaccines_per_combo_session": 3
   },
   "pregnancy_policy": {
     "allow_until_pregnancy_month": 3,
@@ -47,7 +47,7 @@
     "max_batching_hold_days": 7,
     "max_batching_hold_count": 1,
     "species_grouping_policy": "kid_mixed",
-    "max_shots_per_animal_per_drive": 2
+    "max_shots_per_animal_per_drive": 3
   },
   "proof_policy": {
     "subject_scope": "goat",

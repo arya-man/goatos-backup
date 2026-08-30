@@ -722,3 +722,7 @@ export function updateManifestHashes(directory, manifest) {
 // The committed HRMS fixture bytes, source date cells, SOP proof grain, row counts, hashes,
 // operator capacity, and validation parser stay unchanged; this exported invariant pins the
 // loader contract so a validator or seeder cannot reinterpret booster rows as first-dose rows.
+// Coupling review 2026-08-30: vaccination same-day session cap is now 3 through runtime
+// planner defaults plus vaccination_capacity_config override migration. This library's raw
+// HRMS/vaccination source bytes, counts, parser fields, SOP proof grain, and history dates
+// are unchanged; the manifest hash tracks the reviewed policy JSON only.

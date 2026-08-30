@@ -108,7 +108,7 @@ type ObligationWriter interface {
 // recreate earlier work. Repeat rules still run from accepted history after the
 // anchored dose is verified.
 type ManualVaccineAnchorReader interface {
-	ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, goatID string, vaccineCodes []string) (map[string]obldomain.ObligationRef, error)
+	ManualVaccineAnchorsForGoat(ctx context.Context, tenantID, goatID string, vaccineCodes []string, asOf time.Time) (map[string]obldomain.ObligationRef, error)
 }
 
 // GenerationRunRecorder persists operator-visible generation status. It is optional for unit
@@ -1532,7 +1532,7 @@ func (s *GenerationService) recentVaccineAdminsForPlans(ctx context.Context, ten
 func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, versionEligibility genEligibility, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, vaccineProf vaccineProfile, vaccineHistory []domain.RecentVaccineAdministration, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
 	historicalCatchUpMaterialized := false
 	path := schedulePathForGoat(g, policies.Procurement, asOf, vaccineHistory)
-	manualAnchors, err := s.manualVaccineAnchorsForSeedRules(ctx, tenantID, g.GoatID, rules, versionEligibility, vaccineProf)
+	manualAnchors, err := s.manualVaccineAnchorsForSeedRules(ctx, tenantID, g.GoatID, rules, versionEligibility, vaccineProf, asOf)
 	if err != nil {
 		return err
 	}
@@ -1656,7 +1656,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				// deferring merely because DOB/entry-date is unknown. due=asOf lets
 				// the normal missed-dose, nearby-drive, and cross-vaccine-gap
 				// machinery below place it correctly — subject to the same
-				// ≤2-per-visit / live-spacing / health-pregnancy gates as any other
+				// max-shots-per-visit / live-spacing / health-pregnancy gates as any other
 				// obligation — never a fabricated kid_12w/kid_16w deferral.
 				//
 				// The materialized obligation uses the SAME stable (date-independent)
@@ -2697,7 +2697,7 @@ func dueAt(versionID string, rule protodomain.Rule, g domain.EligibleGoat, asOf 
 	}
 }
 
-func (s *GenerationService) manualVaccineAnchorsForSeedRules(ctx context.Context, tenantID, goatID string, rules []protodomain.Rule, eligibility genEligibility, vaccineProf vaccineProfile) (map[string]obldomain.ObligationRef, error) {
+func (s *GenerationService) manualVaccineAnchorsForSeedRules(ctx context.Context, tenantID, goatID string, rules []protodomain.Rule, eligibility genEligibility, vaccineProf vaccineProfile, asOf time.Time) (map[string]obldomain.ObligationRef, error) {
 	reader, ok := s.obl.(ManualVaccineAnchorReader)
 	if !ok {
 		return nil, nil
@@ -2722,7 +2722,7 @@ func (s *GenerationService) manualVaccineAnchorsForSeedRules(ctx context.Context
 	if len(codes) == 0 {
 		return nil, nil
 	}
-	anchors, err := reader.ManualVaccineAnchorsForGoat(ctx, tenantID, goatID, codes)
+	anchors, err := reader.ManualVaccineAnchorsForGoat(ctx, tenantID, goatID, codes, asOf)
 	if err != nil {
 		return nil, err
 	}

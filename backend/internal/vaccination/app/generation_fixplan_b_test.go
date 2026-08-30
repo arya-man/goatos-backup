@@ -195,7 +195,7 @@ func TestKidPastCutoffGetsNoNewKidCourse(t *testing.T) {
 	}
 }
 
-// B4: a kid already in course (DOB known, age within the 16-20w finishing window) DOES receive its
+// B4: a kid already in course (DOB known, age within the post-16w finishing window) DOES receive its
 // spacing-shifted 20-week dose (e.g. Goat Pox derived to 20w after a 16w PPR dose per the approved
 // matrix's live-live gap rule) — the finishing half of B4, distinct from the "no new course past
 // 16w" half proven above.
@@ -215,7 +215,7 @@ func TestInCourseKidFinishesTwentyWeekDose(t *testing.T) {
 			{GoatID: "in-course-kid", LifecycleStatus: "alive", DOB: &dob, Stage: "adult"},
 		},
 		// The goat is genuinely in-course: it already received an earlier kid-course dose, so the
-		// 16-20w window is a continuation, not a new start.
+		// The post-16w window is a continuation, not a new start.
 		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
 			"in-course-kid": {{AdministeredAt: dob.AddDate(0, 0, 28), VaccineCode: "ET_TT", DoseCode: "et_tt_kid_4w"}},
 		},

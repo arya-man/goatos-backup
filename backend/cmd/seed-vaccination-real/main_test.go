@@ -768,13 +768,14 @@ func TestSeedSchedulePathHonorsConfigurableCutoffAndHistorySignal(t *testing.T) 
 	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 	asOf := dob.AddDate(0, 0, 154) // 22 weeks.
 
-	// With the default 16w cutoff, the 4w finish window ends at 20w; even a stale K-stage
+	// With the default 16w start cutoff, the continuation window ends at 20w for the
+	// Goat Pox spacing exception; even a stale K-stage
 	// tag must not force a kid-course source mapping.
 	if got := seedSchedulePathForGoat("birth", &dob, "K2", nil, asOf, 16, nil); got != "adult" {
 		t.Fatalf("22w with default cutoff = %q, want adult", got)
 	}
 
-	// If the active rule config moves the normal kid cutoff to 20w, the finish window ends
+	// If the active rule config moves the normal kid start cutoff to 20w, the continuation window ends
 	// at 24w and a fresh K-stage tag remains valid in-course evidence.
 	if got := seedSchedulePathForGoat("birth", &dob, "K2", nil, asOf, 20, nil); got != "kid" {
 		t.Fatalf("22w with configured 20w cutoff and K-stage = %q, want kid", got)

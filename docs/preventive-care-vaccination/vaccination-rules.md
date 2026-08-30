@@ -45,7 +45,7 @@ every kid uses the approved standard schedule below.
 |---|---:|---:|---:|
 | Z1+Z3 | 4 weeks and 7 weeks | 6 months | 1 |
 | PPR | 16 weeks | 3 years | 2 |
-| Blue Tongue | 16 weeks and 20 weeks | 1 year | 4 |
+| Blue Tongue | 16 weeks and 19 weeks | 1 year | 4 |
 | Goat Pox | 16 weeks | 1 year | 3 |
 | Sheep Pox | 16 weeks | 1 year | 3 |
 | FMD | 12 weeks | 9 months | 5 |
@@ -63,9 +63,10 @@ reset. That anchor can represent dose 1, a booster, or a revaccination campaign:
 the selected date is the course base for that vaccine family and those animals,
 kids and adults included. From that date onward, next doses, boosters, and
 revaccination cycles follow the published vaccine rules from the anchor or its
-accepted completion; DOB, arrival, and calendar base rules must not recreate
-older work before the manual anchor, including after the anchor row becomes
-`missed`.
+accepted completion. While that anchor is still current/future open work, DOB,
+arrival, calendar, and same-family manual-campaign base rules must not recreate
+older work before the anchor. An old past `missed` anchor is not an active
+baseline anymore and must not suppress a fresh valid generation.
 
 Before landing or deploying an anchor-rule change, replay the vaccination
 generator/sweeper against a staging-data clone on the maintainer OCI Postgres
@@ -106,7 +107,7 @@ Tongue-specific, and they are not operator-cap rules.
 | Operator cap counts | Animals handled by the operator |
 | Operator cap does not count | Vaccine doses, vaccine rows, or obligation rows |
 
-Same-day compatibility only means two vaccines may share one session. It never
+Same-day compatibility only means up to three vaccines may share one session. It never
 means "give every due vaccine now." If three or more vaccines are due for the
 same animal, GoatOS must select at most two compatible vaccines for this session
 and schedule the remaining vaccines by the medical gap rules below.
@@ -204,8 +205,8 @@ The correct flow is:
 3. Generate or replan through the vaccination kernel with the anchor date.
 4. Let the kernel evaluate existing accepted history and future scheduled work.
 5. Apply the live/live, live/killed, killed/live, killed/killed, booster-gap,
-   and max-two-vaccines-per-session rules.
-6. Keep the medically compatible highest-priority pair on the anchor date and
+   and max-three-vaccines-per-session rules.
+6. Keep the medically compatible highest-priority trio on the anchor date and
    push overflow/lower-priority vaccines forward by the configured safe gaps.
 7. Verify and report the final schedule: what stayed on the anchor date, what
    moved, why it moved, and the next booster/revaccination dates.
@@ -216,10 +217,10 @@ stages.
 
 ### Overflow Rule For 3+ Due Vaccines
 
-If more than two vaccines are due for the same animal:
+If more than three vaccines are due for the same animal:
 
 1. Build the medically compatible candidate pairs for the current session.
-2. Pick the highest-priority compatible pair, capped at two vaccines.
+2. Pick the highest-priority compatible group, capped at three vaccines.
 3. Schedule overflow vaccines from the current session date, not from the
    original old due date.
 4. Apply live/killed gap rules to the overflow vaccine.
@@ -358,11 +359,11 @@ must use India/local operational dates:
 
 - After procurement/warm-up, even if the source vaccinated the animal, do not
   give any vaccination for one week.
-- At most **2 shots per animal per drive/doctor visit**. Same-day compatibility
-  does not mean "give everything due." If more than 2 vaccines are due, GoatOS
-  picks the highest-priority compatible pair and schedules the remainder from
+- At most **3 shots per animal per drive/doctor visit**. Same-day compatibility
+  does not mean "give everything due." If more than 3 vaccines are due, GoatOS
+  picks the highest-priority compatible trio and schedules the remainder from
   the current session date using the cross-vaccine gap matrix. Operator-cap
-  overflow must not become a next-day third shot.
+  overflow must not become a next-day fourth shot.
 - Two live vaccines must have a 4-week gap.
 - Bacterial + viral vaccines may be combined on the same day.
 - Live viral + killed viral vaccines may be combined on the same day.
@@ -640,7 +641,7 @@ The V1 kernel must enforce:
   sheds;
 - mixed-species kid drive groups (single shared group for compatible goat+sheep
   kids; adult groups stay species-specific inside the same park visit);
-- max 2 shots per animal per drive/doctor visit, with overflow scheduled by
+- max 3 shots per animal per drive/doctor visit, with overflow scheduled by
   vaccine priority and safe gap rules;
 - one-time batching hold up to 7 calendar days to merge compatible same-park
   shed/tag groups when the medical window stays safe; never rolling
@@ -718,8 +719,8 @@ Clostridium perfringens Type D preparations; none abbreviates to Z-anything.
 Until the label names and manufacturers are recorded, a lot cannot be traced to a maker and a
 vial photo reading "Z1" is unverifiable in an audit.
 
-**The per-visit cap.** The authoring UI states, read-only, *"Max 2 vaccines per animal per doctor
-visit"*, enforced as `max_vaccines_per_combo_session: 2` and validated at publish. If the Z1 + Z3
+**The per-visit cap.** The authoring UI states, read-only, *"Max 3 vaccines per animal per doctor
+visit"*, enforced as `max_vaccines_per_combo_session: 3` and validated at publish. If the Z1 + Z3
 combination is given alongside ET + TT, that is either two combinations (allowed) or three
 vaccines (blocked), depending on whether a combination counts as one. That has to be settled
 before it is configured, not after.

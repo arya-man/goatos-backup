@@ -3593,7 +3593,7 @@ paths:
       description: >
         CEO/CXO vaccination campaign command that records a bounded sidecar override for one
         vaccine code in one park drive date. The sweeper treats the override as a proposed
-        planned date only; max two vaccines per animal session, live/killed spacing, adult booster
+        planned date only; max three vaccines per animal session, live/killed spacing, adult booster
         rules, the +1 week medical window, operator cap, and shed/partition assignment constraints
         are still enforced by the backend planner.
       requestBody:

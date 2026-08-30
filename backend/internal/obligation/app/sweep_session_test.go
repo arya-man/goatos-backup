@@ -27,12 +27,13 @@ func TestSelectIDsWithinVisitShotCapForSessionFiltersUnsafeRows(t *testing.T) {
 	}
 }
 
-func TestVaccineFeasibleOnPlannerDateBlocksThirdSameDayVaccine(t *testing.T) {
+func TestVaccineFeasibleOnPlannerDateBlocksFourthSameDayVaccine(t *testing.T) {
 	planned := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
 	planner := domain.DefaultDrivePlannerSettings()
 	session := NewSweepSession()
 	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "ET_TT", VaccineType: "killed"})
 	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "PPR", VaccineType: "live"})
+	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "HS", VaccineType: "killed"})
 
 	candidate := driveCandidate{
 		TargetID:  "goat-1",
@@ -40,10 +41,14 @@ func TestVaccineFeasibleOnPlannerDateBlocksThirdSameDayVaccine(t *testing.T) {
 		WindowEnd: &planned,
 	}
 	if session.vaccineFeasibleOnPlannerDate(planned, planned, candidate, planner, RuleVaccineIdentity{VaccineCode: "BLUE_TONGUE", VaccineType: "killed"}) {
-		t.Fatal("third same-day vaccine was feasible; want blocked by max two vaccines per animal session")
+		t.Fatal("fourth same-day vaccine was feasible; want blocked by max three vaccines per animal session")
 	}
+
+	session = NewSweepSession()
+	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "ET_TT", VaccineType: "killed"})
+	session.rememberPlannedVaccine("goat-1", planned, RuleVaccineIdentity{VaccineCode: "PPR", VaccineType: "live"})
 	if !session.vaccineFeasibleOnPlannerDate(planned, planned, candidate, planner, RuleVaccineIdentity{VaccineCode: "PPR", VaccineType: "live"}) {
-		t.Fatal("same vaccine re-check should not count as a third distinct same-day vaccine")
+		t.Fatal("same vaccine re-check should not count as a fourth distinct same-day vaccine")
 	}
 }
 

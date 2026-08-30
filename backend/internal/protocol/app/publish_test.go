@@ -938,18 +938,18 @@ func TestPublishVersionRejectsInvalidScheduleRowBeforePublish(t *testing.T) {
 	}
 }
 
-func TestPublishVersionRejectsProcurementComboOverTwoVaccines(t *testing.T) {
+func TestPublishVersionRejectsProcurementComboOverThreeVaccines(t *testing.T) {
 	repo := &fakeProtocolRepo{
 		version: validPublishVersion("draft"),
 	}
 	dsl := validVaccinationMatrixRuleDSL()
-	dsl = strings.Replace(dsl, `"first_wave":["ET+TT","PPR"]`, `"first_wave":["ET+TT","PPR","FMD"]`, 1)
+	dsl = strings.Replace(dsl, `"first_wave":["ET+TT","PPR"]`, `"first_wave":["ET+TT","PPR","FMD","HS"]`, 1)
 	repo.version.RuleDsl = []byte(dsl)
 	service := NewService(repo)
 
 	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
 	if !errors.Is(err, ErrNotPublishable) {
-		t.Fatalf("publish 3-vaccine combo err=%v, want ErrNotPublishable", err)
+		t.Fatalf("publish 4-vaccine combo err=%v, want ErrNotPublishable", err)
 	}
 }
 
@@ -1011,7 +1011,7 @@ func validVaccinationMatrixRuleDSL() string {
 }
 
 func validVaccinationMatrixRulesetDSL() string {
-	return `{"category":"vaccination","ruleset_family":"vaccination.matrix","vaccine":{"code":"vaccination.matrix","name":"Preventive Care vaccination matrix","type":"matrix"},"eligibility":{"animal_stage":"all","species":["goat","sheep"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"exclude_reproductive_states":["pregnant_late"],"defer_states":["sick","under_treatment","recovering","icu","quarantine"]},"missed_dose_policy":"immediate","compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21,"bacterial_viral_same_day_allowed":true,"live_killed_viral_same_day_allowed":true,"max_vaccines_per_combo_session":2},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_prior_vaccination_allowed":true,"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]},"matrix_rows":[{"row_id":"adult-sheep-second-wave","vaccine":{"code":"SHEEP_POX","name":"Sheep Pox","type":"live","pathogen_class":"viral","compatibility_group":"POX","course_type":"single"},"eligibility":{"species":["sheep"],"animal_stage":["DOE","MOTHER","BUCK"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"exclude_reproductive_states":["pregnant_late"],"defer_states":["sick","under_treatment","recovering","icu","quarantine"]},"schedule":[{"dose_code":"sheep_pox_adult_second_wave","source_dose_code":"sheep_pox_adult_second_wave","sequence":1,"trigger_type":"post_arrival","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"yearly","catch_up":"immediate"}]}],"schedule":[{"dose_code":"sheep_pox_adult_second_wave","source_dose_code":"sheep_pox_adult_second_wave","sequence":1,"trigger_type":"post_arrival","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"yearly","catch_up":"immediate"}]}`
+	return `{"category":"vaccination","ruleset_family":"vaccination.matrix","vaccine":{"code":"vaccination.matrix","name":"Preventive Care vaccination matrix","type":"matrix"},"eligibility":{"animal_stage":"all","species":["goat","sheep"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"exclude_reproductive_states":["pregnant_late"],"defer_states":["sick","under_treatment","recovering","icu","quarantine"]},"missed_dose_policy":"immediate","compatibility_policy":{"live_to_killed_gap_days":14,"killed_to_killed_gap_days":14,"live_to_live_gap_days":28,"kid_booster_min_gap_days":21,"bacterial_viral_same_day_allowed":true,"live_killed_viral_same_day_allowed":true,"max_vaccines_per_combo_session":3},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_prior_vaccination_allowed":true,"first_wave":["ET+TT","PPR"],"second_wave_after_days":28,"goat_second_wave":["Goat Pox"],"sheep_second_wave":["Sheep Pox"]},"matrix_rows":[{"row_id":"adult-sheep-second-wave","vaccine":{"code":"SHEEP_POX","name":"Sheep Pox","type":"live","pathogen_class":"viral","compatibility_group":"POX","course_type":"single"},"eligibility":{"species":["sheep"],"animal_stage":["DOE","MOTHER","BUCK"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"exclude_reproductive_states":["pregnant_late"],"defer_states":["sick","under_treatment","recovering","icu","quarantine"]},"schedule":[{"dose_code":"sheep_pox_adult_second_wave","source_dose_code":"sheep_pox_adult_second_wave","sequence":1,"trigger_type":"post_arrival","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"yearly","catch_up":"immediate"}]}],"schedule":[{"dose_code":"sheep_pox_adult_second_wave","source_dose_code":"sheep_pox_adult_second_wave","sequence":1,"trigger_type":"post_arrival","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"yearly","catch_up":"immediate"}]}`
 }
 
 func cloneAnyMap(in map[string]any) map[string]any {

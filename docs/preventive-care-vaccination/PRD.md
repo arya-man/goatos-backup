@@ -335,7 +335,7 @@ The planner works like this:
    inside that anchor's +7-day buffer. It is never moved again just because
    another larger group appears.
 8. Enforce the per-animal shot cap before finalizing a same-day plan. The default
-   cap is 2 shots per animal per drive/doctor visit. If 3+ vaccines are due, the
+   cap is 3 shots per animal per drive/doctor visit. If 4+ vaccines are due, the
    planner chooses the highest-priority compatible pair that is medically safe
    today and schedules the remainder from that session date using live/killed
    gap rules, priority, and the +7-day safe scheduling buffer. Operator-cap

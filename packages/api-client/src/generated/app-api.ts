@@ -1526,7 +1526,7 @@ export interface paths {
         put?: never;
         /**
          * Postpone one vaccine within a scheduled vaccination drive.
-         * @description CEO/CXO vaccination campaign command that records a bounded sidecar override for one vaccine code in one park drive date. The sweeper treats the override as a proposed planned date only; max two vaccines per animal session, live/killed spacing, adult booster rules, the +1 week medical window, operator cap, and shed/partition assignment constraints are still enforced by the backend planner.
+         * @description CEO/CXO vaccination campaign command that records a bounded sidecar override for one vaccine code in one park drive date. The sweeper treats the override as a proposed planned date only; max three vaccines per animal session, live/killed spacing, adult booster rules, the +1 week medical window, operator cap, and shed/partition assignment constraints are still enforced by the backend planner.
          */
         post: operations["upsertVaccinationDriveDateOverride"];
         delete?: never;

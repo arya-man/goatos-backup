@@ -171,8 +171,8 @@ func businessDayStart(t time.Time) time.Time {
 
 // schedulePathForGoat decides whether birth_age (kid) or post_arrival (adult
 // procurement) rules apply to this goat. B4 (age transition): a NEW kid course may
-// only START through kidWeeks (default 16); a kid already progressing through the
-// course may FINISH its spacing-shifted dose through finishWeeks (kidWeeks+4 = 20,
+// only START through kidWeeks (default 16); an animal already progressing through the
+// kid course may FINISH spacing-shifted continuation work through finishWeeks (kidWeeks+4 = 20,
 // e.g. Goat Pox derived to 20w after a 16w PPR dose). Past finishWeeks the goat is
 // always adult — origin_type="birth" no longer bypasses age unconditionally (the
 // confirmed defect: kid doses generated for animals long past the cutoff). An
@@ -214,7 +214,7 @@ func SchedulePathForGoat(g domain.EligibleGoat, proc SchedulePathProcurementPoli
 			// spacing-shifted dose, but a new course may NOT start here. "Already in the course"
 			// = a kid-management stage tag (still a FRESH signal at this age) or a recorded
 			// kid-course administration. A goat with neither cannot start a new course and routes
-			// adult (fixes the "16-20w always kid even if never started" defect).
+			// adult (fixes the "post-16w continuation starts a fresh kid course" defect).
 			if isKidManagementStage(g.Stage) || hasKidCourseHistory(vaccineHistory) {
 				return schedulePathKid
 			}
@@ -235,11 +235,11 @@ func SchedulePathForGoat(g domain.EligibleGoat, proc SchedulePathProcurementPoli
 	return schedulePathAdultProcurement
 }
 
-// DerivedStageFromDOB derives the age-appropriate kid/adult stage from a goat's DOB.
+// DerivedStageFromDOB derives the age-appropriate management stage from a goat's DOB.
 // It is the canonical stage derived from pure age and must be used during seed and ingestion
 // to auto-correct contradictory source tags (e.g. K2 tag on a 22-week-old goat).
-// Returns "K1" (kid) or "Adult" based on age at asOf time, using the vaccination schedule's
-// kid-course finish cutoff (default: 16 weeks start, 20 weeks finish).
+// Returns "K1" only while age can still be on an approved kid-course continuation path
+// (default: 16 weeks start, 20 weeks finish for the Goat Pox spacing exception).
 func DerivedStageFromDOB(dob *time.Time, asOf time.Time) string {
 	if dob == nil {
 		// No DOB: cannot derive age-based stage, return empty (use provided stage or default)
@@ -250,7 +250,7 @@ func DerivedStageFromDOB(dob *time.Time, asOf time.Time) string {
 	if ageWeeks <= kidFinishWeeks {
 		return "K1" // Kid-management stage indicator
 	}
-	return "Adult" // Past kid finish cutoff
+	return "Adult" // Past the final kid-course continuation point
 }
 
 func kidFinishWeeks(proc genProcurementPolicy) int {

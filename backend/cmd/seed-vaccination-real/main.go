@@ -3961,7 +3961,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			"kid_booster_min_gap_days":           21,
 			"bacterial_viral_same_day_allowed":   true,
 			"live_killed_viral_same_day_allowed": true,
-			"max_vaccines_per_combo_session":     2,
+			"max_vaccines_per_combo_session":     3,
 		},
 		"procurement_policy": map[string]any{
 			"warmup_no_vaccination_days":       7,
@@ -3987,7 +3987,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			"max_batching_hold_days":         7,
 			"max_batching_hold_count":        1,
 			"species_grouping_policy":        "kid_mixed",
-			"max_shots_per_animal_per_drive": 2,
+			"max_shots_per_animal_per_drive": 3,
 		},
 		"capacity": map[string]any{
 			"max_per_day":     200,
