@@ -7,7 +7,7 @@ const actions = readFileSync(new URL("./plan-actions.ts", import.meta.url), "utf
 const server = readFileSync(new URL("../../lib/api/server.ts", import.meta.url), "utf8");
 
 test("anchor panel defaults all safety flags to true", () => {
-  assert.match(panel, /applyEligibleScope:\s*true/);
+  assert.match(panel, /<input type="checkbox" checked readOnly \/>/);
   assert.match(panel, /suppressBeforeAnchor:\s*true/);
   assert.match(panel, /chainFutureFromAnchor:\s*true/);
   assert.match(panel, /enforceAgeEligibility:\s*true/);
@@ -19,8 +19,11 @@ test("anchor panel is a rule setting with summary-only preview", () => {
   assert.match(panel, /Apply anchor to this rule's eligible scope/);
   assert.match(panel, /Chain boosters\/revacs from anchor/);
   assert.match(panel, /Suppress earlier catch-up rows before anchor/);
+  assert.match(panel, /Rule\/dose/);
+  assert.match(panel, /Clear anchor/);
   assert.doesNotMatch(panel, /Seed a completed vaccine date/);
   assert.doesNotMatch(panel, /Animal IDs/);
+  assert.doesNotMatch(panel, /<select/);
   assert.doesNotMatch(panel, /<th>RFID<\/th>/);
   assert.doesNotMatch(panel, /animal\.identifier/);
 });

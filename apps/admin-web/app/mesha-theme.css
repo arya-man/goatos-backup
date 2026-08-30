@@ -3755,6 +3755,9 @@ select:disabled { opacity: .45; }
 .vplan .anchorflags label { display: inline-flex; align-items: center; gap: 7px; }
 .vplan .anchor-rules { margin-top: 16px; }
 .vplan .tabl tr.selrow td { background: var(--brand-soft); }
+.vplan .anchoredit td { background: var(--panel-2); }
+.vplan .anchorform.inline { margin-top: 0; }
+.vplan .anchorrow-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .vplan .anchoractions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 14px; }
 .vplan .anchorpreview { margin-top: 16px; }
 .vplan .anchordetail { margin-top: 16px; }

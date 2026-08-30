@@ -1,76 +1,73 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
 
 import { todayIso } from "@/lib/format";
-import type {
-  VaccinationAnchorPreview,
-  VaccinationAnchorRequest,
-} from "@/lib/api/server";
+import type { VaccinationAnchorPreview, VaccinationAnchorRequest } from "@/lib/api/server";
 
 import { createAnchor, previewAnchor } from "./plan-actions";
 import type { ScheduleRule, VaccineGroup } from "./plan-model";
 
 type AnchorState = {
-  vaccineCode: string;
-  doseCode: string;
   anchorDate: string;
-  applyEligibleScope: boolean;
+  reason: string;
+  sourceRef: string;
   suppressBeforeAnchor: boolean;
   chainFutureFromAnchor: boolean;
   enforceAgeEligibility: boolean;
+};
+
+type RuleRow = {
+  vaccine: VaccineGroup;
+  rule: ScheduleRule;
 };
 
 type Props = {
   catalog: VaccineGroup[];
 };
 
-const EMPTY_PREVIEW: VaccinationAnchorPreview | null = null;
+const DEFAULT_REASON = "Start this vaccine from this date";
 
 export function VaccinationAnchorPanel({ catalog }: Props) {
-  const active = useMemo(() => catalog.filter((v) => v.inPlan), [catalog]);
-  const firstVaccine = active[0]?.code ?? catalog[0]?.code ?? "";
-  const [state, setState] = useState<AnchorState>(() => ({
-    vaccineCode: firstVaccine,
-    doseCode: "",
-    anchorDate: todayIso(),
-    applyEligibleScope: true,
-    suppressBeforeAnchor: true,
-    chainFutureFromAnchor: true,
-    enforceAgeEligibility: true,
-  }));
-  const [pending, startTransition] = useTransition();
-  const [preview, setPreview] = useState<VaccinationAnchorPreview | null>(EMPTY_PREVIEW);
-  const [error, setError] = useState<string | null>(null);
-  const [applied, setApplied] = useState(false);
-
-  const vaccine = active.find((v) => v.code === state.vaccineCode) ?? active[0];
-  const doseOptions = useMemo(() => {
-    const rules = vaccine ? [...vaccine.firstDoses, ...vaccine.repeats] : [];
-    return rules.filter((rule) => Boolean(rule.dose_code));
-  }, [vaccine]);
-  const ruleRows = useMemo(
+  const rows = useMemo(
     () =>
-      active.flatMap((item) =>
-        [...item.firstDoses, ...item.repeats]
-          .filter((rule) => Boolean(rule.dose_code))
-          .map((rule) => ({ vaccine: item, rule })),
-      ),
-    [active],
+      catalog
+        .filter((vaccine) => vaccine.inPlan)
+        .flatMap((vaccine) =>
+          [...vaccine.firstDoses, ...vaccine.repeats]
+            .filter((rule) => Boolean(rule.dose_code))
+            .map((rule) => ({ vaccine, rule })),
+        ),
+    [catalog],
   );
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [state, setState] = useState<AnchorState>(() => defaultState());
+  const [pending, startTransition] = useTransition();
+  const [preview, setPreview] = useState<VaccinationAnchorPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<Record<string, string>>({});
+
+  function openEditor(row: RuleRow) {
+    setEditingKey(rowKey(row));
+    setState(defaultState());
+    setPreview(null);
+    setError(null);
+  }
 
   function update<K extends keyof AnchorState>(key: K, value: AnchorState[K]) {
     setState((current) => ({ ...current, [key]: value }));
-    setApplied(false);
+  }
+
+  function selectedRow(): RuleRow | null {
+    return rows.find((row) => rowKey(row) === editingKey) ?? null;
   }
 
   function runPreview() {
-    if (!state.applyEligibleScope) return;
+    const row = selectedRow();
+    if (!row) return;
     setError(null);
-    setApplied(false);
     startTransition(async () => {
-      const payload = buildAnchorPayload(state);
-      const result = await previewAnchor(payload);
+      const result = await previewAnchor(buildAnchorPayload(row, state));
       if (!result.ok) {
         setPreview(null);
         setError(result.error);
@@ -81,189 +78,179 @@ export function VaccinationAnchorPanel({ catalog }: Props) {
   }
 
   function runCreate() {
-    if (!state.applyEligibleScope) return;
+    const row = selectedRow();
+    if (!row) return;
     setError(null);
-    setApplied(false);
     startTransition(async () => {
-      const payload = buildAnchorPayload(state);
-      const result = await createAnchor(payload);
+      const result = await createAnchor(buildAnchorPayload(row, state));
       if (!result.ok) {
         setError(result.error);
         return;
       }
       setPreview(result.preview);
-      setApplied(true);
+      setCreated((current) => ({ ...current, [rowKey(row)]: result.preview.anchor_date }));
     });
   }
 
-  if (active.length === 0) return null;
+  if (rows.length === 0) return null;
 
   return (
-    <section className="card anchorcard">
-      <div className="card-h">
-        <div>
-          <div className="eyebrow" style={{ marginBottom: 4 }}>
-            Rule anchor
-          </div>
-          <h2>Anchor/base date</h2>
-          <p className="s">
-            Start this vaccine from this date when older history is missing for the rule's eligible scope.
-          </p>
-        </div>
-        {applied ? <span className="pill live">Created</span> : null}
-      </div>
-      <div className="card-b">
-        <div className="anchorform">
-          <label className="field">
-            <span>Vaccine</span>
-            <select
-              value={state.vaccineCode}
-              onChange={(event) => {
-                update("vaccineCode", event.target.value);
-                update("doseCode", "");
-              }}
-            >
-              {active.map((item) => (
-                <option key={item.code} value={item.code}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Dose</span>
-            <select value={state.doseCode} onChange={(event) => update("doseCode", event.target.value)}>
-              <option value="">Auto when only one active dose exists</option>
-              {doseOptions.map((rule) => (
-                <option key={rule.dose_code} value={rule.dose_code}>
-                  {doseLabel(rule)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Anchor/base date</span>
-            <input
-              type="date"
-              value={state.anchorDate}
-              onChange={(event) => update("anchorDate", event.target.value)}
-            />
-          </label>
-        </div>
-        <div className="anchorflags" aria-label="Anchor behavior">
-          <label>
-            <input
-              type="checkbox"
-              checked={state.applyEligibleScope}
-              onChange={(event) => update("applyEligibleScope", event.target.checked)}
-            />
-            Apply anchor to this rule's eligible scope
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={state.suppressBeforeAnchor}
-              onChange={(event) => update("suppressBeforeAnchor", event.target.checked)}
-            />
-            Suppress earlier catch-up rows before anchor
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={state.chainFutureFromAnchor}
-              onChange={(event) => update("chainFutureFromAnchor", event.target.checked)}
-            />
-            Chain boosters/revacs from anchor
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={state.enforceAgeEligibility}
-              onChange={(event) => update("enforceAgeEligibility", event.target.checked)}
-            />
-            Enforce age eligibility
-          </label>
-        </div>
-        <div className="anchor-rules">
-          <div className="sec-label">Rules</div>
-          <div className="scroll" tabIndex={0}>
-            <table className="tabl">
-              <thead>
-                <tr>
-                  <th>Vaccine</th>
-                  <th>Rule</th>
-                  <th>Timing</th>
-                  <th>Anchor/base date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ruleRows.map(({ vaccine: item, rule }) => {
-                  const selected = item.code === state.vaccineCode && rule.dose_code === state.doseCode;
-                  return (
-                    <tr key={`${item.code}-${rule.dose_code}`} className={selected ? "selrow" : undefined}>
-                      <td>
-                        <b>{item.name}</b>
-                      </td>
-                      <td>{rule.dose_code}</td>
-                      <td>{ruleTiming(rule)}</td>
-                      <td>
+    <div className="scroll" tabIndex={0}>
+      <table className="tabl">
+        <thead>
+          <tr>
+            <th>Vaccine</th>
+            <th>Rule/dose</th>
+            <th>Timing</th>
+            <th>Repeat</th>
+            <th>Anchor/base date</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const key = rowKey(row);
+            const editing = editingKey === key;
+            const anchorDate = created[key];
+            return (
+              <Fragment key={key}>
+                <tr className={editing ? "selrow" : undefined}>
+                  <td>
+                    <b>{row.vaccine.name}</b>
+                  </td>
+                  <td>{row.rule.dose_code}</td>
+                  <td>{ruleTiming(row.rule)}</td>
+                  <td>{repeatLabel(row.rule)}</td>
+                  <td>{anchorDate || "-"}</td>
+                  <td>
+                    <div className="anchorrow-actions">
+                      <button className="btn ghost sm" type="button" onClick={() => openEditor(row)}>
+                        {anchorDate ? "Edit anchor" : "Set anchor"}
+                      </button>
+                      {anchorDate ? (
                         <button
                           className="btn ghost sm"
                           type="button"
-                          onClick={() => {
-                            update("vaccineCode", item.code);
-                            update("doseCode", rule.dose_code ?? "");
-                          }}
+                          onClick={() => setCreated((current) => clearKey(current, key))}
                         >
-                          {selected ? "Selected" : "Set anchor"}
+                          Clear anchor
                         </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        {error ? (
-          <div className="alert" style={{ marginTop: 14 }}>
-            <span className="ic">!</span>
-            <span>{error}</span>
-          </div>
-        ) : null}
-        <div className="anchoractions">
-          <button className="btn ghost sm" type="button" disabled={pending || !state.applyEligibleScope} onClick={runPreview}>
-            {pending ? "Checking..." : "Preview"}
-          </button>
-          <button
-            className="btn sm"
-            type="button"
-            disabled={pending || !state.applyEligibleScope || !preview || preview.eligible_animals === 0}
-            onClick={runCreate}
-          >
-            {pending ? "Creating..." : "Start this vaccine from this date"}
-          </button>
-        </div>
-        {preview ? <AnchorPreview preview={preview} /> : null}
-      </div>
-    </section>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+                {editing ? (
+                  <tr className="anchoredit" key={`${key}-editor`}>
+                    <td colSpan={6}>
+                      <div className="anchorform inline">
+                        <label className="field">
+                          <span>Anchor/base date</span>
+                          <input
+                            type="date"
+                            value={state.anchorDate}
+                            onChange={(event) => update("anchorDate", event.target.value)}
+                          />
+                        </label>
+                        <label className="field">
+                          <span>Reason</span>
+                          <input value={state.reason} onChange={(event) => update("reason", event.target.value)} />
+                        </label>
+                        <label className="field">
+                          <span>Source reference</span>
+                          <input value={state.sourceRef} onChange={(event) => update("sourceRef", event.target.value)} />
+                        </label>
+                      </div>
+                      <div className="anchorflags" aria-label="Anchor behavior">
+                        <label>
+                          <input type="checkbox" checked readOnly />
+                          Apply anchor to this rule's eligible scope
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={state.suppressBeforeAnchor}
+                            onChange={(event) => update("suppressBeforeAnchor", event.target.checked)}
+                          />
+                          Suppress earlier catch-up rows before anchor
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={state.chainFutureFromAnchor}
+                            onChange={(event) => update("chainFutureFromAnchor", event.target.checked)}
+                          />
+                          Chain boosters/revacs from anchor
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={state.enforceAgeEligibility}
+                            onChange={(event) => update("enforceAgeEligibility", event.target.checked)}
+                          />
+                          Enforce age eligibility
+                        </label>
+                      </div>
+                      {error ? (
+                        <div className="alert" style={{ marginTop: 14 }}>
+                          <span className="ic">!</span>
+                          <span>{error}</span>
+                        </div>
+                      ) : null}
+                      <div className="anchoractions">
+                        <button className="btn ghost sm" type="button" disabled={pending} onClick={runPreview}>
+                          {pending ? "Checking..." : "Preview"}
+                        </button>
+                        <button
+                          className="btn sm"
+                          type="button"
+                          disabled={pending || !preview || preview.eligible_animals === 0}
+                          onClick={runCreate}
+                        >
+                          {pending ? "Saving..." : "Start this vaccine from this date"}
+                        </button>
+                        <button className="btn ghost sm" type="button" disabled={pending} onClick={() => setEditingKey(null)}>
+                          Close
+                        </button>
+                      </div>
+                      {preview ? <AnchorPreview preview={preview} /> : null}
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
-export function buildAnchorPayload(state: AnchorState): VaccinationAnchorRequest {
+function defaultState(): AnchorState {
+  return {
+    anchorDate: todayIso(),
+    reason: DEFAULT_REASON,
+    sourceRef: "",
+    suppressBeforeAnchor: true,
+    chainFutureFromAnchor: true,
+    enforceAgeEligibility: true,
+  };
+}
+
+export function buildAnchorPayload(row: RuleRow, state: AnchorState): VaccinationAnchorRequest {
   const payload: VaccinationAnchorRequest = {
-    vaccine_code: state.vaccineCode,
+    vaccine_code: row.vaccine.code,
+    dose_code: row.rule.dose_code,
     anchor_date: state.anchorDate,
     scope_type: "tenant",
     scope_payload: {},
-    reason: "Start this vaccine from this date",
+    reason: state.reason.trim() || DEFAULT_REASON,
     flags: {
       suppress_before_anchor: state.suppressBeforeAnchor,
       chain_future_from_anchor: state.chainFutureFromAnchor,
       enforce_age_eligibility: state.enforceAgeEligibility,
     },
   };
-  if (state.doseCode) payload.dose_code = state.doseCode;
+  if (state.sourceRef.trim()) payload.source_ref = state.sourceRef.trim();
   return payload;
 }
 
@@ -290,12 +277,20 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function doseLabel(rule: ScheduleRule): string {
-  const sequence = rule.sequence ? `Dose ${rule.sequence}` : "Dose";
-  const timing = ruleTiming(rule);
-  return `${sequence} - ${rule.dose_code} - ${timing}`;
+function rowKey(row: RuleRow): string {
+  return `${row.vaccine.code}:${row.rule.dose_code ?? ""}`;
+}
+
+function clearKey(current: Record<string, string>, key: string): Record<string, string> {
+  const next = { ...current };
+  delete next[key];
+  return next;
 }
 
 function ruleTiming(rule: ScheduleRule): string {
-  return rule.repeat && rule.repeat !== "none" ? "repeat" : rule.trigger_type?.replaceAll("_", " ") || "scheduled";
+  return rule.trigger_type?.replaceAll("_", " ") || "scheduled";
+}
+
+function repeatLabel(rule: ScheduleRule): string {
+  return rule.repeat && rule.repeat !== "none" ? "Repeats" : "Does not repeat";
 }
