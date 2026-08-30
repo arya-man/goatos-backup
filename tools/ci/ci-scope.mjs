@@ -161,6 +161,18 @@ function selfTest() {
     "a production obligation-query change must schedule the PostgreSQL plan gate");
   assert.equal(obligationQueryChange.selectedJobs.includes("query-plans"), true,
     "normal PR/push CI must not leave the query-plan gate manual");
+  // The command board's statements live in vaccinationexecution, NOT vaccination, and that one
+  // missing prefix meant a PR touching only those statements skipped the query-plans job entirely
+  // -- and ci-required then VERIFIED the skip as expected and went green. The endpoint whose plans
+  // this gate exists to protect is exactly the one that returned 500 in staging, so a
+  // command-board-only change must schedule the gate.
+  const commandBoardQueryChange = classifyPaths([
+    "backend/internal/vaccinationexecution/adapters/postgres/commandboard_sql.go",
+  ]);
+  assert.equal(commandBoardQueryChange.queryPlans, true,
+    "a command-board query change must schedule the PostgreSQL plan gate");
+  assert.equal(commandBoardQueryChange.selectedJobs.includes("query-plans"), true,
+    "a command-board-only PR must not skip the query-plan gate");
   assert.deepEqual(pick(["apps/admin-web/app/page.tsx"]), {
     common: true, backend: false, adminWeb: true, android: false, full: false,
     selectedJobs: ["common", "admin-web"],

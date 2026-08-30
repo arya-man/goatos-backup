@@ -75,7 +75,6 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 
 	resp := domain.CommandBoardResponse{
 		Source:            domain.SourceAPI,
-		CohortMatrix:      []domain.CommandBoardCohortCell{},
 		ShedDoseMatrix:    []domain.ShedDoseMatrixCell{},
 		WeeklyGiven:       []domain.WeeklyGivenRow{},
 		VerificationQueue: []domain.VerificationQueueRow{},
@@ -102,9 +101,6 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 		mu          sync.Mutex
 		unavailable []string
 
-		cohortRows    []commandBoardCohortRow
-		headCounts    = map[commandBoardHeadKey]int{}
-		exceptions    = map[commandBoardCohortKey]int{}
 		shedDoseCells []domain.ShedDoseMatrixCell
 		shedVaccine   commandBoardShedVaccineResult
 		vaccineCodes  []string
@@ -154,33 +150,6 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 		driveOptions, driveTrunc = page.Options, truncated
 		return nil
 	})
-
-	group.Go(optional("cohortMatrix", func() error {
-		rows, err := r.commandBoardCohortRows(gctx, q.TenantID, asOf, q.DriveBatchID, parkID)
-		if err != nil {
-			return err
-		}
-		cohortRows = rows
-		return nil
-	}))
-
-	group.Go(optional("cohortHeadCounts", func() error {
-		counts, err := r.commandBoardCohortHeadCounts(gctx, q.TenantID, parkID)
-		if err != nil {
-			return err
-		}
-		headCounts = counts
-		return nil
-	}))
-
-	group.Go(optional("cohortExceptions", func() error {
-		counts, err := r.commandBoardCohortExceptionCounts(gctx, q.TenantID, q.DriveBatchID, parkID)
-		if err != nil {
-			return err
-		}
-		exceptions = counts
-		return nil
-	}))
 
 	group.Go(optional("shedDoseMatrix", func() error {
 		cells, err := r.commandBoardShedDoseCells(gctx, q.TenantID, asOf, q.DriveBatchID, parkID)
@@ -244,7 +213,6 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 			Label: vaccinatdomain.VaccineAntigenLabel(code),
 		})
 	}
-	resp.CohortMatrix = commandBoardFoldCohortCells(cohortRows, headCounts, exceptions)
 	resp.ShedVaccineMatrix = commandBoardDensifyShedVaccine(shedVaccine, resp.ShedVaccineColumns)
 
 	// Sorted so a section list is stable across renders: it is rendered as copy ("verification
@@ -317,21 +285,32 @@ func (r *Repository) commandBoardCohortExceptionCounts(ctx context.Context, tena
 		return nil, fmt.Errorf("vaccination command board: cohort exception query: %w", err)
 	}
 	defer rows.Close()
-	counts := map[commandBoardCohortKey]int{}
+	// De-duplicated at LABEL grain, which is the grain the board renders and the grain the drawer
+	// pages. The statement returns one row per (cell, dose_code, animal); several dose codes collapse
+	// onto one displayed label (et_tt_kid_4w and et_tt_kid_7w are both "ET+TT"), so summing per-code
+	// counts would report an animal once per code while the drawer -- which pages DISTINCT goat_id
+	// across the cell's whole dose-code set -- lists it once. A cell would read "2 exceptions" over a
+	// drawer naming one animal, which is the reconciliation break this pairing exists to prevent.
+	seen := map[commandBoardCohortKey]map[string]struct{}{}
 	for rows.Next() {
-		var parkIDValue, stage, sex, doseCode string
-		var count int
-		if err := rows.Scan(&parkIDValue, &stage, &sex, &doseCode, &count); err != nil {
+		var parkIDValue, stage, sex, doseCode, goatID string
+		if err := rows.Scan(&parkIDValue, &stage, &sex, &doseCode, &goatID); err != nil {
 			return nil, fmt.Errorf("vaccination command board: cohort exception scan: %w", err)
 		}
-		// Folded onto the DISPLAYED vaccine label, exactly as the cohort cells are, so a cell
-		// collapsing two dose codes accumulates both codes' exceptions instead of keeping the
-		// first and dropping the second.
 		key := commandBoardCohortKey{parkIDValue, stage, sex, vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode)}
-		counts[key] += count
+		animals, ok := seen[key]
+		if !ok {
+			animals = map[string]struct{}{}
+			seen[key] = animals
+		}
+		animals[goatID] = struct{}{}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("vaccination command board: cohort exception rows: %w", err)
+	}
+	counts := make(map[commandBoardCohortKey]int, len(seen))
+	for key, animals := range seen {
+		counts[key] = len(animals)
 	}
 	return counts, nil
 }
@@ -838,4 +817,64 @@ func commandBoardCursorTimestamp(v pgtype.Timestamptz) string {
 		return "-infinity"
 	}
 	return v.Time.Format(time.RFC3339Nano)
+}
+
+// CommandBoardCohortMatrix serves the cohort matrix as its own section.
+//
+// Three statements, run concurrently: the cell aggregate, the TRUE herd head count, and the
+// dose-sequence exception count. Together they were ~420ms of the board's ~850ms of SQL and were
+// what held GET /vaccination/command at p90 416ms against a 300ms budget that cannot be relaxed.
+// Splitting them out is a product change (the grid arrives a moment after the rest of the board),
+// not a data change: every number here is the same whole-scope figure it was on the board.
+//
+// The head count is a HERD fact and is deliberately NOT drive-scoped -- a cohort's head count does
+// not shrink because a drive covers part of it.
+func (r *Repository) CommandBoardCohortMatrix(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardCohortMatrixPage, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	asOf := q.AsOf
+	if asOf.IsZero() {
+		asOf = time.Now().In(biztime.DefaultLocation())
+	}
+
+	page := domain.CommandBoardCohortMatrixPage{Cells: []domain.CommandBoardCohortCell{}}
+	var (
+		rows       []commandBoardCohortRow
+		headCounts = map[commandBoardHeadKey]int{}
+		exceptions = map[commandBoardCohortKey]int{}
+	)
+
+	group, gctx := errgroup.WithContext(ctx)
+	group.SetLimit(commandBoardSummaryConcurrency)
+	group.Go(func() error {
+		result, err := r.commandBoardCohortRows(gctx, q.TenantID, asOf, q.DriveBatchID, q.ParkID)
+		if err != nil {
+			return err
+		}
+		rows = result
+		return nil
+	})
+	group.Go(func() error {
+		result, err := r.commandBoardCohortHeadCounts(gctx, q.TenantID, q.ParkID)
+		if err != nil {
+			return err
+		}
+		headCounts = result
+		return nil
+	})
+	group.Go(func() error {
+		result, err := r.commandBoardCohortExceptionCounts(gctx, q.TenantID, q.DriveBatchID, q.ParkID)
+		if err != nil {
+			return err
+		}
+		exceptions = result
+		return nil
+	})
+	if err := group.Wait(); err != nil {
+		return page, err
+	}
+
+	page.Cells = commandBoardFoldCohortCells(rows, headCounts, exceptions)
+	return page, nil
 }

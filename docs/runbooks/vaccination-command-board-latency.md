@@ -80,8 +80,14 @@ is a property of the plan.
 Recorded because the obvious remedy — precompute the board into a read-model table — is **not
 available yet** (§4).
 
-- **Summary-first.** The board returns KPIs, matrices, weekly, verification queue and a small first
-  page of drives. Every count stays whole-scope and authoritative; only evidence **lists** moved.
+- **Summary-first.** The board returns KPIs, both shed matrices, weekly, the verification queue and
+  a small first page of drives. Every count stays whole-scope and authoritative; only evidence
+  **lists** moved.
+- **The cohort matrix became its own section** (`/vaccination/command/cohort-matrix`). Its three
+  statements — the cell aggregate, the true herd head count and the dose-sequence exception count —
+  were ~420ms of the board's ~850ms of SQL and alone held the endpoint over its budget. This is a
+  real product change: the CEO's cohort grid arrives a moment after the rest of the board, behind an
+  explicit loading state. The numbers are identical; only their arrival moved.
 - **Drilldowns became lazy, keyset-paginated endpoints**, each *requiring* the cell it explains:
   `/vaccination/command/closed-without-dose`, `/vaccination/command/shed-vaccine-animals`,
   `/vaccination/command/cohort-exceptions`, `/vaccination/command/cohort-days`.
@@ -218,7 +224,9 @@ The plan gate carries its **own mutation test**:
 verbatim, and fails if the guard passes it. A guardrail that cannot be shown to reject the bug it was
 written for is decoration, and this repo has shipped that before.
 
-`hot-path-inline-sql` found **975 pre-existing offences across 116 files** when introduced. They are
+`hot-path-inline-sql` found **937 pre-existing offences across 111 files** when introduced (the
+figure moved as the rule's detection was tightened during review — a leading `--` or `/* */` header
+and a statement split across a `+` no longer evade it, and concatenated halves now count once). They are
 recorded in `tools/scale-guard/baseline.txt` as a shrink-only ratchet: new inline SQL is blocked,
 existing debt is visible and burns down. Raising a baseline count is not an accepted way to land a
 change.

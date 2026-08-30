@@ -104,7 +104,10 @@ var (
 	// "-- name: closed-without-dose residual bucket" header is this repo's HOUSE STYLE, so anchoring
 	// the match at the literal's first character made the rule a pure false negative for the most
 	// idiomatic way to write the very statement it exists to catch -- no evasion intent required.
-	inlineSQLLeadingCommentRe = regexp.MustCompile(`(?m)\A(?:\s*(?:--[^\n]*|/\*.*?\*/)?\s*\n)+`)
+	// (?s) so a BLOCK comment may span newlines. Without it a /* ... */ header spanning two lines
+	// slipped the start match entirely, which is a false negative on a shape the runbook itself
+	// calls house style.
+	inlineSQLLeadingCommentRe = regexp.MustCompile(`(?s)\A(?:\s*(?:--[^\n]*|/\*.*?\*/)\s*)+`)
 	inlineSQLBodyRe           = regexp.MustCompile(`(?is)\bFROM\b|\bJOIN\b|\bWHERE\b`)
 	godCTELimit               = 8
 	// n-plus-one-fanout: the receiver field of an in-loop ctx-taking call must
@@ -443,6 +446,20 @@ func detectInlineHotPathSQL(file *ast.File) []inlineSQLFinding {
 			continue
 		}
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			// CONCATENATIONS ARE FLATTENED FIRST. Measuring each *ast.BasicLit on its own let
+			// `"SELECT a\nFROM t\n" + "WHERE b=1\nAND c=2\n"` through: neither half reaches the
+			// newline threshold, and splitting a literal in two is a one-keystroke, gofmt-stable
+			// evasion of a rule whose whole point is that hot-path SQL must be nameable.
+			if bin, ok := n.(*ast.BinaryExpr); ok && bin.Op == token.ADD {
+				if text, pos, ok := flattenStringConcat(bin); ok && isInlineHotPathSQL(text) {
+					out = append(out, inlineSQLFinding{
+						pos: pos,
+						msg: "multi-line SQL declared inside " + fn.Name.Name + "() (assembled by concatenation): hoist it to a package-level named const (or SQLC) so a query-plan test and this guard can reach it",
+					})
+				}
+				// Do not descend: the halves are reported once, as one statement.
+				return false
+			}
 			lit, ok := n.(*ast.BasicLit)
 			if !ok || lit.Kind != token.STRING {
 				return true
@@ -454,12 +471,7 @@ func detectInlineHotPathSQL(file *ast.File) []inlineSQLFinding {
 			if err != nil {
 				return true
 			}
-			if strings.Count(text, "\n") < 3 {
-				return true
-			}
-			// Strip leading comment/blank lines before deciding whether this is SQL.
-			body := inlineSQLLeadingCommentRe.ReplaceAllString(text, "")
-			if !inlineSQLStartRe.MatchString(body) || !inlineSQLBodyRe.MatchString(body) {
+			if !isInlineHotPathSQL(text) {
 				return true
 			}
 			out = append(out, inlineSQLFinding{
@@ -470,6 +482,52 @@ func detectInlineHotPathSQL(file *ast.File) []inlineSQLFinding {
 		})
 	}
 	return out
+}
+
+// isInlineHotPathSQL reports whether a string literal's contents are a multi-line SQL statement.
+//
+// MULTI-LINE is the threshold, deliberately. A one-line "SELECT 1" or a short single-table lookup is
+// not the shape that hides a plan regression, and flagging it would train people to reach for
+// scale-guard:ignore, which is how a guard stops meaning anything.
+func isInlineHotPathSQL(text string) bool {
+	if strings.Count(text, "\n") < 3 {
+		return false
+	}
+	// Leading comment and blank lines are stripped before deciding whether this is SQL: a
+	// "-- name: ..." header is this repo's house style, not an attempt to hide.
+	body := inlineSQLLeadingCommentRe.ReplaceAllString(text, "")
+	return inlineSQLStartRe.MatchString(body) && inlineSQLBodyRe.MatchString(body)
+}
+
+// flattenStringConcat concatenates a `+` chain of string literals. It returns false as soon as any
+// operand is not a plain string literal, because a chain carrying a variable is a built query
+// rather than a statement this rule can read.
+func flattenStringConcat(expr ast.Expr) (string, token.Pos, bool) {
+	switch e := expr.(type) {
+	case *ast.BasicLit:
+		if e.Kind != token.STRING {
+			return "", 0, false
+		}
+		text, err := strconv.Unquote(e.Value)
+		if err != nil {
+			return "", 0, false
+		}
+		return text, e.Pos(), true
+	case *ast.BinaryExpr:
+		if e.Op != token.ADD {
+			return "", 0, false
+		}
+		left, pos, ok := flattenStringConcat(e.X)
+		if !ok {
+			return "", 0, false
+		}
+		right, _, ok := flattenStringConcat(e.Y)
+		if !ok {
+			return "", 0, false
+		}
+		return left + right, pos, true
+	}
+	return "", 0, false
 }
 
 func detectReadRollupTruth(src []byte) (int, string) {

@@ -53,13 +53,12 @@ func (r *Repository) CommandBoardClosedWithoutDoseAnimals(ctx context.Context, q
 		if err != nil {
 			return page, fmt.Errorf("vaccination command board: closed-without-dose cursor: %w", err)
 		}
-		cursorDisplay = nullableString(cursor.DisplayID)
-		// A blank display_id is a legitimate value and must still page. Encode it as the empty
-		// string rather than NULL, or the keyset silently restarts at the top of the list.
-		if cursorDisplay == nil {
-			empty := ""
-			cursorDisplay = &empty
-		}
+		// The display id is passed through verbatim, empty string included. goats.display_id is NOT
+		// NULL and CHECK-constrained to '^G-[0-9]{6,}$', so a blank one cannot occur; sending it as
+		// the empty string rather than NULL keeps the keyset from silently restarting at the top of
+		// the list if that ever changes.
+		display := cursor.DisplayID
+		cursorDisplay = &display
 		cursorGoat = &cursor.GoatID
 	}
 

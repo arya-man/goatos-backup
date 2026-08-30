@@ -71,6 +71,11 @@ func (f *fakeReader) VaccinationCommandBoard(_ context.Context, q domain.Command
 // that the CLAMPED park reached the reader, which is the property that must not be lost when an
 // endpoint is split into several routes.
 
+func (f *fakeReader) CommandBoardCohortMatrix(_ context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardCohortMatrixPage, error) {
+	f.lastDrilldownQuery = q
+	return domain.CommandBoardCohortMatrixPage{Cells: []domain.CommandBoardCohortCell{}}, nil
+}
+
 func (f *fakeReader) CommandBoardClosedWithoutDoseAnimals(_ context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardClosedWithoutDosePage, error) {
 	f.lastDrilldownQuery = q
 	return domain.CommandBoardClosedWithoutDosePage{Animals: []domain.CommandBoardClosedWithoutDoseAnimal{}}, nil

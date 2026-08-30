@@ -1521,6 +1521,10 @@ func (s *Service) VaccinationCommandBoard(ctx context.Context, q domain.CommandB
 // already been authorized and clamped in the HTTP adapter, and the repository owns the predicate
 // that keeps each list agreeing with the board number it explains.
 
+func (s *Service) CommandBoardCohortMatrix(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardCohortMatrixPage, error) {
+	return s.repo.CommandBoardCohortMatrix(ctx, q)
+}
+
 func (s *Service) CommandBoardClosedWithoutDoseAnimals(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardClosedWithoutDosePage, error) {
 	return s.repo.CommandBoardClosedWithoutDoseAnimals(ctx, q)
 }

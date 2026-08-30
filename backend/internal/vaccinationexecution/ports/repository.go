@@ -108,6 +108,10 @@ type Repository interface {
 	// cell on every render -- ~62% of an endpoint that took ~8.6s of SQL and exhausted its 15s pool
 	// timeout on the staging-scale tenant. The board keeps every COUNT these lists sat under; only
 	// the lists moved. See adapters/postgres/commandboard_drilldown_sql.go.
+	// CommandBoardCohortMatrix serves the cohort matrix as its own SECTION. Its three statements were
+	// ~420ms of the board's ~850ms of SQL and were what held /vaccination/command over its
+	// non-relaxable 300ms budget.
+	CommandBoardCohortMatrix(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardCohortMatrixPage, error)
 	CommandBoardClosedWithoutDoseAnimals(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardClosedWithoutDosePage, error)
 	CommandBoardShedVaccineAnimals(ctx context.Context, q domain.CommandBoardShedVaccineAnimalsQuery) (domain.CommandBoardShedVaccineAnimalsPage, error)
 	CommandBoardCohortExceptions(ctx context.Context, q domain.CommandBoardCohortCellQuery) (domain.CommandBoardCohortExceptionsPage, error)

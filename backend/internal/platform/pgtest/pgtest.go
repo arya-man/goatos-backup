@@ -142,6 +142,12 @@ func StartPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	// migrated container (the pre-optimization model). Used to bisect clone-model vs pre-existing
 	// failures and to unblock any test that proves it is unsafe under template cloning.
 	if os.Getenv("GOATOS_PGTEST_DEDICATED") == "1" {
+		// The dedicated path is Docker-only by construction, so the two escape hatches are mutually
+		// exclusive. Saying so here turns a confusing "docker run" failure deep in the harness into
+		// a statement about the caller's environment.
+		if ExternalAdminDSN() != "" {
+			t.Fatalf("pgtest: GOATOS_PGTEST_DEDICATED=1 needs Docker and cannot be combined with GOATOS_PGTEST_ADMIN_DSN; unset one")
+		}
 		return StartDedicatedPostgres(t, ctx)
 	}
 	pkg.ensure(t, ctx)
@@ -432,9 +438,16 @@ func (h *pkgHarness) dsnFor(db string) string {
 	if !h.external {
 		return dsn(h.port, db)
 	}
+	// Detected by PREFIX, not by parse failure. url.Parse accepts a libpq keyword DSN
+	// ("host=h port=5432 dbname=x") without error, treating the whole thing as an opaque path, so
+	// the err branch never fired and the keyword form silently produced the literal string
+	// "/postgres".
+	if !strings.HasPrefix(h.baseDSN, "postgres://") && !strings.HasPrefix(h.baseDSN, "postgresql://") {
+		// libpq keyword form: a later dbname overrides an earlier one.
+		return h.baseDSN + " dbname=" + db
+	}
 	parsed, err := url.Parse(h.baseDSN)
 	if err != nil {
-		// Not a URL DSN (libpq keyword form). Append dbname, which overrides any earlier one.
 		return h.baseDSN + " dbname=" + db
 	}
 	parsed.Path = "/" + db

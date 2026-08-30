@@ -34,7 +34,6 @@
   },
   "queryPlans": {
     "prefixes": [
-      "backend/migrations/",
       "backend/internal/analytics/adapters/postgres/",
       "backend/internal/calendar/adapters/postgres/",
       "backend/internal/feed/adapters/postgres/",
@@ -44,7 +43,9 @@
       "backend/internal/platform/postgres/",
       "backend/internal/scale/adapters/postgres/",
       "backend/internal/vaccination/adapters/postgres/",
-      "backend/internal/weighing/adapters/postgres/"
+      "backend/internal/vaccinationexecution/adapters/postgres/",
+      "backend/internal/weighing/adapters/postgres/",
+      "backend/migrations/"
     ],
     "extensions": [
       ".sql"

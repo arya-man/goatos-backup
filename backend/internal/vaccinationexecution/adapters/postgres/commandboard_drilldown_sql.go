@@ -161,10 +161,14 @@ ORDER BY p.display_id, p.goat_id
 // was WRONG as a drilldown — a global 500-row cap silently starved the cells that sorted late, so
 // a red cell could show an empty drawer while its animals sat under another shed's rows.
 //
-// Keyset: ORDER BY (due_at NULLS LAST, goat_id). COALESCE(due_at,'infinity') makes the NULLS LAST
-// tail expressible as a plain tuple comparison. The resume is gated on goat_id rather than on the
-// timestamp -- see the predicate's own comment for why gating on the timestamp makes the undated
-// tail repeat forever rather than page.
+// Keyset: ORDER BY (due_at NULLS LAST, goat_id), resumed on goat_id.
+//
+// DEFENSIVE, NOT LOAD-BEARING, and said so plainly because an earlier version of this comment
+// claimed otherwise: obligation_instances.due_at is NOT NULL, so the NULLS LAST tail is empty and
+// the COALESCE(due_at,'infinity') machinery guards a case that cannot arise today. It is kept
+// because the column's nullability is a schema decision this statement should survive, and because
+// the resume gate must be on goat_id either way -- gating it on the timestamp is what would make an
+// undated tail repeat forever rather than page, if one ever existed.
 const commandBoardShedVaccineAnimalSQL = `
 WITH comp AS (
   SELECT obligation_id,
@@ -225,12 +229,13 @@ page AS (
   SELECT *
   FROM cell
   WHERE scope_partition_label = $7::text
-    -- GATED ON $9 (goat_id), NOT on $8 (due_at). due_at is nullable and the order is NULLS LAST, so
-    -- a cursor sitting in the undated tail carries a NULL due_at -- and gating the resume on $8
-    -- would then take the FIRST-PAGE branch and re-emit that tail from its start, forever. goat_id
-    -- is never NULL on a real cursor, so it is the only safe presence test. (An earlier attempt
-    -- passed a finite year-36812 timestamp as a stand-in for 'infinity'; 'infinity' compares
-    -- greater than it, so every undated row still qualified and the page repeated.)
+    -- GATED ON $9 (goat_id), NOT on $8 (due_at). goat_id is never NULL on a real cursor, so it is
+    -- the only safe presence test; a cursor in a NULLS LAST tail would carry a NULL timestamp and
+    -- gating on it would take the FIRST-PAGE branch and re-emit that tail from its start, forever.
+    -- due_at is NOT NULL today, so this is defensive rather than live -- but the gate costs nothing
+    -- and the alternative failed silently. (An earlier attempt passed a finite year-36812 timestamp
+    -- as a stand-in for 'infinity'; 'infinity' compares greater than it, so every undated row still
+    -- qualified and the page repeated.)
     AND ($9::uuid IS NULL OR (COALESCE(due_at, 'infinity'::timestamptz), goat_id) > (COALESCE($8::timestamptz, 'infinity'::timestamptz), $9::uuid))
   ORDER BY COALESCE(due_at, 'infinity'::timestamptz), goat_id
   LIMIT $10
@@ -384,9 +389,14 @@ SELECT
   COALESCE(tag.identifier_value, '') AS tag
 FROM page p
 LEFT JOIN LATERAL (
+  -- Pinned to animal_identifier_1 and ORDERed, exactly like the other drawers' tag lookups. Without
+  -- the type filter an animal holding a primary identifier of another type showed a DIFFERENT tag
+  -- here than in the shed-vaccine drawer, and without the ORDER BY the LIMIT 1 could return a
+  -- different one between two requests for the same animal.
   SELECT gi.identifier_value FROM goat_identifiers gi
   WHERE gi.tenant_id = p.tenant_id AND gi.goat_id = p.goat_id
-    AND gi.status = 'active' AND gi.is_primary_for_goat
+    AND gi.status = 'active' AND gi.identifier_type = 'animal_identifier_1'
+  ORDER BY gi.is_primary_for_goat DESC, gi.identifier_id
   LIMIT 1
 ) tag ON true
 ORDER BY p.display_id, p.goat_id

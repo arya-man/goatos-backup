@@ -58,8 +58,16 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("  unavailableSections=%v cohortCells=%d shedVaccineCells=%d driveOptions=%d\n",
-		board.UnavailableSections, len(board.CohortMatrix), len(board.ShedVaccineMatrix), len(board.DriveOptions))
+	fmt.Printf("  unavailableSections=%v shedDoseCells=%d shedVaccineCells=%d driveOptions=%d\n",
+		board.UnavailableSections, len(board.ShedDoseMatrix), len(board.ShedVaccineMatrix), len(board.DriveOptions))
+
+	run("  cohort-matrix (lazy section)", func() (any, error) {
+		return repo.CommandBoardCohortMatrix(ctx, domain.CommandBoardDrilldownQuery{TenantID: tenant})
+	})
+	cohortPage, err := repo.CommandBoardCohortMatrix(ctx, domain.CommandBoardDrilldownQuery{TenantID: tenant})
+	if err != nil {
+		panic(err)
+	}
 
 	run("  closed-without-dose (page 50)", func() (any, error) {
 		return repo.CommandBoardClosedWithoutDoseAnimals(ctx, domain.CommandBoardDrilldownQuery{TenantID: tenant, Limit: 50})
@@ -80,7 +88,7 @@ func main() {
 	}
 
 	// The worst cohort cell: most exceptions.
-	cohorts := append([]domain.CommandBoardCohortCell(nil), board.CohortMatrix...)
+	cohorts := append([]domain.CommandBoardCohortCell(nil), cohortPage.Cells...)
 	sort.Slice(cohorts, func(i, j int) bool { return cohorts[i].MissingPriorDoseCount > cohorts[j].MissingPriorDoseCount })
 	if len(cohorts) > 0 {
 		c := cohorts[0]

@@ -354,12 +354,17 @@ SELECT
   t.max_administered_at
 FROM cell_totals t
 JOIN cell_animals a
+  -- IS NOT DISTINCT FROM on management_stage as well as park_id: goats.management_stage is NULLABLE,
+  -- and an equality join would drop a NULL-stage cell SILENTLY -- quieter than the pre-change
+  -- behaviour, which surfaced the row and then failed its scan. sex and dose_code are NOT NULL.
   ON a.park_id IS NOT DISTINCT FROM t.park_id
- AND a.management_stage = t.management_stage
+ AND a.management_stage IS NOT DISTINCT FROM t.management_stage
  AND a.sex = t.sex
  AND a.dose_code = t.dose_code
 LEFT JOIN locations park ON park.location_id = t.park_id AND park.tenant_id = $1::uuid
-ORDER BY park.name, t.management_stage, t.sex, t.dose_code
+-- park_id breaks the tie on park NAME, which nothing in the schema makes unique. Without it the
+-- matrix's row order is nondeterministic between two identical renders.
+ORDER BY park.name, t.park_id, t.management_stage, t.sex, t.dose_code
 `
 
 // 2a-bis. TRUE cohort head count, read from the live herd rather than from the obligations.
@@ -768,19 +773,11 @@ ORDER BY shed_name, partition_label, pr.dose_code
 // not fan out, and every decorating CTE joins `page` on its own group key; pagination=keyset,
 // applied before decoration; scope=tenant_id plus the caller's park scope.
 //
-// scale-guard:ignore: 5k-50k-envelope — this statement has ELEVEN CTEs and the count is the fix,
-// not the defect. god-cte exists to catch compute-on-read: reconstructing derived state from raw
-// facts per request instead of reading a projection. Three of the CTEs here (pairs, ordered, page)
-// were ADDED to stop doing that -- they resolve and page the picker's row set from cheap columns so
-// counts, shed_locs and the day history decorate ~20 rows instead of the tenant's 279 groups. The
-// previous eight-CTE version was the one that aggregated everything and limited afterwards, at
-// 448ms and 753 KB. Bounded by commandboard_query_plan_test.go, which gates the executed plan
-// rather than the CTE count, and by the /vaccination/command entry in
-// tools/perf/hot-paths.vaccination.json. Per docs/decisions/operational-kernel-5k-50k-scale-envelope.md
-// the command board is served from canonical indexed SQL at the current envelope; the anchor-date
-// boundary on adding a projection instead is recorded in
-// docs/runbooks/vaccination-command-board-latency.md.
-// scale-guard:ignore: 5k-50k-envelope — see the paragraph above; the CTE count is the paging fix.
+// scale-guard:ignore: 5k-50k-envelope — ten CTEs, and the count IS the fix: pairs/ordered/page were
+// added to page the picker BEFORE the wide scan, which is the opposite of compute-on-read. The full
+// reasoning is in the statement's own header below; the executed plan is gated by
+// commandboard_query_plan_test.go and the endpoint by tools/perf/hot-paths.vaccination.json.
+// scale-guard:ignore: 5k-50k-envelope — see the paragraph directly above.
 const driveOptionsSQL = `
 -- PAIRS FIRST (lean), PAGE, THEN THE FAT SCAN RESTRICTED TO THE PAGE.
 --
@@ -820,7 +817,7 @@ const driveOptionsSQL = `
 -- pagination=keyset, applied before the wide scan and before decoration; scope=tenant_id plus the
 -- caller's park scope.
 --
--- scale-guard:ignore: 5k-50k-envelope -- this statement has eleven CTEs and the count is the fix,
+-- scale-guard:ignore: 5k-50k-envelope -- this statement has ten CTEs and the count is the fix,
 -- not the defect: pairs/ordered/page exist to bound the work that follows them. Bounded by
 -- commandboard_query_plan_test.go, which gates the executed plan rather than the CTE count, and by
 -- the /vaccination/command entry in tools/perf/hot-paths.vaccination.json. The anchor-date boundary
@@ -1167,7 +1164,19 @@ exceptions AS (
 // per-animal scalar subquery for rows it then folded straight back into a counter. Counting in the
 // database drops that work entirely while returning the identical number.
 const commandBoardCohortExceptionCountSQL = commandBoardCohortExceptionCTE + `
-SELECT park_id, management_stage, sex, dose_code, COUNT(*)::int AS exception_count
+-- ROWS, NOT A COUNT, and the difference is a correctness one.
+--
+-- The board's cell is keyed on the DISPLAYED vaccine label, and several dose codes collapse onto one
+-- label: DoseQualifiedDisplayLabel maps both et_tt_kid_4w and et_tt_kid_7w to "ET+TT", and likewise
+-- for the blue_tongue, goat_pox and sheep_pox kid pairs. Counting per dose_code and summing in Go
+-- therefore counted an animal ONCE PER DOSE CODE it is an exception under, while the drawer -- which
+-- pages DISTINCT goat_id across the whole dose-code set of the cell -- lists it once. A cell would
+-- read "2 exceptions" over a drawer naming one animal.
+--
+-- This is the same defect as the sequence-grain one fixed in the exceptions CTE above, one grain
+-- up, and it is reachable on this tenant's own protocol rather than hypothetical. The set is tiny
+-- (tens of rows tenant-wide), so the animals are returned and de-duplicated at LABEL grain in
+-- commandBoardCohortExceptionCounts, which is the only place that knows the label mapping.
+SELECT park_id, management_stage, sex, dose_code, goat_id::text
 FROM exceptions
-GROUP BY park_id, management_stage, sex, dose_code
 `
