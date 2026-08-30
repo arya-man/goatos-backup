@@ -792,6 +792,7 @@ object AnalyticsEvents {
     const val PROOF_PROCESSING_COMPLETED = "proof_processing_completed"
     const val PROOF_PROCESSING_FAILED = "proof_processing_failed"
     const val PROOF_CAPTURE_COMPLETED = "proof_capture_completed"
+    const val PROOF_CAPTURE_VALIDATION_FAILED = "proof_capture_validation_failed"
     const val PROOF_GALLERY_SAVE_STARTED = "proof_gallery_save_started"
     const val PROOF_GALLERY_SAVE_COMPLETED = "proof_gallery_save_completed"
     const val PROOF_GALLERY_SAVE_FAILED = "proof_gallery_save_failed"

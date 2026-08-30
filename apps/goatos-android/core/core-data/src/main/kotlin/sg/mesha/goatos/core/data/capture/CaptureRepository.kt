@@ -916,6 +916,10 @@ class DefaultProofCaptureRepository(
             proofArtifactValidator.validateVideoFile(localUri)
         }
         if (!validationResult.isValid) {
+            telemetry.track(
+                proofCaptureValidationFailedEvent,
+                proofCaptureValidationFailureProps(entity, validationResult),
+            )
             return@withContext AppResult.Err(validationResult.reason ?: "Proof file is invalid. Please re-record.")
         }
         // Room FIRST — the capture is durable before any network call is even attempted.
@@ -2020,6 +2024,7 @@ private const val proofProcessingStartedEvent = "proof_processing_started"
 private const val proofProcessingCompletedEvent = "proof_processing_completed"
 private const val proofProcessingFailedEvent = "proof_processing_failed"
 private const val proofCaptureCompletedEvent = "proof_capture_completed"
+private const val proofCaptureValidationFailedEvent = "proof_capture_validation_failed"
 private const val proofGallerySaveStartedEvent = "proof_gallery_save_started"
 private const val proofGallerySaveCompletedEvent = "proof_gallery_save_completed"
 private const val proofGallerySaveFailedEvent = "proof_gallery_save_failed"
@@ -2070,6 +2075,18 @@ private fun proofAnalyticsProps(
     entity.gpsAccuracyM?.let { put("gps_accuracy_m", it.toString()) }
     entity.geocoderStatus?.takeIf { it.isNotBlank() }?.let { put("geocoder_status", it) }
     entity.geocodedAddress?.takeIf { it.isNotBlank() }?.let { put("geocoded_address", it) }
+}
+
+private fun proofCaptureValidationFailureProps(
+    entity: ProofCaptureEntity,
+    validation: ProofArtifactValidator.ValidationResult,
+): Map<String, String> = proofAnalyticsProps(entity, proofUploadStatus = "failed") + buildMap {
+    put("failure_kind", validation.failureKind ?: "capture_artifact_validation_failed")
+    put("reason", validation.failureKind ?: "capture_artifact_validation_failed")
+    validation.reason?.takeIf { it.isNotBlank() }?.let { put("validation_reason", it) }
+    validation.containerDurationMs?.let { put("container_duration_ms", it.toString()) }
+    validation.videoTrackDurationMs?.let { put("video_track_duration_ms", it.toString()) }
+    validation.videoFrameRate?.let { put("video_frame_rate", String.format(java.util.Locale.US, "%.2f", it)) }
 }
 
 private fun humanRfidTag(entity: ProofCaptureEntity): String? =

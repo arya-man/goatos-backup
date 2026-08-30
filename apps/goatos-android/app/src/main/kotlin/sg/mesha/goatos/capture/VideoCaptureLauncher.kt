@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.data.capture.ProofArtifactValidator
 import sg.mesha.goatos.core.data.capture.FileSystemProofArtifactValidator
 import java.io.File
+import java.util.Locale
 
 /**
  * Binds [source] to a real, LIVE in-app camera recording for as long as the composable calling
@@ -91,7 +92,20 @@ fun BindVideoCaptureSource(
                     null
                 } else {
                     withContext(Dispatchers.IO) {
-                        copyPickedVideoToPrivateCache(context, selected, System.currentTimeMillis(), artifactValidator)
+                        copyPickedVideoToPrivateCache(
+                            context = context,
+                            sourceUri = selected,
+                            nowMs = System.currentTimeMillis(),
+                            validator = artifactValidator,
+                            onValidationFailure = { validation ->
+                                trackProofCaptureValidationFailed(
+                                    analytics = analytics,
+                                    validation = validation,
+                                    captureContext = null,
+                                    source = "gallery_picker",
+                                )
+                            },
+                        )
                     }.also { imported ->
                         trackProofCameraEvent(
                             analytics = analytics,
@@ -158,6 +172,14 @@ fun BindVideoCaptureSource(
                         trackProofCameraEvent(analytics, event, request.token, request.captureContext, reason = stage)
                     },
                     artifactValidator = artifactValidator,  // MEDIUM: pass injected validator
+                    onValidationFailure = { validation ->
+                        trackProofCaptureValidationFailed(
+                            analytics = analytics,
+                            validation = validation,
+                            captureContext = request.captureContext,
+                            source = "in_app_camera",
+                        )
+                    },
                 )
             }
         }
@@ -216,6 +238,7 @@ private fun copyPickedVideoToPrivateCache(
     nowMs: Long,
     // MEDIUM: Accept validator as dependency instead of constructing inline
     validator: ProofArtifactValidator = FileSystemProofArtifactValidator(),
+    onValidationFailure: (ProofArtifactValidator.ValidationResult) -> Unit = {},
 ): CapturedVideo? = runCatching { // exception:exempt best-effort local cache copy; null return already surfaces a retry-capable failure to the caller, nothing extra to record
     val dir = File(context.cacheDir, "proof-videos").apply { mkdirs() }
     val out = File(dir, "gallery-$nowMs.mp4")
@@ -226,6 +249,7 @@ private fun copyPickedVideoToPrivateCache(
     // Gate 4: Gallery copy validation — copied file non-zero + metadata readable
     val validation = validator.validateVideoFile(out.toURI().toString())
     if (!validation.isValid) {
+        onValidationFailure(validation)
         out.delete()
         return@runCatching null
     }
@@ -238,3 +262,31 @@ private fun copyPickedVideoToPrivateCache(
         captureSource = "gallery_picker",
     )
 }.getOrNull()
+
+private fun trackProofCaptureValidationFailed(
+    analytics: AnalyticsPort,
+    validation: ProofArtifactValidator.ValidationResult,
+    captureContext: ProofCaptureContext?,
+    source: String,
+) {
+    analytics.track(
+        AnalyticsEvents.PROOF_CAPTURE_VALIDATION_FAILED,
+        proofCaptureValidationFailureProps(captureContext, validation, source),
+    )
+}
+
+private fun proofCaptureValidationFailureProps(
+    captureContext: ProofCaptureContext?,
+    validation: ProofArtifactValidator.ValidationResult,
+    source: String,
+): Map<String, String> = buildMap {
+    put(AnalyticsEvents.Params.SOURCE, source)
+    captureContext?.prompt?.name?.lowercase(Locale.US)?.let { put("prompt", it) }
+    captureContext?.workLabel?.takeIf { it.isNotBlank() }?.let { put(AnalyticsEvents.Params.KIND, it.take(64)) }
+    put("failure_kind", validation.failureKind ?: "capture_artifact_validation_failed")
+    put(AnalyticsEvents.Params.REASON, validation.failureKind ?: "capture_artifact_validation_failed")
+    validation.reason?.takeIf { it.isNotBlank() }?.let { put("validation_reason", it) }
+    validation.containerDurationMs?.let { put("container_duration_ms", it.toString()) }
+    validation.videoTrackDurationMs?.let { put("video_track_duration_ms", it.toString()) }
+    validation.videoFrameRate?.let { put("video_frame_rate", String.format(Locale.US, "%.2f", it)) }
+}

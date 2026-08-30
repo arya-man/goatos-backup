@@ -9,6 +9,7 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FileOutputOptions
+import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.Quality
 import androidx.camera.video.QualitySelector
 import androidx.camera.video.Recorder
@@ -91,6 +92,7 @@ fun InAppVideoRecorderOverlay(
     captureContext: ProofCaptureContext? = null,
     onResult: (CapturedVideo?) -> Unit,
     onCameraEvent: (String) -> Unit = {},
+    onValidationFailure: (ProofArtifactValidator.ValidationResult) -> Unit = {},
     // MEDIUM: Accept validator as dependency instead of constructing inline
     artifactValidator: ProofArtifactValidator = remember { FileSystemProofArtifactValidator() },
 ) {
@@ -255,6 +257,7 @@ fun InAppVideoRecorderOverlay(
                     )
                 } else {
                     // CRITICAL-2: Invalid video — DO NOT deliver(null); show error UI with retry/cancel options
+                    onValidationFailure(validation)
                     fileToValidate.delete()
                     onCameraEvent("validation_failed")
                     cameraError = invalidVideoMessage
@@ -778,7 +781,14 @@ private class ProofCameraSession {
                     val cameraPreview = Preview.Builder().build().also {
                         it.surfaceProvider = previewView.surfaceProvider
                     }
-                    val recorder = Recorder.Builder().setQualitySelector(QualitySelector.from(Quality.HD)).build()
+                    val recorder = Recorder.Builder()
+                        .setQualitySelector(
+                            QualitySelector.fromOrderedList(
+                                listOf(Quality.SD, Quality.HD),
+                                FallbackStrategy.higherQualityOrLowerThan(Quality.SD),
+                            ),
+                        )
+                        .build()
                     val videoCapture = VideoCapture.withOutput(recorder)
                     cameraProvider.unbindAll()
                     val boundCamera = cameraProvider.bindToLifecycle(

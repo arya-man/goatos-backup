@@ -134,6 +134,7 @@ class BackendAnalyticsAdapter(
          */
         val CRITICAL_EVENT_ALLOWLIST = setOf(
             AnalyticsEvents.PROOF_CAPTURE_COMPLETED,
+            AnalyticsEvents.PROOF_CAPTURE_VALIDATION_FAILED,
             AnalyticsEvents.PROOF_PROCESSING_STARTED,
             AnalyticsEvents.PROOF_PROCESSING_COMPLETED,
             AnalyticsEvents.PROOF_PROCESSING_FAILED,
