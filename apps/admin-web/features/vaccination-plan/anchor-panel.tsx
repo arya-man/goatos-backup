@@ -130,15 +130,17 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
                       >
                         {anchorDate ? <Pencil size={18} strokeWidth={2.6} aria-hidden /> : <Plus size={18} strokeWidth={2.8} aria-hidden />}
                       </button>
-                      <button
-                        className="btn ghost sm icon"
-                        type="button"
-                        aria-label="Skip anchor"
-                        title="Skip anchor"
-                        onClick={() => skipAnchor(key)}
-                      >
-                        <CircleSlash size={18} strokeWidth={2.6} aria-hidden />
-                      </button>
+                      {anchorDate ? (
+                        <button
+                          className="btn ghost sm icon"
+                          type="button"
+                          aria-label="Skip anchor"
+                          title="Skip anchor"
+                          onClick={() => skipAnchor(key)}
+                        >
+                          <CircleSlash size={18} strokeWidth={2.6} aria-hidden />
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

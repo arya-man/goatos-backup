@@ -21,7 +21,7 @@ test("anchor panel is a rule setting with summary-only preview", () => {
   assert.match(panel, /CircleSlash/);
   assert.match(panel, /aria-label=\{anchorDate \? "Edit anchor" : "Add anchor"\}/);
   assert.match(panel, /aria-label="Skip anchor"/);
-  assert.doesNotMatch(panel, /anchorDate \? \([\s\S]*Skip anchor/);
+  assert.match(panel, /anchorDate \? \([\s\S]*aria-label="Skip anchor"/);
   assert.match(panel, /Save anchor to draft/);
   assert.match(panel, /Apply anchor to this rule's eligible scope/);
   assert.match(panel, /Chain boosters\/revacs from anchor/);
