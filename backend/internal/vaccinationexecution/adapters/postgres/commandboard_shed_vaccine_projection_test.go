@@ -63,7 +63,8 @@ func TestVaccinationCommandBoardShedVaccineOneToManyMultipleDimensions(t *testin
 		t.Fatalf("totalAnimals = %d, want 1", et.TotalAnimals)
 	}
 	// The drill-down folds the same fan-out via DISTINCT ON and must agree with the count.
-	if got := len(et.FlaggedAnimals); got != 1 {
+	etDrill := shedVaccineDrilldown(t, ctx, pool, tenantID, asOf, et)
+	if got := len(etDrill.Animals); got != 1 {
 		t.Fatalf("flaggedAnimals has %d rows, want 1; the list must fold the dimension fan-out the same way the count does", got)
 	}
 }
@@ -105,12 +106,13 @@ func TestVaccinationCommandBoardShedVaccinePaginationPageBoundaryMultiPage(t *te
 	if et.BehindAnimals != 3 {
 		t.Fatalf("behindAnimals = %d, want 3", et.BehindAnimals)
 	}
-	if len(et.FlaggedAnimals) != et.BehindAnimals {
-		t.Fatalf("list has %d rows but the cell counts %d; under the cap the list must reconcile exactly with the count", len(et.FlaggedAnimals), et.BehindAnimals)
+	etDrill := shedVaccineDrilldown(t, ctx, pool, tenantID, asOf, et)
+	if len(etDrill.Animals) != et.BehindAnimals {
+		t.Fatalf("list has %d rows but the cell counts %d; under the cap the list must reconcile exactly with the count", len(etDrill.Animals), et.BehindAnimals)
 	}
 	// Oldest due first: the property that makes truncation meaningful rather than arbitrary.
-	for i := 1; i < len(et.FlaggedAnimals); i++ {
-		prev, cur := et.FlaggedAnimals[i-1], et.FlaggedAnimals[i]
+	for i := 1; i < len(etDrill.Animals); i++ {
+		prev, cur := etDrill.Animals[i-1], etDrill.Animals[i]
 		if prev.DueAt == nil || cur.DueAt == nil {
 			t.Fatalf("behind animal missing dueAt; the cap's ordering key must always be present")
 		}
@@ -364,10 +366,11 @@ func TestVaccinationCommandBoardShedVaccineAnimalListIgnoresStalePartitionFromOt
 	if cell.BehindAnimals != 1 {
 		t.Fatalf("behindAnimals = %d, want 1", cell.BehindAnimals)
 	}
-	if len(cell.FlaggedAnimals) != 1 {
-		t.Fatalf("flaggedAnimals = %d, want 1; stale partition re-keyed the drawer list away from the clicked cell", len(cell.FlaggedAnimals))
+	cellDrill := shedVaccineDrilldown(t, ctx, pool, tenantID, asOf, *cell)
+	if len(cellDrill.Animals) != 1 {
+		t.Fatalf("flaggedAnimals = %d, want 1; stale partition re-keyed the drawer list away from the clicked cell", len(cellDrill.Animals))
 	}
-	if got := cell.FlaggedAnimals[0].PartitionLabel; got != "" {
+	if got := cellDrill.Animals[0].PartitionLabel; got != "" {
 		t.Fatalf("flagged partitionLabel = %q, want empty because the only partition row belongs to another shed", got)
 	}
 }
@@ -486,10 +489,11 @@ func TestVaccinationCommandBoardShedVaccineRecordedProofReadsVerifyingNotBehind(
 		t.Fatalf("behindAnimals = %d, want 0; no animal here is unvaccinated", et.BehindAnimals)
 	}
 	// The drill-down must say WHY, and must carry the ground location including partition.
-	if len(et.FlaggedAnimals) != 1 {
-		t.Fatalf("flaggedAnimals has %d rows, want 1", len(et.FlaggedAnimals))
+	etDrill := shedVaccineDrilldown(t, ctx, pool, tenantID, asOf, et)
+	if len(etDrill.Animals) != 1 {
+		t.Fatalf("flaggedAnimals has %d rows, want 1", len(etDrill.Animals))
 	}
-	row := et.FlaggedAnimals[0]
+	row := etDrill.Animals[0]
 	if !row.AwaitingVerification {
 		t.Fatalf("awaitingVerification = false; the drawer would print the raw 'missed' status and accuse an operator who dosed on time")
 	}
@@ -499,8 +503,8 @@ func TestVaccinationCommandBoardShedVaccineRecordedProofReadsVerifyingNotBehind(
 	// Proof is filmed per SHED per day, so it hangs off the CELL and not off each animal. Nothing was
 	// filmed in this fixture, so there is nothing to show -- and an empty list is a finding, since a
 	// verification queue with no footage cannot be drained by anyone.
-	if len(et.ProofVideos) != 0 {
-		t.Fatalf("proofVideos = %d, want 0; nothing was filmed in this fixture", len(et.ProofVideos))
+	if len(etDrill.ProofVideos) != 0 {
+		t.Fatalf("proofVideos = %d, want 0; nothing was filmed in this fixture", len(etDrill.ProofVideos))
 	}
 }
 
@@ -550,12 +554,13 @@ func TestVaccinationCommandBoardShedVaccineLinksShedVideoAndNeverWeighingCapture
 
 	cells := shedVaccineCellsByCode(t, ctx, pool, tenantID, asOf)
 	et := cells["ET_TT"]
-	if len(et.ProofVideos) != 1 {
-		t.Fatalf("proofVideos = %d, want exactly 1; the shed_video must be linked and the weighing capture must not", len(et.ProofVideos))
+	etDrill := shedVaccineDrilldown(t, ctx, pool, tenantID, asOf, et)
+	if len(etDrill.ProofVideos) != 1 {
+		t.Fatalf("proofVideos = %d, want exactly 1; the shed_video must be linked and the weighing capture must not", len(etDrill.ProofVideos))
 	}
 	want := "/app/proofs/" + uuidFromSuffix("0c", "g7v") + "/download"
-	if et.ProofVideos[0].Path != want {
-		t.Fatalf("proofVideos[0].Path = %q, want %q; the WEIGHING clip was linked instead of the vaccination shed video", et.ProofVideos[0].Path, want)
+	if etDrill.ProofVideos[0].Path != want {
+		t.Fatalf("proofVideos[0].Path = %q, want %q; the WEIGHING clip was linked instead of the vaccination shed video", etDrill.ProofVideos[0].Path, want)
 	}
 }
 
@@ -615,10 +620,11 @@ func TestVaccinationCommandBoardDoesNotComposeScopeShedWithCurrentPartition(t *t
 	if et.OperationalLocationDisplay != "Castro" {
 		t.Fatalf("cell location = %q, want obligation shed Castro without invented partition", et.OperationalLocationDisplay)
 	}
-	if len(et.FlaggedAnimals) != 1 {
-		t.Fatalf("flaggedAnimals = %d, want 1", len(et.FlaggedAnimals))
+	etDrill := shedVaccineDrilldown(t, ctx, pool, tenantID, asOf, et)
+	if len(etDrill.Animals) != 1 {
+		t.Fatalf("flaggedAnimals = %d, want 1", len(etDrill.Animals))
 	}
-	if got := et.FlaggedAnimals[0].LocationDisplay; got != "Yashoda 10" {
+	if got := etDrill.Animals[0].LocationDisplay; got != "Yashoda 10" {
 		t.Fatalf("flagged animal location = %q, want current ground location Yashoda 10", got)
 	}
 }
@@ -669,10 +675,11 @@ func TestVaccinationCommandBoardPartitionCatalogOneToManyPaginationDateShiftScop
 				t.Fatalf("shed vaccine cell = %q partition=%q, want Godel 1 - Part 10 from normalized catalog match",
 					cell.OperationalLocationDisplay, cell.PartitionLabel)
 			}
-			if len(cell.FlaggedAnimals) != 1 {
-				t.Fatalf("flaggedAnimals = %d, want 1", len(cell.FlaggedAnimals))
+			cellDrill := shedVaccineDrilldown(t, ctx, pool, tenantID, asOf, cell)
+			if len(cellDrill.Animals) != 1 {
+				t.Fatalf("flaggedAnimals = %d, want 1", len(cellDrill.Animals))
 			}
-			animal := cell.FlaggedAnimals[0]
+			animal := cellDrill.Animals[0]
 			if animal.PartitionLabel != "Part 10" || animal.LocationDisplay != "Godel 1 - Part 10" {
 				t.Fatalf("flagged animal location = %q partition=%q, want catalog label Godel 1 - Part 10",
 					animal.LocationDisplay, animal.PartitionLabel)
@@ -885,10 +892,11 @@ func TestVaccinationCommandBoardExcludesExitedAndMergedGoatsFromEverySurface(t *
 	}
 	// The drill-down is what a person acts on, so a retired animal appearing there sends someone to
 	// look for a goat that is not in the shed.
-	if len(et.FlaggedAnimals) != 1 {
-		t.Fatalf("flaggedAnimals = %d, want 1; the list must not name animals that have left the herd or been merged away", len(et.FlaggedAnimals))
+	etDrill := shedVaccineDrilldown(t, ctx, pool, tenantID, asOf, et)
+	if len(etDrill.Animals) != 1 {
+		t.Fatalf("flaggedAnimals = %d, want 1; the list must not name animals that have left the herd or been merged away", len(etDrill.Animals))
 	}
-	if got := et.FlaggedAnimals[0].GoatID; got != live {
+	if got := etDrill.Animals[0].GoatID; got != live {
 		t.Fatalf("flaggedAnimals[0] = %s, want the live goat %s", got, live)
 	}
 
@@ -924,4 +932,25 @@ func TestVaccinationCommandBoardExcludesExitedAndMergedGoatsFromEverySurface(t *
 	if queued != 1 {
 		t.Errorf("verification queue holds %d, want 1; a verifier must never be asked to review proof for an animal that was sold or merged away", queued)
 	}
+}
+
+// shedVaccineDrilldown fetches the flagged-animal drawer for ONE shed-vaccine cell.
+//
+// The list used to ride on the board response as cell.FlaggedAnimals, computed tenant-wide on every
+// render. It is now its own keyset-paginated read that REQUIRES the cell, so these tests fetch it
+// the way the UI does — from the cell the assertion is about. Every assertion below is unchanged;
+// only where the rows come from moved.
+func shedVaccineDrilldown(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID string, asOf time.Time, cell domain.CommandBoardShedVaccineCell) domain.CommandBoardShedVaccineAnimalsPage {
+	t.Helper()
+	repo := NewRepository(pool, 5*time.Second)
+	page, err := repo.CommandBoardShedVaccineAnimals(ctx, domain.CommandBoardShedVaccineAnimalsQuery{
+		CommandBoardDrilldownQuery: domain.CommandBoardDrilldownQuery{TenantID: tenantID, AsOf: asOf},
+		ShedID:                     cell.ShedID,
+		PartitionLabel:             cell.PartitionLabel,
+		VaccineCode:                cell.VaccineCode,
+	})
+	if err != nil {
+		t.Fatalf("CommandBoardShedVaccineAnimals() error = %v", err)
+	}
+	return page
 }

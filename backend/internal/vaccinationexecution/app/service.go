@@ -1517,6 +1517,30 @@ func (s *Service) VaccinationCommandBoard(ctx context.Context, q domain.CommandB
 	return s.repo.VaccinationCommandBoard(ctx, q)
 }
 
+// The command-board drilldowns. Pass-throughs, like the board itself: the scope and page have
+// already been authorized and clamped in the HTTP adapter, and the repository owns the predicate
+// that keeps each list agreeing with the board number it explains.
+
+func (s *Service) CommandBoardClosedWithoutDoseAnimals(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardClosedWithoutDosePage, error) {
+	return s.repo.CommandBoardClosedWithoutDoseAnimals(ctx, q)
+}
+
+func (s *Service) CommandBoardShedVaccineAnimals(ctx context.Context, q domain.CommandBoardShedVaccineAnimalsQuery) (domain.CommandBoardShedVaccineAnimalsPage, error) {
+	return s.repo.CommandBoardShedVaccineAnimals(ctx, q)
+}
+
+func (s *Service) CommandBoardCohortExceptions(ctx context.Context, q domain.CommandBoardCohortCellQuery) (domain.CommandBoardCohortExceptionsPage, error) {
+	return s.repo.CommandBoardCohortExceptions(ctx, q)
+}
+
+func (s *Service) CommandBoardCohortDays(ctx context.Context, q domain.CommandBoardCohortCellQuery) (domain.CommandBoardCohortDaysPage, error) {
+	return s.repo.CommandBoardCohortDays(ctx, q)
+}
+
+func (s *Service) CommandBoardDriveOptions(ctx context.Context, q domain.CommandBoardDriveOptionsQuery) (domain.CommandBoardDriveOptionsPage, error) {
+	return s.repo.CommandBoardDriveOptions(ctx, q)
+}
+
 // LiveTracker returns the live drive-day tracker: KPI tiles, operator board, shed × partition proof
 // board, combo-dose card, activity feed, attention list, verification block and filter vocabulary —
 // all derived from one membership set so the tiles reconcile with the tables beneath them.

@@ -101,6 +101,23 @@ type Repository interface {
 	// All aggregations are served from canonical indexed SQL (5k-50k envelope); no projection tables.
 	VaccinationCommandBoard(ctx context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error)
 
+	// The command board's DRILLDOWNS. Each is the evidence behind one board number and is fetched
+	// only when a reader opens that cell, keyset-paginated.
+	//
+	// They were previously computed eagerly inside VaccinationCommandBoard, tenant-wide, for every
+	// cell on every render -- ~62% of an endpoint that took ~8.6s of SQL and exhausted its 15s pool
+	// timeout on the staging-scale tenant. The board keeps every COUNT these lists sat under; only
+	// the lists moved. See adapters/postgres/commandboard_drilldown_sql.go.
+	CommandBoardClosedWithoutDoseAnimals(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardClosedWithoutDosePage, error)
+	CommandBoardShedVaccineAnimals(ctx context.Context, q domain.CommandBoardShedVaccineAnimalsQuery) (domain.CommandBoardShedVaccineAnimalsPage, error)
+	CommandBoardCohortExceptions(ctx context.Context, q domain.CommandBoardCohortCellQuery) (domain.CommandBoardCohortExceptionsPage, error)
+	CommandBoardCohortDays(ctx context.Context, q domain.CommandBoardCohortCellQuery) (domain.CommandBoardCohortDaysPage, error)
+
+	// CommandBoardDriveOptions serves the drive picker's full catalogue. The board carries only its
+	// first page (domain.CommandBoardDriveOptionsPageSize); the catalogue was 448ms and 753 KB of a
+	// response budgeted at 512 KB.
+	CommandBoardDriveOptions(ctx context.Context, q domain.CommandBoardDriveOptionsQuery) (domain.CommandBoardDriveOptionsPage, error)
+
 	// LiveTracker returns the whole live drive-day tracker in ONE read: KPI tiles, the operator
 	// board, the shed × partition proof board, the combo-dose card, the keyset activity feed, the
 	// attention list, the verification block and the filter vocabulary.

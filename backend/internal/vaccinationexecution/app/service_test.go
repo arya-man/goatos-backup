@@ -27,6 +27,29 @@ func (r fakeRepo) VaccinationCommandBoard(_ context.Context, _ domain.CommandBoa
 	return domain.CommandBoardResponse{}, nil
 }
 
+// The command-board drilldowns. Stubs: the Service is a pass-through for these, so the behaviour
+// under test lives in the repository's SQL and its own integration tests.
+
+func (r fakeRepo) CommandBoardClosedWithoutDoseAnimals(_ context.Context, _ domain.CommandBoardDrilldownQuery) (domain.CommandBoardClosedWithoutDosePage, error) {
+	return domain.CommandBoardClosedWithoutDosePage{}, nil
+}
+
+func (r fakeRepo) CommandBoardShedVaccineAnimals(_ context.Context, _ domain.CommandBoardShedVaccineAnimalsQuery) (domain.CommandBoardShedVaccineAnimalsPage, error) {
+	return domain.CommandBoardShedVaccineAnimalsPage{}, nil
+}
+
+func (r fakeRepo) CommandBoardCohortExceptions(_ context.Context, _ domain.CommandBoardCohortCellQuery) (domain.CommandBoardCohortExceptionsPage, error) {
+	return domain.CommandBoardCohortExceptionsPage{}, nil
+}
+
+func (r fakeRepo) CommandBoardCohortDays(_ context.Context, _ domain.CommandBoardCohortCellQuery) (domain.CommandBoardCohortDaysPage, error) {
+	return domain.CommandBoardCohortDaysPage{}, nil
+}
+
+func (r fakeRepo) CommandBoardDriveOptions(_ context.Context, _ domain.CommandBoardDriveOptionsQuery) (domain.CommandBoardDriveOptionsPage, error) {
+	return domain.CommandBoardDriveOptionsPage{}, nil
+}
+
 func (r fakeRepo) LiveTracker(_ context.Context, _ domain.LiveTrackerQuery) (domain.LiveTrackerResponse, error) {
 	return domain.LiveTrackerResponse{}, nil
 }

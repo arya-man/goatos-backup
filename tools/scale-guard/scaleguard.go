@@ -94,7 +94,14 @@ var (
 	// Paging repo methods whose loops must prove forward progress.
 	pageMethodRe = regexp.MustCompile(`^(List|Fetch)|Page$|Chunk$`)
 	ignoreRe     = regexp.MustCompile(`scale-guard:ignore:\s*\S`)
-	godCTELimit  = 8
+	// hot-path-inline-sql: a multi-line SQL literal declared INSIDE a function body in a postgres
+	// adapter. Such a statement is unreachable to every guard this repo has -- a query-plan test and
+	// this scanner can only address SQL they can NAME -- so it is structurally exempt from review.
+	// GET /vaccination/command carried FOURTEEN of them and its plans regressed until the endpoint
+	// returned 500 in staging. Hoist it to a package-level const (or SQLC) and give it a plan test.
+	inlineSQLStartRe = regexp.MustCompile(`(?is)^\s*(WITH|SELECT|INSERT|UPDATE|DELETE)\b`)
+	inlineSQLBodyRe  = regexp.MustCompile(`(?is)\bFROM\b|\bJOIN\b|\bWHERE\b`)
+	godCTELimit      = 8
 	// n-plus-one-fanout: the receiver field of an in-loop ctx-taking call must
 	// name an injected I/O dependency (repo/reader/port/client/roster/proto/...)
 	// for the call to count as a round trip. Descriptive field naming is the
@@ -268,6 +275,14 @@ func scanFile(repo, path string) []finding {
 		addLine("read-rollup-truth", line, msg)
 	}
 
+	// hot-path-inline-sql runs only in postgres adapters, where a multi-line SQL literal inside a
+	// function is by definition a hot-path statement no guard can reach.
+	if isPostgresAdapter(rel) {
+		for _, f := range detectInlineHotPathSQL(file) {
+			add("hot-path-inline-sql", f.pos, f.msg)
+		}
+	}
+
 	// AST pass: loop-scoped rules.
 	ast.Inspect(file, func(n ast.Node) bool {
 		var body *ast.BlockStmt
@@ -389,6 +404,65 @@ func scanFile(repo, path string) []finding {
 		}
 		return true
 	})
+	return out
+}
+
+// isPostgresAdapter reports whether rel is a repository adapter file. The rule is scoped to these
+// because that is where serving SQL lives; a SQL literal in a migration tool or a one-off command
+// is not a hot path and naming it buys nothing.
+func isPostgresAdapter(rel string) bool {
+	rel = filepath.ToSlash(rel)
+	return strings.Contains(rel, "/adapters/postgres/") && strings.HasSuffix(rel, ".go")
+}
+
+type inlineSQLFinding struct {
+	pos token.Pos
+	msg string
+}
+
+// detectInlineHotPathSQL finds multi-line SQL string literals declared inside a function body.
+//
+// A package-level const or var passes: it has a name, so commandboard_query_plan_test.go (or any
+// plan test) can EXPLAIN it, this scanner can find it, and a reviewer can diff it. A literal inside
+// a function has none of those properties. That is not a style preference -- it is the reason the
+// command board's fourteen statements could regress into a 15s timeout with every test green.
+//
+// MULTI-LINE is the threshold, deliberately. A one-line "SELECT 1" or a short single-table lookup is
+// not the shape that hides a plan regression, and flagging it would train people to reach for
+// scale-guard:ignore, which is how a guard stops meaning anything.
+func detectInlineHotPathSQL(file *ast.File) []inlineSQLFinding {
+	var out []inlineSQLFinding
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			text := lit.Value
+			if len(text) >= 2 && text[0] == '`' {
+				text = text[1 : len(text)-1]
+			} else {
+				// Only raw literals can realistically hold a multi-line statement; an interpreted
+				// literal with escaped newlines is not the shape this rule is about.
+				return true
+			}
+			if strings.Count(text, "\n") < 3 {
+				return true
+			}
+			if !inlineSQLStartRe.MatchString(text) || !inlineSQLBodyRe.MatchString(text) {
+				return true
+			}
+			out = append(out, inlineSQLFinding{
+				pos: lit.Pos(),
+				msg: "multi-line SQL declared inside " + fn.Name.Name + "(): hoist it to a package-level named const (or SQLC) so a query-plan test and this guard can reach it",
+			})
+			return true
+		})
+	}
 	return out
 }
 

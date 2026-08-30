@@ -66,6 +66,16 @@ type Reader interface {
 	// weekly given, and verification queue.
 	VaccinationCommandBoard(ctx context.Context, q vaccexecd.CommandBoardQuery) (vaccexecd.CommandBoardResponse, error)
 
+	// The command board's DRILLDOWNS: the evidence behind one board number, fetched when a reader
+	// opens that cell rather than computed for every cell on every render.
+	CommandBoardClosedWithoutDoseAnimals(ctx context.Context, q vaccexecd.CommandBoardDrilldownQuery) (vaccexecd.CommandBoardClosedWithoutDosePage, error)
+	CommandBoardShedVaccineAnimals(ctx context.Context, q vaccexecd.CommandBoardShedVaccineAnimalsQuery) (vaccexecd.CommandBoardShedVaccineAnimalsPage, error)
+	CommandBoardCohortExceptions(ctx context.Context, q vaccexecd.CommandBoardCohortCellQuery) (vaccexecd.CommandBoardCohortExceptionsPage, error)
+	CommandBoardCohortDays(ctx context.Context, q vaccexecd.CommandBoardCohortCellQuery) (vaccexecd.CommandBoardCohortDaysPage, error)
+	// CommandBoardDriveOptions serves the drive picker's full catalogue; the board carries only its
+	// first page.
+	CommandBoardDriveOptions(ctx context.Context, q vaccexecd.CommandBoardDriveOptionsQuery) (vaccexecd.CommandBoardDriveOptionsPage, error)
+
 	// LiveTracker returns the live drive-day tracker (KPIs, operator board, shed proof board, combo
 	// doses, activity feed, attention, verification, filter vocabulary) in one read.
 	LiveTracker(ctx context.Context, q vaccexecd.LiveTrackerQuery) (vaccexecd.LiveTrackerResponse, error)
@@ -157,6 +167,13 @@ func (h *Handler) now() time.Time {
 // Register mounts the vaccination execution routes (owned by PC Vaccination, park/shed scope).
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/command", h.GetVaccinationCommandBoard)
+	// The command board's lazy drilldowns and its paginated drive picker. Each REQUIRES the cell it
+	// explains, which is what keeps them a drawer's work instead of the tenant's.
+	mux.HandleFunc("GET /vaccination/command/closed-without-dose", h.GetCommandBoardClosedWithoutDose)
+	mux.HandleFunc("GET /vaccination/command/shed-vaccine-animals", h.GetCommandBoardShedVaccineAnimals)
+	mux.HandleFunc("GET /vaccination/command/cohort-exceptions", h.GetCommandBoardCohortExceptions)
+	mux.HandleFunc("GET /vaccination/command/cohort-days", h.GetCommandBoardCohortDays)
+	mux.HandleFunc("GET /vaccination/command/drives", h.GetCommandBoardDriveOptions)
 	mux.HandleFunc("GET /vaccination/live-tracker", h.GetVaccinationLiveTracker)
 	mux.HandleFunc("GET /vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)

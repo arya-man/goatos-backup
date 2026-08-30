@@ -1092,6 +1092,15 @@ type CommandBoardCohortCell struct {
 	// MissingPriorDoseGoats names those animals, capped so a cell can never return an unbounded
 	// list. MissingPriorDoseCount stays the whole-cohort truth when the list is capped.
 	MissingPriorDoseGoats []CommandBoardCohortAnimal `json:"missingPriorDoseGoats,omitempty"`
+	// DoseCodes are the raw dose codes that fold into this cell's single displayed VaccineLabel.
+	//
+	// The board collapses several codes onto one column (an adult course and a kid course can share
+	// a label), so the label alone cannot address the cell in a drilldown request. Without this the
+	// client would have to re-derive the label->codes mapping to open a drawer, which puts a second,
+	// drifting copy of the dose-labelling table in the frontend -- exactly what the
+	// backend-owns-labels rule forbids. Sorted, so the same cell produces the same request every
+	// render and a caching layer cannot see two spellings of one drawer.
+	DoseCodes []string `json:"doseCodes"`
 }
 
 // CommandBoardCohortDay is one business day of accepted administration inside a cohort × dose cell.
@@ -1208,10 +1217,7 @@ type CommandBoardResponse struct {
 	// "more drives exist, narrow by park" instead of lying by omission.
 	DriveOptionsTruncated bool                     `json:"driveOptionsTruncated"`
 	CohortMatrix          []CommandBoardCohortCell `json:"cohortMatrix"`
-	// ClosedWithoutDoseAnimals names the animals behind KPIs.ClosedWithoutDose, capped at
-	// CommandBoardClosedWithoutDoseListCap. The COUNT on the tile stays whole-scope truth.
-	ClosedWithoutDoseAnimals []CommandBoardClosedWithoutDoseAnimal `json:"closedWithoutDoseAnimals"`
-	ShedDoseMatrix           []ShedDoseMatrixCell                  `json:"shedDoseMatrix"`
+	ShedDoseMatrix        []ShedDoseMatrixCell     `json:"shedDoseMatrix"`
 	// ShedVaccineMatrix is the dose-collapsed red/green companion to ShedDoseMatrix. Every shed in
 	// scope appears against every vaccine the tenant's protocol defines, including vaccines that
 	// generated no obligations, so "this column is missing" and "this column is clean" stay
@@ -1229,6 +1235,20 @@ type CommandBoardResponse struct {
 	WeeklyGiven        []WeeklyGivenRow            `json:"weeklyGiven"`
 	VerificationQueue  []VerificationQueueRow      `json:"verificationQueue"`
 	Freshness          *ProjectionFreshness        `json:"freshness,omitempty"`
+	// UnavailableSections names the OPTIONAL board sections whose read failed on this render.
+	//
+	// The board used to be all-or-nothing: any one of its fourteen reads failing returned a 500 and
+	// the page showed "Unable to load command board" with no numbers at all. That is a bad trade on
+	// a leadership dashboard -- a verification queue that times out is a missing panel, not a
+	// missing board, and blanking the KPI row over it destroys the reading the CEO came for.
+	//
+	// KPIs and the drive picker remain REQUIRED and still fail the request: a board with no numbers
+	// is the blank page this change exists to remove, and a board with no picker strands the reader
+	// on whichever drive they last chose. Every other section degrades to a named absence so the UI
+	// can render "unavailable" in one panel and the truth everywhere else.
+	//
+	// Empty (and omitted) on a fully successful render, which is the overwhelmingly common case.
+	UnavailableSections []string `json:"unavailableSections,omitempty"`
 }
 
 type CommandBoardQuery struct {
