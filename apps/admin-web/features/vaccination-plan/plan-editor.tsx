@@ -18,8 +18,9 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { DurationField, formatDays } from "./duration-field";
 import type { EditorPlan, EditorVaccine, NewVaccineInput, ProcurementPurpose } from "./editor-model";
+import type { AnchorConfig } from "./editor-model";
 import { newVaccineToEditor } from "./editor-model";
-import { publishPlan, saveDraftPlan } from "./plan-actions";
+import { publishPlanWithAnchors, saveDraftPlan } from "./plan-actions";
 import { VaccinationAnchorPanel } from "./anchor-panel";
 import { humanDays } from "./plan-model";
 import type { ScheduleRule } from "./plan-model";
@@ -126,6 +127,16 @@ export function VaccinationPlanEditor(props: Props) {
     setPlan((p) => ({ ...p, vaccines: p.vaccines.map((v) => (v.code === code ? change(v) : v)) }));
   }
 
+  function updateAnchor(doseCode: string, anchor: AnchorConfig | null) {
+    if (!current) return;
+    updateVaccine(current.code, (v) => {
+      const anchors = { ...(v.anchors ?? {}) };
+      if (anchor) anchors[doseCode] = anchor;
+      else delete anchors[doseCode];
+      return { ...v, anchors };
+    });
+  }
+
   /**
    * Validated the same way the mock validates it: name and short code required,
    * and neither may already belong to a vaccine already in this draft. Returns
@@ -187,7 +198,7 @@ export function VaccinationPlanEditor(props: Props) {
       // client action and leave the user on a saved-but-unpublished draft.
       const liveId = savedResult.versionId ?? liveVersionId.current;
       liveVersionId.current = liveId;
-      const published = await publishPlan(liveId);
+      const published = await publishPlanWithAnchors(liveId, plan);
       if (!published.ok) {
         setError(published.error);
         if (liveId !== props.draftVersionId) {
@@ -388,7 +399,7 @@ export function VaccinationPlanEditor(props: Props) {
               {current.on && currentAnchorRows.length > 0 ? (
                 <div className="dose" style={{ marginBottom: 18 }}>
                   <div className="sec-label">Optional anchor/base dates</div>
-                  <VaccinationAnchorPanel rows={currentAnchorRows} />
+                  <VaccinationAnchorPanel rows={currentAnchorRows} anchors={current.anchors ?? {}} onChange={updateAnchor} />
                 </div>
               ) : null}
 

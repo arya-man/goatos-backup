@@ -4,16 +4,10 @@ import { Fragment, useMemo, useState } from "react";
 import { CircleSlash, Pencil, Plus } from "lucide-react";
 
 import { todayIso } from "@/lib/format";
+import type { AnchorConfig } from "./editor-model";
 import type { ScheduleRule, VaccineGroup } from "./plan-model";
 
-type AnchorState = {
-  anchorDate: string;
-  reason: string;
-  sourceRef: string;
-  suppressBeforeAnchor: boolean;
-  chainFutureFromAnchor: boolean;
-  enforceAgeEligibility: boolean;
-};
+type AnchorState = AnchorConfig;
 
 type RuleRow = {
   vaccine: Pick<VaccineGroup, "code" | "name">;
@@ -23,11 +17,13 @@ type RuleRow = {
 type Props = {
   catalog?: VaccineGroup[];
   rows?: RuleRow[];
+  anchors?: Record<string, AnchorConfig>;
+  onChange?: (doseCode: string, anchor: AnchorConfig | null) => void;
 };
 
 const DEFAULT_REASON = "Anchor/base date for this vaccine rule";
 
-export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Props) {
+export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, anchors = {}, onChange }: Props) {
   const catalogRows = useMemo(
     () =>
       catalog
@@ -42,11 +38,11 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
   const rows = providedRows ?? catalogRows;
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [state, setState] = useState<AnchorState>(() => defaultState());
-  const [configured, setConfigured] = useState<Record<string, string>>({});
 
   function openEditor(row: RuleRow) {
     setEditingKey(rowKey(row));
-    setState(defaultState());
+    const existing = row.rule.dose_code ? anchors[row.rule.dose_code] : undefined;
+    setState(existing ?? defaultState());
   }
 
   function update<K extends keyof AnchorState>(key: K, value: AnchorState[K]) {
@@ -54,7 +50,8 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
   }
 
   function skipAnchor(key: string) {
-    setConfigured((current) => clearKey(current, key));
+    const row = rows.find((item) => rowKey(item) === key);
+    if (row?.rule.dose_code) onChange?.(row.rule.dose_code, null);
     if (editingKey === key) {
       setEditingKey(null);
     }
@@ -79,7 +76,8 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
           {rows.map((row) => {
             const key = rowKey(row);
             const editing = editingKey === key;
-            const anchorDate = configured[key];
+            const anchorDate = row.rule.dose_code ? anchors[row.rule.dose_code]?.anchorDate : "";
+            const canSave = isValidIsoDate(state.anchorDate);
             return (
               <Fragment key={key}>
                 <tr className={editing ? "selrow" : undefined}>
@@ -125,6 +123,7 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
                             type="date"
                             value={state.anchorDate}
                             onChange={(event) => update("anchorDate", event.target.value)}
+                            onInput={(event) => update("anchorDate", event.currentTarget.value)}
                           />
                         </label>
                         <label className="field">
@@ -170,8 +169,10 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
                         <button
                           className="btn sm"
                           type="button"
+                          disabled={!canSave}
                           onClick={() => {
-                            setConfigured((current) => ({ ...current, [key]: state.anchorDate }));
+                            if (!canSave) return;
+                            if (row.rule.dose_code) onChange?.(row.rule.dose_code, state);
                             setEditingKey(null);
                           }}
                         >
@@ -204,14 +205,14 @@ function defaultState(): AnchorState {
   };
 }
 
-function rowKey(row: RuleRow): string {
-  return `${row.vaccine.code}:${row.rule.dose_code ?? ""}`;
+function isValidIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
 }
 
-function clearKey(current: Record<string, string>, key: string): Record<string, string> {
-  const next = { ...current };
-  delete next[key];
-  return next;
+function rowKey(row: RuleRow): string {
+  return `${row.vaccine.code}:${row.rule.dose_code ?? ""}`;
 }
 
 function ruleTiming(rule: ScheduleRule): string {

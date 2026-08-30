@@ -153,6 +153,45 @@ test("draft editor reads active materialized rules including repeat anchors", ()
   assert.equal(plan.vaccines[0].repeatDoseCode, "ppr_revac");
 });
 
+test("draft anchor config round-trips through rule_dsl", () => {
+  const plan = fromRuleDsl({
+    ...BASE_DOC,
+    anchor_config: {
+      rules: [
+        {
+          vaccine_code: "ET+TT",
+          dose_code: "et_tt_4w",
+          anchor_date: "2026-09-08",
+          scope_type: "tenant",
+          reason: "Start this rule from Sep 8",
+          source_ref: "ops-note-1",
+          suppress_before_anchor: true,
+          chain_future_from_anchor: false,
+          enforce_age_eligibility: true,
+        },
+      ],
+    },
+  }, null);
+
+  assert.equal(plan.vaccines[0].anchors.et_tt_4w.anchorDate, "2026-09-08");
+  assert.equal(plan.vaccines[0].anchors.et_tt_4w.chainFutureFromAnchor, false);
+
+  const doc = toRuleDsl(BASE_DOC, plan);
+  assert.deepEqual(doc.anchor_config.rules, [
+    {
+      vaccine_code: "ET+TT",
+      dose_code: "et_tt_4w",
+      anchor_date: "2026-09-08",
+      scope_type: "tenant",
+      suppress_before_anchor: true,
+      chain_future_from_anchor: false,
+      enforce_age_eligibility: true,
+      reason: "Start this rule from Sep 8",
+      source_ref: "ops-note-1",
+    },
+  ]);
+});
+
 test("newVaccineToEditor turns a booster course into kid timing plus adult follow-up", () => {
   const v = newVaccineToEditor({
     name: "Brucella",

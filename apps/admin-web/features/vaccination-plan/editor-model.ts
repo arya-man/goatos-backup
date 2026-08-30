@@ -56,6 +56,16 @@ export type EditorVaccine = {
   species?: string;
   /** "all" | "breeding" | "fattening" | "non_breeding". Same "new row only" scope as pathogenClass. */
   procurementPurpose?: string;
+  anchors?: Record<string, AnchorConfig>;
+};
+
+export type AnchorConfig = {
+  anchorDate: string;
+  reason: string;
+  sourceRef: string;
+  suppressBeforeAnchor: boolean;
+  chainFutureFromAnchor: boolean;
+  enforceAgeEligibility: boolean;
 };
 
 /** Everything "+ Add a vaccine" collects, before it becomes an EditorVaccine + a matrix row. */
@@ -181,7 +191,7 @@ export function fromRuleDsl(ruleDsl: unknown, proofPolicy: unknown, activeRules:
   const storedPurposePlans = asObject(proc.purpose_plans);
 
   return {
-    vaccines: mergeActiveRulesIntoEditor(rows.map(readVaccine), rows, activeRules),
+    vaccines: mergeAnchorConfig(mergeActiveRulesIntoEditor(rows.map(readVaccine), rows, activeRules), doc.anchor_config),
     procurement: {
       warmupNoVaccinationDays: numberOrNull(proc.warmup_no_vaccination_days),
       kidsNormalScheduleUntilWeeks: numberOrNull(proc.kids_normal_schedule_until_weeks),
@@ -246,6 +256,7 @@ function readVaccine(row: unknown): EditorVaccine {
     repeatDoseCode: typeof repeats[0]?.dose_code === "string" ? repeats[0]?.dose_code : undefined,
     pathogenClass: typeof vaccine.pathogen_class === "string" ? vaccine.pathogen_class : undefined,
     courseType: typeof vaccine.course_type === "string" ? vaccine.course_type : undefined,
+    anchors: {},
   };
 }
 
@@ -451,6 +462,7 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
     const s = asObject(row).schedule;
     return Array.isArray(s) ? s : [];
   });
+  writeAnchorConfig(doc, plan);
 
   const proc = asObject(doc.procurement_policy);
   if (plan.procurement.warmupNoVaccinationDays !== null) {
@@ -491,10 +503,65 @@ export function toRuleDsl(original: unknown, plan: EditorPlan): unknown {
   return doc;
 }
 
+function mergeAnchorConfig(vaccines: EditorVaccine[], raw: unknown): EditorVaccine[] {
+  const config = asObject(raw);
+  const rules = Array.isArray(config.rules) ? config.rules : [];
+  if (rules.length === 0) return vaccines.map((v) => ({ ...v, anchors: v.anchors ?? {} }));
+  const byVaccine = new Map(vaccines.map((v) => [normaliseVaccineName(v.code), { ...v, anchors: { ...(v.anchors ?? {}) } }]));
+  for (const item of rules) {
+    const r = asObject(item);
+    const vaccineCode = String(r.vaccine_code ?? "");
+    const doseCode = String(r.dose_code ?? "");
+    const anchorDate = String(r.anchor_date ?? "");
+    if (!vaccineCode || !doseCode || !anchorDate) continue;
+    const vaccine = byVaccine.get(normaliseVaccineName(vaccineCode));
+    if (!vaccine) continue;
+    vaccine.anchors = {
+      ...(vaccine.anchors ?? {}),
+      [doseCode]: {
+        anchorDate,
+        reason: String(r.reason ?? "Anchor/base date for this vaccine rule"),
+        sourceRef: String(r.source_ref ?? ""),
+        suppressBeforeAnchor: r.suppress_before_anchor !== false,
+        chainFutureFromAnchor: r.chain_future_from_anchor !== false,
+        enforceAgeEligibility: r.enforce_age_eligibility !== false,
+      },
+    };
+  }
+  return vaccines.map((v) => byVaccine.get(normaliseVaccineName(v.code)) ?? { ...v, anchors: v.anchors ?? {} });
+}
+
+function writeAnchorConfig(doc: Record<string, unknown>, plan: EditorPlan) {
+  const rules: Record<string, unknown>[] = [];
+  for (const vaccine of plan.vaccines) {
+    for (const [doseCode, anchor] of Object.entries(vaccine.anchors ?? {})) {
+      if (!anchor.anchorDate) continue;
+      const item: Record<string, unknown> = {
+        vaccine_code: vaccine.code,
+        dose_code: doseCode,
+        anchor_date: anchor.anchorDate,
+        scope_type: "tenant",
+        suppress_before_anchor: anchor.suppressBeforeAnchor,
+        chain_future_from_anchor: anchor.chainFutureFromAnchor,
+        enforce_age_eligibility: anchor.enforceAgeEligibility,
+        reason: anchor.reason.trim() || "Anchor/base date for this vaccine rule",
+      };
+      if (anchor.sourceRef.trim()) item.source_ref = anchor.sourceRef.trim();
+      rules.push(item);
+    }
+  }
+  if (rules.length === 0) {
+    delete doc.anchor_config;
+    return;
+  }
+  doc.anchor_config = { rules };
+}
+
 /**
  * Draft authoring must not preserve legacy/import-only keys that publish now
- * rejects. Anchors are written through vaccination_anchor_events, not by hiding
- * notes or config under rule_dsl.
+ * rejects. Config-level anchor/base dates are the exception: they live in a
+ * validated anchor_config block until publish applies them through the anchor
+ * service.
  */
 export function sanitizeRuleDslForSave(ruleDsl: unknown): Record<string, unknown> {
   const doc = structuredClone(asObject(ruleDsl));

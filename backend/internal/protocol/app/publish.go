@@ -71,6 +71,7 @@ type ruleDSLEnvelope struct {
 	ProcurementPolicy   json.RawMessage `json:"procurement_policy"`
 	CompatibilityPolicy json.RawMessage `json:"compatibility_policy"`
 	Capacity            json.RawMessage `json:"capacity"`
+	AnchorConfig        json.RawMessage `json:"anchor_config"`
 	Schedule            []scheduleRow   `json:"schedule"`
 	MatrixRows          []matrixRow     `json:"matrix_rows"`
 }
@@ -259,6 +260,7 @@ var (
 		"procurement_policy":   true,
 		"pregnancy_policy":     true,
 		"capacity":             true,
+		"anchor_config":        true,
 		"recovery_policy":      true,
 		"drive_policy":         true,
 		"parameter_template":   true,

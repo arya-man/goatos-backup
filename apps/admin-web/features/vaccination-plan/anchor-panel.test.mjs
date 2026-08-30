@@ -21,6 +21,11 @@ test("anchor panel is a simple draft rule setting", () => {
   assert.match(panel, /aria-label=\{anchorDate \? "Edit anchor" : "Add anchor"\}/);
   assert.match(panel, /aria-label="Skip anchor"/);
   assert.match(panel, /anchorDate \? \([\s\S]*aria-label="Skip anchor"/);
+  assert.match(panel, /onChange\?\.\(row\.rule\.dose_code, null\)/);
+  assert.match(panel, /onChange\?\.\(row\.rule\.dose_code, state\)/);
+  assert.match(panel, /disabled=\{!canSave\}/);
+  assert.match(panel, /isValidIsoDate\(state\.anchorDate\)/);
+  assert.doesNotMatch(panel, /setConfigured/);
   assert.match(panel, /Save anchor to draft/);
   assert.match(panel, /Apply anchor to this rule's eligible scope/);
   assert.match(panel, /Chain boosters\/revacs from anchor/);

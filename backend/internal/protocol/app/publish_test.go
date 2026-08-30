@@ -319,6 +319,10 @@ func TestValidateRuleDSLRejectsUnknownKeys(t *testing.T) {
 	if err := ValidateRuleDSL(validFeed); err != nil {
 		t.Fatalf("valid feed rule_dsl rejected: %v", err)
 	}
+	validAnchorConfig := []byte(`{"category":"vaccination","anchor_config":{"rules":[{"vaccine_code":"PPR","dose_code":"ppr_kid_16w","anchor_date":"2026-09-08"}]}}`)
+	if err := ValidateRuleDSL(validAnchorConfig); err != nil {
+		t.Fatalf("valid anchor_config rule_dsl rejected: %v", err)
+	}
 	for _, bad := range []string{
 		`{"eligibilty":{"animal_stage":"K1"}}`,
 		`{"vaccine":{"code":"ET","vaccine_type":"toxoid"}}`,
