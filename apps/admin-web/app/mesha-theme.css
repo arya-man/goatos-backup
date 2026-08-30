@@ -3757,7 +3757,9 @@ select:disabled { opacity: .45; }
 .vplan .tabl tr.selrow td { background: var(--brand-soft); }
 .vplan .anchoredit td { background: var(--panel-2); }
 .vplan .anchorform.inline { margin-top: 0; }
-.vplan .anchorrow-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.vplan .anchorrow-actions { display: flex; flex-wrap: nowrap; gap: 7px; align-items: center; }
+.vplan .anchorrow-actions .btn.icon { width: 34px; height: 34px; min-height: 34px; padding: 0; justify-content: center; }
+.vplan .anchorrow-actions .btn.icon svg { width: 18px; height: 18px; display: block; flex: 0 0 auto; }
 .vplan .anchoractions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 14px; }
 .vplan .anchorpreview { margin-top: 16px; }
 .vplan .anchordetail { margin-top: 16px; }

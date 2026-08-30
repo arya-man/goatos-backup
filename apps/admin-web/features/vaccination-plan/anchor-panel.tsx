@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState, useTransition } from "react";
+import { CircleSlash, Pencil, Plus } from "lucide-react";
 
 import { todayIso } from "@/lib/format";
 import type { VaccinationAnchorPreview, VaccinationAnchorRequest } from "@/lib/api/server";
@@ -120,11 +121,23 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows }: Pro
                   <td>{anchorDate || "No anchor"}</td>
                   <td>
                     <div className="anchorrow-actions">
-                      <button className="btn ghost sm" type="button" onClick={() => openEditor(row)}>
-                        {anchorDate ? "Edit anchor" : "Add anchor"}
+                      <button
+                        className="btn ghost sm icon"
+                        type="button"
+                        aria-label={anchorDate ? "Edit anchor" : "Add anchor"}
+                        title={anchorDate ? "Edit anchor" : "Add anchor"}
+                        onClick={() => openEditor(row)}
+                      >
+                        {anchorDate ? <Pencil size={18} strokeWidth={2.6} aria-hidden /> : <Plus size={18} strokeWidth={2.8} aria-hidden />}
                       </button>
-                      <button className="btn ghost sm" type="button" onClick={() => skipAnchor(key)}>
-                        Skip anchor
+                      <button
+                        className="btn ghost sm icon"
+                        type="button"
+                        aria-label="Skip anchor"
+                        title="Skip anchor"
+                        onClick={() => skipAnchor(key)}
+                      >
+                        <CircleSlash size={18} strokeWidth={2.6} aria-hidden />
                       </button>
                     </div>
                   </td>

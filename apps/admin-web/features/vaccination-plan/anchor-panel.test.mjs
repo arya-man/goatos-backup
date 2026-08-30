@@ -16,8 +16,11 @@ test("anchor panel defaults all safety flags to true", () => {
 test("anchor panel is a rule setting with summary-only preview", () => {
   assert.match(panel, /Anchor\/base date/);
   assert.match(panel, /No anchor/);
-  assert.match(panel, /Add anchor/);
-  assert.match(panel, /Skip anchor/);
+  assert.match(panel, /Plus/);
+  assert.match(panel, /Pencil/);
+  assert.match(panel, /CircleSlash/);
+  assert.match(panel, /aria-label=\{anchorDate \? "Edit anchor" : "Add anchor"\}/);
+  assert.match(panel, /aria-label="Skip anchor"/);
   assert.doesNotMatch(panel, /anchorDate \? \([\s\S]*Skip anchor/);
   assert.match(panel, /Save anchor to draft/);
   assert.match(panel, /Apply anchor to this rule's eligible scope/);
