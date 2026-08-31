@@ -30,14 +30,14 @@ value, remaining estimated value) with the counts readable beside them.
 
 1b. **Pre-GoatOS history is folded in, with its dates.** A legacy load was partly sold and partly
    dead before its remaining animals were tracked here. `procurement_load_prior_outcomes`
-   (migration 000229) holds one aggregate row per (load, outcome): count, sold revenue where the
+   (migration 000232) holds one aggregate row per (load, outcome): count, sold revenue where the
    records carry it, and the date range the events span, each with its source. `FinalizeLoadwise`
    folds those into sold / mortality / sold value before deriving Unaccounted; the raw blocks stay
    on the row so the table tooltips and the cost drawer show the history with its dates. The load
    NUMBER (`context->>'load_ref'`, e.g. 131) leads every row, chart axis and drawer header — the
    same identity the Weights "Daily gain by load" card uses.
 2. **Purchase value is a RECORDED landed cost, entered in the app.** `procurement_loads` gains
-   `animal_cost`, `transport_cost`, `other_cost` (migration 000229). Absent cost renders "Cost
+   `animal_cost`, `transport_cost`, `other_cost` (migration 000232). Absent cost renders "Cost
    not recorded" — never a fabricated zero, and never a vendor-price estimate. Entry is the
    load-wise table's row drawer, gated on the DEDICATED buying-desk permission
    `procurement.load_cost.write` (`LoadCostWrite`) — the FeedPurchaseWrite precedent: operators
@@ -88,7 +88,7 @@ pointing the other way (opaque, no FK).
 
 ## Rendered proof (2026-08-31)
 
-Verified in Chrome against a clone of STG (schema + herd/sales/location data), migration 000229
+Verified in Chrome against a clone of STG (schema + herd/sales/location data), migration 000232
 applied and the seed run: eight loads render with their numbers, both charts, and a table where
 load 113 reconciles exactly (100 = 91 sold + 9 died + 0 remaining + 0 unaccounted). The cost
 drawer opens on a load, shows "Before these records" with the dated history, and recording a

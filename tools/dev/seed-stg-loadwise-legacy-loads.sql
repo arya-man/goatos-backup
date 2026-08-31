@@ -18,7 +18,7 @@
 --     Part 1), so neither gets membership — their handful of survivors shows as a red
 --     Unaccounted count, which is the honest state. Load 113 is sold out; no membership.
 --
--- RUN AFTER migration 000229 is live on STG (the cost columns and the prior-outcomes table are
+-- RUN AFTER migration 000232 is live on STG (the cost columns and the prior-outcomes table are
 -- created there). Idempotent: loads key on their idempotency_key, membership inserts ON CONFLICT
 -- DO NOTHING, prior outcomes upsert on (tenant, load, outcome). Run inside the transaction below
 -- and eyeball the verification SELECT before COMMIT.
