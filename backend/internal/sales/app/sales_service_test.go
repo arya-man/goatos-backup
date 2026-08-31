@@ -13,6 +13,8 @@ import (
 // fakeRepo records what the service actually asked for, so these tests pin the service's
 // validation and filter normalization without a database.
 type fakeRepo struct {
+	statusDealID  string
+	dealStatus    string
 	paymentDealID string
 	payment       domain.DealPaymentWrite
 	paymentKey    string
@@ -46,6 +48,11 @@ func (f *fakeRepo) CreateDeal(_ context.Context, _ string, write domain.DealWrit
 }
 
 // Pipeline methods: thin recorders, same idea as the deal ones.
+func (f *fakeRepo) SetDealStatus(_ context.Context, _ string, dealID, status, _ string) (domain.Deal, error) {
+	f.statusDealID, f.dealStatus = dealID, status
+	return domain.Deal{DealID: dealID, Status: status}, nil
+}
+
 func (f *fakeRepo) RecordDealPayment(_ context.Context, _ string, dealID string, write domain.DealPaymentWrite, _ string, key string) (domain.Deal, error) {
 	f.paymentDealID, f.payment, f.paymentKey = dealID, write, key
 	return domain.Deal{DealID: dealID}, nil
@@ -304,5 +311,25 @@ func TestRecordDealPaymentGatesBeforeTheRepository(t *testing.T) {
 	}
 	if repo.paymentDealID != "d1" || repo.paymentKey != "key-3" || repo.payment.Note != "on pickup" {
 		t.Fatalf("repo saw deal=%q key=%q note=%q", repo.paymentDealID, repo.paymentKey, repo.payment.Note)
+	}
+}
+
+// TestSetDealStatusCanonicalizesAndRejects pins the status edit: "advance paid" stores as the
+// sheet's "Advance Paid", and a word outside the closed vocabulary is refused rather than
+// rewritten -- a silently defaulted status is a deal state nobody entered.
+func TestSetDealStatusCanonicalizesAndRejects(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewSalesService(repo)
+
+	if _, err := svc.SetDealStatus(context.Background(), "t", "d1", " advance paid ", "actor"); err != nil {
+		t.Fatalf("set status: %v", err)
+	}
+	if repo.dealStatus != domain.StatusAdvancePaid || repo.statusDealID != "d1" {
+		t.Fatalf("repo saw status=%q deal=%q", repo.dealStatus, repo.statusDealID)
+	}
+
+	var v domain.ErrDealValidation
+	if _, err := svc.SetDealStatus(context.Background(), "t", "d1", "Partially Closed", "actor"); !errors.As(err, &v) || v.Field != "status" {
+		t.Fatalf("unknown status => %v, want a status rejection", err)
 	}
 }

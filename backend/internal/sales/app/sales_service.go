@@ -79,6 +79,27 @@ func (s *SalesService) CreateDeal(ctx context.Context, tenantID string, write do
 	return s.repo.CreateDeal(ctx, tenantID, normalized, actorID, strings.TrimSpace(idempotencyKey))
 }
 
+// SetDealStatus sets a deal's lifecycle status -- the edit that closes an expected sale on the
+// day the animals actually leave. The vocabulary is closed; an unrecognised word is rejected,
+// never rewritten to a default.
+func (s *SalesService) SetDealStatus(ctx context.Context, tenantID, dealID, status, actorID string) (domain.Deal, error) {
+	if strings.TrimSpace(dealID) == "" {
+		return domain.Deal{}, ports.ErrDealNotFound
+	}
+	trimmed := strings.TrimSpace(status)
+	canonical := ""
+	for _, known := range domain.Statuses {
+		if strings.EqualFold(trimmed, known) {
+			canonical = known
+			break
+		}
+	}
+	if canonical == "" {
+		return domain.Deal{}, domain.ErrDealValidation{Field: "status", Reason: "must be Deal Closed, Deal Failed, In Discussion or Advance Paid"}
+	}
+	return s.repo.SetDealStatus(ctx, tenantID, dealID, canonical, actorID)
+}
+
 // RecordDealPayment validates and records one receipt against one deal.
 //
 // The idempotency key is mandatory for the same reason CreateDeal's is: a receipt is money, and a

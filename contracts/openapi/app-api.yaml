@@ -7068,6 +7068,46 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /sales/deals/{deal_id}/status:
+    post:
+      tags:
+        - Sales
+      operationId: setSalesDealStatus
+      summary: Set a deal's lifecycle status directly.
+      description: >-
+        The edit that closes an expected sale on the day the animals actually leave, or marks one
+        failed. The vocabulary is closed; an unrecognised word is rejected, never rewritten to a
+        default. Money never moves the lifecycle and the lifecycle never moves the money.
+        Naturally idempotent -- setting the status a deal already has changes nothing and audits
+        nothing.
+      parameters:
+        - name: deal_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesDealStatusWrite"
+      responses:
+        "200":
+          description: The deal after the status change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDeal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /sales/buyer-leads:
     get:
       tags:
@@ -14090,6 +14130,12 @@ components:
         received_on: { type: string, format: date }
         amount_rupees: { type: number, exclusiveMinimum: 0 }
         note: { type: string, maxLength: 300 }
+    SalesDealStatusWrite:
+      type: object
+      description: Deal-status edit body. The vocabulary is closed; an unrecognised word is rejected.
+      required: [status]
+      properties:
+        status: { type: string, enum: [Deal Closed, Deal Failed, In Discussion, Advance Paid] }
     SalesDealPage:
       type: object
       required: [deals, total, limit, offset]
@@ -14139,6 +14185,13 @@ components:
           exclusiveMinimum: 0
           description: Required and must be more than zero.
         advance_amount: { type: number, minimum: 0, nullable: true }
+        status:
+          type: string
+          enum: [Deal Closed, Deal Failed, In Discussion, Advance Paid]
+          description: >-
+            Optional; blank records the default, Deal Closed. Name one to record an EXPECTED sale
+            -- an advance received today for animals leaving on a future date is an Advance Paid
+            deal, and only Deal Closed counts toward revenue.
         comments: { type: string, maxLength: 2000 }
     SalesOverviewSummary:
       type: object

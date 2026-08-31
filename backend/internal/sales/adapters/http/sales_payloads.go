@@ -48,6 +48,11 @@ type dealPayload struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+// dealStatusWritePayload is the deal-status edit body.
+type dealStatusWritePayload struct {
+	Status string `json:"status"`
+}
+
 // dealPaymentPayload is one receipt on the wire.
 type dealPaymentPayload struct {
 	PaymentID    string  `json:"payment_id"`
@@ -94,6 +99,9 @@ type dealWritePayload struct {
 	SalesValue    float64  `json:"sales_value"`
 	AdvanceAmount *float64 `json:"advance_amount"`
 	Comments      string   `json:"comments"`
+	// Optional: blank records the default, Deal Closed. Named for an EXPECTED sale ("Advance
+	// Paid", "In Discussion") whose advance is already in hand.
+	Status string `json:"status"`
 }
 
 func (p dealWritePayload) toDomain() domain.DealWrite {
@@ -102,6 +110,7 @@ func (p dealWritePayload) toDomain() domain.DealWrite {
 		BuyerName: p.BuyerName, BuyerPlace: p.BuyerPlace, BuyerVendorID: p.BuyerVendorID,
 		AnimalCount: p.AnimalCount, MaleCount: p.MaleCount, FemaleCount: p.FemaleCount,
 		TotalWeightKg: p.TotalWeightKg, SalesValue: p.SalesValue, AdvanceAmount: p.AdvanceAmount,
+		Status:   p.Status,
 		Comments: p.Comments,
 	}
 }

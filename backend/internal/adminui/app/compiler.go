@@ -945,13 +945,23 @@ func compileSalesControls(controls []domain.Control, input BootstrapInput, copy 
 	})
 	// A buyer receipt is a money write on the same ledger, so it rides the same permission as
 	// recording the deal. Declared-and-disabled for read-only principals, like every write here.
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "record_sales_deal_payment",
 		Label:          controlCopy(copy, "action.record_deal_payment.label", "Add payment"),
 		Kind:           "row_action",
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /sales/deals/{deal_id}/payments",
+	})
+	// The lifecycle edit that closes an expected sale on the day it happens. Same authority as
+	// recording the deal.
+	return upsertControl(controls, domain.Control{
+		ID:             "update_sales_deal_status",
+		Label:          controlCopy(copy, "action.update_deal_status.label", "Update status"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /sales/deals/{deal_id}/status",
 	})
 }
 

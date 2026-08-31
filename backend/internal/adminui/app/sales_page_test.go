@@ -61,6 +61,8 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		"payments.column.received_on", "payments.column.amount", "payments.column.note",
 		"field.received_on", "field.amount_rupees", "field.note", "hint.record_payment",
 		"action.record_deal_payment.label", "action.payment_recorded", "action.payment_record_failed",
+		"field.status", "hint.status", "action.update_deal_status.label",
+		"action.deal_status_updated", "action.deal_status_update_failed",
 		"field.breed", "field.buyer_name", "field.total_weight_kg", "field.sales_value",
 		// The vendor select's copy: a REQUIRED field whose dead-end needs an exit, so the
 		// placeholder, the "add them on Vendors" hint, the register-empty replacement and the
@@ -191,6 +193,13 @@ func TestSalesRecordSaleControlIsCapabilityGated(t *testing.T) {
 			}
 			if payment.Action != "POST /sales/deals/{deal_id}/payments" {
 				t.Fatalf("record_sales_deal_payment.action = %q want the receipt write", payment.Action)
+			}
+			status := controlByID(t, pageControls, "update_sales_deal_status")
+			if status.Enabled != tc.enabled {
+				t.Fatalf("%s update_sales_deal_status.enabled = %v want %v", tc.name, status.Enabled, tc.enabled)
+			}
+			if status.Action != "POST /sales/deals/{deal_id}/status" {
+				t.Fatalf("update_sales_deal_status.action = %q want the status write", status.Action)
 			}
 		})
 	}

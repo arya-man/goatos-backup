@@ -2883,6 +2883,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"field.note":                       "Note",
 			"hint.record_payment":              "Record each amount as the buyer hands it over — the balance updates itself.",
 			"action.record_deal_payment.label": "Add payment",
+			"field.status":                     "Deal status",
+			"hint.status":                      "Leave as Deal Closed for a finished sale. Pick Advance Paid or In Discussion to record an expected sale — close it on the day the animals leave.",
+			"action.update_deal_status.label":  "Update status",
+			"action.deal_status_updated":       "Deal status updated.",
+			"action.deal_status_update_failed": "Could not update the deal status. Try again.",
 			"action.payment_recorded":          "Payment recorded.",
 			"action.payment_record_failed":     "Could not record this payment. Check the fields and try again.",
 			"drawer.record_sale.title":         "Record a sale",
@@ -5746,6 +5751,18 @@ func pageSpecificCopy(id string) map[string]string {
 // selection changes.
 func salesOptionGroups() []domain.OptionGroup {
 	return []domain.OptionGroup{
+		{
+			// Mirrors sales/domain.Statuses -- the sheet's four lifecycle words. Kept as literals
+			// rather than an import, exactly as the feed payment group is: the contract compiler
+			// must not depend on a feature module's package. Tones follow dealStatusTone.
+			ID: "sales_deal_statuses",
+			Options: []domain.Option{
+				option("Deal Closed", "Deal Closed", "", "ok"),
+				option("Deal Failed", "Deal Failed", "", "dng"),
+				option("In Discussion", "In Discussion", "", "info"),
+				option("Advance Paid", "Advance Paid", "", "warn"),
+			},
+		},
 		{
 			ID: "sales_farms",
 			Options: []domain.Option{
