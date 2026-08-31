@@ -76,6 +76,16 @@ data class HealthObservationFindingsDto(
     @SerialName("eartag_flystrike") val eartagFlystrike: Boolean? = null,
     @SerialName("eartag_wound") val eartagWound: Boolean? = null,
     val ticks: Boolean? = null,
+    // Kid-form rows. Hidden on the adult form, and hidden means ABSENT: the
+    // server rejects a landing value on a weaning kid, so these are sent only
+    // when the kid form actually asked them.
+    val suckle: String? = null,
+    val responsiveness: String? = null,
+    val navel: String? = null,
+    val landing: String? = null,
+    @SerialName("milk_intake") val milkIntake: HealthFindingValues? = null,
+    @SerialName("refusals_today") val refusalsToday: Int? = null,
+    val session: Int? = null,
 )
 
 /**

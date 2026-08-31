@@ -28,6 +28,7 @@ import sg.mesha.goatos.feature.health.ObservationFormEvent
 import sg.mesha.goatos.feature.health.ObservationFormState
 import sg.mesha.goatos.feature.health.ObservationScreenState
 import sg.mesha.goatos.feature.health.canSubmit
+import sg.mesha.goatos.feature.health.kidFormClassForStage
 
 /**
  * Drives the observation form.
@@ -175,10 +176,23 @@ class ObservationFormViewModel @Inject constructor(
             countsRepository.lookupAnimals(query = goatId)
                 .onSuccess { rows ->
                     val animal = rows.firstOrNull { it.goatId == goatId } ?: return@onSuccess
+                    // A kid's slice decides which rows the form asks -- the same
+                    // fail-closed stage mapping the server applies. An unmapped
+                    // kid stage renders the adult form and the server refuses the
+                    // submit with its own farm-worded reason.
+                    val kid = if (animal.ageBand.equals("kid", ignoreCase = true)) {
+                        kidFormClassForStage(animal.managementStage)
+                    } else {
+                        null
+                    }
                     _state.value = _state.value.copy(
                         goatDisplayId = animal.displayId,
                         goatTag = animal.animalIdentifier1,
-                        form = _state.value.form.copy(sex = animal.sex),
+                        form = _state.value.form.copy(
+                            sex = animal.sex,
+                            kidClass = kid?.first.orEmpty(),
+                            kidStage = kid?.second.orEmpty(),
+                        ),
                     )
                 }
                 .onFailure { error ->
@@ -285,4 +299,14 @@ internal fun ObservationFormState.toFindingsDto(): HealthObservationFindingsDto 
         eartagFlystrike = eartagFlystrike,
         eartagWound = eartagWound,
         ticks = ticks,
+        // Kid rows travel only when the kid form asked them: the server rejects
+        // a landing value on a weaning kid, so an adult or wrong-slice form must
+        // send ABSENT, not blank.
+        suckle = suckle.takeIf { isKid && it.isNotBlank() },
+        responsiveness = responsiveness.takeIf { isKid && it.isNotBlank() },
+        navel = navel.takeIf { isMilkKid && it.isNotBlank() },
+        landing = landing.takeIf { landingApplies && it.isNotBlank() },
+        milkIntake = milkIntake.toList().takeIf { milkIntakeApplies && it.isNotEmpty() },
+        refusalsToday = refusalsToday.toIntOrNull().takeIf { isKid },
+        session = session.toIntOrNull().takeIf { isKid },
     )

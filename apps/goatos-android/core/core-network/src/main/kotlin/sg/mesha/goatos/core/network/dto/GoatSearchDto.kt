@@ -52,6 +52,13 @@ data class GoatSearchItemDto(
     @SerialName("breed") val breed: String? = null,
     @SerialName("sex") val sex: String = "",
     @SerialName("age_band") val ageBand: String? = null,
+    /**
+     * The animal's management stage (K0..K3, F2-*, ...). The health observation
+     * form reads it to render the right kid slice — milk, weaning or fattening
+     * ask different questions, and the server rejects a row asked of the wrong
+     * slice. Already served by the backend's GoatSummary; it was dropped here.
+     */
+    @SerialName("management_stage") val managementStage: String? = null,
     @SerialName("lifecycle_status") val lifecycleStatus: String = "",
     @SerialName("row_version") val rowVersion: Int = 0,
     @SerialName("location_path") val locationPath: GoatLocationPathDto = GoatLocationPathDto(),
