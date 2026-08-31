@@ -81,12 +81,29 @@ func TestPlanConfirmationRefusesUndiagnosableRuns(t *testing.T) {
 			t.Fatalf("want ErrConfirmNotDiagnosable, got %v", err)
 		}
 	})
-	t.Run("non-adult animal", func(t *testing.T) {
+	t.Run("out-of-scope animal", func(t *testing.T) {
 		p := diagnosis.Proposal{Valid: true, Scope: diagnosis.ScopeOutOfScope}
 		if _, err := PlanConfirmation(p, nil, nil); !errors.Is(err, ErrConfirmNotDiagnosable) {
 			t.Fatalf("want ErrConfirmNotDiagnosable, got %v", err)
 		}
 	})
+}
+
+// Every in-scope class can be confirmed, not just adults. confirmableFrom builds
+// decision lists for the kid classes, so the gate here must accept the same set:
+// a kid the Director can see choices for but never confirm is a dead end that
+// reads as diagnosis_not_confirmable on the phone.
+func TestPlanConfirmationAcceptsEveryInScopeClass(t *testing.T) {
+	for _, scope := range []string{diagnosis.ClassKidMilk, diagnosis.ClassKidWeaning, diagnosis.ClassKidFattening, diagnosis.ScopeAdult} {
+		p := diagnosis.Proposal{Valid: true, Scope: scope, Problems: []string{"PNEUMONIA"}}
+		plan, err := PlanConfirmation(p, confirmables("PNEUMONIA"), []string{"PNEUMONIA"})
+		if err != nil {
+			t.Fatalf("scope %s: %v", scope, err)
+		}
+		if len(plan.Confirmed) != 1 || plan.Confirmed[0].ID != "PNEUMONIA" {
+			t.Fatalf("scope %s: plan = %+v", scope, plan)
+		}
+	}
 }
 
 // A replay must write identical rows, so the plan is ordered by id regardless of

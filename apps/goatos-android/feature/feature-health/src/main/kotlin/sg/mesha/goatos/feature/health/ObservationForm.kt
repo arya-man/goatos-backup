@@ -69,6 +69,9 @@ enum class ObservationBlocker {
     /** A female cannot be recorded as straining to urinate. */
     FEMALE_STRAINING,
 
+    /** "Not drinking" ticked alongside a normal milk-bar reading. */
+    NOT_DRINKING_WITH_MILK,
+
     /** CMT is a milk test; it cannot be read when there is no milk. */
     CMT_WITHOUT_MILK,
 }
@@ -119,13 +122,62 @@ data class ObservationFormState(
     val vulva: String = "",
     // Male only
     val straining: String = "",
+    // Kid form. Which of these rows exist depends on the kid's slice, resolved
+    // from the animal's own management stage with the same explicit mapping the
+    // server applies (K0/K1/K2 -> milk, K3 -> weaning, F2* -> fattening). Blank
+    // kidClass means the adult form.
+    val kidClass: String = "",
+    val kidStage: String = "",
+    val suckle: String = "",
+    val responsiveness: String = "",
+    val navel: String = "",
+    val landing: String = "",
+    val milkIntake: Set<String> = emptySet(),
+    val refusalsToday: String = "",
+    val session: String = "",
 ) {
     val isFemale: Boolean get() = sex.equals("female", ignoreCase = true)
     val isMale: Boolean get() = sex.equals("male", ignoreCase = true)
 
     /** CMT is only asked when there is milk to test. */
     val cmtApplies: Boolean get() = isFemale && lactation.isNotBlank() && lactation != "no"
+
+    val isKid: Boolean get() = kidClass.isNotBlank()
+    val isMilkKid: Boolean get() = kidClass == KID_CLASS_MILK
+    val isWeaningKid: Boolean get() = kidClass == KID_CLASS_WEANING
+
+    /** The drop test exists only on the milk form, and never on a kid already down. */
+    val landingApplies: Boolean get() = isMilkKid
+    val landingMustBeNa: Boolean get() = isMilkKid && activity == "down"
+
+    /** The K2 free-choice bar is the one place milk intake is read as a row. */
+    val milkIntakeApplies: Boolean get() = isMilkKid && kidStage == "K2"
+
+    /** K1 counts three bar sessions; weaning counts two bottles. Elsewhere optional. */
+    val refusalsRequired: Boolean get() = (isMilkKid && kidStage == "K1") || isWeaningKid
+    val refusalsMax: Int get() = if (isWeaningKid) 2 else 3
+    val sessionMax: Int get() = if (isWeaningKid) 2 else 3
 }
+
+const val KID_CLASS_MILK = "kid_milk"
+const val KID_CLASS_WEANING = "kid_weaning"
+const val KID_CLASS_FATTENING = "kid_fattening"
+
+/**
+ * The kid slice for a management stage — the SAME explicit, fail-closed mapping the
+ * server's ResolveAnimal applies. A stage this map does not name (a clinical
+ * placement, a blank) returns null and the form stays adult-shaped; the server
+ * independently refuses such an animal with its own farm-worded reason.
+ */
+fun kidFormClassForStage(managementStage: String?): Pair<String, String>? =
+    when (managementStage?.trim()?.lowercase()) {
+        "k0" -> KID_CLASS_MILK to "K0"
+        "k1" -> KID_CLASS_MILK to "K1"
+        "k2" -> KID_CLASS_MILK to "K2"
+        "k3" -> KID_CLASS_WEANING to "K3"
+        "f2", "f2-male", "f2-female" -> KID_CLASS_FATTENING to ""
+        else -> null
+    }
 
 /**
  * Everything standing between this form and submission, in the order a person
@@ -152,6 +204,11 @@ fun ObservationFormState.blockers(): List<ObservationBlocker> {
     }
     if (lactation == "no" && cmt.isNotBlank()) {
         out += ObservationBlocker.CMT_WITHOUT_MILK
+    }
+    // The milk analogue of the feed contradiction: "not drinking" cannot sit
+    // beside a normal bar reading.
+    if (milkIntake.contains("not_drinking") && milkIntake.contains("normal")) {
+        out += ObservationBlocker.NOT_DRINKING_WITH_MILK
     }
 
     if (missingFields().isNotEmpty()) out += ObservationBlocker.INCOMPLETE
@@ -183,6 +240,7 @@ fun ObservationFormState.stepHeading(step: ObservationStep): String = when (step
     ObservationStep.HEAD -> "Head · eyes · breathing"
     ObservationStep.BODY -> "Gut · skin · legs"
     ObservationStep.FINAL -> when {
+        isKid -> "Kid — suckle · milk"
         isFemale -> "Female — udder · vulva"
         isMale -> "Male — urine"
         else -> "Other checks"
@@ -249,6 +307,36 @@ fun ObservationFormState.missingFields(step: ObservationStep): List<String> {
             require(redUrine != null, "red urine")
             require(bodyEdema != null, "swelling under the jaw")
             require(competition != null, "pushed off feed")
+
+            // The kid rows, gated exactly as the server validates them: the drop
+            // test only on a standing milk kid ("na" when it is already down —
+            // you never drop a recumbent kid), the bar reading only on K2, and
+            // the refusal count compulsory where feeds are counted (K1 and
+            // weaning) because a missing count read as zero would turn a kid
+            // that refused every bottle into a kid that drank.
+            if (isKid) {
+                require(suckle.isNotBlank(), "suckle test")
+                require(responsiveness.isNotBlank(), "responsiveness")
+                if (isMilkKid) require(navel.isNotBlank(), "navel")
+                if (landingApplies) {
+                    if (landingMustBeNa) {
+                        require(landing == "na", "drop test (already down)")
+                    } else {
+                        require(landing == "spiderman" || landing == "barely" || landing == "falls", "drop test")
+                    }
+                }
+                if (milkIntakeApplies) require(milkIntake.isNotEmpty(), "milk intake")
+                val refusals = refusalsToday.toIntOrNull()
+                if (refusalsRequired) {
+                    require(refusals != null && refusals in 0..refusalsMax, "feeds refused today")
+                } else if (refusalsToday.isNotBlank()) {
+                    require(refusals != null && refusals in 0..refusalsMax, "feeds refused today")
+                }
+                if (session.isNotBlank()) {
+                    val s = session.toIntOrNull()
+                    require(s != null && s in 1..sessionMax, "feed session")
+                }
+            }
         }
     }
     return missing

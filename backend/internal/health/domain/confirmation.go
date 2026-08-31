@@ -48,7 +48,11 @@ type ConfirmationPlan struct {
 // It deliberately does NOT check whether a treatment card exists. That lookup
 // needs the database, and it fails closed at the point of opening the course.
 func PlanConfirmation(proposal diagnosis.Proposal, confirmable []ConfirmableProblem, confirmed []string) (ConfirmationPlan, error) {
-	if !proposal.Valid || proposal.Scope != diagnosis.ScopeAdult {
+	// Every in-scope class is confirmable, not just adults — the SAME rule
+	// confirmableFrom applies when it builds the decision list. Requiring
+	// ScopeAdult here while the kid classes received choices made every kid
+	// confirm die as diagnosis_not_confirmable.
+	if !proposal.Valid || proposal.Scope == diagnosis.ScopeOutOfScope {
 		return ConfirmationPlan{}, ErrConfirmNotDiagnosable
 	}
 

@@ -499,6 +499,125 @@ private fun LazyListScope.finalStep(
             }
         }
     }
+
+    // --- Kid rows. Rendered only for the slice that asks them, mirroring the
+    // server's own validation: landing exists only on the milk form (and is
+    // "na" once the kid is down), the bar reading only on K2, and the refusal
+    // count is compulsory where feeds are counted.
+    if (form.isKid) {
+        item {
+            QuestionCard("Suckle test", subtitle = "finger in the mouth") {
+                ChipFlow {
+                    ToneChip("Sucks", selected = form.suckle == "present", tone = ChipTone.OK) {
+                        update { copy(suckle = "present") }
+                    }
+                    ToneChip("No suckle", selected = form.suckle == "absent", tone = ChipTone.DANGER) {
+                        update { copy(suckle = "absent") }
+                    }
+                }
+            }
+        }
+        item {
+            QuestionCard("Responsiveness") {
+                ChipFlow {
+                    ToneChip("Alert", selected = form.responsiveness == "alert", tone = ChipTone.OK) {
+                        update { copy(responsiveness = "alert") }
+                    }
+                    ToneChip("Dull", selected = form.responsiveness == "dull", tone = ChipTone.WARN) {
+                        update { copy(responsiveness = "dull") }
+                    }
+                    ToneChip("Unresponsive", selected = form.responsiveness == "unresponsive", tone = ChipTone.DANGER) {
+                        update { copy(responsiveness = "unresponsive") }
+                    }
+                }
+            }
+        }
+        if (form.isMilkKid) {
+            item {
+                QuestionCard("Navel") {
+                    ChipFlow {
+                        ToneChip("Normal", selected = form.navel == "normal", tone = ChipTone.OK) {
+                            update { copy(navel = "normal") }
+                        }
+                        ToneChip("Wet", selected = form.navel == "wet", tone = ChipTone.WARN) {
+                            update { copy(navel = "wet") }
+                        }
+                        ToneChip("Swollen", selected = form.navel == "swollen", tone = ChipTone.WARN) {
+                            update { copy(navel = "swollen") }
+                        }
+                        ToneChip("Painful", selected = form.navel == "painful", tone = ChipTone.DANGER) {
+                            update { copy(navel = "painful") }
+                        }
+                    }
+                }
+            }
+            item {
+                if (form.landingMustBeNa) {
+                    QuestionCard("Drop test", subtitle = "not done — the kid is already down") {
+                        ChipFlow {
+                            ToneChip("Not done", selected = form.landing == "na", tone = ChipTone.WARN) {
+                                update { copy(landing = "na") }
+                            }
+                        }
+                    }
+                } else {
+                    QuestionCard("Drop test", subtitle = "land the kid from about 20 cm") {
+                        ChipFlow {
+                            ToneChip("Lands like Spider-Man", selected = form.landing == "spiderman", tone = ChipTone.OK) {
+                                update { copy(landing = "spiderman") }
+                            }
+                            ToneChip("Barely stays up", selected = form.landing == "barely", tone = ChipTone.WARN) {
+                                update { copy(landing = "barely") }
+                            }
+                            ToneChip("Falls", selected = form.landing == "falls", tone = ChipTone.DANGER) {
+                                update { copy(landing = "falls") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (form.milkIntakeApplies) {
+            item {
+                QuestionCard("Milk bar") {
+                    ChipFlow {
+                        ToneChip("Drinking", selected = form.milkIntake.contains("normal"), tone = ChipTone.OK) {
+                            update { copy(milkIntake = if (milkIntake.contains("normal")) milkIntake - "normal" else milkIntake + "normal") }
+                        }
+                        ToneChip("Not drinking", selected = form.milkIntake.contains("not_drinking"), tone = ChipTone.DANGER) {
+                            update { copy(milkIntake = if (milkIntake.contains("not_drinking")) milkIntake - "not_drinking" else milkIntake + "not_drinking") }
+                        }
+                    }
+                }
+            }
+        }
+        if (form.refusalsRequired || form.isMilkKid) {
+            item {
+                val subtitle = if (form.refusalsRequired) "counted feeds — required" else "leave blank if not counted"
+                QuestionCard("Feeds refused today", subtitle = subtitle) {
+                    ChipFlow {
+                        (0..form.refusalsMax).forEach { n ->
+                            val tone = if (n == 0) ChipTone.OK else ChipTone.WARN
+                            ToneChip(n.toString(), selected = form.refusalsToday == n.toString(), tone = tone) {
+                                update { copy(refusalsToday = n.toString()) }
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                QuestionCard("Which feed", subtitle = "optional") {
+                    ChipFlow {
+                        (1..form.sessionMax).forEach { n ->
+                            ToneChip("Feed $n", selected = form.session == n.toString(), tone = ChipTone.OK) {
+                                update { copy(session = if (session == n.toString()) "" else n.toString()) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // --- Chrome.
@@ -651,6 +770,8 @@ private fun blockerText(blocker: ObservationBlocker): String = when (blocker) {
         "Straining to urinate is not recorded for a female."
     ObservationBlocker.CMT_WITHOUT_MILK ->
         "There is no milk, so the milk test cannot be read."
+    ObservationBlocker.NOT_DRINKING_WITH_MILK ->
+        "You marked the kid as not drinking and also drinking normally. Pick one."
     ObservationBlocker.INCOMPLETE -> ""
 }
 
