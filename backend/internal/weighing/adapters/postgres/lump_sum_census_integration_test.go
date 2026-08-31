@@ -29,12 +29,20 @@ import (
 //     weight correction recomputes the average against the frozen count.
 
 const (
-	censusPenBucket = "00000000-0000-4000-8000-000000009601"
-	censusPenGoatA  = "00000000-0000-4000-8000-000000009611"
-	censusPenGoatB  = "00000000-0000-4000-8000-000000009612"
-	censusEmptyShed = "1f0a51a2-1f6a-49e0-9a3e-1b4c0d6a7e01"
-	censusEmptyBkt  = "00000000-0000-4000-8000-000000009602"
-	censusEmptyPrf  = "00000000-0000-4000-8000-000000009621"
+	censusPenBucket  = "00000000-0000-4000-8000-000000009601"
+	censusPenGoatA   = "00000000-0000-4000-8000-000000009611"
+	censusPenGoatB   = "00000000-0000-4000-8000-000000009612"
+	censusEmptyShed  = "1f0a51a2-1f6a-49e0-9a3e-1b4c0d6a7e01"
+	censusEmptyBkt   = "00000000-0000-4000-8000-000000009602"
+	censusEmptyPrf   = "00000000-0000-4000-8000-000000009621"
+	censusAliasShed  = "00000000-0000-4000-8000-000000009631"
+	censusAliasBkt   = "00000000-0000-4000-8000-000000009632"
+	censusAliasPrf   = "00000000-0000-4000-8000-000000009633"
+	censusAliasGoatA = "00000000-0000-4000-8000-000000009634"
+	censusAliasGoatB = "00000000-0000-4000-8000-000000009635"
+	censusRealQ12    = "00000000-0000-4000-8000-000000009636"
+	censusRealQ12Bkt = "00000000-0000-4000-8000-000000009637"
+	censusRealQ12Prf = "00000000-0000-4000-8000-000000009638"
 )
 
 func TestLumpSumSubmitSnapshotsCensusIgnoresClientCountAndFreezesIt(t *testing.T) {
@@ -150,6 +158,112 @@ ON CONFLICT (tenant_id, goat_id) DO UPDATE SET shed_id=EXCLUDED.shed_id, partiti
 	if obs.AnimalCount != 2 || obs.AverageWeightKg != 45 {
 		t.Fatalf("pen bucket (count, average) = (%d, %v), want only the pen's residents (2, 45)", obs.AnimalCount, obs.AverageWeightKg)
 	}
+}
+
+func TestLumpSumSubmitCountsParentPartitionWhenBucketIsNumberedAlias(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status, display_order)
+VALUES ($1::uuid, $2::uuid, 'shed', 'Q1 2', $3::uuid, 'active', 991)
+ON CONFLICT (location_id) DO NOTHING`,
+		censusAliasShed, repoTenant, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source, display_order)
+VALUES ($1::uuid, $2::uuid, '2', '2', 'location_alias', 2)
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label=EXCLUDED.partition_label, status='active', source=EXCLUDED.source, display_order=EXCLUDED.display_order`,
+		repoTenant, repoPerShed)
+	for _, goat := range []struct{ id, display string }{
+		{censusAliasGoatA, "G-993201"},
+		{censusAliasGoatB, "G-993202"},
+	} {
+		execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, $3, 'female', 'adult', 'alive', 'adult', $4::uuid, $5::uuid, $6::uuid, $5::uuid)
+ON CONFLICT (goat_id) DO NOTHING`,
+			goat.id, repoTenant, goat.display, repoParty, repoPerShed, repoPark)
+		execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '2', 'Q1')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE SET shed_id=EXCLUDED.shed_id, partition_label=EXCLUDED.partition_label`,
+			repoTenant, goat.id, repoPerShed)
+	}
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Q1 2', 'per_shed_partition', $5::uuid, 0)
+ON CONFLICT (campaign_shed_id) DO NOTHING`,
+		censusAliasBkt, repoCampaign, repoTenant, censusAliasShed, repoOperator)
+	insertProof(t, ctx, pool, censusAliasPrf, "video", "completed", "shed", censusAliasShed, "shed", censusAliasShed)
+
+	obs, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: censusAliasBkt,
+		WeightKg:        80,
+		ProofArtifactID: censusAliasPrf, IdempotencyKey: "shed:census-alias", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("record alias lump sum: %v", err)
+	}
+	if obs.AnimalCount != 2 || obs.AverageWeightKg != 40 {
+		t.Fatalf("alias bucket (count, average) = (%d, %v), want parent partition residents (2, 40)", obs.AnimalCount, obs.AverageWeightKg)
+	}
+}
+
+func TestLumpSumSubmitDoesNotTreatEmptySuffixNamedShedAsAliasWithoutCatalogSignal(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status, display_order)
+VALUES ($1::uuid, $2::uuid, 'shed', 'Q1 2', $3::uuid, 'active', 992)
+ON CONFLICT (location_id) DO NOTHING`,
+		censusRealQ12, repoTenant, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source, display_order)
+VALUES ($1::uuid, $2::uuid, '2', '2', 'goat_attested', 2)
+ON CONFLICT (tenant_id, shed_id, normalized_label) DO UPDATE
+SET partition_label=EXCLUDED.partition_label, status='active', source=EXCLUDED.source, display_order=EXCLUDED.display_order`,
+		repoTenant, repoPerShed)
+	for _, goat := range []struct{ id, display string }{
+		{censusAliasGoatA, "G-993201"},
+		{censusAliasGoatB, "G-993202"},
+	} {
+		execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
+VALUES ($1::uuid, $2::uuid, $3, 'female', 'adult', 'alive', 'adult', $4::uuid, $5::uuid, $6::uuid, $5::uuid)
+ON CONFLICT (goat_id) DO NOTHING`,
+			goat.id, repoTenant, goat.display, repoParty, repoPerShed, repoPark)
+		execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '2', 'Q1')
+ON CONFLICT (tenant_id, goat_id) DO UPDATE SET shed_id=EXCLUDED.shed_id, partition_label=EXCLUDED.partition_label`,
+			repoTenant, goat.id, repoPerShed)
+	}
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Q1 2', 'per_shed_partition', $5::uuid, 0)
+ON CONFLICT (campaign_shed_id) DO NOTHING`,
+		censusRealQ12Bkt, repoCampaign, repoTenant, censusRealQ12, repoOperator)
+	insertProof(t, ctx, pool, censusRealQ12Prf, "video", "completed", "shed", censusRealQ12, "shed", censusRealQ12)
+
+	_, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: censusRealQ12Bkt,
+		WeightKg:        80,
+		ProofArtifactID: censusRealQ12Prf, IdempotencyKey: "shed:census-real-q1-2", RecordedBy: repoOperator,
+	})
+	if !errors.Is(err, ports.ErrShedCountUnavailable) {
+		t.Fatalf("empty suffix-named shed err=%v, want ErrShedCountUnavailable", err)
+	}
+	assertNoShedObservationRows(t, ctx, pool, censusRealQ12Bkt)
 }
 
 func TestLumpSumSubmitRefusesARegisterEmptyShed(t *testing.T) {
