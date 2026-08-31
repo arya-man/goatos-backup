@@ -692,7 +692,7 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 			runOpts.heartbeat(ctx)
 		}
 	}
-	if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, activeGenerationGoatsForPlans(allPlans), asOf); err != nil {
+	if err := s.suppressOpenWorkBeforeAnchorsForPlans(ctx, tenantID, allPlans, asOf); err != nil {
 		return res, err
 	}
 	if res.FailedGoats > 0 {
@@ -999,7 +999,8 @@ type matchedConfigAnchor struct {
 
 func matchingConfigAnchor(config genAnchorConfig, rule protodomain.Rule, vaccine vaccineProfile, goat domain.EligibleGoat, asOf time.Time) (matchedConfigAnchor, bool) {
 	for _, anchor := range config.Rules {
-		if !strings.EqualFold(strings.TrimSpace(anchor.DoseCode), strings.TrimSpace(rule.DoseCode)) {
+		anchorDose := strings.TrimSpace(anchor.DoseCode)
+		if anchorDose != "" && !strings.EqualFold(anchorDose, strings.TrimSpace(rule.DoseCode)) {
 			continue
 		}
 		if !strings.EqualFold(strings.TrimSpace(anchor.VaccineCode), strings.TrimSpace(vaccine.Code)) {
@@ -1460,7 +1461,7 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			runOpts.heartbeat(ctx)
 		}
 	}
-	if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, activeGenerationGoatsForPlans(allPlans), asOf); err != nil {
+	if err := s.suppressOpenWorkBeforeAnchorsForPlans(ctx, tenantID, allPlans, asOf); err != nil {
 		return res, err
 	}
 	if res.FailedGoats > 0 {
@@ -2508,8 +2509,26 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 	return res, nil
 }
 
+func (s *GenerationService) suppressOpenWorkBeforeAnchorsForPlans(ctx context.Context, tenantID string, plans []goatGenerationPlan, asOf time.Time) error {
+	goats := activeGenerationGoatsForPlans(plans)
+	for start := 0; start < len(goats); start += int(s.page) {
+		end := start + int(s.page)
+		if end > len(goats) {
+			end = len(goats)
+		}
+		if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, goats[start:end], asOf); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func activeGenerationGoatsForPlans(plans []goatGenerationPlan) []domain.EligibleGoat {
-	out := make([]domain.EligibleGoat, 0, len(plans))
+	capHint := len(plans)
+	if capHint > 1024 {
+		capHint = 1024
+	}
+	out := make([]domain.EligibleGoat, 0, capHint)
 	seen := make(map[string]struct{}, len(plans))
 	for _, p := range plans {
 		if _, ok := seen[p.goat.GoatID]; ok {
