@@ -248,6 +248,64 @@ source .local/android-signing/stg-release-env.sh
 DEPLOY_VERSION_CODE="${GOATOS_ANDROID_VERSION_CODE:-}"
 DEPLOY_VERSION_NAME="${GOATOS_ANDROID_VERSION_NAME:-}"
 
+default_android_release_value() {
+  local property="$1"
+  python3 - "$property" apps/goatos-android/app/build.gradle.kts <<'PY'
+import re
+import sys
+
+prop, path = sys.argv[1:]
+text = open(path, encoding="utf-8").read()
+pattern = {
+    "code": r"val releaseVersionCode[\s\S]*?\?:\s*([0-9]+)",
+    "name": r"val releaseVersionName[\s\S]*?\?:\s*\"([^\"]+)\"",
+}[prop]
+match = re.search(pattern, text)
+if not match:
+    raise SystemExit(f"could not find default Android release {prop}")
+print(match.group(1))
+PY
+}
+
+DEPLOY_VERSION_CODE="${DEPLOY_VERSION_CODE:-$(default_android_release_value code)}"
+DEPLOY_VERSION_NAME="${DEPLOY_VERSION_NAME:-$(default_android_release_value name)}"
+
+play_base="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${GOOGLE_PLAY_PACKAGE}"
+if play_access_token="$(play_access_token)" &&
+  edit_response="$(curl -sS -X POST -H "Authorization: Bearer ${play_access_token}" -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" "${play_base}/edits")"; then
+  edit_id="$(jq -r '.id // empty' <<<"$edit_response")"
+  if [[ -n "$edit_id" ]]; then
+    track_response_file=".local/android-signing/play-internal-track-existing.json"
+    track_status="$(
+      curl -sS -o "$track_response_file" -w '%{http_code}' \
+        -H "Authorization: Bearer ${play_access_token}" \
+        -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" \
+        "${play_base}/edits/${edit_id}/tracks/internal"
+    )"
+    if [[ "$track_status" =~ ^2 ]]; then
+      max_play_version_code="$(
+        jq -r '[.releases[]?.versionCodes[]? | tonumber] | max // 0' "$track_response_file"
+      )"
+      if (( DEPLOY_VERSION_CODE <= max_play_version_code )); then
+        DEPLOY_VERSION_CODE="$((max_play_version_code + 1))"
+        echo "Play Internal already used versionCode ${max_play_version_code}; building versionCode ${DEPLOY_VERSION_CODE}."
+      fi
+    else
+      echo "Play Internal version preflight skipped after HTTP $track_status; continuing with versionCode ${DEPLOY_VERSION_CODE}." >&2
+      sed 's/^/play-track-response: /' "$track_response_file" >&2 || true
+    fi
+    curl -sS -X DELETE \
+      -H "Authorization: Bearer ${play_access_token}" \
+      -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" \
+      "${play_base}/edits/${edit_id}" >/dev/null || true
+  else
+    echo "Play edit preflight was not created; continuing with versionCode ${DEPLOY_VERSION_CODE}." >&2
+    printf '%s\n' "$edit_response" | sed 's/^/play-edit-response: /' >&2
+  fi
+else
+  echo "Could not preflight Play Internal versionCode; continuing with versionCode ${DEPLOY_VERSION_CODE}." >&2
+fi
+
 cd apps/goatos-android
 common_gradle_args=(
   -x lintVitalProdRelease \
@@ -323,7 +381,6 @@ curl -fsSI https://storage.googleapis.com/goatos-stg-public-downloads/operator/l
 curl -fsSIL https://mesha.sg/app.apk | grep -qi 'content-type: application/vnd.android.package-archive'
 apk_mirrored=true
 
-play_base="https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${GOOGLE_PLAY_PACKAGE}"
 if play_access_token="$(play_access_token)" &&
   edit_response="$(curl -sS -X POST -H "Authorization: Bearer ${play_access_token}" -H "x-goog-user-project: ${PLAY_QUOTA_PROJECT}" "${play_base}/edits")"; then
   edit_id="$(jq -r '.id // empty' <<<"$edit_response")"
