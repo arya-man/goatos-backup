@@ -148,6 +148,21 @@ func (h *Handler) GetCommandBoardCohortMatrix(w http.ResponseWriter, r *http.Req
 	writeJSON(w, page)
 }
 
+// GetCommandBoardShedDoseMatrix serves the board's shed x dose grid as a lazy section.
+// GET /vaccination/command/shed-dose-matrix
+func (h *Handler) GetCommandBoardShedDoseMatrix(w http.ResponseWriter, r *http.Request) {
+	scope, ok := h.commandBoardDrilldownScope(w, r)
+	if !ok {
+		return
+	}
+	page, err := h.reader.CommandBoardShedDoseMatrix(r.Context(), scope)
+	if err != nil {
+		h.commandBoardDrilldownError(w, r, err)
+		return
+	}
+	writeJSON(w, page)
+}
+
 // GetCommandBoardClosedWithoutDose lists the animals behind the ClosedWithoutDose KPI tile.
 // GET /vaccination/command/closed-without-dose
 func (h *Handler) GetCommandBoardClosedWithoutDose(w http.ResponseWriter, r *http.Request) {

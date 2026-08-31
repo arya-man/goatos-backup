@@ -691,14 +691,14 @@ func TestVaccinationCommandBoardPartitionCatalogOneToManyPaginationDateShiftScop
 		t.Fatalf("shed vaccine matrix did not render the verifying ET_TT partition cell: %+v", resp.ShedVaccineMatrix)
 	}
 	foundDose := false
-	for _, cell := range resp.ShedDoseMatrix {
-		if cell.State == "awaiting" && cell.PartitionLabel == "Part 10" && cell.OperationalLocationDisplay == "Godel 1 - Part 10" {
+	for _, cell := range shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil).Flatten() {
+		if cell.State == "awaiting" && cell.PartitionLabel == "Part 10" && cell.LocationDisplay == "Godel 1 - Part 10" {
 			foundDose = true
 			break
 		}
 	}
 	if !foundDose {
-		t.Fatalf("shed dose matrix did not render the normalized catalog partition: %+v", resp.ShedDoseMatrix)
+		t.Fatalf("shed dose matrix did not render the normalized catalog partition: %+v", shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil))
 	}
 	foundQueue := false
 	for _, row := range resp.VerificationQueue {
@@ -910,7 +910,7 @@ func TestVaccinationCommandBoardExcludesExitedAndMergedGoatsFromEverySurface(t *
 	// by summing and comparing against the live animal's own obligations rather than by asserting a
 	// single hard-coded total that would silently absorb a leak of the same size.
 	var shedDoseAnimals int
-	for _, cell := range resp.ShedDoseMatrix {
+	for _, cell := range shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil).Flatten() {
 		shedDoseAnimals += cell.AnimalCount
 	}
 	if shedDoseAnimals != 2 {

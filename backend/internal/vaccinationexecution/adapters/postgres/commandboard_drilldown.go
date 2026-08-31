@@ -379,3 +379,25 @@ func (r *Repository) CommandBoardCohortDays(ctx context.Context, q domain.Comman
 	}
 	return page, nil
 }
+
+// CommandBoardShedDoseMatrix serves the shed x dose grid as its own section.
+//
+// This is the SAME statement and the SAME fold the board used to run inline, so the grid a reader
+// sees after first paint is byte-for-byte the grid the board used to ship eagerly. Only the moment
+// it is fetched changed.
+func (r *Repository) CommandBoardShedDoseMatrix(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardShedDoseMatrixPage, error) {
+	q = q.Normalized()
+	page := domain.CommandBoardShedDoseMatrixPage{Matrix: domain.ShedDoseMatrix{
+		Sheds:     []domain.ShedDoseMatrixShed{},
+		DoseRules: []string{},
+		Cells:     []domain.ShedDoseMatrixCell{},
+	}}
+	matrix, err := r.commandBoardShedDoseCells(ctx, q.TenantID, q.AsOf, q.DriveBatchID, q.ParkID)
+	if err != nil {
+		return page, err
+	}
+	if len(matrix.Cells) > 0 {
+		page.Matrix = matrix
+	}
+	return page, nil
+}

@@ -371,6 +371,7 @@ var protectedRoutes = []Route{
 	// their own routes for cost, not for access. Anyone who may read the tile may read the animals
 	// behind it; nobody else reaches either.
 	{OperationID: "getCommandBoardCohortMatrix", Method: "GET", Pattern: "/vaccination/command/cohort-matrix", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
+	{OperationID: "getCommandBoardShedDoseMatrix", Method: "GET", Pattern: "/vaccination/command/shed-dose-matrix", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getCommandBoardClosedWithoutDose", Method: "GET", Pattern: "/vaccination/command/closed-without-dose", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getCommandBoardShedVaccineAnimals", Method: "GET", Pattern: "/vaccination/command/shed-vaccine-animals", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getCommandBoardCohortExceptions", Method: "GET", Pattern: "/vaccination/command/cohort-exceptions", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},

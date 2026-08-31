@@ -112,6 +112,10 @@ type Repository interface {
 	// ~420ms of the board's ~850ms of SQL and were what held /vaccination/command over its
 	// non-relaxable 300ms budget.
 	CommandBoardCohortMatrix(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardCohortMatrixPage, error)
+
+	// CommandBoardShedDoseMatrix serves the shed x dose grid as its own SECTION. See
+	// domain.CommandBoardShedDoseMatrixPage for why interning its payload was not sufficient.
+	CommandBoardShedDoseMatrix(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardShedDoseMatrixPage, error)
 	CommandBoardClosedWithoutDoseAnimals(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardClosedWithoutDosePage, error)
 	CommandBoardShedVaccineAnimals(ctx context.Context, q domain.CommandBoardShedVaccineAnimalsQuery) (domain.CommandBoardShedVaccineAnimalsPage, error)
 	CommandBoardCohortExceptions(ctx context.Context, q domain.CommandBoardCohortCellQuery) (domain.CommandBoardCohortExceptionsPage, error)

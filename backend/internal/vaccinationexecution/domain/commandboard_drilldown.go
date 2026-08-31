@@ -116,6 +116,17 @@ type CommandBoardCohortExceptionsPage struct {
 	NextCursor string                     `json:"nextCursor,omitempty"`
 }
 
+// CommandBoardShedDoseMatrixPage is the shed x dose grid served as its own SECTION.
+//
+// It left first paint for the same reason the cohort matrix did, and only after the cheaper fix was
+// taken first: interning its shed identities and dose labels cut it from 408KB to 155KB (the whole
+// board payload 441KB -> 207KB), and that was NOT enough. Measured on the OCI clone, the board held
+// p90 343 with this section in and p90 251-281 with it out, against a non-relaxable 300ms budget.
+// The bytes were real but the cost was the round trip, not the payload.
+type CommandBoardShedDoseMatrixPage struct {
+	Matrix ShedDoseMatrix `json:"matrix"`
+}
+
 // CommandBoardCohortMatrixPage is the cohort (park x stage x sex) x vaccine matrix.
 //
 // It is a SECTION, not a drilldown, and it left the board for the same reason the drilldowns did:

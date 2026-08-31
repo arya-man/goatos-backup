@@ -289,7 +289,7 @@ func TestVaccinationCommandBoardParkScopeTenantIsolation(t *testing.T) {
 		t.Fatalf("VaccinationCommandBoard(no filter) error = %v", err)
 	}
 
-	totalShedsDomainAll := len(respAll.ShedDoseMatrix)
+	totalShedsDomainAll := len(shedDoseMatrixFor(t, ctx, repo, cmdBoardTestTenant, asOf, nil, stringPtr(cmdBoardBatch1)).Cells)
 	if totalShedsDomainAll < 1 {
 		t.Logf("Note: shed matrix entries = %d; domain isolation test relies on fixtures created", totalShedsDomainAll)
 	}
@@ -509,7 +509,7 @@ func TestVaccinationCommandBoardPaginationPageBoundaryMultiPage(t *testing.T) {
 
 	// Shed dose matrix: check ordering and that state buckets are captured
 	verifiedCount, awaitingCount := 0, 0
-	for _, matrixCell := range resp.ShedDoseMatrix {
+	for _, matrixCell := range shedDoseMatrixFor(t, ctx, repo, cmdBoardTestTenant, asOf, nil, stringPtr(cmdBoardBatch1)).Flatten() {
 		if matrixCell.ShedName == "Shed 1" && matrixCell.DoseRule == "ET+TT" {
 			if matrixCell.State == "verified" {
 				verifiedCount += matrixCell.AnimalCount
@@ -710,13 +710,13 @@ func TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState(t *testing.T) {
 	}
 
 	repo := NewRepository(pool, 5*time.Second)
-	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+	_, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
 	if err != nil {
 		t.Fatalf("VaccinationCommandBoard() error = %v", err)
 	}
 
 	cells := 0
-	for _, cell := range resp.ShedDoseMatrix {
+	for _, cell := range shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil).Flatten() {
 		if cell.ShedName != "Shed 77" || cell.State != "scheduled" {
 			continue
 		}
@@ -724,11 +724,11 @@ func TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState(t *testing.T) {
 		if cell.AnimalCount != 2 {
 			t.Fatalf("scheduled cell animal count = %d, want 2 (both goats across both due dates)", cell.AnimalCount)
 		}
-		if cell.MinDueDate == nil || cell.MaxDueDate == nil {
-			t.Fatalf("scheduled cell must carry min/max due window, got %v..%v", cell.MinDueDate, cell.MaxDueDate)
+		if cell.MinDueDate == "" || cell.MaxDueDate == "" {
+			t.Fatalf("scheduled cell must carry min/max due window, got %q..%q", cell.MinDueDate, cell.MaxDueDate)
 		}
-		if cell.MinDueDate.Equal(*cell.MaxDueDate) {
-			t.Fatalf("min/max due must span both dates, both = %v", cell.MinDueDate)
+		if cell.MinDueDate == cell.MaxDueDate {
+			t.Fatalf("min/max due must span both dates, both = %q", cell.MinDueDate)
 		}
 	}
 	if cells != 1 {
@@ -737,7 +737,7 @@ func TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState(t *testing.T) {
 
 	t.Run("StatusMatrixBucketsDisjoint", func(t *testing.T) {
 		// StatusBuckets: with only scheduled obligations, no verified/awaiting/overdue cell may exist.
-		for _, cell := range resp.ShedDoseMatrix {
+		for _, cell := range shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil).Flatten() {
 			if cell.ShedName == "Shed 77" && cell.State != "scheduled" {
 				t.Fatalf("unexpected %q cell for Shed 77 — status buckets must be disjoint", cell.State)
 			}
@@ -747,11 +747,11 @@ func TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState(t *testing.T) {
 	t.Run("ParkScopeIsolation", func(t *testing.T) {
 		// ParkScope: filtering to a different park must exclude Shed 77 entirely.
 		otherPark := "70000000-0000-4000-8000-00000100dead"
-		scoped, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf, ParkID: &otherPark})
+		_, err = repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf, ParkID: &otherPark})
 		if err != nil {
 			t.Fatalf("VaccinationCommandBoard(park) error = %v", err)
 		}
-		for _, cell := range scoped.ShedDoseMatrix {
+		for _, cell := range shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, &otherPark, nil).Flatten() {
 			if cell.ShedName == "Shed 77" {
 				t.Fatalf("park filter leaked Shed 77 into another park's board")
 			}
@@ -761,15 +761,15 @@ func TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState(t *testing.T) {
 	t.Run("PaginationStableOrdering", func(t *testing.T) {
 		// Pagination/PageBoundary: bounded board reads must return a deterministic order
 		// (shed_name, dose_code, state) so any future keyset page boundary is stable.
-		again, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
-		if err != nil {
-			t.Fatalf("VaccinationCommandBoard(repeat) error = %v", err)
+		// TWO reads, compared against each other. Fetching once and comparing it to itself would
+		// pass no matter how unstable the ordering is.
+		first := shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil).Flatten()
+		second := shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil).Flatten()
+		if len(first) != len(second) {
+			t.Fatalf("row count changed across identical reads: %d vs %d", len(first), len(second))
 		}
-		if len(again.ShedDoseMatrix) != len(resp.ShedDoseMatrix) {
-			t.Fatalf("row count changed across identical reads: %d vs %d", len(again.ShedDoseMatrix), len(resp.ShedDoseMatrix))
-		}
-		for i := range again.ShedDoseMatrix {
-			a, b := again.ShedDoseMatrix[i], resp.ShedDoseMatrix[i]
+		for i := range first {
+			a, b := first[i], second[i]
 			if a.ShedName != b.ShedName || a.DoseRule != b.DoseRule || a.State != b.State {
 				t.Fatalf("ordering unstable at row %d: %+v vs %+v", i, a, b)
 			}
@@ -872,7 +872,7 @@ func TestVaccinationCommandBoardDueTodayDateShiftNotOverdue(t *testing.T) {
 	// Shed dose matrix: 'scheduled' state must carry the due-today goat, 'overdue' state
 	// must carry the due-yesterday goat — never the reverse.
 	var scheduledCount, overdueCount int
-	for _, cell := range resp.ShedDoseMatrix {
+	for _, cell := range shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil).Flatten() {
 		if cell.ShedName != "Shed AB" {
 			continue
 		}
@@ -901,7 +901,7 @@ func TestVaccinationCommandBoardDueTodayDateShiftNotOverdue(t *testing.T) {
 	t.Run("StatusMatrixBucketsDisjointAcrossDateShift", func(t *testing.T) {
 		// StatusMatrix EveryStatus StatusBuckets: overdue and scheduled must stay disjoint across
 		// the date-shift boundary — the due-today dose must never also appear as overdue.
-		for _, cell := range resp.ShedDoseMatrix {
+		for _, cell := range shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil).Flatten() {
 			if cell.ShedName != "Shed AB" {
 				continue
 			}
@@ -931,15 +931,15 @@ func TestVaccinationCommandBoardDueTodayDateShiftNotOverdue(t *testing.T) {
 	t.Run("PaginationStableOrderingAcrossRepeatedReads", func(t *testing.T) {
 		// Pagination PageBoundary MultiPage: repeated bounded reads of the shed dose matrix must
 		// return the same row count and (shed_name, dose_code, state) ordering.
-		again, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
-		if err != nil {
-			t.Fatalf("VaccinationCommandBoard(repeat) error = %v", err)
+		// TWO reads, compared against each other. Fetching once and comparing it to itself would
+		// pass no matter how unstable the ordering is.
+		first := shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil).Flatten()
+		second := shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil).Flatten()
+		if len(first) != len(second) {
+			t.Fatalf("row count changed across identical reads: %d vs %d", len(first), len(second))
 		}
-		if len(again.ShedDoseMatrix) != len(resp.ShedDoseMatrix) {
-			t.Fatalf("row count changed across identical reads: %d vs %d", len(again.ShedDoseMatrix), len(resp.ShedDoseMatrix))
-		}
-		for i := range again.ShedDoseMatrix {
-			a, b := again.ShedDoseMatrix[i], resp.ShedDoseMatrix[i]
+		for i := range first {
+			a, b := first[i], second[i]
 			if a.ShedName != b.ShedName || a.DoseRule != b.DoseRule || a.State != b.State {
 				t.Fatalf("ordering unstable at row %d: %+v vs %+v", i, a, b)
 			}
@@ -1392,7 +1392,7 @@ func TestVaccinationCommandBoardDueStatusEveryStatusBucketsExhaustiveOverTargets
 		// shed dose matrix as in the KPI row. A 'due' obligation must not fall into the dropped
 		// 'other' state.
 		byState := map[string]int{}
-		for _, cell := range resp.ShedDoseMatrix {
+		for _, cell := range shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil).Flatten() {
 			byState[cell.State] += cell.AnimalCount
 		}
 		t.Logf("shed dose matrix by state: %v", byState)
@@ -1419,12 +1419,15 @@ func TestVaccinationCommandBoardDueStatusEveryStatusBucketsExhaustiveOverTargets
 		if again.KPIs != k {
 			t.Fatalf("KPI buckets changed across identical reads: %+v vs %+v", again.KPIs, k)
 		}
-		if len(again.ShedDoseMatrix) != len(resp.ShedDoseMatrix) {
-			t.Fatalf("shed dose row count changed across identical reads: %d vs %d",
-				len(again.ShedDoseMatrix), len(resp.ShedDoseMatrix))
+		// TWO reads, compared against each other. Fetching once and comparing it to itself would
+		// pass no matter how unstable the ordering is.
+		first := shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil).Flatten()
+		second := shedDoseMatrixFor(t, ctx, repo, tenantID, asOf, nil, nil).Flatten()
+		if len(first) != len(second) {
+			t.Fatalf("row count changed across identical reads: %d vs %d", len(first), len(second))
 		}
-		for i := range again.ShedDoseMatrix {
-			a, b := again.ShedDoseMatrix[i], resp.ShedDoseMatrix[i]
+		for i := range first {
+			a, b := first[i], second[i]
 			if a.ShedName != b.ShedName || a.DoseRule != b.DoseRule || a.State != b.State || a.AnimalCount != b.AnimalCount {
 				t.Fatalf("shed dose ordering/counts unstable at row %d: %+v vs %+v", i, a, b)
 			}
@@ -1460,4 +1463,22 @@ func TestVaccinationCommandBoardDueStatusEveryStatusBucketsExhaustiveOverTargets
 				pending, k.OverdueNotGiven+k.ScheduledAhead)
 		}
 	})
+}
+
+// shedDoseMatrixFor fetches the shed x dose grid the way the product now does: as its own section
+// rather than as part of the board. The grid left first paint because it held /vaccination/command
+// over its non-relaxable 300ms budget (board p90 343 with it, 251-281 without), so a test that still
+// asserted it from the board response would be asserting a shape no reader receives.
+func shedDoseMatrixFor(t *testing.T, ctx context.Context, repo *Repository, tenantID string, asOf time.Time, parkID, batchID *string) domain.ShedDoseMatrix {
+	t.Helper()
+	page, err := repo.CommandBoardShedDoseMatrix(ctx, domain.CommandBoardDrilldownQuery{
+		TenantID:     tenantID,
+		AsOf:         asOf,
+		ParkID:       parkID,
+		DriveBatchID: batchID,
+	})
+	if err != nil {
+		t.Fatalf("CommandBoardShedDoseMatrix() error = %v", err)
+	}
+	return page.Matrix
 }
