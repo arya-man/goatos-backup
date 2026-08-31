@@ -95,6 +95,14 @@ func (r *DiagnosisRepository) SubmitObservation(
 	if err != nil {
 		return domain.SubmitObservationResult{}, fmt.Errorf("health: encode form: %w", err)
 	}
+	// The EFFECTIVE context, server-derived open problems included: the
+	// reconcile decision hangs on Open and the caller never supplies it, so a
+	// stored run without it could not explain why a problem read as ongoing, or
+	// why the engine proposed a close/extend or test-based outcome.
+	contextJSON, err := json.Marshal(dctx)
+	if err != nil {
+		return domain.SubmitObservationResult{}, fmt.Errorf("health: encode context: %w", err)
+	}
 	proposalJSON, err := json.Marshal(proposal)
 	if err != nil {
 		return domain.SubmitObservationResult{}, fmt.Errorf("health: encode proposal: %w", err)
@@ -109,13 +117,13 @@ func (r *DiagnosisRepository) SubmitObservation(
 	var runID string
 	err = tx.QueryRow(ctx, `
 INSERT INTO health_diagnosis_runs
- (tenant_id,goat_id,register_version,observed_by,business_date,form,proposal,valid,reject_reason,
+ (tenant_id,goat_id,register_version,observed_by,business_date,form,context,proposal,valid,reject_reason,
   scope,housing_acuity,housing_containment,housing_low_competition,status,idempotency_key,request_fingerprint)
-VALUES ($1::uuid,$2::uuid,$3,$4::uuid,$5::date,$6::jsonb,$7::jsonb,$8,$9,
-  $10,$11,$12,$13,'proposed',$14,$15)
+VALUES ($1::uuid,$2::uuid,$3,$4::uuid,$5::date,$6::jsonb,$7::jsonb,$8::jsonb,$9,$10,
+  $11,$12,$13,$14,'proposed',$15,$16)
 RETURNING health_diagnosis_run_id::text`,
 		in.TenantID, in.GoatID, proposal.RegisterVersion, in.ActorID,
-		in.BusinessDate.Format("2006-01-02"), formJSON, proposalJSON, proposal.Valid, rejectReason,
+		in.BusinessDate.Format("2006-01-02"), formJSON, contextJSON, proposalJSON, proposal.Valid, rejectReason,
 		proposal.Scope, proposal.Housing.Acuity, proposal.Housing.Containment, proposal.Housing.LowCompetition,
 		in.IdempotencyKey, in.RequestFingerprint).Scan(&runID)
 	if err != nil {

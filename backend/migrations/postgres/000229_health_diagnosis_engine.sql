@@ -53,11 +53,16 @@ CREATE TABLE IF NOT EXISTS public.health_diagnosis_runs (
   observed_at timestamptz NOT NULL DEFAULT now(),
   business_date date NOT NULL,
 
-  -- The observation exactly as submitted, and the engine's whole output. Stored
+  -- The observation exactly as EVALUATED, and the engine's whole output. Stored
   -- verbatim because the override log is the improvement loop: when the Director
   -- overrides, the question is always "what did the form say and what did the
-  -- rules make of it".
+  -- rules make of it". `form` is the ticked findings; `context` is the follow-up
+  -- state the engine judged them against -- day, improving/worsening, shed
+  -- similarity, CMT streak, and the SERVER-derived open problems -- without
+  -- which a stored run could never explain a reconcile, close/extend, or
+  -- test-based proposal.
   form jsonb NOT NULL,
+  context jsonb NOT NULL DEFAULT '{}'::jsonb,
   proposal jsonb NOT NULL,
 
   valid boolean NOT NULL,
