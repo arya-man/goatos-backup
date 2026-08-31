@@ -564,6 +564,7 @@ var protectedRoutes = []Route{
 	{OperationID: "getFeedAnalyticsExecution", Method: "GET", Pattern: "/feed-analytics/execution", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedAnalyticsExperiment", Method: "GET", Pattern: "/feed-analytics/experiment", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedAnalyticsStock", Method: "GET", Pattern: "/feed-analytics/stock", Permissions: []string{FeedDirectionRead}},
+	{OperationID: "getFeedAnalyticsShedFeed", Method: "GET", Pattern: "/feed-analytics/shed-feed", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedPackingWorklist", Method: "GET", Pattern: "/feed-packing/worklist", Permissions: []string{FeedPackingRead}},
 	// Which of a pen-session's proof slots are already recorded, by any operator. A READ on the
 	// feed-direction surface, so it takes the direction read permission -- not the completion write

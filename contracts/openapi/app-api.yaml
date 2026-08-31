@@ -4635,7 +4635,9 @@ paths:
         divides the balance by the item's average directed kg over its 3 most recent locked feed
         days (a short window so a ration-regime change moves days-left immediately); a negative balance is served as-is, saying the ledger is missing a load.
         Expenditure prices each (day, item)'s directed kg at the item's most recent load rate on
-        or before that day. Empty arrays mean the ledger is not bootstrapped for this tenant.
+        or before that day. The daily expenditure SERIES starts at 2026-08-11 (maintainer floor;
+        earlier days priced sheets against a ledger state the farm does not stand behind) — the
+        stock cards and spend summary keep the caller's window. Empty arrays mean the ledger is not bootstrapped for this tenant.
       parameters:
         - name: park_id
           in: query
@@ -4663,6 +4665,67 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FeedAnalyticsStockResponse"
+        "400":
+          description: Malformed date or park id.
+        "403":
+          description: Caller lacks feed direction read for the requested scope.
+  /feed-analytics/shed-feed:
+    get:
+      tags:
+        - Feed Direction
+      operationId: getFeedAnalyticsShedFeed
+      summary: Per-pen feed-mix rollup for the Feed Analytics overview table.
+      description: >-
+        For every operational location (shed + optional partition) the frozen sheet directed feed
+        to in the window, the DIRECTED kg of each feed item and the pen's total across items —
+        "Masur Busa 120 kg · Kids concentrate 45 kg" per pen. Same membership and predicates as
+        `/feed-analytics/directed` (live issues, states issued/amended/locked, both workflows), so
+        summing an item across pens agrees with that read's per-item series for the same window.
+
+
+        One row per pen, at most the farm's pen catalog (~200 rows): a bounded set the client
+        filters and pages locally. A pen with no issued sheet rows in the window is ABSENT —
+        absence is "nothing directed", never a fabricated zero row. Blocked cells contribute
+        nothing.
+
+
+        `operational_location_display` is backend-composed per the operational-location
+        convention ("Castro 1", "Godel 1 - Part 3"); clients render it verbatim and never
+        re-derive it from the identity fields.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            Narrow to one park. Absent means every park the caller is authorized for — a
+            park-scoped principal can never widen past their grant.
+          schema:
+            type: string
+            format: uuid
+        - name: date_from
+          in: query
+          required: false
+          description: >-
+            Inclusive window start (Asia/Kolkata business date). Defaults to 29 days before
+            `date_to`; the overview table asks for its own 7-day window explicitly. Capped at 92
+            days, keeping the most recent days.
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          required: false
+          description: Inclusive window end, defaulting to yesterday; window capped at 92 days.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: One row per pen, ordered by farm, shed, partition.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedAnalyticsShedFeedResponse"
         "400":
           description: Malformed date or park id.
         "403":
@@ -15348,6 +15411,67 @@ components:
         required_cost:
           type: string
           description: "`required_kg` x `per_kg_cost` -- the week's feed bill at the current rate."
+    FeedAnalyticsShedFeedItem:
+      type: object
+      description: One feed item's DIRECTED kg total inside a pen's window row.
+      required: [feed_item_label, feed_item_key, directed_kg]
+      properties:
+        feed_item_label:
+          type: string
+        feed_item_key:
+          type: string
+        directed_kg:
+          type: string
+          description: Decimal string, kg over the window for this pen and item.
+    FeedAnalyticsShedFeedRow:
+      type: object
+      description: >-
+        One operational location's feed mix over the window. Location identity is carried as
+        separate fields plus the backend-composed display, per the operational-location
+        convention.
+      required:
+        [park_id, park_label, shed_id, shed_label, partition_label,
+         operational_location_display, items, directed_kg]
+      properties:
+        park_id:
+          type: string
+          format: uuid
+        park_label:
+          type: string
+        shed_id:
+          type: string
+          format: uuid
+        shed_label:
+          type: string
+        partition_label:
+          type: string
+          description: Human partition label ("Part 3", "2"); empty for an undivided shed. Never a matching key, never "whole".
+        operational_location_display:
+          type: string
+          description: Backend-composed via the canonical helper ("Castro 1", "Godel 1 - Part 3"); render verbatim.
+        items:
+          type: array
+          description: The pen's feed mix, largest window kg first.
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsShedFeedItem"
+        directed_kg:
+          type: string
+          description: The pen's total across every item, decimal string kg.
+    FeedAnalyticsShedFeedResponse:
+      type: object
+      description: The per-pen feed-mix rollup. DIRECTED kg only — the sheet's instruction, not a measured weight.
+      required: [date_from, date_to, rows]
+      properties:
+        date_from:
+          type: string
+          format: date
+        date_to:
+          type: string
+          format: date
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/FeedAnalyticsShedFeedRow"
     FeedDirectionRow:
       type: object
       additionalProperties: false

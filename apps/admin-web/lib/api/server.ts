@@ -1053,6 +1053,7 @@ export type FeedAnalyticsDirectedResponse = AppApiComponents["schemas"]["FeedAna
 export type FeedAnalyticsExecutionResponse = AppApiComponents["schemas"]["FeedAnalyticsExecutionResponse"];
 export type FeedAnalyticsExperimentResponse = AppApiComponents["schemas"]["FeedAnalyticsExperimentResponse"];
 export type FeedAnalyticsStockResponse = AppApiComponents["schemas"]["FeedAnalyticsStockResponse"];
+export type FeedAnalyticsShedFeedResponse = AppApiComponents["schemas"]["FeedAnalyticsShedFeedResponse"];
 
 export type FeedAnalyticsParams = {
   /** Optional: absent means every authorized park. */
@@ -1136,6 +1137,20 @@ export async function getFeedAnalyticsStock(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<FeedAnalyticsStockResponse>("/feed-analytics/stock", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+export async function getFeedAnalyticsShedFeed(
+  params: FeedAnalyticsParams,
+): Promise<ApiResult<FeedAnalyticsShedFeedResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedAnalyticsShedFeedResponse>("/feed-analytics/shed-feed", {
       cache: "no-store",
       query: compactQuery(params),
     }),

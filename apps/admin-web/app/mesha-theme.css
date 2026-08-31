@@ -1005,6 +1005,15 @@
   .main table.feed-table th,.main table.feed-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal;vertical-align:top}
   .main table.feed-table td{padding-top:10px;padding-bottom:10px}
   .main .feed-stock-tablewrap{max-width:100%;overflow-x:auto;scrollbar-gutter:stable;padding-right:14px}
+  /* Feed Analytics "Feed by shed" mix cell: one line per feed item with the
+     item's chart colour dot, label left, kg right — a small aligned ledger
+     instead of a chip pile. The kg column is tabular so amounts line up. */
+  .main .sfmix{display:flex;flex-direction:column;gap:5px;min-width:250px;max-width:340px;padding:2px 0}
+  .main .sfmix-row{display:flex;align-items:center;gap:8px}
+  .main .sfmix-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .main .sfmix-label{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .main .sfmix-kg{margin-left:auto;padding-left:14px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink);white-space:nowrap}
+  .main table.tbl td:has(.sfmix){vertical-align:top}
   .main table.feed-stock-table{width:100%;min-width:0;table-layout:fixed}
   .main table.feed-stock-table th,.main table.feed-stock-table td{padding-left:9px;padding-right:9px;white-space:normal;overflow-wrap:anywhere;vertical-align:middle}
   .main table.feed-stock-table th{font-size:10px;letter-spacing:.08em;line-height:1.25}

@@ -1833,9 +1833,33 @@ export interface paths {
          * Feed stock positions and daily expenditure for the Feed Analytics page.
          * @description Per-farm, per-feed-item stock cards from the bootstrapped purchase ledger (feed_purchases, one-time sheet import; entry screens arrive with the Procurement vertical) plus the window's daily expenditure series.
          *
-         *     STOCK DEPLETES AT SHEET LOCK: balance = (purchased - consumed-at-import snapshot) - directed kg of LOCKED sheets from the bootstrap cutoff onward, both workflows. Days left divides the balance by the item's average directed kg over its 3 most recent locked feed days (a short window so a ration-regime change moves days-left immediately); a negative balance is served as-is, saying the ledger is missing a load. Expenditure prices each (day, item)'s directed kg at the item's most recent load rate on or before that day. Empty arrays mean the ledger is not bootstrapped for this tenant.
+         *     STOCK DEPLETES AT SHEET LOCK: balance = (purchased - consumed-at-import snapshot) - directed kg of LOCKED sheets from the bootstrap cutoff onward, both workflows. Days left divides the balance by the item's average directed kg over its 3 most recent locked feed days (a short window so a ration-regime change moves days-left immediately); a negative balance is served as-is, saying the ledger is missing a load. Expenditure prices each (day, item)'s directed kg at the item's most recent load rate on or before that day. The daily expenditure SERIES starts at 2026-08-11 (maintainer floor; earlier days priced sheets against a ledger state the farm does not stand behind) — the stock cards and spend summary keep the caller's window. Empty arrays mean the ledger is not bootstrapped for this tenant.
          */
         get: operations["getFeedAnalyticsStock"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/feed-analytics/shed-feed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-pen feed-mix rollup for the Feed Analytics overview table.
+         * @description For every operational location (shed + optional partition) the frozen sheet directed feed to in the window, the DIRECTED kg of each feed item and the pen's total across items — "Masur Busa 120 kg · Kids concentrate 45 kg" per pen. Same membership and predicates as `/feed-analytics/directed` (live issues, states issued/amended/locked, both workflows), so summing an item across pens agrees with that read's per-item series for the same window.
+         *
+         *     One row per pen, at most the farm's pen catalog (~200 rows): a bounded set the client filters and pages locally. A pen with no issued sheet rows in the window is ABSENT — absence is "nothing directed", never a fabricated zero row. Blocked cells contribute nothing.
+         *
+         *     `operational_location_display` is backend-composed per the operational-location convention ("Castro 1", "Godel 1 - Part 3"); clients render it verbatim and never re-derive it from the identity fields.
+         */
+        get: operations["getFeedAnalyticsShedFeed"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6521,6 +6545,38 @@ export interface components {
             per_kg_cost: string;
             /** @description `required_kg` x `per_kg_cost` -- the week's feed bill at the current rate. */
             required_cost: string;
+        };
+        /** @description One feed item's DIRECTED kg total inside a pen's window row. */
+        FeedAnalyticsShedFeedItem: {
+            feed_item_label: string;
+            feed_item_key: string;
+            /** @description Decimal string, kg over the window for this pen and item. */
+            directed_kg: string;
+        };
+        /** @description One operational location's feed mix over the window. Location identity is carried as separate fields plus the backend-composed display, per the operational-location convention. */
+        FeedAnalyticsShedFeedRow: {
+            /** Format: uuid */
+            park_id: string;
+            park_label: string;
+            /** Format: uuid */
+            shed_id: string;
+            shed_label: string;
+            /** @description Human partition label ("Part 3", "2"); empty for an undivided shed. Never a matching key, never "whole". */
+            partition_label: string;
+            /** @description Backend-composed via the canonical helper ("Castro 1", "Godel 1 - Part 3"); render verbatim. */
+            operational_location_display: string;
+            /** @description The pen's feed mix, largest window kg first. */
+            items: components["schemas"]["FeedAnalyticsShedFeedItem"][];
+            /** @description The pen's total across every item, decimal string kg. */
+            directed_kg: string;
+        };
+        /** @description The per-pen feed-mix rollup. DIRECTED kg only — the sheet's instruction, not a measured weight. */
+        FeedAnalyticsShedFeedResponse: {
+            /** Format: date */
+            date_from: string;
+            /** Format: date */
+            date_to: string;
+            rows: components["schemas"]["FeedAnalyticsShedFeedRow"][];
         };
         /** @description ONE ROW PER OPERATIONAL LOCATION PER SESSION -- one pen, one feeding instruction. A pen holding several breeds or management stages is ONE row whose descriptive columns list every value present (` + `-joined) and whose quantities are summed, never several rows an operator has to re-add at the pen door. The packing worklist is built at the same grain, so a row and the bag packed for it always describe the same pen. */
         FeedDirectionRow: {
@@ -17151,6 +17207,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeedAnalyticsStockResponse"];
+                };
+            };
+            /** @description Malformed date or park id. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller lacks feed direction read for the requested scope. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getFeedAnalyticsShedFeed: {
+        parameters: {
+            query?: {
+                /** @description Narrow to one park. Absent means every park the caller is authorized for — a park-scoped principal can never widen past their grant. */
+                park_id?: string;
+                /** @description Inclusive window start (Asia/Kolkata business date). Defaults to 29 days before `date_to`; the overview table asks for its own 7-day window explicitly. Capped at 92 days, keeping the most recent days. */
+                date_from?: string;
+                /** @description Inclusive window end, defaulting to yesterday; window capped at 92 days. */
+                date_to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One row per pen, ordered by farm, shed, partition. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedAnalyticsShedFeedResponse"];
                 };
             };
             /** @description Malformed date or park id. */
