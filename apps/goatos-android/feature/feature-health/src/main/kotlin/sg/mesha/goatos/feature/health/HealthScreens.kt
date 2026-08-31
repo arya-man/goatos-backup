@@ -497,14 +497,21 @@ private fun HealthActionCard(item: HealthWorkItemUi, onClick: () -> Unit) {
                     }
                     Text(item.locationLabel, color = MeshaColors.Faint, fontSize = 11.sp)
                 }
-                Text("${item.dayNo}/${item.durationDays}", color = MeshaColors.Ink, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    if (item.durationDays > 0) "${item.dayNo}/${item.durationDays}" else "Day ${item.dayNo}",
+                    color = MeshaColors.Ink,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
             }
-            LinearProgressIndicator(
-                progress = { if (item.durationDays > 0) item.dayNo.toFloat() / item.durationDays else 0f },
-                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(999.dp)),
-                color = stripe,
-                trackColor = MeshaColors.Surf3,
-            )
+            if (item.durationDays > 0) {
+                LinearProgressIndicator(
+                    progress = { item.dayNo.toFloat() / item.durationDays },
+                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(999.dp)),
+                    color = stripe,
+                    trackColor = MeshaColors.Surf3,
+                )
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("${item.sessionLabel} · ${item.medicineLabel}", color = MeshaColors.Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)

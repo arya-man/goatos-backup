@@ -345,7 +345,8 @@ class HealthDetailViewModel @Inject constructor(
             loading = false,
             goatDisplayId = detail.goatDisplayId,
             diseaseName = detail.diseaseName,
-            dayLabel = "Day ${detail.dayNo} of ${detail.durationDays} · ${detail.session.replaceFirstChar { it.uppercase() }}",
+            dayLabel = healthCourseDayLabel(detail.dayNo, detail.durationDays) +
+                " · ${detail.session.replaceFirstChar { it.uppercase() }}",
             locationLabel = listOf(detail.parkLabel, detail.shedLabel).filter(String::isNotBlank).joinToString(" · "),
             status = detail.status,
             steps = detail.steps.map(HealthTreatmentStepDto::toUi),
@@ -608,11 +609,15 @@ internal fun healthTreatmentProofPolicy(captureSource: String): ProofPolicy =
     )
 
 
+/** Open-ended courses (no fixed duration) never render "of 0" — they read as ongoing. */
+internal fun healthCourseDayLabel(dayNo: Int, durationDays: Int): String =
+    if (durationDays > 0) "Day $dayNo of $durationDays" else "Day $dayNo · Ongoing until healed"
+
 private fun HealthWorkItemDto.toUi() = HealthWorkItemUi(
     healthSessionId = healthSessionId,
     goatDisplayId = goatDisplayId.ifBlank { goatId },
     diseaseName = diseaseName,
-    dayLabel = "Day $dayNo of $durationDays",
+    dayLabel = healthCourseDayLabel(dayNo, durationDays),
     dayNo = dayNo,
     durationDays = durationDays,
     locationLabel = listOf(parkLabel, shedLabel).filter(String::isNotBlank).joinToString(" · "),
