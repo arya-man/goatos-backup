@@ -809,9 +809,20 @@ func TestPrimaryCourseBoosterWaitsForPreviousDoseHistory(t *testing.T) {
 		{RuleID: "rule-bt-19w", DoseCode: "blue_tongue_kid_19w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 133, MinGapDays: 21, EligibilityJSON: []byte(`{"vaccine":{"code":"BLUE_TONGUE","type":"killed","pathogen_class":"viral"}}`)},
 	}
 	goat := defaultPlacedGoat(domain.EligibleGoat{
-		GoatID: "sheep-no-bt-dose-1", Species: "sheep", LifecycleStatus: "alive", HealthStatus: "healthy", DOB: &dob,
+		GoatID: "sheep-no-bt-dose-1", Species: "sheep", Stage: "K3", LifecycleStatus: "alive", HealthStatus: "healthy", DOB: &dob,
 	})
-	obl := &generationObligationFake{seen: map[string]bool{}}
+	staleDue := businessDayStart(dob).AddDate(0, 0, 133)
+	staleKey := primarySeedObligationKey("tenant-1", "version-1", rules[1], goat, staleDue)
+	obl := &generationObligationFake{
+		seen:         map[string]bool{staleKey: true},
+		keyIndex:     map[string]int{staleKey: 0},
+		ruleDoseByID: map[string]string{"rule-bt-16w": "blue_tongue_kid_16w", "rule-bt-19w": "blue_tongue_kid_19w"},
+		inserted: []obldomain.NewObligation{{
+			TenantID: "tenant-1", ProtocolVersionID: "version-1", RuleID: "rule-bt-19w",
+			TargetType: "goat", TargetID: "sheep-no-bt-dose-1", Sequence: 2, DueAt: staleDue,
+			Status: "scheduled", IdempotencyKey: staleKey,
+		}},
+	}
 	res := domain.GenerateResult{}
 
 	if err := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl).genOneGoat(
@@ -821,9 +832,52 @@ func TestPrimaryCourseBoosterWaitsForPreviousDoseHistory(t *testing.T) {
 		t.Fatalf("generation failed: %v", err)
 	}
 	for _, inserted := range obl.inserted {
-		if inserted.RuleID == "rule-bt-19w" {
+		if inserted.RuleID == "rule-bt-19w" && inserted.Status != "canceled" {
 			t.Fatalf("scheduled booster before prior dose history exists: %#v", inserted)
 		}
+	}
+	if len(obl.canceledDoses) != 1 || obl.canceledDoses[0] != "blue_tongue_kid_19w" || obl.cancelReasons[0] != "vaccine_primary_course_previous_dose_missing" {
+		t.Fatalf("canceledDoses=%#v reasons=%#v, want stale booster canceled for missing previous dose", obl.canceledDoses, obl.cancelReasons)
+	}
+}
+
+func TestGenerateForVersionCancelsManualCampaignRowsOnWrongSchedulePath(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC)
+	dob := asOf.AddDate(0, 0, -115)
+	rule := protodomain.Rule{
+		RuleID:      "rule-bt-adult-w1",
+		DoseCode:    "blue_tongue_adult_w1",
+		Sequence:    1,
+		TriggerType: "manual_campaign",
+	}
+	goat := defaultPlacedGoat(domain.EligibleGoat{
+		GoatID: "sheep-kid-with-adult-bt", Species: "sheep", LifecycleStatus: "alive", HealthStatus: "healthy", DOB: &dob,
+	})
+	staleKey := stableAdultCampaignObligationKey("tenant-1", "version-1", rule, goat)
+	obl := &generationObligationFake{
+		seen:         map[string]bool{staleKey: true},
+		keyIndex:     map[string]int{staleKey: 0},
+		ruleDoseByID: map[string]string{"rule-bt-adult-w1": "blue_tongue_adult_w1"},
+		inserted: []obldomain.NewObligation{{
+			TenantID: "tenant-1", ProtocolVersionID: "version-1", RuleID: "rule-bt-adult-w1",
+			TargetType: "goat", TargetID: "sheep-kid-with-adult-bt", Sequence: 1, DueAt: asOf,
+			Status: "scheduled", IdempotencyKey: staleKey,
+		}},
+	}
+	res := domain.GenerateResult{}
+
+	if err := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl).genOneGoat(
+		ctx, "tenant-1", "version-1", []protodomain.Rule{rule}, nil, genEligibility{}, goat, asOf,
+		generationOptions{}, genVersionPolicies{}, vaccineProfile{}, nil, newTrustedEvidenceLookup(), &res,
+	); err != nil {
+		t.Fatalf("generation failed: %v", err)
+	}
+	if got := obl.inserted[0].Status; got != "canceled" {
+		t.Fatalf("stale adult row status=%s, want canceled", got)
+	}
+	if len(obl.canceledDoses) != 1 || obl.canceledDoses[0] != "blue_tongue_adult_w1" || obl.cancelReasons[0] != "vaccine_rule_no_longer_matches_schedule_path" {
+		t.Fatalf("canceledDoses=%#v reasons=%#v, want stale adult row canceled for wrong path", obl.canceledDoses, obl.cancelReasons)
 	}
 }
 

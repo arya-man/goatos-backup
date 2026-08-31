@@ -1723,6 +1723,11 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_history_outranks_primary_seed", asOf); err != nil {
 					return err
 				}
+			} else if isPrimaryCourseRule(rule) {
+				// seed-fixture-guard:ignore: runtime reconciliation only; a rule that no longer belongs to this animal's schedule path must retire its stale open work.
+				if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_rule_no_longer_matches_schedule_path", asOf); err != nil {
+					return err
+				}
 			}
 			continue
 		}
@@ -1774,6 +1779,10 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				if _, _, hasPrevious, err := previousPrimaryCourseRule(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path); err != nil {
 					return err
 				} else if hasPrevious {
+					// seed-fixture-guard:ignore: runtime reconciliation only; booster/follow-up rows without the prior course dose are invalid open work.
+					if _, err := s.obl.CancelOpenVaccinationObligationsForGoatDose(ctx, tenantID, g.GoatID, rule.DoseCode, "vaccine_primary_course_previous_dose_missing", asOf); err != nil {
+						return err
+					}
 					continue
 				}
 			}
