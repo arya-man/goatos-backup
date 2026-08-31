@@ -4971,6 +4971,35 @@ func TestConfigAnchorStillEnforcesAgeAndScope(t *testing.T) {
 	}
 }
 
+func TestConfigVaccineLevelAnchorMatchesEveryDoseForVaccine(t *testing.T) {
+	asOf := mustGenerationDate(t, "2026-08-31")
+	oldEnoughDOB := mustGenerationDate(t, "2026-05-19")
+	rules := []protodomain.Rule{
+		{
+			RuleID: "rule-ppr-kid", DoseCode: "ppr_kid_16w", Sequence: 1,
+			TriggerType: "birth_age", OffsetDays: 112,
+			EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"},"eligibility":{"species":["goat","sheep"]}}`),
+		},
+		{
+			RuleID: "rule-ppr-adult", DoseCode: "ppr_adult_w1", Sequence: 10,
+			TriggerType: "manual_campaign", OffsetDays: 0,
+			EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"},"eligibility":{"species":["goat","sheep"]}}`),
+		},
+	}
+	plan := configAnchorPlanWithDose(rules[0], "", domain.EligibleGoat{GoatID: "eligible", LifecycleStatus: "alive", Species: "goat", DOB: &oldEnoughDOB, ParkID: "park-anchor"})
+	plan.rules = rules
+
+	overrides := anchorDueOverrides([]goatGenerationPlan{plan}, asOf)
+	if len(overrides) != 2 {
+		t.Fatalf("overrides=%#v, want vaccine-level anchor to match both PPR dose rows", overrides)
+	}
+	for _, rule := range rules {
+		if _, ok := overrides[anchorDueGoatRuleKey("version-1", rule.RuleID, "eligible")]; !ok {
+			t.Fatalf("rule %s missing from vaccine-level anchor overrides: %#v", rule.RuleID, overrides)
+		}
+	}
+}
+
 func TestGenerationDoesNotCreateOpenWorkInThePast(t *testing.T) {
 	ctx := context.Background()
 	asOf := mustGenerationDate(t, "2026-08-31")
@@ -5000,6 +5029,10 @@ func TestGenerationDoesNotCreateOpenWorkInThePast(t *testing.T) {
 }
 
 func configAnchorPlan(rule protodomain.Rule, goat domain.EligibleGoat) goatGenerationPlan {
+	return configAnchorPlanWithDose(rule, "ppr_kid_16w", goat)
+}
+
+func configAnchorPlanWithDose(rule protodomain.Rule, doseCode string, goat domain.EligibleGoat) goatGenerationPlan {
 	return goatGenerationPlan{
 		versionID:      "version-1",
 		rules:          []protodomain.Rule{rule},
@@ -5008,7 +5041,7 @@ func configAnchorPlan(rule protodomain.Rule, goat domain.EligibleGoat) goatGener
 		vaccineProfile: vaccineProfile{Code: "PPR", Type: "live", PathogenClass: "viral"},
 		anchors: genAnchorConfig{Rules: []genAnchorRule{{
 			VaccineCode:           "PPR",
-			DoseCode:              "ppr_kid_16w",
+			DoseCode:              doseCode,
 			AnchorDate:            "2026-09-08",
 			ScopeType:             "park",
 			ScopePayload:          []byte(`{"park_id":"park-anchor"}`),
