@@ -150,6 +150,7 @@ class DefaultHealthRepository(
     override fun observePageMeta(filters: HealthFilters): Flow<HealthPageMetaSnapshot?> =
         database.healthPageMetaDao().observe(filters.scopeKey).map { entity ->
             entity?.let { row ->
+                // exception:exempt a corrupt cached page-meta row degrades to null and is rebuilt by the next refresh; nothing actionable to record
                 runCatching { json.decodeFromString<HealthWorkItemPageDto>(row.dtoJson) }.getOrNull()
                     ?.let { HealthPageMetaSnapshot(it, row.updatedAt) }
             }

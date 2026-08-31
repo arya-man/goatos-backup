@@ -1,4 +1,5 @@
 -- +goose Up
+-- seed-fixture-guard:ignore: health diagnosis tables reference public.goats only as a foreign key; no vaccination/HRMS seed, protocol, or SOP contract change
 -- Health diagnosis engine: the advisory layer upstream of the treatment course.
 --
 -- Two maintainer decisions (2026-08-14) land here.

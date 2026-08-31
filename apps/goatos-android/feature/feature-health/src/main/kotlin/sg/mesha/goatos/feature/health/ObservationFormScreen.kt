@@ -666,8 +666,8 @@ private fun TemperatureField(value: String, onChange: (String) -> Unit) {
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             textStyle = MeshaType.body.copy(
-                fontSize = 30.sp,
-                fontWeight = FontWeight.W700,
+                fontSize = 30.sp, // design-system:ignore: jumbo numeric entry for a gloved hand reading a thermometer; no MeshaType style is this large
+                fontWeight = FontWeight.W700, // design-system:ignore: same jumbo numeric entry
                 fontFamily = FontFamily.Monospace,
             ),
             colors = TextFieldDefaults.colors(

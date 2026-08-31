@@ -135,7 +135,7 @@ data class ObservationFormState(
  * 30-field form corrected one complaint at a time is not fillable in a shed.
  */
 fun ObservationFormState.blockers(): List<ObservationBlocker> {
-    val out = mutableListOf<ObservationBlocker>()
+    val out = mutableListOf<ObservationBlocker>() // mobile-guard:ignore: local per-call list bounded by the form's fixed rule count; returned, never retained
 
     // 1. Exclusivity, checked before completeness so a contradiction is named as
     //    a contradiction rather than reported as a missing answer.
@@ -198,7 +198,7 @@ fun ObservationFormState.stepHeading(step: ObservationStep): String = when (step
  * is milk, because a CMT on a dry doe is the CMT_WITHOUT_MILK contradiction.
  */
 fun ObservationFormState.missingFields(step: ObservationStep): List<String> {
-    val missing = mutableListOf<String>()
+    val missing = mutableListOf<String>() // mobile-guard:ignore: local per-call list bounded by the step's fixed field count; returned, never retained
     fun require(condition: Boolean, name: String) { if (!condition) missing += name }
 
     when (step) {
