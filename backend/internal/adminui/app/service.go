@@ -2133,7 +2133,12 @@ func pageSpecificCopy(id string) map[string]string {
 			// endpoint's latency budget), so these three cover the gap and its two failure modes.
 			// An empty grid during the wait would read as "this tenant has no cohorts", which is a
 			// different and far more alarming fact than "still loading".
-			"command_board.cohort_matrix.loading":              "Loading cohort matrix…",
+			"command_board.cohort_matrix.loading": "Loading cohort matrix…",
+			// The shed grid is likewise loaded after first paint. Interning its payload cut it from
+			// 408KB to 155KB and the board's p90 barely moved, so the section itself had to move.
+			"command_board.shed_dose_matrix.loading":           "Loading shed matrix…",
+			"command_board.shed_dose_matrix.unavailable":       "Shed matrix is unavailable right now. The rest of the board is up to date.",
+			"command_board.shed_dose_matrix.empty":             "No shed obligations in this scope",
 			"command_board.cohort_matrix.unavailable":          "Cohort matrix is unavailable right now. The rest of the board is up to date.",
 			"command_board.cohort_matrix.column.stage":         "Stage",
 			"command_board.cohort_matrix.column.sex":           "Sex",

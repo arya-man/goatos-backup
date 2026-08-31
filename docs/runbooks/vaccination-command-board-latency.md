@@ -276,3 +276,112 @@ headroom.
 **`driveOptionsSQL` remains the heaviest single statement** even paged, and the cohort matrix's
 `animal_count` still needs a DISTINCT over the tenant's obligations. Both are the first places to
 look if the board drifts.
+
+## 8. 2026-08-31 second pass: what the rebase changed, and what is still red
+
+The first pass was measured against the OCI clone before it was migrated forward. Re-measuring
+after a rebase onto `origin/main` changed several facts, and one of them was a regression that only
+the new data exposed. Recorded here because each was found by measuring rather than by reading.
+
+### 8.1 The clone runs AHEAD of `main`, because of an unrelated workstream
+
+Mid-session the clone moved twice: `000226 -> 000228`, then `-> 000231`. The first step is on
+`main`. The second is NOT: `000229_health_diagnosis_engine`,
+`000230_health_case_closure_and_verification` and `000231_health_cases_diagnosis_columns` come from
+the **health** workstream's branch and had not merged. The API refuses to boot against a database
+ahead of its own embedded migrations (`migration_drift_dbahead_fatal`, `internal/platform/
+migrationguard`), and that guard is unconditional by design — there is no override env, and none
+was added.
+
+To measure at all, those three `.sql` files were copied into the working tree from the health
+branch **and deliberately left uncommitted**. They are not part of this change and must not be
+committed with it; `git status` will show them as untracked. Anyone reproducing this measurement
+has to do the same, or wait for the health branch to land. Do not "fix" the boot failure by
+weakening the migration guard or by fabricating placeholder migration files.
+
+Practical consequence: the OCI clone is a shared surface that other workstreams migrate. Treat its
+schema version as a moving target and re-check it before trusting a measurement.
+
+### 8.2 A disk spill that only appeared once anchor retirement grew the table
+
+`main`'s anchor work (`fix(vaccination): retire replaced plan anchors`, `prevent past obligation
+generation`) took `obligation_instances` to 64,678 `canceled` rows. That pushed
+`commandBoardCohortExceptionCTE` from ~212ms to **763ms**.
+
+The cause was the same class of mistake twice over: its `candidate` CTE deduplicated on SEVEN
+columns, two of which were DERIVED — a text-cast `COALESCE` for `park_id` and a `regexp_replace`
+for `family`. Both are pure functions of columns already in the key, so they never changed which
+rows survived the `DISTINCT`; they only widened ~81k rows to 114 bytes and put a regexp in the sort
+key. The sort went past `work_mem` into `Sort Method: external merge  Disk: 8696kB`.
+
+Deduplicating on the narrow base columns and projecting the derived ones in an outer `SELECT` lets
+the planner choose a parallel `HashAggregate`: **763ms -> 203ms, byte-identical output**, with the
+cell-scoped drawer path unchanged at ~90ms.
+
+**Rule this leaves behind:** never carry a derived column inside a `DISTINCT`/`GROUP BY` key when it
+is a function of columns already in that key. It cannot change the result and it can change the
+plan.
+
+### 8.3 `closedWithoutDose` is now legitimately zero on this clone
+
+It reads 0 where it read 323, and that is not a regression:
+`1279 verified + 241 overdue + 113 scheduled = 1633 targets`, so the residual bucket is empty. Also
+worth knowing: this database contains **no `missed`-status rows at all**, so `oi.status = 'missed'`
+— and therefore `any_missed` — never fires in practice.
+
+This is a hazard for the latency gate, not for the product: the committed manifest asserts
+`animals >= 1` on `vaccination_command_closed_without_dose` so the gate cannot certify a latency
+measured over an empty result. On this clone that assertion cannot be satisfied, so the endpoint
+was NOT latency-measured in this pass. The assertion was deliberately left in place rather than
+weakened. The **plan guard** is unaffected and stays deterministic: its fixture seeds
+`commandBoardPlanFixtureResidual` (every fourth animal) and asserts the tile equals it, so the
+detector never depends on live OCI data.
+
+### 8.4 Bytes were not the problem; round trips were
+
+The board payload was 441KB, 92% of it the shed x dose grid. Interning that grid's 113 shed
+identities and 21 dose labels, and emitting IST business dates instead of RFC3339 instants, cut it
+to 155KB and the whole payload to 207KB — and the board's p90 moved by roughly nothing (343 ->
+~340). Taking the section off first paint is what moved it, to p90 255-290.
+
+A correction worth keeping, because the first read of the data was wrong: `operational_location_
+display` is NOT redundant with `shedName`. It matches on only 36 of 1318 rows, because 1282 carry a
+partition label. The conclusion came from inspecting a single row; checking the whole set reversed
+it.
+
+Per-section decomposition through the tunnel, which is how the round-trip cost was identified
+(`EXPLAIN ANALYZE` discards rows, so it cannot see result transfer):
+
+| section | exec ms | fetch ms | transfer |
+|---|---|---|---|
+| ShedDoseSQL | 102 | 216 | 114 |
+| driveOptionsSQL | 144 | 171 | 27 |
+| ShedVaccineSQL | 138 | 188 | 50 |
+| KPISQL | 50 | 73 | 23 |
+
+`commandBoardSummaryConcurrency` also moved 4 -> 6. The comment justifying FOUR was measured when
+the cohort matrix still ran in the fan-out and the picker cost 448ms; with seven sections, two of
+them sub-millisecond, four slots split the five real statements across two waves. Six, not seven,
+so one board render cannot claim the whole ten-connection pool.
+
+### 8.5 UNRESOLVED: `vaccination_command_cohort_matrix` is over budget
+
+**p90 323-330 against a 300ms budget. This is an open blocker, not an accepted state.**
+
+What is already established about it:
+
+- The pole is `commandBoardCohortSQL` alone at ~244ms. Removing the exception count from that
+  endpoint entirely changes nothing — measured 318 either way — because the fan-out already hides
+  it behind the larger statement.
+- Its cost is materialising **80,960 obligation rows to produce 407 cells**. The plan is already
+  seq-scan + hash-aggregate throughout with no spill; there is no bad shape left to fix.
+- Fusing `cell_totals` and `cell_animals` into one pass with `COUNT(DISTINCT goat_id)` is **worse:
+  519ms against 244ms**. The two-aggregate split is load-bearing — do not "simplify" it back.
+- The obvious filter is UNSAFE. 64,678 of those rows are `canceled`, but a canceled obligation
+  still contributes its animal to a cell's `DISTINCT animal_count`. Dropping them would change what
+  the number means, so it must not be done as a performance edit.
+
+Options that remain, none taken unilaterally: park-scope the grid so no single request aggregates
+tenant-wide; or revisit the projection ban in §4 for this one aggregate — which the anchor-date
+reasoning still argues against. Relaxing the budget is not an option; `tools/perf/
+api-latency-policy.mjs` hard-caps it and will not let anyone raise it.

@@ -5,6 +5,8 @@ import type { CommandBoardCohortMatrixPage } from "@/lib/api/server";
 import {
   useClosedWithoutDoseAnimals,
   useCohortMatrix,
+  useShedDoseMatrix,
+  type ShedDoseCellRow,
   useCohortCellDetail,
   useDriveCatalogue,
   useShedVaccineAnimals,
@@ -334,7 +336,7 @@ type CommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoard
 // The cohort cell shape. It is no longer on the board response -- the matrix is its own section --
 // so it is taken from that section's page type.
 type CohortCell = NonNullable<CommandBoardCohortMatrixPage["cells"]>[number];
-type ShedDoseCell = CommandBoardResponse["shedDoseMatrix"][number];
+type ShedDoseCell = ShedDoseCellRow;
 type CommandBoardKpis = CommandBoardResponse["kpis"] & {
   missedNotGiven?: number;
   closedWithoutDose?: number;
@@ -524,6 +526,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   // The cohort grid is a SECTION loaded after first paint, not a drawer. See useCohortMatrix.
   const cohortSection = useCohortMatrix<CohortCell>(drilldownScope);
   const cohortMatrix = cohortSection.data;
+  // The shed grid is likewise a SECTION loaded after first paint. See useShedDoseMatrix: interning
+  // its payload was not enough on its own, so the section itself moved off the board.
+  const shedDoseSection = useShedDoseMatrix(drilldownScope);
+  const shedDoseMatrix = shedDoseSection.data;
 
   // The board carries only the FIRST PAGE of drives (20). The catalogue used to ship whole and was
   // 448ms and 753 KB — more than the endpoint's entire 512 KB budget — for a dropdown, and it was
@@ -536,8 +542,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     searchParams?.get("park_id") || undefined,
   );
   const driveOptions = useMemo(
-    () => enrichDriveOptions(driveCatalogue.options, board.shedDoseMatrix ?? [], cohortMatrix, board.kpis.targets),
-    [driveCatalogue.options, board.shedDoseMatrix, cohortMatrix, board.kpis.targets],
+    () => enrichDriveOptions(driveCatalogue.options, shedDoseMatrix, cohortMatrix, board.kpis.targets),
+    [driveCatalogue.options, shedDoseMatrix, cohortMatrix, board.kpis.targets],
   );
   const futureDrives = useMemo(() => scheduledDriveRows(driveOptions), [driveOptions]);
   const executedCampaigns = useMemo(() => executedDriveCampaigns(driveOptions), [driveOptions]);
@@ -560,11 +566,12 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   };
 
   const vaccineOptions = useMemo(() => {
-    // Sourced from the SHED DOSE matrix, which is still on the board, so the vaccine filter is
-    // usable on first paint instead of appearing when the cohort section lands.
-    const labels = (board.shedDoseMatrix ?? []).map((c) => c.doseRule).filter(Boolean);
+    // Sourced from the SHED DOSE matrix. Both matrices are now lazy sections, so this filter
+    // fills in when the shed grid lands; it is built from the shed grid rather than the cohort
+    // grid because the shed grid is the cheaper of the two and therefore lands first.
+    const labels = shedDoseMatrix.map((c) => c.doseRule).filter(Boolean);
     return Array.from(new Set(labels)).sort();
-  }, [board]);
+  }, [shedDoseMatrix]);
   const [vaccine, setVaccine] = useState<string>("");
   // EMPTY means "no filter, show everything" — it does NOT mean "hide everything". The chips used
   // to initialise to the full set and a click DELETED that status, so pressing "Overdue" hid the
@@ -625,13 +632,13 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     ...board,
     shedVaccineMatrix: board.shedVaccineMatrix ?? [],
     shedVaccineColumns: board.shedVaccineColumns ?? [],
-    shedDoseMatrix: (board.shedDoseMatrix ?? []).filter(
+    shedDoseMatrix: shedDoseMatrix.filter(
       (c) => matchesVaccine(c.doseRule) && isStatusVisible(c.state),
     ),
     cohortMatrix: cohortMatrix.filter((c) => matchesVaccine(c.vaccineLabel)),
     verificationQueue: (board.verificationQueue ?? []).filter((r) => matchesVaccine(r.doseRule)),
     };
-  }, [board, vaccine, statuses]);
+  }, [board, shedDoseMatrix, cohortMatrix, vaccine, statuses]);
   const pendingVaccinesByShed = useMemo(() => {
     const vaccineLabels = new Map((view.shedVaccineColumns ?? []).map((c) => [c.code, c.label || c.code]));
     type PendingShed = {
@@ -1060,6 +1067,24 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
 
         {/* Vaccine × Shed status - colored grid heatmap */}
         <div id="cbm-shed-dose-matrix">
+        {/* The shed grid is loaded AFTER first paint, like the cohort grid. An explicit loading
+            state matters: an empty grid during the gap would read as "this tenant has no sheds",
+            which is a different and alarming fact. */}
+        {shedDoseSection.loading && shedDoseMatrix.length === 0 ? (
+          <div className="cbm-section-state" role="status" aria-live="polite">
+            {copy(pageContract, "command_board.shed_dose_matrix.loading")}
+          </div>
+        ) : null}
+        {shedDoseSection.error ? (
+          <div className="cbm-section-state cbm-section-state-error" role="status">
+            {copy(pageContract, "command_board.shed_dose_matrix.unavailable")}
+          </div>
+        ) : null}
+        {!shedDoseSection.loading && !shedDoseSection.error && shedDoseMatrix.length === 0 ? (
+          <div className="cbm-section-state">
+            {copy(pageContract, "command_board.shed_dose_matrix.empty")}
+          </div>
+        ) : null}
         {view.shedDoseMatrix.length > 0 && (() => {
           const grid = buildShedGrid(view.shedDoseMatrix);
           // Queue age keyed by the same (shed, dose) grain the matrix cells use, so the number

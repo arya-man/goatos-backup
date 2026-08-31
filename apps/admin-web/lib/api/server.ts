@@ -208,6 +208,9 @@ export type VaccinationCommandBoardResponse = AppApiComponents["schemas"]["Vacci
 // The command board's drilldown pages. Each is one drawer's worth of the evidence behind a board
 // number, fetched when the reader opens that cell.
 export type CommandBoardCohortMatrixPage = AppApiComponents["schemas"]["CommandBoardCohortMatrixPage"];
+export type CommandBoardShedDoseMatrixPage = AppApiComponents["schemas"]["CommandBoardShedDoseMatrixPage"];
+export type ShedDoseMatrix = AppApiComponents["schemas"]["ShedDoseMatrix"];
+export type ShedDoseMatrixShed = AppApiComponents["schemas"]["ShedDoseMatrixShed"];
 export type CommandBoardClosedWithoutDosePage = AppApiComponents["schemas"]["CommandBoardClosedWithoutDosePage"];
 export type CommandBoardShedVaccineAnimalsPage = AppApiComponents["schemas"]["CommandBoardShedVaccineAnimalsPage"];
 export type CommandBoardCohortExceptionsPage = AppApiComponents["schemas"]["CommandBoardCohortExceptionsPage"];
@@ -2499,6 +2502,26 @@ export async function getCommandBoardCohortMatrix(
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<CommandBoardCohortMatrixPage>("/vaccination/command/cohort-matrix", {
+      cache: "no-store",
+      query: compactQuery({
+        drive_batch_id: scope.driveBatchId,
+        park_id: scope.parkId,
+        as_of: scope.asOf,
+      }),
+    }),
+  );
+}
+
+// The shed x dose grid as its own SECTION. Interning its payload (408KB -> 155KB) was measured and
+// was not enough on its own: the board held p90 343 with this inline and p90 251-281 without it.
+export async function getCommandBoardShedDoseMatrix(
+  scope: CommandBoardDrilldownScope = {},
+): Promise<ApiResult<CommandBoardShedDoseMatrixPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<CommandBoardShedDoseMatrixPage>("/vaccination/command/shed-dose-matrix", {
       cache: "no-store",
       query: compactQuery({
         drive_batch_id: scope.driveBatchId,

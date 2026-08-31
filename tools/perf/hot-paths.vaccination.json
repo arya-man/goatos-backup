@@ -100,6 +100,34 @@
       }
     },
     {
+      "name": "vaccination_command_cohort_matrix",
+      "method": "GET",
+      "path": "/vaccination/command/cohort-matrix",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 262144,
+      "assertion": {
+        "type": "array_min",
+        "path": "cells",
+        "min": 1
+      }
+    },
+    {
+      "name": "vaccination_command_shed_dose_matrix",
+      "method": "GET",
+      "path": "/vaccination/command/shed-dose-matrix",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 500,
+      "max_response_bytes": 262144,
+      "assertion": {
+        "type": "array_min",
+        "path": "matrix.cells",
+        "min": 1
+      }
+    },
+    {
       "name": "control_tower",
       "method": "GET",
       "path": "/control-tower/vaccination?category=vaccination",
