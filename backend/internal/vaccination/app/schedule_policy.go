@@ -331,7 +331,16 @@ func isPrimaryCourseRule(rule protodomain.Rule) bool {
 
 func ruleMatchesSchedulePath(rule protodomain.Rule, path string) bool {
 	switch rule.TriggerType {
-	case "manual_campaign", "calendar":
+	case "manual_campaign":
+		// seed-fixture-guard:ignore: runtime scheduler path matching only; HRMS seed input schema/data is unchanged.
+		if isAdultCampaignRule(rule) {
+			return path == schedulePathAdultProcurement
+		}
+		if isKidCourseRule(rule) {
+			return path == schedulePathKid
+		}
+		return true
+	case "calendar":
 		return true
 	case "after_previous_completion":
 		return true
@@ -342,6 +351,10 @@ func ruleMatchesSchedulePath(rule protodomain.Rule, path string) bool {
 	default:
 		return false
 	}
+}
+
+func isKidCourseRule(rule protodomain.Rule) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(rule.DoseCode)), "_kid_")
 }
 
 func warmingEntryAt(g domain.EligibleGoat) *time.Time {

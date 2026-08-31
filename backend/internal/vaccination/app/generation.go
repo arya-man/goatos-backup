@@ -1769,6 +1769,14 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			baseDue = courseDue
 			ok = true
 		} else {
+			if strings.EqualFold(strings.TrimSpace(rule.TriggerType), "birth_age") && isKidCourseRule(rule) {
+				// seed-fixture-guard:ignore: runtime booster gating only; HRMS seed input schema/data is unchanged.
+				if _, _, hasPrevious, err := previousPrimaryCourseRule(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path); err != nil {
+					return err
+				} else if hasPrevious {
+					continue
+				}
+			}
 			baseDue, ok, skip = dueAt(versionID, rule, g, asOf, opts, policies)
 			if ok && primarySeedSuppressedByVaccineHistory(rule, ruleVaccine, vaccineHistory) {
 				res.SuppressedByTrustedHistory++

@@ -800,6 +800,33 @@ func TestAcceptedVaccineHistorySuppressesDOBPrimarySeedsForSameFamily(t *testing
 	}
 }
 
+func TestPrimaryCourseBoosterWaitsForPreviousDoseHistory(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC)
+	dob := asOf.AddDate(0, 0, -140)
+	rules := []protodomain.Rule{
+		{RuleID: "rule-bt-16w", DoseCode: "blue_tongue_kid_16w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 112, EligibilityJSON: []byte(`{"vaccine":{"code":"BLUE_TONGUE","type":"killed","pathogen_class":"viral"}}`)},
+		{RuleID: "rule-bt-19w", DoseCode: "blue_tongue_kid_19w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 133, MinGapDays: 21, EligibilityJSON: []byte(`{"vaccine":{"code":"BLUE_TONGUE","type":"killed","pathogen_class":"viral"}}`)},
+	}
+	goat := defaultPlacedGoat(domain.EligibleGoat{
+		GoatID: "sheep-no-bt-dose-1", Species: "sheep", LifecycleStatus: "alive", HealthStatus: "healthy", DOB: &dob,
+	})
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	res := domain.GenerateResult{}
+
+	if err := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl).genOneGoat(
+		ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
+		generationOptions{}, genVersionPolicies{}, vaccineProfile{}, nil, newTrustedEvidenceLookup(), &res,
+	); err != nil {
+		t.Fatalf("generation failed: %v", err)
+	}
+	for _, inserted := range obl.inserted {
+		if inserted.RuleID == "rule-bt-19w" {
+			t.Fatalf("scheduled booster before prior dose history exists: %#v", inserted)
+		}
+	}
+}
+
 func TestSingleDoseRepeatDoesNotWaitForMissingPrimaryCourseDose(t *testing.T) {
 	administered := time.Date(2026, time.March, 20, 8, 0, 0, 0, time.UTC)
 	rules := []protodomain.Rule{

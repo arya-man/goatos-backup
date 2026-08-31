@@ -324,4 +324,19 @@ func TestRuleMatchesSchedulePath(t *testing.T) {
 	if !ruleMatchesSchedulePath(adultRule, schedulePathAdultProcurement) || ruleMatchesSchedulePath(kidRule, schedulePathAdultProcurement) {
 		t.Fatalf("adult path matching failed")
 	}
+
+	adultManualRule := protodomain.Rule{TriggerType: "manual_campaign", DoseCode: "blue_tongue_adult_w1"}
+	kidManualRule := protodomain.Rule{TriggerType: "manual_campaign", DoseCode: "blue_tongue_kid_16w"}
+	if ruleMatchesSchedulePath(adultManualRule, schedulePathKid) {
+		t.Fatalf("adult manual campaign matched kid path")
+	}
+	if !ruleMatchesSchedulePath(adultManualRule, schedulePathAdultProcurement) {
+		t.Fatalf("adult manual campaign did not match adult path")
+	}
+	if !ruleMatchesSchedulePath(kidManualRule, schedulePathKid) {
+		t.Fatalf("kid manual campaign did not match kid path")
+	}
+	if ruleMatchesSchedulePath(kidManualRule, schedulePathAdultProcurement) {
+		t.Fatalf("kid manual campaign matched adult path")
+	}
 }
