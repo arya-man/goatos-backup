@@ -257,7 +257,7 @@ WITH page AS (
         bool_or(ss.record_type='critical_action') AS has_critical
  FROM health_session_steps ss JOIN page p ON p.health_session_id=ss.health_session_id GROUP BY ss.health_session_id
 )
-SELECT p.health_session_id::text,p.health_case_id::text,p.goat_id::text,g.display_id,hc.disease_key,hc.disease_name,hc.age_band,
+SELECT p.health_session_id::text,p.health_case_id::text,p.goat_id::text,coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id),hc.disease_key,hc.disease_name,hc.age_band,
  p.day_no,coalesce(hc.duration_days,0),p.business_date::text,p.session,p.due_at,p.effective_status,
  coalesce(hc.park_id::text,''),coalesce(pl.name,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),
  coalesce(sc.step_count,0),coalesce(sc.medication_count,0),coalesce(sc.has_critical,false)
@@ -388,7 +388,7 @@ func (r *Repository) GetWorkItem(ctx context.Context, tenantID, sessionID string
 	// string is composed in Go through the shared oploc.OperationalLocation.Display() primitive
 	// instead of a hand-rolled SQL CASE -- same output, evaluated once, and routed through the
 	// canonical composer per the operational-location convention.
-	err := r.pool.QueryRow(ctx, `SELECT hs.health_session_id::text,hc.health_case_id::text,hs.goat_id::text,g.display_id,hc.disease_key,hc.disease_name,hc.age_band,hs.day_no,coalesce(hc.duration_days,0),hs.business_date::text,hs.session,hs.due_at,
+	err := r.pool.QueryRow(ctx, `SELECT hs.health_session_id::text,hc.health_case_id::text,hs.goat_id::text,coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id),hc.disease_key,hc.disease_name,hc.age_band,hs.day_no,coalesce(hc.duration_days,0),hs.business_date::text,hs.session,hs.due_at,
 CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELSE hs.status END,coalesce(hc.park_id::text,''),coalesce(pl.name,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),
 COALESCE(part.partition_label, '')
 FROM health_treatment_sessions hs JOIN health_cases hc ON hc.tenant_id=hs.tenant_id AND hc.health_case_id=hs.health_case_id JOIN goats g ON g.goat_id=hs.goat_id
@@ -479,7 +479,7 @@ func (r *Repository) CompleteWorkItem(ctx context.Context, in domain.CompleteInp
 	// one row per shed (agree-or-go-bare, HAVING count(*)=1) exactly as GetWorkItem does, so the
 	// FOR UPDATE OF hs target can never fan out; pagination=n/a; scope=the session's own case.
 	err = tx.QueryRow(ctx, `SELECT hs.health_case_id::text,hs.goat_id::text,hc.disease_key,hs.status,hs.completed_at,hs.completion_idempotency_key,hs.completion_fingerprint,
- hc.disease_name,hc.age_band,g.display_id,hs.day_no,coalesce(hc.park_id::text,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),coalesce(part.partition_label,'')
+ hc.disease_name,hc.age_band,coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id),hs.day_no,coalesce(hc.park_id::text,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),coalesce(part.partition_label,'')
 FROM health_treatment_sessions hs JOIN health_cases hc ON hc.health_case_id=hs.health_case_id
 JOIN goats g ON g.goat_id=hs.goat_id
 LEFT JOIN locations sl ON sl.tenant_id=hc.tenant_id AND sl.location_id=hc.shed_id

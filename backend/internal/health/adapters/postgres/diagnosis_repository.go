@@ -609,7 +609,7 @@ func (r *DiagnosisRepository) GetDiagnosisRun(ctx context.Context, tenantID, run
 	err := r.pool.QueryRow(ctx, `
 SELECT dr.health_diagnosis_run_id::text, dr.goat_id::text, dr.register_version, dr.observed_by::text,
        dr.observed_at, dr.business_date, dr.proposal, dr.status, dr.confirmed_by::text, dr.confirmed_at,
-       COALESCE(g.display_id, ''), COALESCE(g.age_band, '')
+       coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id,''), COALESCE(g.age_band, '')
 FROM health_diagnosis_runs dr
 LEFT JOIN goats g ON g.tenant_id = dr.tenant_id AND g.goat_id = dr.goat_id
 WHERE dr.tenant_id=$1::uuid AND dr.health_diagnosis_run_id=$2::uuid`, tenantID, runID).Scan(
@@ -687,7 +687,7 @@ func (r *DiagnosisRepository) ListDiagnosisRuns(
 	// scale-guard:ignore: one tenant + status keyset page capped at limit+1 (<=51), served by the
 	// partial health_diagnosis_runs_pending_idx (tenant_id, status, observed_at DESC, id).
 	rows, err := r.pool.Query(ctx, `
-SELECT dr.health_diagnosis_run_id::text, dr.goat_id::text, COALESCE(g.display_id, ''),
+SELECT dr.health_diagnosis_run_id::text, dr.goat_id::text, coalesce((SELECT gi.identifier_value FROM goat_identifiers gi WHERE gi.tenant_id=g.tenant_id AND gi.goat_id=g.goat_id AND gi.identifier_type='animal_identifier_1' AND gi.status='active' ORDER BY gi.is_primary_for_goat DESC,gi.identifier_value LIMIT 1),g.display_id,''),
        COALESCE(g.shed_id::text, ''), dr.observed_at, dr.business_date, dr.status,
        dr.proposal->'problems', dr.proposal->'emergencies', dr.proposal->'unexplained'
 FROM health_diagnosis_runs dr
