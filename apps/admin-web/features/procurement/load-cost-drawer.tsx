@@ -144,6 +144,9 @@ export function LoadCostDrawer({
                 {cell(copy(pageContract, "column.sold"), num(load.sold))}
                 {cell(copy(pageContract, "column.mortality"), num(load.mortality))}
                 {cell(copy(pageContract, "column.remaining"), num(load.remaining))}
+                {/* Culled / transferred / lost. The table has no column for it, so this is where
+                    a load that HAS other exits still shows them. */}
+                {load.other_exits > 0 ? cell(copy(pageContract, "column.other_exits"), num(load.other_exits)) : null}
                 {cell(
                   copy(pageContract, "column.sold_value"),
                   load.sold_value > 0 ? inr(Math.round(load.sold_value)) : none,

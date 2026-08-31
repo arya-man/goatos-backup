@@ -252,7 +252,6 @@ export function LoadwiseSection({
                         ),
                         "num",
                       )}
-                      {cell(num(load.other_exits), "num")}
                       {cell(num(load.remaining), "num")}
                       {cell(
                         load.unaccounted === 0 ? (

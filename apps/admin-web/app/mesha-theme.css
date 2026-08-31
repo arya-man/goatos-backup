@@ -2935,12 +2935,14 @@ select:disabled { opacity: .45; }
 @media(max-width:1080px){.mcv{display:none}.mclab{font-size:9px}.mcsub{font-size:9px}.mcarea{height:90px}}
 
 /* Grouped (multi-series) columns — the sales board's load-wise charts (grouped-columns.tsx). */
-.gleg{display:flex;gap:14px;flex-wrap:wrap;padding:8px 14px 0;font-size:11px;color:var(--muted)}
+.gleg{display:flex;gap:14px;flex-wrap:wrap;padding:10px 18px 0;font-size:11px;color:var(--muted)}
 .gleg .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;background:var(--brand)}
-.gcols{display:flex;align-items:stretch;gap:12px;padding:8px 14px 2px;overflow-x:auto}
-.gcol{flex:0 0 auto;width:86px;display:flex;flex-direction:column;align-items:center;min-width:0}
+.gcols{display:flex;align-items:stretch;gap:12px;padding:10px 18px 14px;overflow-x:auto}
+/* Columns SHARE the card's full width rather than sitting in a fixed-width block at the left:
+   grow to fill, and only start scrolling once each would fall under a readable 64px. */
+.gcol{flex:1 1 0;min-width:64px;display:flex;flex-direction:column;align-items:center}
 .gcarea{display:flex;align-items:flex-end;justify-content:center;gap:3px;height:138px;width:100%;border-bottom:1px solid var(--line);box-sizing:border-box;padding-top:6px}
-.gcbar{display:block;flex:0 0 auto;width:13px;border-radius:3px 3px 0 0;background:var(--brand)}
+.gcbar{display:block;flex:0 0 auto;width:16px;max-width:22%;border-radius:3px 3px 0 0;background:var(--brand)}
 .gcbar.none{background:transparent}
 .gcbar.info,.gleg .sw.info{background:var(--info)}
 .gcbar.ok,.gleg .sw.ok{background:var(--ok)}

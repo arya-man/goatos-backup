@@ -518,7 +518,7 @@ func pages() []domain.PageContract {
 				// counts on one side, money on the other. Served whole (newest 60 loads) by the
 				// procurement read; a row click opens the load-cost drawer, so the row key is the
 				// load id. Rendered under the Purchased tab of the load-wise section.
-				tableP("sales-loadwise", "Load-wise", "/procurement/loadwise-sales", []string{"load", "farm", "purchased", "sold", "mortality", "other_exits", "remaining", "unaccounted", "purchase_value", "sold_value", "remaining_value"}, "load_id", []int{60}),
+				tableP("sales-loadwise", "Load-wise", "/procurement/loadwise-sales", []string{"load", "farm", "purchased", "sold", "mortality", "remaining", "unaccounted", "purchase_value", "sold_value", "remaining_value"}, "load_id", []int{60}),
 			}),
 		// FEED PURCHASES: the buying side of the feed chain (maintainer decision 2026-08-24,
 		// retiring the read-only half of migration 000174). One server-paged ledger table whose
@@ -2879,6 +2879,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"column.purchased":               "Purchased",
 			"column.sold":                    "Sold",
 			"column.mortality":               "Mortality",
+			// Kept as copy even though the table no longer carries a column for it: culled /
+			// transferred / lost are real exits, and the load-cost drawer still names them so the
+			// fact is never silently dropped from a load that has one.
 			"column.other_exits":             "Other exits",
 			"column.remaining":               "Remaining",
 			"column.unaccounted":             "Unaccounted",
