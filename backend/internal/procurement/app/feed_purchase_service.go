@@ -107,3 +107,18 @@ func (s *FeedPurchaseService) SetFeedPurchasePaymentStatus(ctx context.Context, 
 	}
 	return s.repo.SetFeedPurchasePaymentStatus(ctx, tenantID, purchaseID, canonical, actorID)
 }
+
+// EditFeedPurchase validates and applies an edit to an already-recorded load's values.
+//
+// Same IST business-day rule as recording: a load cannot be re-dated into the future, because
+// stock the farm does not have yet must not deplete a feed sheet.
+func (s *FeedPurchaseService) EditFeedPurchase(ctx context.Context, tenantID, purchaseID string, edit domain.FeedPurchaseEdit, actorID string) (domain.FeedPurchase, error) {
+	if strings.TrimSpace(purchaseID) == "" {
+		return domain.FeedPurchase{}, ports.ErrFeedPurchaseNotFound
+	}
+	normalized := edit.Normalize()
+	if err := normalized.Validate(biztime.BusinessDayStart(s.now())); err != nil {
+		return domain.FeedPurchase{}, err
+	}
+	return s.repo.UpdateFeedPurchase(ctx, tenantID, purchaseID, normalized, actorID)
+}

@@ -462,3 +462,73 @@ func TestFeedPurchasePaymentPostgresPaths(t *testing.T) {
 		}
 	})
 }
+
+// TestFeedPurchaseEditPostgresPaths exercises the edit-purchase write against a real Postgres:
+// the derived landed total, per-kg rate and payment status must all move with the edit, inside
+// the same transaction as the row update.
+func TestFeedPurchaseEditPostgresPaths(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedFeedPurchaseFixture(t, ctx, pool)
+
+	repo := NewRepository(pool, 10*time.Second)
+
+	write := feedWrite()
+	write.PaymentStatus = domain.FeedPaymentPending
+	created, err := repo.CreateFeedPurchase(ctx, testTenant, write, "", "edit-load-1")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	t.Run("an edit re-derives total, per-kg and payment status", func(t *testing.T) {
+		// Pay the load off in full first, then RAISE the cost: the derived status must drop back
+		// to Pending because the released total no longer covers the new landed cost.
+		if _, err := repo.RecordFeedPurchasePayment(ctx, testTenant, created.FeedPurchaseID,
+			domain.FeedPurchasePaymentWrite{PaidOn: "2026-08-21", AmountRupees: 76980}, "", "edit-pay-1"); err != nil {
+			t.Fatalf("settle: %v", err)
+		}
+		after, err := repo.UpdateFeedPurchase(ctx, testTenant, created.FeedPurchaseID, domain.FeedPurchaseEdit{
+			PurchaseDate: "2026-08-19", QuantityKg: 12000,
+			FeedCost: f64(90000), TransportCost: f64(10000),
+			Vendor: "Siddi Srilekha",
+		}, "")
+		if err != nil {
+			t.Fatalf("edit: %v", err)
+		}
+		if after.PurchaseDate != "2026-08-19" || after.QuantityKg != 12000 {
+			t.Fatalf("date/quantity = %s/%v", after.PurchaseDate, after.QuantityKg)
+		}
+		if after.TotalCost == nil || *after.TotalCost != 100000 {
+			t.Fatalf("total = %v want the re-derived 100000", after.TotalCost)
+		}
+		if after.PerKgCost == nil || *after.PerKgCost < 8.33 || *after.PerKgCost > 8.34 {
+			t.Fatalf("per-kg = %v want ~8.33", after.PerKgCost)
+		}
+		if after.PaymentStatus != domain.FeedPaymentPending {
+			t.Fatalf("status = %q want Pending once the raised cost exceeds the released total", after.PaymentStatus)
+		}
+		if balance := after.PaymentBalance(); balance == nil || *balance != 23020 {
+			t.Fatalf("balance = %v want 23020", balance)
+		}
+	})
+
+	t.Run("an identity-free edit keeps farm, feed and batch untouched", func(t *testing.T) {
+		after, err := repo.getFeedPurchase(ctx, testTenant, created.FeedPurchaseID)
+		if err != nil {
+			t.Fatalf("read back: %v", err)
+		}
+		if after.FarmLabel != created.FarmLabel || after.FeedItemLabel != created.FeedItemLabel || after.BatchNo != created.BatchNo {
+			t.Fatalf("identity moved: %s/%s/%d", after.FarmLabel, after.FeedItemLabel, after.BatchNo)
+		}
+	})
+
+	t.Run("an edit of an unknown purchase is not found", func(t *testing.T) {
+		_, err := repo.UpdateFeedPurchase(ctx, testTenant, "00000000-0000-4000-8000-00000000dead",
+			domain.FeedPurchaseEdit{PurchaseDate: "2026-08-19", QuantityKg: 1, Vendor: "X"}, "")
+		if !errors.Is(err, ports.ErrFeedPurchaseNotFound) {
+			t.Fatalf("want ErrFeedPurchaseNotFound, got %v", err)
+		}
+	})
+}

@@ -578,4 +578,96 @@ WHERE tenant_id = $1 AND feed_purchase_id = $2`, tenantID, purchaseID, status); 
 	return r.getFeedPurchase(ctx, tenantID, purchaseID)
 }
 
+// UpdateFeedPurchase edits an already-recorded load's values.
+//
+// The row lock covers the whole edit so a concurrent instalment cannot interleave: the payment
+// status is re-derived from the NEW landed total against the released total the lock read.
+// Naturally idempotent -- writing the values the load already has changes nothing and audits
+// nothing -- so no reservation is needed.
+func (r *Repository) UpdateFeedPurchase(ctx context.Context, tenantID, purchaseID string, edit domain.FeedPurchaseEdit, actorID string) (domain.FeedPurchase, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: begin feed purchase edit: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	current, err := scanFeedPurchase(tx.QueryRow(ctx, fmt.Sprintf(
+		`SELECT %s FROM public.feed_purchases p WHERE p.tenant_id = $1 AND p.feed_purchase_id = $2 FOR UPDATE`,
+		feedPurchaseColumns), tenantID, purchaseID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.FeedPurchase{}, ports.ErrFeedPurchaseNotFound
+	}
+	if err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: lock feed purchase edit: %w", err)
+	}
+
+	released := 0.0
+	if current.PaymentReleased != nil {
+		released = *current.PaymentReleased
+	}
+	newTotal := edit.TotalOrSplitSum()
+	newStatus := domain.DeriveFeedPaymentStatus(newTotal, released, current.PaymentStatus)
+
+	unchanged := current.PurchaseDate == edit.PurchaseDate &&
+		current.QuantityKg == edit.QuantityKg &&
+		eqMoney(current.FeedCost, edit.FeedCost) && eqMoney(current.TransportCost, edit.TransportCost) &&
+		eqMoney(current.LoadingCost, edit.LoadingCost) && eqMoney(current.UnloadingCost, edit.UnloadingCost) &&
+		eqMoney(current.TotalCost, newTotal) &&
+		current.Vendor == edit.Vendor && current.PaymentStatus == newStatus
+	if !unchanged {
+		if _, err := tx.Exec(ctx, `
+UPDATE public.feed_purchases
+SET purchase_date = $3::date, quantity_kg = $4,
+    feed_cost = $5, transport_cost = $6, loading_cost = $7, unloading_cost = $8,
+    total_cost = $9, per_kg_cost = $10,
+    vendor = $11, payment_status = $12
+WHERE tenant_id = $1 AND feed_purchase_id = $2`,
+			tenantID, purchaseID, edit.PurchaseDate, edit.QuantityKg,
+			edit.FeedCost, edit.TransportCost, edit.LoadingCost, edit.UnloadingCost,
+			newTotal, edit.PerKgCost(), edit.Vendor, newStatus); err != nil {
+			return domain.FeedPurchase{}, fmt.Errorf("procurement: update feed purchase: %w", err)
+		}
+		if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+			TenantID:     tenantID,
+			ActorID:      actorID,
+			ActorType:    "human",
+			Action:       "procurement.feed_purchase.edit",
+			ResourceType: "feed_purchase",
+			ResourceID:   purchaseID,
+			Metadata: map[string]any{
+				"domain":            "procurement",
+				"module":            "feed_purchases",
+				"category":          "purchase",
+				"previous_date":     current.PurchaseDate,
+				"previous_quantity": current.QuantityKg,
+				"previous_total":    current.TotalCost,
+				"previous_vendor":   current.Vendor,
+				"purchase_date":     edit.PurchaseDate,
+				"quantity_kg":       edit.QuantityKg,
+				"total_cost":        newTotal,
+				"vendor":            edit.Vendor,
+				"payment_status":    newStatus,
+			},
+		}); err != nil {
+			return domain.FeedPurchase{}, fmt.Errorf("procurement: audit feed purchase edit: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.FeedPurchase{}, fmt.Errorf("procurement: commit feed purchase edit: %w", err)
+	}
+	return r.getFeedPurchase(ctx, tenantID, purchaseID)
+}
+
+// eqMoney compares two optional money values as stored (paisa precision).
+func eqMoney(a, b *float64) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	diff := *a - *b
+	return diff < 0.005 && diff > -0.005
+}
+
 var _ ports.FeedPurchaseRepository = (*Repository)(nil)

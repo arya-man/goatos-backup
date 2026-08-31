@@ -57,6 +57,10 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		"chart.monthly_animals.sub", "chart.monthly_manure.sub",
 		"evidence.audit.within_0_3", "evidence.audit.within_1", "evidence.audit.over_1",
 		"action.record_sale.label", "field.sale_date", "field.farm", "field.product_type",
+		"section.payments.title", "payments.received_so_far", "payments.balance", "payments.empty",
+		"payments.column.received_on", "payments.column.amount", "payments.column.note",
+		"field.received_on", "field.amount_rupees", "field.note", "hint.record_payment",
+		"action.record_deal_payment.label", "action.payment_recorded", "action.payment_record_failed",
 		"field.breed", "field.buyer_name", "field.total_weight_kg", "field.sales_value",
 		// The vendor select's copy: a REQUIRED field whose dead-end needs an exit, so the
 		// placeholder, the "add them on Vendors" hint, the register-empty replacement and the
@@ -166,7 +170,8 @@ func TestSalesRecordSaleControlIsCapabilityGated(t *testing.T) {
 					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 				},
 			})
-			control := controlByID(t, pageByRouteID(t, resp.Pages, "sales").Controls, "record_sale")
+			pageControls := pageByRouteID(t, resp.Pages, "sales").Controls
+			control := controlByID(t, pageControls, "record_sale")
 			if control.Enabled != tc.enabled {
 				t.Fatalf("%s record_sale.enabled = %v want %v (%#v)", tc.name, control.Enabled, tc.enabled, control)
 			}
@@ -175,6 +180,17 @@ func TestSalesRecordSaleControlIsCapabilityGated(t *testing.T) {
 			}
 			if control.Action != "POST /sales/deals" {
 				t.Fatalf("record_sale.action = %q want the record-sale write", control.Action)
+			}
+			// The buyer-receipt write rides the SAME permission split: money on the same ledger.
+			payment := controlByID(t, pageControls, "record_sales_deal_payment")
+			if payment.Enabled != tc.enabled {
+				t.Fatalf("%s record_sales_deal_payment.enabled = %v want %v (%#v)", tc.name, payment.Enabled, tc.enabled, payment)
+			}
+			if !tc.enabled && payment.DisabledReason == "" {
+				t.Fatalf("%s: disabled record_sales_deal_payment must carry a backend disabled reason", tc.name)
+			}
+			if payment.Action != "POST /sales/deals/{deal_id}/payments" {
+				t.Fatalf("record_sales_deal_payment.action = %q want the receipt write", payment.Action)
 			}
 		})
 	}

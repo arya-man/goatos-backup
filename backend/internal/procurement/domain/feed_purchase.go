@@ -205,6 +205,79 @@ func NormalizeFeedPaymentStatus(raw string) (string, bool) {
 	return "", false
 }
 
+// FeedPurchaseEdit is the edit-purchase form: the values of an already-recorded load.
+//
+// The load's IDENTITY -- farm, feed, batch number -- is deliberately not editable: those three are
+// the natural key the stock cards and the batch counter group by, and "this load is actually a
+// different load" is a delete-and-re-record decision, not a field edit. Payment fields are absent
+// too: money moves through the instalment ledger and the status edit, never through here.
+type FeedPurchaseEdit struct {
+	PurchaseDate string
+	QuantityKg   float64
+
+	FeedCost      *float64
+	TransportCost *float64
+	LoadingCost   *float64
+	UnloadingCost *float64
+	TotalCost     *float64
+
+	Vendor string
+}
+
+// Normalize trims the edit before validation, for the same reason FeedPurchaseWrite does.
+func (e FeedPurchaseEdit) Normalize() FeedPurchaseEdit {
+	out := e
+	out.PurchaseDate = strings.TrimSpace(e.PurchaseDate)
+	out.Vendor = strings.Join(strings.Fields(e.Vendor), " ")
+	return out
+}
+
+// asWrite reuses FeedPurchaseWrite's cost rollup and field rules for the fields an edit carries.
+func (e FeedPurchaseEdit) asWrite() FeedPurchaseWrite {
+	return FeedPurchaseWrite{
+		PurchaseDate: e.PurchaseDate, QuantityKg: e.QuantityKg,
+		FeedCost: e.FeedCost, TransportCost: e.TransportCost,
+		LoadingCost: e.LoadingCost, UnloadingCost: e.UnloadingCost, TotalCost: e.TotalCost,
+		Vendor: e.Vendor,
+	}
+}
+
+// TotalOrSplitSum resolves the landed cost the edit stores, exactly as the record form does.
+func (e FeedPurchaseEdit) TotalOrSplitSum() *float64 { return e.asWrite().TotalOrSplitSum() }
+
+// PerKgCost derives the landed rate from the resolved total, exactly as the record form does.
+func (e FeedPurchaseEdit) PerKgCost() *float64 { return e.asWrite().PerKgCost() }
+
+// Validate applies the record form's rules to the editable fields. today is the caller's IST
+// business date, same as the record form.
+func (e FeedPurchaseEdit) Validate(today time.Time) error {
+	purchased, err := time.Parse("2006-01-02", e.PurchaseDate)
+	if err != nil {
+		return ErrFeedPurchaseValidation{Field: "purchase_date", Reason: "must be a date"}
+	}
+	if purchased.After(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)) {
+		return ErrFeedPurchaseValidation{Field: "purchase_date", Reason: "cannot be in the future"}
+	}
+	if e.QuantityKg <= 0 {
+		return ErrFeedPurchaseValidation{Field: "quantity_kg", Reason: "must be more than zero"}
+	}
+	for field, value := range map[string]*float64{
+		"feed_cost":      e.FeedCost,
+		"transport_cost": e.TransportCost,
+		"loading_cost":   e.LoadingCost,
+		"unloading_cost": e.UnloadingCost,
+		"total_cost":     e.TotalCost,
+	} {
+		if value != nil && *value < 0 {
+			return ErrFeedPurchaseValidation{Field: field, Reason: "cannot be negative"}
+		}
+	}
+	if e.Vendor == "" {
+		return ErrFeedPurchaseValidation{Field: "vendor", Reason: "is required"}
+	}
+	return nil
+}
+
 // DeriveFeedPaymentStatus resolves the status an instalment leaves the load in: Paid once the
 // released total covers the landed cost, Pending otherwise. When the landed cost is not known the
 // current status is kept -- money against an unknown total proves nothing either way.

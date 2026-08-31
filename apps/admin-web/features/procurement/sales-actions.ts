@@ -12,6 +12,7 @@ import {
   createSalesBenchmark,
   createSalesBuyerLead,
   createSalesDeal,
+  recordSalesDealPayment,
   createSalesFpoLead,
   createSalesSoldTags,
   createSalesWeightCheck,
@@ -216,4 +217,29 @@ export async function recordWeightCheckAction(formData: FormData): Promise<void>
   }
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.weight_check_recorded");
+}
+
+/**
+ * Records one amount received from the buyer against a deal. The backend advances the running
+ * received total in the same transaction; deal status stays a human decision.
+ */
+export async function recordSalesDealPaymentAction(formData: FormData): Promise<void> {
+  const dealId = requiredString(formData, "deal_id");
+  const note = (formData.get("note")?.toString() ?? "").trim();
+  const result = await recordSalesDealPayment(
+    dealId,
+    {
+      received_on: requiredString(formData, "received_on"),
+      amount_rupees: Number(requiredString(formData, "amount_rupees")),
+      ...(note ? { note } : {}),
+    },
+    // A fresh key per submit, like every sales write: retries of THIS invocation cannot count the
+    // same money twice, while a deliberate second submit records a second receipt.
+    randomUUID(),
+  );
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.payment_record_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.payment_recorded");
 }

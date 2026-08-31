@@ -70,6 +70,8 @@ func TestFeedPurchasePageContractAndNavigation(t *testing.T) {
 		"action.record_feed_payment.label", "action.update_payment_status.label",
 		"action.payment_recorded", "action.payment_record_failed",
 		"action.payment_status_updated", "action.payment_status_update_failed",
+		"action.edit_feed_purchase.label", "drawer.edit.title", "hint.edit_identity",
+		"action.purchase_updated", "action.purchase_update_failed",
 		"action.save", "action.cancel", "action.close",
 		"action.purchase_recorded", "action.purchase_record_failed", "action.error_form",
 		"filter.farm", "pager.page", "pager.of", "action.next_page", "action.prev_page",
@@ -176,6 +178,7 @@ func TestRecordFeedPurchaseControlIsCapabilityGated(t *testing.T) {
 			// test -- enabling either from any broader feed permission turns this red.
 			for controlID, action := range map[string]string{
 				"record_feed_purchase_payment":        "POST /procurement/feed-purchases/{purchase_id}/payments",
+				"edit_feed_purchase":                  "PUT /procurement/feed-purchases/{purchase_id}",
 				"update_feed_purchase_payment_status": "PUT /procurement/feed-purchases/{purchase_id}/payment-status",
 			} {
 				payment := controlByID(t, pageControls, controlID)

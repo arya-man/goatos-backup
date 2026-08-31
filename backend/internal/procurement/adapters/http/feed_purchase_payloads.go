@@ -53,6 +53,30 @@ func (p feedPurchasePaymentWritePayload) toDomain() domain.FeedPurchasePaymentWr
 	return domain.FeedPurchasePaymentWrite{PaidOn: p.PaidOn, AmountRupees: p.AmountRupees, Note: p.Note}
 }
 
+// feedPurchaseEditPayload is the edit-purchase body: the values of an already-recorded load.
+// Identity (farm, feed, batch) and payment fields are deliberately absent -- see the domain type.
+type feedPurchaseEditPayload struct {
+	PurchaseDate string  `json:"purchase_date"`
+	QuantityKg   float64 `json:"quantity_kg"`
+
+	FeedCost      *float64 `json:"feed_cost"`
+	TransportCost *float64 `json:"transport_cost"`
+	LoadingCost   *float64 `json:"loading_cost"`
+	UnloadingCost *float64 `json:"unloading_cost"`
+	TotalCost     *float64 `json:"total_cost"`
+
+	Vendor string `json:"vendor"`
+}
+
+func (p feedPurchaseEditPayload) toDomain() domain.FeedPurchaseEdit {
+	return domain.FeedPurchaseEdit{
+		PurchaseDate: p.PurchaseDate, QuantityKg: p.QuantityKg,
+		FeedCost: p.FeedCost, TransportCost: p.TransportCost,
+		LoadingCost: p.LoadingCost, UnloadingCost: p.UnloadingCost, TotalCost: p.TotalCost,
+		Vendor: p.Vendor,
+	}
+}
+
 // feedPurchaseStatusWritePayload is the payment-status edit body.
 type feedPurchaseStatusWritePayload struct {
 	PaymentStatus string `json:"payment_status"`
