@@ -5795,6 +5795,8 @@ export interface components {
             price_basis: "load" | "overall" | "none";
             /** @description remaining x avg_sold_price. Absent when there is no price basis. */
             remaining_value?: number | null;
+            /** @description sold_value + remaining_value - purchase_value: what the load is worth against what it cost. ABSENT when no cost is recorded, because "profit" would otherwise be the whole sale value. Part of it is UNREALISED whenever `remaining` > 0 — `price_basis` names the average that valued that stock. */
+            profit_loss?: number | null;
             /** @description Animals of this load ALREADY SOLD before its remaining animals were tracked here — seeded history, already folded into `sold` / `purchased` / `sold_value`; shown with the dates it spans. */
             prior_sold?: components["schemas"]["LoadwisePriorOutcome"] | null;
             /** @description Animals already dead before tracking started; folded into `mortality` / `purchased`. */
@@ -5825,6 +5827,8 @@ export interface components {
             sold_value: number;
             /** @description Sum of the per-load estimates that have a price basis. */
             remaining_value: number;
+            /** @description Sums only the loads that HAVE a profit figure (a recorded cost) — the same key set as costed_loads, so priced and unpriced loads are never mixed into one total. */
+            profit_loss: number;
         };
         LoadwiseSales: {
             loads: components["schemas"]["LoadwiseLoad"][];

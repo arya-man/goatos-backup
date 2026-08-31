@@ -142,6 +142,51 @@ func TestFinalizeLoadwiseUsesTheDeclaredCountAsTheDenominator(t *testing.T) {
 	}
 }
 
+func TestFinalizeLoadwiseProfitCountsStockAndRefusesToGuessACost(t *testing.T) {
+	overall := lw(10000)
+	out := FinalizeLoadwise([]LoadwiseLoad{
+		{
+			// Sold out and costed: profit is purely realised.
+			LoadID: "soldout", DeclaredCount: 10, Purchased: 10,
+			AnimalCost: lw(80000), SoldValue: 120000, SoldPriced: 10,
+		},
+		{
+			// Nothing sold yet: the profit is the STOCK on farm against the cost. Without the
+			// stock this healthy load would report a total loss of its purchase price.
+			LoadID: "onfarm", DeclaredCount: 10, Purchased: 10, Remaining: 10,
+			AnimalCost: lw(80000),
+		},
+		{
+			// A real loss: cost exceeds sales plus stock. Reported signed, never clamped.
+			LoadID: "loss", DeclaredCount: 10, Purchased: 10,
+			AnimalCost: lw(200000), SoldValue: 120000, SoldPriced: 10,
+		},
+		{
+			// NO recorded cost: no profit can be stated. Treating the missing cost as zero would
+			// report the entire sale as profit.
+			LoadID: "uncosted", DeclaredCount: 10, Purchased: 10, SoldValue: 120000, SoldPriced: 10,
+		},
+	}, 4, overall)
+
+	if p := out.Loads[0].ProfitLoss; p == nil || *p != 40000 {
+		t.Fatalf("sold-out profit = %v, want 120000 - 80000", p)
+	}
+	if p := out.Loads[1].ProfitLoss; p == nil || *p != 20000 {
+		t.Fatalf("on-farm profit = %v, want 10 x 10000 stock - 80000 cost", p)
+	}
+	if p := out.Loads[2].ProfitLoss; p == nil || *p != -80000 {
+		t.Fatalf("loss = %v, want a NEGATIVE -80000, never clamped to zero", p)
+	}
+	if p := out.Loads[3].ProfitLoss; p != nil {
+		t.Fatalf("uncosted profit = %v, want ABSENT: an unrecorded cost is not a free load", p)
+	}
+	// The summary ranges over the SAME key set as CostedLoads — the uncosted load contributes to
+	// neither, so a priced and an unpriced load are never mixed into one total.
+	if out.Summary.CostedLoads != 3 || out.Summary.ProfitLoss != 40000+20000-80000 {
+		t.Fatalf("summary profit = %v over %d costed loads", out.Summary.ProfitLoss, out.Summary.CostedLoads)
+	}
+}
+
 func TestLoadCostEditValidate(t *testing.T) {
 	cases := []struct {
 		name    string

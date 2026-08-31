@@ -74,6 +74,13 @@ type LoadwiseLoad struct {
 	AvgSoldPrice   *float64
 	PriceBasis     string
 	RemainingValue *float64
+	// ProfitLoss is what the load is worth against what it cost: sold value PLUS the animals
+	// still on farm at the estimated sold price, MINUS the recorded landed cost (maintainer
+	// decision 2026-08-31). Nil when the cost is not recorded — a load whose cost nobody entered
+	// has no profit to state, and treating the missing cost as zero would report the whole sale
+	// as profit. Part of it is UNREALISED whenever Remaining > 0, which is why the row also
+	// carries the price basis that valued the stock.
+	ProfitLoss *float64
 
 	// PriorSold / PriorDead are the load's PRE-GOATOS outcomes (procurement_load_prior_outcomes):
 	// animals already sold or already dead before the load's remaining animals were tracked here,
@@ -112,6 +119,9 @@ type LoadwiseSummary struct {
 	SoldValue     float64
 	// RemainingValue sums the per-load estimates that have a price basis.
 	RemainingValue float64
+	// ProfitLoss sums only the loads that HAVE a profit figure (i.e. a recorded cost), over the
+	// same key set as CostedLoads, so the total never mixes priced and unpriced loads.
+	ProfitLoss float64
 }
 
 // LoadwiseSales is the whole load-wise read: the served rows (newest purchase first), whole-filter
@@ -151,6 +161,7 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64)
 		row.PurchaseValue = loadPurchaseValue(row.AnimalCost, row.TransportCost, row.OtherCost)
 		row.AvgSoldPrice, row.PriceBasis = loadAvgSoldPrice(row.SoldValue, row.SoldPriced, overallAvg)
 		row.RemainingValue = remainingValue(row.Remaining, row.AvgSoldPrice)
+		row.ProfitLoss = profitLoss(row.PurchaseValue, row.SoldValue, row.RemainingValue)
 
 		out.Summary.Purchased += row.Purchased
 		out.Summary.Sold += row.Sold
@@ -165,6 +176,9 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64)
 		}
 		if row.RemainingValue != nil {
 			out.Summary.RemainingValue += *row.RemainingValue
+		}
+		if row.ProfitLoss != nil {
+			out.Summary.ProfitLoss += *row.ProfitLoss
 		}
 	}
 	return out
@@ -201,6 +215,24 @@ func loadAvgSoldPrice(soldValue float64, soldPriced int, overallAvg *float64) (*
 		return &avg, LoadwisePriceBasisOverall
 	}
 	return nil, LoadwisePriceBasisNone
+}
+
+// profitLoss states what the load is worth against what it cost: realised sales PLUS the stock
+// still on farm at its estimated price, MINUS the landed cost.
+//
+// Absent when the cost is NOT RECORDED. That is the whole reason this returns a pointer: with no
+// cost, "profit" would be the entire sale value, which reads as a spectacular margin on a load
+// nobody has priced. Remaining stock counts as zero when it cannot be valued (no price basis),
+// which understates rather than invents.
+func profitLoss(purchaseValue *float64, soldValue float64, remainingValue *float64) *float64 {
+	if purchaseValue == nil {
+		return nil
+	}
+	total := soldValue - *purchaseValue
+	if remainingValue != nil {
+		total += *remainingValue
+	}
+	return &total
 }
 
 // remainingValue prices the animals still on farm at the resolved average. No remaining animals

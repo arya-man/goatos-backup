@@ -518,7 +518,7 @@ func pages() []domain.PageContract {
 				// counts on one side, money on the other. Served whole (newest 60 loads) by the
 				// procurement read; a row click opens the load-cost drawer, so the row key is the
 				// load id. Rendered under the Purchased tab of the load-wise section.
-				tableP("sales-loadwise", "Load-wise", "/procurement/loadwise-sales", []string{"load", "farm", "purchased", "sold", "mortality", "remaining", "unaccounted", "purchase_value", "sold_value", "remaining_value"}, "load_id", []int{60}),
+				tableP("sales-loadwise", "Load-wise", "/procurement/loadwise-sales", []string{"load", "farm", "purchased", "sold", "mortality", "remaining", "unaccounted", "purchase_value", "sold_value", "profit_loss"}, "load_id", []int{60}),
 			}),
 		// FEED PURCHASES: the buying side of the feed chain (maintainer decision 2026-08-24,
 		// retiring the read-only half of migration 000174). One server-paged ledger table whose
@@ -2862,8 +2862,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"loadwise.kpi.purchase_value.hint": "recorded costs only",
 			"loadwise.kpi.sold_value":        "Sold value",
 			"loadwise.kpi.sold_value.hint":   "from sales with tagged animals",
-			"loadwise.kpi.remaining_value":   "Remaining stock value (est.)",
-			"loadwise.kpi.remaining_value.hint": "remaining animals at the average sold price",
+			"loadwise.kpi.profit":            "Profit / loss",
+			"loadwise.kpi.profit.hint":       "sales plus stock on farm, against what the loads cost",
 			"chart.loadwise_counts.title":    "Animals per load",
 			"chart.loadwise_counts.empty":    "No loads to chart yet.",
 			"chart.loadwise_value.title":     "Money per load",
@@ -2874,7 +2874,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.series.remaining":         "Remaining",
 			"chart.series.purchase_value":    "Purchase value",
 			"chart.series.sold_value":        "Sold value",
-			"chart.series.remaining_value":   "Remaining value (est.)",
+			"chart.series.profit_loss":       "Profit / loss",
 			"column.load":                    "Load",
 			"column.purchased":               "Purchased",
 			"column.sold":                    "Sold",
@@ -2887,7 +2887,18 @@ func pageSpecificCopy(id string) map[string]string {
 			"column.unaccounted":             "Unaccounted",
 			"column.purchase_value":          "Purchase value",
 			"column.sold_value":              "Sold value",
-			"column.remaining_value":         "Remaining value (est.)",
+			"column.profit_loss":             "Profit / loss",
+			// Still published: the drawer names the stock figure the profit is partly made of, and
+			// the table's profit cell explains an unrealised figure with it.
+			"column.remaining_value":         "Remaining stock value (est.)",
+			"value.profit_unrealised":        "includes stock still on farm, not yet sold",
+			// The profit of a load that has sold nothing IS its stock valuation, so the number that
+			// produced it is shown beside it rather than hidden in a tooltip.
+			"value.profit_incl_stock":        "incl. stock",
+			"loadwise.stock_price_note":      "Animals not yet sold are valued at",
+			"loadwise.stock_price_each":      "each",
+			"loadwise.stock_price_unknown":   "Animals not yet sold cannot be valued: nothing has sold yet to price them against.",
+			"value.profit_unavailable":       "No cost recorded, so profit cannot be worked out.",
 			"value.cost_missing":             "Cost not recorded",
 			"value.price_basis.load":         "at this load's own average sold price",
 			"value.price_basis.overall":      "at the overall average sold price",
@@ -7942,6 +7953,10 @@ func capacityOptionGroup() domain.OptionGroup {
 
 func humanLabel(key string) string {
 	switch key {
+	// Two words that are alternatives, not a compound: the default humanisation renders
+	// "Profit loss", which reads as one thing rather than either-or.
+	case "profit_loss":
+		return "Profit / loss"
 	case "goat_id":
 		return "Goat ID"
 	case "display_id":

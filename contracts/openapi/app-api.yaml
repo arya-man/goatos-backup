@@ -14006,6 +14006,7 @@ components:
       required:
         [load_id, vendor_name, status, declared_count, purchased, sold, mortality, other_exits,
          remaining, unaccounted, sold_value, sold_priced, price_basis, row_version]
+      # profit_loss is nullable-by-absence (no recorded cost), so it is deliberately not required.
       properties:
         load_id: { type: string, format: uuid }
         load_ref:
@@ -14057,6 +14058,14 @@ components:
           type: number
           nullable: true
           description: remaining x avg_sold_price. Absent when there is no price basis.
+        profit_loss:
+          type: number
+          nullable: true
+          description: >-
+            sold_value + remaining_value - purchase_value: what the load is worth against what it
+            cost. ABSENT when no cost is recorded, because "profit" would otherwise be the whole
+            sale value. Part of it is UNREALISED whenever `remaining` > 0 — `price_basis` names
+            the average that valued that stock.
         prior_sold:
           nullable: true
           allOf: [{ $ref: "#/components/schemas/LoadwisePriorOutcome" }]
@@ -14083,7 +14092,7 @@ components:
       description: Aggregates over exactly the served rows -- no client re-derives its own totals.
       required:
         [purchased, sold, mortality, other_exits, remaining, unaccounted, purchase_value,
-         costed_loads, sold_value, remaining_value]
+         costed_loads, sold_value, remaining_value, profit_loss]
       properties:
         purchased: { type: integer }
         sold: { type: integer }
@@ -14097,6 +14106,11 @@ components:
         costed_loads: { type: integer }
         sold_value: { type: number }
         remaining_value: { type: number, description: Sum of the per-load estimates that have a price basis. }
+        profit_loss:
+          type: number
+          description: >-
+            Sums only the loads that HAVE a profit figure (a recorded cost) — the same key set as
+            costed_loads, so priced and unpriced loads are never mixed into one total.
     LoadwiseSales:
       type: object
       required: [loads, total_loads, summary]

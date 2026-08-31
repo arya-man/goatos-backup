@@ -72,6 +72,7 @@ type loadwiseLoadPayload struct {
 	AvgSoldPrice   *float64 `json:"avg_sold_price,omitempty"`
 	PriceBasis     string   `json:"price_basis"`
 	RemainingValue *float64 `json:"remaining_value,omitempty"`
+	ProfitLoss     *float64 `json:"profit_loss,omitempty"`
 
 	// The pre-GoatOS history already folded into the counts above, exposed so the screen can say
 	// "already sold / already died before tracking started" with the dates it spans.
@@ -107,6 +108,7 @@ type loadwiseSummaryPayload struct {
 	CostedLoads    int     `json:"costed_loads"`
 	SoldValue      float64 `json:"sold_value"`
 	RemainingValue float64 `json:"remaining_value"`
+	ProfitLoss     float64 `json:"profit_loss"`
 }
 
 type loadwisePayload struct {
@@ -151,6 +153,7 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			AvgSoldPrice:   l.AvgSoldPrice,
 			PriceBasis:     l.PriceBasis,
 			RemainingValue: l.RemainingValue,
+			ProfitLoss:     l.ProfitLoss,
 
 			PriorSold: toPriorPayload(l.PriorSold),
 			PriorDead: toPriorPayload(l.PriorDead),
@@ -176,6 +179,7 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			CostedLoads:    out.Summary.CostedLoads,
 			SoldValue:      out.Summary.SoldValue,
 			RemainingValue: out.Summary.RemainingValue,
+			ProfitLoss:     out.Summary.ProfitLoss,
 		},
 	})
 }

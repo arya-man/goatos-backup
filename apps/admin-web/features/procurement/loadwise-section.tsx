@@ -9,7 +9,7 @@ import { Tag } from "@/components/ui-primitives";
 import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LoadwiseLoad, LoadwiseSales } from "@/lib/api/procurement";
 import type { ApiResult } from "@/lib/api/server";
-import { humanDate, inr, inrCompact, num } from "./sales-format";
+import { humanDate, inr, inrCompact, num, signedInr, signedInrCompact } from "./sales-format";
 import type { LoadwisePriorOutcome } from "@/lib/api/procurement";
 
 /**
@@ -83,7 +83,7 @@ export function LoadwiseSection({
   const valueSeries: GroupedSeries[] = [
     { key: "purchase_value", label: copy(pageContract, "chart.series.purchase_value"), tone: "info" },
     { key: "sold_value", label: copy(pageContract, "chart.series.sold_value"), tone: "ok" },
-    { key: "remaining_value", label: copy(pageContract, "chart.series.remaining_value"), tone: "teal" },
+    { key: "profit_loss", label: copy(pageContract, "chart.series.profit_loss"), tone: "teal" },
   ];
 
   const data = loadwise?.ok ? loadwise.data : null;
@@ -118,6 +118,17 @@ export function LoadwiseSection({
       <div className="muted small" style={{ marginTop: 2 }}>
         {copy(pageContract, "section.loadwise.subtitle")}
       </div>
+      {/* The price every unsold animal is valued at, stated once and plainly: most of the profit
+          figures below are stock, so the rate behind them cannot be buried in a tooltip. */}
+      {view === "purchased" && data ? (
+        <div className="muted small" style={{ marginTop: 2 }}>
+          {data.overall_avg_sold_price
+            ? `${copy(pageContract, "loadwise.stock_price_note")} ${inr(
+                Math.round(data.overall_avg_sold_price),
+              )} ${copy(pageContract, "loadwise.stock_price_each")}`
+            : copy(pageContract, "loadwise.stock_price_unknown")}
+        </div>
+      ) : null}
 
       {view === "from_barn" ? (
         <div className="empty" style={{ marginTop: 12 }}>
@@ -159,9 +170,20 @@ export function LoadwiseSection({
                 <div className="dl">{copy(pageContract, "loadwise.kpi.sold_value.hint")}</div>
               </div>
               <div className="kpi">
-                <div className="lab">{copy(pageContract, "loadwise.kpi.remaining_value")}</div>
-                <div className="val">{summary.remaining_value > 0 ? inrCompact(summary.remaining_value) : none}</div>
-                <div className="dl">{copy(pageContract, "loadwise.kpi.remaining_value.hint")}</div>
+                <div className="lab">{copy(pageContract, "loadwise.kpi.profit")}</div>
+                {/* Signed and toned: a loss must not read like a profit at a glance. */}
+                <div className="val" style={{ color: summary.profit_loss < 0 ? "var(--danger)" : "var(--ok)" }}>
+                  {summary.costed_loads > 0 ? signedInrCompact(summary.profit_loss) : none}
+                </div>
+                <div className="dl">
+                  {copy(pageContract, "loadwise.kpi.profit.hint")}
+                  {summary.remaining_value > 0 ? (
+                    <>
+                      {" · "}
+                      {copy(pageContract, "value.profit_incl_stock")} {inrCompact(summary.remaining_value)}
+                    </>
+                  ) : null}
+                </div>
               </div>
             </div>
           ) : null}
@@ -195,11 +217,20 @@ export function LoadwiseSection({
               key: load.load_id,
               axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
               label: loadLabel(load, loadWord, none),
-              values: [load.purchase_value ?? null, load.sold_value > 0 ? load.sold_value : null, load.remaining_value ?? null],
+              values: [
+                load.purchase_value ?? null,
+                load.sold_value > 0 ? load.sold_value : null,
+                // A LOSS has no bar height — a negative cannot be drawn upward, and drawing its
+                // magnitude would show a loss as a tall green column. The signed figure is in the
+                // tooltip, and the table's coloured cell is where a loss is read.
+                load.profit_loss != null && load.profit_loss > 0 ? load.profit_loss : null,
+              ],
               displays: [
                 load.purchase_value == null ? copy(pageContract, "value.cost_missing") : inrCompact(load.purchase_value),
                 inrCompact(load.sold_value),
-                load.remaining_value == null ? none : inrCompact(load.remaining_value),
+                load.profit_loss == null
+                  ? copy(pageContract, "value.cost_missing")
+                  : signedInrCompact(load.profit_loss),
               ],
               subLabel: `${num(load.sold)} / ${num(load.purchased)} ${copy(pageContract, "loadwise.kpi.sold").toLowerCase()}`,
             }))}
@@ -275,11 +306,31 @@ export function LoadwiseSection({
                         "num",
                       )}
                       {cell(
-                        load.remaining_value == null ? (
-                          <span className="muted">{none}</span>
+                        load.profit_loss == null ? (
+                          <span className="muted" title={copy(pageContract, "value.profit_unavailable")}>
+                            {copy(pageContract, "value.cost_missing")}
+                          </span>
                         ) : (
-                          <span title={copy(pageContract, `value.price_basis.${load.price_basis}`)}>
-                            {inr(Math.round(load.remaining_value))}
+                          <span
+                            title={
+                              load.remaining > 0
+                                ? `${copy(pageContract, "value.profit_unrealised")} — ${copy(
+                                    pageContract,
+                                    `value.price_basis.${load.price_basis}`,
+                                  )}`
+                                : undefined
+                            }
+                          >
+                            <b style={{ color: load.profit_loss < 0 ? "var(--danger)" : "var(--ok)" }}>
+                              {signedInr(Math.round(load.profit_loss))}
+                            </b>
+                            {/* How much of that profit is stock nobody has sold yet. */}
+                            {load.remaining > 0 && load.remaining_value != null ? (
+                              <span className="muted" style={{ display: "block", fontSize: 11 }}>
+                                {copy(pageContract, "value.profit_incl_stock")}{" "}
+                                {inr(Math.round(load.remaining_value))}
+                              </span>
+                            ) : null}
                           </span>
                         ),
                         "num",

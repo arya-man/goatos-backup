@@ -74,6 +74,22 @@ export function inrCompact(value: number): string {
   return `₹${Math.round(value)}`;
 }
 
+/**
+ * Signed rupees: a profit carries a leading +, a loss a leading −. Money that can go either way
+ * must SAY which it is — "₹5,02,000" beside a red cell is still ambiguous when skimmed, and the
+ * minus sign is what survives a screenshot.
+ */
+export function signedInr(value: number, fractionDigits = 0): string {
+  const sign = value < 0 ? "−" : "+";
+  return `${sign}${inr(Math.abs(value), fractionDigits)}`;
+}
+
+/** Signed form of inrCompact, for chart tooltips and KPI tiles. */
+export function signedInrCompact(value: number): string {
+  const sign = value < 0 ? "−" : "+";
+  return `${sign}${inrCompact(Math.abs(value))}`;
+}
+
 /** Compact plain number for chart labels: 219305 -> "2.2L", 12410 -> "12.4k", 528 -> "528". */
 export function numCompact(value: number): string {
   const abs = Math.abs(value);
