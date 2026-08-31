@@ -1417,3 +1417,19 @@ func TestPublishMatrixAcceptsValidVaccineValues(t *testing.T) {
 		t.Fatalf("valid vaccine values must be published, but publishCalls=%d", repo.publishCalls)
 	}
 }
+
+func TestPublishMatrixRejectsZ1Z3WithETTTDoseCode(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	repo.version.RuleDsl = []byte(`{"category":"vaccination","ruleset_family":"vaccination.matrix","vaccine":{"code":"vaccination.matrix","name":"Preventive Care vaccination matrix","type":"matrix"},"eligibility":{"animal_stage":"all","species":["goat","sheep"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"]},"matrix_rows":[{"row_id":"z1-z3","vaccine":{"code":"Z1_Z3","name":"Z1+Z3","type":"killed","pathogen_class":"bacterial","compatibility_group":"Z1_Z3","course_type":"booster"},"eligibility":{"species":["goat","sheep"],"animal_stage":["all"],"sex":["female","male"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"]},"schedule":[{"dose_code":"et_tt_kid_4w","source_dose_code":"et_tt_kid_4w","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"none","catch_up":"immediate"}]}],"schedule":[{"dose_code":"et_tt_kid_4w","source_dose_code":"et_tt_kid_4w","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":1,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"preventive_care_review","repeat":"none","catch_up":"immediate"}]}`)
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("Z1+Z3 with ET+TT dose code should be not publishable, got %v", err)
+	}
+	if repo.publishCalls > 0 {
+		t.Fatalf("bad Z1+Z3 dose family must not be published, but publishCalls=%d", repo.publishCalls)
+	}
+}

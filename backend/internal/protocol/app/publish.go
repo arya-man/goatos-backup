@@ -1809,6 +1809,9 @@ func compileVaccinationRuleDimensions(v domain.Version, env ruleDSLEnvelope, rul
 	if sourceDose == "" {
 		sourceDose = strings.TrimSpace(rule.DoseCode)
 	}
+	if err := validateMatrixVaccineDoseFamily(rule.DoseCode, sourceDose, vaccineCode, selectorString(vaccine, "name")); err != nil {
+		return nil, err
+	}
 
 	out := make([]domain.RuleDimension, 0, len(species)*len(stages)*len(sexes)*len(breeds))
 	for _, sp := range species {
@@ -1868,6 +1871,30 @@ func compileVaccinationRuleDimensions(v domain.Version, env ruleDSLEnvelope, rul
 		}
 	}
 	return out, nil
+}
+
+func validateMatrixVaccineDoseFamily(ruleDoseCode, sourceDoseCode, vaccineCode, vaccineName string) error {
+	vaccineKey := compactVaccineIdentity(vaccineCode + " " + vaccineName)
+	if !strings.Contains(vaccineKey, "z1z3") {
+		return nil
+	}
+	for _, doseCode := range []string{ruleDoseCode, sourceDoseCode} {
+		normalizedDoseCode := strings.ToLower(strings.TrimSpace(doseCode))
+		if strings.HasPrefix(normalizedDoseCode, "et_tt") {
+			return fmt.Errorf("%w: Z1+Z3 vaccine cannot use ET+TT dose code %q", ErrNotPublishable, doseCode)
+		}
+	}
+	return nil
+}
+
+func compactVaccineIdentity(value string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(value) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func scheduleRowRule(tenantID string, v domain.Version, env ruleDSLEnvelope, row scheduleRow, idx int, createdBy *string) (domain.NewRule, error) {
