@@ -273,12 +273,12 @@ ORDER BY register_rule_id`, tenantID, goatID)
 }
 
 func (r *DiagnosisRepository) replayObservation(ctx context.Context, tx pgx.Tx, in domain.SubmitObservationInput) (domain.SubmitObservationResult, bool, error) {
-	var runID, fingerprint, status string
+	var runID, fingerprint, status, scope string
 	var proposalJSON []byte
 	err := tx.QueryRow(ctx, `
-SELECT health_diagnosis_run_id::text, request_fingerprint, status, proposal
+SELECT health_diagnosis_run_id::text, request_fingerprint, status, proposal, scope
 FROM health_diagnosis_runs WHERE tenant_id=$1::uuid AND idempotency_key=$2`,
-		in.TenantID, in.IdempotencyKey).Scan(&runID, &fingerprint, &status, &proposalJSON)
+		in.TenantID, in.IdempotencyKey).Scan(&runID, &fingerprint, &status, &proposalJSON, &scope)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.SubmitObservationResult{}, false, nil
 	}
@@ -292,10 +292,27 @@ FROM health_diagnosis_runs WHERE tenant_id=$1::uuid AND idempotency_key=$2`,
 	if err := json.Unmarshal(proposalJSON, &proposal); err != nil {
 		return domain.SubmitObservationResult{}, false, fmt.Errorf("health: decode stored proposal: %w", err)
 	}
+	// A replay is the SAME response as the first submit, never a thinner one.
+	// Android persists whichever response it receives, so a replay without
+	// Confirmable would cache a still-proposed run with no decision choices for
+	// the Director until a later detail refresh repaired it. Mirrors
+	// GetDiagnosisRun: only a run still awaiting a decision offers one; the
+	// run's own scope is the age band the first response annotated with.
+	var confirmable []domain.ConfirmableProblem
+	if status == domain.DiagnosisStatusProposed {
+		confirmable = domain.ConfirmableFromProposal(proposal)
+		if len(confirmable) > 0 {
+			confirmable, err = r.annotateSOPAvailability(ctx, tx, in.TenantID, scope, confirmable)
+			if err != nil {
+				return domain.SubmitObservationResult{}, false, err
+			}
+		}
+	}
 	return domain.SubmitObservationResult{
 		DiagnosisRunID:   runID,
 		Status:           status,
 		Proposal:         proposal,
+		Confirmable:      confirmable,
 		IdempotentReplay: true,
 	}, true, nil
 }
@@ -340,7 +357,7 @@ FOR UPDATE OF r`, in.TenantID, in.DiagnosisRunID).Scan(&goatID, &status, &propos
 
 	if status != domain.DiagnosisStatusProposed {
 		// An exact replay reads back the decision; a different one is refused.
-		existing, replay, rerr := r.replayConfirmation(ctx, tx, in, status, confirmationKey, confirmationFingerprint)
+		existing, replay, rerr := r.replayConfirmation(ctx, tx, in, status, confirmationKey, confirmationFingerprint, proposalJSON)
 		if rerr != nil {
 			return domain.ConfirmDiagnosisResult{}, rerr
 		}
@@ -543,7 +560,7 @@ INSERT INTO health_session_steps (
 
 func (r *DiagnosisRepository) replayConfirmation(
 	ctx context.Context, tx pgx.Tx, in domain.ConfirmDiagnosisInput, status string,
-	confirmationKey, confirmationFingerprint *string,
+	confirmationKey, confirmationFingerprint *string, proposalJSON []byte,
 ) (domain.ConfirmDiagnosisResult, bool, error) {
 	if status != domain.DiagnosisStatusConfirmed {
 		return domain.ConfirmDiagnosisResult{}, false, nil
@@ -553,6 +570,19 @@ func (r *DiagnosisRepository) replayConfirmation(
 	}
 	if confirmationFingerprint == nil || *confirmationFingerprint != in.RequestFingerprint {
 		return domain.ConfirmDiagnosisResult{}, false, ports.ErrConflict
+	}
+	// A replay reads back the ORIGINAL decision, Declined included. The
+	// fingerprint just matched, so in.ConfirmedProblems is byte-identical to the
+	// confirmed request and the same plan derivation yields the same split; a
+	// replay that dropped Declined would show the Director an outcome with no
+	// record of what they turned down.
+	var proposal diagnosis.Proposal
+	if err := json.Unmarshal(proposalJSON, &proposal); err != nil {
+		return domain.ConfirmDiagnosisResult{}, false, fmt.Errorf("health: decode stored proposal: %w", err)
+	}
+	plan, err := domain.PlanConfirmation(proposal, domain.ConfirmableFromProposal(proposal), in.ConfirmedProblems)
+	if err != nil {
+		return domain.ConfirmDiagnosisResult{}, false, fmt.Errorf("health: replan replayed confirmation: %w", err)
 	}
 	// projection-review: membership=health_cases for this run; group_key=(tenant_id, health_case_id); join_cardinality=sessions counted in a CORRELATED SUBQUERY, never joined, so the 1:N session side cannot duplicate a case row; pagination=none, one run opens a handful of cases; scope=tenant_id and health_diagnosis_run_id
 	//
@@ -585,6 +615,7 @@ ORDER BY c.disease_key`, in.TenantID, in.DiagnosisRunID)
 		DiagnosisRunID:   in.DiagnosisRunID,
 		Status:           domain.DiagnosisStatusConfirmed,
 		OpenedCases:      opened,
+		Declined:         plan.Declined,
 		IdempotentReplay: true,
 	}, true, nil
 }

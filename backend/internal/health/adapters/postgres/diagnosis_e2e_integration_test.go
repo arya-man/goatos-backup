@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -311,6 +312,25 @@ func TestDecliningEverythingStillDecidesTheRun(t *testing.T) {
 SELECT count(*) FROM health_diagnosis_runs WHERE tenant_id=$1::uuid AND status='confirmed'`, healthTenant); got != 1 {
 		t.Error("the run is decided even when everything was declined")
 	}
+
+	// A retried decline must read back the SAME decision, Declined included:
+	// the phone renders the response it happens to receive, and a replay that
+	// dropped Declined would show the Director an outcome with no record of
+	// what they turned down.
+	replayed, err := svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: submitted.DiagnosisRunID,
+		ConfirmedProblems: nil,
+		IdempotencyKey:    "confirm-decline", RequestFingerprint: "fp",
+	})
+	if err != nil {
+		t.Fatalf("decline replay: %v", err)
+	}
+	if !replayed.IdempotentReplay {
+		t.Fatal("same decline key and body must replay")
+	}
+	if !containsStr(replayed.Declined, "FEVER") {
+		t.Errorf("the replay must carry the declined diagnosis, got %v", replayed.Declined)
+	}
 }
 
 // An exact replay returns the original result and runs no side effects. This is
@@ -339,6 +359,15 @@ func TestObservationReplayIsIdempotent(t *testing.T) {
 	}
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM health_diagnosis_runs WHERE tenant_id=$1::uuid`, healthTenant); got != 1 {
 		t.Errorf("a replay must write no second run, found %d", got)
+	}
+	// The replay is the SAME response, never a thinner one. Android persists the
+	// submit response verbatim, so a replay that dropped Confirmable would cache
+	// a still-proposed run with no decision choices for the Director.
+	if len(first.Confirmable) == 0 {
+		t.Fatal("fixture must propose at least one confirmable diagnosis")
+	}
+	if !reflect.DeepEqual(again.Confirmable, first.Confirmable) {
+		t.Errorf("replay Confirmable = %+v, want the first response's %+v", again.Confirmable, first.Confirmable)
 	}
 
 	// Same key, different body is a conflict rather than a silent overwrite.
@@ -383,6 +412,9 @@ func TestConfirmationReplayRequiresSameDecisionKeyAndBody(t *testing.T) {
 	}
 	if len(again.OpenedCases) != len(first.OpenedCases) {
 		t.Fatalf("replay opened cases = %+v, want %+v", again.OpenedCases, first.OpenedCases)
+	}
+	if !reflect.DeepEqual(again.Declined, first.Declined) {
+		t.Fatalf("replay Declined = %+v, want the first response's %+v", again.Declined, first.Declined)
 	}
 
 	_, err = svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
