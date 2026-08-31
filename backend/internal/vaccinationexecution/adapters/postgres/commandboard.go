@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sort"
 	"strings"
@@ -19,30 +20,49 @@ import (
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
-// commandBoardSummaryConcurrency bounds how many of the board's sections are in flight at once.
+// commandBoardConcurrencyBudget bounds the connections ONE READER's command board may hold across
+// ALL of its sections at once.
 //
-// The sections are independent reads, so the endpoint's wall clock is the SLOWEST section rather
-// than their sum once they overlap -- on the staging-scale tenant, the difference between ~850ms of
-// serialised summary SQL and roughly its longest statement.
+// It is a SHARED budget, held on the Repository, and that is the whole point. The per-endpoint
+// errgroup limit stopped bounding anything useful the moment the board was split: admin-web now
+// fires /vaccination/command, /command/cohort-matrix and /command/shed-dose-matrix in PARALLEL on
+// first paint, so three independent limits of 6 + 3 + 1 meant a single reader could hold TEN
+// connections against a GOATOS_PG_MAX_CONNS that defaults to TEN. Making the endpoint fast and then
+// letting it exhaust the pool would just be the original failure wearing a different hat --
+// a timeout at the pool instead of at the statement.
 //
-// SIX, and that is measured rather than assumed. It was FOUR while the cohort matrix still ran in
-// this fan-out and the drive picker cost 448ms; back then raising it to six moved p90 by less
-// than the run-to-run noise (446ms vs 455ms over twenty samples), because the makespan was set by
-// the two longest statements rather than by queue depth.
-//
-// That is no longer the profile. With the cohort matrix on its own route there are SEVEN sections,
-// two of which are sub-millisecond, so four slots split the five real statements across two waves
-// and the second wave's start was pure queueing. Six runs them in one wave: measured p50 346 -> 325
-// through the OCI tunnel over three runs of twenty samples each.
-//
-// The bound still exists so one CEO board render cannot claim the whole pool --
-// GOATOS_PG_MAX_CONNS defaults to 10, /vaccination/command is not its only caller, and with the
-// drilldowns on their own routes a single reader can already have a board and a drawer in flight.
-// Six leaves four connections for everyone else; do not raise this to the section count.
+// SIX across all sections, measured: the board's own makespan is set by its longest statement
+// (drive options at ~144ms), and six slots run every real statement in one wave. It leaves four
+// connections for every other caller, which is the headroom the old per-endpoint comment claimed
+// and no longer actually provided.
+const commandBoardConcurrencyBudget = 6
+
+// commandBoardSummaryConcurrency bounds one endpoint's own fan-out. It stays as a second, inner
+// bound so a single endpoint cannot queue more work than the shared budget can ever admit; the
+// SHARED budget above is what protects the pool.
 const commandBoardSummaryConcurrency = 6
 
-// VaccinationCommandBoard returns the CEO closure view: KPIs, cohort matrix, shed dose matrix,
-// shed vaccine matrix, weekly given, verification queue and the drive picker.
+// commandBoardSection wraps one section so it holds a slot from the SHARED command-board budget for
+// exactly as long as its query runs. Acquire honours ctx, so a cancelled request stops waiting
+// rather than piling up behind the pool.
+func (r *Repository) commandBoardSection(ctx context.Context, fn func() error) func() error {
+	return func() error {
+		if r.commandBoardSlots != nil {
+			if err := r.commandBoardSlots.Acquire(ctx, 1); err != nil {
+				return err
+			}
+			defer r.commandBoardSlots.Release(1)
+		}
+		return fn()
+	}
+}
+
+// VaccinationCommandBoard returns the CEO closure view's FIRST PAINT: KPIs, shed vaccine matrix,
+// weekly given, verification queue and a small first page of the drive picker.
+//
+// The cohort matrix and the shed x dose grid are NOT here. They are their own sections
+// (CommandBoardCohortMatrix, CommandBoardShedDoseMatrix), because each alone held this endpoint
+// over its non-relaxable 300ms budget.
 //
 // SUMMARY-FIRST. This endpoint used to stitch FOURTEEN sequential live reads into one SSR
 // response, five of which computed per-animal DRILLDOWN lists tenant-wide and eagerly. On the
@@ -118,9 +138,16 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 
 	// optional wraps a section whose failure must not blank the board. The error is recorded
 	// against the section name and swallowed; required sections return their error to the group.
+	//
+	// It is LOGGED before it is swallowed. Degrading instead of 500ing is right, but a section that
+	// has been failing for a week must not be invisible: without this line the only trace was a
+	// string in a JSON field nobody alerts on, which trades a loud outage for a silent permanent
+	// hole.
 	optional := func(name string, fn func() error) func() error {
 		return func() error {
 			if err := fn(); err != nil {
+				slog.WarnContext(ctx, "vaccination command board: optional section unavailable",
+					"section", name, "tenant_id", q.TenantID, "error", err)
 				mu.Lock()
 				unavailable = append(unavailable, name)
 				mu.Unlock()
@@ -132,7 +159,7 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	group, gctx := errgroup.WithContext(ctx)
 	group.SetLimit(commandBoardSummaryConcurrency)
 
-	group.Go(func() error {
+	group.Go(r.commandBoardSection(gctx, func() error {
 		row := r.pool.QueryRow(gctx, commandBoardKPISQL, q.TenantID, asOf, q.DriveBatchID, parkID)
 		if err := row.Scan(&resp.KPIs.Targets, &resp.KPIs.MissedNotGiven, &resp.KPIs.DosesVerified,
 			&resp.KPIs.AwaitingVerification, &resp.KPIs.OverdueNotGiven, &resp.KPIs.ScheduledAhead,
@@ -140,9 +167,9 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 			return fmt.Errorf("vaccination command board: kpi query: %w", err)
 		}
 		return nil
-	})
+	}))
 
-	group.Go(func() error {
+	group.Go(r.commandBoardSection(gctx, func() error {
 		// The BOARD's page only. The full catalogue is CommandBoardDriveOptions, fetched lazily --
 		// see domain.CommandBoardDriveOptionsPageSize for why the picker stopped shipping eagerly.
 		page, truncated, err := r.commandBoardDriveOptionsPage(gctx, domain.CommandBoardDriveOptionsQuery{
@@ -155,43 +182,43 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 		}
 		driveOptions, driveTrunc = page.Options, truncated
 		return nil
-	})
+	}))
 
-	group.Go(optional("shedVaccineMatrix", func() error {
+	group.Go(r.commandBoardSection(gctx, optional("shedVaccineMatrix", func() error {
 		result, err := r.commandBoardShedVaccineCells(gctx, q.TenantID, asOf, q.DriveBatchID, parkID)
 		if err != nil {
 			return err
 		}
 		shedVaccine = result
 		return nil
-	}))
+	})))
 
-	group.Go(optional("shedVaccineColumns", func() error {
+	group.Go(r.commandBoardSection(gctx, optional("shedVaccineColumns", func() error {
 		codes, err := r.commandBoardVaccineCodes(gctx, q.TenantID)
 		if err != nil {
 			return err
 		}
 		vaccineCodes = codes
 		return nil
-	}))
+	})))
 
-	group.Go(optional("weeklyGiven", func() error {
+	group.Go(r.commandBoardSection(gctx, optional("weeklyGiven", func() error {
 		rows, err := r.commandBoardWeeklyGiven(gctx, q.TenantID, asOf, q.DriveBatchID, parkID)
 		if err != nil {
 			return err
 		}
 		weekly = rows
 		return nil
-	}))
+	})))
 
-	group.Go(optional("verificationQueue", func() error {
+	group.Go(r.commandBoardSection(gctx, optional("verificationQueue", func() error {
 		rows, err := r.commandBoardVerificationQueue(gctx, q.TenantID, asOf, q.DriveBatchID, parkID)
 		if err != nil {
 			return err
 		}
 		verifyQueue = rows
 		return nil
-	}))
+	})))
 
 	if err := group.Wait(); err != nil {
 		return resp, err
@@ -885,30 +912,30 @@ func (r *Repository) CommandBoardCohortMatrix(ctx context.Context, q domain.Comm
 
 	group, gctx := errgroup.WithContext(ctx)
 	group.SetLimit(commandBoardSummaryConcurrency)
-	group.Go(func() error {
+	group.Go(r.commandBoardSection(gctx, func() error {
 		result, err := r.commandBoardCohortRows(gctx, q.TenantID, asOf, q.DriveBatchID, q.ParkID)
 		if err != nil {
 			return err
 		}
 		rows = result
 		return nil
-	})
-	group.Go(func() error {
+	}))
+	group.Go(r.commandBoardSection(gctx, func() error {
 		result, err := r.commandBoardCohortHeadCounts(gctx, q.TenantID, q.ParkID)
 		if err != nil {
 			return err
 		}
 		headCounts = result
 		return nil
-	})
-	group.Go(func() error {
+	}))
+	group.Go(r.commandBoardSection(gctx, func() error {
 		result, err := r.commandBoardCohortExceptionCounts(gctx, q.TenantID, q.DriveBatchID, q.ParkID)
 		if err != nil {
 			return err
 		}
 		exceptions = result
 		return nil
-	})
+	}))
 	if err := group.Wait(); err != nil {
 		return page, err
 	}

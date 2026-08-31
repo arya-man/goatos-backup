@@ -573,3 +573,21 @@ func TestHotPathInlineSQLCatchesQueriesBuiltFromAVariable(t *testing.T) {
 			"unreachable to a plan test, not less, and its multi-line literal half must be hoisted", got)
 	}
 }
+
+// TestHotPathInlineSQLCatchesLiteralsSplitAroundAVariable closes the second evasion review found in
+// this rule. Left-associative parsing means `head + where + tail` fails to flatten as a whole AND
+// fails on its `head + where` subtree, so each half was examined alone and neither reached the
+// newline threshold. The literal operands are now summed across the chain.
+func TestHotPathInlineSQLCatchesLiteralsSplitAroundAVariable(t *testing.T) {
+	src := "package postgres\n\nimport \"context\"\n\n" +
+		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
+		"func (r *R) Board(ctx context.Context, extra string) {\n" +
+		"\tq := \"SELECT g.goat_id\\nFROM obligation_instances o\\n\" + extra + \"JOIN goats g ON g.goat_id = o.target_id\\nWHERE o.tenant_id = $1\\n\"\n" +
+		"\t_, _ = r.pool.Query(ctx, q, \"t\")\n}\n"
+
+	repo, path := writeGoAt(t, "backend/internal/x/adapters/postgres/repository.go", src)
+	if got := rules(scanFile(repo, path))["hot-path-inline-sql"]; got != 1 {
+		t.Fatalf("hot-path-inline-sql = %d, want 1: a statement split across two sub-threshold "+
+			"literals around a variable is still unreachable SQL", got)
+	}
+}

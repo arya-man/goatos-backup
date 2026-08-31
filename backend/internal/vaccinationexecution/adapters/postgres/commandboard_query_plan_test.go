@@ -312,6 +312,23 @@ func TestCommandBoardQueryPlansAreBoundedByTheAnswerNotTheTenant(t *testing.T) {
 		},
 		{
 			limits: commandBoardPlanLimits{
+				label:                      "commandBoardCohortDaySQL",
+				maxScanRows:                obligations * 2,
+				maxPreLimitRows:            obligations * 2,
+				maxNodeTotalRows:           summaryNodeCeiling,
+				maxRowsRemovedByJoinFilter: summaryNodeCeiling,
+				hotTables:                  []string{"obligation_instances"},
+			},
+			// Was EXEMPT until review pointed out the exemption was the weakest of the six: this is
+			// the only exempt statement that joins obligation_instances, its cell predicates sit on
+			// JOINED tables (park, goats, protocol_rules) rather than on the scan, and unlike the
+			// sibling it claimed to share a shape with it carries no LIMIT. That is exactly the
+			// "cell applied after a broad scan of a hot table" class this gate exists to catch.
+			sql:  commandBoardCohortDaySQL,
+			args: []any{f.tenantID, nil, nil, f.parkID, "Non-Pregnant", "female", f.doseCodes},
+		},
+		{
+			limits: commandBoardPlanLimits{
 				label:                      "commandBoardCohortExceptionCountSQL",
 				maxScanRows:                obligations * 2,
 				maxPreLimitRows:            obligations * 3,

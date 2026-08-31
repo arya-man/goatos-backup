@@ -9775,7 +9775,7 @@ export interface components {
         ShedDoseMatrix: {
             /** @description Shed x partition identities, referenced by ShedDoseMatrixCell.shed. */
             sheds: components["schemas"]["ShedDoseMatrixShed"][];
-            /** @description Dose-rule display labels, referenced by ShedDoseMatrixCell.dose. */
+            /** @description Dose-rule display labels, referenced by ShedDoseMatrixCell.dose. NOT UNIQUE: two entries may carry the SAME string, because DoseQualifiedDisplayLabel only qualifies _W1/_W2/_BOOSTER/_REVAC/_REPEAT/_FIRST, so et_tt_kid_4w and et_tt_kid_7w both render "ET+TT". The INDEX is the identity of a dose, never the label. A client that keys a grid on the label merges two real doses and silently drops one of their animal counts, which is the defect this interning was fixed to prevent -- on a live tenant those two columns carried 526 and 525 animals. */
             doseRules: string[];
             cells: components["schemas"]["ShedDoseMatrixCell"][];
         };
@@ -10221,7 +10221,7 @@ export interface components {
             /**
              * @description OPTIONAL board sections whose read failed on this render, named so the UI can show one panel as unavailable instead of showing nothing.
              *     The board used to be all-or-nothing: any one of its fourteen reads failing returned 500 and the page showed "Unable to load command board" with no numbers at all. That is a bad trade on a leadership dashboard — a verification queue that times out is a missing panel, not a missing board, and blanking the KPI row over it destroys the reading the CEO came for. kpis and driveOptions remain REQUIRED and still fail the request.
-             *     Values are section keys: cohortMatrix, cohortHeadCounts, cohortExceptions, shedDoseMatrix, shedVaccineMatrix, shedVaccineColumns, weeklyGiven, verificationQueue. Sorted, and absent on a fully successful render — which is the overwhelmingly common case. A client that ignores this field renders a silently incomplete board rather than a degraded one.
+             *     Values are section keys: shedVaccineMatrix, shedVaccineColumns, weeklyGiven, verificationQueue — and ONLY those four. cohortMatrix, cohortHeadCounts, cohortExceptions and shedDoseMatrix were removed from this list when they moved to their own routes: on a section endpoint a failure is a plain error response, not a named absence here, so a client waiting for those keys would wait forever. Sorted, and absent on a fully successful render — which is the overwhelmingly common case. A client that ignores this field renders a silently incomplete board rather than a degraded one.
              */
             unavailableSections?: string[];
             /** @description True when driveOptions hit its bound and drives were left out. The list has always been bounded, but it used to stop silently, so a scheduled drive past the bound was indistinguishable from a drive that was never planned. Clients must show that more drives exist (e.g. "narrow by park") rather than presenting a truncated picker as complete. */

@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -17,6 +18,10 @@ import (
 // A skip list is the part of a coverage guard most likely to rot into a hiding place, so every
 // entry states a MEASURED fact rather than an opinion, and adding one is a visible diff.
 var commandBoardPlanCoverageExempt = map[string]string{
+	"commandBoardCohortExceptionCTE": "not an executable statement -- it is the shared CTE PREFIX that " +
+		"commandBoardCohortExceptionCountSQL and commandBoardCohortExceptionListSQL are each built from " +
+		"by concatenation, and BOTH of those are in the plan table, so every plan this fragment can " +
+		"produce is already EXPLAINed. It cannot be EXPLAINed alone: it has no final SELECT.",
 	"commandBoardVaccineCodeSQL": "a bare DISTINCT over protocol_rules (204 rows tenant-wide); measured 0.14ms on the " +
 		"staging-scale clone. It touches no hot table and has no join to fan out.",
 	"commandBoardVerifyQueueSQL": "reads the verification queue only; measured 0.25ms on the staging-scale clone. Its " +
@@ -25,13 +30,17 @@ var commandBoardPlanCoverageExempt = map[string]string{
 		"obligation_instances at all.",
 	"commandBoardWeeklySQL": "aggregates vaccination_completions (5.8k rows), not obligation_instances; measured 39ms. " +
 		"Its grain is ISO week x dose x status, which cannot fan out per animal.",
-	"commandBoardCohortDaySQL": "cell-scoped drilldown: it is given a single (park, stage, sex, dose) cell and cannot " +
-		"run tenant-wide. Its sibling commandBoardCohortExceptionListSQL is plan-gated and shares the shape.",
 	"commandBoardShedVideoSQL": "cell-scoped proof-video lookup, bounded by the shed ids and days handed to it by a " +
 		"page that is itself already gated.",
 }
 
-var commandBoardSQLConstRe = regexp.MustCompile(`SQL$`)
+// A const is in scope if its NAME ends in SQL or CTE, or if its VALUE looks like SQL. Matching the
+// name alone left a hole review found: commandBoardCohortExceptionCTE is a real statement fragment
+// in these files and was invisible, and a future commandBoardFooStmt or ...Query would be too.
+var commandBoardSQLConstRe = regexp.MustCompile(`(?:SQL|CTE)$`)
+
+// commandBoardSQLValueRe matches a string that is a SQL statement rather than a fragment.
+var commandBoardSQLValueRe = regexp.MustCompile(`(?is)\b(SELECT|WITH)\b.*\bFROM\b`)
 
 // TestCommandBoardPlanGateCoversEverySQLConst fails when a command-board statement exists with no
 // plan-table entry and no explicit exemption.
@@ -63,8 +72,16 @@ func TestCommandBoardPlanGateCoversEverySQLConst(t *testing.T) {
 				if !ok {
 					continue
 				}
-				for _, name := range value.Names {
-					if commandBoardSQLConstRe.MatchString(name.Name) {
+				for i, name := range value.Names {
+					sqlShaped := false
+					if i < len(value.Values) {
+						if lit, ok := value.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+							if text, err := strconv.Unquote(lit.Value); err == nil {
+								sqlShaped = strings.Count(text, "\n") >= 3 && commandBoardSQLValueRe.MatchString(text)
+							}
+						}
+					}
+					if commandBoardSQLConstRe.MatchString(name.Name) || sqlShaped {
 						declared[name.Name] = struct{}{}
 					}
 				}
@@ -89,7 +106,7 @@ func TestCommandBoardPlanGateCoversEverySQLConst(t *testing.T) {
 		}
 		// The label is what the plan gate reports on failure, so requiring the label string keeps
 		// the failure message and the coverage claim in sync.
-		if !strings.Contains(table, `label:                      "`+name+`"`) {
+		if !regexp.MustCompile(`label:\s*"` + regexp.QuoteMeta(name) + `"`).MatchString(table) {
 			missing = append(missing, name)
 		}
 	}

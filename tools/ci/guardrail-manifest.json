@@ -363,6 +363,17 @@
       "ciStep": "clinical-defer-guard"
     },
     {
+      "id": "commandboard-query-plan",
+      "script": "tools/dev/commandboard-query-plan-guard.sh",
+      "makeTarget": "commandboard-query-plan-guard",
+      "realCheck": "make commandboard-query-plan-guard",
+      "selfTest": "bash tools/dev/commandboard-query-plan-guard.sh --self-test",
+      "owningDoc": "docs/runbooks/vaccination-command-board-latency.md",
+      "requiredInCI": false,
+      "ciStep": "command-board query plans",
+      "notes": "EXPLAIN-based plan gate; requires a PostgreSQL server, so it cannot join the no-DB guardrails sweep. It IS reached on a PR: tools/ci/run-local-ci.sh runs it in the query-plans job, which .github/workflows/ci.yml gates on changes.query_plans, and tools/ci/component-paths.json routes vaccinationexecution/adapters/postgres/ there (pinned by a ci-scope self-test). Its DB-free wiring half is registered separately as commandboard-query-plan-wiring and IS required in the guardrails sweep."
+    },
+    {
       "id": "commandboard-query-plan-wiring",
       "script": "tools/dev/commandboard-query-plan-guard.sh",
       "makeTarget": "commandboard-query-plan-wiring-guard",

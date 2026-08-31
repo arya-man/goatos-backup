@@ -406,7 +406,7 @@ rows -- and only then aggregate them into 407 cells. It now folds to (goat, scop
 cheap join first (obligation_instances -> protocol_rules -> the pre-aggregated comp), which is
 20,660 rows, and decorates THAT. Same principle that fixed the closed-without-dose drilldown.
 
-The endpoint measures **p90 277-284**, inside its 300ms budget.
+`vaccination_command_cohort_matrix` measures **p90 277-284**, inside its 300ms budget.
 
 Three projection-free candidates were measured; two were rejected, and they are recorded in the
 statement so nobody retries them:
@@ -442,11 +442,9 @@ written down rather than assumed.
 
 The latency manifest therefore documents a contract; it does not currently enforce one on a PR.
 That trigger is pre-existing CI design and was not changed here, but it means the p90 300 entries —
-including the two this change adds — buy no automatic protection until that job runs on PRs. It is
-also why `vaccination_command_cohort_matrix` can be declared while measuring 323-330 (§8.5): the
-entry is a **stated, unresolved blocker**, deliberately not an accepted state and deliberately not
-relaxed. Anyone turning `live-api-latency` on for PRs must resolve §8.5 first, or that job goes red
-on its first run — which is the correct order of operations, not a surprise.
+including the two this change adds — buy no automatic protection until that job runs on PRs. Every endpoint in the manifest now measures inside its budget (§8.5b), so turning
+`live-api-latency` on for PRs would not go red on the command board's account — that work is a
+separate, and now unblocked, change.
 
 ### 8.7 Guard defects found by review of THIS change
 
@@ -459,8 +457,13 @@ existed" is not the same as "the guard worked".
   statement whose final text is not knowable from source is the one a plan test can least reach —
   exactly what the rule exists to forbid. Worse, a test asserted `want 0` for that shape, locking
   the hole in as intended behaviour. The branch now keeps descending, and that test is inverted to
-  `want 1`. Re-deriving the baseline after the fix moved it from 974 to 1031 known offenders — all
-  pre-existing debt the rule had simply been blind to.
+  `want 1`. A second evasion was found in the final round and also closed: `head + where + tail`,
+  where left-associative parsing left two sub-threshold literals each examined alone. The literal
+  operands are now summed across the whole `+` chain. Re-deriving after both fixes moved the
+  baseline to **1093** known offenders — all pre-existing debt the rule had been blind to, none of
+  it authored here. For contrast, this change SHRANK its own file's entry:
+  `vaccinationexecution/adapters/postgres/repository.go` carries 27 findings on `main` and 14 here,
+  because the command board's statements were hoisted into named consts.
 - **The plan gate proved test NAMES, not coverage.** `REQUIRED_TESTS` verified that each named test
   ran and passed, but deleting a row from the plan table left every named test green. Seven of
   fifteen command-board statements were gated, and `commandBoardShedDoseSQL` — the statement this

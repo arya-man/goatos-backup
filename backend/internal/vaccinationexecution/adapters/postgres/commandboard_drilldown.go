@@ -392,7 +392,15 @@ func (r *Repository) CommandBoardShedDoseMatrix(ctx context.Context, q domain.Co
 		DoseRules: []string{},
 		Cells:     []domain.ShedDoseMatrixCell{},
 	}}
-	matrix, err := r.commandBoardShedDoseCells(ctx, q.TenantID, q.AsOf, q.DriveBatchID, q.ParkID)
+	// Takes a slot from the SAME shared budget the board's own sections use. This endpoint is fired
+	// in parallel with them on first paint, so counting it separately is how a single reader ends up
+	// holding the whole pool.
+	var matrix domain.ShedDoseMatrix
+	err := r.commandBoardSection(ctx, func() error {
+		var sectionErr error
+		matrix, sectionErr = r.commandBoardShedDoseCells(ctx, q.TenantID, q.AsOf, q.DriveBatchID, q.ParkID)
+		return sectionErr
+	})()
 	if err != nil {
 		return page, err
 	}
