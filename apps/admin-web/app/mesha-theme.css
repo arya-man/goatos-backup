@@ -932,6 +932,11 @@
      short words ("female" -> "femal e") and 15-digit tags the moment a column narrows. The table
      scrolls horizontally, so nowrap never clips content. */
   .main table.herd-register-table th,.main table.herd-register-table td,.main table.herd-register-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  /* The .twrap table wrapper OWNS horizontal scrolling for every wide table that sits in it
+     (People directory, Clock In/Out, sales, vendors, feed purchases). The nowrap rules below
+     depend on this rule existing: without it the nowrap cells push the card wider than the
+     viewport and the right-hand columns clip with no way to scroll to them. */
+  .main .twrap{min-width:0;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}
   /* People/HRMS directory: same nowrap rule — names, emails, and park labels must never
      character-wrap inside a clickable cell; the twrap owns horizontal scrolling. */
   .main table.people-table th,.main table.people-table td,.main table.people-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
