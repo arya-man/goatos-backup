@@ -14,9 +14,9 @@ import { controlEnabled, copy, optionalOptionGroup, optionGroup, type AdminUiPag
 import type { SalesDeal } from "@/lib/api/procurement";
 import type { ProcurementVendorOption, ProcurementVendorOptions } from "@/lib/api/server";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
-import { fmtDate, todayIso } from "@/lib/format";
+import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
 import { dealStatusTone, inr, num } from "./sales-format";
-import { recordSaleAction, recordSalesDealPaymentAction } from "./sales-actions";
+import { recordSaleAction, recordSalesDealPaymentAction, setSalesDealStatusAction } from "./sales-actions";
 
 /** Reads the selected deal from the address bar. "" means the drawer is closed; "new" is the form. */
 function readDealParam(): string {
@@ -89,6 +89,8 @@ export function SalesRecordDrawer({
   // The receipt write is a backend capability, never a role string: the same detail view serves a
   // read-only principal (no form) and the sales desk (form).
   const canRecordPayment = controlEnabled(pageContract, "record_sales_deal_payment", false);
+  const canEditStatus = controlEnabled(pageContract, "update_sales_deal_status", false);
+  const dealStatusOptions = optionGroup(pageContract, "sales_deal_statuses");
   // Where the payment action returns to: the SAME deal, so the drawer reopens showing the new
   // receipt rather than closing over the operator's work.
   const dealHref = deal
@@ -250,12 +252,15 @@ export function SalesRecordDrawer({
                 <label htmlFor="s-sale_date">{field("sale_date")}</label>
                 {/* The app's shared date control -- the same one the vaccination schedule uses --
                     rather than a native input, whose browser-drawn calendar and locale date order
-                    match nothing else on the page. Bounded by max: a sale may be recorded days
-                    after it happened, but never before it has. */}
+                    match nothing else on the page. The max used to be TODAY ("a sale may be
+                    recorded after it happened, never before") -- retired 2026-08-31: an EXPECTED
+                    sale (status Advance Paid / In Discussion, advance already in hand) is dated by
+                    the day the animals are due to leave, which is in the future. Bounded to a
+                    60-day horizon so a typo cannot date a sale into next year. */}
                 <ThemedDatePicker
                   name="sale_date"
                   label={copy(pageContract, "date.sale_date.placeholder")}
-                  max={todayIso()}
+                  max={istDayPlus(todayIso(), 60)}
                   previousMonthLabel={copy(pageContract, "date.prev_month")}
                   nextMonthLabel={copy(pageContract, "date.next_month")}
                   invalidDateText={copy(pageContract, "date.invalid_sale_date")}
@@ -416,6 +421,20 @@ export function SalesRecordDrawer({
                 <input id="s-advance_amount" name="advance_amount" type="number" min={0} step="0.01" />
               </div>
               <div className="fld">
+                <label htmlFor="s-status">{field("status")}</label>
+                {/* Defaults to Deal Closed — a recorded sale is a finished one unless the desk says
+                    otherwise. Advance Paid / In Discussion record an EXPECTED sale (a future sale
+                    date is fine); the receipt itself is dated by when the money arrived. */}
+                <select id="s-status" name="status" defaultValue="Deal Closed">
+                  {dealStatusOptions.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="muted small">{copy(pageContract, "hint.status")}</div>
+              </div>
+              <div className="fld">
                 <label htmlFor="s-comments">{field("comments")}</label>
                 <textarea id="s-comments" name="comments" maxLength={2000} rows={2} />
               </div>
@@ -539,6 +558,26 @@ export function SalesRecordDrawer({
                 <button type="submit" className="btn p">
                   {copy(pageContract, "action.record_deal_payment.label")}
                 </button>
+              </form>
+            ) : null}
+
+            {canEditStatus ? (
+              <form action={setSalesDealStatusAction} className="fld">
+                <input type="hidden" name="return_to" value={dealHref} />
+                <input type="hidden" name="deal_id" value={deal.deal_id} />
+                <label htmlFor="sds-status">{field("status")}</label>
+                <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
+                  <select id="sds-status" name="status" required defaultValue={deal.status}>
+                    {dealStatusOptions.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="submit" className="btn">
+                    {copy(pageContract, "action.update_deal_status.label")}
+                  </button>
+                </div>
               </form>
             ) : null}
           </div>

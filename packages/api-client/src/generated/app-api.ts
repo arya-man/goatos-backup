@@ -2808,6 +2808,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/deals/{deal_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a deal's lifecycle status directly.
+         * @description The edit that closes an expected sale on the day the animals actually leave, or marks one failed. The vocabulary is closed; an unrecognised word is rejected, never rewritten to a default. Money never moves the lifecycle and the lifecycle never moves the money. Naturally idempotent -- setting the status a deal already has changes nothing and audits nothing.
+         */
+        post: operations["setSalesDealStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/buyer-leads": {
         parameters: {
             query?: never;
@@ -5893,6 +5913,11 @@ export interface components {
             amount_rupees: number;
             note?: string;
         };
+        /** @description Deal-status edit body. The vocabulary is closed; an unrecognised word is rejected. */
+        SalesDealStatusWrite: {
+            /** @enum {string} */
+            status: "Deal Closed" | "Deal Failed" | "In Discussion" | "Advance Paid";
+        };
         SalesDealPage: {
             deals: components["schemas"]["SalesDeal"][];
             /** @description The WHOLE-FILTER count, not the page length. Pagination changes rows only, never this number. */
@@ -5925,6 +5950,11 @@ export interface components {
             /** @description Required and must be more than zero. */
             sales_value: number;
             advance_amount?: number | null;
+            /**
+             * @description Optional; blank records the default, Deal Closed. Name one to record an EXPECTED sale -- an advance received today for animals leaving on a future date is an Advance Paid deal, and only Deal Closed counts toward revenue.
+             * @enum {string}
+             */
+            status?: "Deal Closed" | "Deal Failed" | "In Discussion" | "Advance Paid";
             comments?: string;
         };
         /** @description Headline figures over CLOSED deals in the farm scope. */
@@ -18873,6 +18903,37 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setSalesDealStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesDealStatusWrite"];
+            };
+        };
+        responses: {
+            /** @description The deal after the status change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDeal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

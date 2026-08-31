@@ -474,3 +474,68 @@ func TestSalesDealPaymentPostgresPaths(t *testing.T) {
 		}
 	})
 }
+
+// TestExpectedSaleAdvanceStory pins the maintainer's 2026-08-31 scenario end to end: an advance
+// received TODAY for a sale expected on a FUTURE date is recorded as an Advance Paid deal, its
+// receipt is dated by when the money arrived, and on the day the animals leave the status is
+// flipped to Deal Closed -- by the desk, never by the money.
+func TestExpectedSaleAdvanceStory(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Recorded 2026-08-31 for animals leaving 2026-09-02.
+	deal := seedDeal(t, repo, ctx, "expected-1", domain.DealWrite{
+		SaleDate: "2026-09-02", Farm: "CPT", ProductType: "Goat", Breed: "Sirohi",
+		BuyerName: "Tanveer", BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
+		AnimalCount: f64(12), SalesValue: 150000,
+		Status: domain.StatusAdvancePaid,
+	})
+	if deal.Status != domain.StatusAdvancePaid {
+		t.Fatalf("status = %q want the named Advance Paid, not the Deal Closed default", deal.Status)
+	}
+	if deal.SaleDate != "2026-09-02" {
+		t.Fatalf("sale_date = %q want the expected future date", deal.SaleDate)
+	}
+
+	// The advance arrives today, dated by when the money moved, not by the sale date.
+	after, err := repo.RecordDealPayment(ctx, salesTestTenant, deal.DealID,
+		domain.DealPaymentWrite{ReceivedOn: "2026-08-31", AmountRupees: 40000, Note: "advance"}, "", "expected-rcpt-1")
+	if err != nil {
+		t.Fatalf("advance receipt: %v", err)
+	}
+	if after.PaymentReceived == nil || *after.PaymentReceived != 40000 || after.PaymentBalance() != 110000 {
+		t.Fatalf("received/balance = %v/%v want 40000/110000", after.PaymentReceived, after.PaymentBalance())
+	}
+	if after.Status != domain.StatusAdvancePaid {
+		t.Fatalf("status = %q, money must not move the lifecycle", after.Status)
+	}
+
+	// A blank status still records the sheet's default -- the named status is opt-in.
+	defaulted := seedDeal(t, repo, ctx, "expected-2", domain.DealWrite{
+		SaleDate: "2026-08-30", Farm: "CBE", ProductType: "Sheep", Breed: "Anantapur",
+		BuyerName: "Keethiraj", BuyerVendorID: "3f1c2a5e-9b04-4d67-8a11-2c7e5d9f0b34",
+		AnimalCount: f64(5), SalesValue: 50000,
+	})
+	if defaulted.Status != domain.StatusDealClosed {
+		t.Fatalf("blank status = %q want the Deal Closed default", defaulted.Status)
+	}
+
+	// On 2026-09-02 the animals leave and the desk closes the deal.
+	closed, err := repo.SetDealStatus(ctx, salesTestTenant, deal.DealID, domain.StatusDealClosed, "")
+	if err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if closed.Status != domain.StatusDealClosed {
+		t.Fatalf("status = %q want Deal Closed", closed.Status)
+	}
+	if closed.PaymentReceived == nil || *closed.PaymentReceived != 40000 {
+		t.Fatalf("closing must not touch the money: received = %v", closed.PaymentReceived)
+	}
+	if _, err := repo.SetDealStatus(ctx, salesTestTenant, "00000000-0000-4000-8000-00000000dead", domain.StatusDealClosed, ""); !errors.Is(err, ports.ErrDealNotFound) {
+		t.Fatalf("unknown deal => %v want ErrDealNotFound", err)
+	}
+}

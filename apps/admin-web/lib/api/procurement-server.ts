@@ -28,6 +28,7 @@ import type {
   SalesDeal,
   SalesDealPage,
   SalesDealPaymentWrite,
+  SalesDealStatusWrite,
   SalesDealWrite,
   SalesFpoLead,
   SalesFpoLeadPage,
@@ -381,6 +382,22 @@ export async function recordSalesDealPayment(
       method: "POST",
       cache: "no-store",
       headers: idempotentHeaders(idempotencyKey),
+      body,
+    }),
+  );
+}
+
+export async function setSalesDealStatus(
+  dealId: string,
+  body: SalesDealStatusWrite,
+): Promise<ApiResult<SalesDeal>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDeal>(`/sales/deals/${encodeURIComponent(dealId)}/status` as keyof AppApiPaths & string, {
+      method: "POST",
+      cache: "no-store",
       body,
     }),
   );

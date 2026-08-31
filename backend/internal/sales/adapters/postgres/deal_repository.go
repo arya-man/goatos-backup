@@ -192,6 +192,65 @@ ORDER BY received_on, created_at`, tenantID, ids)
 	return nil
 }
 
+// SetDealStatus sets a deal's lifecycle status directly -- the edit that closes an expected sale
+// on the day the animals actually leave, or marks one failed.
+//
+// Naturally idempotent, so no reservation: the guarded UPDATE writes (and audits) only when the
+// status actually changes, and a retry of the same change finds nothing to do.
+func (r *Repository) SetDealStatus(ctx context.Context, tenantID, dealID, status, actorID string) (domain.Deal, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: begin deal status: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var previous string
+	err = tx.QueryRow(ctx, `
+SELECT status
+FROM public.sales_deals
+WHERE tenant_id = $1 AND id = $2
+FOR UPDATE`, tenantID, dealID).Scan(&previous)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Deal{}, ports.ErrDealNotFound
+	}
+	if err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: lock deal status: %w", err)
+	}
+
+	if previous != status {
+		if _, err := tx.Exec(ctx, `
+UPDATE public.sales_deals
+SET status = $3, updated_at = now()
+WHERE tenant_id = $1 AND id = $2`, tenantID, dealID, status); err != nil {
+			return domain.Deal{}, fmt.Errorf("sales: update deal status: %w", err)
+		}
+		if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+			TenantID:     tenantID,
+			ActorID:      actorID,
+			ActorType:    "human",
+			Action:       "sales.deal.status_set",
+			ResourceType: "sales_deal",
+			ResourceID:   dealID,
+			Metadata: map[string]any{
+				"domain":          "sales",
+				"module":          "sales_deals",
+				"category":        "deal",
+				"previous_status": previous,
+				"status":          status,
+			},
+		}); err != nil {
+			return domain.Deal{}, fmt.Errorf("sales: audit deal status: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: commit deal status: %w", err)
+	}
+	return r.getDeal(ctx, tenantID, dealID)
+}
+
 // idemScopeDealPayment namespaces the record-receipt idempotency keys.
 const idemScopeDealPayment = "sales.deal.payment"
 
@@ -310,7 +369,7 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 		write.BuyerName, write.BuyerPlace, write.BuyerVendorID,
 		fpFloat(write.AnimalCount), fpFloat(write.MaleCount), fpFloat(write.FemaleCount),
 		fpFloat(write.TotalWeightKg), fmt.Sprintf("%.4f", write.SalesValue), fpFloat(write.AdvanceAmount),
-		write.Comments,
+		write.Comments, write.Status,
 	)
 	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeDealCreate, idempotencyKey, fingerprint)
 	if err != nil {
@@ -335,19 +394,22 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 			tenant_id, sale_date, farm, buyer_name, buyer_place, buyer_vendor_id,
 			product_type, breed, animal_count, male_count, female_count,
 			total_weight_kg, advance_amount, sales_value, comments,
-			payment_received
+			payment_received, status
 		) VALUES (
 			$1, $2::date, $3, $4, nullif(btrim($5), ''), nullif(btrim($6), '')::uuid,
 			$7, $8, $9, $10, $11,
 			$12, $13, $14, nullif(btrim($15), ''),
 			-- The advance IS money received: seed the running total the receipts ledger advances,
 			-- exactly as migration 000227 seeded sheet history, so a fresh deal's balance is honest.
-			$13
+			$13,
+			-- Blank means the sheet's default: a recorded sale is a closed deal unless the desk
+			-- says otherwise (an EXPECTED sale with an advance is 'Advance Paid').
+			COALESCE(nullif($16, ''), 'Deal Closed')
 		)
 		RETURNING id::text`,
 		tenantID, write.SaleDate, write.Farm, write.BuyerName, write.BuyerPlace, write.BuyerVendorID,
 		write.ProductType, write.Breed, write.AnimalCount, write.MaleCount, write.FemaleCount,
-		write.TotalWeightKg, write.AdvanceAmount, write.SalesValue, write.Comments,
+		write.TotalWeightKg, write.AdvanceAmount, write.SalesValue, write.Comments, write.Status,
 	).Scan(&dealID)
 	if err != nil {
 		return domain.Deal{}, fmt.Errorf("sales: create deal: %w", err)

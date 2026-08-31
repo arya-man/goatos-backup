@@ -16,6 +16,7 @@ export type SalesMarketBenchmark = AppApiComponents["schemas"]["SalesMarketBench
 export type SalesDeal = AppApiComponents["schemas"]["SalesDeal"];
 export type SalesDealPayment = AppApiComponents["schemas"]["SalesDealPayment"];
 export type SalesDealPaymentWrite = AppApiComponents["schemas"]["SalesDealPaymentWrite"];
+export type SalesDealStatusWrite = AppApiComponents["schemas"]["SalesDealStatusWrite"];
 export type SalesDealPage = AppApiComponents["schemas"]["SalesDealPage"];
 export type SalesDealWrite = AppApiComponents["schemas"]["SalesDealWrite"];
 

@@ -13,13 +13,14 @@ import {
   createSalesBuyerLead,
   createSalesDeal,
   recordSalesDealPayment,
+  setSalesDealStatus,
   createSalesFpoLead,
   createSalesSoldTags,
   createSalesWeightCheck,
   setSalesBuyerLeadStatus,
   setSalesFpoLeadStatus,
 } from "@/lib/api/procurement-server";
-import type { SalesBuyerLeadWrite, SalesDealWrite, SalesSoldTagsWrite } from "@/lib/api/procurement";
+import type { SalesBuyerLeadWrite, SalesDealWrite, SalesSoldTagsWrite, SalesDealStatusWrite } from "@/lib/api/procurement";
 
 const SALES_PATH = "/sales";
 
@@ -56,6 +57,8 @@ function readSaleForm(formData: FormData): SalesDealWrite {
     total_weight_kg: parseOptionalNumber("total_weight_kg"),
     sales_value: Number(requiredString(formData, "sales_value")),
     advance_amount: parseOptionalNumber("advance_amount"),
+    // Blank records the backend default (Deal Closed); the cast only satisfies the literal union.
+    ...(optionalString(formData, "status") ? { status: optionalString(formData, "status") as SalesDealWrite["status"] } : {}),
     comments: optionalString(formData, "comments") ?? "",
   };
 }
@@ -242,4 +245,18 @@ export async function recordSalesDealPaymentAction(formData: FormData): Promise<
   }
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.payment_recorded");
+}
+
+/** Sets a deal's lifecycle status — the edit that closes an expected sale on the day it happens. */
+export async function setSalesDealStatusAction(formData: FormData): Promise<void> {
+  const dealId = requiredString(formData, "deal_id");
+  // The backend validates against its closed vocabulary and REJECTS an unrecognised word; the
+  // cast only satisfies the generated client's literal union, it is not a trust boundary.
+  const status = requiredString(formData, "status") as SalesDealStatusWrite["status"];
+  const result = await setSalesDealStatus(dealId, { status });
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.deal_status_update_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.deal_status_updated");
 }

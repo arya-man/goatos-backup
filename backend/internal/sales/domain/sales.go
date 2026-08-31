@@ -250,6 +250,10 @@ type DealWrite struct {
 	SalesValue    float64
 	AdvanceAmount *float64
 	Comments      string
+	// Status is OPTIONAL: blank records the sheet's default, Deal Closed. Naming one lets the desk
+	// record an EXPECTED sale -- an advance received today for animals leaving on a future date is
+	// an Advance Paid deal, not a closed one, and only Deal Closed counts toward revenue.
+	Status string
 }
 
 // ErrDealValidation reports a rejected write with a field-specific, operator-readable reason.
@@ -275,6 +279,17 @@ func (w DealWrite) Normalize() DealWrite {
 	out.BuyerPlace = collapse(w.BuyerPlace)
 	out.BuyerVendorID = strings.TrimSpace(w.BuyerVendorID)
 	out.Comments = strings.TrimSpace(w.Comments)
+	out.Status = strings.TrimSpace(w.Status)
+	// Canonicalize the two-word statuses case-insensitively, the same way the feed ledger treats
+	// its payment words: "advance paid" stores as the sheet's "Advance Paid". An unrecognised
+	// value still fails Validate rather than being rewritten -- a silently defaulted status is a
+	// deal state nobody entered.
+	for _, known := range Statuses {
+		if strings.EqualFold(out.Status, known) {
+			out.Status = known
+			break
+		}
+	}
 	return out
 }
 
@@ -326,6 +341,9 @@ func (w DealWrite) Validate() error {
 	}
 	if w.SalesValue <= 0 {
 		return ErrDealValidation{Field: "sales_value", Reason: "must be more than zero"}
+	}
+	if w.Status != "" && !IsStatus(w.Status) {
+		return ErrDealValidation{Field: "status", Reason: "must be Deal Closed, Deal Failed, In Discussion or Advance Paid"}
 	}
 	for field, v := range map[string]*float64{
 		"animal_count":    w.AnimalCount,
