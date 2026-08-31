@@ -80,9 +80,25 @@ FROM procurement_loads pl
 WHERE pl.tenant_id = '00000000-0000-4000-8000-000000000001'
   AND pl.idempotency_key LIKE 'legacy-load-%';
 
--- Membership: today's ALIVE residents of each load's tagged shed/partition (verified against
--- goat_shed_partitions on 2026-08-31: CPT Godel 2 Part 1+2 = 77 for load 129; CPT Castro 1+2 =
--- 63 for load 131; CBE Castro 1/2/3 for 126/130/128).
+-- Membership is PER ANIMAL, recorded with the animal's own TAG.
+--
+-- The pen below is only the one-time SELECTION criterion for which animals belong to which load
+-- (it is the farm's own load->pen tagging, weighing_shed_load_tags). What gets STORED is one
+-- procurement_load_goats row per goat_id, carrying that animal's identifiers, so the mapping is
+-- by animal identity and not by location: a goat shifted to another pen tomorrow stays on its
+-- load, and the load-wise read never joins a shed (see loadwise_repository.go, whose membership
+-- CTE reads procurement_load_goats.goat_id alone).
+--
+-- KNOWN DATA GAP, verified 2026-08-31: every animal in these pens carries a PLACEHOLDER tag
+-- (temp-cbe-castro1-001 style), not a real RFID -- CBE Castro 200/200, CPT Castro 63/63 and the
+-- 77 CPT Godel 2 Part 1+2 animals are all placeholder-tagged. The legacy sheet's own tag numbers
+-- (625, 3155, ...) match NOTHING in the register: 0 of 601 resolve to a real RFID, by exact value
+-- or by last-4. So the identifiers recorded here are the placeholders the register actually
+-- holds. When those animals are tagged for real, re-running this seed re-reads their identifiers
+-- and the mapping becomes RFID-backed with no schema or code change.
+--
+-- Pen selection verified against goat_shed_partitions on 2026-08-31: CPT Godel 2 Part 1+2 = 77
+-- for load 129; CPT Castro 1+2 = 63 for load 131; CBE Castro 1/2/3 for 126/130/128.
 CREATE TEMP TABLE legacy_load_pens (load_ref text, park_code text, shed_name text, partition_label text) ON COMMIT DROP;
 INSERT INTO legacy_load_pens VALUES
     ('126', 'CBE', 'Castro',  '1'),
@@ -94,10 +110,24 @@ INSERT INTO legacy_load_pens VALUES
     ('129', 'CPT', 'Godel 2', 'Part 2');
 
 INSERT INTO procurement_load_goats (
-    tenant_id, load_id, goat_id, selection_state, current_state, intake_accepted_at
+    tenant_id, load_id, goat_id, selection_state, current_state, intake_accepted_at,
+    animal_identifier_1, animal_identifier_2
 )
 SELECT g.tenant_id, li.load_id, g.goat_id, 'accepted_herd_intake', 'accepted_herd_intake',
-       ll.purchase_date::timestamptz
+       ll.purchase_date::timestamptz,
+       -- The animal's own tags, snapshotted onto the membership row so the load's animals are
+       -- identifiable by TAG and not only by an opaque goat_id. Read from the active identifier
+       -- rows; NULL where the animal carries none of that type.
+       (SELECT gi.identifier_value FROM goat_identifiers gi
+         WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
+           AND gi.identifier_type = 'animal_identifier_1'
+           AND gi.status = 'active' AND gi.valid_to IS NULL
+         ORDER BY gi.is_primary_for_goat DESC, gi.valid_from DESC LIMIT 1),
+       (SELECT gi.identifier_value FROM goat_identifiers gi
+         WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
+           AND gi.identifier_type = 'animal_identifier_2'
+           AND gi.status = 'active' AND gi.valid_to IS NULL
+         ORDER BY gi.is_primary_for_goat DESC, gi.valid_from DESC LIMIT 1)
 FROM legacy_load_pens pen
 JOIN legacy_load_ids li ON li.load_ref = pen.load_ref
 JOIN legacy_loads ll ON ll.load_ref = pen.load_ref
@@ -108,7 +138,9 @@ JOIN locations sh ON sh.parent_location_id = pk.location_id
 JOIN goats g ON g.shed_id = sh.location_id AND g.lifecycle_status = 'alive'
 JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
   AND gsp.partition_label = pen.partition_label
-ON CONFLICT (tenant_id, load_id, goat_id) DO NOTHING;
+ON CONFLICT (tenant_id, load_id, goat_id) DO UPDATE
+SET animal_identifier_1 = EXCLUDED.animal_identifier_1,
+    animal_identifier_2 = EXCLUDED.animal_identifier_2;
 
 -- Prior outcomes: what already happened before these animals were tracked here, with dates.
 INSERT INTO procurement_load_prior_outcomes
@@ -150,6 +182,10 @@ SET animal_count = EXCLUDED.animal_count,
 SELECT pl.context->>'load_ref' AS load_ref, p.display_name AS vendor, pl.purchase_date,
        pl.expected_count, pl.animal_cost,
        count(plg.goat_id) AS members,
+       count(plg.goat_id) FILTER (
+           WHERE regexp_replace(lower(plg.animal_identifier_1), '[^0-9]', '', 'g') = lower(plg.animal_identifier_1)
+             AND length(plg.animal_identifier_1) BETWEEN 12 AND 16
+       ) AS members_with_real_rfid,
        (SELECT count(*) FROM procurement_load_prior_outcomes po WHERE po.load_id = pl.load_id) AS prior_rows
 FROM procurement_loads pl
 JOIN parties p ON p.party_id = pl.source_party_id
