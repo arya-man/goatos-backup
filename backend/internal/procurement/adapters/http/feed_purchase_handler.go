@@ -24,6 +24,7 @@ type FeedPurchaseService interface {
 	CreateFeedPurchase(ctx context.Context, tenantID string, write domain.FeedPurchaseWrite, actorID, idempotencyKey string) (domain.FeedPurchase, error)
 	RecordFeedPurchasePayment(ctx context.Context, tenantID, purchaseID string, write domain.FeedPurchasePaymentWrite, actorID, idempotencyKey string) (domain.FeedPurchase, error)
 	SetFeedPurchasePaymentStatus(ctx context.Context, tenantID, purchaseID, status, actorID string) (domain.FeedPurchase, error)
+	EditFeedPurchase(ctx context.Context, tenantID, purchaseID string, edit domain.FeedPurchaseEdit, actorID string) (domain.FeedPurchase, error)
 }
 
 // FeedPurchaseHandler serves /procurement/feed-purchases.
@@ -50,6 +51,7 @@ func RegisterFeedPurchases(mux *http.ServeMux, h *FeedPurchaseHandler) {
 	mux.HandleFunc("GET /procurement/feed-purchase-options", h.FeedPurchaseOptions)
 	mux.HandleFunc("POST /procurement/feed-purchases/{purchase_id}/payments", h.RecordFeedPurchasePayment)
 	mux.HandleFunc("PUT /procurement/feed-purchases/{purchase_id}/payment-status", h.SetFeedPurchasePaymentStatus)
+	mux.HandleFunc("PUT /procurement/feed-purchases/{purchase_id}", h.EditFeedPurchase)
 }
 
 // maxFeedPurchaseRequestBytes caps a write body. The largest legitimate record-purchase payload is
@@ -152,6 +154,21 @@ func (h *FeedPurchaseHandler) SetFeedPurchasePaymentStatus(w http.ResponseWriter
 	}
 	updated, err := h.service.SetFeedPurchasePaymentStatus(r.Context(), tenantID(r), r.PathValue("purchase_id"),
 		body.PaymentStatus, httpmiddleware.ActorIDFromContext(r.Context()))
+	if err != nil {
+		h.writeErr(w, r, app.FeedPurchaseHTTPError(err))
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, toFeedPurchasePayload(updated))
+}
+
+// EditFeedPurchase serves PUT /procurement/feed-purchases/{purchase_id}.
+func (h *FeedPurchaseHandler) EditFeedPurchase(w http.ResponseWriter, r *http.Request) {
+	var body feedPurchaseEditPayload
+	if !decodeFeedPurchaseBody(h, w, r, &body) {
+		return
+	}
+	updated, err := h.service.EditFeedPurchase(r.Context(), tenantID(r), r.PathValue("purchase_id"),
+		body.toDomain(), httpmiddleware.ActorIDFromContext(r.Context()))
 	if err != nil {
 		h.writeErr(w, r, app.FeedPurchaseHTTPError(err))
 		return

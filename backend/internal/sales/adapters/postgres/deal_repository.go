@@ -27,7 +27,7 @@ const dealColumns = `
 	d.source_sales_id, d.source_purchase_id, d.source_row_no,
 	d.buyer_name, d.buyer_place, d.buyer_vendor_id, d.product_type, d.breed,
 	d.animal_count, d.male_count, d.female_count, d.total_weight_kg,
-	d.advance_amount, d.sales_value, d.status, d.feedback, d.comments,
+	d.advance_amount, d.sales_value, d.payment_received, d.status, d.feedback, d.comments,
 	d.created_at, d.updated_at`
 
 // scanDeal reads one row of dealColumns, in that exact order.
@@ -47,7 +47,7 @@ func scanDeal(row pgx.Row) (domain.Deal, error) {
 		&srcSales, &srcPur, &srcRow,
 		&d.BuyerName, &d.BuyerPlace, &d.BuyerVendorID, &d.ProductType, &d.Breed,
 		&d.AnimalCount, &d.MaleCount, &d.FemaleCount, &d.TotalWeightKg,
-		&d.AdvanceAmount, &salesValue, &d.Status, &d.Feedback, &d.Comments,
+		&d.AdvanceAmount, &salesValue, &d.PaymentReceived, &d.Status, &d.Feedback, &d.Comments,
 		&createdAt, &updatedAt,
 	)
 	if err != nil {
@@ -119,6 +119,10 @@ func (r *Repository) ListDeals(ctx context.Context, tenantID, farm string, limit
 		return ports.DealPage{}, fmt.Errorf("list sales deals rows: %w", err)
 	}
 
+	if err := r.attachDealPayments(ctx, tenantID, deals); err != nil {
+		return ports.DealPage{}, err
+	}
+
 	page := ports.DealPage{Deals: deals}
 	// Whole-filter total over the SAME predicates, built from the same buildDealFilter call so
 	// the list and its total cannot drift.
@@ -139,7 +143,150 @@ func (r *Repository) getDeal(ctx context.Context, tenantID, dealID string) (doma
 	if err != nil {
 		return domain.Deal{}, fmt.Errorf("get sales deal: %w", err)
 	}
-	return d, nil
+	deals := []domain.Deal{d}
+	if err := r.attachDealPayments(ctx, tenantID, deals); err != nil {
+		return domain.Deal{}, err
+	}
+	return deals[0], nil
+}
+
+// attachDealPayments loads the receipts of every deal on one page in ONE batched read (`= ANY`,
+// never a per-row query) and attaches them oldest first.
+func (r *Repository) attachDealPayments(ctx context.Context, tenantID string, deals []domain.Deal) error {
+	if len(deals) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(deals))
+	index := make(map[string]int, len(deals))
+	for i, d := range deals {
+		ids = append(ids, d.DealID)
+		index[d.DealID] = i
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT payment_id::text, deal_id::text, received_on, amount_rupees, note, created_at
+FROM public.sales_deal_payments
+WHERE tenant_id = $1 AND deal_id = ANY($2::uuid[])
+ORDER BY received_on, created_at`, tenantID, ids)
+	if err != nil {
+		return fmt.Errorf("list sales deal payments: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			payment    domain.DealPayment
+			receivedOn time.Time
+			createdAt  time.Time
+		)
+		if err := rows.Scan(&payment.PaymentID, &payment.DealID, &receivedOn, &payment.AmountRupees, &payment.Note, &createdAt); err != nil {
+			return fmt.Errorf("list sales deal payments scan: %w", err)
+		}
+		payment.ReceivedOn = receivedOn.Format("2006-01-02")
+		payment.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		if i, ok := index[payment.DealID]; ok {
+			deals[i].Payments = append(deals[i].Payments, payment)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("list sales deal payments rows: %w", err)
+	}
+	return nil
+}
+
+// idemScopeDealPayment namespaces the record-receipt idempotency keys.
+const idemScopeDealPayment = "sales.deal.payment"
+
+// RecordDealPayment records one receipt against one deal.
+//
+// Same shape as the feed-purchase instalment write: everything money-shaped happens in ONE
+// transaction under the deal's row lock -- the receipt insert and the running payment_received
+// total -- so two concurrent receipts each add their own amount to the total the OTHER left.
+// Deal status is deliberately NOT derived from money: the lifecycle stays a human decision.
+func (r *Repository) RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: begin deal payment: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	fingerprint := requestFingerprint(dealID, write.ReceivedOn, fmt.Sprintf("%.2f", write.AmountRupees), write.Note)
+	reservation, err := reserveIdempotency(ctx, tx, tenantID, idemScopeDealPayment, idempotencyKey, fingerprint)
+	if err != nil {
+		return domain.Deal{}, err
+	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.Deal{}, fmt.Errorf("sales: commit deal payment replay read: %w", err)
+		}
+		return r.getDeal(ctx, tenantID, dealID)
+	}
+
+	var received *float64
+	err = tx.QueryRow(ctx, `
+SELECT payment_received
+FROM public.sales_deals
+WHERE tenant_id = $1 AND id = $2
+FOR UPDATE`, tenantID, dealID).Scan(&received)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Deal{}, ports.ErrDealNotFound
+	}
+	if err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: lock deal payment: %w", err)
+	}
+
+	var paymentID string
+	err = tx.QueryRow(ctx, `
+INSERT INTO public.sales_deal_payments (tenant_id, deal_id, received_on, amount_rupees, note, recorded_by)
+VALUES ($1::uuid, $2::uuid, $3::date, $4, $5, nullif($6, '')::uuid)
+RETURNING payment_id::text`,
+		tenantID, dealID, write.ReceivedOn, write.AmountRupees, write.Note, actorID,
+	).Scan(&paymentID)
+	if err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: insert deal payment: %w", err)
+	}
+
+	total := write.AmountRupees
+	if received != nil {
+		total += *received
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE public.sales_deals
+SET payment_received = $3, updated_at = now()
+WHERE tenant_id = $1 AND id = $2`, tenantID, dealID, total); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: update deal payment total: %w", err)
+	}
+
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorID:      actorID,
+		ActorType:    "human",
+		Action:       "sales.deal.payment_record",
+		ResourceType: "sales_deal",
+		ResourceID:   dealID,
+		Metadata: map[string]any{
+			"domain":           "sales",
+			"module":           "sales_deals",
+			"category":         "payment",
+			"payment_id":       paymentID,
+			"received_on":      write.ReceivedOn,
+			"amount_rupees":    write.AmountRupees,
+			"payment_received": total,
+			"idempotency_key":  idempotencyKey,
+			"operation_id":     idempotencyKey,
+		},
+	}); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: audit deal payment: %w", err)
+	}
+
+	if err := completeIdempotency(ctx, tx, tenantID, idemScopeDealPayment, idempotencyKey, "sales_deal_payment", paymentID); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: complete deal payment idempotency: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Deal{}, fmt.Errorf("sales: commit deal payment: %w", err)
+	}
+	return r.getDeal(ctx, tenantID, dealID)
 }
 
 // CreateDeal records a sale: idempotency reservation, insert, and audit in ONE transaction.
@@ -187,11 +334,15 @@ func (r *Repository) CreateDeal(ctx context.Context, tenantID string, write doma
 		INSERT INTO public.sales_deals (
 			tenant_id, sale_date, farm, buyer_name, buyer_place, buyer_vendor_id,
 			product_type, breed, animal_count, male_count, female_count,
-			total_weight_kg, advance_amount, sales_value, comments
+			total_weight_kg, advance_amount, sales_value, comments,
+			payment_received
 		) VALUES (
 			$1, $2::date, $3, $4, nullif(btrim($5), ''), nullif(btrim($6), '')::uuid,
 			$7, $8, $9, $10, $11,
-			$12, $13, $14, nullif(btrim($15), '')
+			$12, $13, $14, nullif(btrim($15), ''),
+			-- The advance IS money received: seed the running total the receipts ledger advances,
+			-- exactly as migration 000227 seeded sheet history, so a fresh deal's balance is honest.
+			$13
 		)
 		RETURNING id::text`,
 		tenantID, write.SaleDate, write.Farm, write.BuyerName, write.BuyerPlace, write.BuyerVendorID,

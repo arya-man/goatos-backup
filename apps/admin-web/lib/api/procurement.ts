@@ -14,6 +14,8 @@ export type SalesPriceBand = AppApiComponents["schemas"]["SalesPriceBand"];
 export type SalesBuyer = AppApiComponents["schemas"]["SalesBuyer"];
 export type SalesMarketBenchmark = AppApiComponents["schemas"]["SalesMarketBenchmark"];
 export type SalesDeal = AppApiComponents["schemas"]["SalesDeal"];
+export type SalesDealPayment = AppApiComponents["schemas"]["SalesDealPayment"];
+export type SalesDealPaymentWrite = AppApiComponents["schemas"]["SalesDealPaymentWrite"];
 export type SalesDealPage = AppApiComponents["schemas"]["SalesDealPage"];
 export type SalesDealWrite = AppApiComponents["schemas"]["SalesDealWrite"];
 
@@ -25,6 +27,7 @@ export type FeedPurchaseOptions = AppApiComponents["schemas"]["FeedPurchaseOptio
 export type FeedPurchasePayment = AppApiComponents["schemas"]["FeedPurchasePayment"];
 export type FeedPurchasePaymentWrite = AppApiComponents["schemas"]["FeedPurchasePaymentWrite"];
 export type FeedPurchaseStatusWrite = AppApiComponents["schemas"]["FeedPurchaseStatusWrite"];
+export type FeedPurchaseEdit = AppApiComponents["schemas"]["FeedPurchaseEdit"];
 export type SalesBuyerLead = AppApiComponents["schemas"]["SalesBuyerLead"];
 export type SalesBuyerLeadPage = AppApiComponents["schemas"]["SalesBuyerLeadPage"];
 export type SalesBuyerLeadWrite = AppApiComponents["schemas"]["SalesBuyerLeadWrite"];

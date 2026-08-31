@@ -4,7 +4,9 @@ package app
 import (
 	"context"
 	"strings"
+	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/sales/domain"
 	"github.com/vgoats/goatos/backend/internal/sales/ports"
 )
@@ -16,10 +18,17 @@ import (
 // nothing for a service layer to orchestrate beyond validating a write and the read filters.
 type SalesService struct {
 	repo ports.SalesRepository
+	// now is injectable so a test pins the business date rather than depending on the wall clock.
+	now func() time.Time
 }
 
 func NewSalesService(repo ports.SalesRepository) *SalesService {
-	return &SalesService{repo: repo}
+	return &SalesService{repo: repo, now: time.Now}
+}
+
+// NewSalesServiceWithClock builds the service against a pinned clock, for tests.
+func NewSalesServiceWithClock(repo ports.SalesRepository, now func() time.Time) *SalesService {
+	return &SalesService{repo: repo, now: now}
 }
 
 // GetOverview returns the whole page contract for one farm scope.
@@ -68,6 +77,26 @@ func (s *SalesService) CreateDeal(ctx context.Context, tenantID string, write do
 		return domain.Deal{}, err
 	}
 	return s.repo.CreateDeal(ctx, tenantID, normalized, actorID, strings.TrimSpace(idempotencyKey))
+}
+
+// RecordDealPayment validates and records one receipt against one deal.
+//
+// The idempotency key is mandatory for the same reason CreateDeal's is: a receipt is money, and a
+// retried submit must never count the same amount from the buyer twice.
+func (s *SalesService) RecordDealPayment(ctx context.Context, tenantID, dealID string, write domain.DealPaymentWrite, actorID, idempotencyKey string) (domain.Deal, error) {
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return domain.Deal{}, ErrSalesIdempotencyKeyRequired
+	}
+	if strings.TrimSpace(dealID) == "" {
+		return domain.Deal{}, ports.ErrDealNotFound
+	}
+	normalized := write.Normalize()
+	// The received date is judged against the IST BUSINESS day, never a UTC instant, same as the
+	// feed-purchase instalment rule.
+	if err := normalized.Validate(biztime.BusinessDayStart(s.now())); err != nil {
+		return domain.Deal{}, err
+	}
+	return s.repo.RecordDealPayment(ctx, tenantID, dealID, normalized, actorID, strings.TrimSpace(idempotencyKey))
 }
 
 // LeadListQuery is one page request against a pipeline list.

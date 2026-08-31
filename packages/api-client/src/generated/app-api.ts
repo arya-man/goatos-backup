@@ -2702,6 +2702,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/feed-purchases/{purchase_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Edit an already-recorded feed load's values.
+         * @description Corrects the values of a load recorded wrong -- date, quantity, the landed-cost split, the vendor. The load's IDENTITY (farm, feed, batch number) is deliberately not editable: those three are the natural key the stock cards group by. The landed total, the per-kg rate and the payment status are re-derived inside the same transaction -- raising the cost of a settled load drops it back to Pending with the new balance shown against it. Naturally idempotent: writing the values a load already has changes nothing and audits nothing.
+         */
+        put: operations["editFeedPurchase"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/procurement/feed-purchases/{purchase_id}/payment-status": {
         parameters: {
             query?: never;
@@ -2762,6 +2782,26 @@ export interface paths {
          * @description Records one deal into the ledger with status `Deal Closed`. The `Idempotency-Key` header is REQUIRED: an exact replay returns the originally recorded deal with no new side effects, and the same key replayed with different fields is rejected with 409 `idempotency_conflict`, so a retried submit can never record a sale twice. Farm and product type are validated against their closed vocabularies and rejected -- never silently rewritten -- when unrecognised.
          */
         post: operations["createSalesDeal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/deals/{deal_id}/payments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record one amount received from the buyer against a deal.
+         * @description A buyer does not pay a deal in one go: an advance when the deal is struck, more on pickup, the balance later -- each is recorded here as its own row with its own date. In the same transaction the deal's running `payment_received` total advances; `payment_balance` derives from it. Deal STATUS is deliberately not derived from money -- the lifecycle stays a human decision. The `Idempotency-Key` header is REQUIRED: an exact replay records nothing new, and the same key with different fields is rejected 409. `received_on` may not be in the future (IST business day).
+         */
+        post: operations["recordSalesDealPayment"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5618,6 +5658,22 @@ export interface components {
             /** @enum {string} */
             payment_status: "Paid" | "Pending";
         };
+        /** @description Edit-purchase body. Identity (farm, feed, batch) and payment fields are deliberately absent -- money moves through the instalment ledger and the status edit. */
+        FeedPurchaseEdit: {
+            /**
+             * Format: date
+             * @description May not be in the future (IST business day).
+             */
+            purchase_date: string;
+            quantity_kg: number;
+            feed_cost?: number | null;
+            transport_cost?: number | null;
+            loading_cost?: number | null;
+            unloading_cost?: number | null;
+            /** @description Leave out to have the split parts summed, exactly as the record form does. */
+            total_cost?: number | null;
+            vendor: string;
+        };
         /** @description The backend-owned vocabulary the record-purchase form renders. */
         FeedPurchaseOptions: {
             farms: ("CBE" | "CPT")[];
@@ -5800,6 +5856,12 @@ export interface components {
             total_weight_kg?: number | null;
             advance_amount?: number | null;
             sales_value: number;
+            /** @description Running total of money the buyer has handed over: seeded from the recorded advance, advanced by each receipt inside the same transaction. Null when nothing was received. */
+            payment_received?: number | null;
+            /** @description BACKEND-derived money the buyer still owes -- sales_value minus payment_received, floored at zero. Clients render this figure and never derive their own. */
+            payment_balance: number;
+            /** @description Receipts recorded against this deal, oldest first. Empty for sheet history. */
+            payments: components["schemas"]["SalesDealPayment"][];
             /** @enum {string} */
             status: "Deal Closed" | "Deal Failed" | "In Discussion" | "Advance Paid";
             feedback?: string | null;
@@ -5808,6 +5870,28 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /** @description One amount the buyer actually handed over for one deal. */
+        SalesDealPayment: {
+            /** Format: uuid */
+            payment_id: string;
+            /**
+             * Format: date
+             * @description The business date the money was received, never a timestamp.
+             */
+            received_on: string;
+            amount_rupees: number;
+            /** @description Free-text context ("advance at deal", "on pickup"). May be empty. */
+            note: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description Record-receipt body. Amount must be more than zero; received_on may not be in the future. */
+        SalesDealPaymentWrite: {
+            /** Format: date */
+            received_on: string;
+            amount_rupees: number;
+            note?: string;
         };
         SalesDealPage: {
             deals: components["schemas"]["SalesDeal"][];
@@ -18609,6 +18693,37 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    editFeedPurchase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchase_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedPurchaseEdit"];
+            };
+        };
+        responses: {
+            /** @description The load after the edit, with its payment history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedPurchase"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     setFeedPurchasePaymentStatus: {
         parameters: {
             query?: never;
@@ -18723,6 +18838,40 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordSalesDealPayment: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                deal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesDealPaymentWrite"];
+            };
+        };
+        responses: {
+            /** @description The deal after the receipt, with its full payment history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesDeal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };

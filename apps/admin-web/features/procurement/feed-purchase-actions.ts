@@ -8,8 +8,8 @@ import { actionRedirect, optionalString, requiredString } from "@/lib/action-hel
 // NOTE: every actionKey below MUST start with "action." -- withActionFeedback silently rewrites
 // anything else to "action.error_form" -- and each key needs matching page-contract copy, because
 // actionFeedbackCopy throws on a missing key and takes the whole page down with it.
-import { createFeedPurchase, recordFeedPurchasePayment, setFeedPurchasePaymentStatus } from "@/lib/api/procurement-server";
-import type { FeedPurchaseStatusWrite, FeedPurchaseWrite } from "@/lib/api/procurement";
+import { createFeedPurchase, editFeedPurchase, recordFeedPurchasePayment, setFeedPurchasePaymentStatus } from "@/lib/api/procurement-server";
+import type { FeedPurchaseEdit, FeedPurchaseStatusWrite, FeedPurchaseWrite } from "@/lib/api/procurement";
 
 const FEED_PURCHASES_PATH = "/procurement/feed-purchases";
 
@@ -103,4 +103,37 @@ export async function setFeedPurchasePaymentStatusAction(formData: FormData): Pr
   }
   revalidatePath(FEED_PURCHASES_PATH);
   actionRedirect(formData, "success", "action.payment_status_updated");
+}
+
+/**
+ * Edits an already-recorded load's values. The backend re-derives the landed total, per-kg rate
+ * and payment status in the same transaction; identity (farm/feed/batch) is not editable.
+ */
+export async function editFeedPurchaseAction(formData: FormData): Promise<void> {
+  const purchaseId = requiredString(formData, "feed_purchase_id");
+  const parseOptionalNumber = (key: string): number | null => {
+    const trimmed = (formData.get(key)?.toString() ?? "").trim();
+    if (trimmed === "") return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const body: FeedPurchaseEdit = {
+    purchase_date: requiredString(formData, "purchase_date"),
+    quantity_kg: Number(requiredString(formData, "quantity_kg")),
+    feed_cost: parseOptionalNumber("feed_cost"),
+    transport_cost: parseOptionalNumber("transport_cost"),
+    loading_cost: parseOptionalNumber("loading_cost"),
+    unloading_cost: parseOptionalNumber("unloading_cost"),
+    total_cost: parseOptionalNumber("total_cost"),
+    vendor: requiredString(formData, "vendor"),
+  };
+  const result = await editFeedPurchase(purchaseId, body);
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.purchase_update_failed");
+  }
+  // Quantity and cost feed the stock and spend reads, so a corrected load must not leave cached
+  // pages behind showing the old figures.
+  revalidatePath(FEED_PURCHASES_PATH);
+  revalidatePath("/feed/analytics");
+  actionRedirect(formData, "success", "action.purchase_updated");
 }

@@ -10,13 +10,13 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { Tag } from "@/components/ui-primitives";
-import { copy, optionalOptionGroup, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { controlEnabled, copy, optionalOptionGroup, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { SalesDeal } from "@/lib/api/procurement";
 import type { ProcurementVendorOption, ProcurementVendorOptions } from "@/lib/api/server";
 import { ThemedDatePicker } from "@/components/themed-date-picker";
 import { fmtDate, todayIso } from "@/lib/format";
 import { dealStatusTone, inr, num } from "./sales-format";
-import { recordSaleAction } from "./sales-actions";
+import { recordSaleAction, recordSalesDealPaymentAction } from "./sales-actions";
 
 /** Reads the selected deal from the address bar. "" means the drawer is closed; "new" is the form. */
 function readDealParam(): string {
@@ -85,6 +85,15 @@ export function SalesRecordDrawer({
   const isAdding = selection === "new" && canRecord;
   const deal = selection && selection !== "new" ? (deals.find((d) => d.deal_id === selection) ?? null) : null;
   const open = isAdding || deal !== null;
+
+  // The receipt write is a backend capability, never a role string: the same detail view serves a
+  // read-only principal (no form) and the sales desk (form).
+  const canRecordPayment = controlEnabled(pageContract, "record_sales_deal_payment", false);
+  // Where the payment action returns to: the SAME deal, so the drawer reopens showing the new
+  // receipt rather than closing over the operator's work.
+  const dealHref = deal
+    ? `${listHref}${listHref.includes("?") ? "&" : "?"}deal_id=${encodeURIComponent(deal.deal_id)}`
+    : listHref;
 
   // The breed vocabulary follows the selected product. Tracked as state so changing the product
   // select swaps the breed group; reset during render when the selection changes, not in an effect.
@@ -472,6 +481,66 @@ export function SalesRecordDrawer({
               </div>
               {cell(field("comments"), deal.comments)}
             </div>
+
+            {/* PAYMENTS: what the buyer has handed over, what is still owed, the receipt history,
+                and — behind its backend control — the add-payment write. */}
+            <div className="dgrp">{copy(pageContract, "section.payments.title")}</div>
+            <div className="metagrid">
+              {cell(
+                copy(pageContract, "payments.received_so_far"),
+                deal.payment_received == null ? null : inr(deal.payment_received),
+              )}
+              {/* BACKEND-derived; this cell renders the figure and never subtracts anything itself. */}
+              {cell(copy(pageContract, "payments.balance"), inr(deal.payment_balance))}
+            </div>
+
+            {deal.payments.length === 0 ? (
+              <div className="muted small">{copy(pageContract, "payments.empty")}</div>
+            ) : (
+              <div className="twrap">
+                <table aria-label={copy(pageContract, "section.payments.title")}>
+                  <thead>
+                    <tr>
+                      <th>{copy(pageContract, "payments.column.received_on")}</th>
+                      <th>{copy(pageContract, "payments.column.amount")}</th>
+                      <th>{copy(pageContract, "payments.column.note")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deal.payments.map((payment) => (
+                      <tr key={payment.payment_id}>
+                        <td style={{ whiteSpace: "nowrap" }}>{fmtDate(payment.received_on)}</td>
+                        <td style={{ whiteSpace: "nowrap" }}>{inr(payment.amount_rupees)}</td>
+                        <td>{payment.note || none}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {canRecordPayment ? (
+              <form action={recordSalesDealPaymentAction}>
+                <input type="hidden" name="return_to" value={dealHref} />
+                <input type="hidden" name="deal_id" value={deal.deal_id} />
+                <div className="fld">
+                  <label htmlFor="sdp-received_on">{field("received_on")}</label>
+                  <input id="sdp-received_on" name="received_on" type="date" required />
+                </div>
+                <div className="fld">
+                  <label htmlFor="sdp-amount">{field("amount_rupees")}</label>
+                  <input id="sdp-amount" name="amount_rupees" type="number" min={0.01} step="0.01" required />
+                </div>
+                <div className="fld">
+                  <label htmlFor="sdp-note">{field("note")}</label>
+                  <input id="sdp-note" name="note" maxLength={300} />
+                  <div className="muted small">{copy(pageContract, "hint.record_payment")}</div>
+                </div>
+                <button type="submit" className="btn p">
+                  {copy(pageContract, "action.record_deal_payment.label")}
+                </button>
+              </form>
+            ) : null}
           </div>
         ) : null}
       </aside>

@@ -935,13 +935,23 @@ func compileSalesControls(controls []domain.Control, input BootstrapInput, copy 
 	// One capability gate for the pipeline/evidence writes (leads, farmer groups, market quotes,
 	// tag lists, weight checks): they all ride SalesWrite, and the sheet they replaced is retired
 	// (maintainer decision 2026-08-18), so entry lives here or nowhere.
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "record_pipeline",
 		Label:          controlCopy(copy, "action.record_pipeline.label", "Add record"),
 		Kind:           "secondary_action",
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /sales/buyer-leads",
+	})
+	// A buyer receipt is a money write on the same ledger, so it rides the same permission as
+	// recording the deal. Declared-and-disabled for read-only principals, like every write here.
+	return upsertControl(controls, domain.Control{
+		ID:             "record_sales_deal_payment",
+		Label:          controlCopy(copy, "action.record_deal_payment.label", "Add payment"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "POST /sales/deals/{deal_id}/payments",
 	})
 }
 
@@ -987,13 +997,24 @@ func compileFeedPurchaseControls(controls []domain.Control, input BootstrapInput
 		DisabledReason: reason,
 		Action:         "POST /procurement/feed-purchases/{purchase_id}/payments",
 	})
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "update_feed_purchase_payment_status",
 		Label:          controlCopy(copy, "action.update_payment_status.label", "Update status"),
 		Kind:           "row_action",
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "PUT /procurement/feed-purchases/{purchase_id}/payment-status",
+	})
+	// Editing a recorded load's values is the same authority as recording it: whoever buys feed
+	// may correct a wrongly-typed quantity or cost. Identity (farm/feed/batch) stays immutable at
+	// the contract's own route.
+	return upsertControl(controls, domain.Control{
+		ID:             "edit_feed_purchase",
+		Label:          controlCopy(copy, "action.edit_feed_purchase.label", "Edit purchase"),
+		Kind:           "row_action",
+		Enabled:        allowed,
+		DisabledReason: reason,
+		Action:         "PUT /procurement/feed-purchases/{purchase_id}",
 	})
 }
 

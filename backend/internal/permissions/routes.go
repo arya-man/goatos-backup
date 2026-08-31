@@ -283,6 +283,7 @@ var protectedRoutes = []Route{
 	// carry the same write permission as recording the load itself.
 	{OperationID: "recordFeedPurchasePayment", Method: "POST", Pattern: "/procurement/feed-purchases/{purchase_id}/payments", Permissions: []string{FeedPurchaseWrite}},
 	{OperationID: "setFeedPurchasePaymentStatus", Method: "PUT", Pattern: "/procurement/feed-purchases/{purchase_id}/payment-status", Permissions: []string{FeedPurchaseWrite}},
+	{OperationID: "editFeedPurchase", Method: "PUT", Pattern: "/procurement/feed-purchases/{purchase_id}", Permissions: []string{FeedPurchaseWrite}},
 
 	// TOXIN (maintainer decision 2026-08-25): the aflatoxin strip-test module. The task
 	// list and detail are ToxinRead; the step work is ToxinExecute; the verdict routes are
@@ -302,6 +303,9 @@ var protectedRoutes = []Route{
 	{OperationID: "listSalesOverview", Method: "GET", Pattern: "/sales/overview", Permissions: []string{SalesRead}},
 	{OperationID: "listSalesDeals", Method: "GET", Pattern: "/sales/deals", Permissions: []string{SalesRead}},
 	{OperationID: "createSalesDeal", Method: "POST", Pattern: "/sales/deals", Permissions: []string{SalesWrite}},
+	// A buyer receipt is a money write on the same ledger, so it carries the same write permission
+	// as recording the deal itself.
+	{OperationID: "recordSalesDealPayment", Method: "POST", Pattern: "/sales/deals/{deal_id}/payments", Permissions: []string{SalesWrite}},
 	{OperationID: "listSalesBuyerLeads", Method: "GET", Pattern: "/sales/buyer-leads", Permissions: []string{SalesRead}},
 	{OperationID: "createSalesBuyerLead", Method: "POST", Pattern: "/sales/buyer-leads", Permissions: []string{SalesWrite}},
 	{OperationID: "setSalesBuyerLeadStatus", Method: "POST", Pattern: "/sales/buyer-leads/{lead_id}/status", Permissions: []string{SalesWrite}},

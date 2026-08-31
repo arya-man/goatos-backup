@@ -18,6 +18,7 @@ import type {
   FeedPurchaseOptions,
   FeedPurchasePage,
   FeedPurchasePaymentWrite,
+  FeedPurchaseEdit,
   FeedPurchaseStatusWrite,
   FeedPurchaseWrite,
   SalesBenchmarkWrite,
@@ -26,6 +27,7 @@ import type {
   SalesBuyerLeadWrite,
   SalesDeal,
   SalesDealPage,
+  SalesDealPaymentWrite,
   SalesDealWrite,
   SalesFpoLead,
   SalesFpoLeadPage,
@@ -345,6 +347,40 @@ export async function setFeedPurchasePaymentStatus(
     client.request<FeedPurchase>(`/procurement/feed-purchases/${encodeURIComponent(purchaseId)}/payment-status` as keyof AppApiPaths & string, {
       method: "PUT",
       cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function editFeedPurchase(
+  purchaseId: string,
+  body: FeedPurchaseEdit,
+): Promise<ApiResult<FeedPurchase>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedPurchase>(`/procurement/feed-purchases/${encodeURIComponent(purchaseId)}` as keyof AppApiPaths & string, {
+      method: "PUT",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+export async function recordSalesDealPayment(
+  dealId: string,
+  body: SalesDealPaymentWrite,
+  idempotencyKey: string,
+): Promise<ApiResult<SalesDeal>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<SalesDeal>(`/sales/deals/${encodeURIComponent(dealId)}/payments` as keyof AppApiPaths & string, {
+      method: "POST",
+      cache: "no-store",
+      headers: idempotentHeaders(idempotencyKey),
       body,
     }),
   );

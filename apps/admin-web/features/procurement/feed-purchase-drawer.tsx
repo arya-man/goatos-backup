@@ -15,6 +15,7 @@ import { fmtDate } from "@/lib/format";
 import { paymentStatusChip } from "./feed-purchase-format";
 import { inr, num } from "./sales-format";
 import {
+  editFeedPurchaseAction,
   recordFeedPurchaseAction,
   recordFeedPurchasePaymentAction,
   setFeedPurchasePaymentStatusAction,
@@ -23,6 +24,11 @@ import {
 /** Reads the selected purchase from the address bar. "" means closed; "new" is the entry form. */
 function readPurchaseParam(): string {
   return new URL(window.location.href).searchParams.get("purchase_id") ?? "";
+}
+
+/** Reads the edit flag from the address bar, so Back leaves edit mode before closing the drawer. */
+function readEditParam(): string {
+  return new URL(window.location.href).searchParams.get("edit") ?? "";
 }
 
 /**
@@ -72,6 +78,7 @@ export function FeedPurchaseDrawer({
   // The URL is an EXTERNAL store — LocalOverlayLink mutates history outside React — so it is read
   // via useSyncExternalStore rather than mirrored into state in an effect. SSR renders it closed.
   const selection = useSyncExternalStore(subscribeToOverlayUrl, readPurchaseParam, () => "");
+  const editFlag = useSyncExternalStore(subscribeToOverlayUrl, readEditParam, () => "");
 
   const isAdding = selection === "new" && canRecord;
   const purchase =
@@ -107,14 +114,18 @@ export function FeedPurchaseDrawer({
   // the read-only Feed Director (no forms) and the procurement desk (both forms).
   const canRecordPayment = controlEnabled(pageContract, "record_feed_purchase_payment", false);
   const canEditStatus = controlEnabled(pageContract, "update_feed_purchase_payment_status", false);
+  const canEdit = controlEnabled(pageContract, "edit_feed_purchase", false);
   // Where the payment actions return to: the SAME record, so the drawer reopens showing the new
   // instalment rather than closing over the operator's work.
   const detailHref = purchase
     ? `${listHref}${listHref.includes("?") ? "&" : "?"}purchase_id=${encodeURIComponent(purchase.feed_purchase_id)}`
     : listHref;
+  const isEditing = purchase !== null && canEdit && editFlag === "1";
   const title = isAdding
     ? copy(pageContract, "drawer.record_purchase.title")
-    : copy(pageContract, "drawer.detail.title");
+    : isEditing
+      ? copy(pageContract, "drawer.edit.title")
+      : copy(pageContract, "drawer.detail.title");
 
   // The write vocabulary excludes the read-scope "all" entry: a load is bought for ONE farm.
   const farmOptions = optionGroup(pageContract, "feed_purchase_farms").filter((option) => option.key !== "all");
@@ -279,8 +290,86 @@ export function FeedPurchaseDrawer({
               </button>
             </div>
           </form>
+        ) : purchase && isEditing ? (
+          <form action={editFeedPurchaseAction} style={{ display: "contents" }}>
+            <div className="dc">
+              <input type="hidden" name="return_to" value={detailHref} />
+              <input type="hidden" name="feed_purchase_id" value={purchase.feed_purchase_id} />
+
+              {/* Identity is read-only by design: farm, feed and batch are the natural key the
+                  stock cards group by. The hint says so rather than leaving greyed boxes mute. */}
+              <div className="note">{copy(pageContract, "hint.edit_identity")}</div>
+              <div className="metagrid">
+                <div>
+                  <div className="k">{field("farm")}</div>
+                  <div className="v">{purchase.farm}</div>
+                </div>
+                <div>
+                  <div className="k">{field("feed_item")}</div>
+                  <div className="v">{purchase.feed_item}</div>
+                </div>
+                <div>
+                  <div className="k">{field("batch_no")}</div>
+                  <div className="v">{purchase.batch_no}</div>
+                </div>
+              </div>
+
+              <div className="fld">
+                <label htmlFor="fpe-purchase_date">{field("purchase_date")}</label>
+                <input id="fpe-purchase_date" name="purchase_date" type="date" required defaultValue={purchase.purchase_date} />
+              </div>
+              <div className="fld">
+                <label htmlFor="fpe-quantity_kg">{field("quantity_kg")}</label>
+                <input id="fpe-quantity_kg" name="quantity_kg" type="number" min={0.001} step="0.001" required defaultValue={purchase.quantity_kg} />
+              </div>
+              <div className="fld">
+                <label htmlFor="fpe-feed_cost">{field("feed_cost")}</label>
+                <input id="fpe-feed_cost" name="feed_cost" type="number" min={0} step="0.01" defaultValue={purchase.feed_cost ?? ""} />
+              </div>
+              <div className="fld">
+                <label htmlFor="fpe-transport_cost">{field("transport_cost")}</label>
+                <input id="fpe-transport_cost" name="transport_cost" type="number" min={0} step="0.01" defaultValue={purchase.transport_cost ?? ""} />
+              </div>
+              <div className="fld">
+                <label htmlFor="fpe-loading_cost">{field("loading_cost")}</label>
+                <input id="fpe-loading_cost" name="loading_cost" type="number" min={0} step="0.01" defaultValue={purchase.loading_cost ?? ""} />
+              </div>
+              <div className="fld">
+                <label htmlFor="fpe-unloading_cost">{field("unloading_cost")}</label>
+                <input id="fpe-unloading_cost" name="unloading_cost" type="number" min={0} step="0.01" defaultValue={purchase.unloading_cost ?? ""} />
+              </div>
+              <div className="fld">
+                <label htmlFor="fpe-total_cost">{field("total_cost")}</label>
+                <input id="fpe-total_cost" name="total_cost" type="number" min={0} step="0.01" defaultValue={purchase.total_cost ?? ""} />
+                <div className="muted small">{copy(pageContract, "hint.total_cost")}</div>
+              </div>
+              <div className="fld">
+                <label htmlFor="fpe-vendor">{field("vendor")}</label>
+                <input id="fpe-vendor" name="vendor" required maxLength={160} defaultValue={purchase.vendor} list="fp-vendor-options" />
+              </div>
+            </div>
+            <div className="df">
+              <button type="submit" className="btn p">
+                {copy(pageContract, "action.save")}
+              </button>
+              <button type="button" className="btn" onClick={() => replaceLocalOverlayUrl(detailHref)}>
+                {copy(pageContract, "action.cancel")}
+              </button>
+            </div>
+          </form>
         ) : purchase ? (
           <div className="dc">
+            {canEdit ? (
+              <div>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => replaceLocalOverlayUrl(`${detailHref}&edit=1`)}
+                >
+                  {copy(pageContract, "action.edit_feed_purchase.label")}
+                </button>
+              </div>
+            ) : null}
             {/* RECORD drawer body: the mock's .metagrid of uppercase-key cells, never a flat stack. */}
             <div className="metagrid">
               {cell(field("purchase_date"), fmtDate(purchase.purchase_date))}
