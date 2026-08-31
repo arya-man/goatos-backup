@@ -5768,6 +5768,9 @@ export interface components {
             status: string;
             /** @description The park code (CBE/CPT) every accepted animal of the load resolves to; absent when the load's animals span parks or none is known -- agree-or-go-bare, never a majority pick. */
             farm?: string | null;
+            /** @description What the LOAD itself says it brought in. The denominator whenever it is non-zero, which is what makes `unaccounted` a real discrepancy rather than an arithmetic identity. */
+            declared_count: number;
+            /** @description declared_count when the load declares one, else the animals attributed to it. */
             purchased: number;
             sold: number;
             /** @description Animals of this load that died on farm. */
@@ -5776,7 +5779,7 @@ export interface components {
             other_exits: number;
             /** @description Still alive on farm. */
             remaining: number;
-            /** @description purchased minus everything above. Non-zero means the herd register and the load disagree, and the screen shows it in red. */
+            /** @description purchased minus every outcome above. Positive = animals the load declares that nothing accounts for; negative = more animals attributed than it declares. Either way the screen shows it in red; it is never absorbed into another bucket. */
             unaccounted: number;
             animal_cost?: number | null;
             transport_cost?: number | null;

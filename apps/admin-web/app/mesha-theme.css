@@ -940,6 +940,10 @@
   /* People/HRMS directory: same nowrap rule — names, emails, and park labels must never
      character-wrap inside a clickable cell; the twrap owns horizontal scrolling. */
   .main table.people-table th,.main table.people-table td,.main table.people-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  /* Same single-line rule for the sales LOAD-WISE table: its cells are counts, money figures and
+     short labels, and the global .celllink overflow-wrap:anywhere otherwise splits "91" into "9"
+     and "1" and stacks "CPT" a letter per line. The .twrap owns the horizontal scroll. */
+  .main table.loadwise-table th,.main table.loadwise-table td,.main table.loadwise-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   /* Feed purchases ledger: same defect class — the global .celllink overflow-wrap:anywhere split
      the 3-letter farm code, the load number, and the ₹ per-kg rate character-by-character down
      the column. Short cells stay single-line; Feed (3) and Vendor (8) wrap at word boundaries
@@ -2946,6 +2950,7 @@ select:disabled { opacity: .45; }
 .gclab{font-size:11px;color:var(--muted);margin-top:5px;white-space:nowrap;line-height:1.2}
 .gcsub{font-size:10.5px;font-weight:600;color:var(--ink);opacity:.72;margin-top:2px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.2}
 @media(max-width:1080px){.gclab{font-size:9px}.gcsub{font-size:9px}.gcarea{height:90px}}
+
 
 /* Deals ledger: single-line cells. The global .celllink overflow-wrap:anywhere otherwise splits
    "2026-08-11" -> "2026-08-" / "11" and "CPT" character-by-character (known failure mode 4b). */

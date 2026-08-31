@@ -55,8 +55,8 @@ RETURNING load_id::text`, testTenant, vendorParty).Scan(&fx.loadA); err != nil {
 		t.Fatalf("seed load A: %v", err)
 	}
 	if err := pool.QueryRow(ctx, `
-INSERT INTO procurement_loads (tenant_id, source_party_id, purchase_date, status, idempotency_key)
-VALUES ($1, $2, '2026-08-05', 'accepted_intake', 'lw-load-b')
+INSERT INTO procurement_loads (tenant_id, source_party_id, purchase_date, status, expected_count, idempotency_key)
+VALUES ($1, $2, '2026-08-05', 'accepted_intake', 9, 'lw-load-b')
 RETURNING load_id::text`, testTenant, vendorParty).Scan(&fx.loadB); err != nil {
 		t.Fatalf("seed load B: %v", err)
 	}
@@ -199,7 +199,10 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 		}
 		// The dedupe (one goat, two accepted rows): the animal counts on load B, not load A —
 		// plus load B's pre-GoatOS history folded in: 2 tracked + 3 already sold + 2 already dead.
-		if loadB.Purchased != 7 || loadB.Sold != 4 || loadB.Mortality != 2 || loadB.Remaining != 1 || loadB.Unaccounted != 0 {
+		// Load B DECLARES 9 animals, so the 2 it cannot account for surface as Unaccounted rather
+		// than being absorbed into the denominator.
+		if loadB.DeclaredCount != 9 || loadB.Purchased != 9 || loadB.Sold != 4 || loadB.Mortality != 2 ||
+			loadB.Remaining != 1 || loadB.Unaccounted != 2 {
 			t.Fatalf("load B counts = %+v", loadB)
 		}
 		if loadB.PriorSold.Count != 3 || loadB.PriorSold.FirstOn != "2026-04-30" || loadB.PriorSold.LastOn != "2026-05-20" {
@@ -251,8 +254,8 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 			t.Fatalf("total loads = %d", out.TotalLoads)
 		}
 		// The summary sums exactly the served rows, prior history included.
-		if out.Summary.Purchased != 12 || out.Summary.Sold != 6 || out.Summary.Mortality != 3 ||
-			out.Summary.Remaining != 2 || out.Summary.Unaccounted != 1 {
+		if out.Summary.Purchased != 14 || out.Summary.Sold != 6 || out.Summary.Mortality != 3 ||
+			out.Summary.Remaining != 2 || out.Summary.Unaccounted != 3 {
 			t.Fatalf("summary = %+v", out.Summary)
 		}
 		// A one-load window serves only the newest load while total_loads still reports both, so

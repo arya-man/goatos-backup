@@ -207,7 +207,7 @@ export function LoadwiseSection({
 
           {/* The reconciliation table. */}
           <div className="twrap" style={{ marginTop: 12 }}>
-            <table aria-label={copy(pageContract, "section.loadwise.aria")}>
+            <table className="loadwise-table" aria-label={copy(pageContract, "section.loadwise.aria")}>
               <thead>
                 <tr>
                   {columns.map((label) => (

@@ -54,12 +54,13 @@ type loadwiseLoadPayload struct {
 	Status       string `json:"status"`
 	Farm         string `json:"farm,omitempty"`
 
-	Purchased   int `json:"purchased"`
-	Sold        int `json:"sold"`
-	Mortality   int `json:"mortality"`
-	OtherExits  int `json:"other_exits"`
-	Remaining   int `json:"remaining"`
-	Unaccounted int `json:"unaccounted"`
+	DeclaredCount int `json:"declared_count"`
+	Purchased     int `json:"purchased"`
+	Sold          int `json:"sold"`
+	Mortality     int `json:"mortality"`
+	OtherExits    int `json:"other_exits"`
+	Remaining     int `json:"remaining"`
+	Unaccounted   int `json:"unaccounted"`
 
 	AnimalCost    *float64 `json:"animal_cost,omitempty"`
 	TransportCost *float64 `json:"transport_cost,omitempty"`
@@ -132,12 +133,13 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			Status:       l.Status,
 			Farm:         l.Farm,
 
-			Purchased:   l.Purchased,
-			Sold:        l.Sold,
-			Mortality:   l.Mortality,
-			OtherExits:  l.OtherExits,
-			Remaining:   l.Remaining,
-			Unaccounted: l.Unaccounted,
+			DeclaredCount: l.DeclaredCount,
+			Purchased:     l.Purchased,
+			Sold:          l.Sold,
+			Mortality:     l.Mortality,
+			OtherExits:    l.OtherExits,
+			Remaining:     l.Remaining,
+			Unaccounted:   l.Unaccounted,
 
 			AnimalCost:    l.AnimalCost,
 			TransportCost: l.TransportCost,

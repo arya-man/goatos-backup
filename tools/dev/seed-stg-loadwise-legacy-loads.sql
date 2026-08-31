@@ -32,18 +32,21 @@ CREATE TEMP TABLE legacy_loads (
     vendor text NOT NULL,
     purchase_date date NOT NULL,
     expected_count integer NOT NULL,
-    animal_cost numeric(14, 2) NOT NULL
+    animal_cost numeric(14, 2) NOT NULL,
+    -- The farm the load went to, per the sheet. It answers the Farm column for a load whose
+    -- animals are all gone, where no resident is left to agree on a park.
+    farm text NOT NULL
 ) ON COMMIT DROP;
 
 INSERT INTO legacy_loads VALUES
-    ('100', 'Green Fresh Farm',         DATE '2025-10-23',  76, 539000),
-    ('101', 'Dr Praneeth',              DATE '2025-10-21',  70, 572000),
-    ('113', 'Nutriplus Foods Pvt Ltd.', DATE '2025-11-13', 100, 980000),
-    ('126', 'Ramesh Reddy',             DATE '2026-05-11',  67, 670000),
-    ('128', 'Krishnamorrthy',           DATE '2026-05-26',  70, 580000),
-    ('129', 'Krishnamorrthy',           DATE '2026-06-01',  78, 675100),
-    ('130', 'Green Fresh Farm',         DATE '2026-06-12',  77, 669465),
-    ('131', 'Krishnamorrthy',           DATE '2026-06-22',  63, 502000);
+    ('100', 'Green Fresh Farm',         DATE '2025-10-23',  76, 539000, 'CPT'),
+    ('101', 'Dr Praneeth',              DATE '2025-10-21',  70, 572000, 'CPT'),
+    ('113', 'Nutriplus Foods Pvt Ltd.', DATE '2025-11-13', 100, 980000, 'CBE'),
+    ('126', 'Ramesh Reddy',             DATE '2026-05-11',  67, 670000, 'CBE'),
+    ('128', 'Krishnamorrthy',           DATE '2026-05-26',  70, 580000, 'CBE'),
+    ('129', 'Krishnamorrthy',           DATE '2026-06-01',  78, 675100, 'CPT'),
+    ('130', 'Green Fresh Farm',         DATE '2026-06-12',  77, 669465, 'CBE'),
+    ('131', 'Krishnamorrthy',           DATE '2026-06-22',  63, 502000, 'CPT');
 
 -- Vendor parties, created only where the register does not already carry the name.
 INSERT INTO parties (party_type, display_name, status)
@@ -65,11 +68,11 @@ SELECT '00000000-0000-4000-8000-000000000001'::uuid,
          ORDER BY p.created_at LIMIT 1),
        ll.purchase_date, ll.expected_count, 'accepted_intake',
        'Seeded from the legacy load sheet (2026-08-31)',
-       jsonb_build_object('load_ref', ll.load_ref),
+       jsonb_build_object('load_ref', ll.load_ref, 'farm', ll.farm),
        'legacy-load-' || ll.load_ref,
        ll.animal_cost, now()
 FROM legacy_loads ll
-ON CONFLICT (idempotency_key) DO NOTHING;
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING;
 
 CREATE TEMP TABLE legacy_load_ids ON COMMIT DROP AS
 SELECT pl.context->>'load_ref' AS load_ref, pl.load_id
@@ -135,6 +138,15 @@ SET animal_count = EXCLUDED.animal_count,
 
 -- VERIFY before COMMIT. Expected: 8 loads; members 126=63, 128=63, 129=77, 130=74, 131=63,
 -- 100/101/113=0; every load carrying its sheet cost.
+--
+-- projection-review: membership=procurement_loads seeded by this script, keyed by its own
+-- idempotency_key prefix; group_key=pl.load_id (its primary key) carried in the GROUP BY beside
+-- the display columns, so one row per load; join_cardinality=parties 1:1 on party_id (a load has
+-- exactly one source party), procurement_load_goats one-to-MANY and therefore counted rather
+-- than multiplied, and the prior-outcome count is a correlated subquery so the many side never
+-- fans the row out; pagination=none, this is a one-time seed verification over the 8 rows just
+-- written, never a served read; scope=tenant_id fixed to the STG tenant in every statement above
+-- and the idempotency_key prefix confines it to this seed.
 SELECT pl.context->>'load_ref' AS load_ref, p.display_name AS vendor, pl.purchase_date,
        pl.expected_count, pl.animal_cost,
        count(plg.goat_id) AS members,

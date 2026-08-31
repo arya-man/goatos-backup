@@ -42,13 +42,22 @@ type LoadwiseLoad struct {
 	// the load's animals span parks or none is known — agree-or-go-bare, never a majority pick.
 	Farm string
 
+	// DeclaredCount is what the LOAD ITSELF says it brought in (procurement_loads.expected_count,
+	// the load sheet's procured figure for a seeded load). It is the denominator whenever it is
+	// known, which is what makes Unaccounted a real discrepancy rather than an arithmetic
+	// identity: animals the load declares but the register cannot account for stay visible.
+	DeclaredCount int
+	// Purchased is the load's size as reported: DeclaredCount when the load declares one, else
+	// the animals actually attributed to it (tracked + prior outcomes).
 	Purchased  int
 	Sold       int
 	Mortality  int // exit_reason = died
 	OtherExits int // culled / transferred / lost — real outcomes, not discrepancies
 	Remaining  int // still alive on farm
-	// Unaccounted is purchased minus everything above. Non-zero means the herd register and the
-	// load disagree (merged/inactive edge cases, data gaps) and the row must show it in red.
+	// Unaccounted is Purchased minus every outcome above. Non-zero means the load and the register
+	// disagree — animals the load declares that nothing accounts for (positive), or more animals
+	// attributed than the load declares (negative). Either way the row shows it in red; it is
+	// never absorbed into another bucket.
 	Unaccounted int
 
 	AnimalCost    *float64
@@ -124,14 +133,20 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64)
 		row := &loads[i]
 		// Fold the pre-GoatOS history in FIRST: those animals were purchased on this load and
 		// their outcome is known, so every count and the money must range over the WHOLE load.
-		row.Purchased += row.PriorSold.Count + row.PriorDead.Count
+		attributed := row.Purchased + row.PriorSold.Count + row.PriorDead.Count
 		row.Sold += row.PriorSold.Count
 		row.Mortality += row.PriorDead.Count
 		if row.PriorSold.Value != nil {
 			row.SoldValue += *row.PriorSold.Value
 			row.SoldPriced += row.PriorSold.Count
 		}
-		// Unaccounted is the arithmetic gap over the folded counts — derived here, never counted.
+		// The DECLARED size wins as the denominator when the load states one. Deriving Purchased
+		// from its own parts instead would make Unaccounted zero by construction and hide exactly
+		// the difference this column exists to show.
+		row.Purchased = attributed
+		if row.DeclaredCount > 0 {
+			row.Purchased = row.DeclaredCount
+		}
 		row.Unaccounted = row.Purchased - row.Sold - row.Mortality - row.OtherExits - row.Remaining
 		row.PurchaseValue = loadPurchaseValue(row.AnimalCost, row.TransportCost, row.OtherCost)
 		row.AvgSoldPrice, row.PriceBasis = loadAvgSoldPrice(row.SoldValue, row.SoldPriced, overallAvg)

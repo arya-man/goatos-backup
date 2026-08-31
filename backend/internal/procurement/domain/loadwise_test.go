@@ -88,7 +88,7 @@ func TestFinalizeLoadwiseFoldsPriorOutcomesIntoTheReconciliation(t *testing.T) {
 		{
 			// GoatOS tracks only the 60 animals still on farm; 30 were already sold for 300000
 			// and 10 already died before tracking started.
-			LoadID: "legacy", Purchased: 60, Remaining: 60,
+			LoadID: "legacy", DeclaredCount: 100, Purchased: 60, Remaining: 60,
 			PriorSold: LoadwisePriorOutcome{Count: 30, Value: lw(300000), FirstOn: "2026-04-30", LastOn: "2026-08-17"},
 			PriorDead: LoadwisePriorOutcome{Count: 10, FirstOn: "2025-11-24", LastOn: "2025-11-24"},
 		},
@@ -108,6 +108,37 @@ func TestFinalizeLoadwiseFoldsPriorOutcomesIntoTheReconciliation(t *testing.T) {
 	}
 	if s := out.Summary; s.Purchased != 100 || s.Sold != 30 || s.Mortality != 10 || s.SoldValue != 300000 {
 		t.Fatalf("summary = %+v, want folded totals", s)
+	}
+}
+
+func TestFinalizeLoadwiseUsesTheDeclaredCountAsTheDenominator(t *testing.T) {
+	// The load says it brought in 76. The register accounts for 69 sold and 6 dead (both prior)
+	// and nothing on farm, so ONE animal is unaccounted for — the discrepancy the column exists
+	// to show. Deriving purchased from the parts instead would report 75 and a tidy zero.
+	out := FinalizeLoadwise([]LoadwiseLoad{
+		{
+			LoadID: "declared", DeclaredCount: 76,
+			PriorSold: LoadwisePriorOutcome{Count: 69, Value: lw(1226428)},
+			PriorDead: LoadwisePriorOutcome{Count: 6},
+		},
+		{
+			// No declared count: the attributed animals are the whole load, so it reconciles.
+			LoadID: "undeclared", Purchased: 4, Remaining: 4,
+		},
+		{
+			// MORE attributed than declared: negative unaccounted, still shown, never clamped.
+			LoadID: "over", DeclaredCount: 10, Purchased: 12, Remaining: 12,
+		},
+	}, 3, nil)
+
+	if row := out.Loads[0]; row.Purchased != 76 || row.Sold != 69 || row.Mortality != 6 || row.Unaccounted != 1 {
+		t.Fatalf("declared load = %+v, want 76 purchased and 1 unaccounted", row)
+	}
+	if row := out.Loads[1]; row.Purchased != 4 || row.Unaccounted != 0 {
+		t.Fatalf("undeclared load = %+v, want the attributed animals as the whole load", row)
+	}
+	if row := out.Loads[2]; row.Purchased != 10 || row.Unaccounted != -2 {
+		t.Fatalf("over-attributed load = %+v, want a NEGATIVE unaccounted rather than a clamp", row)
 	}
 }
 

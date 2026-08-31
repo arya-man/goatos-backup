@@ -130,10 +130,16 @@ stats AS (
 )
 SELECT pl.load_id::text, COALESCE(pl.context->>'load_ref', ''), COALESCE(p.display_name, ''), pl.purchase_date, pl.status,
        pl.animal_cost::float8, pl.transport_cost::float8, pl.other_cost::float8, pl.row_version,
+       pl.expected_count,
        COALESCE(s.purchased, 0), COALESCE(s.sold, 0), COALESCE(s.mortality, 0),
        COALESCE(s.other_exits, 0), COALESCE(s.remaining, 0),
        COALESCE(s.sold_value, 0), COALESCE(s.sold_priced, 0),
-       CASE WHEN s.park_count = 1 THEN COALESCE(s.park_code, '') ELSE '' END,
+       -- The park every accepted animal agrees on; when none is attributed (a sold-out legacy
+       -- load has no residents left) the load's OWN recorded farm answers instead. Both are the
+       -- same fact stated by different sources, and neither is a majority pick.
+       CASE WHEN s.park_count = 1 THEN COALESCE(s.park_code, '')
+            ELSE CASE WHEN COALESCE(s.park_count, 0) = 0 THEN COALESCE(upper(pl.context->>'farm'), '') ELSE '' END
+       END,
        COALESCE(pr.prior_sold, 0), pr.prior_sold_value, pr.prior_sold_first, pr.prior_sold_last,
        COALESCE(pr.prior_dead, 0), pr.prior_dead_first, pr.prior_dead_last
 FROM public.procurement_loads pl
@@ -191,6 +197,7 @@ func (r *Repository) LoadwiseSales(ctx context.Context, tenantID string, maxLoad
 		if err := rows.Scan(
 			&row.LoadID, &row.LoadRef, &row.VendorName, &purchaseDate, &row.Status,
 			&row.AnimalCost, &row.TransportCost, &row.OtherCost, &row.RowVersion,
+			&row.DeclaredCount,
 			&row.Purchased, &row.Sold, &row.Mortality,
 			&row.OtherExits, &row.Remaining,
 			&row.SoldValue, &row.SoldPriced,

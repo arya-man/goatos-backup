@@ -14004,8 +14004,8 @@ components:
       type: object
       description: One procurement load's reconciliation row on the Sales page.
       required:
-        [load_id, vendor_name, status, purchased, sold, mortality, other_exits, remaining,
-         unaccounted, sold_value, sold_priced, price_basis, row_version]
+        [load_id, vendor_name, status, declared_count, purchased, sold, mortality, other_exits,
+         remaining, unaccounted, sold_value, sold_priced, price_basis, row_version]
       properties:
         load_id: { type: string, format: uuid }
         load_ref:
@@ -14021,7 +14021,15 @@ components:
           description: >-
             The park code (CBE/CPT) every accepted animal of the load resolves to; absent when the
             load's animals span parks or none is known -- agree-or-go-bare, never a majority pick.
-        purchased: { type: integer }
+        declared_count:
+          type: integer
+          description: >-
+            What the LOAD itself says it brought in. The denominator whenever it is non-zero,
+            which is what makes `unaccounted` a real discrepancy rather than an arithmetic
+            identity.
+        purchased:
+          type: integer
+          description: declared_count when the load declares one, else the animals attributed to it.
         sold: { type: integer }
         mortality: { type: integer, description: Animals of this load that died on farm. }
         other_exits: { type: integer, description: Culled, transferred or lost -- real outcomes, not discrepancies. }
@@ -14029,8 +14037,9 @@ components:
         unaccounted:
           type: integer
           description: >-
-            purchased minus everything above. Non-zero means the herd register and the load
-            disagree, and the screen shows it in red.
+            purchased minus every outcome above. Positive = animals the load declares that
+            nothing accounts for; negative = more animals attributed than it declares. Either
+            way the screen shows it in red; it is never absorbed into another bucket.
         animal_cost: { type: number, nullable: true }
         transport_cost: { type: number, nullable: true }
         other_cost: { type: number, nullable: true }
