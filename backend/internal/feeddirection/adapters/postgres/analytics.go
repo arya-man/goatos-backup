@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -1717,7 +1718,10 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics stock forecast rows: %w", err)
 	}
 
-	expRows, err := r.pool.Query(ctx, stockExpenditureSQL, tenantID, parkIDs, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	// The DAILY series alone starts at the maintainer's floor date; the stock
+	// cards above and the spend tiles below keep the caller's full window.
+	expFrom, expTo := domain.ClampExpenditureWindow(from, to)
+	expRows, err := r.pool.Query(ctx, stockExpenditureSQL, tenantID, parkIDs, expFrom.Format("2006-01-02"), expTo.Format("2006-01-02"))
 	if err != nil {
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics expenditure: %w", err)
 	}
@@ -1737,6 +1741,140 @@ func (r *Repository) StockAnalytics(ctx context.Context, tenantID string, q doma
 	if err := r.pool.QueryRow(ctx, stockSpendSQL, tenantID, parkIDs, today).
 		Scan(&out.Spend.Last7Days, &out.Spend.ThisMonth, &out.Spend.ThreeMonths, &out.Spend.ThisYear); err != nil {
 		return domain.StockAnalytics{}, fmt.Errorf("feed analytics spend summary: %w", err)
+	}
+	return out, nil
+}
+
+// ---------------------------------------------------------------------------
+// Shed feed-mix analytics (per-pen window rollup)
+// ---------------------------------------------------------------------------
+
+// The per-pen feed-mix rollup behind the Feed Analytics overview table: for
+// every operational location the frozen sheet directed feed to in the window,
+// the kg of each feed item and the pen's total.
+//
+// projection-review: membership=the SAME issue-row set as directedAnalyticsSQL above — feed_direction_issue_rows reached through the at-most-one live issue per (tenant, park, feed_day) enforced by feed_direction_issues_live_uidx, states issued/amended/locked, workflows normal+experiment; producer natural key=(tenant_id, feed_direction_issue_id, shed_id, partition_key, session_no, shed_tag_key, breed_key, feed_item_key) vs consumer group keys: pen_item groups by (park_id, shed_id, partition_key, feed_item_key) — collapsing days, sessions, shed tags and breeds into one SUM per pen×item, which is the requested figure — and the outer query groups by (park_id, shed_id, partition_key) aggregating items via jsonb_agg; group_key=(park_id, shed_id, partition_key) at the outer grain, one row per operational location; join_cardinality=issues to rows is 1:N by feed_direction_issue_id, joined exactly once per day via the live-issue partial unique index, and pen_item pre-aggregates the N side before the outer GROUP BY so no join can inflate a SUM; ratio check=none — this read divides nothing; the pen total (SUM of item_kg) and the per-item entries range over the same pen_item key set by construction; pagination=none, whole-window aggregate with no limit/offset input — the client pages the served bounded pen set; scope=tenant_id on both tables plus the caller's authorized park set via park_id = ANY($2)
+//
+// Labels (park_label, shed_label, partition_label, feed_item_label) are
+// denormalized snapshots on the rows; MAX() per group is the documented pick so
+// a mid-window rename reads as ONE row with the latest-sorting label rather
+// than splitting the pen's total in two.
+//
+// quantity_kg is NULL IFF BLOCKED (schema CHECK); SUM skips NULLs so blocked
+// cells contribute nothing, and an all-blocked pen×item group carries NULL
+// item_kg — filtered out rather than rendered as a zero the sheet never
+// authored.
+//
+// partition_key='whole' is the non-partitioned sentinel and never reaches a
+// client: the outer CASE blanks it, mirroring counts' breakdown read.
+//
+// scale-guard:ignore: 5k-50k-envelope — bounded windowed aggregate over ≤92
+// days × ≤2 parks × ~1 live issue/day, rows reached via the issue-id
+// natural-key prefix; the outer grain is the farm's pen catalog (~200 rows).
+const shedFeedAnalyticsSQL = `
+WITH iss AS (
+    SELECT feed_direction_issue_id, feed_day
+    FROM feed_direction_issues
+    WHERE tenant_id = $1
+      AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR park_id = ANY ($2::uuid[]))
+      AND feed_day BETWEEN $3 AND $4
+      AND state IN ('issued', 'amended', 'locked')
+      AND workflow IN ('normal', 'experiment')
+),
+pen_item AS (
+    SELECT r.park_id,
+           r.shed_id,
+           r.partition_key,
+           r.feed_item_key,
+           MAX(r.park_label)       AS park_label,
+           MAX(r.shed_label)       AS shed_label,
+           MAX(r.partition_label)  AS partition_label,
+           MAX(r.feed_item_label)  AS feed_item_label,
+           SUM(r.quantity_kg)      AS item_kg
+    FROM iss i
+    JOIN feed_direction_issue_rows r
+      ON r.tenant_id = $1
+     AND r.feed_direction_issue_id = i.feed_direction_issue_id
+    GROUP BY r.park_id, r.shed_id, r.partition_key, r.feed_item_key
+    -- "Feed GIVEN": an item whose whole-window total is zero (all blocked, or
+    -- authored 0 every day) is omitted — a 0 kg line is not feed given, and on
+    -- real sheets it drowned each pen's real mix under six zero rows. Summing
+    -- the surviving items still equals the per-item chart series, because a
+    -- zero total adds nothing there either.
+    HAVING COALESCE(SUM(r.quantity_kg), 0) > 0
+)
+SELECT park_id::text,
+       MAX(park_label)                                                     AS park_label,
+       shed_id::text,
+       MAX(shed_label)                                                     AS shed_label,
+       CASE WHEN partition_key = 'whole' THEN ''
+            ELSE COALESCE(MAX(partition_label), '') END                    AS partition_label,
+       COALESCE(SUM(item_kg), 0)::text                                     AS pen_kg,
+       COALESCE(
+         jsonb_agg(
+           jsonb_build_object(
+             'feed_item_label', feed_item_label,
+             'feed_item_key',   feed_item_key,
+             'directed_kg',     item_kg::text
+           )
+           ORDER BY item_kg DESC, feed_item_label
+         ) FILTER (WHERE item_kg IS NOT NULL),
+         '[]'::jsonb
+       )                                                                   AS items
+FROM pen_item
+GROUP BY park_id, shed_id, partition_key
+ORDER BY MAX(park_label), MAX(shed_label), partition_key`
+
+// shedFeedItemWire matches the jsonb_build_object keys above; built by this
+// file's own SQL, so unknown keys cannot occur.
+type shedFeedItemWire struct {
+	FeedItemLabel string `json:"feed_item_label"`
+	FeedItemKey   string `json:"feed_item_key"`
+	DirectedKg    string `json:"directed_kg"`
+}
+
+// ShedFeedAnalytics serves the per-pen feed-mix rollup. One set-based read; the
+// display string is composed by the canonical oploc helper, never hand-rolled.
+func (r *Repository) ShedFeedAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ShedFeedAnalytics, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	from, to := domain.ClampAnalyticsWindow(q.DateFrom, q.DateTo)
+	var parkIDs []uuid.UUID
+	if len(q.ParkIDs) > 0 {
+		parkIDs = q.ParkIDs
+	}
+
+	rows, err := r.pool.Query(ctx, shedFeedAnalyticsSQL,
+		tenantID, parkIDs, from.Format("2006-01-02"), to.Format("2006-01-02"))
+	if err != nil {
+		return domain.ShedFeedAnalytics{}, fmt.Errorf("feed analytics shed feed rollup: %w", err)
+	}
+	defer rows.Close()
+
+	out := domain.ShedFeedAnalytics{Rows: []domain.ShedFeedPenRow{}}
+	for rows.Next() {
+		var row domain.ShedFeedPenRow
+		var itemsJSON []byte
+		if err := rows.Scan(&row.ParkID, &row.ParkLabel, &row.ShedID, &row.ShedLabel,
+			&row.PartitionLabel, &row.DirectedKg, &itemsJSON); err != nil {
+			return domain.ShedFeedAnalytics{}, fmt.Errorf("feed analytics shed feed scan: %w", err)
+		}
+		var wire []shedFeedItemWire
+		if err := json.Unmarshal(itemsJSON, &wire); err != nil {
+			return domain.ShedFeedAnalytics{}, fmt.Errorf("feed analytics shed feed items decode: %w", err)
+		}
+		row.Items = make([]domain.ShedFeedItemTotal, 0, len(wire))
+		for _, it := range wire {
+			row.Items = append(row.Items, domain.ShedFeedItemTotal(it))
+		}
+		row.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedName: row.ShedLabel, PartitionLabel: row.PartitionLabel,
+		}.Display()
+		out.Rows = append(out.Rows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.ShedFeedAnalytics{}, fmt.Errorf("feed analytics shed feed rows: %w", err)
 	}
 	return out, nil
 }

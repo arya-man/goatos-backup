@@ -28,4 +28,9 @@ type DirectedAnalyticsReader interface {
 	// purchase ledger (depleting at sheet lock) and the daily expenditure
 	// series for the query window. Empty when the ledger is unpopulated.
 	StockAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.StockAnalytics, error)
+	// ShedFeedAnalytics returns every pen (shed + optional partition) the frozen
+	// sheet directed feed to in the window, with per-feed-item kg totals and the
+	// pen's total. Same membership and predicates as DirectedAnalytics, so the
+	// per-item sums across pens agree with the per-item chart series.
+	ShedFeedAnalytics(ctx context.Context, tenantID string, q domain.DirectedAnalyticsQuery) (domain.ShedFeedAnalytics, error)
 }

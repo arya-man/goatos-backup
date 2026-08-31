@@ -7,11 +7,13 @@ import {
   getFeedAnalyticsExecution,
   getFeedAnalyticsExperiment,
   getFeedAnalyticsStock,
+  getFeedAnalyticsShedFeed,
   type ApiResult,
   type FeedAnalyticsDirectedResponse,
   type FeedAnalyticsExecutionResponse,
   type FeedAnalyticsExperimentResponse,
   type FeedAnalyticsStockResponse,
+  type FeedAnalyticsShedFeedResponse,
 } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { fmtDate, istDayPlus, todayIso } from "@/lib/format";
@@ -23,6 +25,7 @@ import { getCensusLocations } from "@/lib/api/herd-locations";
 import { FeedFilters, type FeedFilterField } from "./feed-filters";
 import { FeedPager } from "./feed-pager";
 import { FeedCompletionTable } from "./feed-completion-table";
+import { FeedShedFeedTable } from "./feed-shed-feed-table";
 import { feedHref, feedLimit, feedOffset } from "./feed-scope";
 import { SegmentedLinks } from "@/components/segmented-links";
 import { SvgBars } from "@/components/svg-bars";
@@ -279,7 +282,15 @@ export async function FeedAnalyticsPage({
   const completionStatusFilter = readCompletionStatus(searchParams);
   const locations = wantExperiment ? await getCensusLocations() : { parks: [] as { id: string; name: string }[], sheds: [] };
   const wantStock = tab === "overview" || tab === "items";
-  const [directed, execution, experiment, stock] = await Promise.all([
+  // The overview's "Feed by shed" table reads its OWN last-7-days window
+  // (ending yesterday, the page's stated basis), independent of the range
+  // chips — the maintainer asked for a 7-day default while the charts default
+  // to 30. Its farm/shed/feed-item filters and ten-row pager run client-side
+  // over the served bounded pen set, like the completion table's narrowing.
+  const wantShedFeed = tab === "overview";
+  const shedFeedTo = istDayPlus(todayIso(), -1);
+  const shedFeedWindow = { date_from: istDayPlus(shedFeedTo, -6), date_to: shedFeedTo };
+  const [directed, execution, experiment, stock, shedFeed] = await Promise.all([
     wantDirected
       ? getFeedAnalyticsDirected(params)
       : Promise.resolve<ApiResult<FeedAnalyticsDirectedResponse> | null>(null),
@@ -307,6 +318,9 @@ export async function FeedAnalyticsPage({
     wantStock
       ? getFeedAnalyticsStock(params)
       : Promise.resolve<ApiResult<FeedAnalyticsStockResponse> | null>(null),
+    wantShedFeed
+      ? getFeedAnalyticsShedFeed({ park_id: parkId, ...shedFeedWindow })
+      : Promise.resolve<ApiResult<FeedAnalyticsShedFeedResponse> | null>(null),
   ]);
   // Second, day-pinned execution read for the mismatch table's calendar. Only its
   // packing_variance is used; the tab's charts keep the page's rolling window.
@@ -327,12 +341,12 @@ export async function FeedAnalyticsPage({
           variance_feed_item_key: favItem,
         })
       : null;
-  const nonNull = [directed, execution, experiment, stock].filter((r) => r !== null);
+  const nonNull = [directed, execution, experiment, stock, shedFeed].filter((r) => r !== null);
   if (firstAuthRequiredError(...nonNull)) redirect(INTERNAL_LOGIN_PATH);
 
   // Stock is deliberately absent from the failure gate: the rest of the page
   // must stay useful when the purchase ledger is not bootstrapped yet.
-  const failed = [directed, execution, experiment].some((r) => r !== null && !r.ok);
+  const failed = [directed, execution, experiment, shedFeed].some((r) => r !== null && !r.ok);
 
   return (
     <div className="pagegrid">
@@ -380,6 +394,23 @@ export async function FeedAnalyticsPage({
           execution={execution?.ok ? execution.data : null}
           stock={stock?.ok ? stock.data : null}
           pageContract={pageContract}
+        />
+      ) : null}
+
+      {tab === "overview" && shedFeed?.ok ? (
+        <FeedShedFeedTable
+          data={shedFeed.data}
+          searchParams={searchParams}
+          basePath={PAGE_PATH}
+          pageContract={pageContract}
+          parkScopeLocked={Boolean(parkId)}
+          filters={{
+            park: parkId || (one(searchParams, "fsf_park") ?? ""),
+            shed: one(searchParams, "fsf_shed") ?? "",
+            item: one(searchParams, "fsf_item") ?? "",
+            offset: feedOffset(searchParams, "fsf_offset"),
+            limit: feedOffset(searchParams, "fsf_limit"),
+          }}
         />
       ) : null}
 

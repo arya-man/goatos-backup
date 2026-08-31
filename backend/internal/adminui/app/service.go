@@ -638,6 +638,10 @@ func pages() []domain.PageContract {
 				// nobody fed -- the status filter and the four counts do the finding, so the page only
 				// has to stay short enough to read.
 				tableP("distribution-completions", "Feed direction completion", "/feed-analytics/execution", []string{"park", "pen", "session", "status", "videos", "submitted_by", "submitted_at"}, "fdc_row", []int{10, 25, 50}),
+				// The overview's per-pen feed-mix table pages at TEN by default and
+				// states its own last-7-days basis; farm / shed / feed-item narrowing
+				// runs over the served bounded pen set, like the completion table above.
+				tableP("shed-feed-mix", "Feed by shed", "/feed-analytics/shed-feed", []string{"park", "pen", "items"}, "fsf_row", []int{10, 25, 50}),
 			}),
 		page("feed-config", "/feed/config", "/feed/config", "Feed Config — Ration Rules", "Feed-owned authority screen for the authored ration grid, per-shed factors, session template and feeding schedule.", "module-surface",
 			[]domain.TableContract{
@@ -3931,7 +3935,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"spend.quarter.sub":              "Rolling 92 days",
 			"spend.year.label":               "Spent this year",
 			"spend.year.sub":                 "From January 1st",
-			"chart.spend.hint":               "Directed kg priced at each feed's most recent load rate · ₹ per day",
+			"chart.spend.hint":               "Directed kg priced at each feed's most recent load rate · ₹ per day · from 11-08-2026",
 			"unit.rupees":                    "₹",
 			"col.pens":                       "Pens",
 			"col.kg":                         "kg / day",
@@ -4014,6 +4018,20 @@ func pageSpecificCopy(id string) map[string]string {
 			"completion.videos.count":        "{done} of 3",
 			"completion.action.details":      "View details",
 			"completion.pager.noun":          "pen",
+
+			// The overview's per-pen feed-mix table: every shed and pen across the
+			// farms, with the feed items and kg the sheet directed there over the
+			// LAST 7 DAYS (its own window, independent of the page's range chips).
+			"shedfeed.title":          "Feed by shed — last 7 days",
+			"shedfeed.hint":           "What each pen was directed over the last 7 days, by feed item — directed kg, up to yesterday",
+			"shedfeed.empty":          "No feed sheet was issued in the last 7 days, so there is nothing to show.",
+			"shedfeed.empty_filtered": "No pens match these filters.",
+			"shedfeed.filter.item":    "Feed item",
+			"shedfeed.filter.shed":    "Shed",
+			"shedfeed.pager.noun":     "pen",
+			"col.shedfeed.park":       "Farm",
+			"col.shedfeed.pen":        "Shed / pen",
+			"col.shedfeed.items":      "Feed given (kg, 7 days)",
 			"drawer.completion.aria":         "Feeding detail",
 			"drawer.completion.close_label":  "Close feeding detail",
 			"drawer.completion.eyebrow":      "Feed direction",

@@ -114,6 +114,10 @@ test("weighed shed rows render breed and sex composition chips from the backend 
   // Three, not four: the gain chart no longer builds a row for a shed with one weigh.
   assert.equal(source.match(/label: shedLabelWithComposition\(/g)?.length, 3);
   assert.match(source, /replaceAll\(" · ", " - "\)/);
+  // The chart's per-cohort suffix carries the resident COUNT (maintainer ask
+  // 2026-08-31), from the chip's own backend `animals` figure — same number the
+  // sheds table chips have always shown.
+  assert.match(source, /× \$\{chip\.animals\.toLocaleString\("en-IN"\)\}/);
   assert.doesNotMatch(source, /shed avg/);
   assert.match(source, /className="wcomp-chips"/);
   assert.match(source, /className="wcomp-chip"/);

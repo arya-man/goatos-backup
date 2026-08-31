@@ -240,6 +240,29 @@ func ClampAnalyticsWindow(from, to time.Time) (time.Time, time.Time) {
 	return from, to
 }
 
+// ExpenditureSeriesFloorDate is the first business date the DAILY FEED
+// EXPENDITURE series may show: 11 Aug 2026 (maintainer decision 2026-08-31).
+// Days before it priced sheets against a ledger state the farm does not stand
+// behind, so the chart starts here regardless of the page's selected range.
+// SERIES ONLY: the stock cards, the spend summary tiles and every other read
+// on the page keep the caller's window untouched.
+const ExpenditureSeriesFloorDate = "2026-08-11"
+
+// ClampExpenditureWindow floors the expenditure series' window start at
+// ExpenditureSeriesFloorDate. A window entirely before the floor comes back
+// with from > to, which the day-bounded SQL BETWEEN serves as an empty series —
+// absence, never fabricated zeros.
+func ClampExpenditureWindow(from, to time.Time) (time.Time, time.Time) {
+	floor, err := time.ParseInLocation("2006-01-02", ExpenditureSeriesFloorDate, from.Location())
+	if err != nil {
+		return from, to
+	}
+	if from.Before(floor) {
+		from = floor
+	}
+	return from, to
+}
+
 // ---------------------------------------------------------------------------
 // Execution analytics: proof/verdict adherence per day. STATUS COUNTS ONLY —
 // completions carry proofs, never kg, so execution can be judged on whether the
@@ -781,4 +804,43 @@ type StockAnalytics struct {
 	Forecast    []StockForecastItem
 	Expenditure []ExpenditureDay
 	Spend       SpendSummary
+}
+
+// ShedFeedItemTotal is one feed item's window total inside a pen's row —
+// "Masur Busa · 120 kg over the window". DIRECTED kg, like every figure on the
+// analytics page: the sheet's instruction, never a measured weight.
+type ShedFeedItemTotal struct {
+	FeedItemLabel string
+	FeedItemKey   string
+	DirectedKg    string
+}
+
+// ShedFeedPenRow is one operational location's (shed + optional partition)
+// feed-mix rollup for the window: which feed items the sheet directed there and
+// how many kg of each, plus the pen's total across items.
+//
+// The location is carried as SEPARATE identity fields plus the backend-composed
+// display (oploc.Display), per the operational-location convention — a client
+// renders OperationalLocationDisplay verbatim and never re-derives it.
+type ShedFeedPenRow struct {
+	ParkID    string
+	ParkLabel string
+	ShedID    string
+	ShedLabel string
+	// PartitionLabel is the human label ("Part 3", "2"); empty for an
+	// undivided shed. Never the normalized matching key, and never 'whole'.
+	PartitionLabel             string
+	OperationalLocationDisplay string
+	// Items is the pen's feed mix over the window, largest kg first.
+	Items []ShedFeedItemTotal
+	// DirectedKg is the pen's total across every item in Items.
+	DirectedKg string
+}
+
+// ShedFeedAnalytics is the /feed-analytics/shed-feed payload: every pen the
+// frozen sheet directed feed to in the window, with its per-item totals. A pen
+// with no issued sheet rows in the window is ABSENT — absence is "nothing
+// directed", never a fabricated zero row.
+type ShedFeedAnalytics struct {
+	Rows []ShedFeedPenRow
 }
