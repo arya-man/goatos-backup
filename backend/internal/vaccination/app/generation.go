@@ -692,6 +692,9 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 			runOpts.heartbeat(ctx)
 		}
 	}
+	if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, activeGenerationGoatsForPlans(allPlans), asOf); err != nil {
+		return res, err
+	}
 	if res.FailedGoats > 0 {
 		return res, errGenerationPartialFailures
 	}
@@ -1457,6 +1460,9 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 			runOpts.heartbeat(ctx)
 		}
 	}
+	if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, activeGenerationGoatsForPlans(allPlans), asOf); err != nil {
+		return res, err
+	}
 	if res.FailedGoats > 0 {
 		return res, errGenerationPartialFailures
 	}
@@ -1967,6 +1973,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		// two co-due live vaccines (e.g., PPR and Goat Pox both due today) are spaced LiveToLiveGapDays
 		// apart, not left same-day because neither is in the other's history yet.
 		due = applyCrossVaccineGapFloorFromPending(due, ruleVaccine, pending, policies.Compatibility)
+		due = floorGeneratedOpenWorkToToday(due, asOf)
 		if skipNonFutureOpenWork(rule, due, asOf, policies.MissedDose) {
 			continue
 		}
@@ -2495,7 +2502,23 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 			return res, err
 		}
 	}
+	if err := s.suppressOpenWorkBeforeAnchors(ctx, tenantID, []domain.EligibleGoat{g}, asOf); err != nil {
+		return res, err
+	}
 	return res, nil
+}
+
+func activeGenerationGoatsForPlans(plans []goatGenerationPlan) []domain.EligibleGoat {
+	out := make([]domain.EligibleGoat, 0, len(plans))
+	seen := make(map[string]struct{}, len(plans))
+	for _, p := range plans {
+		if _, ok := seen[p.goat.GoatID]; ok {
+			continue
+		}
+		seen[p.goat.GoatID] = struct{}{}
+		out = append(out, p.goat)
+	}
+	return out
 }
 
 func (s *GenerationService) suppressOpenWorkBeforeAnchors(ctx context.Context, tenantID string, goats []domain.EligibleGoat, asOf time.Time) error {
@@ -2645,6 +2668,14 @@ func skipNonFutureOpenWork(rule protodomain.Rule, due, asOf time.Time, policy ge
 		return false
 	}
 	return !businessDayStart(due).After(businessDayStart(asOf))
+}
+
+func floorGeneratedOpenWorkToToday(due, asOf time.Time) time.Time {
+	today := businessDayStart(asOf)
+	if businessDayStart(due).Before(today) {
+		return today
+	}
+	return due
 }
 
 func trustedEvidenceDue(rule protodomain.Rule, due, asOf time.Time, nearbyDriveDate *time.Time, policy genMissedDosePolicy) (time.Time, bool) {

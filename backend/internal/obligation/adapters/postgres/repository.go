@@ -2095,13 +2095,18 @@ WITH candidates AS (
       vae.protocol_version_id IS NULL
       OR (
         anchor_pv.protocol_id = pv.protocol_id
-        AND anchor_pr.rule_id IS NOT NULL
         AND (
-          (anchor_lineage.identity_key IS NOT NULL AND oi_lineage.identity_key = anchor_lineage.identity_key)
+          vae.dose_code IS NULL
           OR (
-            anchor_lineage.identity_key IS NULL
-            AND lower(btrim(anchor_pr.dose_code)) = lower(btrim(pr.dose_code))
-            AND anchor_pr.sequence = pr.sequence
+            anchor_pr.rule_id IS NOT NULL
+            AND (
+              (anchor_lineage.identity_key IS NOT NULL AND oi_lineage.identity_key = anchor_lineage.identity_key)
+              OR (
+                anchor_lineage.identity_key IS NULL
+                AND lower(btrim(anchor_pr.dose_code)) = lower(btrim(pr.dose_code))
+                AND anchor_pr.sequence = pr.sequence
+              )
+            )
           )
         )
       )

@@ -114,9 +114,9 @@ func TestNoDOBWithVaccineHistoryContinuesPerVaccineNotDeferred(t *testing.T) {
 	if got := obl.inserted[0]; got.RuleID != "rule-fmd-revac" {
 		t.Fatalf("inserted=%#v, want the per-vaccine revac continuation, not a fabricated kid_12w gap", got)
 	}
-	wantDue := businessDayStart(lastFMD).AddDate(0, 0, 274)
+	wantDue := businessDayStart(asOf)
 	if !obl.inserted[0].DueAt.Equal(wantDue) {
-		t.Fatalf("due=%s, want latest FMD administration + 9 months = %s", obl.inserted[0].DueAt, wantDue)
+		t.Fatalf("due=%s, want past open revac floored to generation day %s", obl.inserted[0].DueAt, wantDue)
 	}
 }
 
