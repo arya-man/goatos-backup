@@ -72,7 +72,6 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 				// Leadership/registry modules are NOT the verifier bar: they legitimately
 				// keep their own "you" entry. Only the generic "Alerts" label is shared.
 				wantItems := []domain.BootstrapNavigationItem{
-					{Key: "overview", Label: "Overview", Href: "/vaccination"},
 					{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 					{Key: "videos", Label: "Videos", Href: "/vaccination/videos"},
 					{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
@@ -82,8 +81,8 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 					t.Fatalf("CEO vaccination bar=%+v want %+v", m.NavItems, wantItems)
 				}
 				for _, it := range m.NavItems {
-					if it.Key == "vaccination" || it.Key == "weighing" || it.Href == "/leadership" {
-						t.Fatalf("CEO vaccination bar must not contain operator Stock, Weighing, or /leadership; got %+v", m.NavItems)
+					if it.Key == "overview" || it.Key == "weighing" || it.Href == "/leadership" {
+						t.Fatalf("CEO vaccination bar must not contain duplicate Overview, Weighing, or /leadership; got %+v", m.NavItems)
 					}
 				}
 				for i := range wantItems {
@@ -925,6 +924,33 @@ func TestEveryVerifierModuleLabelResolvesInTheCopyCatalog(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestVaccinationModuleHasOneLandingNavItem(t *testing.T) {
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
+	modules := modulesFor(grants, []string{"vaccination"}, localization.DefaultTag)
+	var vaccination *domain.BootstrapModule
+	for i := range modules {
+		if modules[i].Key == "vaccination" {
+			vaccination = &modules[i]
+			break
+		}
+	}
+	if vaccination == nil {
+		t.Fatalf("vaccination module missing from %+v", modules)
+	}
+
+	seenHref := map[string]domain.BootstrapNavigationItem{}
+	for _, item := range vaccination.NavItems {
+		if previous, ok := seenHref[item.Href]; ok {
+			t.Fatalf("duplicate href %q in vaccination bar: first=%+v duplicate=%+v all=%+v",
+				item.Href, previous, item, vaccination.NavItems)
+		}
+		seenHref[item.Href] = item
+	}
+	if got := seenHref["/vaccination"]; got.Key != "vaccination" || got.Label != "Drive" {
+		t.Fatalf("/vaccination nav item=%+v want key=vaccination label=Drive", got)
 	}
 }
 

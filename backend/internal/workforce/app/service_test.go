@@ -531,12 +531,11 @@ func TestIsLeadershipPrincipal(t *testing.T) {
 }
 
 // TestVisibleNavigationFor pins that the removed thing is the synthetic
-// Leadership module/route, not the CEO's Vaccination overview tab. CEO opens
-// Vaccination from the drawer and sees Overview/Calendar/Alerts/You; operators
+// Leadership module/route, not the CEO's Vaccination module tab. CEO opens
+// Vaccination from the drawer and sees Calendar/Alerts/You; operators
 // keep the field execution bar.
 func TestVisibleNavigationFor(t *testing.T) {
 	ceoVaccinationWant := []domain.BootstrapNavigationItem{
-		{Key: "overview", Label: "Overview", Href: "/vaccination"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "videos", Label: "Videos", Href: "/vaccination/videos"},
 		// MAINTAINER DECISION 2026-08-06: leadership and verifier are SEPARATE SURFACES on
@@ -555,7 +554,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 		want    []domain.BootstrapNavigationItem
 	}{
 		{
-			name:    "ceo vaccination module shows overview calendar alerts you",
+			name:    "ceo vaccination module shows calendar alerts you",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)},
 			modules: []string{"vaccination", "counts"},
 			want:    ceoVaccinationWant,

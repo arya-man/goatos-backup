@@ -97,7 +97,6 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:            moduleStatusAvailable,
 		priority:          1,
 		contributions: []moduleNavContribution{
-			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead},                                                                                          //nav-composition:ignore: registry entry
 			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", hrefIfRole: "/pc/vaccine-stock", labelKeyIfRole: "nav.stock", hrefRole: permissions.RolePCDirector, shared_key: "", priority: 1, requiredPermission: permissions.TaskExecute}, //nav-composition:ignore: registry entry
 			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction, excludedPermission: permissions.TaskExecute},                                                 //nav-composition:ignore: registry entry
 			// Leadership's Videos tab is a REVIEW/audit surface (context/architecture/
@@ -1323,7 +1322,8 @@ func modulesForScope(scope navScope, grantedModules []string, localeTag string, 
 		if usesVerificationReviewLens(grants) {
 			href = def.reviewLandingHref
 		}
-		if len(items) > 0 && !navItemsContainHref(items, href) {
+		keepDrawerLanding := def.key == "vaccination" && href == def.landingHref && scope.has(permissions.VaccinationOverviewRead)
+		if len(items) > 0 && !navItemsContainHref(items, href) && !keepDrawerLanding {
 			href = items[0].Href
 		}
 		out = append(out, domain.BootstrapModule{
