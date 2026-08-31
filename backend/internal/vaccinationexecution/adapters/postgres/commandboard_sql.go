@@ -288,46 +288,75 @@ WITH comp AS (
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
 ),
-scoped AS (
+-- AGGREGATE FIRST, DECORATE AFTER. narrowed folds obligations to (goat, scope, dose) on the
+-- CHEAP join only -- obligation_instances to protocol_rules to the pre-aggregated comp -- before
+-- goats and locations are brought in. On the staging-scale tenant that is 80,960 rows collapsing to
+-- 20,660 BEFORE the two locations joins and the goats join run, and it is the same principle that
+-- fixed the closed-without-dose drilldown: decorate the answer, not the candidate set.
+--
+-- Measured on the OCI clone: 283ms -> 174ms, byte-identical output on all three filter paths
+-- (tenant-wide 408 rows, park-scoped 202, batch-scoped 4).
+--
+-- The goat lifecycle/merge filter deliberately stays in the LATER join rather than moving into
+-- narrowed: it lives on goats, and pulling goats forward is exactly the join this shape exists to
+-- defer. Dead animals' rows are counted and then dropped, which costs a little arithmetic and saves
+-- a 4x wider join.
+--
+-- REJECTED, both measured rather than assumed:
+--   * folding cell_totals and cell_animals into one pass per (cell, animal): 349ms.
+--   * fusing them with COUNT(DISTINCT goat_id): 519ms. The two-aggregate split is load-bearing.
+narrowed AS (
   SELECT
-    park.location_id AS park_id,
-    g.management_stage,
-    g.sex,
+    oi.target_id,
+    oi.scope_id,
     pr.dose_code,
-    g.goat_id,
-    -- Obligation grain. COUNT(*) FILTER rather than COUNT(DISTINCT obligation_id): this set emits
-    -- exactly one row per obligation (comp is pre-aggregated per obligation_id, and
-    -- goats/protocol_rules/locations are all 1:1 on a primary key), so the DISTINCT could never
-    -- remove a row and only forced a sort.
-    (NOT COALESCE(comp.has_accepted, false)
+    COUNT(*) FILTER (WHERE
+      NOT COALESCE(comp.has_accepted, false)
       AND NOT COALESCE(comp.has_recorded_unverified, false)
       AND oi.status IN ('scheduled','due','in_progress','deferred','missed')
       AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
-    ) AS is_pending,
-    (NOT COALESCE(comp.has_accepted, false) AND COALESCE(comp.has_recorded_unverified, false)) AS is_submitted,
-    COALESCE(comp.has_accepted, false) AS is_verified,
-    CASE WHEN comp.has_accepted THEN comp.min_administered_at END AS min_administered_at,
-    CASE WHEN comp.has_accepted THEN comp.max_administered_at END AS max_administered_at
+    )::bigint AS pending_count,
+    COUNT(*) FILTER (WHERE
+      NOT COALESCE(comp.has_accepted, false) AND COALESCE(comp.has_recorded_unverified, false)
+    )::bigint AS submitted_count,
+    COUNT(*) FILTER (WHERE COALESCE(comp.has_accepted, false))::bigint AS verified_count,
+    MIN(CASE WHEN comp.has_accepted THEN comp.min_administered_at END) AS min_administered_at,
+    MAX(CASE WHEN comp.has_accepted THEN comp.max_administered_at END) AS max_administered_at
   FROM obligation_instances oi
-  JOIN goats g ON oi.target_id = g.goat_id AND oi.tenant_id = g.tenant_id
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
-  LEFT JOIN locations shed ON oi.scope_id = shed.location_id AND oi.tenant_id = shed.tenant_id
-  LEFT JOIN locations park ON shed.parent_location_id = park.location_id AND shed.tenant_id = park.tenant_id
   WHERE oi.tenant_id = $1::uuid
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
     AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
       SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
     ))
-    AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  GROUP BY oi.target_id, oi.scope_id, pr.dose_code
+),
+scoped AS (
+  SELECT
+    park.location_id AS park_id,
+    g.management_stage,
+    g.sex,
+    n.dose_code,
+    g.goat_id,
+    n.pending_count,
+    n.submitted_count,
+    n.verified_count,
+    n.min_administered_at,
+    n.max_administered_at
+  FROM narrowed n
+  JOIN goats g ON n.target_id = g.goat_id AND g.tenant_id = $1::uuid
+  LEFT JOIN locations shed ON n.scope_id = shed.location_id AND shed.tenant_id = $1::uuid
+  LEFT JOIN locations park ON shed.parent_location_id = park.location_id AND shed.tenant_id = park.tenant_id
+  WHERE g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
     AND g.merged_into_goat_id IS NULL
 ),
 cell_totals AS (
   SELECT
     park_id, management_stage, sex, dose_code,
-    COUNT(*) FILTER (WHERE is_pending)::bigint AS pending_count,
-    COUNT(*) FILTER (WHERE is_submitted)::bigint AS submitted_count,
-    COUNT(*) FILTER (WHERE is_verified)::bigint AS verified_count,
+    SUM(pending_count)::bigint AS pending_count,
+    SUM(submitted_count)::bigint AS submitted_count,
+    SUM(verified_count)::bigint AS verified_count,
     MIN(min_administered_at) AS min_administered_at,
     MAX(max_administered_at) AS max_administered_at
   FROM scoped
