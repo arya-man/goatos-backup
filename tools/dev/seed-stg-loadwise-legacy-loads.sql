@@ -147,7 +147,15 @@ INSERT INTO procurement_load_prior_outcomes
     (tenant_id, load_id, outcome, animal_count, sales_value, first_on, last_on, source_ref)
 SELECT '00000000-0000-4000-8000-000000000001'::uuid, li.load_id,
        v.outcome, v.animal_count, v.sales_value, v.first_on, v.last_on,
-       'legacy records 2026-08-31 (loadwise_summary / salesDB / load status)'
+       CASE WHEN v.load_ref = '126' AND v.outcome = 'died'
+            -- Load 126: the legacy extract records THREE deaths and 64 still on farm, but the
+            -- register holds 63. The maintainer confirmed on 2026-08-31 that the missing animal
+            -- had already died, so the fourth death is recorded on their word, not from the
+            -- extract, and it carries no date of its own -- the range below is the three the
+            -- extract dated. Kept separable so a later source can correct it.
+            THEN 'legacy records 2026-08-31 + maintainer-confirmed 4th death (undated)'
+            ELSE 'legacy records 2026-08-31 (loadwise_summary / salesDB / load status)'
+       END
 FROM (VALUES
     ('100', 'sold', 69, 1226428::numeric, DATE '2026-04-30', DATE '2026-08-17'),
     ('100', 'died',  6, NULL::numeric,    DATE '2025-11-24', DATE '2025-11-24'),
@@ -155,7 +163,7 @@ FROM (VALUES
     ('101', 'died',  1, NULL::numeric,    DATE '2025-11-24', DATE '2025-11-24'),
     ('113', 'sold', 91, 1246533::numeric, DATE '2026-05-13', DATE '2026-05-20'),
     ('113', 'died',  9, NULL::numeric,    DATE '2025-11-24', DATE '2026-03-08'),
-    ('126', 'died',  3, NULL::numeric,    DATE '2026-05-12', DATE '2026-07-18'),
+    ('126', 'died',  4, NULL::numeric,    DATE '2026-05-12', DATE '2026-07-18'),
     ('128', 'died',  4, NULL::numeric,    DATE '2026-06-29', DATE '2026-07-15'),
     ('129', 'died',  1, NULL::numeric,    DATE '2026-06-02', DATE '2026-06-02'),
     ('130', 'died',  1, NULL::numeric,    DATE '2026-07-22', DATE '2026-07-22')
