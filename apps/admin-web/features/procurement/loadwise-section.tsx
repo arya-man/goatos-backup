@@ -12,7 +12,7 @@ import { humanDate, inr, inrCompact, num, signedInr, signedInrCompact } from "./
 import type { LoadwisePriorOutcome } from "@/lib/api/procurement";
 
 /**
- * Tooltip line for a count that includes pre-GoatOS history: the copy's label, the count, and the
+ * Tooltip line for a count that includes pre-system history: the copy's label, the count, and the
  * date range the old records span (e.g. "Sold earlier: 69 · 30 Apr 2026 – 17 Aug 2026").
  */
 function priorTitle(pageContract: AdminUiPageContract, key: string, prior: LoadwisePriorOutcome): string {

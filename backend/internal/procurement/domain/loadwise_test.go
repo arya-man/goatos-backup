@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-
 func TestFinalizeLoadwiseDerivesValueAndBasisPerLoad(t *testing.T) {
 	overall := lw(9000)
 	loads := []LoadwiseLoad{

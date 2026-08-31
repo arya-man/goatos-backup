@@ -159,7 +159,7 @@ export function LoadCostDrawer({
                 </div>
               </div>
 
-              {/* The load's pre-GoatOS history, with the dates the old records span. */}
+              {/* The load's pre-system history, with the dates the old records span. */}
               {load.prior_sold || load.prior_dead ? (
                 <div style={{ marginTop: 10 }}>
                   <div className="mt">{copy(pageContract, "loadwise.prior.title")}</div>
