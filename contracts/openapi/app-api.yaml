@@ -3404,6 +3404,63 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /vaccination/command/shed-dose-matrix:
+    get:
+      tags:
+        - Vaccination
+      operationId: getCommandBoardShedDoseMatrix
+      summary: The command board's shed x dose grid.
+      description: >-
+        A board SECTION on its own route, not a drilldown: it takes no cell keys and no cursor,
+        because the grid is a bounded per-shed aggregate.
+
+
+        It is a separate request only because of cost, and only after the cheaper fix was taken
+        first. Interning its shed identities and dose labels cut it from 408KB to 155KB (the whole
+        board payload from 441KB to 207KB) and that was NOT enough: measured on a staging-scale
+        clone, GET /vaccination/command held p90 343 with this section inline and p90 251-281
+        without it, against a p90 300ms budget that tools/perf/api-latency-policy.mjs hard-caps and
+        will not let anyone raise. The cost was the round trip, not the payload.
+
+
+        This is a real product change and is recorded as one: the CEO's shed grid now arrives a
+        moment after the rest of the board. Every number in it is the same whole-scope figure it was
+        when it shipped inline; only its arrival moved.
+      parameters:
+        - name: drive_batch_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: park_id
+          in: query
+          required: false
+          description: Clamped to the caller's grants exactly as on /vaccination/command.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: The shed x dose grid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandBoardShedDoseMatrixPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /vaccination/command/closed-without-dose:
     get:
       tags:
@@ -23649,6 +23706,19 @@ components:
             exceptions" compares like with like. The ANIMALS behind it are fetched per cell from
             /vaccination/command/cohort-exceptions; they used to ship here, computed tenant-wide for
             every cell on every render.
+    CommandBoardShedDoseMatrixPage:
+      type: object
+      additionalProperties: false
+      required:
+        - matrix
+      description: >-
+        The shed x dose grid served as its own SECTION rather than on first paint. Interning its
+        payload (408KB -> 155KB) was measured and was NOT sufficient: /vaccination/command held
+        p90 343 with this section inline and p90 251-281 without it, against a non-relaxable
+        300ms budget. The cost was the round trip, not the payload.
+      properties:
+        matrix:
+          $ref: "#/components/schemas/ShedDoseMatrix"
     CommandBoardCohortMatrixPage:
       type: object
       additionalProperties: false
@@ -23829,45 +23899,74 @@ components:
         tag:
           type: string
           description: Primary visible tag when the animal has one.
-    ShedDoseMatrixCell:
+    ShedDoseMatrix:
+      type: object
+      additionalProperties: false
+      required:
+        - sheds
+        - doseRules
+        - cells
+      description: >-
+        The shed x dose grid in INTERNED form. A flat cell array restated each shed's identity
+        strings on every one of its dose cells; on a staging-scale tenant that was 113 shed
+        identities and 21 dose-rule labels spread over 1318 cells (408KB). Identity is carried
+        once in sheds/doseRules and referenced by index from each cell. Clients expand it with the
+        same rule as domain.ShedDoseMatrix.Flatten(): a cell whose index does not resolve is
+        DROPPED, never rendered against a different shed.
+      properties:
+        sheds:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShedDoseMatrixShed"
+          description: Shed x partition identities, referenced by ShedDoseMatrixCell.shed.
+        doseRules:
+          type: array
+          items:
+            type: string
+          description: Dose-rule display labels, referenced by ShedDoseMatrixCell.dose.
+        cells:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShedDoseMatrixCell"
+    ShedDoseMatrixShed:
       type: object
       additionalProperties: false
       required:
         - shedId
         - shedName
-        - doseRule
-        - state
-        - animalCount
       properties:
         shedId:
           type: string
           format: uuid
         shedName:
           type: string
-        partition_label:
-          type:
-            - string
-            - "null"
-          description: >-
-            Raw stored partition label for shedId ('1', 'Part 3'). Null or
-            absent means the shed is non-partitioned. Never the literal
-            string "whole".
-        source_shed_name:
-          type:
-            - string
-            - "null"
-          description: >-
-            Original partition-bearing source name (e.g. "Castro 1"), kept for
-            traceability only. Not a display field.
-        operational_location_display:
+        partitionLabel:
           type: string
           description: >-
-            User-facing location label. No partition -> bare shed name
-            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
-            -> "Godel 1 - Part 3".
-        doseRule:
+            Raw stored partition label ('1', 'Part 3'). Empty or absent means the shed is
+            non-partitioned. Never the literal string "whole".
+        locationDisplay:
           type: string
-          description: Dose rule identifier (e.g., et_tt_adult_w1) or human label.
+          description: >-
+            User-facing location label. No partition -> bare shed name ("Yashoda"); numeric
+            convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". This is NOT
+            redundant with shedName: on a live tenant it differed from shedName on 1282 of 1318
+            cells, because most sheds carry a partition.
+    ShedDoseMatrixCell:
+      type: object
+      additionalProperties: false
+      required:
+        - shed
+        - dose
+        - state
+        - count
+      properties:
+        shed:
+          type: integer
+          description: Index into ShedDoseMatrix.sheds.
+        dose:
+          type: integer
+          description: Index into ShedDoseMatrix.doseRules.
         state:
           type: string
           enum:
@@ -23876,25 +23975,28 @@ components:
             - overdue
             - scheduled
           description: State of completion (verified), awaiting (recorded-unverified), overdue, or scheduled.
-        animalCount:
+        count:
           type: integer
           description: Number of unique animals with this state in this shed for this dose.
-        minAdministeredDate:
+        adminFrom:
           type: string
-          format: date-time
-          description: Earliest administered_at date for verified/awaiting completions.
-        maxAdministeredDate:
+          format: date
+          description: >-
+            Earliest administered business date (IST, YYYY-MM-DD) for verified/awaiting
+            completions. A BUSINESS DATE, not an instant: vaccination's grain is the IST business
+            day, so an RFC3339 timestamp here invited comparison against a wall clock.
+        adminTo:
           type: string
-          format: date-time
-          description: Latest administered_at date for verified/awaiting completions.
-        minDueDate:
+          format: date
+          description: Latest administered business date (IST) for verified/awaiting completions.
+        dueFrom:
           type: string
-          format: date-time
-          description: Earliest due_at date for scheduled obligations.
-        maxDueDate:
+          format: date
+          description: Earliest due business date (IST) for scheduled obligations.
+        dueTo:
           type: string
-          format: date-time
-          description: Latest due_at date for scheduled obligations.
+          format: date
+          description: Latest due business date (IST) for scheduled obligations.
     WeeklyGivenRow:
       type: object
       additionalProperties: false
@@ -24769,7 +24871,6 @@ components:
       required:
         - source
         - kpis
-        - shedDoseMatrix
         - shedVaccineMatrix
         - shedVaccineColumns
         - weeklyGiven
@@ -24851,11 +24952,6 @@ components:
             indistinguishable from a drive that was never planned. Clients must show that more
             drives exist (e.g. "narrow by park") rather than presenting a truncated picker as
             complete.
-        shedDoseMatrix:
-          type: array
-          items:
-            $ref: "#/components/schemas/ShedDoseMatrixCell"
-          description: Shed × dose rule state matrix; each row is a shed+dose combination with state and date range.
         weeklyGiven:
           type: array
           items:

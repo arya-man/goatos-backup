@@ -1484,6 +1484,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/command/shed-dose-matrix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The command board's shed x dose grid.
+         * @description A board SECTION on its own route, not a drilldown: it takes no cell keys and no cursor, because the grid is a bounded per-shed aggregate.
+         *
+         *     It is a separate request only because of cost, and only after the cheaper fix was taken first. Interning its shed identities and dose labels cut it from 408KB to 155KB (the whole board payload from 441KB to 207KB) and that was NOT enough: measured on a staging-scale clone, GET /vaccination/command held p90 343 with this section inline and p90 251-281 without it, against a p90 300ms budget that tools/perf/api-latency-policy.mjs hard-caps and will not let anyone raise. The cost was the round trip, not the payload.
+         *
+         *     This is a real product change and is recorded as one: the CEO's shed grid now arrives a moment after the rest of the board. Every number in it is the same whole-scope figure it was when it shipped inline; only its arrival moved.
+         */
+        get: operations["getCommandBoardShedDoseMatrix"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/command/closed-without-dose": {
         parameters: {
             query?: never;
@@ -9672,6 +9696,10 @@ export interface components {
             /** @description Dose-sequence EXCEPTION count for this cell: animals of this cohort holding an accepted LATER dose of the same vaccine course while THIS dose has no accepted completion (for example an accepted ET+TT Dose 2 with no accepted Dose 1). Whole-cohort truth, never capped. Cohort scope and key set are identical to verifiedCount, so "321 verified · 3 exceptions" compares like with like. The ANIMALS behind it are fetched per cell from /vaccination/command/cohort-exceptions; they used to ship here, computed tenant-wide for every cell on every render. */
             missingPriorDoseCount: number;
         };
+        /** @description The shed x dose grid served as its own SECTION rather than on first paint. Interning its payload (408KB -> 155KB) was measured and was NOT sufficient: /vaccination/command held p90 343 with this section inline and p90 251-281 without it, against a non-relaxable 300ms budget. The cost was the round trip, not the payload. */
+        CommandBoardShedDoseMatrixPage: {
+            matrix: components["schemas"]["ShedDoseMatrix"];
+        };
         CommandBoardCohortMatrixPage: {
             /** @description Cohort (park x management_stage x sex) x vaccine cells. Whole-scope figures, identical to what shipped inline on the board before this section was split out for cost. */
             cells: components["schemas"]["VaccinationCommandBoardCohortCell"][];
@@ -9743,45 +9771,55 @@ export interface components {
             /** @description Primary visible tag when the animal has one. */
             tag?: string;
         };
-        ShedDoseMatrixCell: {
+        /** @description The shed x dose grid in INTERNED form. A flat cell array restated each shed's identity strings on every one of its dose cells; on a staging-scale tenant that was 113 shed identities and 21 dose-rule labels spread over 1318 cells (408KB). Identity is carried once in sheds/doseRules and referenced by index from each cell. Clients expand it with the same rule as domain.ShedDoseMatrix.Flatten(): a cell whose index does not resolve is DROPPED, never rendered against a different shed. */
+        ShedDoseMatrix: {
+            /** @description Shed x partition identities, referenced by ShedDoseMatrixCell.shed. */
+            sheds: components["schemas"]["ShedDoseMatrixShed"][];
+            /** @description Dose-rule display labels, referenced by ShedDoseMatrixCell.dose. */
+            doseRules: string[];
+            cells: components["schemas"]["ShedDoseMatrixCell"][];
+        };
+        ShedDoseMatrixShed: {
             /** Format: uuid */
             shedId: string;
             shedName: string;
-            /** @description Raw stored partition label for shedId ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partition_label?: string | null;
-            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
-            source_shed_name?: string | null;
-            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
-            /** @description Dose rule identifier (e.g., et_tt_adult_w1) or human label. */
-            doseRule: string;
+            /** @description Raw stored partition label ('1', 'Part 3'). Empty or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partitionLabel?: string;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". This is NOT redundant with shedName: on a live tenant it differed from shedName on 1282 of 1318 cells, because most sheds carry a partition. */
+            locationDisplay?: string;
+        };
+        ShedDoseMatrixCell: {
+            /** @description Index into ShedDoseMatrix.sheds. */
+            shed: number;
+            /** @description Index into ShedDoseMatrix.doseRules. */
+            dose: number;
             /**
              * @description State of completion (verified), awaiting (recorded-unverified), overdue, or scheduled.
              * @enum {string}
              */
             state: "verified" | "awaiting" | "overdue" | "scheduled";
             /** @description Number of unique animals with this state in this shed for this dose. */
-            animalCount: number;
+            count: number;
             /**
-             * Format: date-time
-             * @description Earliest administered_at date for verified/awaiting completions.
+             * Format: date
+             * @description Earliest administered business date (IST, YYYY-MM-DD) for verified/awaiting completions. A BUSINESS DATE, not an instant: vaccination's grain is the IST business day, so an RFC3339 timestamp here invited comparison against a wall clock.
              */
-            minAdministeredDate?: string;
+            adminFrom?: string;
             /**
-             * Format: date-time
-             * @description Latest administered_at date for verified/awaiting completions.
+             * Format: date
+             * @description Latest administered business date (IST) for verified/awaiting completions.
              */
-            maxAdministeredDate?: string;
+            adminTo?: string;
             /**
-             * Format: date-time
-             * @description Earliest due_at date for scheduled obligations.
+             * Format: date
+             * @description Earliest due business date (IST) for scheduled obligations.
              */
-            minDueDate?: string;
+            dueFrom?: string;
             /**
-             * Format: date-time
-             * @description Latest due_at date for scheduled obligations.
+             * Format: date
+             * @description Latest due business date (IST) for scheduled obligations.
              */
-            maxDueDate?: string;
+            dueTo?: string;
         };
         WeeklyGivenRow: {
             /** @description ISO 8601 week year. */
@@ -10188,8 +10226,6 @@ export interface components {
             unavailableSections?: string[];
             /** @description True when driveOptions hit its bound and drives were left out. The list has always been bounded, but it used to stop silently, so a scheduled drive past the bound was indistinguishable from a drive that was never planned. Clients must show that more drives exist (e.g. "narrow by park") rather than presenting a truncated picker as complete. */
             driveOptionsTruncated: boolean;
-            /** @description Shed × dose rule state matrix; each row is a shed+dose combination with state and date range. */
-            shedDoseMatrix: components["schemas"]["ShedDoseMatrixCell"][];
             /** @description Weekly aggregation of doses given (ISO week × vaccine × completion status). Ordered by week descending. */
             weeklyGiven: components["schemas"]["WeeklyGivenRow"][];
             /** @description Per-shed × dose rows awaiting verification. Includes animal count, last-given date, and days in queue. */
@@ -17101,6 +17137,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CommandBoardCohortMatrixPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getCommandBoardShedDoseMatrix: {
+        parameters: {
+            query?: {
+                drive_batch_id?: string;
+                /** @description Clamped to the caller's grants exactly as on /vaccination/command. */
+                park_id?: string;
+                as_of?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The shed x dose grid. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommandBoardShedDoseMatrixPage"];
                 };
             };
             400: components["responses"]["BadRequest"];

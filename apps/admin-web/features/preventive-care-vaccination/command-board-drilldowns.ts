@@ -173,6 +173,91 @@ function useDrilldown<T>(
 export type CohortMatrixCell = Record<string, unknown>;
 
 const NO_COHORT_MATRIX: CohortMatrixCell[] = [];
+
+// The interned wire shape of the shed x dose grid, and its expanded form.
+export type ShedDoseMatrixWire = {
+  sheds: Array<{ shedId: string; shedName: string; partitionLabel?: string; locationDisplay?: string }>;
+  doseRules: string[];
+  cells: Array<{
+    shed: number;
+    dose: number;
+    state: string;
+    count: number;
+    adminFrom?: string;
+    adminTo?: string;
+    dueFrom?: string;
+    dueTo?: string;
+  }>;
+};
+
+export type ShedDoseCellRow = {
+  shedId: string;
+  shedName: string;
+  partition_label?: string | null;
+  operational_location_display?: string | null;
+  doseRule: string;
+  state: string;
+  animalCount: number;
+  minAdministeredDate?: string | null;
+  maxAdministeredDate?: string | null;
+  minDueDate?: string | null;
+  maxDueDate?: string | null;
+};
+
+const NO_SHED_DOSE: ShedDoseCellRow[] = [];
+
+// expandShedDoseMatrix mirrors domain.ShedDoseMatrix.Flatten() on the backend, INCLUDING its
+// safety rule: a cell whose shed or dose index does not resolve is dropped, never rendered against
+// a different shed. Showing one shed's animal count under another shed's name is the kind of error
+// a CEO board must not make quietly.
+export function expandShedDoseMatrix(matrix?: ShedDoseMatrixWire | null): ShedDoseCellRow[] {
+  if (!matrix) return NO_SHED_DOSE;
+  const sheds = matrix.sheds ?? [];
+  const doseRules = matrix.doseRules ?? [];
+  const out: ShedDoseCellRow[] = [];
+  for (const cell of matrix.cells ?? []) {
+    const shed = sheds[cell.shed];
+    const doseRule = doseRules[cell.dose];
+    if (!shed || doseRule === undefined) continue;
+    out.push({
+      shedId: shed.shedId,
+      shedName: shed.shedName,
+      partition_label: shed.partitionLabel ?? null,
+      operational_location_display: shed.locationDisplay ?? null,
+      doseRule,
+      state: cell.state,
+      animalCount: cell.count,
+      minAdministeredDate: cell.adminFrom ?? null,
+      maxAdministeredDate: cell.adminTo ?? null,
+      minDueDate: cell.dueFrom ?? null,
+      maxDueDate: cell.dueTo ?? null,
+    });
+  }
+  return out;
+}
+
+// useShedDoseMatrix loads the shed x dose grid after first paint.
+//
+// It used to ship inside /vaccination/command. Interning it cut 408KB to 155KB and the board's p90
+// barely moved -- the cost was the round trip, not the payload -- so the section itself moved:
+// p90 343 with it inline, 251-281 without. Numbers are unchanged and whole-scope; only their
+// arrival moved, and the caller renders a loading state rather than an empty grid that would read
+// as "no sheds".
+export function useShedDoseMatrix(scope: DrilldownScope): DrilldownState<ShedDoseCellRow[]> {
+  const params = scopeParams(scope);
+  const query = params.toString();
+  return useDrilldown<ShedDoseCellRow[]>(
+    query || "all",
+    async (signal) => {
+      const page = await fetchJson<{ matrix: ShedDoseMatrixWire }>(
+        `/api/vaccination/command/shed-dose-matrix${query ? `?${query}` : ""}`,
+        signal,
+      );
+      return expandShedDoseMatrix(page.matrix);
+    },
+    NO_SHED_DOSE,
+  );
+}
 const NO_CLOSED: ClosedWithoutDoseRow[] = [];
 const NO_SHED_VACCINE: { animals: ShedVaccineAnimalRow[]; proofVideos: Array<{ path: string }> } = {
   animals: [],
