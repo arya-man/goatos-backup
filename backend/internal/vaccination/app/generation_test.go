@@ -4971,6 +4971,34 @@ func TestConfigAnchorStillEnforcesAgeAndScope(t *testing.T) {
 	}
 }
 
+func TestGenerationDoesNotCreateOpenWorkInThePast(t *testing.T) {
+	ctx := context.Background()
+	asOf := mustGenerationDate(t, "2026-08-31")
+	dob := mustGenerationDate(t, "2026-06-01")
+	rule := protodomain.Rule{
+		RuleID: "rule-hs-kid-12w", DoseCode: "hs_kid_12w", Sequence: 1,
+		TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 30,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"HS","type":"killed","pathogen_class":"bacterial"},"eligibility":{"species":["goat","sheep"]}}`),
+	}
+	goat := defaultPlacedGoat(domain.EligibleGoat{
+		GoatID: "goat-1", LifecycleStatus: "alive", Species: "goat", Stage: "K1", DOB: &dob,
+	})
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl)
+	res := domain.GenerateResult{}
+
+	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", []protodomain.Rule{rule}, nil, genEligibility{}, goat, asOf,
+		generationOptions{}, genVersionPolicies{}, vaccineProfile{}, nil, newTrustedEvidenceLookup(), &res); err != nil {
+		t.Fatalf("generation failed: %v", err)
+	}
+	if len(obl.inserted) != 1 {
+		t.Fatalf("inserted=%d, want one floored obligation", len(obl.inserted))
+	}
+	if got := businessDayStart(obl.inserted[0].DueAt); !got.Equal(businessDayStart(asOf)) {
+		t.Fatalf("due_at=%s, want generation day %s; generator must not create open work in the past", got, businessDayStart(asOf))
+	}
+}
+
 func configAnchorPlan(rule protodomain.Rule, goat domain.EligibleGoat) goatGenerationPlan {
 	return goatGenerationPlan{
 		versionID:      "version-1",
