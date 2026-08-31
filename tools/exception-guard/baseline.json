@@ -1,7 +1,7 @@
 {
   "_comment": "Shrink-only ratchet baseline for exception-guard-ratchet. Each entry is a COUNT of violations for that file+rule, so adding one to an already-listed file still fails. Regenerate with `python3 tools/ci/ratchet-guard.py --config <this-config> --regenerate` after genuinely fixing violations. Never hand-edit to add a new entry or raise a count to land new code \u2014 that defeats the ratchet.",
   "key_fields": "see the ratchet config's key_fields \u2014 stable file+rule identity, never line number",
-  "total": 65,
+  "total": 63,
   "entries": {
     "apps/goatos-android/app/src/debug/kotlin/sg/mesha/goatos/BleRfidScannerScreen.kt|runcatching_discard": 5,
     "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/auth/AuthRepository.kt|runcatching_discard": 1,
@@ -23,13 +23,12 @@
     "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/WorkflowDetailViewModel.kt|runcatching_discard": 1,
     "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/WorkflowListViewModel.kt|runcatching_discard": 6,
     "apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/CaptureDraftRepository.kt|runcatching_discard": 1,
-    "apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/HealthRepository.kt|runcatching_discard": 4,
+    "apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/HealthRepository.kt|runcatching_discard": 3,
     "apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/sync/SyncRepository.kt|runcatching_discard": 3,
     "apps/goatos-android/core/core-network/src/main/kotlin/sg/mesha/goatos/core/network/ServerErrorText.kt|runcatching_discard": 2,
     "apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/CountsFormKit.kt|runcatching_discard": 1,
     "apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/WorkflowListScreen.kt|runcatching_discard": 2,
     "apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedFormKit.kt|runcatching_discard": 1,
-    "apps/goatos-android/feature/feature-health/src/main/kotlin/sg/mesha/goatos/feature/health/AddHealthCaseScreen.kt|runcatching_discard": 1,
     "apps/goatos-android/feature/feature-health/src/main/kotlin/sg/mesha/goatos/feature/health/HealthScreens.kt|runcatching_discard": 1,
     "apps/goatos-android/feature/feature-verify/src/main/kotlin/sg/mesha/goatos/feature/verify/VerifyQueueScreen.kt|runcatching_discard": 1,
     "backend/cmd/counts-workbook-source-scan/main.go|swallowed_err": 1,

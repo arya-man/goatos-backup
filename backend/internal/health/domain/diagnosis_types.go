@@ -15,8 +15,8 @@ import (
 // documented exceptions and do not wait -- they are carried on the proposal and
 // acted on immediately.
 const (
-	DiagnosisStatusProposed   = "proposed"
-	DiagnosisStatusConfirmed  = "confirmed"
+	DiagnosisStatusProposed  = "proposed"
+	DiagnosisStatusConfirmed = "confirmed"
 	// DiagnosisStatusDeclined is the Director deciding to treat NONE of the
 	// proposed diagnoses. It is a terminal decision like confirmed -- who and
 	// when are recorded, the run leaves the queue -- but the phone renders it as
