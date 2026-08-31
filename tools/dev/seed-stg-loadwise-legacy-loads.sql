@@ -80,34 +80,39 @@ FROM procurement_loads pl
 WHERE pl.tenant_id = '00000000-0000-4000-8000-000000000001'
   AND pl.idempotency_key LIKE 'legacy-load-%';
 
--- Membership is PER ANIMAL, recorded with the animal's own TAG.
+-- Membership is PER ANIMAL, selected and recorded by the animal's own TAG.
 --
--- The pen below is only the one-time SELECTION criterion for which animals belong to which load
--- (it is the farm's own load->pen tagging, weighing_shed_load_tags). What gets STORED is one
--- procurement_load_goats row per goat_id, carrying that animal's identifiers, so the mapping is
--- by animal identity and not by location: a goat shifted to another pen tomorrow stays on its
--- load, and the load-wise read never joins a shed (see loadwise_repository.go, whose membership
--- CTE reads procurement_load_goats.goat_id alone).
+-- The farm tagged each load to a PEN (weighing_shed_load_tags), and every animal that arrived on
+-- those loads carries a placeholder tag naming the pen it landed in: TEMP-CBE-CASTRO2-014. That
+-- TAG is the animal's identity and does not change when it walks; its pen does. Selecting by
+-- CURRENT pen therefore attributed the wrong animals -- verified against the register 2026-08-31:
+-- three CBE-CASTRO2 animals and one CBE-CASTRO3 animal had moved to Godel 2 / Yashoda and were
+-- MISSED, while two CBE-CASTRO3 animals sitting in Castro pen 2 were attached to load 130 instead
+-- of their own load 128. Selecting by the tag fixes both, and load 128 then reconciles exactly
+-- (70 declared = 4 died + 66 attached), which is the evidence the tag is the right key.
 --
--- KNOWN DATA GAP, verified 2026-08-31: every animal in these pens carries a PLACEHOLDER tag
--- (temp-cbe-castro1-001 style), not a real RFID -- CBE Castro 200/200, CPT Castro 63/63 and the
--- 77 CPT Godel 2 Part 1+2 animals are all placeholder-tagged. The legacy sheet's own tag numbers
--- (625, 3155, ...) match NOTHING in the register: 0 of 601 resolve to a real RFID, by exact value
--- or by last-4. So the identifiers recorded here are the placeholders the register actually
--- holds. When those animals are tagged for real, re-running this seed re-reads their identifiers
--- and the mapping becomes RFID-backed with no schema or code change.
+-- Nothing here joins a location, so this seed no longer has a location dependency at all.
 --
--- Pen selection verified against goat_shed_partitions on 2026-08-31: CPT Godel 2 Part 1+2 = 77
--- for load 129; CPT Castro 1+2 = 63 for load 131; CBE Castro 1/2/3 for 126/130/128.
-CREATE TEMP TABLE legacy_load_pens (load_ref text, park_code text, shed_name text, partition_label text) ON COMMIT DROP;
-INSERT INTO legacy_load_pens VALUES
-    ('126', 'CBE', 'Castro',  '1'),
-    ('128', 'CBE', 'Castro',  '3'),
-    ('130', 'CBE', 'Castro',  '2'),
-    ('131', 'CPT', 'Castro',  '1'),
-    ('131', 'CPT', 'Castro',  '2'),
-    ('129', 'CPT', 'Godel 2', 'Part 1'),
-    ('129', 'CPT', 'Godel 2', 'Part 2');
+-- KNOWN DATA GAP: these tags are PLACEHOLDERS, not RFIDs -- 0 of the legacy sheet's 601 tag
+-- numbers resolve to a real RFID in the register, by exact value or last-4. The identifiers
+-- recorded below are what the register actually holds; a re-run re-reads them, so the mapping
+-- becomes RFID-backed the day those animals are tagged for real, with no schema or code change.
+CREATE TEMP TABLE legacy_load_tag_prefixes (load_ref text, tag_prefix text) ON COMMIT DROP;
+INSERT INTO legacy_load_tag_prefixes VALUES
+    ('126', 'TEMP-CBE-CASTRO1-'),
+    ('130', 'TEMP-CBE-CASTRO2-'),
+    ('128', 'TEMP-CBE-CASTRO3-'),
+    ('131', 'TEMP-CPT-CASTRO1-'),
+    ('131', 'TEMP-CPT-CASTRO2-'),
+    ('129', 'TEMP-CPT-GODEL2P1-'),
+    ('129', 'TEMP-CPT-GODEL2P2-');
+
+-- A re-run REBUILDS this seed's membership rather than adding to it: an animal whose tag says it
+-- belongs elsewhere must LOSE its old row, which ON CONFLICT alone could never do. Scoped to the
+-- loads this script owns, so no app-recorded load is touched.
+DELETE FROM procurement_load_goats plg
+USING legacy_load_ids li
+WHERE plg.load_id = li.load_id AND plg.tenant_id = '00000000-0000-4000-8000-000000000001';
 
 INSERT INTO procurement_load_goats (
     tenant_id, load_id, goat_id, selection_state, current_state, intake_accepted_at,
@@ -115,29 +120,24 @@ INSERT INTO procurement_load_goats (
 )
 SELECT g.tenant_id, li.load_id, g.goat_id, 'accepted_herd_intake', 'accepted_herd_intake',
        ll.purchase_date::timestamptz,
-       -- The animal's own tags, snapshotted onto the membership row so the load's animals are
-       -- identifiable by TAG and not only by an opaque goat_id. Read from the active identifier
-       -- rows; NULL where the animal carries none of that type.
-       (SELECT gi.identifier_value FROM goat_identifiers gi
-         WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
-           AND gi.identifier_type = 'animal_identifier_1'
-           AND gi.status = 'active' AND gi.valid_to IS NULL
-         ORDER BY gi.is_primary_for_goat DESC, gi.valid_from DESC LIMIT 1),
-       (SELECT gi.identifier_value FROM goat_identifiers gi
-         WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
-           AND gi.identifier_type = 'animal_identifier_2'
-           AND gi.status = 'active' AND gi.valid_to IS NULL
-         ORDER BY gi.is_primary_for_goat DESC, gi.valid_from DESC LIMIT 1)
-FROM legacy_load_pens pen
-JOIN legacy_load_ids li ON li.load_ref = pen.load_ref
-JOIN legacy_loads ll ON ll.load_ref = pen.load_ref
-JOIN locations pk ON pk.tenant_id = '00000000-0000-4000-8000-000000000001'
-  AND pk.location_type = 'park' AND upper(pk.location_code) = pen.park_code
-JOIN locations sh ON sh.parent_location_id = pk.location_id
-  AND sh.location_type = 'shed' AND sh.name = pen.shed_name
-JOIN goats g ON g.shed_id = sh.location_id AND g.lifecycle_status = 'alive'
-JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-  AND gsp.partition_label = pen.partition_label
+       gi.identifier_value,
+       (SELECT g2.identifier_value FROM goat_identifiers g2
+         WHERE g2.tenant_id = g.tenant_id AND g2.goat_id = g.goat_id
+           AND g2.identifier_type = 'animal_identifier_2'
+           AND g2.status = 'active' AND g2.valid_to IS NULL
+         ORDER BY g2.is_primary_for_goat DESC, g2.valid_from DESC LIMIT 1)
+FROM legacy_load_tag_prefixes pfx
+JOIN legacy_load_ids li ON li.load_ref = pfx.load_ref
+JOIN legacy_loads ll ON ll.load_ref = pfx.load_ref
+JOIN goat_identifiers gi
+  ON gi.tenant_id = '00000000-0000-4000-8000-000000000001'
+ AND gi.identifier_type = 'animal_identifier_1'
+ AND gi.status = 'active' AND gi.valid_to IS NULL
+ AND upper(gi.identifier_value) LIKE pfx.tag_prefix || '%'
+JOIN goats g ON g.tenant_id = gi.tenant_id AND g.goat_id = gi.goat_id
+-- Only animals still ON the farm are attached; one that already left is counted by the prior
+-- outcomes below, and attaching it here as well would double it.
+WHERE g.lifecycle_status = 'alive'
 ON CONFLICT (tenant_id, load_id, goat_id) DO UPDATE
 SET animal_identifier_1 = EXCLUDED.animal_identifier_1,
     animal_identifier_2 = EXCLUDED.animal_identifier_2;
