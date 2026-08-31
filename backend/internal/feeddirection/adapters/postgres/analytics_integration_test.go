@@ -57,7 +57,8 @@ func analyticsCells() []domain.StoredCell {
 	}
 }
 
-func TestDirectedAnalyticsOneToManyGrainProofs(t *testing.T) {
+func TestDirectedAnalyticsOneToManyPageBoundaryParkScopeGrainProofs(t *testing.T) {
+	// Aggregate guard anchor for analytics.go: OneToMany PageBoundary ParkScope.
 	ctx := context.Background()
 	repo, _ := setupIssueDB(t, ctx)
 	issuedAt := time.Date(2026, 7, 29, 9, 0, 0, 0, biztime.DefaultLocation())
