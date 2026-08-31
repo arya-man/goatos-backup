@@ -1090,12 +1090,28 @@ max_accepted AS MATERIALIZED (
   GROUP BY target_id, family
 ),
 candidate AS MATERIALIZED (
+  -- The DISTINCT deduplicates on the BASE columns only, and the two DERIVED columns (park_id's
+  -- text COALESCE and family's regexp_replace) are computed in this outer projection instead.
+  -- Both are pure functions of columns already inside the DISTINCT key, so the deduplicated set
+  -- is unchanged -- but carrying them INSIDE the key widened each of ~81k rows to 114 bytes and
+  -- put a regexp in the sort key, which pushed the sort past work_mem into
+  -- "Sort Method: external merge  Disk: 8696kB" (763ms tenant-wide). Deduplicating on the narrow
+  -- base columns lets the planner pick a parallel HashAggregate instead: 763ms -> 203ms,
+  -- byte-identical output on live data. Do NOT hoist the derived columns back into the DISTINCT.
+  SELECT
+    COALESCE(d.park_uuid::text, '') AS park_id,
+    d.management_stage,
+    d.sex,
+    d.dose_code,
+    regexp_replace(d.dose_code, '_(w[0-9]+|[0-9]+w|revac|booster|first)$', '') AS family,
+    d.sequence,
+    d.goat_id
+  FROM (
   SELECT DISTINCT
-    COALESCE(park.location_id::text, '') AS park_id,
+    park.location_id AS park_uuid,
     g.management_stage,
     g.sex,
     df.dose_code,
-    regexp_replace(df.dose_code, '_(w[0-9]+|[0-9]+w|revac|booster|first)$', '') AS family,
     df.sequence,
     g.goat_id
     -- display_id and tenant_id are NOT carried here. They are only needed by the drilldown LIST,
@@ -1120,6 +1136,7 @@ candidate AS MATERIALIZED (
     AND ($5::text IS NULL OR g.management_stage = $5::text)
     AND ($6::text IS NULL OR g.sex = $6::text)
     AND ($7::text[] IS NULL OR df.dose_code = ANY($7::text[]))
+  ) d
 ),
 exceptions AS (
   -- THE OUTPUT GRAIN IS (cell, ANIMAL), and dropping sequence/family here is load-bearing.
