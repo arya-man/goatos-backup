@@ -201,7 +201,11 @@ func (h *Handler) GetCommandBoardShedVaccineAnimals(w http.ResponseWriter, r *ht
 		ShedID:                     shedID,
 		// An unpartitioned shed's cell carries an empty partition label, which is a real cell key
 		// and not a missing parameter.
-		PartitionLabel: r.URL.Query().Get("partition_label"),
+		//
+		// TrimSpace like every other cell key on this handler: the statement matches against
+		// btrim(sp.partition_label), so an untrimmed value silently returned an EMPTY drawer for a
+		// cell the matrix had just shown a count for.
+		PartitionLabel: strings.TrimSpace(r.URL.Query().Get("partition_label")),
 		VaccineCode:    vaccineCode,
 	})
 	if err != nil {

@@ -553,7 +553,13 @@ func TestHotPathInlineSQLRejectsBlockCommentHeader(t *testing.T) {
 // TestHotPathInlineSQLIgnoresBuiltQueries keeps the rule off dynamic assembly. A `+` chain carrying
 // a variable is a query being BUILT, not a statement this rule can read or a plan test can pin, and
 // flagging it would push authors toward scale-guard:ignore.
-func TestHotPathInlineSQLIgnoresBuiltQueries(t *testing.T) {
+// TestHotPathInlineSQLCatchesQueriesBuiltFromAVariable pins the inversion of an earlier, wrong
+// assertion. This test used to require ZERO findings for a statement concatenated with a variable,
+// which locked in the rule's worst hole: `literal + where` escaped the guard entirely while the
+// identical statement without the variable was caught. A query whose final text is not knowable
+// from the source is the one a plan test can LEAST reach -- exempting it inverted the rule's whole
+// justification. The literal half must still be hoisted, so it must still be reported.
+func TestHotPathInlineSQLCatchesQueriesBuiltFromAVariable(t *testing.T) {
 	src := "package postgres\n\nimport \"context\"\n\n" +
 		"type R struct{ pool interface{ Query(context.Context, string, ...any) (any, error) } }\n\n" +
 		"const filterClause = \"AND o.status = $2\"\n\n" +
@@ -562,7 +568,8 @@ func TestHotPathInlineSQLIgnoresBuiltQueries(t *testing.T) {
 		"\t_, _ = r.pool.Query(ctx, q, \"t\")\n}\n"
 
 	repo, path := writeGoAt(t, "backend/internal/x/adapters/postgres/repository.go", src)
-	if got := rules(scanFile(repo, path))["hot-path-inline-sql"]; got != 0 {
-		t.Fatalf("hot-path-inline-sql = %d, want 0 for a query assembled from a variable", got)
+	if got := rules(scanFile(repo, path))["hot-path-inline-sql"]; got != 1 {
+		t.Fatalf("hot-path-inline-sql = %d, want 1: a query assembled from a variable is MORE "+
+			"unreachable to a plan test, not less, and its multi-line literal half must be hoisted", got)
 	}
 }

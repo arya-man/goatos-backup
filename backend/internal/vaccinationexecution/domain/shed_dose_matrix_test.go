@@ -58,3 +58,35 @@ func TestShedDoseMatrixFlattenDropsUnresolvableCells(t *testing.T) {
 		t.Fatalf("Flatten() kept the wrong cell: %+v", got[0])
 	}
 }
+
+// TestShedDoseMatrixKeepsTwoDoseCodesThatShareALabel is the regression for a defect introduced by
+// interning and caught in review.
+//
+// DoseQualifiedDisplayLabel only qualifies _W1/_W2/_BOOSTER/_REVAC/_REPEAT/_FIRST, so et_tt_kid_4w
+// and et_tt_kid_7w BOTH render "ET+TT". Interning the dose axis on that LABEL merged the two codes
+// onto one index, so a shed holding both emitted two cells sharing a (shed, dose, state) triple and
+// any grid keyed on that triple silently dropped one animal count. The axis is interned on the raw
+// dose_code instead, which means DoseRules legitimately holds the same label twice -- consumers
+// must key on the INDEX. admin-web's expandShedDoseMatrix/buildShedGrid mirror this with doseKey.
+func TestShedDoseMatrixKeepsTwoDoseCodesThatShareALabel(t *testing.T) {
+	m := ShedDoseMatrix{
+		Sheds:     []ShedDoseMatrixShed{{ShedID: "s1", ShedName: "Castro"}},
+		DoseRules: []string{"ET+TT", "ET+TT"},
+		Cells: []ShedDoseMatrixCell{
+			{Shed: 0, Dose: 0, State: "overdue", AnimalCount: 4},
+			{Shed: 0, Dose: 1, State: "overdue", AnimalCount: 9},
+		},
+	}
+
+	got := m.Flatten()
+	if len(got) != 2 {
+		t.Fatalf("Flatten() returned %d cells, want 2: two dose codes sharing a label are two doses", len(got))
+	}
+	total := got[0].AnimalCount + got[1].AnimalCount
+	if total != 13 {
+		t.Fatalf("animal counts = %d, want 13; a shared label must not collapse two doses", total)
+	}
+	if got[0].DoseRule != "ET+TT" || got[1].DoseRule != "ET+TT" {
+		t.Fatalf("both cells should carry the shared label: %+v / %+v", got[0], got[1])
+	}
+}

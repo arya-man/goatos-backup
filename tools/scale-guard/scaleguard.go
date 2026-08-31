@@ -451,14 +451,26 @@ func detectInlineHotPathSQL(file *ast.File) []inlineSQLFinding {
 			// newline threshold, and splitting a literal in two is a one-keystroke, gofmt-stable
 			// evasion of a rule whose whole point is that hot-path SQL must be nameable.
 			if bin, ok := n.(*ast.BinaryExpr); ok && bin.Op == token.ADD {
-				if text, pos, ok := flattenStringConcat(bin); ok && isInlineHotPathSQL(text) {
-					out = append(out, inlineSQLFinding{
-						pos: pos,
-						msg: "multi-line SQL declared inside " + fn.Name.Name + "() (assembled by concatenation): hoist it to a package-level named const (or SQLC) so a query-plan test and this guard can reach it",
-					})
+				if text, pos, ok := flattenStringConcat(bin); ok {
+					if isInlineHotPathSQL(text) {
+						out = append(out, inlineSQLFinding{
+							pos: pos,
+							msg: "multi-line SQL declared inside " + fn.Name.Name + "() (assembled by concatenation): hoist it to a package-level named const (or SQLC) so a query-plan test and this guard can reach it",
+						})
+					}
+					// Every operand was a literal, so the halves were just reported once as one
+					// statement. Do not descend and report them again.
+					return false
 				}
-				// Do not descend: the halves are reported once, as one statement.
-				return false
+				// An operand was NOT a literal -- `sqlText + where`. KEEP DESCENDING.
+				//
+				// Returning false here (as this rule originally did) meant a statement assembled
+				// from a variable escaped the guard entirely, while the identical statement without
+				// the variable was caught. That exempted precisely the WORST shape: a query whose
+				// final text is not knowable from the source is the one a plan test can least
+				// reach, which is the whole justification for this rule. Descending reports the
+				// multi-line literal half, which is the part that must be hoisted.
+				return true
 			}
 			lit, ok := n.(*ast.BasicLit)
 			if !ok || lit.Kind != token.STRING {

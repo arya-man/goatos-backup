@@ -2,7 +2,7 @@ package postgres
 
 // Command-board SQL, named and package-level.
 //
-// These fourteen statements used to be anonymous local string literals inside
+// These eleven statements used to be anonymous local string literals inside
 // VaccinationCommandBoard. That placement is what let the endpoint's plans regress unnoticed:
 // tools/scale-guard and the query-plan tests can only reach SQL they can NAME, so a hot-path
 // statement declared as a function-local blob was structurally exempt from both. Hoisting them
@@ -559,8 +559,10 @@ const commandBoardShedVaccineSQL = `
 --
 -- projection-review: membership=obligation_instances in scope, scope_type='shed', joined to their
 -- rule's vaccine; group_key=(shed location_id, partition label, vaccine_code) -- the cell grain the
--- UI renders; join_cardinality=rule_vaccine is now 1:1 per rule_id (DISTINCT over an invariant
--- column), comp is pre-aggregated per obligation, goat_partition is 1:1 per (goat, shed) by its own
+-- UI renders; join_cardinality=rule_vaccine is 1..N per rule_id and is SAFE because vaccine_code is
+-- itself part of the group key, not because it is invariant -- a rule compiling two codes yields two
+-- rows, exactly as the note above this statement insists;
+-- comp is pre-aggregated per obligation, goat_partition is 1:1 per (goat, shed) by its own
 -- primary key, locations 0..1 on PK -- so nothing fans the obligation grain out and the per_animal
 -- fold is a pure regrouping; pagination=NONE, a bounded sheds x vaccines aggregate computed in the
 -- database; scope=tenant_id plus the capability-resolved park filter parented through
@@ -668,9 +670,13 @@ WHERE d.tenant_id = $1::uuid
 ORDER BY d.vaccine_code
 `
 
-// 4. Weekly given query (ISO week × vaccine × status)
-// projection-review: membership=completions with administered_at; grain=ISO week × vaccine × status;
+// 4. Weekly given query (ISO week × DOSE × status)
+// projection-review: membership=completions with administered_at; grain=ISO week × dose_code × status;
 // join_cardinality=none
+//
+// DOSE, not vaccine: the GROUP BY is pr.dose_code, so two doses of the same antigen are two rows.
+// The comment said "vaccine" for both the summary and the grain, which describes a coarser set than
+// this statement returns.
 const commandBoardWeeklySQL = `
 SELECT
   EXTRACT(ISOYEAR FROM vc.administered_at AT TIME ZONE 'Asia/Kolkata')::int as iso_year,
