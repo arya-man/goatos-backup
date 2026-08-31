@@ -4244,6 +4244,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/health/observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The Health Director's queue of assessments awaiting a decision.
+         * @description One keyset page of diagnosis runs, newest first. Defaults to `proposed` — work still awaiting a decision, which is what a queue is for. Gated on `health.read` rather than `health.diagnose`, deliberately: a health manager may see that what they recorded is still waiting. Only `may_confirm` says who can act, and only the confirm route enforces it. Each row carries enough to decide what to open first — the animal, where it is, when it was seen, the ranked problems, and how many emergencies and unexplained findings it has — not the whole proposal, which is a separate read.
+         */
+        get: operations["listHealthObservations"];
+        put?: never;
+        /**
+         * Submit one completed observation form and receive a diagnosis proposal.
+         * @description The health manager records a head-to-toe observation; the deterministic register engine returns a ranked PROPOSAL. Nothing is opened here. The animal's own facts (species, sex, age band, status) are read server-side and are deliberately not accepted from the client, because the engine gates whole diagnoses on them. Emergencies and field actions on the response are actionable immediately and do not wait for a confirmation. Every run pins the register_version that produced it.
+         */
+        post: operations["submitHealthObservation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/health/observations/{health_diagnosis_run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one diagnosis run and its stored proposal. */
+        get: operations["getHealthObservation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/health/observations/{health_diagnosis_run_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm a proposal and open a treatment course for each confirmed diagnosis.
+         * @description The Health Director's decision, and the only path that opens a course. confirmed_problems must be a SUBSET of what the engine proposed; naming anything else answers 422 diagnosis_not_proposed, because diagnosing off the register is a separate authority. An empty list is a legitimate override that declines the whole proposal and still decides the run. A confirmed diagnosis whose treatment card has never been published answers 422 treatment_plan_missing and writes nothing, rather than opening a course with no treatment in it.
+         */
+        post: operations["confirmHealthDiagnosis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/health/work-items": {
         parameters: {
             query?: never;
@@ -13064,6 +13125,280 @@ export interface components {
             completed_at: string | null;
             idempotent_replay: boolean;
         };
+        /** @description One head-to-toe observation. Every field is compulsory in the product and sex-hidden fields record N/A rather than blank, because a blank cannot distinguish "nobody looked" from "normal" and the unexplained-findings channel depends on that distinction. Multi fields accept a single value or an array of values. */
+        HealthObservationFindings: {
+            /** @description Rectal temperature in Fahrenheit, one decimal. */
+            temp?: number;
+            /** @description normal | not_eating | concentrate | green_feed | dry_feed */
+            eating?: string | string[];
+            /** @description standing | down | limping | back_leg_drag | front_knees | weak */
+            activity?: string;
+            /** @description normal | fast | labored | cough | pant. pant is neither fever nor heat stress; it raises a Director-confirm flag. */
+            breathing?: string | string[];
+            nasal?: boolean;
+            /** @description normal | bloating | acidosis */
+            left_stomach?: string | string[];
+            frothy_mouth?: boolean;
+            /** @enum {string} */
+            rumen_movement?: "felt" | "not_felt";
+            /** @description Presence, or a descriptive value such as bloody. Blood is a severity detail and NOT a different diagnosis: bloody diarrhea is still Diarrhea and must never be read as coccidiosis. */
+            diarrhea?: boolean | string;
+            /** @description lt2 | 2-4 | gt4 */
+            skin_tent?: string;
+            /**
+             * @description Female only, and forbidden when lactation is no.
+             * @enum {string}
+             */
+            cmt?: "pos" | "neg";
+            /** @description no | milk | colostrum | water | pus */
+            lactation?: string;
+            /** @description normal | swollen_hard | rashes | wound | lumps */
+            udder?: string;
+            /** @description none | lochia_normal | discharge_bad_smell | pus | prolapse */
+            vulva?: string;
+            famacha?: number;
+            yellow?: boolean;
+            /** @description Male only. no | straining | no_urine */
+            straining?: string;
+            red_urine?: boolean;
+            body_edema?: boolean;
+            competition?: boolean;
+            stomach_inside?: boolean;
+            /** @description normal | orf_scabs */
+            mouth?: string;
+            /** @description normal | red | cloudy | discharge */
+            eyes?: string | string[];
+            locked_jaw?: boolean;
+            /** @description none | circling | head_tilt | star_gazing | blind | tremors | ataxia */
+            neuro?: string | string[];
+            /** @enum {string} */
+            rash_character?: "flat_itchy" | "nodular";
+            hairloss?: boolean;
+            /** @description normal | arthritis | fracture | foot_rot */
+            leg?: string;
+            /** @description no | neck | body */
+            lumps?: string;
+            /** @description no | horn | neck | body | legs */
+            wounds?: string | string[];
+            flystrike?: boolean;
+            eartag_flystrike?: boolean;
+            eartag_wound?: boolean;
+            ticks?: boolean;
+            /**
+             * @description Kids only. The finger test, and a TREATMENT GATE rather than a symptom: a kid that sucks may be given milk by mouth and one that cannot must never be.
+             * @enum {string}
+             */
+            suckle?: "present" | "absent";
+            /**
+             * @description Kids only. Deliberately non-specific: dull alone names no disease.
+             * @enum {string}
+             */
+            responsiveness?: "alert" | "dull" | "unresponsive";
+            /**
+             * @description Milk kids only. Rejected on weaning, where the navel has closed and the row is not on the form.
+             * @enum {string}
+             */
+            navel?: "normal" | "wet" | "swollen" | "painful";
+            /**
+             * @description Milk kids only. The 20 cm drop test, and the only way floppy kid is caught while the animal is still standing. Compulsory when standing; na when already down, because a recumbent kid must not be dropped. Rejected on weaning and fattening.
+             * @enum {string}
+             */
+            landing?: "spiderman" | "barely" | "falls" | "na";
+            /** @description Milk and weaning kids. normal | not_drinking | reduced. On the free-choice bar this is the drinking axis; on counted sessions refusals_today is. */
+            milk_intake?: string | string[];
+            /** @description Feeds refused today, carry-forward already applied by GoatOS. Milk kids 0-3 (three bar sessions), weaning 0-2 (two measured bottles). Compulsory on K1 and K3: a missing count read as zero would turn a kid that refused every feed into a kid that drank. */
+            refusals_today?: number;
+            /** @description Which feed this observation belongs to. Milk 1-3, weaning 1-2 (morning/evening). */
+            session?: number;
+        };
+        /** @description Follow-up state a single form cannot carry. It is what turns a second observation on the same animal into a reconcile rather than a fresh diagnosis. The animal's OPEN problems are resolved server-side from its active courses and are not accepted here. */
+        HealthObservationContext: {
+            /** @description Follow-up day; day 1 is the day treatment started. */
+            day?: number;
+            cmt_neg_streak?: number;
+            nad_prior_7d?: number;
+            shifted_out_days?: number;
+            /** @description Similar presentations in the same shed; drives contagion escalation. */
+            shed_similar?: number;
+            down_followups?: number;
+            hour?: number;
+            prior_improved?: boolean;
+            problem_improving?: boolean;
+            animal_worsening?: boolean;
+            heat_confirmed?: boolean;
+            died?: boolean;
+            off_register?: boolean;
+            closed_recent?: string[];
+        };
+        SubmitHealthObservationRequest: {
+            /** Format: uuid */
+            goat_id: string;
+            findings: components["schemas"]["HealthObservationFindings"];
+            context?: components["schemas"]["HealthObservationContext"];
+        };
+        /** @description Where the animal should be, and which shift lists it appears on. A DIRECTIVE only -- Health never moves an animal or changes its containment; the policy-pack workflow that owns location is the only writer. */
+        HealthHousingDirective: {
+            /** @enum {string} */
+            acuity: "home" | "field" | "ward" | "icu";
+            /** @enum {string} */
+            containment: "home" | "quarantine";
+            /** @description The animal will lose at the trough and must be fed apart. */
+            low_competition: boolean;
+            morning_walk: boolean;
+            evening_walk: boolean;
+            /** @description Always true. The farm is empty 00:00-06:00 IST and nothing is scheduled there. */
+            no_due_overnight: boolean;
+        };
+        /** @description The engine's output. A PROPOSAL: problems open nothing until the Director confirms. emergencies and field_actions are the exceptions and are actionable at once. */
+        HealthDiagnosisProposal: {
+            valid: boolean;
+            /** @description Why the form was not diagnosed at all. Adult and shared: not_eating_with_feed | wounds_exclusive | female_straining | cmt_without_milk. Kids: not_drinking_with_milk | landing_required | landing_when_down | refusals_today_required | session_required | landing_not_on_weaning | navel_not_on_weaning. Wiring: register_class_mismatch. */
+            reject_reason?: string;
+            /**
+             * @description The animal class this run was diagnosed as, and therefore which register produced it. One register serves each class and a run is diagnosed against exactly one of them.
+             * @enum {string}
+             */
+            scope: "adult" | "kid_milk" | "kid_weaning" | "kid_fattening";
+            /** @description The rule table this run used, pinned so the proposal stays interpretable after an edit. */
+            register_version: string;
+            /** @description Do this now. Hands have already started; the Director is notified after. */
+            emergencies?: string[];
+            /** @description Ranked severity first, then confidence. */
+            problems?: string[];
+            /** @description Diagnoses merged into another's treatment. Kept on the record: if the animal does not improve, these are re-opened first. */
+            covered?: string[];
+            rechecks?: string[];
+            /** @description Treated in place and once. No ICU, no daily follow-up. */
+            field_actions?: string[];
+            /** @description Abnormal findings no diagnosis accounts for. Render prominently, never as a footnote. */
+            unexplained?: string[];
+            ongoing?: string[];
+            new?: string[];
+            /** @description The engine only PROPOSES; the Director closes. */
+            propose_close?: string[];
+            propose_extend?: string[];
+            tiers?: {
+                [key: string]: "CONFIRMED" | "PROBABLE" | "POSSIBLE";
+            };
+            sop?: {
+                [key: string]: string;
+            };
+            course_type?: {
+                [key: string]: "F" | "T" | "V" | "Supportive";
+            };
+            housing: components["schemas"]["HealthHousingDirective"];
+            hd_flags?: string[];
+            hints?: string[];
+            /** @description Vetoed on urinary obstruction and on hypothermia. */
+            no_meloxicam?: boolean;
+            /** @description Two real problems; merge their drugs. */
+            club?: boolean;
+        };
+        HealthConfirmableProblem: {
+            id: string;
+            /** @enum {string} */
+            tier: "CONFIRMED" | "PROBABLE" | "POSSIBLE";
+            sop_ref: string;
+            /** @enum {string} */
+            exit_type: "F" | "T" | "V" | "Supportive";
+            disease_key: string;
+            /** @description Whether a published treatment card exists. Shown BEFORE the Director decides: confirming a diagnosis with no card cannot open a course, and discovering that afterwards reads as a failure rather than a gap. */
+            sop_available: boolean;
+            blocked_reason?: string;
+        };
+        HealthDiagnosisQueueItem: {
+            /** Format: uuid */
+            health_diagnosis_run_id: string;
+            /** Format: uuid */
+            goat_id: string;
+            goat_display_id: string;
+            shed_name: string;
+            /** @description The HUMAN partition label, blank for an undivided shed or an ambiguous one. */
+            partition_label: string;
+            /** @description Backend-composed `shed - partition`. Clients render it verbatim and never re-derive it; blank when the shed does not resolve, in which case the row shows the animal alone. */
+            operational_location_display: string;
+            /** Format: date-time */
+            observed_at: string;
+            /** Format: date */
+            business_date: string;
+            /** @enum {string} */
+            status: "proposed" | "confirmed" | "superseded";
+            /** @description The ranked diagnosis ids, severity first then confidence. The order is the backend's; re-sorting it on a client would put a mild certainty above a serious maybe. */
+            problems: string[];
+            /** @description How many things need doing NOW. On the row rather than only inside the proposal because emergencies do not wait for the Director — a queue that hides one behind a tap is worse than no queue. */
+            emergency_count: number;
+            /** @description Abnormal findings no proposed diagnosis accounts for. */
+            unexplained_count: number;
+        };
+        HealthDiagnosisQueuePage: {
+            items: components["schemas"]["HealthDiagnosisQueueItem"][];
+            /** @description Absent on the last page. */
+            next_cursor?: string | null;
+            /** @description Whether THIS caller may decide any of it, from their own grants. A manager may read the queue without being offered the decision on any row. */
+            may_confirm: boolean;
+        };
+        HealthDiagnosisProposalResponse: {
+            /** Format: uuid */
+            health_diagnosis_run_id: string;
+            /** @enum {string} */
+            status: "proposed" | "confirmed" | "superseded";
+            proposal: components["schemas"]["HealthDiagnosisProposal"];
+            confirmable?: components["schemas"]["HealthConfirmableProblem"][];
+            /** @description Whether the submitter may also decide. Normally false — the health manager records, the Director confirms — but a Director recording an observation themselves collapses the two acts into one visit. */
+            may_confirm?: boolean;
+            idempotent_replay?: boolean;
+        };
+        ConfirmHealthDiagnosisRequest: {
+            /** @description A subset of the proposed problems. An empty array declines the whole proposal, which is a legitimate override and still decides the run. */
+            confirmed_problems: string[];
+        };
+        HealthOpenedCase: {
+            /** Format: uuid */
+            case_id: string;
+            disease_key: string;
+            /** @enum {string} */
+            exit_type: "F" | "T" | "V" | "Supportive";
+            /** @description Present only for exit_type F. Null for T (closes on a test), V (the Director looks) and Supportive (daily and ongoing) -- those close on evidence, not on a calendar. */
+            duration_days?: number | null;
+            /** @description Visits scheduled from the housing directive: ICU both shifts, ward mornings, field none. */
+            session_count: number;
+        };
+        ConfirmHealthDiagnosisResponse: {
+            /** Format: uuid */
+            health_diagnosis_run_id: string;
+            /** @enum {string} */
+            status: "proposed" | "confirmed" | "superseded";
+            opened_cases?: components["schemas"]["HealthOpenedCase"][];
+            /** @description Proposed diagnoses the Director did not confirm. Every override is a rule defect worth reviewing. */
+            declined?: string[];
+            idempotent_replay?: boolean;
+        };
+        HealthDiagnosisRun: {
+            /** Format: uuid */
+            health_diagnosis_run_id: string;
+            /** Format: uuid */
+            goat_id: string;
+            /** @description The animal as a person recognises it. Carried on the read because a device opening an assessment has usually never seen the submit response — the manager submits from their phone, the Director opens it on theirs — so a client cache is not a source for this. */
+            goat_display_id: string;
+            register_version: string;
+            /** Format: uuid */
+            observed_by: string;
+            /** Format: date-time */
+            observed_at: string;
+            /** Format: date */
+            business_date: string;
+            proposal: components["schemas"]["HealthDiagnosisProposal"];
+            /** @enum {string} */
+            status: "proposed" | "confirmed" | "superseded";
+            /** @description What the Director may still act on, carried on the read so the queue is self-sufficient on a device that never saw the submit response. Empty once the run is decided. */
+            confirmable: components["schemas"]["HealthConfirmableProblem"][];
+            /** @description Whether THIS caller may cast the decision, resolved from their own grants. A separate fact from `confirmable`: the manager who recorded the observation receives the same list and is precisely the person who must not confirm it. Advisory for the client only — the confirm route is gated independently. */
+            may_confirm: boolean;
+            /** Format: uuid */
+            confirmed_by?: string | null;
+            /** Format: date-time */
+            confirmed_at?: string | null;
+        };
         OpenHealthCaseRequest: {
             /** Format: uuid */
             goat_id: string;
@@ -21445,6 +21780,140 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listHealthObservations: {
+        parameters: {
+            query?: {
+                /** @description Defaults to `proposed`. `all` clears the filter. An unrecognised value is rejected rather than ignored, so a typo cannot silently return the wrong queue. */
+                status?: "proposed" | "confirmed" | "superseded" | "all";
+                /** @description Narrows to one animal's diagnosis history. */
+                goat_id?: string;
+                /** @description Opaque keyset cursor from the previous page's `next_cursor`. Never an offset — new observations land at the head of a newest-first queue, so an offset page would re-show or skip rows as work arrives mid-scroll. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the queue. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthDiagnosisQueuePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    submitHealthObservation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitHealthObservationRequest"];
+            };
+        };
+        responses: {
+            /** @description Idempotent replay of an earlier submission. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthDiagnosisProposalResponse"];
+                };
+            };
+            /** @description Observation recorded and a proposal returned. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthDiagnosisProposalResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getHealthObservation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                health_diagnosis_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The diagnosis run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthDiagnosisRun"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    confirmHealthDiagnosis: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                health_diagnosis_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmHealthDiagnosisRequest"];
+            };
+        };
+        responses: {
+            /** @description Decision recorded; any confirmed diagnoses have opened a course. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfirmHealthDiagnosisResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
             422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];

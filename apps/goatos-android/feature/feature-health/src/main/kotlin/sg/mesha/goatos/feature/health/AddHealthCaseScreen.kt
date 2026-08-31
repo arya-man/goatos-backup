@@ -76,8 +76,8 @@ sealed interface AddHealthCaseEvent {
     data class EditQuery(val value: String) : AddHealthCaseEvent
     data object Lookup : AddHealthCaseEvent
     data class SelectGoat(val goatId: String) : AddHealthCaseEvent
-    data class SelectDisease(val diseaseKey: String) : AddHealthCaseEvent
-    data class SelectStartDate(val date: String) : AddHealthCaseEvent
+    /** Hands the selected animal to the observation form. */
+    data class CheckAnimal(val goatId: String) : AddHealthCaseEvent
     data object Submit : AddHealthCaseEvent
     data object NavigationHandled : AddHealthCaseEvent
     data object Back : AddHealthCaseEvent
@@ -90,8 +90,6 @@ fun AddHealthCaseScreen(
     onEvent: (AddHealthCaseEvent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var diseaseMenuOpen by remember { mutableStateOf(false) }
-    var datePickerOpen by remember { mutableStateOf(false) }
     Column(modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
             title = "Report sick goat",
@@ -149,70 +147,25 @@ fun AddHealthCaseScreen(
                     }
                 }
             }
-            item("disease-title") { FieldTitle("2. Select disease") }
-            item("disease") {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box(Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = { diseaseMenuOpen = true },
-                            enabled = state.diseases.isNotEmpty(),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(state.diseases.firstOrNull { it.key == state.diseaseKey }?.label ?: "Choose disease")
-                        }
-                        DropdownMenu(
-                            expanded = diseaseMenuOpen,
-                            onDismissRequest = { diseaseMenuOpen = false },
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
-                        ) {
-                            state.diseases.forEach { disease ->
-                                DropdownMenuItem(
-                                    text = { Text(disease.label) },
-                                    onClick = {
-                                        diseaseMenuOpen = false
-                                        onEvent(AddHealthCaseEvent.SelectDisease(disease.key))
-                                    },
-                                )
-                            }
-                        }
-                    }
-                    if (state.diseases.isEmpty()) Text("Loading Health protocols…", color = MeshaColors.Muted)
-                }
-            }
-            item("date-title") { FieldTitle("3. Sickness start date") }
-            item("date") {
-                OutlinedButton(onClick = { datePickerOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(state.startDate)
-                }
-            }
-            item("submit") {
+            // The disease picker is GONE, and its absence is the point of the whole
+            // engine: the manager records what they see and the register names the
+            // illness. Step 2 is the observation form, and the Health Director
+            // confirms whatever it proposes before any treatment opens.
+            item("continue") {
                 Button(
-                    onClick = { onEvent(AddHealthCaseEvent.Submit) },
-                    enabled = state.canSubmit && !state.submitting,
+                    onClick = { state.selectedGoat?.let { onEvent(AddHealthCaseEvent.CheckAnimal(it.goatId)) } },
+                    enabled = state.selectedGoat != null,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (state.submitting) "Saving…" else "Start treatment plan") }
+                ) { Text("Check this animal") }
+            }
+            if (state.selectedGoat == null) {
+                item("continue-hint") {
+                    Text("Find the animal first.", color = MeshaColors.Muted)
+                }
             }
         }
     }
 
-    if (datePickerOpen) {
-        val selected = runCatching {
-            LocalDate.parse(state.startDate).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-        }.getOrNull()
-        val picker = rememberDatePickerState(initialSelectedDateMillis = selected)
-        DatePickerDialog(
-            onDismissRequest = { datePickerOpen = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    picker.selectedDateMillis?.let { millis ->
-                        onEvent(AddHealthCaseEvent.SelectStartDate(Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate().toString()))
-                    }
-                    datePickerOpen = false
-                }) { Text("Select") }
-            },
-            dismissButton = { TextButton(onClick = { datePickerOpen = false }) { Text("Cancel") } },
-        ) { DatePicker(picker) }
-    }
 }
 
 @Composable

@@ -3,6 +3,8 @@ package sg.mesha.goatos.core.data.sync
 import sg.mesha.goatos.core.network.dto.MilkFeedingAnswersDto
 
 import kotlinx.serialization.SerialName
+import sg.mesha.goatos.core.network.dto.HealthObservationContextDto
+import sg.mesha.goatos.core.network.dto.HealthObservationFindingsDto
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.network.dto.ClockPunchRequestDto
@@ -354,6 +356,22 @@ data class WorkflowActionCompletePayload(
 data class HealthTreatmentCompletePayload(
     @SerialName("health_session_id") val healthSessionId: String,
     @SerialName("proof_ref") val proofRef: String = "",
+)
+
+@Serializable
+data class HealthObservationSubmitPayload(
+    @SerialName("goat_id") val goatId: String,
+    val findings: HealthObservationFindingsDto,
+    val context: HealthObservationContextDto = HealthObservationContextDto(),
+    /** Local-only label shown while this write waits in the outbox. */
+    @SerialName("goat_display_id") val goatDisplayId: String = "",
+)
+
+@Serializable
+data class HealthDiagnosisConfirmPayload(
+    @SerialName("health_diagnosis_run_id") val diagnosisRunId: String,
+    /** Empty is a real decision: the Director declined the whole proposal. */
+    @SerialName("confirmed_problems") val confirmedProblems: List<String> = emptyList(),
 )
 
 @Serializable

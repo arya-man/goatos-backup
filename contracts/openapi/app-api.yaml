@@ -10922,6 +10922,155 @@ paths:
         "409": { $ref: "#/components/responses/WriteConflict" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/observations:
+    get:
+      tags: [Health]
+      operationId: listHealthObservations
+      summary: The Health Director's queue of assessments awaiting a decision.
+      description: >-
+        One keyset page of diagnosis runs, newest first. Defaults to `proposed` — work still
+        awaiting a decision, which is what a queue is for. Gated on `health.read` rather than
+        `health.diagnose`, deliberately: a health manager may see that what they recorded is
+        still waiting. Only `may_confirm` says who can act, and only the confirm route enforces
+        it. Each row carries enough to decide what to open first — the animal, where it is, when
+        it was seen, the ranked problems, and how many emergencies and unexplained findings it
+        has — not the whole proposal, which is a separate read.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [proposed, confirmed, superseded, all]
+          description: >-
+            Defaults to `proposed`. `all` clears the filter. An unrecognised value is rejected
+            rather than ignored, so a typo cannot silently return the wrong queue.
+        - name: goat_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+          description: Narrows to one animal's diagnosis history.
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+          description: >-
+            Opaque keyset cursor from the previous page's `next_cursor`. Never an offset — new
+            observations land at the head of a newest-first queue, so an offset page would
+            re-show or skip rows as work arrives mid-scroll.
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        "200":
+          description: One page of the queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDiagnosisQueuePage"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+    post:
+      tags: [Health]
+      operationId: submitHealthObservation
+      summary: Submit one completed observation form and receive a diagnosis proposal.
+      description: >-
+        The health manager records a head-to-toe observation; the deterministic register engine
+        returns a ranked PROPOSAL. Nothing is opened here. The animal's own facts (species, sex,
+        age band, status) are read server-side and are deliberately not accepted from the client,
+        because the engine gates whole diagnoses on them. Emergencies and field actions on the
+        response are actionable immediately and do not wait for a confirmation. Every run pins the
+        register_version that produced it.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitHealthObservationRequest"
+      responses:
+        "201":
+          description: Observation recorded and a proposal returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDiagnosisProposalResponse"
+        "200":
+          description: Idempotent replay of an earlier submission.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDiagnosisProposalResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/observations/{health_diagnosis_run_id}:
+    get:
+      tags: [Health]
+      operationId: getHealthObservation
+      summary: Read one diagnosis run and its stored proposal.
+      parameters:
+        - name: health_diagnosis_run_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The diagnosis run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDiagnosisRun"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /app/health/observations/{health_diagnosis_run_id}/confirm:
+    post:
+      tags: [Health]
+      operationId: confirmHealthDiagnosis
+      summary: Confirm a proposal and open a treatment course for each confirmed diagnosis.
+      description: >-
+        The Health Director's decision, and the only path that opens a course. confirmed_problems
+        must be a SUBSET of what the engine proposed; naming anything else answers 422
+        diagnosis_not_proposed, because diagnosing off the register is a separate authority. An
+        empty list is a legitimate override that declines the whole proposal and still decides the
+        run. A confirmed diagnosis whose treatment card has never been published answers 422
+        treatment_plan_missing and writes nothing, rather than opening a course with no treatment
+        in it.
+      parameters:
+        - name: health_diagnosis_run_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmHealthDiagnosisRequest"
+      responses:
+        "200":
+          description: Decision recorded; any confirmed diagnoses have opened a course.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmHealthDiagnosisResponse"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /app/health/work-items:
     get:
       tags: [Health]
@@ -31847,6 +31996,375 @@ components:
           format: date-time
         idempotent_replay:
           type: boolean
+    HealthObservationFindings:
+      type: object
+      description: >-
+        One head-to-toe observation. Every field is compulsory in the product and sex-hidden
+        fields record N/A rather than blank, because a blank cannot distinguish "nobody looked"
+        from "normal" and the unexplained-findings channel depends on that distinction. Multi
+        fields accept a single value or an array of values.
+      additionalProperties: false
+      properties:
+        temp: { type: number, description: "Rectal temperature in Fahrenheit, one decimal." }
+        eating:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: "normal | not_eating | concentrate | green_feed | dry_feed"
+        activity: { type: string, description: "standing | down | limping | back_leg_drag | front_knees | weak" }
+        breathing:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: "normal | fast | labored | cough | pant. pant is neither fever nor heat stress; it raises a Director-confirm flag."
+        nasal: { type: boolean }
+        left_stomach:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: "normal | bloating | acidosis"
+        frothy_mouth: { type: boolean }
+        rumen_movement: { type: string, enum: [felt, not_felt] }
+        diarrhea:
+          oneOf:
+            - { type: boolean }
+            - { type: string }
+          description: >-
+            Presence, or a descriptive value such as bloody. Blood is a severity detail and
+            NOT a different diagnosis: bloody diarrhea is still Diarrhea and must never be
+            read as coccidiosis.
+        skin_tent: { type: string, description: "lt2 | 2-4 | gt4" }
+        cmt: { type: string, enum: [pos, neg], description: "Female only, and forbidden when lactation is no." }
+        lactation: { type: string, description: "no | milk | colostrum | water | pus" }
+        udder: { type: string, description: "normal | swollen_hard | rashes | wound | lumps" }
+        vulva: { type: string, description: "none | lochia_normal | discharge_bad_smell | pus | prolapse" }
+        famacha: { type: integer, minimum: 1, maximum: 5 }
+        yellow: { type: boolean }
+        straining: { type: string, description: "Male only. no | straining | no_urine" }
+        red_urine: { type: boolean }
+        body_edema: { type: boolean }
+        competition: { type: boolean }
+        stomach_inside: { type: boolean }
+        mouth: { type: string, description: "normal | orf_scabs" }
+        eyes:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: "normal | red | cloudy | discharge"
+        locked_jaw: { type: boolean }
+        neuro:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: "none | circling | head_tilt | star_gazing | blind | tremors | ataxia"
+        rash_character: { type: string, enum: [flat_itchy, nodular] }
+        hairloss: { type: boolean }
+        leg: { type: string, description: "normal | arthritis | fracture | foot_rot" }
+        lumps: { type: string, description: "no | neck | body" }
+        wounds:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: "no | horn | neck | body | legs"
+        flystrike: { type: boolean }
+        eartag_flystrike: { type: boolean }
+        eartag_wound: { type: boolean }
+        ticks: { type: boolean }
+        suckle:
+          type: string
+          enum: [present, absent]
+          description: >-
+            Kids only. The finger test, and a TREATMENT GATE rather than a symptom: a kid
+            that sucks may be given milk by mouth and one that cannot must never be.
+        responsiveness:
+          type: string
+          enum: [alert, dull, unresponsive]
+          description: "Kids only. Deliberately non-specific: dull alone names no disease."
+        navel:
+          type: string
+          enum: [normal, wet, swollen, painful]
+          description: >-
+            Milk kids only. Rejected on weaning, where the navel has closed and the row is
+            not on the form.
+        landing:
+          type: string
+          enum: [spiderman, barely, falls, na]
+          description: >-
+            Milk kids only. The 20 cm drop test, and the only way floppy kid is caught while
+            the animal is still standing. Compulsory when standing; na when already down,
+            because a recumbent kid must not be dropped. Rejected on weaning and fattening.
+        milk_intake:
+          oneOf:
+            - { type: string }
+            - { type: array, items: { type: string } }
+          description: >-
+            Milk and weaning kids. normal | not_drinking | reduced. On the free-choice bar
+            this is the drinking axis; on counted sessions refusals_today is.
+        refusals_today:
+          type: integer
+          minimum: 0
+          maximum: 3
+          description: >-
+            Feeds refused today, carry-forward already applied by GoatOS. Milk kids 0-3
+            (three bar sessions), weaning 0-2 (two measured bottles). Compulsory on K1 and
+            K3: a missing count read as zero would turn a kid that refused every feed into
+            a kid that drank.
+        session:
+          type: integer
+          minimum: 1
+          maximum: 3
+          description: "Which feed this observation belongs to. Milk 1-3, weaning 1-2 (morning/evening)."
+    HealthObservationContext:
+      type: object
+      description: >-
+        Follow-up state a single form cannot carry. It is what turns a second observation on the
+        same animal into a reconcile rather than a fresh diagnosis. The animal's OPEN problems are
+        resolved server-side from its active courses and are not accepted here.
+      additionalProperties: false
+      properties:
+        day: { type: integer, minimum: 1, description: "Follow-up day; day 1 is the day treatment started." }
+        cmt_neg_streak: { type: integer, minimum: 0 }
+        nad_prior_7d: { type: integer, minimum: 0 }
+        shifted_out_days: { type: integer, minimum: 0 }
+        shed_similar: { type: integer, minimum: 1, description: "Similar presentations in the same shed; drives contagion escalation." }
+        down_followups: { type: integer, minimum: 0 }
+        hour: { type: integer, minimum: 0, maximum: 23 }
+        prior_improved: { type: boolean }
+        problem_improving: { type: boolean }
+        animal_worsening: { type: boolean }
+        heat_confirmed: { type: boolean }
+        died: { type: boolean }
+        off_register: { type: boolean }
+        closed_recent: { type: array, items: { type: string } }
+    SubmitHealthObservationRequest:
+      type: object
+      additionalProperties: false
+      required: [goat_id, findings]
+      properties:
+        goat_id: { type: string, format: uuid }
+        findings: { $ref: "#/components/schemas/HealthObservationFindings" }
+        context: { $ref: "#/components/schemas/HealthObservationContext" }
+    HealthHousingDirective:
+      type: object
+      description: >-
+        Where the animal should be, and which shift lists it appears on. A DIRECTIVE only -- Health
+        never moves an animal or changes its containment; the policy-pack workflow that owns
+        location is the only writer.
+      additionalProperties: false
+      required: [acuity, containment, low_competition, morning_walk, evening_walk, no_due_overnight]
+      properties:
+        acuity: { type: string, enum: [home, field, ward, icu] }
+        containment: { type: string, enum: [home, quarantine] }
+        low_competition: { type: boolean, description: "The animal will lose at the trough and must be fed apart." }
+        morning_walk: { type: boolean }
+        evening_walk: { type: boolean }
+        no_due_overnight: { type: boolean, description: "Always true. The farm is empty 00:00-06:00 IST and nothing is scheduled there." }
+    HealthDiagnosisProposal:
+      type: object
+      description: >-
+        The engine's output. A PROPOSAL: problems open nothing until the Director confirms.
+        emergencies and field_actions are the exceptions and are actionable at once.
+      required: [valid, scope, register_version, housing]
+      properties:
+        valid: { type: boolean }
+        reject_reason:
+          type: string
+          description: >-
+            Why the form was not diagnosed at all. Adult and shared:
+            not_eating_with_feed | wounds_exclusive | female_straining | cmt_without_milk.
+            Kids: not_drinking_with_milk | landing_required | landing_when_down |
+            refusals_today_required | session_required | landing_not_on_weaning |
+            navel_not_on_weaning. Wiring: register_class_mismatch.
+        scope:
+          type: string
+          enum: [adult, kid_milk, kid_weaning, kid_fattening]
+          description: >-
+            The animal class this run was diagnosed as, and therefore which register
+            produced it. One register serves each class and a run is diagnosed against
+            exactly one of them.
+        register_version: { type: string, description: "The rule table this run used, pinned so the proposal stays interpretable after an edit." }
+        emergencies: { type: array, items: { type: string }, description: "Do this now. Hands have already started; the Director is notified after." }
+        problems: { type: array, items: { type: string }, description: "Ranked severity first, then confidence." }
+        covered: { type: array, items: { type: string }, description: "Diagnoses merged into another's treatment. Kept on the record: if the animal does not improve, these are re-opened first." }
+        rechecks: { type: array, items: { type: string } }
+        field_actions: { type: array, items: { type: string }, description: "Treated in place and once. No ICU, no daily follow-up." }
+        unexplained: { type: array, items: { type: string }, description: "Abnormal findings no diagnosis accounts for. Render prominently, never as a footnote." }
+        ongoing: { type: array, items: { type: string } }
+        new: { type: array, items: { type: string } }
+        propose_close: { type: array, items: { type: string }, description: "The engine only PROPOSES; the Director closes." }
+        propose_extend: { type: array, items: { type: string } }
+        tiers: { type: object, additionalProperties: { type: string, enum: [CONFIRMED, PROBABLE, POSSIBLE] } }
+        sop: { type: object, additionalProperties: { type: string } }
+        course_type: { type: object, additionalProperties: { type: string, enum: [F, T, V, Supportive] } }
+        housing: { $ref: "#/components/schemas/HealthHousingDirective" }
+        hd_flags: { type: array, items: { type: string } }
+        hints: { type: array, items: { type: string } }
+        no_meloxicam: { type: boolean, description: "Vetoed on urinary obstruction and on hypothermia." }
+        club: { type: boolean, description: "Two real problems; merge their drugs." }
+    HealthConfirmableProblem:
+      type: object
+      additionalProperties: false
+      required: [id, tier, sop_ref, exit_type, disease_key, sop_available]
+      properties:
+        id: { type: string }
+        tier: { type: string, enum: [CONFIRMED, PROBABLE, POSSIBLE] }
+        sop_ref: { type: string }
+        exit_type: { type: string, enum: [F, T, V, Supportive] }
+        disease_key: { type: string }
+        sop_available:
+          type: boolean
+          description: >-
+            Whether a published treatment card exists. Shown BEFORE the Director decides: confirming
+            a diagnosis with no card cannot open a course, and discovering that afterwards reads as
+            a failure rather than a gap.
+        blocked_reason: { type: string }
+    HealthDiagnosisQueueItem:
+      type: object
+      additionalProperties: false
+      required:
+        [health_diagnosis_run_id, goat_id, goat_display_id, shed_name, partition_label,
+         operational_location_display, observed_at, business_date, status, problems,
+         emergency_count, unexplained_count]
+      properties:
+        health_diagnosis_run_id: { type: string, format: uuid }
+        goat_id: { type: string, format: uuid }
+        goat_display_id: { type: string }
+        shed_name: { type: string }
+        partition_label:
+          type: string
+          description: The HUMAN partition label, blank for an undivided shed or an ambiguous one.
+        operational_location_display:
+          type: string
+          description: >-
+            Backend-composed `shed - partition`. Clients render it verbatim and never re-derive
+            it; blank when the shed does not resolve, in which case the row shows the animal alone.
+        observed_at: { type: string, format: date-time }
+        business_date: { type: string, format: date }
+        status: { type: string, enum: [proposed, confirmed, superseded] }
+        problems:
+          type: array
+          items: { type: string }
+          description: >-
+            The ranked diagnosis ids, severity first then confidence. The order is the backend's;
+            re-sorting it on a client would put a mild certainty above a serious maybe.
+        emergency_count:
+          type: integer
+          description: >-
+            How many things need doing NOW. On the row rather than only inside the proposal
+            because emergencies do not wait for the Director — a queue that hides one behind a
+            tap is worse than no queue.
+        unexplained_count:
+          type: integer
+          description: Abnormal findings no proposed diagnosis accounts for.
+    HealthDiagnosisQueuePage:
+      type: object
+      additionalProperties: false
+      required: [items, may_confirm]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/HealthDiagnosisQueueItem" }
+        next_cursor:
+          type: string
+          nullable: true
+          description: Absent on the last page.
+        may_confirm:
+          type: boolean
+          description: >-
+            Whether THIS caller may decide any of it, from their own grants. A manager may read
+            the queue without being offered the decision on any row.
+    HealthDiagnosisProposalResponse:
+      type: object
+      additionalProperties: false
+      required: [health_diagnosis_run_id, status, proposal]
+      properties:
+        health_diagnosis_run_id: { type: string, format: uuid }
+        status: { type: string, enum: [proposed, confirmed, superseded] }
+        proposal: { $ref: "#/components/schemas/HealthDiagnosisProposal" }
+        confirmable: { type: array, items: { $ref: "#/components/schemas/HealthConfirmableProblem" } }
+        may_confirm:
+          type: boolean
+          description: >-
+            Whether the submitter may also decide. Normally false — the health manager
+            records, the Director confirms — but a Director recording an observation
+            themselves collapses the two acts into one visit.
+        idempotent_replay: { type: boolean }
+    ConfirmHealthDiagnosisRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmed_problems]
+      properties:
+        confirmed_problems:
+          type: array
+          items: { type: string }
+          description: >-
+            A subset of the proposed problems. An empty array declines the whole proposal, which is
+            a legitimate override and still decides the run.
+    HealthOpenedCase:
+      type: object
+      additionalProperties: false
+      required: [case_id, disease_key, exit_type, session_count]
+      properties:
+        case_id: { type: string, format: uuid }
+        disease_key: { type: string }
+        exit_type: { type: string, enum: [F, T, V, Supportive] }
+        duration_days:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 90
+          description: >-
+            Present only for exit_type F. Null for T (closes on a test), V (the Director looks) and
+            Supportive (daily and ongoing) -- those close on evidence, not on a calendar.
+        session_count: { type: integer, minimum: 0, description: "Visits scheduled from the housing directive: ICU both shifts, ward mornings, field none." }
+    ConfirmHealthDiagnosisResponse:
+      type: object
+      additionalProperties: false
+      required: [health_diagnosis_run_id, status]
+      properties:
+        health_diagnosis_run_id: { type: string, format: uuid }
+        status: { type: string, enum: [proposed, confirmed, superseded] }
+        opened_cases: { type: array, items: { $ref: "#/components/schemas/HealthOpenedCase" } }
+        declined: { type: array, items: { type: string }, description: "Proposed diagnoses the Director did not confirm. Every override is a rule defect worth reviewing." }
+        idempotent_replay: { type: boolean }
+    HealthDiagnosisRun:
+      type: object
+      additionalProperties: false
+      required:
+        [health_diagnosis_run_id, goat_id, goat_display_id, register_version, observed_by,
+         observed_at, business_date, proposal, status, confirmable, may_confirm]
+      properties:
+        health_diagnosis_run_id: { type: string, format: uuid }
+        goat_id: { type: string, format: uuid }
+        goat_display_id:
+          type: string
+          description: >-
+            The animal as a person recognises it. Carried on the read because a device
+            opening an assessment has usually never seen the submit response — the manager
+            submits from their phone, the Director opens it on theirs — so a client cache
+            is not a source for this.
+        register_version: { type: string }
+        observed_by: { type: string, format: uuid }
+        observed_at: { type: string, format: date-time }
+        business_date: { type: string, format: date }
+        proposal: { $ref: "#/components/schemas/HealthDiagnosisProposal" }
+        status: { type: string, enum: [proposed, confirmed, superseded] }
+        confirmable:
+          type: array
+          description: >-
+            What the Director may still act on, carried on the read so the queue is
+            self-sufficient on a device that never saw the submit response. Empty once
+            the run is decided.
+          items: { $ref: "#/components/schemas/HealthConfirmableProblem" }
+        may_confirm:
+          type: boolean
+          description: >-
+            Whether THIS caller may cast the decision, resolved from their own grants.
+            A separate fact from `confirmable`: the manager who recorded the observation
+            receives the same list and is precisely the person who must not confirm it.
+            Advisory for the client only — the confirm route is gated independently.
+        confirmed_by: { type: string, format: uuid, nullable: true }
+        confirmed_at: { type: string, format: date-time, nullable: true }
     OpenHealthCaseRequest:
       type: object
       additionalProperties: false

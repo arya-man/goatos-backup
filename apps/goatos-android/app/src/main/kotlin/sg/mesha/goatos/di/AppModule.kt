@@ -844,6 +844,7 @@ object AppModule {
         scannedGoatDao = database.scannedGoatDao(),
         weighingObservationDao = database.weighingObservationDao(),
         weighingShedObservationDao = database.weighingShedObservationDao(),
+        healthDiagnosisRunDao = database.healthDiagnosisRunDao(),
         weighingTransitionEpochDao = database.weighingTransitionEpochDao(),
         // Without this, feedRepository defaults to null in the constructor and
         // FEED_DISTRIBUTION_COMPLETE/FEED_PACKING_COMPLETE reconciliation silently no-ops in

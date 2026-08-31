@@ -53,6 +53,7 @@ import (
 	healthhttp "github.com/vgoats/goatos/backend/internal/health/adapters/http"
 	healthpg "github.com/vgoats/goatos/backend/internal/health/adapters/postgres"
 	healthapp "github.com/vgoats/goatos/backend/internal/health/app"
+	"github.com/vgoats/goatos/backend/internal/health/diagnosis"
 	herdsignalshttp "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/http"
 	herdsignalspg "github.com/vgoats/goatos/backend/internal/herdsignals/adapters/postgres"
 	herdsignalsapp "github.com/vgoats/goatos/backend/internal/herdsignals/app"
@@ -575,6 +576,20 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// the same module, not a different module.
 	healthConfigService := healthapp.NewConfigService(healthRepo)
 	healthConfigHandler := healthhttp.NewConfigHandler(healthConfigService, log)
+	// The diagnosis engine. The register is embedded and validated on first load,
+	// so a rule table that fails its structural checks stops the process here
+	// rather than diagnosing animals from a broken register.
+	healthRegister, err := diagnosis.AdultRegister()
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	healthDiagnosisService, err := healthapp.NewDiagnosisService(healthpg.NewDiagnosisRepository(healthRepo), healthRegister)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	healthDiagnosisHandler := healthhttp.NewDiagnosisHandler(healthDiagnosisService, log)
 	countsApprovalRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout).
 		WithIdentityTxWriter(identityRepo).
 		WithDeathEvidenceTxGate(tasksWorkflowRepo)
@@ -1136,6 +1151,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	healthhttp.Register(protectedMux, healthHandler)
 	healthhttp.RegisterConfig(protectedMux, healthConfigHandler)
 	herdsignalshttp.Register(protectedMux, herdSignalsHandler)
+	healthhttp.RegisterDiagnosis(protectedMux, healthDiagnosisHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	feedconfighttp.Register(protectedMux, feedConfigHandler)
 	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)
