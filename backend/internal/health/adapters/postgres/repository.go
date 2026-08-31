@@ -822,7 +822,7 @@ func healthOutboxArgsFor(aggregateType, tenantID, actorID, eventType, caseID, go
 	envelope := map[string]any{"event_id": eventID, "event_type": eventType, "schema_version": "1.0.0", "schema_ref": "contracts/jsonschema/domain-event-envelope.schema.json#" + eventType,
 		"aggregate_type": aggregateType, "aggregate_id": caseID, "occurred_at": now.Format(time.RFC3339Nano), "recorded_at": now.Format(time.RFC3339Nano),
 		"producer": map[string]any{"module": "health", "service": "goatos-api"}, "idempotency_key": idem,
-		"actor":        map[string]any{"actor_type": map[bool]string{true: "system_rule", false: "operator"}[actorID == ""], "actor_id": nil, "actor_ref": nil},
+		"actor":        map[string]any{"actor_type": map[bool]string{true: "system_rule", false: "human"}[actorID == ""], "actor_id": nil, "actor_ref": nil},
 		"subject_type": "goat", "subject_id": goatID, "visibility_scope": map[string]any{"tenant_id": tenantID}, "evidence_refs": []any{}, "payload": payload, "trace_id": traceID}
 	if actorID != "" {
 		envelope["actor"].(map[string]any)["actor_id"] = actorID
