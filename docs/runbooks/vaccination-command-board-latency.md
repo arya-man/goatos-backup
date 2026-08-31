@@ -394,6 +394,41 @@ tenant-wide; or revisit the projection ban in §4 for this one aggregate — whi
 reasoning still argues against. Relaxing the budget is not an option; `tools/perf/
 api-latency-policy.mjs` hard-caps it and will not let anyone raise it.
 
+### 8.5b RESOLVED: the cohort matrix is inside budget
+
+§8.5 above recorded this as an open blocker at p90 323-330. It is resolved, projection-free, and the
+statement is byte-identical on all three filter paths (tenant-wide 408 rows, park-scoped 202,
+batch-scoped 4).
+
+`commandBoardCohortSQL` went **283ms -> 174ms** by AGGREGATING BEFORE DECORATING. It used to build
+its `scoped` set by joining obligations to goats, protocol_rules and locations twice -- 80,960 wide
+rows -- and only then aggregate them into 407 cells. It now folds to (goat, scope, dose) on the
+cheap join first (obligation_instances -> protocol_rules -> the pre-aggregated comp), which is
+20,660 rows, and decorates THAT. Same principle that fixed the closed-without-dose drilldown.
+
+The endpoint measures **p90 277-284**, inside its 300ms budget.
+
+Three projection-free candidates were measured; two were rejected, and they are recorded in the
+statement so nobody retries them:
+
+| candidate | measured | verdict |
+|---|---|---|
+| aggregate-first, decorate-after | **174ms** | taken |
+| narrow `cell_animals` DISTINCT to 3 columns, re-join goats for stage/sex | 277ms vs 283ms | rejected, inside run-to-run noise |
+| one pass per (cell, animal) then roll up | 349ms | rejected, worse than the baseline |
+| (earlier) fuse with `COUNT(DISTINCT goat_id)` | 519ms | rejected, the two-aggregate split is load-bearing |
+
+The `scoped` CTE's goat lifecycle/merge filter deliberately stays in the LATER join: it lives on
+goats, and pulling goats forward is the join this shape exists to defer.
+
+### 8.5c Cold-pool caveat on the board's own number
+
+The board measures p90 255-290 warm. The FIRST gate run after an API restart measures 302-335,
+because each new pool connection pays SSH-tunnel connection setup (~126ms) that a same-region
+production API does not. Five consecutive warm runs pass; the first run after a restart may not.
+This is stated rather than smoothed over, and it is an argument for the gate warming the pool before
+sampling, not for a higher budget.
+
 ### 8.6 Which of these gates actually RUNS, and when
 
 Review found that "added to the manifest" and "enforced" are not the same sentence here, so this is
