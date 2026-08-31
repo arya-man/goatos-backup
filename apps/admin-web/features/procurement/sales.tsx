@@ -21,7 +21,7 @@ import {
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, listProcurementVendorOptions, listSaleLocations } from "@/lib/api/server";
 import type { ProcurementVendorOptions } from "@/lib/api/server";
-import { getSalesOverview, listSalesBuyerLeads, listSalesDeals, listSalesFpoLeads } from "@/lib/api/procurement-server";
+import { getLoadwiseSales, getSalesOverview, listSalesBuyerLeads, listSalesDeals, listSalesFpoLeads } from "@/lib/api/procurement-server";
 import type { SalesDeal, SalesOverview } from "@/lib/api/procurement";
 import { SalesPipelineDrawers, type SalesPanel } from "./sales-pipeline-drawers";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
@@ -41,10 +41,14 @@ import {
   salesHref,
 } from "./sales-format";
 import { SalesRecordDrawer } from "./sales-record-drawer";
+import { LoadwiseSection } from "./loadwise-section";
+import { LoadCostDrawer } from "./load-cost-drawer";
 import { SaleAllocationDrawer } from "./sale-allocation-drawer";
 
 const PAGE_PATH = "/sales";
 const DEFAULT_FARM = "all";
+/** The load-wise section's default tab (an option key of the sales_views group). */
+const DEFAULT_VIEW = "purchased";
 const DEFAULT_LIMIT = 25;
 /** Only used when an older backend contract has no buyer board table; the contract page size wins. */
 const BUYERS_PAGE_SIZE = 10;
@@ -522,6 +526,11 @@ export async function SalesPage({
     DEFAULT_FARM,
   );
 
+  // Load-wise tab: validated against the SERVED option keys, never trusted raw.
+  const viewOptions = optionGroup(pageContract, "sales_views");
+  const rawView = one(sp, "view") ?? DEFAULT_VIEW;
+  const view = viewOptions.some((option) => option.key === rawView) ? rawView : DEFAULT_VIEW;
+
   const dealsTable = table(pageContract, "sales-deals");
   const pageSizes = dealsTable.page_size_options.length > 0 ? dealsTable.page_size_options : [DEFAULT_LIMIT];
   const limit = boundedInt(one(sp, "limit"), pageSizes[0], 1, 100);
@@ -533,7 +542,7 @@ export async function SalesPage({
   // The whole screen's data in ONE parallel read: the overview contract, one ledger page, and the
   // first page of each pipeline (the entry drawers list and update them; LocalOverlayLink opens
   // without an RSC request, so drawer data must ride with the page).
-  const [overviewResult, dealsResult, buyerLeadsResult, fpoLeadsResult, saleLocations, vendorOptionsResult] =
+  const [overviewResult, dealsResult, buyerLeadsResult, fpoLeadsResult, saleLocations, vendorOptionsResult, loadwiseResult] =
     await Promise.all([
     getSalesOverview({ farm }),
     listSalesDeals({ farm, limit, offset }),
@@ -548,6 +557,9 @@ export async function SalesPage({
     // ONE bounded read, never a paged walk of /procurement/vendors: that is the banned SSR
     // full-walk shape (make admin-web-request-reads-guard).
     listProcurementVendorOptions(),
+    // The load-wise reconciliation, fetched only when its tab renders it (fetch = render). The
+    // From-the-barn tab is a backend-owned shell and reads nothing yet.
+    view === DEFAULT_VIEW ? getLoadwiseSales() : Promise.resolve(null),
   ]);
 
   if (firstAuthRequiredError(overviewResult, dealsResult)) redirect(INTERNAL_LOGIN_PATH);
@@ -568,10 +580,14 @@ export async function SalesPage({
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
   const canRecord = controlEnabled(pageContract, "record_sale", false);
+  // The load-cost write is the buying desk's capability, split from SalesWrite on purpose.
+  const canRecordCost = controlEnabled(pageContract, "record_load_cost", false);
   const canRecordPipeline = controlEnabled(pageContract, "record_pipeline", false);
   const none = copy(pageContract, "value.none");
   const dealColumns = tableLabels(pageContract, "sales-deals");
   const listHref = hrefWithQuery(sp, { deal_id: null, panel: null });
+  const loadwiseListHref = hrefWithQuery(sp, { cost_load: null });
+  const loadwiseLoads = loadwiseResult?.ok ? loadwiseResult.data.loads : [];
   const panelHrefFor = (panel: SalesPanel) => hrefWithQuery(sp, { deal_id: null, panel });
   // One header control opens the entry drawer only when the page contract grants write access.
   // The server routes enforce the same permission.
@@ -677,6 +693,18 @@ export async function SalesPage({
         />
       ) : null}
 
+      {/* 7.5 — the load-wise reconciliation: Purchased loads vs From the barn. */}
+      <LoadwiseSection
+        pageContract={pageContract}
+        view={view}
+        tabHref={(nextView) =>
+          hrefWithQuery(sp, { view: nextView === DEFAULT_VIEW ? null : nextView, cost_load: null })
+        }
+        loadwise={loadwiseResult}
+        canRecordCost={canRecordCost}
+        costHref={(loadId) => hrefWithQuery(sp, { cost_load: loadId })}
+      />
+
       {/* 8 — the deals ledger. */}
       <section className="card">
         <div className="hd">
@@ -772,6 +800,13 @@ export async function SalesPage({
 
       {/* Always mounted: LocalOverlayLink changes the URL without an RSC request, so an overlay
           gated on a server-read search param would never appear. */}
+      {/* Always mounted, same reason as the drawers below. */}
+      <LoadCostDrawer
+        loads={loadwiseLoads}
+        pageContract={pageContract}
+        listHref={loadwiseListHref}
+        canRecordCost={canRecordCost}
+      />
       <SalesRecordDrawer
         deals={deals}
         pageContract={pageContract}

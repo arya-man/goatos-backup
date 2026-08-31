@@ -955,13 +955,30 @@ func compileSalesControls(controls []domain.Control, input BootstrapInput, copy 
 	})
 	// The lifecycle edit that closes an expected sale on the day it happens. Same authority as
 	// recording the deal.
-	return upsertControl(controls, domain.Control{
+	controls = upsertControl(controls, domain.Control{
 		ID:             "update_sales_deal_status",
 		Label:          controlCopy(copy, "action.update_deal_status.label", "Update status"),
 		Kind:           "row_action",
 		Enabled:        allowed,
 		DisabledReason: reason,
 		Action:         "POST /sales/deals/{deal_id}/status",
+	})
+	// Recording a LOAD's landed cost is buying-desk money, not sales recording, so it carries its
+	// own dedicated permission (LoadCostWrite, the FeedPurchaseWrite precedent) rather than riding
+	// SalesWrite -- a sales recorder who is not the buying desk sees the control disabled with the
+	// reason, per the role-scoped-UI-is-capability-gated lock.
+	costAllowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.LoadCostWrite})
+	costReason := ""
+	if !costAllowed {
+		costReason = controlCopy(copy, "disabled.load_cost", "Recording a load's cost needs the buying desk's access.")
+	}
+	return upsertControl(controls, domain.Control{
+		ID:             "record_load_cost",
+		Label:          controlCopy(copy, "action.record_load_cost.label", "Record cost"),
+		Kind:           "row_action",
+		Enabled:        costAllowed,
+		DisabledReason: costReason,
+		Action:         "PUT /procurement/loads/{load_id}/cost",
 	})
 }
 

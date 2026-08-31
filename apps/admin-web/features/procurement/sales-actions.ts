@@ -19,6 +19,7 @@ import {
   createSalesWeightCheck,
   setSalesBuyerLeadStatus,
   setSalesFpoLeadStatus,
+  setLoadCost,
 } from "@/lib/api/procurement-server";
 import type { SalesBuyerLeadWrite, SalesDealWrite, SalesSoldTagsWrite, SalesDealStatusWrite } from "@/lib/api/procurement";
 
@@ -72,6 +73,32 @@ export async function recordSaleAction(formData: FormData): Promise<void> {
   }
   revalidatePath(SALES_PATH);
   actionRedirect(formData, "success", "action.sale_recorded");
+}
+
+/**
+ * Records (or clears) one load's landed cost from the load-wise cost drawer.
+ *
+ * Blank stays null, never 0: a load bought with no transport charge and one whose charge has not
+ * been entered yet are different facts. The backend rejects negatives and detail-without-animal-
+ * cost; this action only reports the outcome.
+ */
+export async function recordLoadCostAction(formData: FormData): Promise<void> {
+  const parseCost = (key: string): number | null => {
+    const trimmed = (formData.get(key)?.toString() ?? "").trim();
+    if (trimmed === "") return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const result = await setLoadCost(requiredString(formData, "load_id"), {
+    animal_cost: parseCost("animal_cost"),
+    transport_cost: parseCost("transport_cost"),
+    other_cost: parseCost("other_cost"),
+  });
+  if (!result.ok) {
+    actionRedirect(formData, "error", "action.load_cost_record_failed");
+  }
+  revalidatePath(SALES_PATH);
+  actionRedirect(formData, "success", "action.load_cost_recorded");
 }
 
 // ---- Pipeline & evidence entry (the retired Sales DB sheet's job, now done in the app). ----

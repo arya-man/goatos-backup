@@ -156,12 +156,14 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 	RoleProcurementManager: rows(
 		one(assign("procurement", SurfaceWeb, LevelView)),
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("load_costs", SurfaceWeb, LevelDo)),
 		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
 	),
 	// Web-only. Reads the whole feed chain (the Hemant case) with no authority over it.
 	RoleProcurementDirector: rows(
 		one(assign("procurement", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("load_costs", SurfaceWeb, LevelDo)),
 		one(assign("vendors", SurfaceWeb, LevelView, LevelDo, LevelOversee)),
 		one(assign("sales", SurfaceWeb, LevelView, LevelDo)),
 		one(assign("sale_allocation", SurfaceWeb, LevelDo)),
@@ -219,6 +221,7 @@ var flatRoleAssignments = map[string][]ModuleAssignment{
 		// Watches and judges the strip test; never runs one (2026-08-26).
 		bothSurfaces("toxin", LevelView, LevelOversee),
 		one(assign("feed_purchases", SurfaceWeb, LevelView, LevelDo)),
+		one(assign("load_costs", SurfaceWeb, LevelDo)),
 		one(assign("verification_policy", SurfaceWeb, LevelConfigure)),
 		// Clock In / Out presence oversight (2026-08-28): the CEO/CXO sees who
 		// is at work on both surfaces; punching itself is baseline, not a tick.

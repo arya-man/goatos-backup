@@ -2766,6 +2766,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/procurement/loadwise-sales": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every purchased animal load reconciled, for the Sales page.
+         * @description One row per procurement load, newest purchase date first (the newest 60 loads; `total_loads` says how many exist). Counts reconcile by construction: `purchased` = `sold` + `mortality` + `other_exits` + `remaining` + `unaccounted`, and a non-zero `unaccounted` means the herd register and the load disagree.
+         *
+         *     Money: `purchase_value` is the recorded landed cost (absent = cost not recorded, never zero); `sold_value` is deal value attributed evenly across each deal's tagged animals and summed by load (`sold_priced` says how many sold animals actually carry a share); `remaining_value` prices the animals still on farm at `avg_sold_price`, whose `price_basis` is `load` (its own priced sales), `overall` (the tenant-wide average) or `none` (no estimate). The `summary` aggregates exactly the served rows.
+         */
+        get: operations["listLoadwiseSales"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/procurement/loads/{load_id}/cost": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Record (or clear) a purchased animal load's landed cost.
+         * @description A PUT of the full cost state, naturally idempotent: writing the values the load already carries changes nothing. `animal_cost` is the anchor -- transport and other costs are rejected without it (400 `load_cost_invalid_animal_cost`), and all three null clears the recorded cost. Negative values are rejected, never coerced. Requires the dedicated buying-desk permission (`procurement.load_cost.write`), the same read/write split feed purchases keep.
+         */
+        put: operations["setLoadCost"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/overview": {
         parameters: {
             query?: never;
@@ -5713,6 +5755,71 @@ export interface components {
             entry_source: "sheet_import" | "app";
             /** Format: date-time */
             created_at: string;
+        };
+        /** @description One procurement load's reconciliation row on the Sales page. */
+        LoadwiseLoad: {
+            /** Format: uuid */
+            load_id: string;
+            vendor_name: string;
+            /** Format: date */
+            purchase_date?: string | null;
+            status: string;
+            /** @description The park code (CBE/CPT) every accepted animal of the load resolves to; absent when the load's animals span parks or none is known -- agree-or-go-bare, never a majority pick. */
+            farm?: string | null;
+            purchased: number;
+            sold: number;
+            /** @description Animals of this load that died on farm. */
+            mortality: number;
+            /** @description Culled */
+            other_exits: number;
+            /** @description Still alive on farm. */
+            remaining: number;
+            /** @description purchased minus everything above. Non-zero means the herd register and the load disagree, and the screen shows it in red. */
+            unaccounted: number;
+            animal_cost?: number | null;
+            transport_cost?: number | null;
+            other_cost?: number | null;
+            /** @description Landed cost (animal + transport + other). Absent = cost not recorded, never zero. */
+            purchase_value?: number | null;
+            /** @description Deal value attributed to this load's sold animals. */
+            sold_value: number;
+            /** @description How many of `sold` carry an attributed deal share; the rest sold without a tagged sale. */
+            sold_priced: number;
+            avg_sold_price?: number | null;
+            /** @enum {string} */
+            price_basis: "load" | "overall" | "none";
+            /** @description remaining x avg_sold_price. Absent when there is no price basis. */
+            remaining_value?: number | null;
+            row_version: number;
+        };
+        /** @description Aggregates over exactly the served rows -- no client re-derives its own totals. */
+        LoadwiseSummary: {
+            purchased: number;
+            sold: number;
+            mortality: number;
+            other_exits: number;
+            remaining: number;
+            unaccounted: number;
+            /** @description Sum of RECORDED costs only; `costed_loads` says how many rows carry one. */
+            purchase_value: number;
+            costed_loads: number;
+            sold_value: number;
+            /** @description Sum of the per-load estimates that have a price basis. */
+            remaining_value: number;
+        };
+        LoadwiseSales: {
+            loads: components["schemas"]["LoadwiseLoad"][];
+            /** @description Whole-tenant load count; the rows are the newest window of it. */
+            total_loads: number;
+            /** @description The tenant-wide average sold price used as the remaining-stock fallback basis. */
+            overall_avg_sold_price?: number | null;
+            summary: components["schemas"]["LoadwiseSummary"];
+        };
+        /** @description The full cost state of one load. Nullable so "not entered" stays distinct from "entered as 0"; transport and other costs are rejected without an animal cost, and all three null clears the recorded cost. */
+        LoadCostWrite: {
+            animal_cost?: number | null;
+            transport_cost?: number | null;
+            other_cost?: number | null;
         };
         FeedPurchasePage: {
             purchases: components["schemas"]["FeedPurchase"][];
@@ -19247,6 +19354,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeedPurchase"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listLoadwiseSales: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The load-wise reconciliation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoadwiseSales"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    setLoadCost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                load_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoadCostWrite"];
+            };
+        };
+        responses: {
+            /** @description Cost recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "recorded";
+                    };
                 };
             };
             400: components["responses"]["BadRequest"];

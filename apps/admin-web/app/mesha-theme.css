@@ -2930,6 +2930,23 @@ select:disabled { opacity: .45; }
 .mcsub{font-size:10.5px;font-weight:600;color:var(--ink);opacity:.72;margin-top:2px;white-space:nowrap;line-height:1.2;font-variant-numeric:tabular-nums}
 @media(max-width:1080px){.mcv{display:none}.mclab{font-size:9px}.mcsub{font-size:9px}.mcarea{height:90px}}
 
+/* Grouped (multi-series) columns — the sales board's load-wise charts (grouped-columns.tsx). */
+.gleg{display:flex;gap:14px;flex-wrap:wrap;padding:8px 14px 0;font-size:11px;color:var(--muted)}
+.gleg .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;background:var(--brand)}
+.gcols{display:flex;align-items:stretch;gap:12px;padding:8px 14px 2px;overflow-x:auto}
+.gcol{flex:0 0 auto;width:86px;display:flex;flex-direction:column;align-items:center;min-width:0}
+.gcarea{display:flex;align-items:flex-end;justify-content:center;gap:3px;height:138px;width:100%;border-bottom:1px solid var(--line);box-sizing:border-box;padding-top:6px}
+.gcbar{display:block;flex:0 0 auto;width:13px;border-radius:3px 3px 0 0;background:var(--brand)}
+.gcbar.none{background:transparent}
+.gcbar.info,.gleg .sw.info{background:var(--info)}
+.gcbar.ok,.gleg .sw.ok{background:var(--ok)}
+.gcbar.warn,.gleg .sw.warn{background:var(--warn)}
+.gcbar.danger,.gleg .sw.danger{background:var(--danger)}
+.gcbar.teal,.gleg .sw.teal{background:var(--teal)}
+.gclab{font-size:11px;color:var(--muted);margin-top:5px;white-space:nowrap;line-height:1.2}
+.gcsub{font-size:10.5px;font-weight:600;color:var(--ink);opacity:.72;margin-top:2px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.2}
+@media(max-width:1080px){.gclab{font-size:9px}.gcsub{font-size:9px}.gcarea{height:90px}}
+
 /* Deals ledger: single-line cells. The global .celllink overflow-wrap:anywhere otherwise splits
    "2026-08-11" -> "2026-08-" / "11" and "CPT" character-by-character (known failure mode 4b). */
 .main table.sales-deals-table th,.main table.sales-deals-table td,.main table.sales-deals-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}

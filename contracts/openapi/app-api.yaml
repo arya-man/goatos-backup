@@ -6965,6 +6965,82 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /procurement/loadwise-sales:
+    get:
+      tags:
+        - Procurement
+      operationId: listLoadwiseSales
+      summary: Every purchased animal load reconciled, for the Sales page.
+      description: >-
+        One row per procurement load, newest purchase date first (the newest 60 loads;
+        `total_loads` says how many exist). Counts reconcile by construction: `purchased` =
+        `sold` + `mortality` + `other_exits` + `remaining` + `unaccounted`, and a non-zero
+        `unaccounted` means the herd register and the load disagree.
+
+
+        Money: `purchase_value` is the recorded landed cost (absent = cost not recorded, never
+        zero); `sold_value` is deal value attributed evenly across each deal's tagged animals and
+        summed by load (`sold_priced` says how many sold animals actually carry a share);
+        `remaining_value` prices the animals still on farm at `avg_sold_price`, whose
+        `price_basis` is `load` (its own priced sales), `overall` (the tenant-wide average) or
+        `none` (no estimate). The `summary` aggregates exactly the served rows.
+      responses:
+        "200":
+          description: The load-wise reconciliation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoadwiseSales"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /procurement/loads/{load_id}/cost:
+    put:
+      tags:
+        - Procurement
+      operationId: setLoadCost
+      summary: Record (or clear) a purchased animal load's landed cost.
+      description: >-
+        A PUT of the full cost state, naturally idempotent: writing the values the load already
+        carries changes nothing. `animal_cost` is the anchor -- transport and other costs are
+        rejected without it (400 `load_cost_invalid_animal_cost`), and all three null clears the
+        recorded cost. Negative values are rejected, never coerced. Requires the dedicated
+        buying-desk permission (`procurement.load_cost.write`), the same read/write split feed
+        purchases keep.
+      parameters:
+        - name: load_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoadCostWrite"
+      responses:
+        "200":
+          description: Cost recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [recorded] }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /sales/overview:
     get:
       tags:
@@ -13924,6 +14000,97 @@ components:
             How the row arrived: bootstrapped sheet history, or recorded in the app. The ledger
             shows the difference rather than presenting history as something a person typed here.
         created_at: { type: string, format: date-time }
+    LoadwiseLoad:
+      type: object
+      description: One procurement load's reconciliation row on the Sales page.
+      required:
+        [load_id, vendor_name, status, purchased, sold, mortality, other_exits, remaining,
+         unaccounted, sold_value, sold_priced, price_basis, row_version]
+      properties:
+        load_id: { type: string, format: uuid }
+        vendor_name: { type: string }
+        purchase_date: { type: string, format: date, nullable: true }
+        status: { type: string }
+        farm:
+          type: string
+          nullable: true
+          description: >-
+            The park code (CBE/CPT) every accepted animal of the load resolves to; absent when the
+            load's animals span parks or none is known -- agree-or-go-bare, never a majority pick.
+        purchased: { type: integer }
+        sold: { type: integer }
+        mortality: { type: integer, description: Animals of this load that died on farm. }
+        other_exits: { type: integer, description: Culled, transferred or lost -- real outcomes, not discrepancies. }
+        remaining: { type: integer, description: Still alive on farm. }
+        unaccounted:
+          type: integer
+          description: >-
+            purchased minus everything above. Non-zero means the herd register and the load
+            disagree, and the screen shows it in red.
+        animal_cost: { type: number, nullable: true }
+        transport_cost: { type: number, nullable: true }
+        other_cost: { type: number, nullable: true }
+        purchase_value:
+          type: number
+          nullable: true
+          description: Landed cost (animal + transport + other). Absent = cost not recorded, never zero.
+        sold_value: { type: number, description: Deal value attributed to this load's sold animals. }
+        sold_priced:
+          type: integer
+          description: How many of `sold` carry an attributed deal share; the rest sold without a tagged sale.
+        avg_sold_price: { type: number, nullable: true }
+        price_basis: { type: string, enum: [load, overall, none] }
+        remaining_value:
+          type: number
+          nullable: true
+          description: remaining x avg_sold_price. Absent when there is no price basis.
+        row_version: { type: integer }
+    LoadwiseSummary:
+      type: object
+      description: Aggregates over exactly the served rows -- no client re-derives its own totals.
+      required:
+        [purchased, sold, mortality, other_exits, remaining, unaccounted, purchase_value,
+         costed_loads, sold_value, remaining_value]
+      properties:
+        purchased: { type: integer }
+        sold: { type: integer }
+        mortality: { type: integer }
+        other_exits: { type: integer }
+        remaining: { type: integer }
+        unaccounted: { type: integer }
+        purchase_value:
+          type: number
+          description: Sum of RECORDED costs only; `costed_loads` says how many rows carry one.
+        costed_loads: { type: integer }
+        sold_value: { type: number }
+        remaining_value: { type: number, description: Sum of the per-load estimates that have a price basis. }
+    LoadwiseSales:
+      type: object
+      required: [loads, total_loads, summary]
+      properties:
+        loads:
+          type: array
+          items:
+            $ref: "#/components/schemas/LoadwiseLoad"
+        total_loads:
+          type: integer
+          description: Whole-tenant load count; the rows are the newest window of it.
+        overall_avg_sold_price:
+          type: number
+          nullable: true
+          description: The tenant-wide average sold price used as the remaining-stock fallback basis.
+        summary:
+          $ref: "#/components/schemas/LoadwiseSummary"
+    LoadCostWrite:
+      type: object
+      description: >-
+        The full cost state of one load. Nullable so "not entered" stays distinct from "entered as
+        0"; transport and other costs are rejected without an animal cost, and all three null
+        clears the recorded cost.
+      properties:
+        animal_cost: { type: number, minimum: 0, nullable: true }
+        transport_cost: { type: number, minimum: 0, nullable: true }
+        other_cost: { type: number, minimum: 0, nullable: true }
     FeedPurchasePage:
       type: object
       required: [purchases, total, quantity_kg, spend_rupees, limit, offset]

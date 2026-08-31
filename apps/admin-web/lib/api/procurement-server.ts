@@ -13,7 +13,7 @@ import {
   request,
   type ApiResult,
 } from "@/lib/api/server";
-import type {
+import type { LoadCostWrite, LoadwiseSales,
   FeedPurchase,
   FeedPurchaseOptions,
   FeedPurchasePage,
@@ -242,6 +242,34 @@ export async function getSalesOverview(
       cache: "no-store",
       query: compactQuery({ farm: params.farm }),
     }),
+  );
+}
+
+// The load-wise reconciliation: every purchased load's counts and money, served whole (the
+// newest window) by the procurement read. ONE bounded request, never a paged walk.
+export async function getLoadwiseSales(): Promise<ApiResult<LoadwiseSales>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<LoadwiseSales>("/procurement/loadwise-sales", { cache: "no-store" }),
+  );
+}
+
+// Records (or clears) one load's landed cost. A PUT of the full state — naturally idempotent on
+// the backend, so no Idempotency-Key header is minted here.
+export async function setLoadCost(
+  loadId: string,
+  body: LoadCostWrite,
+): Promise<ApiResult<{ status: string }>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<{ status: string }>(
+      `/procurement/loads/${encodeURIComponent(loadId)}/cost` as keyof AppApiPaths & string,
+      { method: "PUT", cache: "no-store", body },
+    ),
   );
 }
 

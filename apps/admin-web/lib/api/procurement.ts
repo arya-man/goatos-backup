@@ -20,6 +20,12 @@ export type SalesDealStatusWrite = AppApiComponents["schemas"]["SalesDealStatusW
 export type SalesDealPage = AppApiComponents["schemas"]["SalesDealPage"];
 export type SalesDealWrite = AppApiComponents["schemas"]["SalesDealWrite"];
 
+// Load-wise sales — every purchased load reconciled (/procurement/loadwise-sales).
+export type LoadwiseSales = AppApiComponents["schemas"]["LoadwiseSales"];
+export type LoadwiseLoad = AppApiComponents["schemas"]["LoadwiseLoad"];
+export type LoadwiseSummary = AppApiComponents["schemas"]["LoadwiseSummary"];
+export type LoadCostWrite = AppApiComponents["schemas"]["LoadCostWrite"];
+
 // Feed purchases — the buying side of the feed chain (/procurement/feed-purchases).
 export type FeedPurchase = AppApiComponents["schemas"]["FeedPurchase"];
 export type FeedPurchasePage = AppApiComponents["schemas"]["FeedPurchasePage"];

@@ -514,6 +514,11 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
 				withoutRowClick(tableP("sales-buyers", "Buyers", "/sales/overview", []string{"buyer_name", "buyer_place", "product_types", "deals", "animals", "revenue", "share_pct"}, "", []int{10, 25, 50})),
+				// LOAD-WISE (maintainer decision 2026-08-31): every purchased load reconciled --
+				// counts on one side, money on the other. Served whole (newest 60 loads) by the
+				// procurement read; a row click opens the load-cost drawer, so the row key is the
+				// load id. Rendered under the Purchased tab of the load-wise section.
+				tableP("sales-loadwise", "Load-wise", "/procurement/loadwise-sales", []string{"load", "farm", "purchased", "sold", "mortality", "other_exits", "remaining", "unaccounted", "purchase_value", "sold_value", "remaining_value"}, "load_id", []int{60}),
 			}),
 		// FEED PURCHASES: the buying side of the feed chain (maintainer decision 2026-08-24,
 		// retiring the read-only half of migration 000174). One server-paged ledger table whose
@@ -2838,6 +2843,62 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.deals.unset":      "No sales recorded yet. Record the first sale to start the ledger.",
 			"summary.count":          "deals",
 			"summary.buyers":         "buyers",
+
+			// Load-wise section (maintainer decision 2026-08-31): two tabs, Purchased (loads) and
+			// From the barn (farm-born, a shell until that view is built). All copy backend-owned.
+			"tab.purchased":                  "Purchased",
+			"tab.from_barn":                  "From the barn",
+			"section.loadwise.title":         "Load by load",
+			"section.loadwise.aria":          "Load-wise reconciliation",
+			"section.loadwise.subtitle":      "Every purchased load reconciled: bought, sold, died, still on farm — and the money on each side.",
+			"section.loadwise.showing":       "Showing the newest loads",
+			"empty.loadwise":                 "No purchased loads yet. Loads appear here as source entry accepts them into the herd.",
+			"empty.from_barn":                "Sales of farm-born animals will show here. This view is not built yet.",
+			"loadwise.kpi.purchased":         "Purchased",
+			"loadwise.kpi.sold":              "Sold",
+			"loadwise.kpi.mortality":         "Mortality",
+			"loadwise.kpi.remaining":         "Still on farm",
+			"loadwise.kpi.purchase_value":    "Purchase value",
+			"loadwise.kpi.purchase_value.hint": "recorded costs only",
+			"loadwise.kpi.sold_value":        "Sold value",
+			"loadwise.kpi.sold_value.hint":   "from sales with tagged animals",
+			"loadwise.kpi.remaining_value":   "Remaining stock value (est.)",
+			"loadwise.kpi.remaining_value.hint": "remaining animals at the average sold price",
+			"chart.loadwise_counts.title":    "Animals per load",
+			"chart.loadwise_counts.empty":    "No loads to chart yet.",
+			"chart.loadwise_value.title":     "Money per load",
+			"chart.loadwise_value.empty":     "No load has a recorded cost or a priced sale yet.",
+			"chart.series.purchased":         "Purchased",
+			"chart.series.sold_count":        "Sold",
+			"chart.series.mortality":         "Mortality",
+			"chart.series.remaining":         "Remaining",
+			"chart.series.purchase_value":    "Purchase value",
+			"chart.series.sold_value":        "Sold value",
+			"chart.series.remaining_value":   "Remaining value (est.)",
+			"column.load":                    "Load",
+			"column.purchased":               "Purchased",
+			"column.sold":                    "Sold",
+			"column.mortality":               "Mortality",
+			"column.other_exits":             "Other exits",
+			"column.remaining":               "Remaining",
+			"column.unaccounted":             "Unaccounted",
+			"column.purchase_value":          "Purchase value",
+			"column.sold_value":              "Sold value",
+			"column.remaining_value":         "Remaining value (est.)",
+			"value.cost_missing":             "Cost not recorded",
+			"value.price_basis.load":         "at this load's own average sold price",
+			"value.price_basis.overall":      "at the overall average sold price",
+			"value.sold_unpriced":            "sold without a tagged sale",
+			"loadwise.row_hint":              "click a load to record its cost",
+			"drawer.load_cost.title":         "Record load cost",
+			"field.animal_cost":              "Animal cost",
+			"field.transport_cost":           "Transport cost",
+			"field.other_cost":               "Other cost",
+			"hint.load_cost":                 "What this load cost to buy and bring in. Animal cost is required; transport and other are optional.",
+			"action.record_load_cost.label":  "Record cost",
+			"action.load_cost_recorded":      "Load cost recorded.",
+			"action.load_cost_record_failed": "Could not record this cost. Check the fields and try again.",
+			"disabled.load_cost":             "Recording a load's cost needs the buying desk's access.",
 
 			// "Tag animals to sale": pick the real animals a recorded sale is made of.
 			// The blockers' own sentences are composed by the identity module and rendered
@@ -5779,6 +5840,15 @@ func salesOptionGroups() []domain.OptionGroup {
 				option("Deal Failed", "Deal Failed", "", "dng"),
 				option("In Discussion", "In Discussion", "", "info"),
 				option("Advance Paid", "Advance Paid", "", "warn"),
+			},
+		},
+		{
+			// The load-wise section's two tabs. Purchased = procured loads; From the barn =
+			// farm-born animals (a shell until that view is built).
+			ID: "sales_views",
+			Options: []domain.Option{
+				option("purchased", "Purchased", "", ""),
+				option("from_barn", "From the barn", "", ""),
 			},
 		},
 		{

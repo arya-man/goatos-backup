@@ -679,6 +679,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// migration 000174's lock). Procurement owns the write; feeddirection keeps the stock read.
 	procurementFeedPurchaseHandler := procurementhttp.NewFeedPurchaseHandler(
 		procurementapp.NewFeedPurchaseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
+	// The Sales page's LOAD-WISE reconciliation and the load-cost entry (maintainer decision
+	// 2026-08-31, docs/decisions/sales-loadwise.md).
+	procurementLoadwiseHandler := procurementhttp.NewLoadwiseHandler(
+		procurementapp.NewLoadwiseService(procurementpg.NewRepository(pool, cfg.Postgres.QueryTimeout)), log)
 	// Toxin (maintainer decision 2026-08-25): the aflatoxin strip-test module. Tasks are
 	// born from procurement.feed_purchase.recorded (consumer wired in kernelstages); the
 	// routes here serve the tester's guided step flow and the CEO/CXO-only review.
@@ -1134,6 +1138,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	procurementhttp.Register(protectedMux, procurementHandler)
 	procurementhttp.RegisterVendors(protectedMux, procurementVendorHandler)
 	procurementhttp.RegisterFeedPurchases(protectedMux, procurementFeedPurchaseHandler)
+	procurementhttp.RegisterLoadwise(protectedMux, procurementLoadwiseHandler)
 	toxinhttp.Register(protectedMux, toxinHandler)
 	saleshttp.Register(protectedMux, salesHandler)
 	vaccinationhttp.Register(protectedMux, vaccinationHandler)

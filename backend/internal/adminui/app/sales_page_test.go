@@ -25,8 +25,18 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		t.Fatalf("sales must be a module surface, got %q", page.SurfaceKind)
 	}
 
-	if len(page.Tables) != 2 || page.Tables[0].ID != "sales-deals" || page.Tables[1].ID != "sales-buyers" {
+	if len(page.Tables) != 3 || page.Tables[0].ID != "sales-deals" || page.Tables[1].ID != "sales-buyers" ||
+		page.Tables[2].ID != "sales-loadwise" {
 		t.Fatalf("sales tables = %+v", page.Tables)
+	}
+	// The load-wise reconciliation table (maintainer decision 2026-08-31): served by the
+	// procurement read, row click opens the load-cost drawer keyed by the load id.
+	loadwise := page.Tables[2]
+	if loadwise.DataSource != "/procurement/loadwise-sales" {
+		t.Fatalf("loadwise table source = %q", loadwise.DataSource)
+	}
+	if loadwise.RowClick.Param != "load_id" {
+		t.Fatalf("loadwise row param = %q", loadwise.RowClick.Param)
 	}
 	deals := page.Tables[0]
 	// The buyer board is paged in the renderer off the overview response: the contract owns the
@@ -71,6 +81,26 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		"hint.vendor_truncated", "action.open_vendors", "hint.vendor_prefill", "error.vendors_unavailable",
 		"action.sale_recorded", "action.sale_record_failed",
 		"empty.deals", "error.load", "disabled.write",
+		// Load-wise section (maintainer decision 2026-08-31): tabs, summary tiles, charts,
+		// reconciliation columns and the load-cost drawer are all backend-owned copy.
+		"tab.purchased", "tab.from_barn",
+		"section.loadwise.title", "section.loadwise.subtitle", "empty.loadwise", "empty.from_barn",
+		"loadwise.kpi.purchased", "loadwise.kpi.sold", "loadwise.kpi.mortality",
+		"loadwise.kpi.remaining", "loadwise.kpi.purchase_value", "loadwise.kpi.sold_value",
+		"loadwise.kpi.remaining_value",
+		"chart.loadwise_counts.title", "chart.loadwise_counts.empty",
+		"chart.loadwise_value.title", "chart.loadwise_value.empty",
+		"chart.series.purchased", "chart.series.sold_count", "chart.series.mortality",
+		"chart.series.remaining", "chart.series.purchase_value", "chart.series.sold_value",
+		"chart.series.remaining_value",
+		"column.load", "column.purchased", "column.sold", "column.mortality",
+		"column.other_exits", "column.remaining", "column.unaccounted",
+		"column.purchase_value", "column.sold_value", "column.remaining_value",
+		"value.cost_missing", "value.price_basis.load", "value.price_basis.overall",
+		"value.sold_unpriced",
+		"drawer.load_cost.title", "field.animal_cost", "field.transport_cost", "field.other_cost",
+		"hint.load_cost", "action.record_load_cost.label", "action.load_cost_recorded",
+		"action.load_cost_record_failed", "disabled.load_cost",
 	} {
 		if page.Copy[key] == "" {
 			t.Fatalf("sales copy missing %q", key)
@@ -90,6 +120,10 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	}
 	if groups["sales_product_types"] != 3 {
 		t.Fatalf("sales_product_types options = %d", groups["sales_product_types"])
+	}
+	// The load-wise section's two tabs: Purchased and From the barn.
+	if groups["sales_views"] != 2 {
+		t.Fatalf("sales_views options = %d", groups["sales_views"])
 	}
 	for _, id := range []string{"sales_breeds_sheep", "sales_breeds_goat", "sales_breeds_manure"} {
 		if groups[id] == 0 {
@@ -200,6 +234,49 @@ func TestSalesRecordSaleControlIsCapabilityGated(t *testing.T) {
 			}
 			if status.Action != "POST /sales/deals/{deal_id}/status" {
 				t.Fatalf("update_sales_deal_status.action = %q want the status write", status.Action)
+			}
+		})
+	}
+}
+
+// TestRecordLoadCostControlIsCapabilityGated pins the load-cost write split: record_load_cost is
+// ENABLED only for a holder of permissions.LoadCostWrite and is otherwise present-but-disabled
+// with a backend reason.
+//
+// The operator row is the mutation test that matters: an operator holds ProcurementWrite for the
+// source-entry screens, so any change that enables this control from ProcurementWrite (or any
+// broader procurement key) turns it red. The feed_director row covers the same leak from the feed
+// oversight side, and growth_director covers a role with no procurement permission at all.
+func TestRecordLoadCostControlIsCapabilityGated(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		role    string
+		enabled bool
+	}{
+		{"ceo_internal", permissions.RoleCEOInternal, true},
+		{"procurement_director", permissions.RoleProcurementDirector, true},
+		{"procurement_manager", permissions.RoleProcurementManager, true},
+		{"feed_director", permissions.RoleFeedDirector, false},
+		{"growth_director", permissions.RoleGrowthDirector, false},
+		{"operator holds procurement write but no load cost write", permissions.RoleOperator, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+				TenantID: "00000000-0000-4000-8000-000000000001",
+				ActorID:  "00000000-0000-4000-8000-000000000099",
+				Grants: []permissions.ActiveGrant{
+					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+				},
+			})
+			control := controlByID(t, pageByRouteID(t, resp.Pages, "sales").Controls, "record_load_cost")
+			if control.Enabled != tc.enabled {
+				t.Fatalf("%s record_load_cost.enabled = %v want %v (%#v)", tc.name, control.Enabled, tc.enabled, control)
+			}
+			if !tc.enabled && control.DisabledReason == "" {
+				t.Fatalf("%s: disabled control must carry a backend disabled reason", tc.name)
+			}
+			if control.Action != "PUT /procurement/loads/{load_id}/cost" {
+				t.Fatalf("record_load_cost.action = %q want the load-cost write", control.Action)
 			}
 		})
 	}

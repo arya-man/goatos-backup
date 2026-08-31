@@ -506,6 +506,19 @@ var moduleCapabilities = []ModuleCapability{
 		},
 	},
 	{
+		// The landed cost of a purchased ANIMAL load, entered on the Sales page's load-wise
+		// section (maintainer decision 2026-08-31, docs/decisions/sales-loadwise.md). Its own
+		// module for the same reason feed_purchases is: this is supplier money, and folding it
+		// into the procurement module would hand it to every operator working source entry.
+		Key:      "load_costs",
+		Label:    "Animal Load Costs",
+		Blurb:    "What each purchased animal load cost: animal, transport and other.",
+		Surfaces: []string{SurfaceWeb},
+		Levels: map[string][]string{
+			LevelDo: {LoadCostWrite},
+		},
+	},
+	{
 		// Setting what SHARE of proof videos a verifier must actually watch. Its own module
 		// rather than a level on `verification`, because it is a different authority: oversight
 		// WATCHES the verification workload, while this DECIDES how much of it a human must

@@ -285,6 +285,13 @@ var protectedRoutes = []Route{
 	{OperationID: "setFeedPurchasePaymentStatus", Method: "PUT", Pattern: "/procurement/feed-purchases/{purchase_id}/payment-status", Permissions: []string{FeedPurchaseWrite}},
 	{OperationID: "editFeedPurchase", Method: "PUT", Pattern: "/procurement/feed-purchases/{purchase_id}", Permissions: []string{FeedPurchaseWrite}},
 
+	// LOAD-WISE SALES (the Sales page's per-procurement-load reconciliation, maintainer decision
+	// 2026-08-31). The read is the Sales page's data, so it rides SalesRead; the cost entry is
+	// supplier money and carries the dedicated buying-desk permission, the same split feed
+	// purchases keep (see LoadCostWrite's doc comment).
+	{OperationID: "listLoadwiseSales", Method: "GET", Pattern: "/procurement/loadwise-sales", Permissions: []string{SalesRead}},
+	{OperationID: "setLoadCost", Method: "PUT", Pattern: "/procurement/loads/{load_id}/cost", Permissions: []string{LoadCostWrite}},
+
 	// TOXIN (maintainer decision 2026-08-25): the aflatoxin strip-test module. The task
 	// list and detail are ToxinRead; the step work is ToxinExecute; the verdict routes are
 	// ToxinVerdict — CEO/CXO ONLY, deliberately not verification.verdict, so the tenant

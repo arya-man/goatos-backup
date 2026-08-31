@@ -342,6 +342,17 @@ const (
 	// separate from FeedPurchaseRead so a read-only oversight tier -- the Feed Director watching
 	// what the stock cards are built from -- is expressible without a schema change.
 	FeedPurchaseWrite = "feed.purchase.write"
+	// LoadCostWrite gates recording an ANIMAL load's landed cost (PUT
+	// /procurement/loads/{load_id}/cost), read back on the Sales page's load-wise section
+	// (maintainer decision 2026-08-31, docs/decisions/sales-loadwise.md).
+	//
+	// Same reasoning as FeedPurchaseWrite, which is the precedent: operators and park heads hold
+	// ProcurementWrite for the source-entry screens they work, and this is supplier money -- so it
+	// is a DEDICATED permission for the buying desk, never a reuse of ProcurementWrite. Granted
+	// exactly where FeedPurchaseWrite is granted. There is no separate read permission: the
+	// load-wise read (GET /procurement/loadwise-sales) is the Sales page's data and rides
+	// SalesRead.
+	LoadCostWrite = "procurement.load_cost.write"
 	// ToxinRead gates the toxin module's task reads (GET /app/toxin/tasks*): the aflatoxin
 	// strip-test tasks born one-per-purchased-feed-load (maintainer decision 2026-08-25).
 	// Held per person via RoleToxinTester, plus RoleCEOInternal (founder visibility).
@@ -1038,7 +1049,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProcurementRead: {},
 		// The feed purchase ledger and its entry form: buying feed is this desk's job, and the
 		// vendors it is bought from are already in this role's register.
-		FeedPurchaseRead: {}, FeedPurchaseWrite: {},
+		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
 	},
 	// RoleProcurementDirector: the Procurement vertical in full, plus read-only Feed oversight
 	// (maintainer decision 2026-08-21). See the constant's doc comment for the split with
@@ -1075,7 +1086,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// The feed purchase ledger in full (maintainer decision 2026-08-24). This is a BUYING
 		// surface, so it sits inside this director's desk rather than being one of the read-only
 		// feed oversight grants above.
-		FeedPurchaseRead: {}, FeedPurchaseWrite: {},
+		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
 	},
 	RoleCountsApprover: {
 		CountsApproveAccess:    {},
@@ -1211,7 +1222,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		SalesRead: {}, SalesWrite: {}, SalesAllocateAnimals: {},
 		// The feed purchase ledger (/procurement/feed-purchases): what feed was bought, at what
 		// landed cost, from whom. Same founder/builder visibility invariant.
-		FeedPurchaseRead: {}, FeedPurchaseWrite: {},
+		FeedPurchaseRead: {}, FeedPurchaseWrite: {}, LoadCostWrite: {},
 	},
 }
 

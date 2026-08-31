@@ -1285,6 +1285,15 @@ buyer board, pipelines, weight audit, market benchmarks) and `GET /sales/deals`
 | func:NewSalesService, func:NewSalesServiceWithClock, func:GetOverview, func:ListDeals, func:CreateDeal, func:SetDealStatus, func:RecordDealPayment, func:NewSalesHandler, func:NewRepository, func:Register, func:SalesHTTPError, func:BadRequest, func:NotFound, func:Conflict, func:Internal, func:Error | EXCLUDED | Service/handler/repository plumbing behind the two covered read APIs and the writes; no independent read surface. |
 | func:BuildDealAggregates, func:BucketWeightGap, func:Animals, func:Month, func:PeriodFromCandidate, func:PaymentBalance, func:ClampDealPageSize, func:NormalizeFarmFilter, func:Normalize, func:TotalOrSplitSum, func:PerKgCost, func:Validate, func:IsFarm, func:IsProductType, func:IsLiveProduct, func:IsStatus | EXCLUDED | Pure domain rollup/validation/helpers over rows the covered reads already serve; they derive no new fact and read no data themselves. |
 
+## Sales load-wise reconciliation (2026-08-31)
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| path:/procurement/loadwise-sales (GET /procurement/loadwise-sales) | api | The Sales page's load-wise reconciliation: per procurement load, purchased / sold / mortality / other exits / remaining / unaccounted counts, recorded landed cost (`purchase_value`, absent = cost not recorded), deal-attributed `sold_value` (deal value split evenly across tagged `goat_sale_allocations`, summed by load; `sold_priced` marks how much of sold is actually priced), and `remaining_value` at `avg_sold_price` with an explicit `price_basis` (load / overall / none). Leadership questions like "how did load X do" and "what is the remaining stock of a load worth" route here. Whole-read summary aggregates exactly the served rows; grain proof and adversarial fixture: `TestLoadwiseSalesPostgresRead`. Decision: `docs/decisions/sales-loadwise.md`. Cube/`ceo_ai` mapping is future work alongside the sales ledger's. |
+| path:/procurement/loads/{load_id}/cost (PUT) | EXCLUDED | Write route: records one load's landed cost (`procurement.load_cost.write`, audited, naturally idempotent). Leadership sees the result through the loadwise read above. |
+| migration:000229_procurement_load_costs (procurement_loads.animal_cost / transport_cost / other_cost / cost_recorded_by / cost_recorded_at) | api (GET /procurement/loadwise-sales) | New COLUMNS on the existing loads table, not a new table; served only through the loadwise read's `purchase_value` decomposition. |
+| func:NewLoadwiseHandler, func:RegisterLoadwise, func:LoadwiseSales, func:SetLoadCost, func:NewLoadwiseService, func:LoadwiseHTTPError, func:FinalizeLoadwise, func:Validate | EXCLUDED | Service/handler/domain plumbing behind the one covered read and the write; no independent read surface. |
+
 ## Feed direction proof validator: excluded constructor overload (2026-08-15)
 
 | Surface | Decision | Reason |
