@@ -2,6 +2,23 @@ package postgres
 
 // Command-board SQL, named and package-level.
 //
+// projection-review: membership=one tenant's obligation_instances in scope, joined to their rule
+// and their goat, with completions pre-aggregated per obligation_id;
+// group_key=each statement's own cell grain -- (park, stage, sex, dose_code) for the cohort matrix,
+// (shed, partition, dose_code, state) for the shed grid, (shed, partition, vaccine_code) for the
+// shed-vaccine matrix, (ISO week, dose_code, status) for weekly given -- and the cohort matrix
+// reaches its grain through an INTERMEDIATE fold on (target_id, scope_id, dose_code) whose key is
+// strictly FINER, so no intermediate group straddles two cells;
+// join_cardinality=comp 1:1 per obligation_id, goats 1:1 on (target_id, tenant_id), protocol_rules
+// 1:1 on (rule_id, tenant_id), locations 0..1 on their primary keys, and protocol_rule_dimensions
+// 1..N absorbed by carrying vaccine_code inside the group key -- nothing fans the obligation grain
+// out, so the DISTINCT-goat animal counts cannot multiply;
+// pagination=NONE on the summary aggregates: they are bounded per-cell folds computed in the
+// database, and the only paged statement here (driveOptionsSQL) uses a total keyset ordering with
+// limit+1 as its overflow probe;
+// scope=tenant_id on every statement, plus the capability-resolved park filter parented through
+// locations and the optional drive batch filter, both applied BEFORE the folds rather than after.
+//
 // These eleven statements used to be anonymous local string literals inside
 // VaccinationCommandBoard. That placement is what let the endpoint's plans regress unnoticed:
 // tools/scale-guard and the query-plan tests can only reach SQL they can NAME, so a hot-path

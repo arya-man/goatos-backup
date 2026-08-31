@@ -102,6 +102,9 @@ async function fetchAllPages<TItem, TPage extends { nextCursor?: string }>(
   for (let page = 0; page < maxPages; page += 1) {
     const query = new URLSearchParams(params);
     if (cursor) query.set("cursor", cursor);
+    // Keyset pagination is inherently sequential: page N+1's cursor is only known once page N has
+    // returned, so these cannot be batched with Promise.all.
+    // serial-await: allow keyset pagination -- the next cursor comes from this response
     const result = await fetchJson<TPage>(`${baseUrl}?${query.toString()}`, signal);
     items.push(...select(result));
     if (!result.nextCursor) break;
@@ -176,7 +179,7 @@ const NO_COHORT_MATRIX: CohortMatrixCell[] = [];
 
 // The interned wire shape of the shed x dose grid, and its expanded form.
 export type ShedDoseMatrixWire = {
-  sheds: Array<{ shedId: string; shedName: string; partitionLabel?: string; locationDisplay?: string }>;
+  sheds: Array<{ shedId: string; shedName: string; partition_label?: string; operational_location_display?: string }>;
   doseRules: string[];
   cells: Array<{
     shed: number;
@@ -227,8 +230,8 @@ export function expandShedDoseMatrix(matrix?: ShedDoseMatrixWire | null): ShedDo
       doseKey: String(cell.dose),
       shedId: shed.shedId,
       shedName: shed.shedName,
-      partition_label: shed.partitionLabel ?? null,
-      operational_location_display: shed.locationDisplay ?? null,
+      partition_label: shed.partition_label ?? null,
+      operational_location_display: shed.operational_location_display ?? null,
       doseRule,
       state: cell.state,
       animalCount: cell.count,
@@ -347,6 +350,9 @@ export function useShedVaccineAnimals(
       for (let page = 1; page < 4 && cursor; page += 1) {
         const query2 = new URLSearchParams(params);
         query2.set("cursor", cursor);
+        // Keyset pagination is inherently sequential; the following page cannot be issued until
+        // this one returns its cursor.
+        // serial-await: allow keyset pagination -- the next cursor comes from this response
         const next = await fetchJson<{ animals: ShedVaccineAnimalRow[]; nextCursor?: string }>(
           `/api/vaccination/command/shed-vaccine-animals?${query2.toString()}`,
           signal,

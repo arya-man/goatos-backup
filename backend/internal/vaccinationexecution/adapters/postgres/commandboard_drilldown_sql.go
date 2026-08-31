@@ -2,6 +2,18 @@ package postgres
 
 // Command-board drilldown SQL: the lists a reader opens FROM a board cell.
 //
+// projection-review: membership=one board CELL's animals, never the tenant -- each statement
+// REQUIRES its cell keys (shed/vaccine/partition, or park/stage/sex/dose_codes) and applies them in
+// the WHERE clause; group_key=the cell keys themselves, with per-animal rows deduplicated by
+// DISTINCT ON (vaccine_code, goat_id) where one animal can hold several matching obligations;
+// join_cardinality=comp is pre-aggregated 1:1 per obligation_id, goats/protocol_rules/locations are
+// 1:1 on their primary keys, and the decorating LATERALs are LIMIT 1 lookups joined to the PAGE, so
+// nothing fans the animal grain out; pagination=keyset over a TOTAL order (due_at then goat_id, or
+// display_id then goat_id) applied to the `page` CTE BEFORE any decoration, with limit+1 as the
+// overflow probe and an explicit truncation signal rather than a silent stop;
+// scope=tenant_id plus the capability-resolved park filter parented through locations, applied
+// alongside the cell predicate so a cell key can never reach another park's animals.
+//
 // Every statement here was previously executed eagerly on GET /vaccination/command, tenant-wide,
 // and capped in Go afterwards. Two properties are new and both are load-bearing:
 //

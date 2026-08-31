@@ -1018,7 +1018,7 @@ type CommandBoardClosedWithoutDoseAnimal struct {
 	LocationDisplay string `json:"locationDisplay"`
 	ParkName        string `json:"parkName"`
 	ShedName        string `json:"shedName"`
-	PartitionLabel  string `json:"partitionLabel,omitempty"`
+	PartitionLabel  string `json:"partition_label,omitempty"`
 	// Reason is the closure that put this animal in the residual bucket, in farm language
 	// ("Cancelled", "Waived", "Superseded"), never the raw obligation status token.
 	Reason string `json:"reason"`
@@ -1145,8 +1145,8 @@ type ShedDoseMatrix struct {
 type ShedDoseMatrixShed struct {
 	ShedID          string `json:"shedId"`
 	ShedName        string `json:"shedName"`
-	PartitionLabel  string `json:"partitionLabel,omitempty"`
-	LocationDisplay string `json:"locationDisplay,omitempty"`
+	PartitionLabel  string `json:"partition_label,omitempty"`
+	LocationDisplay string `json:"operational_location_display,omitempty"`
 }
 
 // ShedDoseMatrixCell represents state of a shed × dose rule combination. Shed and Dose are indexes

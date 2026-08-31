@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"slices"
 	"sort"
 	"strings"
@@ -146,8 +145,10 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	optional := func(name string, fn func() error) func() error {
 		return func() error {
 			if err := fn(); err != nil {
-				slog.WarnContext(ctx, "vaccination command board: optional section unavailable",
-					"section", name, "tenant_id", q.TenantID, "error", err)
+				if r.log != nil {
+					r.log.WarnContext(ctx, "vaccination command board: optional section unavailable",
+						"section", name, "tenant_id", q.TenantID, "error", err)
+				}
 				mu.Lock()
 				unavailable = append(unavailable, name)
 				mu.Unlock()

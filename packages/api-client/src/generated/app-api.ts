@@ -9784,9 +9784,9 @@ export interface components {
             shedId: string;
             shedName: string;
             /** @description Raw stored partition label ('1', 'Part 3'). Empty or absent means the shed is non-partitioned. Never the literal string "whole". */
-            partitionLabel?: string;
+            partition_label?: string;
             /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". This is NOT redundant with shedName: on a live tenant it differed from shedName on 1282 of 1318 cells, because most sheds carry a partition. */
-            locationDisplay?: string;
+            operational_location_display?: string;
         };
         ShedDoseMatrixCell: {
             /** @description Index into ShedDoseMatrix.sheds. */

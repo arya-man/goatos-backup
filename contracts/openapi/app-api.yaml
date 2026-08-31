@@ -23947,12 +23947,12 @@ components:
           format: uuid
         shedName:
           type: string
-        partitionLabel:
+        partition_label:
           type: string
           description: >-
             Raw stored partition label ('1', 'Part 3'). Empty or absent means the shed is
             non-partitioned. Never the literal string "whole".
-        locationDisplay:
+        operational_location_display:
           type: string
           description: >-
             User-facing location label. No partition -> bare shed name ("Yashoda"); numeric
