@@ -255,23 +255,35 @@ common_gradle_args=(
   -x lintVitalAnalyzeProdRelease \
   --no-daemon \
   --no-configuration-cache \
-  --max-workers=2 \
+  --max-workers=1 \
+  "-Dorg.gradle.jvmargs=-Xmx2560m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8" \
   -PallowDirtyFirebaseDistribution=true
 )
-gradle_args=(
+build_gradle_args=(
   :app:assembleProdRelease \
-  :app:appDistributionUploadProdRelease \
   :app:bundleProdRelease \
+  "${common_gradle_args[@]}" \
+)
+if [[ -n "$DEPLOY_VERSION_CODE" ]]; then
+  build_gradle_args+=("-PgoatosVersionCode=$DEPLOY_VERSION_CODE")
+fi
+if [[ -n "$DEPLOY_VERSION_NAME" ]]; then
+  build_gradle_args+=("-PgoatosVersionName=$DEPLOY_VERSION_NAME")
+fi
+./gradlew "${build_gradle_args[@]}"
+
+upload_gradle_args=(
+  :app:appDistributionUploadProdRelease \
   "${common_gradle_args[@]}" \
   -PfadReleaseNotes="GoatOS (Mesha) release from main ${commit_sha}"
 )
 if [[ -n "$DEPLOY_VERSION_CODE" ]]; then
-  gradle_args+=("-PgoatosVersionCode=$DEPLOY_VERSION_CODE")
+  upload_gradle_args+=("-PgoatosVersionCode=$DEPLOY_VERSION_CODE")
 fi
 if [[ -n "$DEPLOY_VERSION_NAME" ]]; then
-  gradle_args+=("-PgoatosVersionName=$DEPLOY_VERSION_NAME")
+  upload_gradle_args+=("-PgoatosVersionName=$DEPLOY_VERSION_NAME")
 fi
-./gradlew "${gradle_args[@]}"
+./gradlew "${upload_gradle_args[@]}"
 firebase_uploaded=true
 
 cd "$repo_root"
