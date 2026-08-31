@@ -255,6 +255,7 @@ common_gradle_args=(
   -x lintVitalAnalyzeProdRelease \
   --no-daemon \
   --no-configuration-cache \
+  --max-workers=2 \
   -PallowDirtyFirebaseDistribution=true
 )
 gradle_args=(
