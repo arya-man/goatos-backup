@@ -2855,7 +2855,135 @@ WHERE oi.tenant_id = $1::uuid
 	if err != nil {
 		return 0, fmt.Errorf("obligation: carry over unchanged vaccination obligations: %w", err)
 	}
-	return int(tag.RowsAffected()), nil
+	carried := int(tag.RowsAffected())
+
+	// Some real vaccination rules have kept the same medical meaning while their protocol identity
+	// changed: the rule was re-authored, renamed, or its age offset was corrected, but the animal
+	// still owes the same vaccine dose on the same date. The strict lineage/content pass above must
+	// stay strict for ordinary edits; this fallback only adopts rows that agree on the stable
+	// vaccination address: vaccine code, dose sequence, kid/adult dose family and the existing open
+	// row's due/cause keys. That keeps valid booster work alive across plan replacement without
+	// carrying arbitrary edited rules forward.
+	tag, err = r.pool.Exec(ctx, `
+WITH effective_rule AS (
+  SELECT DISTINCT ON (
+           lower(btrim(COALESCE(NULLIF(d.vaccine_code, ''), NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))),
+           pr."sequence",
+           CASE
+             WHEN strpos(lower(pr.dose_code), '_kid_') > 0 OR right(lower(pr.dose_code), 4) = '_kid' THEN 'kid'
+             WHEN strpos(lower(pr.dose_code), '_adult_') > 0 OR right(lower(pr.dose_code), 6) = '_adult' THEN 'adult'
+             ELSE 'unmarked'
+           END
+         )
+         lower(btrim(COALESCE(NULLIF(d.vaccine_code, ''), NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))) AS vaccine_code,
+         pr."sequence",
+         CASE
+           WHEN strpos(lower(pr.dose_code), '_kid_') > 0 OR right(lower(pr.dose_code), 4) = '_kid' THEN 'kid'
+           WHEN strpos(lower(pr.dose_code), '_adult_') > 0 OR right(lower(pr.dose_code), 6) = '_adult' THEN 'adult'
+           ELSE 'unmarked'
+         END AS dose_family,
+         pr.protocol_version_id,
+         pr.rule_id
+  FROM protocol_rules pr
+  JOIN protocol_versions pv
+    ON pv.tenant_id = pr.tenant_id
+   AND pv.protocol_version_id = pr.protocol_version_id
+  LEFT JOIN protocol_rule_dimensions d
+    ON d.tenant_id = pr.tenant_id
+   AND d.protocol_version_id = pr.protocol_version_id
+   AND d.rule_id = pr.rule_id
+   AND d.category = 'vaccination'
+  WHERE pr.tenant_id = $1::uuid
+    AND pr.protocol_version_id = ANY($3::uuid[])
+    AND lower(btrim(COALESCE(NULLIF(d.vaccine_code, ''), NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))) <> ''
+  ORDER BY
+    lower(btrim(COALESCE(NULLIF(d.vaccine_code, ''), NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))),
+    pr."sequence",
+    CASE
+      WHEN strpos(lower(pr.dose_code), '_kid_') > 0 OR right(lower(pr.dose_code), 4) = '_kid' THEN 'kid'
+      WHEN strpos(lower(pr.dose_code), '_adult_') > 0 OR right(lower(pr.dose_code), 6) = '_adult' THEN 'adult'
+      ELSE 'unmarked'
+    END,
+    pr.rule_id
+),
+retired_rule AS (
+  SELECT pr.rule_id,
+         lower(btrim(COALESCE(NULLIF(d.vaccine_code, ''), NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''), NULLIF(pv.rule_dsl -> 'vaccine' ->> 'code', '')))) AS vaccine_code,
+         pr."sequence",
+         CASE
+           WHEN strpos(lower(pr.dose_code), '_kid_') > 0 OR right(lower(pr.dose_code), 4) = '_kid' THEN 'kid'
+           WHEN strpos(lower(pr.dose_code), '_adult_') > 0 OR right(lower(pr.dose_code), 6) = '_adult' THEN 'adult'
+           ELSE 'unmarked'
+         END AS dose_family
+  FROM protocol_rules pr
+  JOIN protocol_versions pv
+    ON pv.tenant_id = pr.tenant_id
+   AND pv.protocol_version_id = pr.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+  LEFT JOIN protocol_rule_dimensions d
+    ON d.tenant_id = pr.tenant_id
+   AND d.protocol_version_id = pr.protocol_version_id
+   AND d.rule_id = pr.rule_id
+   AND d.category = 'vaccination'
+  WHERE pr.tenant_id = $1::uuid
+    AND pd.category = 'vaccination'
+    AND NOT (pr.protocol_version_id = ANY($3::uuid[]))
+)
+UPDATE obligation_instances oi
+SET protocol_version_id = er.protocol_version_id,
+    rule_id = er.rule_id,
+    row_version = oi.row_version + 1,
+    updated_at = now()
+FROM retired_rule rr
+JOIN effective_rule er
+  ON er.vaccine_code = rr.vaccine_code
+ AND er."sequence" = rr."sequence"
+ AND er.dose_family = rr.dose_family
+WHERE oi.tenant_id = $1::uuid
+  AND oi.target_type = 'goat'
+  AND oi.target_id = ANY($2::uuid[])
+  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+  AND NOT (oi.protocol_version_id = ANY($3::uuid[]))
+  AND rr.rule_id = oi.rule_id
+  AND rr.vaccine_code <> ''
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances clash
+    WHERE clash.tenant_id = oi.tenant_id
+      AND clash.protocol_version_id = er.protocol_version_id
+      AND clash.rule_id = er.rule_id
+      AND clash.target_type = oi.target_type
+      AND clash.target_id = oi.target_id
+      AND clash.due_at IS NOT DISTINCT FROM oi.due_at
+      AND clash.obligation_id <> oi.obligation_id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances clash
+    WHERE oi.repeat_cycle_source_ref IS NOT NULL
+      AND clash.tenant_id = oi.tenant_id
+      AND clash.protocol_version_id = er.protocol_version_id
+      AND clash.rule_id = er.rule_id
+      AND clash.target_type = oi.target_type
+      AND clash.target_id = oi.target_id
+      AND clash.repeat_cycle_source IS NOT DISTINCT FROM oi.repeat_cycle_source
+      AND clash.repeat_cycle_source_ref = oi.repeat_cycle_source_ref
+      AND clash.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      AND clash.obligation_id <> oi.obligation_id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances clash
+    WHERE oi.repeat_cycle_anchor_obligation_id IS NOT NULL
+      AND clash.tenant_id = oi.tenant_id
+      AND clash.rule_id = er.rule_id
+      AND clash.repeat_cycle_anchor_obligation_id = oi.repeat_cycle_anchor_obligation_id
+      AND clash.status IN ('scheduled', 'due', 'in_progress', 'deferred')
+      AND clash.obligation_id <> oi.obligation_id
+  )`, tenantID, goatIDs, effectiveVersionIDs)
+	if err != nil {
+		return carried, fmt.Errorf("obligation: carry over medically equivalent vaccination obligations: %w", err)
+	}
+	return carried + int(tag.RowsAffected()), nil
 }
 
 func (r *Repository) GoatsWithVaccinationObligationsOutsideVersions(ctx context.Context, tenantID string, goatIDs, effectiveVersionIDs []string) ([]string, error) {
