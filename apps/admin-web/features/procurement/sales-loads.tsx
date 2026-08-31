@@ -60,22 +60,26 @@ export async function SalesLoadsPage({
   return (
     <div className="screen on">
       <div className="phead" style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6 }}>
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div className="crumb">
             <b>{copy(pageContract, "crumb")}</b> · {pageContract.title}
           </div>
           <h1>{pageContract.title}</h1>
           <div className="sub">{pageContract.subtitle}</div>
         </div>
-        <div className="sp" style={{ flex: 1 }} />
-        {/* The tabs sit at the TOP of the page: Purchased on the left and selected by default,
-            Farm born on the right. Server-rendered links, so the choice survives a reload and a
-            shared URL. */}
+        {/* Equal spacers either side put the toggle in the MIDDLE of the page header rather than
+            hard against the right edge: it switches the whole page, so it reads as the page's own
+            control instead of an action belonging to the title block.
+            Purchased sits on the left and is selected by default, Farm born on the right.
+            Server-rendered links, so the choice survives a reload and a shared URL.
+            The title block and the trailing spacer carry the SAME flex share, which is what puts
+            the toggle on the header's true midpoint -- two spacers alone would only centre it in
+            the space the title leaves over. */}
         <div
           className="chips"
           role="group"
           aria-label={copy(pageContract, "page.tabs.aria")}
-          style={{ marginBottom: 4 }}
+          style={{ marginBottom: 4, justifyContent: "center" }}
         >
           {views.map((option) => (
             <Link
@@ -92,6 +96,7 @@ export async function SalesLoadsPage({
             </Link>
           ))}
         </div>
+        <div className="sp" style={{ flex: 1 }} />
       </div>
 
       <LoadwiseSection
