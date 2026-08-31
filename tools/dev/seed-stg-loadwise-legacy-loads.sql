@@ -142,6 +142,57 @@ ON CONFLICT (tenant_id, load_id, goat_id) DO UPDATE
 SET animal_identifier_1 = EXCLUDED.animal_identifier_1,
     animal_identifier_2 = EXCLUDED.animal_identifier_2;
 
+-- The SURVIVORS of loads 100 and 101 (maintainer decision 2026-08-31).
+--
+-- Both loads were tagged to the SAME pen (CPT Mandela 1 - Part 1), so neither can claim it by the
+-- tag rule above and both were reporting their survivors as Unaccounted: 1 on load 100 and 3 on
+-- load 101, which is exactly the current_count the legacy records carry for each. The maintainer
+-- directed that any four animals in that pen carry those survivors, so the register agrees with
+-- the record.
+--
+-- Picked DETERMINISTICALLY by RFID order, not at random: a random pick would attach different
+-- animals on every run, so a re-seed would silently reshuffle which animal belongs to which load
+-- and no two environments would agree. Lowest RFID goes to load 100, the next three to load 101.
+--
+-- These are the FIRST load animals carrying real RFIDs; every other attached animal is
+-- placeholder-tagged. The identifiers are snapshotted onto the membership row like any other.
+INSERT INTO procurement_load_goats (
+    tenant_id, load_id, goat_id, selection_state, current_state, intake_accepted_at,
+    animal_identifier_1, animal_identifier_2
+)
+SELECT g.tenant_id, li.load_id, g.goat_id, 'accepted_herd_intake', 'accepted_herd_intake',
+       ll.purchase_date::timestamptz, ranked.rfid,
+       (SELECT g2.identifier_value FROM goat_identifiers g2
+         WHERE g2.tenant_id = g.tenant_id AND g2.goat_id = g.goat_id
+           AND g2.identifier_type = 'animal_identifier_2'
+           AND g2.status = 'active' AND g2.valid_to IS NULL
+         ORDER BY g2.is_primary_for_goat DESC, g2.valid_from DESC LIMIT 1)
+FROM (
+    SELECT g.goat_id, gi.identifier_value AS rfid,
+           row_number() OVER (ORDER BY gi.identifier_value) AS rn
+    FROM goats g
+    JOIN locations sh ON sh.location_id = g.shed_id
+    JOIN locations pk ON pk.location_id = sh.parent_location_id
+    JOIN goat_shed_partitions gsp ON gsp.goat_id = g.goat_id AND gsp.tenant_id = g.tenant_id
+    JOIN goat_identifiers gi ON gi.goat_id = g.goat_id
+      AND gi.identifier_type = 'animal_identifier_1'
+      AND gi.status = 'active' AND gi.valid_to IS NULL
+    WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'
+      AND g.lifecycle_status = 'alive'
+      AND upper(pk.location_code) = 'CPT' AND sh.name = 'Mandela 1'
+      AND gsp.partition_label = 'Part 1'
+      -- Never take an animal another load already claims by its tag.
+      AND NOT EXISTS (SELECT 1 FROM procurement_load_goats x WHERE x.goat_id = g.goat_id)
+) ranked
+JOIN (VALUES ('100', 1, 1), ('101', 2, 4)) AS want(load_ref, first_rn, last_rn)
+  ON ranked.rn BETWEEN want.first_rn AND want.last_rn
+JOIN legacy_load_ids li ON li.load_ref = want.load_ref
+JOIN legacy_loads ll ON ll.load_ref = want.load_ref
+JOIN goats g ON g.goat_id = ranked.goat_id
+ON CONFLICT (tenant_id, load_id, goat_id) DO UPDATE
+SET animal_identifier_1 = EXCLUDED.animal_identifier_1,
+    animal_identifier_2 = EXCLUDED.animal_identifier_2;
+
 -- Prior outcomes: what already happened before these animals were tracked here, with dates.
 INSERT INTO procurement_load_prior_outcomes
     (tenant_id, load_id, outcome, animal_count, sales_value, first_on, last_on, source_ref)

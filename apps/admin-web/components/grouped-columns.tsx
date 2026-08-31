@@ -69,11 +69,22 @@ export function GroupedColumns({
       </div>
       <div className="gcols" role="img" aria-label={chartLabel}>
         {data.map((datum) => {
-          const tooltip = `${datum.label}: ${series
-            .map((s, i) => `${s.label} ${datum.displays[i]}`)
-            .join(" · ")}`;
+          // The hover card is rendered in the markup and revealed by CSS, never by a title
+          // attribute: the native tooltip is unstyled, slow to appear, and cannot show a value
+          // per series legibly. Keeping it CSS-only leaves this a pure server component.
           return (
-            <div className="gcol" key={datum.key} title={tooltip}>
+            <div className="gcol" key={datum.key}>
+              <span className="gtip" aria-hidden="true">
+                <span className="gtip-h">{datum.label}</span>
+                {series.map((s, i) => (
+                  <span className="gtip-r" key={s.key}>
+                    <span className={`sw ${s.tone}`} />
+                    <span className="gtip-l">{s.label}</span>
+                    <span className="gtip-v">{datum.displays[i]}</span>
+                  </span>
+                ))}
+                {datum.subLabel ? <span className="gtip-s">{datum.subLabel}</span> : null}
+              </span>
               <span className="gcarea">
                 {series.map((s, i) => {
                   const value = datum.values[i];

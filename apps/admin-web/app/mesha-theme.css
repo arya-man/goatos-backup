@@ -2953,6 +2953,33 @@ select:disabled { opacity: .45; }
 .gcsub{font-size:10.5px;font-weight:600;color:var(--ink);opacity:.72;margin-top:2px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.2}
 @media(max-width:1080px){.gclab{font-size:9px}.gcsub{font-size:9px}.gcarea{height:90px}}
 
+/* Hover card for the grouped columns. CSS-only so the chart stays a server component: the card is
+   in the markup, hidden, and revealed on hover/focus of its column. It reads every series at once,
+   which a native title attribute cannot do legibly. */
+.gcol{position:relative}
+.gcols{padding-top:118px;margin-top:-108px}
+.gtip{position:absolute;bottom:calc(100% - 96px);left:50%;transform:translateX(-50%) translateY(4px);
+  z-index:5;min-width:200px;padding:10px 12px;border-radius:10px;background:var(--panel-2);
+  border:1px solid var(--line);box-shadow:0 10px 30px rgba(0,0,0,.35);
+  opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s ease,transform .12s ease;
+  display:flex;flex-direction:column;gap:5px;text-align:left}
+.gcol:hover .gtip,.gcol:focus-within .gtip{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
+.gtip-h{font-size:11.5px;font-weight:700;color:var(--ink);white-space:nowrap;line-height:1.3;
+  padding-bottom:5px;border-bottom:1px solid var(--line)}
+.gtip-r{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);white-space:nowrap}
+.gtip-r .sw{display:inline-block;width:9px;height:9px;border-radius:2px;flex:0 0 auto;background:var(--brand)}
+.gtip-r .sw.info{background:var(--info)}.gtip-r .sw.ok{background:var(--ok)}
+.gtip-r .sw.warn{background:var(--warn)}.gtip-r .sw.danger{background:var(--danger)}
+.gtip-r .sw.teal{background:var(--teal)}
+.gtip-l{flex:1}
+.gtip-v{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+.gtip-s{font-size:10.5px;color:var(--muted);padding-top:4px;border-top:1px solid var(--line);white-space:nowrap}
+/* Near the edges the card would overflow the card; nudge the first and last columns inward. */
+.gcol:first-child .gtip{left:0;transform:translateX(0) translateY(4px)}
+.gcol:first-child:hover .gtip,.gcol:first-child:focus-within .gtip{transform:translateX(0) translateY(0)}
+.gcol:last-child .gtip{left:auto;right:0;transform:translateX(0) translateY(4px)}
+.gcol:last-child:hover .gtip,.gcol:last-child:focus-within .gtip{transform:translateX(0) translateY(0)}
+
 
 /* Deals ledger: single-line cells. The global .celllink overflow-wrap:anywhere otherwise splits
    "2026-08-11" -> "2026-08-" / "11" and "CPT" character-by-character (known failure mode 4b). */

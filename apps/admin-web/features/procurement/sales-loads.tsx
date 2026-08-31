@@ -59,8 +59,16 @@ export async function SalesLoadsPage({
 
   return (
     <div className="screen on">
-      <div className="phead" style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      {/* The toggle is CENTRED and lifted onto the title line rather than sharing the subtitle's
+          row. Measured: the subtitle needs 596px unwrapped, while a centred toggle leaves only
+          533px beside it at 1600px -- so on one row the subtitle is forced to wrap. Lifting the
+          toggle clears it vertically (the title itself is short), and the title block goes back to
+          its natural width so the sentence renders in full on one line. */}
+      <div
+        className="phead"
+        style={{ marginTop: 12, alignItems: "flex-end", paddingBottom: 6, position: "relative" }}
+      >
+        <div>
           <div className="crumb">
             <b>{copy(pageContract, "crumb")}</b> · {pageContract.title}
           </div>
@@ -79,7 +87,13 @@ export async function SalesLoadsPage({
           className="chips"
           role="group"
           aria-label={copy(pageContract, "page.tabs.aria")}
-          style={{ marginBottom: 4, justifyContent: "center" }}
+          style={{
+            position: "absolute",
+            top: 2,
+            left: "50%",
+            transform: "translateX(-50%)",
+            justifyContent: "center",
+          }}
         >
           {views.map((option) => (
             <Link
@@ -96,7 +110,6 @@ export async function SalesLoadsPage({
             </Link>
           ))}
         </div>
-        <div className="sp" style={{ flex: 1 }} />
       </div>
 
       <LoadwiseSection
