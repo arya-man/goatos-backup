@@ -215,11 +215,12 @@ export const VERIFICATION_APPLIER_CONSTRUCTORS = [
   "FeedTransportVerificationHandler",
   "FeedWastageVerificationHandler",
   "PCCareVerificationHandler",
+  "HealthVerificationHandler",
   "VerificationVerdictHandler",
 ];
 
 export const REQUIRED_VERIFICATION_APPLIER_CALL_TOKENS = {
-  "backend/internal/bootstrap/api.go": ["feedDirectionRepo", "countsApprovalRepo", "countsRepo", "weighingRepo", "weighingVerificationBridge", "pcCareRepo"],
+  "backend/internal/bootstrap/api.go": ["feedDirectionRepo", "countsApprovalRepo", "countsRepo", "weighingRepo", "weighingVerificationBridge", "pcCareRepo", "healthRepo"],
   "backend/internal/kernelstages/bus.go": [
     "feedDirectionRepo",
     "countsApprovalRepo",
@@ -227,8 +228,9 @@ export const REQUIRED_VERIFICATION_APPLIER_CALL_TOKENS = {
     "weighingRepo",
     "weighingverificationbridge.New",
     "pccarepg.NewRepository",
+    "healthRepo",
   ],
-  "backend/internal/domainconsumer/wiring/bus.go": ["stores.feed", "stores.shifting", "stores.milkPreparation", "stores.weighing", "stores.weighingAck", "stores.pcCare"],
+  "backend/internal/domainconsumer/wiring/bus.go": ["stores.feed", "stores.shifting", "stores.milkPreparation", "stores.weighing", "stores.weighingAck", "stores.pcCare", "stores.health"],
   "backend/cmd/domain-event-consumer/main.go": [
     "feedDirectionRepo",
     "countsApprovalRepo",
@@ -236,6 +238,7 @@ export const REQUIRED_VERIFICATION_APPLIER_CALL_TOKENS = {
     "weighingRepo",
     "weighingverificationbridge.New",
     "pccarepg.NewRepository",
+    "healthRepo",
   ],
   "backend/cmd/outbox-relay/main.go": [
     "feedDirectionRepo",
@@ -244,6 +247,7 @@ export const REQUIRED_VERIFICATION_APPLIER_CALL_TOKENS = {
     "weighingRepo",
     "weighingVerificationBridge",
     "pccarepg.NewRepository",
+    "healthRepo",
   ],
 };
 
