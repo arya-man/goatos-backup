@@ -25,13 +25,14 @@ import (
 
 // loadwiseSalesSQL is the one statement behind the load-wise read.
 //
-// projection-review: membership=procurement_load_goats accepted rows deduped DISTINCT ON (tenant, goat) by latest intake_accepted_at; group_key=load_id on both sides (stats GROUP BY m.load_id attaching 1:1 to procurement_loads PK); join_cardinality=goats 1:1 on PK, deal_share at most 1:1 via the tagged partial unique index with the per-deal tagged count pre-aggregated, park lateral 1:1 collapsed agree-or-go-bare; pagination=LIMIT $2 newest loads with whole-tenant total_loads reported beside the window; scope=tenant_id on every branch
+// projection-review: membership=procurement_load_goats accepted rows deduped DISTINCT ON (tenant, goat) by the TOTAL order (intake_accepted_at DESC NULLS LAST, created_at DESC, load_goat_id DESC) so a tie or null instant still resolves to one stable load; group_key=load_id on both sides (stats GROUP BY m.load_id attaching 1:1 to procurement_loads PK); join_cardinality=goats 1:1 on PK, deal_share at most 1:1 via the tagged partial unique index with the per-deal tagged count pre-aggregated, park lateral 1:1 collapsed agree-or-go-bare; pagination=LIMIT $2 newest loads with whole-tenant total_loads reported beside the window; scope=tenant_id on every branch
 //
 // The prose form of that proof: membership = procurement_load_goats at (tenant_id, goat_id), deduplicated by
-// DISTINCT ON (goat_id) ordered by intake_accepted_at DESC among current_state =
-// 'accepted_herd_intake' rows, so one animal counts on exactly ONE load even if the table ever
-// held two accepted rows for it (the schema's uniqueness is per (tenant, load, goat), not per
-// goat). group_key = load_id on both the stats producer (GROUP BY m.load_id) and the consumer row
+// DISTINCT ON (goat_id) over current_state = 'accepted_herd_intake' rows, ordered by
+// (intake_accepted_at DESC NULLS LAST, created_at DESC, load_goat_id DESC) -- a TOTAL order, so one
+// animal counts on exactly ONE load and always the SAME one, even when the table holds two accepted
+// rows for it with tied or null acceptance instants (the schema's uniqueness is per
+// (tenant, load, goat), not per goat). group_key = load_id on both the stats producer (GROUP BY m.load_id) and the consumer row
 // (procurement_loads.load_id, its PK) — a 1:1 attach. Join cardinalities inside stats: goats is
 // 1:1 with member on (tenant_id, goat_id) (goats PK); deal_share is at most 1:1 with member
 // because goat_sale_allocations carries a live-uniqueness partial index on (tenant_id, goat_id)
@@ -59,7 +60,18 @@ WITH member AS (
            plg.goat_id, plg.load_id
     FROM public.procurement_load_goats plg
     WHERE plg.tenant_id = $1 AND plg.current_state = 'accepted_herd_intake'
-    ORDER BY plg.goat_id, plg.intake_accepted_at DESC NULLS LAST
+    -- The ORDER BY must produce a TOTAL order, not just a business-preferred one. Ranking on the
+    -- acceptance instant alone is nondeterministic exactly where it matters: intake_accepted_at is
+    -- nullable, and AcceptIntake stamps ONE timestamp across a whole batch, so two accepted rows
+    -- for the same goat can tie or both be null. Postgres would then pick either load per read,
+    -- silently moving that animal's outcome and its deal share between loads.
+    --
+    -- created_at is the tie-breaker rather than updated_at: updated_at carries no trigger here but
+    -- IS rewritten by other paths, so ordering on it would let an unrelated edit move a goat
+    -- between loads. load_goat_id is the final backstop -- immutable and unique, so the order is
+    -- total even when every timestamp ties. Arbitrary in that last case, but STABLE, which is the
+    -- property the read needs.
+    ORDER BY plg.goat_id, plg.intake_accepted_at DESC NULLS LAST, plg.created_at DESC, plg.load_goat_id DESC
 ),
 deal_share AS (
     SELECT a.goat_id,

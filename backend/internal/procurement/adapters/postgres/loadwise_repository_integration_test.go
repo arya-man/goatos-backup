@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -311,6 +312,110 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 		}
 		if len(windowed.Loads) != 1 || windowed.Loads[0].LoadID != fx.loadC || windowed.TotalLoads != 3 {
 			t.Fatalf("windowed = %d loads first %s total %d", len(windowed.Loads), windowed.Loads[0].LoadID, windowed.TotalLoads)
+		}
+	})
+
+	t.Run("DuplicateAcceptedRowsResolveToOneStableLoad", func(t *testing.T) {
+		// The dedupe must be a TOTAL order, not merely a business-preferred one. intake_accepted_at
+		// is nullable and AcceptIntake stamps one timestamp per BATCH, so two accepted rows for the
+		// same goat can tie or both be null -- and ordering on that column alone lets Postgres
+		// return either load per read, moving the animal's outcome between loads.
+		var loadD, loadE string
+		for _, seed := range []struct {
+			target *string
+			key    string
+		}{{&loadD, "lw-load-d"}, {&loadE, "lw-load-e"}} {
+			if err := pool.QueryRow(ctx, `
+INSERT INTO procurement_loads (tenant_id, source_party_id, purchase_date, status, expected_count, idempotency_key)
+VALUES ($1, (SELECT party_id FROM parties WHERE display_name = 'Sardar Traders' LIMIT 1),
+        '2026-08-11', 'accepted_intake', 1, $2)
+RETURNING load_id::text`, testTenant, seed.key).Scan(seed.target); err != nil {
+				t.Fatalf("seed %s: %v", seed.key, err)
+			}
+		}
+
+		// ONE goat, accepted on BOTH loads, both rows carrying a NULL acceptance instant.
+		var twoLoadGoat string
+		if err := pool.QueryRow(ctx, `
+INSERT INTO goats (tenant_id, sex, lifecycle_status, custodian_party_id)
+VALUES ($1, 'female', 'alive', (SELECT party_id FROM parties WHERE display_name = 'Sardar Traders' LIMIT 1))
+RETURNING goat_id::text`, testTenant).Scan(&twoLoadGoat); err != nil {
+			t.Fatalf("seed two-load goat: %v", err)
+		}
+		for _, load := range []string{loadD, loadE} {
+			if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, selection_state, current_state, intake_accepted_at)
+VALUES ($1, $2::uuid, $3::uuid, 'accepted_herd_intake', 'accepted_herd_intake', NULL)`,
+				testTenant, load, twoLoadGoat); err != nil {
+				t.Fatalf("seed duplicate accepted row: %v", err)
+			}
+		}
+
+		// Repeated identical reads are NOT enough to expose this: on a small table Postgres
+		// returns the same physical order each time, so a partial ORDER BY looks stable. What
+		// actually moves the winner is a tuple being REWRITTEN -- an UPDATE relocates it in the
+		// heap and changes the input order the sort sees. That is not hypothetical here: this
+		// seed's own ON CONFLICT DO UPDATE refreshes animal_identifier_1 on every re-run.
+		//
+		// So the read is taken, one membership row is rewritten by an edit that changes nothing
+		// about which load owns the animal, and the read is taken again. Under a partial order the
+		// winner flips; under a total one it cannot.
+		var winner string
+		for attempt := 0; attempt < 5; attempt++ {
+			if attempt == 2 {
+				if _, err := pool.Exec(ctx, `
+UPDATE procurement_load_goats SET animal_identifier_1 = 'REFRESHED-TAG'
+WHERE goat_id = $1::uuid AND load_id = $2::uuid`, twoLoadGoat, loadD); err != nil {
+					t.Fatalf("rewrite membership row: %v", err)
+				}
+			}
+			out, err := repo.LoadwiseSales(ctx, testTenant, 60)
+			if err != nil {
+				t.Fatalf("read %d: %v", attempt, err)
+			}
+			// Remaining, NOT Purchased: Purchased reports the load's DECLARED size, which both of
+			// these loads state as 1 whatever the dedupe does. Remaining counts the animals
+			// actually attributed, so it is what moves if the goat lands on both or on neither.
+			d, e := loadByID(out, loadD), loadByID(out, loadE)
+			if d.Remaining+e.Remaining != 1 {
+				t.Fatalf("read %d: goat attributed to %d of the two loads, want exactly one",
+					attempt, d.Remaining+e.Remaining)
+			}
+			got := loadD
+			if e.Remaining == 1 {
+				got = loadE
+			}
+			if attempt == 0 {
+				winner = got
+				continue
+			}
+			if got != winner {
+				t.Fatalf("read %d put the goat on load %s but read 0 put it on %s: the dedupe is not deterministic",
+					attempt, got, winner)
+			}
+		}
+
+		// STRUCTURAL guard, and the honest one of the two.
+		//
+		// The behavioural loop above does NOT fail against the old partial ORDER BY: with this
+		// fixture's size the planner reaches the rows through
+		// procurement_load_goats_goat_state_idx, which hands the sort an already-determined order,
+		// so the old code looks stable here. The nondeterminism is real by SQL semantics -- ties
+		// under DISTINCT ON have no defined winner -- but it is not reproducible at this scale, and
+		// a test that cannot fail is not proof.
+		//
+		// What IS checkable is the property itself: the dedupe must end on a column that is unique
+		// and immutable, so the order is total whatever the planner does. This fails the moment
+		// someone trims the tie-breaker back.
+		memberOrder := loadwiseSalesSQL[strings.Index(loadwiseSalesSQL, "ORDER BY plg.goat_id"):]
+		memberOrder = memberOrder[:strings.Index(memberOrder, "\n")]
+		if !strings.Contains(memberOrder, "plg.load_goat_id") {
+			t.Fatalf("the member dedupe must end on the immutable unique key or ties have no defined winner; ORDER BY is: %s", memberOrder)
+		}
+
+		// Leave the fixture as it was so later subtests are unaffected.
+		if _, err := pool.Exec(ctx, `DELETE FROM procurement_load_goats WHERE goat_id = $1::uuid`, twoLoadGoat); err != nil {
+			t.Fatalf("cleanup: %v", err)
 		}
 	})
 
