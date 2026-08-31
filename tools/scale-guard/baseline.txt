@@ -31,6 +31,7 @@ non-sargable-like backend/internal/workforce/adapters/postgres/repository.go 1 #
 n-plus-one backend/internal/outbox/adapters/postgres/repository.go 3 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=relay outcome writes require batch CASE update
 # obligation sweep write loops (P1/P2): cancellation repair + status-event inserts now UNNEST-batched; remaining loops need UNNEST
 n-plus-one backend/internal/obligation/adapters/postgres/repository.go 2 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=remaining bounded obligation write loops need UNNEST
+n-plus-one backend/internal/protocol/adapters/postgres/repository.go 1 # owner=protocol-platform issue=C35-020 expires=2026-09-30 reason=bounded vaccination anchor config publish loop needs UNNEST
 # sop / inventory / locations-write / bulkstatus: bounded chunk/write loops, verify-then-burn
 n-plus-one backend/internal/sop/adapters/postgres/repository.go 2 # owner=sop-platform issue=C35-004 expires=2026-09-30 reason=remaining bounded SOP writes require set-based audit and review
 n-plus-one backend/internal/inventory/adapters/postgres/repository.go 2 # owner=inventory-platform issue=C35-020 expires=2026-09-30 reason=bounded stock writes require batch replacement

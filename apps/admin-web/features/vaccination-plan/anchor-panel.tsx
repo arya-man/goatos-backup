@@ -117,7 +117,7 @@ export function VaccinationAnchorPanel({ catalog = [], rows: providedRows, ancho
                       <div className="anchorflags" aria-label="Anchor behavior">
                         <label>
                           <input type="checkbox" checked readOnly />
-                          Apply anchor to this rule's eligible scope
+                          {"Apply anchor to this rule's eligible scope"}
                         </label>
                         <label>
                           <input

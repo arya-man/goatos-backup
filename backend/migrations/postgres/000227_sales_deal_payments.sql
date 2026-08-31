@@ -18,8 +18,8 @@
 -- Advance Paid / In Discussion is the deal's lifecycle and stays a human decision.
 CREATE TABLE IF NOT EXISTS public.sales_deal_payments (
   payment_id    uuid DEFAULT gen_random_uuid() NOT NULL,
-  tenant_id     uuid NOT NULL REFERENCES tenants (tenant_id),
-  deal_id       uuid NOT NULL REFERENCES sales_deals (id) ON DELETE CASCADE,
+  tenant_id     uuid NOT NULL,
+  deal_id       uuid NOT NULL,
   -- The business date the money was received, never a timestamp.
   received_on   date NOT NULL,
   amount_rupees numeric(14, 2) NOT NULL,
