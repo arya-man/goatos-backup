@@ -25,13 +25,21 @@ import (
 // than their sum once they overlap -- on the staging-scale tenant, the difference between ~850ms of
 // serialised summary SQL and roughly its longest statement.
 //
-// FOUR, not more, and that is measured rather than assumed: raising it to six moved p90 by less
-// than the run-to-run noise (446ms vs 455ms over twenty samples), because the makespan is set by
-// the two longest statements rather than by queue depth. The bound exists so one CEO board render
-// cannot claim most of the pool -- GOATOS_PG_MAX_CONNS defaults to 10, /vaccination/command is not
-// its only caller, and with the drilldowns now on their own routes a single reader can already have
-// a board and a drawer in flight at once. Four takes the whole win at 40% of the pool.
-const commandBoardSummaryConcurrency = 4
+// SIX, and that is measured rather than assumed. It was FOUR while the cohort matrix still ran in
+// this fan-out and the drive picker cost 448ms; back then raising it to six moved p90 by less
+// than the run-to-run noise (446ms vs 455ms over twenty samples), because the makespan was set by
+// the two longest statements rather than by queue depth.
+//
+// That is no longer the profile. With the cohort matrix on its own route there are SEVEN sections,
+// two of which are sub-millisecond, so four slots split the five real statements across two waves
+// and the second wave's start was pure queueing. Six runs them in one wave: measured p50 346 -> 325
+// through the OCI tunnel over three runs of twenty samples each.
+//
+// The bound still exists so one CEO board render cannot claim the whole pool --
+// GOATOS_PG_MAX_CONNS defaults to 10, /vaccination/command is not its only caller, and with the
+// drilldowns on their own routes a single reader can already have a board and a drawer in flight.
+// Six leaves four connections for everyone else; do not raise this to the section count.
+const commandBoardSummaryConcurrency = 6
 
 // VaccinationCommandBoard returns the CEO closure view: KPIs, cohort matrix, shed dose matrix,
 // shed vaccine matrix, weekly given, verification queue and the drive picker.
