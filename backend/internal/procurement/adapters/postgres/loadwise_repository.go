@@ -35,8 +35,10 @@ import (
 // (procurement_loads.load_id, its PK) — a 1:1 attach. Join cardinalities inside stats: goats is
 // 1:1 with member on (tenant_id, goat_id) (goats PK); deal_share is at most 1:1 with member
 // because goat_sale_allocations carries a live-uniqueness partial index on (tenant_id, goat_id)
-// WHERE status = 'tagged'; the park label lateral is 1:1 on locations PK and collapses through
-// the agree-or-go-bare count(DISTINCT)/min pair, never a majority pick. Inside deal_share the
+// WHERE status = 'tagged'; the park label lateral is 1:1 on locations PK and collapses
+// agree-or-go-bare through the (animals_with_park = purchased AND distinct_parks = 1) pair, never
+// a majority pick and never count(DISTINCT) alone -- that skips NULLs and would read an unknown
+// park as agreement. Inside deal_share the
 // per-deal tagged count pre-aggregates the many side at (tenant_id, sales_deal_id) before the
 // join, so a deal's value divides over exactly its tagged animals and sums back to at most the
 // deal's value. Every count the row reports (purchased / sold / mortality / other exits /
@@ -123,7 +125,13 @@ stats AS (
            (count(*) FILTER (WHERE o.outcome = 'remaining'))::int AS remaining,
            COALESCE(sum(o.share) FILTER (WHERE o.outcome = 'sold'), 0)::float8 AS sold_value,
            (count(*) FILTER (WHERE o.outcome = 'sold' AND o.share IS NOT NULL))::int AS sold_priced,
-           count(DISTINCT o.park_code) AS park_count,
+           -- Agree-or-go-bare needs THREE facts, not one. count(DISTINCT) SKIPS NULLS, so a load
+           -- holding one CBE animal and one animal whose park is unknown would report a single
+           -- distinct park and claim CBE -- asserting an agreement that was never established.
+           -- animals_with_park is what catches that: an unknown park is a DISAGREEMENT, because
+           -- an animal that cannot name its park cannot vouch for the others.
+           count(o.park_code)::int AS animals_with_park,
+           count(DISTINCT o.park_code) AS distinct_parks,
            min(o.park_code) AS park_code
     FROM outcomes o
     GROUP BY o.load_id
@@ -137,8 +145,14 @@ SELECT pl.load_id::text, COALESCE(pl.context->>'load_ref', ''), COALESCE(p.displ
        -- The park every accepted animal agrees on; when none is attributed (a sold-out legacy
        -- load has no residents left) the load's OWN recorded farm answers instead. Both are the
        -- same fact stated by different sources, and neither is a majority pick.
-       CASE WHEN s.park_count = 1 THEN COALESCE(s.park_code, '')
-            ELSE CASE WHEN COALESCE(s.park_count, 0) = 0 THEN COALESCE(upper(pl.context->>'farm'), '') ELSE '' END
+       CASE
+            -- NO animals attributed at all (a sold-out legacy load): the animals cannot answer, so
+            -- the load's OWN recorded farm does. Nothing is being overruled here.
+            WHEN COALESCE(s.purchased, 0) = 0 THEN COALESCE(upper(pl.context->>'farm'), '')
+            -- Animals answer only when EVERY one of them names a park and they all name the SAME
+            -- one. Any unknown park, or any disagreement, goes bare.
+            WHEN s.animals_with_park = s.purchased AND s.distinct_parks = 1 THEN COALESCE(s.park_code, '')
+            ELSE ''
        END,
        COALESCE(pr.prior_sold, 0), pr.prior_sold_value, pr.prior_sold_first, pr.prior_sold_last,
        COALESCE(pr.prior_dead, 0), pr.prior_dead_first, pr.prior_dead_last

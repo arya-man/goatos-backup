@@ -30,7 +30,7 @@ import (
 //     overall average but no load row.
 //   - A RELEASED allocation on the same deal that must not dilute the share.
 type loadwiseFixture struct {
-	loadA, loadB string
+	loadA, loadB, loadC string
 }
 
 func seedLoadwiseFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) loadwiseFixture {
@@ -59,6 +59,16 @@ INSERT INTO procurement_loads (tenant_id, source_party_id, purchase_date, status
 VALUES ($1, $2, '2026-08-05', 'accepted_intake', 9, 'lw-load-b')
 RETURNING load_id::text`, testTenant, vendorParty).Scan(&fx.loadB); err != nil {
 		t.Fatalf("seed load B: %v", err)
+	}
+
+	// Load C exists ONLY for the agree-or-go-bare edge: one animal in a known park and one whose
+	// park is unknown. count(DISTINCT) skips NULLs, so this load would otherwise claim the known
+	// park and assert an agreement that was never established.
+	if err := pool.QueryRow(ctx, `
+INSERT INTO procurement_loads (tenant_id, source_party_id, purchase_date, status, expected_count, idempotency_key)
+VALUES ($1, $2, '2026-08-09', 'accepted_intake', 2, 'lw-load-c')
+RETURNING load_id::text`, testTenant, vendorParty).Scan(&fx.loadC); err != nil {
+		t.Fatalf("seed load C: %v", err)
 	}
 
 	// The animals. sold-with-share / sold-no-deal / dead / alive / merged on A; sold-with-share /
@@ -102,6 +112,18 @@ VALUES ($1, $2::uuid, $3::uuid, 'accepted_herd_intake', 'accepted_herd_intake', 
 	accept(fx.loadA, soldB, "2026-08-01T10:00:00Z")
 	accept(fx.loadB, soldB, "2026-08-05T10:00:00Z")
 	accept(fx.loadB, aliveB, "2026-08-05T10:00:00Z")
+
+	// Load C: one animal in CPT, one with NO park at all (goats.park_id is nullable).
+	knownParkC := goat("alive", "", cptPark)
+	var unknownParkC string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO goats (tenant_id, sex, lifecycle_status, custodian_party_id, park_id)
+VALUES ($1, 'female', 'alive', $2, NULL)
+RETURNING goat_id::text`, testTenant, vendorParty).Scan(&unknownParkC); err != nil {
+		t.Fatalf("seed unknown-park goat: %v", err)
+	}
+	accept(fx.loadC, knownParkC, "2026-08-09T10:00:00Z")
+	accept(fx.loadC, unknownParkC, "2026-08-09T10:00:00Z")
 	// A pipeline reject that never reached intake: present on the load, counts nowhere.
 	if _, err := pool.Exec(ctx, `
 INSERT INTO procurement_load_goats (tenant_id, load_id, goat_id, selection_state, current_state, exit_reason)
@@ -161,6 +183,17 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 
 	repo := NewRepository(pool, 10*time.Second)
 
+	loadByID := func(out domain.LoadwiseSales, id string) domain.LoadwiseLoad {
+		t.Helper()
+		for _, l := range out.Loads {
+			if l.LoadID == id {
+				return l
+			}
+		}
+		t.Fatalf("load %s missing from the read", id)
+		return domain.LoadwiseLoad{}
+	}
+
 	read := func() (loadA, loadB domain.LoadwiseLoad, out domain.LoadwiseSales) {
 		t.Helper()
 		out, err := repo.LoadwiseSales(ctx, testTenant, 60)
@@ -184,9 +217,11 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 
 	loadA, loadB, out := read()
 
-	// Load B first (newest purchase date first).
-	if out.Loads[0].LoadID != fx.loadB {
-		t.Fatalf("order: newest purchase first, got %+v", out.Loads[0])
+	// Newest purchase date first: C (2026-08-09), then B (08-05), then A (08-01).
+	if len(out.Loads) < 3 || out.Loads[0].LoadID != fx.loadC ||
+		out.Loads[1].LoadID != fx.loadB || out.Loads[2].LoadID != fx.loadA {
+		t.Fatalf("order: newest purchase first, got %v",
+			[]string{out.Loads[0].LoadID, out.Loads[1].LoadID, out.Loads[2].LoadID})
 	}
 
 	t.Run("StatusBucketsPartitionPurchasedDisjointly", func(t *testing.T) {
@@ -247,15 +282,25 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 		if loadB.Farm != "" {
 			t.Fatalf("load B farm = %q, want bare for a park mix", loadB.Farm)
 		}
+		// An UNKNOWN park is a disagreement, not an abstention. count(DISTINCT) skips NULLs, so
+		// this load reported its one known park as unanimous until the read counted the animals
+		// that actually named one.
+		loadC := loadByID(out, fx.loadC)
+		if loadC.Purchased != 2 {
+			t.Fatalf("load C purchased = %d, want both animals attributed", loadC.Purchased)
+		}
+		if loadC.Farm != "" {
+			t.Fatalf("load C farm = %q, want BARE: one animal names CPT and the other names no park at all", loadC.Farm)
+		}
 	})
 
 	t.Run("PageBoundaryWindowKeepsWholeTenantTotals", func(t *testing.T) {
-		if out.TotalLoads != 2 {
+		if out.TotalLoads != 3 {
 			t.Fatalf("total loads = %d", out.TotalLoads)
 		}
 		// The summary sums exactly the served rows, prior history included.
-		if out.Summary.Purchased != 14 || out.Summary.Sold != 6 || out.Summary.Mortality != 3 ||
-			out.Summary.Remaining != 2 || out.Summary.Unaccounted != 3 {
+		if out.Summary.Purchased != 16 || out.Summary.Sold != 6 || out.Summary.Mortality != 3 ||
+			out.Summary.Remaining != 4 || out.Summary.Unaccounted != 3 {
 			t.Fatalf("summary = %+v", out.Summary)
 		}
 		// A one-load window serves only the newest load while total_loads still reports both, so
@@ -264,7 +309,7 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 		if err != nil {
 			t.Fatalf("windowed read: %v", err)
 		}
-		if len(windowed.Loads) != 1 || windowed.Loads[0].LoadID != fx.loadB || windowed.TotalLoads != 2 {
+		if len(windowed.Loads) != 1 || windowed.Loads[0].LoadID != fx.loadC || windowed.TotalLoads != 3 {
 			t.Fatalf("windowed = %d loads first %s total %d", len(windowed.Loads), windowed.Loads[0].LoadID, windowed.TotalLoads)
 		}
 	})
