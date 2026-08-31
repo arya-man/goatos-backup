@@ -403,13 +403,21 @@ FOR UPDATE OF r`, in.TenantID, in.DiagnosisRunID).Scan(&goatID, &status, &propos
 		opened = append(opened, openedCase)
 	}
 
+	// "Treat none of these" is a DECLINE, not an approval. Both are terminal
+	// decisions recorded with who/when/key, but the phone renders confirmed as
+	// "Treatment approved" -- a decision that opened zero courses must never
+	// read back as that.
+	decidedStatus := domain.DiagnosisStatusConfirmed
+	if len(plan.Confirmed) == 0 {
+		decidedStatus = domain.DiagnosisStatusDeclined
+	}
 	if _, err := tx.Exec(ctx, `
 UPDATE health_diagnosis_runs
-SET status='confirmed', confirmed_by=$3::uuid, confirmed_at=now(),
+SET status=$6, confirmed_by=$3::uuid, confirmed_at=now(),
     confirmation_idempotency_key=$4, confirmation_fingerprint=$5,
     row_version=row_version+1, updated_at=now()
 WHERE tenant_id=$1::uuid AND health_diagnosis_run_id=$2::uuid`,
-		in.TenantID, in.DiagnosisRunID, in.ActorID, in.IdempotencyKey, in.RequestFingerprint); err != nil {
+		in.TenantID, in.DiagnosisRunID, in.ActorID, in.IdempotencyKey, in.RequestFingerprint, decidedStatus); err != nil {
 		return domain.ConfirmDiagnosisResult{}, fmt.Errorf("health: confirm run: %w", err)
 	}
 
@@ -439,7 +447,7 @@ WHERE tenant_id=$1::uuid AND health_diagnosis_run_id=$2::uuid`,
 
 	return domain.ConfirmDiagnosisResult{
 		DiagnosisRunID: in.DiagnosisRunID,
-		Status:         domain.DiagnosisStatusConfirmed,
+		Status:         decidedStatus,
 		OpenedCases:    opened,
 		Declined:       plan.Declined,
 	}, nil
@@ -570,7 +578,7 @@ func (r *DiagnosisRepository) replayConfirmation(
 	ctx context.Context, tx pgx.Tx, in domain.ConfirmDiagnosisInput, status string,
 	confirmationKey, confirmationFingerprint *string, proposalJSON []byte,
 ) (domain.ConfirmDiagnosisResult, bool, error) {
-	if status != domain.DiagnosisStatusConfirmed {
+	if status != domain.DiagnosisStatusConfirmed && status != domain.DiagnosisStatusDeclined {
 		return domain.ConfirmDiagnosisResult{}, false, nil
 	}
 	if confirmationKey == nil || *confirmationKey != in.IdempotencyKey {
@@ -621,7 +629,7 @@ ORDER BY c.disease_key`, in.TenantID, in.DiagnosisRunID)
 	}
 	return domain.ConfirmDiagnosisResult{
 		DiagnosisRunID:   in.DiagnosisRunID,
-		Status:           domain.DiagnosisStatusConfirmed,
+		Status:           status,
 		OpenedCases:      opened,
 		Declined:         plan.Declined,
 		IdempotentReplay: true,

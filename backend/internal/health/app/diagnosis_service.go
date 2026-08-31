@@ -227,7 +227,7 @@ func (s *DiagnosisService) ListDiagnosisRuns(
 		f.Status = domain.DiagnosisStatusProposed
 	case "all":
 		f.Status = ""
-	case domain.DiagnosisStatusProposed, domain.DiagnosisStatusConfirmed, domain.DiagnosisStatusSuperseded:
+	case domain.DiagnosisStatusProposed, domain.DiagnosisStatusConfirmed, domain.DiagnosisStatusDeclined, domain.DiagnosisStatusSuperseded:
 		f.Status = status
 	default:
 		// Rejected rather than silently ignored: a typo that quietly returns the

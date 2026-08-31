@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS public.health_diagnosis_runs (
   housing_low_competition boolean NOT NULL DEFAULT false,
 
   status text NOT NULL DEFAULT 'proposed'
-    CHECK (status IN ('proposed', 'confirmed', 'superseded')),
+    CHECK (status IN ('proposed', 'confirmed', 'declined', 'superseded')),
   confirmed_by uuid,
   confirmed_at timestamptz,
   confirmation_idempotency_key text,
@@ -92,10 +92,13 @@ CREATE TABLE IF NOT EXISTS public.health_diagnosis_runs (
   UNIQUE (tenant_id, health_diagnosis_run_id),
   UNIQUE (tenant_id, idempotency_key),
 
-  -- A confirmed run names who confirmed it and when; an unconfirmed one must not
-  -- carry either. This is the advisory boundary expressed as a constraint.
+  -- A DECIDED run -- confirmed, or declined ("treat none of these") -- names
+  -- who decided it and when; an undecided one must not carry either. Declined
+  -- is a terminal decision exactly like confirmed, only with zero courses
+  -- opened; the phone renders it as "Assessment closed", never "Treatment
+  -- approved". This is the advisory boundary expressed as a constraint.
   CONSTRAINT health_diagnosis_runs_confirmation_complete
-    CHECK ((status = 'confirmed') = (
+    CHECK ((status IN ('confirmed', 'declined')) = (
       confirmed_by IS NOT NULL
       AND confirmed_at IS NOT NULL
       AND confirmation_idempotency_key IS NOT NULL
@@ -103,16 +106,16 @@ CREATE TABLE IF NOT EXISTS public.health_diagnosis_runs (
     )),
 
   CONSTRAINT health_diagnosis_runs_confirmation_empty_until_confirmed
-    CHECK (status = 'confirmed' OR (
+    CHECK (status IN ('confirmed', 'declined') OR (
       confirmed_by IS NULL
       AND confirmed_at IS NULL
       AND confirmation_idempotency_key IS NULL
       AND confirmation_fingerprint IS NULL
     )),
 
-  -- An invalid form is not diagnosed at all, so it can never be confirmed.
+  -- An invalid form is not diagnosed at all, so it can never be decided.
   CONSTRAINT health_diagnosis_runs_invalid_is_terminal
-    CHECK (valid OR status <> 'confirmed'),
+    CHECK (valid OR status NOT IN ('confirmed', 'declined')),
 
   -- A rejected run names its reason; an accepted one has none to give.
   CONSTRAINT health_diagnosis_runs_reject_reason_matches_valid
