@@ -476,6 +476,13 @@ class FeedPackingCompleteViewModel @Inject constructor(
 
     private fun syncNow() {
         viewModelScope.launch {
+            val videoProof = videoProofRowId
+            if (!videoProof.isNullOrBlank()) {
+                proofCaptureRepository.retryUpload(groupKey, videoProof)
+            }
+            draft.submitOutboxItemId?.takeIf { it.isNotBlank() }?.let { submitItem ->
+                syncRepository.retry(submitItem)
+            }
             syncRepository.triggerDrain()
             // Re-check the session's lifecycle status directly from the server, so a manual Sync
             // tap gets the same "did a teammate already submit this" answer the periodic poll
