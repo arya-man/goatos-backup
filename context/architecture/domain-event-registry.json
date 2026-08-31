@@ -1351,6 +1351,42 @@
       ]
     },
     {
+      "eventType": "health.observation.submitted",
+      "producer": "health diagnosis engine observation submit",
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/diagnosis_repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/health/adapters/postgres/diagnosis_e2e_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "notes": "Aggregate health_diagnosis_run. Carries the proposal's emergencies and field actions, which are actionable WITHOUT a Director confirmation -- a consumer that pages on a red flag must not be gated behind the review. No consumer is wired yet; the event is durable and available for the notification bridge."
+    },
+    {
+      "eventType": "health.diagnosis.confirmed",
+      "producer": "health diagnosis engine Director confirmation",
+      "producerFiles": [
+        "backend/internal/health/adapters/postgres/diagnosis_repository.go"
+      ],
+      "consumers": [],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/health/adapters/postgres/diagnosis_e2e_integration_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ],
+      "notes": "Aggregate health_diagnosis_run. Emitted when the Health Director confirms; carries both the confirmed and the DECLINED diagnoses, because an override is a rule defect worth reviewing and must not be lost. No consumer is wired yet."
+    },
+    {
       "eventType": "health.case.death_held",
       "producer": "Health counts.death.reported consumer transaction",
       "producerFiles": [

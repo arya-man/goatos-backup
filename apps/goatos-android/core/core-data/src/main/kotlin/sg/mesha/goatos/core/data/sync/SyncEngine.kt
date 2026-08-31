@@ -26,7 +26,11 @@ import sg.mesha.goatos.core.network.dto.FeedDistributionCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedTransportSubmitRequestDto
 import sg.mesha.goatos.core.network.dto.FeedPackingCompleteRequestDto
 import sg.mesha.goatos.core.network.dto.FeedWastageCompleteRequestDto
+import sg.mesha.goatos.core.data.cache.HealthDiagnosisRunDao
+import sg.mesha.goatos.core.data.cache.HealthDiagnosisRunEntity
+import sg.mesha.goatos.core.network.dto.ConfirmHealthDiagnosisResponseDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.HealthDiagnosisProposalResponseDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationProofsDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationAnswersDto
 import sg.mesha.goatos.core.network.dto.MilkPreparationSubmissionRequestDto
@@ -130,6 +134,7 @@ class SyncEngine(
     private val scannedGoatDao: ScannedGoatDao? = null,
     private val weighingObservationDao: WeighingObservationDao? = null,
     private val weighingShedObservationDao: WeighingShedObservationDao? = null,
+    private val healthDiagnosisRunDao: HealthDiagnosisRunDao? = null,
     // Advances the SAME transition-epoch mechanism `WeighingRepository.transitionIdempotencyKey`
     // reads, ONLY after a WEIGHING_SCOPE_SUBMIT row reaches SUCCEEDED here — mirroring the
     // repository's own "called only after the server confirmed" contract for reopen/close, which
@@ -508,6 +513,8 @@ class SyncEngine(
         OutboxOpType.WORKFLOW_ACTION_ANSWER -> dispatchWorkflowActionAnswer(item)
         OutboxOpType.WORKFLOW_ACTION_COMPLETE -> dispatchWorkflowActionComplete(item)
         OutboxOpType.HEALTH_CASE_OPEN -> dispatchHealthCaseOpen(item)
+        OutboxOpType.HEALTH_OBSERVATION_SUBMIT -> dispatchHealthObservationSubmit(item)
+        OutboxOpType.HEALTH_DIAGNOSIS_CONFIRM -> dispatchHealthDiagnosisConfirm(item)
         OutboxOpType.HEALTH_TREATMENT_COMPLETE -> dispatchHealthTreatmentComplete(item)
         OutboxOpType.WEIGHING_ANIMAL_OBSERVATION -> dispatchWeighingAnimalObservation(item)
         OutboxOpType.WEIGHING_SHED_OBSERVATION -> dispatchWeighingShedObservation(item)
@@ -556,6 +563,8 @@ class SyncEngine(
                 weighingObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
             OutboxOpType.WEIGHING_SHED_OBSERVATION ->
                 weighingShedObservationDao?.markAcceptedByIdempotencyKey(item.idempotencyKey)
+            OutboxOpType.HEALTH_OBSERVATION_SUBMIT -> projectDiagnosisProposal(item)
+            OutboxOpType.HEALTH_DIAGNOSIS_CONFIRM -> projectDiagnosisDecision(item)
             OutboxOpType.WEIGHING_SCOPE_SUBMIT -> {
                 val payload = syncJson.decodeFromString<WeighingScopeSubmitPayload>(item.payloadJson)
                 val scopeId = "submit:${payload.campaignId}:${payload.campaignShedId}"
@@ -1449,6 +1458,93 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
+    /**
+     * Writes the register's assessment into Room so the proposal screen reads it like every
+     * other screen-facing read model.
+     *
+     * Idempotent by construction (REPLACE upsert on the run id), which is what lets it run on
+     * both the hot path and the crash-recovery sweep over recent terminals.
+     *
+     * A result that cannot be decoded is DROPPED, not thrown: the write itself already
+     * succeeded on the server, and failing here would send a recorded observation back through
+     * the queue to be submitted a second time. The manager loses the cached copy, not the work.
+     */
+    private suspend fun projectDiagnosisProposal(item: OutboxEntity) {
+        val dao = healthDiagnosisRunDao ?: return
+        val resultJson = item.resultJson ?: return
+        // exception:exempt local cache projection; an undecodable payload leaves the row
+        // unwritten and the screen's refresh-on-open re-fetches it from the server.
+        val payload = runCatching {
+            syncJson.decodeFromString<HealthObservationSubmitPayload>(item.payloadJson)
+        }.getOrNull() ?: return
+        // exception:exempt same cache projection; see above.
+        val response = runCatching {
+            syncJson.decodeFromString<HealthDiagnosisProposalResponseDto>(resultJson)
+        }.getOrNull() ?: return
+        if (response.diagnosisRunId.isBlank()) return
+
+        dao.upsert(
+            HealthDiagnosisRunEntity(
+                diagnosisRunId = response.diagnosisRunId,
+                goatId = payload.goatId,
+                goatDisplayId = payload.goatDisplayId,
+                status = response.status,
+                // The observation instant, not the sync instant: a form filled in a shed with no
+                // signal and synced hours later must still sort where the manager recorded it.
+                observedAtMs = item.createdAt,
+                dtoJson = resultJson,
+                updatedAt = clock(),
+            ),
+        )
+        dao.deleteOldestBeyond(DIAGNOSIS_RUN_CACHE_LIMIT)
+    }
+
+    /**
+     * Moves a decided run out of the Director's queue.
+     *
+     * Only the status changes; the proposal blob is left exactly as it was, because what the
+     * Director confirmed is the thing worth being able to re-read afterwards.
+     */
+    private suspend fun projectDiagnosisDecision(item: OutboxEntity) {
+        val dao = healthDiagnosisRunDao ?: return
+        // exception:exempt local cache projection; an undecodable payload leaves the cached
+        // status stale and the queue's refresh-on-open corrects it from the server.
+        val payload = runCatching {
+            syncJson.decodeFromString<HealthDiagnosisConfirmPayload>(item.payloadJson)
+        }.getOrNull() ?: return
+        // exception:exempt same cache projection; see above.
+        val response = runCatching {
+            syncJson.decodeFromString<ConfirmHealthDiagnosisResponseDto>(item.resultJson ?: return)
+        }.getOrNull() ?: return
+        val cached = dao.get(payload.diagnosisRunId) ?: return
+        dao.upsert(cached.copy(status = response.status, updatedAt = clock()))
+    }
+
+    private suspend fun dispatchHealthObservationSubmit(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<HealthObservationSubmitPayload>(item.payloadJson)
+        val response = api.submitHealthObservation(
+            idempotencyKey = item.idempotencyKey,
+            request = sg.mesha.goatos.core.network.dto.SubmitHealthObservationRequestDto(
+                goatId = payload.goatId,
+                findings = payload.findings,
+                context = payload.context,
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchHealthDiagnosisConfirm(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<HealthDiagnosisConfirmPayload>(item.payloadJson)
+        val response = api.confirmHealthDiagnosis(
+            diagnosisRunId = payload.diagnosisRunId,
+            idempotencyKey = item.idempotencyKey,
+            request = sg.mesha.goatos.core.network.dto.ConfirmHealthDiagnosisRequestDto(
+                confirmedProblems = payload.confirmedProblems,
+            ),
+        )
+        return syncJson.encodeToString(response)
+    }
+
     private suspend fun dispatchHealthCaseOpen(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<HealthCaseOpenPayload>(item.payloadJson)
         val response = api.openHealthCase(
@@ -1495,6 +1591,12 @@ class SyncEngine(
         const val NO_RETRY_DUE = Long.MAX_VALUE
         const val PROOF_DEPENDENCY_WAIT_RETRY_MS = 1_000L
         val PROOF_OUTBOX_ITEM_ID_REGEX = Regex(""""proof_outbox_item_id"\s*:\s*"([^"]+)"""")
+
+        // The phone keeps the recent assessments a manager might re-open, not a history. The
+        // server owns the record; without a cap this table only ever grows.
+        // A RETENTION cap for deleteOldestBeyond, not a page fetch: nothing reads 50 rows;
+        // this is the number KEPT before the oldest are pruned.
+        const val DIAGNOSIS_RUN_CACHE_LIMIT = 50 // mobile-guard:ignore: retention cap, never fetched
         // Mirrors WeighingRepository's private WEIGHING_CACHED_TRANSITION_SCOPES bound for the
         // SAME weighing_transition_epoch table -- every writer of that table prunes to this bound.
         const val WEIGHING_SCOPE_SUBMIT_CACHED_TRANSITION_SCOPES = 50

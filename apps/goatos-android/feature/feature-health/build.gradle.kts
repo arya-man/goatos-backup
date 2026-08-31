@@ -24,7 +24,12 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.foundation)
+    // BackHandler. The observation form is walked in steps, so system back must
+    // step BACKWARDS through it before it leaves — otherwise back on the last step
+    // throws away every answer already recorded on the animal.
+    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.paging.compose)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    testImplementation(libs.junit)
 }

@@ -152,6 +152,25 @@ object AnalyticsEvents {
      *  measuring, not the network call returning. */
     const val HEALTH_CASE_SUBMITTED = "health_case_submitted"
 
+    /**
+     * One completed observation form reached the durable outbox.
+     *
+     * Tracked on the ENQUEUE, not on a server round trip: the operator's work
+     * being safe is the moment worth measuring, and the assessment they get back
+     * is a separate thing that may arrive minutes later out of a shed.
+     */
+    const val HEALTH_OBSERVATION_SUBMITTED = "health_observation_submitted"
+
+    /**
+     * The Health Director's decision on one assessment reached the durable outbox.
+     *
+     * [Params.COUNT] is how many diagnoses were approved. ZERO is a real and
+     * important value: it means the Director declined the whole assessment, which
+     * is the signal that the register and the person disagree — exactly the number
+     * worth watching as the rule table is tuned.
+     */
+    const val HEALTH_DIAGNOSIS_CONFIRMED = "health_diagnosis_confirmed"
+
     /** A Health write could not be queued at all. [Params.KIND] distinguishes the surface
      *  (`case`/`work_item`); [Params.REASON] carries a coarse, non-PII cause. */
     const val HEALTH_WRITE_FAILURE = "health_write_failure"
@@ -895,6 +914,7 @@ object AnalyticsEvents {
 
         /** Which Counts write/read a shared event refers to (`birth`/`death`/`shifting`/…). */
         const val KIND = "kind"
+        const val COUNT = "count"
 
         /**
          * Which form field an event refers to (`tag`/`tag2`/`primary`/`secondary`).

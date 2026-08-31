@@ -32,6 +32,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -143,6 +144,15 @@ sealed interface HealthListEvent {
     data class SelectShed(val value: String) : HealthListEvent
     data class SelectSession(val value: String) : HealthListEvent
     data class OpenItem(val healthSessionId: String) : HealthListEvent
+
+    /**
+     * Open the queue of assessments awaiting a decision.
+     *
+     * A CONTENT row, not app-bar chrome: a feature entry point belongs in the
+     * bottom bar or the module drawer, never the top-right, which carries only
+     * actions on the screen you are already on.
+     */
+    data object OpenDiagnosisQueue : HealthListEvent
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -251,6 +261,35 @@ fun HealthListScreen(
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            // Deliberately above the day's treatment work: an assessment nobody has
+            // decided on is an animal whose treatment has not STARTED, which outranks
+            // the visits already under way.
+            item("diagnosis-queue-entry") {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .clickable { onEvent(HealthListEvent.OpenDiagnosisQueue) }
+                        .minimumInteractiveComponentSize(),
+                    colors = CardDefaults.cardColors(containerColor = MeshaColors.Surf2),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            "Waiting on a decision",
+                            color = MeshaColors.Ink,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Animals that were checked but not yet treated",
+                            color = MeshaColors.Muted,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
+                }
+            }
             if (state.pendingCases.isNotEmpty()) {
                 item("pending-header") { HealthSectionHeader("Reports waiting to sync", MeshaColors.Warn) }
                 items(

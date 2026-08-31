@@ -1,0 +1,5334 @@
+{
+  "catalog_version": "adult-1",
+  "count": 180,
+  "stories": [
+    {
+      "id": "S001",
+      "title": "Boer doe 104.8 standing eating",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "acuity": "ward",
+        "containment": "home",
+        "evening_walk": false,
+        "sop": {
+          "FEVER": "Fever"
+        },
+        "course_type": {
+          "FEVER": "F"
+        },
+        "hd_not": [
+          "heat_sop"
+        ],
+        "tier": {
+          "FEVER": "PROBABLE"
+        }
+      }
+    },
+    {
+      "id": "S002",
+      "title": "Osmanabadi buck same findings",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Osmanabadi",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "acuity": "ward",
+        "containment": "home",
+        "evening_walk": false,
+        "sop": {
+          "FEVER": "Fever"
+        },
+        "course_type": {
+          "FEVER": "F"
+        },
+        "hd_not": [
+          "heat_sop"
+        ],
+        "tier": {
+          "FEVER": "PROBABLE"
+        }
+      }
+    },
+    {
+      "id": "S003",
+      "title": "Sirohi same",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Sirohi",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "acuity": "ward",
+        "containment": "home",
+        "evening_walk": false,
+        "sop": {
+          "FEVER": "Fever"
+        },
+        "course_type": {
+          "FEVER": "F"
+        },
+        "hd_not": [
+          "heat_sop"
+        ],
+        "tier": {
+          "FEVER": "PROBABLE"
+        }
+      }
+    },
+    {
+      "id": "S004",
+      "title": "Adult sheep ewe same (copper is a feed note)",
+      "animal": {
+        "klass": "adult",
+        "species": "sheep",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Deccani",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "acuity": "ward",
+        "containment": "home",
+        "evening_walk": false,
+        "sop": {
+          "FEVER": "Fever"
+        },
+        "course_type": {
+          "FEVER": "F"
+        },
+        "hd_not": [
+          "heat_sop"
+        ],
+        "tier": {
+          "FEVER": "PROBABLE"
+        },
+        "not_hits": [
+          "COPPER"
+        ]
+      }
+    },
+    {
+      "id": "S005",
+      "title": "107.2 standing",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 107.2,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "acuity": "icu",
+        "emergencies_has": [
+          "cool"
+        ],
+        "evening_walk": true
+      }
+    },
+    {
+      "id": "S006",
+      "title": "107.2 + pant",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 107.2,
+        "eating": "normal",
+        "activity": "standing",
+        "breathing": "pant"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "emergencies_has": [
+          "cool"
+        ],
+        "hd_has": [
+          "heat_confirm"
+        ],
+        "hd_not": [
+          "heat_sop"
+        ],
+        "not_hits": [
+          "HEAT"
+        ]
+      }
+    },
+    {
+      "id": "S007",
+      "title": "102.0 all normal \u2192 NAD",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [],
+        "hd_has": [
+          "nad"
+        ],
+        "acuity": "home",
+        "not_propose_close": [
+          "NAD"
+        ]
+      }
+    },
+    {
+      "id": "S008",
+      "title": "NAD again within 7 days",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {
+        "nad_prior_7d": 1
+      },
+      "expect": {
+        "hits": [],
+        "hd_has": [
+          "nad",
+          "nad_twice"
+        ]
+      }
+    },
+    {
+      "id": "S009",
+      "title": "Cough + nasal, temp 102.4",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.4,
+        "eating": "normal",
+        "activity": "standing",
+        "breathing": "cough",
+        "nasal": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "acuity": "ward",
+        "not_hits": [
+          "PNEUMONIA"
+        ]
+      }
+    },
+    {
+      "id": "S010",
+      "title": "Cough only \u2192 Recheck",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "breathing": "cough"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [],
+        "rechecks": [
+          "FEVER_POSSIBLE"
+        ],
+        "not_hits": [
+          "FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S011",
+      "title": "Pant only, 102.8",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.8,
+        "eating": "normal",
+        "activity": "standing",
+        "breathing": "pant"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [],
+        "hd_has": [
+          "heat_confirm"
+        ],
+        "not_hits": [
+          "FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S012",
+      "title": "Diarrhea only",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "diarrhea": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "DIARRHEA"
+        ],
+        "acuity": "ward",
+        "course_type": {
+          "DIARRHEA": "F"
+        }
+      }
+    },
+    {
+      "id": "S013",
+      "title": "Diarrhea + skin tent >4s",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "diarrhea": true,
+        "skin_tent": "gt4"
+      },
+      "ctx": {},
+      "expect": {
+        "hits_has": [
+          "DIARRHEA"
+        ],
+        "emergencies_has": [
+          "fluids"
+        ],
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "S014",
+      "title": "Left side blown",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "left_stomach": "bloating"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "BLOAT"
+        ],
+        "acuity": "icu",
+        "emergencies_has": [
+          "tube"
+        ]
+      }
+    },
+    {
+      "id": "S015",
+      "title": "Frothy mouth, flank normal",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "frothy_mouth": true,
+        "left_stomach": "normal"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "BLOAT"
+        ],
+        "emergencies_has": [
+          "tube"
+        ]
+      }
+    },
+    {
+      "id": "S016",
+      "title": "Water sound, still eating",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "left_stomach": "acidosis"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "ACIDOSIS"
+        ],
+        "not_emergencies": [
+          "acidosis_now"
+        ],
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "S017",
+      "title": "Water sound + not eating",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "left_stomach": "acidosis"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "ACIDOSIS"
+        ],
+        "acuity": "icu",
+        "emergencies_has": [
+          "acidosis_now"
+        ],
+        "hd_has": [
+          "concentrate_off"
+        ]
+      }
+    },
+    {
+      "id": "S018",
+      "title": "Silent rumen + not eating, no water sound",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "rumen_movement": "not_felt",
+        "left_stomach": "normal"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "ACIDOSIS"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Supportive"
+        },
+        "acuity": "ward",
+        "low_comp": true
+      }
+    },
+    {
+      "id": "S019",
+      "title": "Blown + water sound + not eating",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "left_stomach": [
+          "bloating",
+          "acidosis"
+        ]
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "BLOAT",
+          "ACIDOSIS"
+        ],
+        "club": true,
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "S020",
+      "title": "CMT+ standing, no fever",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "cmt": "pos",
+        "lactation": "milk"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "MASTITIS"
+        ],
+        "acuity": "ward",
+        "course_type": {
+          "MASTITIS": "T"
+        },
+        "tier": {
+          "MASTITIS": "CONFIRMED"
+        }
+      }
+    },
+    {
+      "id": "S021",
+      "title": "CMT+ and 104.8 standing",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "cmt": "pos",
+        "lactation": "milk"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "MASTITIS"
+        ],
+        "covered_has": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "FEVER"
+        ],
+        "club": false
+      }
+    },
+    {
+      "id": "S022",
+      "title": "Lactation pus, CMT not the story",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "lactation": "pus"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "MASTITIS"
+        ],
+        "tier": {
+          "MASTITIS": "PROBABLE"
+        }
+      }
+    },
+    {
+      "id": "S023",
+      "title": "CMT+ + down + 99.2",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 99.2,
+        "eating": "normal",
+        "activity": "down",
+        "cmt": "pos",
+        "lactation": "milk"
+      },
+      "ctx": {},
+      "expect": {
+        "hits_has": [
+          "MASTITIS"
+        ],
+        "emergencies_has": [
+          "toxic_mastitis"
+        ],
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "S024",
+      "title": "Hard udder, CMT\u2212",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "udder": "swollen_hard",
+        "cmt": "neg",
+        "lactation": "milk"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "UDDER_EDEMA"
+        ],
+        "acuity": "ward",
+        "course_type": {
+          "UDDER_EDEMA": "V"
+        }
+      }
+    },
+    {
+      "id": "S025",
+      "title": "Hard udder, CMT+",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "udder": "swollen_hard",
+        "cmt": "pos",
+        "lactation": "milk"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "MASTITIS"
+        ],
+        "not_hits": [
+          "UDDER_EDEMA"
+        ]
+      }
+    },
+    {
+      "id": "S026",
+      "title": "Dry doe \u2014 no CMT, no Mastitis, no edema",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "lactation": "no"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [],
+        "not_hits": [
+          "MASTITIS",
+          "UDDER_EDEMA"
+        ],
+        "hd_has": [
+          "nad"
+        ]
+      }
+    },
+    {
+      "id": "S027",
+      "title": "FAMACHA 5",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "famacha": 5
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "ANEMIA"
+        ],
+        "acuity": "icu",
+        "emergencies_has": [
+          "famacha5"
+        ]
+      }
+    },
+    {
+      "id": "S028",
+      "title": "FAMACHA 4",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "famacha": 4
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "ANEMIA"
+        ],
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "S029",
+      "title": "FAMACHA 3 only",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "famacha": 3
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [],
+        "rechecks": [
+          "FAMACHA3"
+        ],
+        "not_hits": [
+          "ANEMIA"
+        ]
+      }
+    },
+    {
+      "id": "S030",
+      "title": "FAMACHA 2 + yellow",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "famacha": 2,
+        "yellow": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "JAUNDICE"
+        ],
+        "not_hits": [
+          "ANEMIA"
+        ]
+      }
+    },
+    {
+      "id": "S031",
+      "title": "FAMACHA 5 + yellow",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "famacha": 5,
+        "yellow": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "ANEMIA",
+          "JAUNDICE"
+        ],
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "S032",
+      "title": "Yellow, eating, standing",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "yellow": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "JAUNDICE"
+        ],
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "S033",
+      "title": "Yellow + not eating",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "yellow": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "JAUNDICE"
+        ],
+        "acuity": "icu",
+        "low_comp": true
+      }
+    },
+    {
+      "id": "S034",
+      "title": "Male, no urine, 20:00",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "straining": "no_urine"
+      },
+      "ctx": {
+        "hour": 20
+      },
+      "expect": {
+        "hits": [
+          "CALCULI"
+        ],
+        "no_meloxicam": true,
+        "hd_has": [
+          "tonight"
+        ],
+        "hd_not": [
+          "next_look_6am"
+        ],
+        "not_emergencies": []
+      }
+    },
+    {
+      "id": "S035",
+      "title": "Male straining, some urine",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "straining": "straining"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "CALCULI"
+        ],
+        "acuity": "icu",
+        "not_emergencies": [
+          "no_urine"
+        ]
+      }
+    },
+    {
+      "id": "S036",
+      "title": "Male red urine, no straining",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "red_urine": true,
+        "straining": "no"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "RED_URINE"
+        ],
+        "not_hits": [
+          "CALCULI"
+        ]
+      }
+    },
+    {
+      "id": "S037",
+      "title": "Female red urine",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "red_urine": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "RED_URINE"
+        ],
+        "not_hits": [
+          "CALCULI"
+        ]
+      }
+    },
+    {
+      "id": "S038",
+      "title": "Female + straining ticked",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "straining": "straining"
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "female_straining"
+      }
+    },
+    {
+      "id": "S039",
+      "title": "Pregnant, cannot stand; D2 still down \u2192 you induce",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "pregnant",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "down"
+      },
+      "ctx": {
+        "day": 2
+      },
+      "expect": {
+        "hits": [
+          "PREG_TOX"
+        ],
+        "acuity": "icu",
+        "hd_has": [
+          "induce",
+          "energy"
+        ],
+        "not_hits": [
+          "MILK_FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S040",
+      "title": "Pregnant, not eating, weak, standing",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "pregnant",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "weak"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "PREG_TOX"
+        ],
+        "low_comp": true,
+        "not_hits": [
+          "MILK_FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S041",
+      "title": "Periparturient, down, 99.2",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "periparturient",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 99.2,
+        "eating": "normal",
+        "activity": "down"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "MILK_FEVER"
+        ],
+        "acuity": "icu",
+        "emergencies_has": [
+          "calcium"
+        ]
+      }
+    },
+    {
+      "id": "S042",
+      "title": "Milk fever D2: was up, now down \u2014 not preg tox",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "periparturient",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 99.2,
+        "eating": "normal",
+        "activity": "down"
+      },
+      "ctx": {
+        "day": 2,
+        "prior_improved": true,
+        "open": [
+          "MILK_FEVER"
+        ]
+      },
+      "expect": {
+        "hits": [
+          "MILK_FEVER"
+        ],
+        "not_hits": [
+          "PREG_TOX"
+        ],
+        "hd_has": [
+          "repeat_calcium"
+        ]
+      }
+    },
+    {
+      "id": "S043",
+      "title": "Fresh, 104.2, vulva nothing",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "periparturient",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.2,
+        "eating": "normal",
+        "activity": "standing",
+        "vulva": "nothing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "METRITIS"
+        ],
+        "hints_has": [
+          "fresh_clean_vulva"
+        ]
+      }
+    },
+    {
+      "id": "S044",
+      "title": "Fresh, foul smell, 104.2",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "periparturient",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.2,
+        "eating": "normal",
+        "activity": "standing",
+        "vulva": "discharge_bad_smell"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "METRITIS"
+        ],
+        "covered_has": [
+          "FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S045",
+      "title": "Fresh, pus at vulva",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "periparturient",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "vulva": "pus"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "METRITIS"
+        ]
+      }
+    },
+    {
+      "id": "S046",
+      "title": "Fresh, tissue hanging, 20:00",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "periparturient",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "vulva": "prolapse"
+      },
+      "ctx": {
+        "hour": 20
+      },
+      "expect": {
+        "hits": [
+          "PROLAPSE"
+        ],
+        "acuity": "icu",
+        "emergencies_has": [
+          "uterine_prolapse"
+        ]
+      }
+    },
+    {
+      "id": "S047",
+      "title": "Pregnant (not fresh), tissue hanging",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "pregnant",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "vulva": "prolapse"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "PROLAPSE"
+        ],
+        "not_emergencies": [
+          "uterine_prolapse"
+        ]
+      }
+    },
+    {
+      "id": "S048",
+      "title": "Fever + mouth scabs + diarrhea, standing",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "mouth": "orf_scabs",
+        "diarrhea": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "PPR"
+        ],
+        "containment": "quarantine",
+        "sop": {
+          "PPR": "Supportive"
+        },
+        "course_type": {
+          "PPR": "Supportive"
+        },
+        "covered_has": [
+          "FEVER",
+          "DIARRHEA",
+          "ORF"
+        ],
+        "evening_walk": false,
+        "tier": {
+          "PPR": "CONFIRMED"
+        }
+      }
+    },
+    {
+      "id": "S049",
+      "title": "PPR + cannot stand",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "down",
+        "mouth": "orf_scabs",
+        "diarrhea": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "PPR"
+        ],
+        "acuity": "icu",
+        "containment": "quarantine",
+        "hd_has": [
+          "both_shifts"
+        ],
+        "evening_walk": true
+      }
+    },
+    {
+      "id": "S050",
+      "title": "Goat nodular rash",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "rash_character": "nodular"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "POX"
+        ],
+        "containment": "quarantine",
+        "sop": {
+          "POX": "Supportive"
+        }
+      }
+    },
+    {
+      "id": "S051",
+      "title": "Sheep nodular rash \u2014 same Pox rule",
+      "animal": {
+        "klass": "adult",
+        "species": "sheep",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "rash_character": "nodular"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "POX"
+        ],
+        "containment": "quarantine",
+        "sop": {
+          "POX": "Supportive"
+        },
+        "not_hits": [
+          "SHEEP_POX"
+        ]
+      }
+    },
+    {
+      "id": "S052",
+      "title": "Mouth scabs only",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "mouth": "orf_scabs"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "ORF"
+        ],
+        "containment": "quarantine",
+        "sop": {
+          "ORF": "ORF"
+        },
+        "hd_has": [
+          "gloves"
+        ]
+      }
+    },
+    {
+      "id": "S053",
+      "title": "PPR picture covers ORF, Diarrhea, Fever",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "mouth": "orf_scabs",
+        "diarrhea": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "PPR"
+        ],
+        "covered_has": [
+          "ORF",
+          "DIARRHEA",
+          "FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S054",
+      "title": "Eyes cloudy, eating \u2192 Pinkeye ward not quarantine",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "eyes": "cloudy"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "PINKEYE"
+        ],
+        "acuity": "ward",
+        "containment": "home"
+      }
+    },
+    {
+      "id": "S055",
+      "title": "Eyes red + discharge",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "eyes": [
+          "red",
+          "discharge"
+        ]
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "PINKEYE"
+        ],
+        "acuity": "ward",
+        "containment": "home"
+      }
+    },
+    {
+      "id": "S056",
+      "title": "Pinkeye + fracture",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "eyes": "cloudy",
+        "leg": "fracture"
+      },
+      "ctx": {},
+      "expect": {
+        "hits_has": [
+          "PINKEYE",
+          "FRACTURE"
+        ],
+        "acuity": "ward",
+        "low_comp": true,
+        "containment": "home"
+      }
+    },
+    {
+      "id": "S057",
+      "title": "Pinkeye + not eating",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "eyes": "cloudy"
+      },
+      "ctx": {},
+      "expect": {
+        "hits_has": [
+          "PINKEYE"
+        ],
+        "low_comp": true,
+        "containment": "home"
+      }
+    },
+    {
+      "id": "S058",
+      "title": "Locked jaw",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "locked_jaw": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "TETANUS"
+        ],
+        "acuity": "icu",
+        "hd_has": [
+          "same_day_tetanus"
+        ]
+      }
+    },
+    {
+      "id": "S059",
+      "title": "Circling",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "neuro": "circling"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "NEURO"
+        ],
+        "hd_has": [
+          "same_day_neuro",
+          "no_handle_mouth"
+        ]
+      }
+    },
+    {
+      "id": "S060",
+      "title": "Head tilt",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "neuro": "head_tilt"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "NEURO"
+        ]
+      }
+    },
+    {
+      "id": "S061",
+      "title": "Star gazing (not pregnant)",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "neuro": "star_gazing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "NEURO"
+        ],
+        "not_hits": [
+          "PREG_TOX"
+        ]
+      }
+    },
+    {
+      "id": "S062",
+      "title": "Blind + ataxia",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "neuro": [
+          "blind",
+          "ataxia"
+        ]
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "NEURO"
+        ]
+      }
+    },
+    {
+      "id": "S063",
+      "title": "Rotten toes",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "leg": "foot_rot"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FOOT_ROT"
+        ],
+        "acuity": "ward",
+        "course_type": {
+          "FOOT_ROT": "V"
+        }
+      }
+    },
+    {
+      "id": "S064",
+      "title": "Bone wrong",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "leg": "fracture"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FRACTURE"
+        ],
+        "acuity": "ward",
+        "low_comp": true,
+        "emergencies_has": [
+          "splint"
+        ],
+        "not_hits": []
+      }
+    },
+    {
+      "id": "S065",
+      "title": "Walking on front knees",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "front_knees"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "LAMINITIS"
+        ],
+        "acuity": "ward",
+        "hd_has": [
+          "pull_concentrate"
+        ]
+      }
+    },
+    {
+      "id": "S066",
+      "title": "Cool swollen joints, eating",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "leg": "arthritis"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "ARTHRITIS"
+        ],
+        "hd_has": [
+          "cull_arthritis"
+        ]
+      }
+    },
+    {
+      "id": "S067",
+      "title": "Flat itchy rash",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "rash_character": "flat_itchy"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "SKIN"
+        ],
+        "course_type": {
+          "SKIN": "V"
+        }
+      }
+    },
+    {
+      "id": "S068",
+      "title": "Hair loss body",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "hairloss": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "SKIN"
+        ]
+      }
+    },
+    {
+      "id": "S069",
+      "title": "Maggots",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "flystrike": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FLYSTRIKE"
+        ],
+        "emergencies_has": [
+          "maggots"
+        ]
+      }
+    },
+    {
+      "id": "S070",
+      "title": "Eartag maggots",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "eartag_flystrike": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FLYSTRIKE"
+        ],
+        "emergencies_has": [
+          "maggots"
+        ]
+      }
+    },
+    {
+      "id": "S071",
+      "title": "Lumps neck",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "lumps": "neck"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "LUMPS"
+        ]
+      }
+    },
+    {
+      "id": "S072",
+      "title": "Udder lumps",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "udder": "lumps",
+        "lactation": "milk",
+        "cmt": "neg"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "LUMPS"
+        ],
+        "not_hits": [
+          "MASTITIS"
+        ]
+      }
+    },
+    {
+      "id": "S073",
+      "title": "Body wound",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "wounds": "body"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "WOUNDS"
+        ],
+        "acuity": "ward",
+        "course_type": {
+          "WOUNDS": "V"
+        }
+      }
+    },
+    {
+      "id": "S074",
+      "title": "Horn wound",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "wounds": "horn"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "WOUNDS"
+        ],
+        "not_hits": [
+          "HORN"
+        ]
+      }
+    },
+    {
+      "id": "S075",
+      "title": "Body edema, FAMACHA 2",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "body_edema": true,
+        "famacha": 2
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "BODY_EDEMA"
+        ],
+        "not_hits": [
+          "ANEMIA"
+        ]
+      }
+    },
+    {
+      "id": "S076",
+      "title": "Body edema + FAMACHA 5",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "body_edema": true,
+        "famacha": 5
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "ANEMIA"
+        ],
+        "covered_has": [
+          "BODY_EDEMA"
+        ]
+      }
+    },
+    {
+      "id": "S077",
+      "title": "Ticks only",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "ticks": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [],
+        "field": [
+          "TICKS"
+        ],
+        "acuity": "field",
+        "evening_walk": false,
+        "morning_walk": false
+      }
+    },
+    {
+      "id": "S078",
+      "title": "Limp, legs normal",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "limping",
+        "leg": "normal"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [],
+        "field": [
+          "HOOF"
+        ],
+        "acuity": "field"
+      }
+    },
+    {
+      "id": "S079",
+      "title": "Nasal only",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "nasal": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [],
+        "field": [
+          "ANTIHISTAMINE"
+        ],
+        "acuity": "field"
+      }
+    },
+    {
+      "id": "S080",
+      "title": "Competition ticked, eating",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "competition": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [],
+        "field": [
+          "SEPARATE_FEEDING"
+        ],
+        "acuity": "field"
+      }
+    },
+    {
+      "id": "S081",
+      "title": "Nasal + 104.8",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "nasal": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "hd_has": [
+          "antihistamine_adjunct"
+        ],
+        "not_field": [
+          "ANTIHISTAMINE"
+        ],
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "S082",
+      "title": "Not eating, otherwise normal",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Supportive"
+        },
+        "acuity": "ward",
+        "low_comp": true
+      }
+    },
+    {
+      "id": "S083",
+      "title": "Not eating + down",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "down"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "S084",
+      "title": "Kid, frothy mouth",
+      "animal": {
+        "klass": "kid",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "frothy_mouth": true
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "out_of_scope",
+        "emergencies_has": [
+          "tube"
+        ],
+        "hits": []
+      }
+    },
+    {
+      "id": "S085",
+      "title": "Kid, 107\u00b0F",
+      "animal": {
+        "klass": "kid",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 107.0,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "out_of_scope",
+        "emergencies_has": [
+          "cool"
+        ],
+        "hits": []
+      }
+    },
+    {
+      "id": "S086",
+      "title": "Male, no udder fields + 104.8",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "lactation": "no"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "MASTITIS"
+        ]
+      }
+    },
+    {
+      "id": "S087",
+      "title": "Sheep 104.8 vs Boer 104.8 identical",
+      "animal": {
+        "klass": "adult",
+        "species": "sheep",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "acuity": "ward",
+        "containment": "home",
+        "evening_walk": false,
+        "sop": {
+          "FEVER": "Fever"
+        },
+        "course_type": {
+          "FEVER": "F"
+        },
+        "hd_not": [
+          "heat_sop"
+        ],
+        "tier": {
+          "FEVER": "PROBABLE"
+        }
+      },
+      "pair": {
+        "animal": {
+          "klass": "adult",
+          "species": "goat",
+          "sex": "F",
+          "status": "normal",
+          "breed": "Boer",
+          "shed": "Gandhi-3"
+        },
+        "findings": {
+          "temp": 104.8,
+          "eating": "normal",
+          "activity": "standing"
+        }
+      },
+      "same_hits": true
+    },
+    {
+      "id": "S088",
+      "title": "Mastitis + body wound",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "cmt": "pos",
+        "lactation": "milk",
+        "wounds": "body"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "MASTITIS",
+          "WOUNDS"
+        ],
+        "covered_has": [
+          "FEVER"
+        ],
+        "club": true
+      }
+    },
+    {
+      "id": "S089",
+      "title": "Fever 104.8 + pinkeye",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "eyes": "cloudy"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER",
+          "PINKEYE"
+        ],
+        "acuity": "ward",
+        "containment": "home"
+      }
+    },
+    {
+      "id": "S090",
+      "title": "Bloat+acidosis club-meds canonical",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "left_stomach": [
+          "bloating",
+          "acidosis"
+        ]
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "BLOAT",
+          "ACIDOSIS"
+        ],
+        "club": true,
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "S091",
+      "title": "Fracture + not eating",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "leg": "fracture"
+      },
+      "ctx": {},
+      "expect": {
+        "hits_has": [
+          "FRACTURE"
+        ],
+        "low_comp": true,
+        "not_field": [
+          "HOOF"
+        ]
+      }
+    },
+    {
+      "id": "S092",
+      "title": "Mouth scabs + 104.8, no diarrhea \u2192 ORF + Fever",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "mouth": "orf_scabs"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "ORF",
+          "FEVER"
+        ],
+        "containment": "quarantine",
+        "club": true,
+        "not_hits": [
+          "PPR"
+        ]
+      }
+    },
+    {
+      "id": "S093",
+      "title": "Pox + 104.8",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "rash_character": "nodular"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "POX"
+        ],
+        "covered_has": [
+          "FEVER"
+        ],
+        "sop": {
+          "POX": "Supportive"
+        }
+      }
+    },
+    {
+      "id": "S094",
+      "title": "No urine + red urine",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "straining": "no_urine",
+        "red_urine": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "CALCULI"
+        ],
+        "covered_has": [
+          "RED_URINE"
+        ],
+        "no_meloxicam": true
+      }
+    },
+    {
+      "id": "S095",
+      "title": "Diarrhea + 104.8, no scabs/nasal",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "diarrhea": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "DIARRHEA",
+          "FEVER"
+        ],
+        "club": true,
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "S096",
+      "title": "Fresh, CMT+, foul vulva",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "periparturient",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.2,
+        "eating": "normal",
+        "activity": "standing",
+        "cmt": "pos",
+        "lactation": "milk",
+        "vulva": "discharge_bad_smell"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "MASTITIS",
+          "METRITIS"
+        ],
+        "covered_has": [
+          "FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S097",
+      "title": "Locked jaw + circling",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "locked_jaw": true,
+        "neuro": "circling"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "TETANUS",
+          "NEURO"
+        ],
+        "hd_has": [
+          "same_day_tetanus",
+          "same_day_neuro",
+          "no_handle_mouth"
+        ]
+      }
+    },
+    {
+      "id": "S098",
+      "title": "Maggots in a wound",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "flystrike": true,
+        "wounds": "body"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FLYSTRIKE"
+        ],
+        "covered_has": [
+          "WOUNDS"
+        ]
+      }
+    },
+    {
+      "id": "S099",
+      "title": "107 + pant + you confirm Heat",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 107.0,
+        "eating": "normal",
+        "activity": "standing",
+        "breathing": "pant"
+      },
+      "ctx": {
+        "heat_confirmed": true
+      },
+      "expect": {
+        "emergencies_has": [
+          "cool"
+        ],
+        "hd_has": [
+          "heat_confirm",
+          "heat_sop"
+        ]
+      }
+    },
+    {
+      "id": "S100",
+      "title": "Limp + foot rot",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "limping",
+        "leg": "foot_rot"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FOOT_ROT"
+        ],
+        "not_field": [
+          "HOOF"
+        ]
+      }
+    },
+    {
+      "id": "S101",
+      "title": "Wound open D4, new 104.8 + cough",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "wounds": "body",
+        "breathing": "cough"
+      },
+      "ctx": {
+        "open": [
+          "WOUNDS"
+        ],
+        "day": 4
+      },
+      "expect": {
+        "ongoing_has": [
+          "WOUNDS"
+        ],
+        "new_has": [
+          "FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S102",
+      "title": "Fever D2, new diarrhea",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "diarrhea": true
+      },
+      "ctx": {
+        "open": [
+          "FEVER"
+        ],
+        "day": 2
+      },
+      "expect": {
+        "ongoing_has": [
+          "FEVER"
+        ],
+        "new_has": [
+          "DIARRHEA"
+        ],
+        "not_hits": [
+          "PPR"
+        ]
+      }
+    },
+    {
+      "id": "S103",
+      "title": "Fever D2, now scabs + diarrhea \u2192 new PPR",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "mouth": "orf_scabs",
+        "diarrhea": true
+      },
+      "ctx": {
+        "open": [
+          "FEVER"
+        ],
+        "day": 2
+      },
+      "expect": {
+        "hits": [
+          "PPR"
+        ],
+        "new_has": [
+          "PPR"
+        ],
+        "covered_has": [
+          "FEVER",
+          "DIARRHEA",
+          "ORF"
+        ],
+        "containment": "quarantine",
+        "sop": {
+          "PPR": "Supportive"
+        }
+      }
+    },
+    {
+      "id": "S104",
+      "title": "Mastitis ongoing, new body wound",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "cmt": "pos",
+        "lactation": "milk",
+        "wounds": "body"
+      },
+      "ctx": {
+        "open": [
+          "MASTITIS"
+        ]
+      },
+      "expect": {
+        "ongoing_has": [
+          "MASTITIS"
+        ],
+        "new_has": [
+          "WOUNDS"
+        ]
+      }
+    },
+    {
+      "id": "S105",
+      "title": "PPR standing D5, now cannot stand",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "down",
+        "mouth": "orf_scabs",
+        "diarrhea": true
+      },
+      "ctx": {
+        "open": [
+          "PPR"
+        ],
+        "day": 5
+      },
+      "expect": {
+        "hits": [
+          "PPR"
+        ],
+        "acuity": "icu",
+        "containment": "quarantine",
+        "sop": {
+          "PPR": "Supportive"
+        }
+      }
+    },
+    {
+      "id": "S106",
+      "title": "Pinkeye D3, new fracture",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "eyes": "cloudy",
+        "leg": "fracture"
+      },
+      "ctx": {
+        "open": [
+          "PINKEYE"
+        ],
+        "day": 3
+      },
+      "expect": {
+        "ongoing_has": [
+          "PINKEYE"
+        ],
+        "new_has": [
+          "FRACTURE"
+        ],
+        "low_comp": true,
+        "containment": "home"
+      }
+    },
+    {
+      "id": "S107",
+      "title": "PPR D4 still not eating, temp normal",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "mouth": "orf_scabs",
+        "diarrhea": true
+      },
+      "ctx": {
+        "open": [
+          "PPR"
+        ],
+        "day": 4
+      },
+      "expect": {
+        "hits_has": [
+          "PPR"
+        ],
+        "sop": {
+          "PPR": "Supportive"
+        },
+        "hd_has": [
+          "supportive_continues"
+        ],
+        "not_propose_close": [
+          "PPR",
+          "FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S108",
+      "title": "Fever D3, 102.2, eating \u2192 propose Type F close",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.2,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {
+        "open": [
+          "FEVER"
+        ],
+        "day": 3
+      },
+      "expect": {
+        "propose_close": [
+          "FEVER"
+        ],
+        "hd_has": [
+          "manager_never_closes"
+        ]
+      }
+    },
+    {
+      "id": "S109",
+      "title": "Fever D3, still 104.8 \u2192 propose extend",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {
+        "open": [
+          "FEVER"
+        ],
+        "day": 3
+      },
+      "expect": {
+        "propose_extend": [
+          "FEVER"
+        ],
+        "hits_has": [
+          "FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S110",
+      "title": "Wound D11, wounds=none \u2192 Type V propose close",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "wounds": "none"
+      },
+      "ctx": {
+        "open": [
+          "WOUNDS"
+        ],
+        "day": 11
+      },
+      "expect": {
+        "propose_close": [
+          "WOUNDS"
+        ],
+        "hd_has": [
+          "manager_never_closes"
+        ]
+      }
+    },
+    {
+      "id": "S111",
+      "title": "Mastitis CMT\u2212 once \u2192 do not close",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "cmt": "neg",
+        "lactation": "milk"
+      },
+      "ctx": {
+        "open": [
+          "MASTITIS"
+        ],
+        "cmt_neg_streak": 0
+      },
+      "expect": {
+        "not_propose_close": [
+          "MASTITIS"
+        ],
+        "ongoing_has": [
+          "MASTITIS"
+        ]
+      }
+    },
+    {
+      "id": "S112",
+      "title": "Mastitis CMT\u2212 twice \u2192 propose Type T close",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "cmt": "neg",
+        "lactation": "milk"
+      },
+      "ctx": {
+        "open": [
+          "MASTITIS"
+        ],
+        "cmt_neg_streak": 1
+      },
+      "expect": {
+        "propose_close": [
+          "MASTITIS"
+        ]
+      }
+    },
+    {
+      "id": "S113",
+      "title": "Mastitis closed, next week CMT+",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "cmt": "pos",
+        "lactation": "milk"
+      },
+      "ctx": {
+        "closed_recent": [
+          "MASTITIS"
+        ]
+      },
+      "expect": {
+        "hd_has": [
+          "relapse"
+        ],
+        "new_has": [
+          "MASTITIS"
+        ]
+      }
+    },
+    {
+      "id": "S114",
+      "title": "Foot rot lesion gone D2 \u2192 vanished too fast",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "leg": "normal"
+      },
+      "ctx": {
+        "open": [
+          "FOOT_ROT"
+        ],
+        "day": 2
+      },
+      "expect": {
+        "hd_has": [
+          "vanished_too_fast"
+        ],
+        "not_propose_close": [
+          "FOOT_ROT"
+        ]
+      }
+    },
+    {
+      "id": "S115",
+      "title": "Left ward 7 days ago \u2192 mandatory form",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {
+        "shifted_out_days": 7
+      },
+      "expect": {
+        "hd_has": [
+          "mandatory_d7"
+        ]
+      }
+    },
+    {
+      "id": "S116",
+      "title": "Pinkeye and wound improving; animal weaker, not eating",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "weak",
+        "eyes": "cloudy",
+        "wounds": "body"
+      },
+      "ctx": {
+        "open": [
+          "PINKEYE",
+          "WOUNDS"
+        ],
+        "problem_improving": true,
+        "animal_worsening": true
+      },
+      "expect": {
+        "hd_has": [
+          "dual_trajectory"
+        ]
+      }
+    },
+    {
+      "id": "S117",
+      "title": "Yesterday ticks field only; today nasal + 104.8",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "nasal": true
+      },
+      "ctx": {
+        "open": []
+      },
+      "expect": {
+        "new_has": [
+          "FEVER"
+        ],
+        "hits": [
+          "FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S118",
+      "title": "Acidosis ongoing, new blown left side",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "left_stomach": [
+          "acidosis",
+          "bloating"
+        ]
+      },
+      "ctx": {
+        "open": [
+          "ACIDOSIS"
+        ]
+      },
+      "expect": {
+        "ongoing_has": [
+          "ACIDOSIS"
+        ],
+        "new_has": [
+          "BLOAT"
+        ],
+        "club": true
+      }
+    },
+    {
+      "id": "S119",
+      "title": "Milk fever standing D2, new CMT+",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "periparturient",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "cmt": "pos",
+        "lactation": "milk"
+      },
+      "ctx": {
+        "open": [
+          "MILK_FEVER"
+        ],
+        "day": 2
+      },
+      "expect": {
+        "ongoing_has": [
+          "MILK_FEVER"
+        ],
+        "new_has": [
+          "MASTITIS"
+        ]
+      }
+    },
+    {
+      "id": "S120",
+      "title": "ORF D10, new nodular rash",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "mouth": "orf_scabs",
+        "rash_character": "nodular"
+      },
+      "ctx": {
+        "open": [
+          "ORF"
+        ],
+        "day": 10
+      },
+      "expect": {
+        "hits_has": [
+          "POX"
+        ],
+        "containment": "quarantine",
+        "sop": {
+          "POX": "Supportive"
+        }
+      }
+    },
+    {
+      "id": "S121",
+      "title": "Not eating + took concentrate \u2192 reject",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": [
+          "not_eating",
+          "concentrate"
+        ],
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "not_eating_with_feed"
+      }
+    },
+    {
+      "id": "S122",
+      "title": "Wounds=none combined with wounds=body",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "wounds": [
+          "none",
+          "body"
+        ]
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "wounds_exclusive"
+      }
+    },
+    {
+      "id": "S123",
+      "title": "Male form CMT if present is ignored; Fever still works",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "cmt": "pos"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "MASTITIS"
+        ],
+        "valid": true
+      }
+    },
+    {
+      "id": "S124",
+      "title": "Female + straining",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "straining": "straining"
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "female_straining"
+      }
+    },
+    {
+      "id": "S125",
+      "title": "Lactation=no but CMT ticked",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "lactation": "no",
+        "cmt": "pos"
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "cmt_without_milk"
+      }
+    },
+    {
+      "id": "S126",
+      "title": "Fresh febrile, manager misses foul smell",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "periparturient",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.2,
+        "eating": "normal",
+        "activity": "standing",
+        "vulva": "nothing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "METRITIS"
+        ],
+        "hints_has": [
+          "fresh_clean_vulva"
+        ]
+      }
+    },
+    {
+      "id": "S127",
+      "title": "True FAMACHA 5 recorded as 2",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "weak",
+        "famacha": 2
+      },
+      "ctx": {},
+      "expect": {
+        "not_hits": [
+          "ANEMIA"
+        ]
+      }
+    },
+    {
+      "id": "S128",
+      "title": "Water sound recorded as blown only",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "left_stomach": "bloating",
+        "rumen_movement": "not_felt"
+      },
+      "ctx": {},
+      "expect": {
+        "hits_has": [
+          "BLOAT"
+        ],
+        "not_hits": [
+          "ACIDOSIS"
+        ]
+      }
+    },
+    {
+      "id": "S129",
+      "title": "Heat case recorded as cough not pant",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "breathing": "cough"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "hd_not": [
+          "heat_confirm"
+        ]
+      }
+    },
+    {
+      "id": "S130",
+      "title": "Tissue hanging recorded as bad-smell discharge",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "periparturient",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "vulva": "discharge_bad_smell"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "METRITIS"
+        ],
+        "not_hits": [
+          "PROLAPSE"
+        ],
+        "not_emergencies": [
+          "uterine_prolapse"
+        ]
+      }
+    },
+    {
+      "id": "S131",
+      "title": "Locked jaw missed; tremors + wound",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "neuro": "tremors",
+        "wounds": "body"
+      },
+      "ctx": {},
+      "expect": {
+        "hits_has": [
+          "TETANUS"
+        ],
+        "hd_has": [
+          "same_day_tetanus"
+        ],
+        "hd_not": [
+          "tetanus_confirmed"
+        ],
+        "tier": {
+          "TETANUS": "PROBABLE"
+        }
+      }
+    },
+    {
+      "id": "S132",
+      "title": "True CMT+ recorded CMT\u2212 + hard udder",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "cmt": "neg",
+        "udder": "swollen_hard",
+        "lactation": "milk"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "UDDER_EDEMA"
+        ],
+        "not_hits": [
+          "MASTITIS"
+        ]
+      }
+    },
+    {
+      "id": "S133",
+      "title": "PPR without diarrhea ticked \u2192 Fever+ORF not PPR",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "mouth": "orf_scabs"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "ORF",
+          "FEVER"
+        ],
+        "not_hits": [
+          "PPR"
+        ]
+      }
+    },
+    {
+      "id": "S134",
+      "title": "Boer vs Osmanabadi identical PPR",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "mouth": "orf_scabs",
+        "diarrhea": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "PPR"
+        ]
+      },
+      "pair": {
+        "animal": {
+          "klass": "adult",
+          "species": "goat",
+          "sex": "M",
+          "status": "normal",
+          "breed": "Osmanabadi",
+          "shed": "Gandhi-3"
+        },
+        "findings": {
+          "temp": 104.8,
+          "eating": "normal",
+          "activity": "standing",
+          "mouth": "orf_scabs",
+          "diarrhea": true
+        }
+      },
+      "same_hits": true
+    },
+    {
+      "id": "S135",
+      "title": "Sheep vs goat identical Fever",
+      "animal": {
+        "klass": "adult",
+        "species": "sheep",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "acuity": "ward",
+        "containment": "home",
+        "evening_walk": false,
+        "sop": {
+          "FEVER": "Fever"
+        },
+        "course_type": {
+          "FEVER": "F"
+        },
+        "hd_not": [
+          "heat_sop"
+        ],
+        "tier": {
+          "FEVER": "PROBABLE"
+        }
+      },
+      "pair": {
+        "animal": {
+          "klass": "adult",
+          "species": "goat",
+          "sex": "F",
+          "status": "normal",
+          "breed": "Boer",
+          "shed": "Gandhi-3"
+        },
+        "findings": {
+          "temp": 104.8,
+          "eating": "normal",
+          "activity": "standing"
+        }
+      },
+      "same_hits": true
+    },
+    {
+      "id": "S136",
+      "title": "Sheep nodular vs goat nodular",
+      "animal": {
+        "klass": "adult",
+        "species": "sheep",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "rash_character": "nodular"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "POX"
+        ],
+        "containment": "quarantine",
+        "sop": {
+          "POX": "Supportive"
+        }
+      },
+      "pair": {
+        "animal": {
+          "klass": "adult",
+          "species": "goat",
+          "sex": "F",
+          "status": "normal",
+          "breed": "Boer",
+          "shed": "Gandhi-3"
+        },
+        "findings": {
+          "temp": 102.0,
+          "eating": "normal",
+          "activity": "standing",
+          "rash_character": "nodular"
+        }
+      },
+      "same_hits": true,
+      "same_containment": true
+    },
+    {
+      "id": "S137",
+      "title": "Sheep yellow membranes \u2014 not copper",
+      "animal": {
+        "klass": "adult",
+        "species": "sheep",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "yellow": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "JAUNDICE"
+        ],
+        "not_hits": [
+          "COPPER"
+        ]
+      }
+    },
+    {
+      "id": "S138",
+      "title": "One PPR in Gandhi-3",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "mouth": "orf_scabs",
+        "diarrhea": true
+      },
+      "ctx": {
+        "shed_similar": 1
+      },
+      "expect": {
+        "hits": [
+          "PPR"
+        ],
+        "containment": "quarantine",
+        "hd_not": [
+          "contagion_event",
+          "contagion_watch"
+        ]
+      }
+    },
+    {
+      "id": "S139",
+      "title": "Second animal same shed, fever+diarrhea",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "diarrhea": true
+      },
+      "ctx": {
+        "shed_similar": 2
+      },
+      "expect": {
+        "hd_has": [
+          "contagion_watch"
+        ],
+        "hd_not": [
+          "contagion_event"
+        ]
+      }
+    },
+    {
+      "id": "S140",
+      "title": "Third similar \u2192 you + COO + co-founder",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "diarrhea": true
+      },
+      "ctx": {
+        "shed_similar": 3
+      },
+      "expect": {
+        "hd_has": [
+          "contagion_event"
+        ]
+      }
+    },
+    {
+      "id": "S141",
+      "title": "Three pinkeye \u2014 cluster, still not quarantine",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "eyes": "cloudy"
+      },
+      "ctx": {
+        "shed_similar": 3
+      },
+      "expect": {
+        "hits": [
+          "PINKEYE"
+        ],
+        "hd_has": [
+          "pinkeye_cluster"
+        ],
+        "containment": "home",
+        "hd_not": [
+          "contagion_event"
+        ]
+      }
+    },
+    {
+      "id": "S142",
+      "title": "Three ORF \u2014 each quarantined; \u22653 contagion event",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "mouth": "orf_scabs"
+      },
+      "ctx": {
+        "shed_similar": 3
+      },
+      "expect": {
+        "hits": [
+          "ORF"
+        ],
+        "containment": "quarantine",
+        "hd_has": [
+          "contagion_event"
+        ]
+      }
+    },
+    {
+      "id": "S143",
+      "title": "Two pox then third \u2192 event",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "rash_character": "nodular"
+      },
+      "ctx": {
+        "shed_similar": 3
+      },
+      "expect": {
+        "hits": [
+          "POX"
+        ],
+        "hd_has": [
+          "contagion_event"
+        ]
+      }
+    },
+    {
+      "id": "S144",
+      "title": "20:30 bloat \u2192 tube now; next look 6:00; never 02:00",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "left_stomach": "bloating"
+      },
+      "ctx": {
+        "hour": 20
+      },
+      "expect": {
+        "emergencies_has": [
+          "tube"
+        ],
+        "hd_has": [
+          "next_look_6am"
+        ],
+        "no_due_overnight": true,
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "S145",
+      "title": "20:30 no urine \u2192 finish tonight",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "straining": "no_urine"
+      },
+      "ctx": {
+        "hour": 20
+      },
+      "expect": {
+        "hd_has": [
+          "tonight"
+        ],
+        "no_due_overnight": true
+      }
+    },
+    {
+      "id": "S146",
+      "title": "07:00 Fever 104.8 ward \u2192 no evening walk",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {
+        "hour": 7
+      },
+      "expect": {
+        "acuity": "ward",
+        "evening_walk": false,
+        "hd_has": [
+          "no_evening_ward"
+        ]
+      }
+    },
+    {
+      "id": "S147",
+      "title": "ICU animal \u2192 morning and evening lists",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "famacha": 5
+      },
+      "ctx": {},
+      "expect": {
+        "acuity": "icu",
+        "morning_walk": true,
+        "evening_walk": true,
+        "hd_has": [
+          "both_shifts"
+        ]
+      }
+    },
+    {
+      "id": "S148",
+      "title": "Standing Pox quarantine \u2192 once a day",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "rash_character": "nodular"
+      },
+      "ctx": {},
+      "expect": {
+        "containment": "quarantine",
+        "hd_has": [
+          "once_day_quarantine"
+        ],
+        "evening_walk": false
+      }
+    },
+    {
+      "id": "S149",
+      "title": "Crashing PPR \u2192 ICU+quarantine, both shifts",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "down",
+        "mouth": "orf_scabs",
+        "diarrhea": true
+      },
+      "ctx": {},
+      "expect": {
+        "acuity": "icu",
+        "containment": "quarantine",
+        "hd_has": [
+          "both_shifts"
+        ],
+        "evening_walk": true
+      }
+    },
+    {
+      "id": "S150",
+      "title": "Engine emits no due time 00:01\u201305:59",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "left_stomach": "bloating"
+      },
+      "ctx": {
+        "hour": 1
+      },
+      "expect": {
+        "no_due_overnight": true
+      }
+    },
+    {
+      "id": "S151",
+      "title": "Tetanus \u2192 you same day; poor prognosis",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "locked_jaw": true
+      },
+      "ctx": {},
+      "expect": {
+        "hd_has": [
+          "same_day_tetanus",
+          "poor_prognosis"
+        ]
+      }
+    },
+    {
+      "id": "S152",
+      "title": "Neuro trial D2 no improvement",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "neuro": "circling"
+      },
+      "ctx": {
+        "open": [
+          "NEURO"
+        ],
+        "day": 2
+      },
+      "expect": {
+        "hd_has": [
+          "neuro_trial",
+          "same_day_neuro"
+        ]
+      }
+    },
+    {
+      "id": "S153",
+      "title": "Chronic arthritis \u2192 cull review; not 3-day Fever",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "leg": "arthritis"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "ARTHRITIS"
+        ],
+        "hd_has": [
+          "cull_arthritis"
+        ],
+        "not_hits": [
+          "FEVER"
+        ],
+        "not_propose_close": [
+          "ARTHRITIS"
+        ]
+      }
+    },
+    {
+      "id": "S154",
+      "title": "Preg tox D2 still down \u2192 you induce; engine does not",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "pregnant",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "down"
+      },
+      "ctx": {
+        "day": 2,
+        "open": [
+          "PREG_TOX"
+        ]
+      },
+      "expect": {
+        "hits": [
+          "PREG_TOX"
+        ],
+        "hd_has": [
+          "induce"
+        ]
+      }
+    },
+    {
+      "id": "S155",
+      "title": "Colostrum on form, GoatOS not fresh",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "lactation": "colostrum"
+      },
+      "ctx": {},
+      "expect": {
+        "hd_has": [
+          "contradiction_status"
+        ],
+        "not_hits": [
+          "METRITIS",
+          "MILK_FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S156",
+      "title": "Off-register diagnosis you name",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {
+        "off_register": true
+      },
+      "expect": {
+        "hd_has": [
+          "override"
+        ]
+      }
+    },
+    {
+      "id": "S157",
+      "title": "Down 3 follow-ups despite treatment",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "down"
+      },
+      "ctx": {
+        "down_followups": 3,
+        "open": [
+          "UNDIFFERENTIATED"
+        ]
+      },
+      "expect": {
+        "hd_has": [
+          "humane_endpoint"
+        ]
+      }
+    },
+    {
+      "id": "S158",
+      "title": "Death \u2192 you + COO + co-founder",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {
+        "died": true
+      },
+      "expect": {
+        "hd_has": [
+          "death_chain"
+        ]
+      }
+    },
+    {
+      "id": "S159",
+      "title": "You confirm Heat from pant",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.8,
+        "eating": "normal",
+        "activity": "standing",
+        "breathing": "pant"
+      },
+      "ctx": {
+        "heat_confirmed": true
+      },
+      "expect": {
+        "hd_has": [
+          "heat_confirm",
+          "heat_sop"
+        ],
+        "not_hits": [
+          "FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S160",
+      "title": "You close every Problem; manager never closes",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "hd_has": [
+          "manager_never_closes"
+        ]
+      }
+    },
+    {
+      "id": "S161",
+      "title": "Pregnant + 104.8 standing, not down \u2192 Fever not milk fever",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "pregnant",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "MILK_FEVER",
+          "PREG_TOX"
+        ]
+      }
+    },
+    {
+      "id": "S162",
+      "title": "Fresh + not eating + standing + 102.4 + weak \u2192 Milk fever",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "periparturient",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.4,
+        "eating": "not_eating",
+        "activity": "weak"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "MILK_FEVER"
+        ],
+        "not_hits": [
+          "FEVER",
+          "METRITIS"
+        ]
+      }
+    },
+    {
+      "id": "S163",
+      "title": "Lactating month 4, CMT+",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "cmt": "pos",
+        "lactation": "milk"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "MASTITIS"
+        ],
+        "not_hits": [
+          "METRITIS"
+        ]
+      }
+    },
+    {
+      "id": "S164",
+      "title": "Male 104.8, straining no \u2192 Fever only",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "straining": "no"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "CALCULI"
+        ]
+      }
+    },
+    {
+      "id": "S165",
+      "title": "Eyes red only \u2192 Pinkeye possible Recheck",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "eyes": "red"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [],
+        "rechecks": [
+          "PINKEYE_POSSIBLE"
+        ],
+        "not_hits": [
+          "PINKEYE"
+        ]
+      }
+    },
+    {
+      "id": "S166",
+      "title": "Nodular vs flat itchy \u2014 Pox vs Skin",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "rash_character": "nodular"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "POX"
+        ],
+        "containment": "quarantine",
+        "sop": {
+          "POX": "Supportive"
+        }
+      },
+      "pair": {
+        "animal": {
+          "klass": "adult",
+          "species": "goat",
+          "sex": "F",
+          "status": "normal",
+          "breed": "Boer",
+          "shed": "Gandhi-3"
+        },
+        "findings": {
+          "temp": 102.0,
+          "eating": "normal",
+          "activity": "standing",
+          "rash_character": "flat_itchy"
+        },
+        "expect": {
+          "hits": [
+            "SKIN"
+          ],
+          "containment": "home",
+          "sop": {
+            "SKIN": "Skin"
+          }
+        }
+      },
+      "same_hits": false,
+      "pair_diff": true
+    },
+    {
+      "id": "S167",
+      "title": "Udder rashes, CMT\u2212",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "udder": "rashes",
+        "cmt": "neg",
+        "lactation": "milk"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "SKIN"
+        ],
+        "not_hits": [
+          "MASTITIS"
+        ]
+      }
+    },
+    {
+      "id": "S168",
+      "title": "Udder wound, CMT\u2212",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "udder": "wound",
+        "cmt": "neg",
+        "lactation": "milk"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "WOUNDS"
+        ],
+        "not_hits": [
+          "MASTITIS"
+        ]
+      }
+    },
+    {
+      "id": "S169",
+      "title": "Back-leg drag, not fresh \u2192 Neuro",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "back_leg_drag"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "NEURO"
+        ],
+        "not_hits": [
+          "MILK_FEVER"
+        ]
+      }
+    },
+    {
+      "id": "S170",
+      "title": "Front knees \u2192 Laminitis only",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "front_knees"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "LAMINITIS"
+        ],
+        "not_hits": [
+          "FRACTURE",
+          "ARTHRITIS"
+        ]
+      }
+    },
+    {
+      "id": "S171",
+      "title": "Stomach inside + slow tent \u2192 downgrade tent, no hydrate emergency",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "stomach_inside": true,
+        "skin_tent": "gt4"
+      },
+      "ctx": {},
+      "expect": {
+        "not_emergencies": [
+          "fluids"
+        ],
+        "not_hits": []
+      }
+    },
+    {
+      "id": "S172",
+      "title": "Tent >4s + Fever 104 \u2192 fluids now and ICU",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.0,
+        "eating": "normal",
+        "activity": "standing",
+        "skin_tent": "gt4"
+      },
+      "ctx": {},
+      "expect": {
+        "hits_has": [
+          "FEVER"
+        ],
+        "emergencies_has": [
+          "fluids"
+        ],
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "S173",
+      "title": "Hypothermia, no other specific",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 99.0,
+        "eating": "normal",
+        "activity": "standing"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "acuity": "icu",
+        "no_meloxicam": true,
+        "emergencies_has": [
+          "warm"
+        ]
+      }
+    },
+    {
+      "id": "S174",
+      "title": "Locked jaw + wound \u2192 Tetanus Confirmed",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "standing",
+        "locked_jaw": true,
+        "wounds": "body"
+      },
+      "ctx": {},
+      "expect": {
+        "hits_has": [
+          "TETANUS"
+        ],
+        "hd_has": [
+          "tetanus_confirmed"
+        ],
+        "tier": {
+          "TETANUS": "CONFIRMED"
+        }
+      }
+    },
+    {
+      "id": "S175",
+      "title": "Competition + not eating",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "competition": true
+      },
+      "ctx": {},
+      "expect": {
+        "hits_has": [
+          "UNDIFFERENTIATED"
+        ],
+        "field": [
+          "SEPARATE_FEEDING"
+        ],
+        "low_comp": true,
+        "sop": {
+          "UNDIFFERENTIATED": "Supportive"
+        }
+      }
+    },
+    {
+      "id": "S176",
+      "title": "Limp + foot rot \u2192 not field",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "limping",
+        "leg": "foot_rot"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FOOT_ROT"
+        ],
+        "not_field": [
+          "HOOF"
+        ]
+      }
+    },
+    {
+      "id": "S177",
+      "title": "Limp + fracture \u2192 not field",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "limping",
+        "leg": "fracture"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FRACTURE"
+        ],
+        "not_field": [
+          "HOOF"
+        ]
+      }
+    },
+    {
+      "id": "S178",
+      "title": "Limp + arthritis \u2192 not field",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 102.0,
+        "eating": "normal",
+        "activity": "limping",
+        "leg": "arthritis"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "ARTHRITIS"
+        ],
+        "not_field": [
+          "HOOF"
+        ]
+      }
+    },
+    {
+      "id": "S179",
+      "title": "Nasal + cough + 104.8 \u2192 one Fever Problem",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 104.8,
+        "eating": "normal",
+        "activity": "standing",
+        "nasal": true,
+        "breathing": "cough"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "PNEUMONIA"
+        ]
+      }
+    },
+    {
+      "id": "S180",
+      "title": "107\u00b0F + CMT+ standing",
+      "animal": {
+        "klass": "adult",
+        "species": "goat",
+        "sex": "F",
+        "status": "lactating",
+        "breed": "Boer",
+        "shed": "Gandhi-3"
+      },
+      "findings": {
+        "temp": 107.0,
+        "eating": "normal",
+        "activity": "standing",
+        "cmt": "pos",
+        "lactation": "milk"
+      },
+      "ctx": {},
+      "expect": {
+        "hits": [
+          "MASTITIS"
+        ],
+        "covered_has": [
+          "FEVER"
+        ],
+        "emergencies_has": [
+          "cool"
+        ],
+        "acuity": "icu"
+      }
+    }
+  ]
+}

@@ -1,0 +1,501 @@
+{
+  "catalog_version": "kid-fattening-1",
+  "count": 13,
+  "stories": [
+    {
+      "id": "F001",
+      "title": "Fattening standing, eating, 103\u00b0F \u2192 NAD",
+      "animal": {
+        "klass": "kid_fattening",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Fatten-1",
+        "weight_kg": 18
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_fattening",
+        "hits": [],
+        "not_hits": [
+          "ACIDOSIS",
+          "FLOPPY_KID",
+          "CALCULI"
+        ],
+        "hd_has": [
+          "nad"
+        ],
+        "not_emergencies": [
+          "acidosis_now",
+          "floppy_now",
+          "ip_dextrose"
+        ]
+      }
+    },
+    {
+      "id": "F002",
+      "title": "Fattening male straining \u2192 Calculi, ICU, no meloxicam",
+      "animal": {
+        "klass": "kid_fattening",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Fatten-1",
+        "weight_kg": 18
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "straining": "straining"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_fattening",
+        "hits": [
+          "CALCULI"
+        ],
+        "not_hits": [
+          "ACIDOSIS",
+          "FLOPPY_KID"
+        ],
+        "acuity": "icu",
+        "no_meloxicam": true,
+        "sop": {
+          "CALCULI": "Calculi"
+        },
+        "tier": {
+          "CALCULI": "CONFIRMED"
+        }
+      }
+    },
+    {
+      "id": "F003",
+      "title": "Fattening female straining \u2192 reject",
+      "animal": {
+        "klass": "kid_fattening",
+        "species": "goat",
+        "sex": "F",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Fatten-1",
+        "weight_kg": 18
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "straining": "straining"
+      },
+      "ctx": {},
+      "expect": {
+        "valid": false,
+        "reject": "female_straining"
+      }
+    },
+    {
+      "id": "F004",
+      "title": "Water sound + not eating, suckle present \u2192 Acidosis, offer milk",
+      "animal": {
+        "klass": "kid_fattening",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Fatten-1",
+        "weight_kg": 18
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "left_stomach": "acidosis"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_fattening",
+        "hits": [
+          "ACIDOSIS"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "emergencies_has": [
+          "acidosis_now"
+        ],
+        "hd_has": [
+          "concentrate_off",
+          "offer_milk"
+        ],
+        "hd_not": [
+          "session_bottle",
+          "k2_refusal",
+          "force_milk"
+        ],
+        "acuity": "icu",
+        "sop": {
+          "ACIDOSIS": "Acidosis"
+        }
+      }
+    },
+    {
+      "id": "F005",
+      "title": "Water sound, still eating \u2192 Acidosis, ward, no acidosis_now",
+      "animal": {
+        "klass": "kid_fattening",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Fatten-1",
+        "weight_kg": 18
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "left_stomach": "acidosis"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_fattening",
+        "hits": [
+          "ACIDOSIS"
+        ],
+        "not_emergencies": [
+          "acidosis_now"
+        ],
+        "hd_not": [
+          "concentrate_off"
+        ],
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "F006",
+      "title": "Silent rumen + not eating, no splash \u2192 not Acidosis, offer milk",
+      "animal": {
+        "klass": "kid_fattening",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Fatten-1",
+        "weight_kg": 18
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "rumen_movement": "not_felt"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_fattening",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "ACIDOSIS"
+        ],
+        "not_emergencies": [
+          "acidosis_now"
+        ],
+        "hd_has": [
+          "offer_milk"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Supportive"
+        },
+        "low_comp": true
+      }
+    },
+    {
+      "id": "F007",
+      "title": "Off-feed, no splash, suckle present \u2192 Supportive, offer milk (not milk-refusal ladder)",
+      "animal": {
+        "klass": "kid_fattening",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Fatten-1",
+        "weight_kg": 18
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_fattening",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "ACIDOSIS",
+          "FLOPPY_KID"
+        ],
+        "hd_has": [
+          "offer_milk"
+        ],
+        "hd_not": [
+          "session_bottle",
+          "k2_refusal",
+          "offer_ors",
+          "force_milk"
+        ],
+        "sop": {
+          "UNDIFFERENTIATED": "Supportive"
+        },
+        "low_comp": true
+      }
+    },
+    {
+      "id": "F008",
+      "title": "Off-feed, suckle absent \u2192 no oral milk",
+      "animal": {
+        "klass": "kid_fattening",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Fatten-1",
+        "weight_kg": 18
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "not_eating",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "absent"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_fattening",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "hd_has": [
+          "no_oral_milk"
+        ],
+        "hd_not": [
+          "offer_milk",
+          "force_milk"
+        ]
+      }
+    },
+    {
+      "id": "F010",
+      "title": "Down, 103\u00b0F, suckle present \u2192 crash dextrose then heat then milk, not floppy",
+      "animal": {
+        "klass": "kid_fattening",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Fatten-1",
+        "weight_kg": 18
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "down",
+        "responsiveness": "dull",
+        "suckle": "present"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_fattening",
+        "hits": [
+          "UNDIFFERENTIATED"
+        ],
+        "not_hits": [
+          "FLOPPY_KID",
+          "ACIDOSIS"
+        ],
+        "emergencies_has": [
+          "down",
+          "ip_dextrose",
+          "warm"
+        ],
+        "not_emergencies": [
+          "floppy_now",
+          "rl_sq"
+        ],
+        "hd_has": [
+          "no_force_feed_down",
+          "offer_milk"
+        ],
+        "hd_not": [
+          "milk_off",
+          "bicarb",
+          "force_milk"
+        ],
+        "acuity": "icu"
+      }
+    },
+    {
+      "id": "F011",
+      "title": "Front knees \u2192 Laminitis, pull concentrate",
+      "animal": {
+        "klass": "kid_fattening",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Fatten-1",
+        "weight_kg": 18
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "front_knees",
+        "responsiveness": "alert",
+        "suckle": "present"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_fattening",
+        "hits": [
+          "LAMINITIS"
+        ],
+        "hd_has": [
+          "pull_concentrate"
+        ],
+        "sop": {
+          "LAMINITIS": "Laminitis"
+        },
+        "tier": {
+          "LAMINITIS": "CONFIRMED"
+        }
+      }
+    },
+    {
+      "id": "F012",
+      "title": "Star-gazing \u2192 Neuro, thiamine (not a PEM label)",
+      "animal": {
+        "klass": "kid_fattening",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Fatten-1",
+        "weight_kg": 18
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "neuro": "star_gazing"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_fattening",
+        "hits": [
+          "NEURO"
+        ],
+        "hd_has": [
+          "thiamine",
+          "same_day_neuro"
+        ],
+        "acuity": "icu",
+        "sop": {
+          "NEURO": "Neuro"
+        },
+        "tier": {
+          "NEURO": "PROBABLE"
+        }
+      }
+    },
+    {
+      "id": "F013",
+      "title": "103.5\u00b0F standing, eating \u2192 Fever (kids \u2265103.5)",
+      "animal": {
+        "klass": "kid_fattening",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Fatten-1",
+        "weight_kg": 18
+      },
+      "findings": {
+        "temp": 103.5,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present"
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_fattening",
+        "hits": [
+          "FEVER"
+        ],
+        "not_hits": [
+          "FLOPPY_KID"
+        ],
+        "acuity": "ward"
+      }
+    },
+    {
+      "id": "F014",
+      "title": "Diarrhea \u2192 Diarrhea, not coccidia",
+      "animal": {
+        "klass": "kid_fattening",
+        "species": "goat",
+        "sex": "M",
+        "status": "normal",
+        "breed": "Boer",
+        "shed": "Fatten-1",
+        "weight_kg": 18
+      },
+      "findings": {
+        "temp": 103.0,
+        "eating": "normal",
+        "activity": "standing",
+        "responsiveness": "alert",
+        "suckle": "present",
+        "diarrhea": true
+      },
+      "ctx": {},
+      "expect": {
+        "scope": "kid_fattening",
+        "hits": [
+          "DIARRHEA"
+        ],
+        "not_hits": [
+          "COCCIDIOSIS"
+        ],
+        "sop": {
+          "DIARRHEA": "Diarrhea"
+        }
+      }
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Search } from "lucide-react";
 
 import { copy, optionalCopy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { controlEnabled, control } from "@/lib/admin-ui-contract";
@@ -214,6 +214,26 @@ export async function HealthConfigPage({
         <p className="small muted" style={{ margin: "0 14px 10px", lineHeight: 1.6 }}>
           {copy(pageContract, "section.catalog.note")}
         </p>
+
+        {/* Disease search. A plain GET form, not a WorklistFilters field: that component has no text
+            kind, and the server-rendered form is what the other keyset-paged authority screens
+            (Audit Log, DLQ) already use. The match runs in the BACKEND (`search` on
+            /health-config/protocols) because the catalog is keyset-paginated — filtering the 20 rows
+            of the current page in the browser would silently hide matches sitting on later pages.
+            `hc_cursor` is deliberately NOT preserved: a new search restarts paging, or the cursor
+            from the old result set would be applied to a different one. */}
+        <div className="wftoolbar" style={{ marginBottom: 0 }}>
+          <form className="tsearch" action={PAGE_PATH} style={{ maxWidth: 300 }} title={copy(pageContract, "filter.search_label")}>
+            {preservedHiddenInputs(sp, ["hc_q", "hc_cursor"])}
+            <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
+            <input
+              name="hc_q"
+              defaultValue={searchFilter}
+              placeholder={copy(pageContract, "filter.search_label")}
+              aria-label={copy(pageContract, "filter.search_label")}
+            />
+          </form>
+        </div>
 
         <WorklistFilters
           basePath={PAGE_PATH}
@@ -471,4 +491,22 @@ export async function HealthConfigPage({
       ) : null}
     </div>
   );
+}
+
+/**
+ * Carries the other live filters through the search form's GET submit.
+ *
+ * A bare `<form method=GET>` replaces the whole query string with its own fields, so without these
+ * hidden inputs searching would silently drop the age-band and draft-state filters the author had
+ * applied — the rows would change for two reasons at once and the screen could not explain either.
+ */
+function preservedHiddenInputs(params: RouteSearchParams, exclude: string[]) {
+  const excluded = new Set(exclude);
+  return Object.entries(params).flatMap(([key, value]) => {
+    if (excluded.has(key)) return [];
+    if (Array.isArray(value)) {
+      return value.map((item) => <input key={`${key}:${item}`} type="hidden" name={key} value={item} />);
+    }
+    return value ? [<input key={key} type="hidden" name={key} value={value} />] : [];
+  });
 }
