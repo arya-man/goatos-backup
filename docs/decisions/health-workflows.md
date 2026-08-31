@@ -30,7 +30,7 @@ Case states are `active`, `recovered`, `continued`, `referred`, `held_death_revi
 
 `POST /app/health/cases/{health_case_id}/close` records the clinical outcome of an open case —
 `recovered`, `referred`, or `canceled` — and cancels its remaining unworked sessions (session
-state `canceled`, migration 000222) in the same transaction, emitting `health.case.closed`.
+state `canceled`, migration 000230) in the same transaction, emitting `health.case.closed`.
 The route carries `health.diagnose`: closing a course is the same clinical authority as opening
 one. Rules, each deliberate:
 
@@ -66,7 +66,7 @@ onto one item while a rework re-shoot creates the replacement. A completion with
 closed if the enqueue seam is not wired; a proof-less completion (compatibility) enqueues
 nothing. This is POST-TASK evidence review on the shifting model, never a completion gate:
 
-- APPROVE stamps `verified_by` / `verified_at` on the completed session (migration 000222).
+- APPROVE stamps `verified_by` / `verified_at` on the completed session (migration 000230).
 - REWORK flips the session to the pre-existing `rework` state; the operator re-does and
   re-films it through the ordinary complete path. Nothing rolls back.
 
