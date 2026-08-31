@@ -20,7 +20,8 @@ steps:
       - PROJECT_ID=goatos-stg
       - PROJECT_NUMBER=514832198871
       - REGION=asia-south1
-      - COMMIT_SHA=${_COMMIT_SHA}
+      - REQUESTED_COMMIT_SHA=${_COMMIT_SHA}
+      - RESOLVED_COMMIT_SHA=$REVISION_ID
       - BUILD_ID=$BUILD_ID
       - DEPLOY_STG=${_DEPLOY_STG}
       - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
@@ -34,7 +35,8 @@ steps:
           echo "Slack deploy webhook is not configured; Cloud Build logs remain the source of truth."
           exit 0
         fi
-        tag="$$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
+        commit_sha="$${REQUESTED_COMMIT_SHA:-$${RESOLVED_COMMIT_SHA}}"
+        tag="$$(printf '%s' "$${commit_sha}" | cut -c1-12)"
         build_url="https://console.cloud.google.com/cloud-build/builds/$${BUILD_ID}?project=$${PROJECT_NUMBER}"
         python3 - "$${tag}" "$${BUILD_ID}" "$${TRIGGERED_BY}" "$${DEPLOY_STG}" "$${DEPLOY_MOBILE}" "$${build_url}" <<'PY' | curl -fsS -X POST -H 'Content-Type: application/json' --data-binary @- "$webhook" >/dev/null || true
         import json
@@ -85,7 +87,8 @@ steps:
     entrypoint: sh
     env:
       - DEPLOY_STG=${_DEPLOY_STG}
-      - COMMIT_SHA=${_COMMIT_SHA}
+      - REQUESTED_COMMIT_SHA=${_COMMIT_SHA}
+      - RESOLVED_COMMIT_SHA=$REVISION_ID
       - DOCKER_CONFIG=/workspace/.docker
       - DOCKER_BUILDKIT=1
     args:
@@ -95,7 +98,8 @@ steps:
           echo "Backend image build not requested."
           exit 0
         fi
-        tag="$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
+        commit_sha="$${REQUESTED_COMMIT_SHA:-$${RESOLVED_COMMIT_SHA}}"
+        tag="$(printf '%s' "$${commit_sha}" | cut -c1-12)"
         image="asia-south1-docker.pkg.dev/goatos-stg/goatos/backend:$${tag}"
         docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
         docker build --platform linux/amd64 --build-arg GIT_SHA="$${tag}" -f backend/Dockerfile -t "$${image}" .
@@ -106,7 +110,8 @@ steps:
     entrypoint: sh
     env:
       - DEPLOY_STG=${_DEPLOY_STG}
-      - COMMIT_SHA=${_COMMIT_SHA}
+      - REQUESTED_COMMIT_SHA=${_COMMIT_SHA}
+      - RESOLVED_COMMIT_SHA=$REVISION_ID
       - DOCKER_CONFIG=/workspace/.docker
       - DOCKER_BUILDKIT=1
     args:
@@ -116,7 +121,8 @@ steps:
           echo "Migration image build not requested."
           exit 0
         fi
-        tag="$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
+        commit_sha="$${REQUESTED_COMMIT_SHA:-$${RESOLVED_COMMIT_SHA}}"
+        tag="$(printf '%s' "$${commit_sha}" | cut -c1-12)"
         image="asia-south1-docker.pkg.dev/goatos-stg/goatos/migrate:$${tag}"
         docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
         docker build --platform linux/amd64 --build-arg GIT_SHA="$${tag}" -f backend/Dockerfile.migrate -t "$${image}" .
@@ -127,7 +133,8 @@ steps:
     entrypoint: sh
     env:
       - DEPLOY_STG=${_DEPLOY_STG}
-      - COMMIT_SHA=${_COMMIT_SHA}
+      - REQUESTED_COMMIT_SHA=${_COMMIT_SHA}
+      - RESOLVED_COMMIT_SHA=$REVISION_ID
       - DOCKER_CONFIG=/workspace/.docker
       - DOCKER_BUILDKIT=1
     args:
@@ -137,7 +144,8 @@ steps:
           echo "Admin web image build not requested."
           exit 0
         fi
-        tag="$(printf '%s' "$${COMMIT_SHA}" | cut -c1-12)"
+        commit_sha="$${REQUESTED_COMMIT_SHA:-$${RESOLVED_COMMIT_SHA}}"
+        tag="$(printf '%s' "$${commit_sha}" | cut -c1-12)"
         image="asia-south1-docker.pkg.dev/goatos-stg/goatos/admin-web:$${tag}"
         docker login -u oauth2accesstoken --password-stdin https://asia-south1-docker.pkg.dev < /workspace/.docker/access-token
         docker build --platform linux/amd64 -f apps/admin-web/Dockerfile -t "$${image}" .
@@ -150,7 +158,8 @@ steps:
       - PROJECT_ID=goatos-stg
       - PROJECT_NUMBER=514832198871
       - REGION=asia-south1
-      - COMMIT_SHA=${_COMMIT_SHA}
+      - REQUESTED_COMMIT_SHA=${_COMMIT_SHA}
+      - RESOLVED_COMMIT_SHA=$REVISION_ID
       - BUILD_ID=$BUILD_ID
       - ARTIFACT_REPOSITORY=goatos
       - DELIVERY_PIPELINE=goatos-stg
@@ -168,6 +177,7 @@ steps:
           echo "STG Cloud Deploy release not requested."
           exit 0
         fi
+        export COMMIT_SHA="$${REQUESTED_COMMIT_SHA:-$${RESOLVED_COMMIT_SHA}}"
         apt-get update
         apt-get install -y --no-install-recommends ca-certificates curl dnsutils git python3
         tools/deploy/stg-cloudbuild-release.sh
@@ -180,7 +190,8 @@ steps:
       - PROJECT_NUMBER=514832198871
       - REGION=asia-south1
       - BUILD_ID=$BUILD_ID
-      - COMMIT_SHA=${_COMMIT_SHA}
+      - REQUESTED_COMMIT_SHA=${_COMMIT_SHA}
+      - RESOLVED_COMMIT_SHA=$REVISION_ID
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
       - TRIGGERED_BY=${_TRIGGERED_BY}
       - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
@@ -191,6 +202,7 @@ steps:
           echo "STG release tag bookkeeping not requested."
           exit 0
         fi
+        export COMMIT_SHA="$${REQUESTED_COMMIT_SHA:-$${RESOLVED_COMMIT_SHA}}"
         apt-get update
         apt-get install -y --no-install-recommends ca-certificates curl git python3
         tools/deploy/stg-release-tag-bookkeeping.sh
@@ -203,7 +215,8 @@ steps:
       - PROJECT_NUMBER=514832198871
       - REGION=asia-south1
       - BUILD_ID=$BUILD_ID
-      - COMMIT_SHA=${_COMMIT_SHA}
+      - REQUESTED_COMMIT_SHA=${_COMMIT_SHA}
+      - RESOLVED_COMMIT_SHA=$REVISION_ID
       - DEPLOY_STG=${_DEPLOY_STG}
       - DEPLOY_MOBILE=${_DEPLOY_MOBILE}
       - SLACK_WEBHOOK_SECRET=${_SLACK_WEBHOOK_SECRET}
@@ -216,6 +229,7 @@ steps:
           echo "Android mobile distribution not requested."
           exit 0
         fi
+        export COMMIT_SHA="$${REQUESTED_COMMIT_SHA:-$${RESOLVED_COMMIT_SHA}}"
         apt-get update
         apt-get install -y --no-install-recommends ca-certificates curl git jq make openjdk-21-jdk openssl unzip
         tools/deploy/stg-mobile-distribution.sh
