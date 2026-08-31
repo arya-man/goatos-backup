@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
 
-import Link from "@/components/no-prefetch-link";
 import { LocalOverlayLink } from "@/components/local-overlay-link";
 import { Boxes } from "lucide-react";
 
 import { GroupedColumns, type GroupedSeries } from "@/components/grouped-columns";
 import { Tag } from "@/components/ui-primitives";
-import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { LoadwiseLoad, LoadwiseSales } from "@/lib/api/procurement";
 import type { ApiResult } from "@/lib/api/server";
 import { humanDate, inr, inrCompact, num, signedInr, signedInrCompact } from "./sales-format";
@@ -52,16 +51,13 @@ function loadLabel(load: LoadwiseLoad, loadWord: string, none: string): string {
 export function LoadwiseSection({
   pageContract,
   view,
-  tabHref,
   loadwise,
   canRecordCost,
   costHref,
 }: {
   pageContract: AdminUiPageContract;
-  /** The validated ?view= tab key (an option key of sales_views). */
+  /** The validated ?view= tab key (an option key of sales_views). The PAGE owns the tab chips. */
   view: string;
-  /** Link builder for the tab chips, preserving every other selected search param. */
-  tabHref: (view: string) => string;
   /** The load-wise read, or null when the Purchased tab is not the one being rendered. */
   loadwise: ApiResult<LoadwiseSales> | null;
   /** Backend-declared record_load_cost capability; without it rows do not open the cost drawer. */
@@ -71,7 +67,6 @@ export function LoadwiseSection({
 }) {
   const none = copy(pageContract, "value.none");
   const loadWord = copy(pageContract, "column.load");
-  const views = optionGroup(pageContract, "sales_views");
   const columns = tableLabels(pageContract, "sales-loadwise");
 
   const countSeries: GroupedSeries[] = [
@@ -99,25 +94,9 @@ export function LoadwiseSection({
       <div className="hd">
         <Boxes className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
         <h3>{copy(pageContract, "section.loadwise.title")}</h3>
-        <div className="sp" style={{ flex: 1 }} />
-        {/* The two tabs. Server-rendered links so the selection survives reload and a shared URL. */}
-        <div className="chips" role="group" aria-label={copy(pageContract, "section.loadwise.title")}>
-          {views.map((option) => (
-            <Link
-              key={option.key}
-              href={tabHref(option.key)}
-              scroll={false}
-              className={option.key === view ? "btn sm p" : "btn sm"}
-              aria-current={option.key === view ? "true" : undefined}
-            >
-              {option.label}
-            </Link>
-          ))}
-        </div>
       </div>
-      <div className="muted small" style={{ marginTop: 2 }}>
-        {copy(pageContract, "section.loadwise.subtitle")}
-      </div>
+      {/* The section's own subtitle is deliberately NOT rendered here: the PAGE header already
+          carries that sentence, and repeating it under the card reads as a stutter. */}
       {/* The price every unsold animal is valued at, stated once and plainly: most of the profit
           figures below are stock, so the rate behind them cannot be buried in a tooltip. */}
       {view === "purchased" && data ? (
@@ -130,9 +109,9 @@ export function LoadwiseSection({
         </div>
       ) : null}
 
-      {view === "from_barn" ? (
+      {view !== "purchased" ? (
         <div className="empty" style={{ marginTop: 12 }}>
-          {copy(pageContract, "empty.from_barn")}
+          {copy(pageContract, "empty.farm_born")}
         </div>
       ) : loadwise && !loadwise.ok ? (
         <div className="alert" style={{ marginTop: 12 }}>

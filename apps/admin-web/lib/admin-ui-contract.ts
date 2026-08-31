@@ -6,12 +6,13 @@ export type AdminUiOption = AdminWebPageContract["option_groups"][number]["optio
 export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 const COPY_FALLBACKS: Record<string, Record<string, string>> = {
-  // SALES load-wise section. Its ~60 copy keys all arrived in one change, and admin-web and
+  // SALES > Purchase & barn page. Its ~60 copy keys all arrived in one change, and admin-web and
   // the backend deploy separately: if the frontend lands first, every one of these throws and
-  // takes the WHOLE Sales page down -- ledger, buyers and all -- not just the new section.
+  // takes the WHOLE Purchase & barn page down.
   // Same reason weighing-weights carries its Growth Director block below. Remove once the
   // backend serving these keys is the oldest version in production.
-  sales: {
+  "sales-loads": {
+    "page.tabs.aria": "Purchased or farm born",
     "action.close": "Close",
     "action.record_load_cost.label": "Record cost",
     "chart.loadwise_counts.empty": "No loads to chart yet.",
@@ -36,7 +37,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "crumb": "Sales",
     "disabled.load_cost": "Recording a load's cost needs the buying desk's access.",
     "drawer.load_cost.title": "Record load cost",
-    "empty.from_barn": "Sales of farm-born animals will show here. This view is not built yet.",
+    "empty.farm_born": "Sales of farm-born animals will show here. This view is not built yet.",
     "empty.loadwise": "No purchased loads yet. Loads appear here as source entry accepts them into the herd.",
     "error.load": "Could not load the sales board. Refresh to try again.",
     "hint.load_cost": "What this load cost to buy and bring in. Animal cost is required; transport and other are optional.",

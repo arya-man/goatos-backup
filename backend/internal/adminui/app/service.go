@@ -165,6 +165,11 @@ func navigation() domain.NavigationContract {
 				ID: "sales", Label: "Sales", Icon: "banknote", DefaultOpen: false,
 				Leaves: []domain.NavigationItem{
 					navLeaf("sales-board", "Sales", "/sales", nil),
+					// Load by load — its own page rather than a block on the board (maintainer
+					// decision 2026-08-31). The board answers "how are sales going"; this answers
+					// "how did each batch of animals do", which is a different question read at a
+					// different time, and it carries its own tabs and its own write.
+					navLeaf("sales-loads", "Purchase & barn", "/sales/loads", nil),
 				},
 			},
 			{
@@ -514,11 +519,14 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{
 				tableP("sales-deals", "Deals", "/sales/deals", []string{"sale_date", "farm", "buyer_name", "product_type", "breed", "animal_count", "total_weight_kg", "sales_value", "status"}, "deal_id", []int{25, 50, 100}),
 				withoutRowClick(tableP("sales-buyers", "Buyers", "/sales/overview", []string{"buyer_name", "buyer_place", "product_types", "deals", "animals", "revenue", "share_pct"}, "", []int{10, 25, 50})),
-				// LOAD-WISE (maintainer decision 2026-08-31): every purchased load reconciled --
-				// counts on one side, money on the other. Served whole (newest 60 loads) by the
-				// procurement read; a row click opens the load-cost drawer, so the row key is the
-				// load id. Rendered under the Purchased tab of the load-wise section.
-				tableP("sales-loadwise", "Load-wise", "/procurement/loadwise-sales", []string{"load", "farm", "purchased", "sold", "mortality", "remaining", "unaccounted", "purchase_value", "sold_value", "profit_loss"}, "load_id", []int{60}),
+			}),
+		// LOAD BY LOAD (maintainer decision 2026-08-31): every purchased load reconciled --
+		// counts on one side, money on the other. Its OWN page under Sales, with the
+		// Purchased / Farm born tabs at the top. Served whole (newest 60 loads) by the
+		// procurement read; a row click opens the load-cost drawer, so the row key is the load id.
+		page("sales-loads", "/sales/loads", "/sales/loads", "Purchase & barn", "Every purchased load reconciled — bought, sold, died, still on farm — and the money on each side.", "module-surface",
+			[]domain.TableContract{
+				tableP("sales-loadwise", "Load by load", "/procurement/loadwise-sales", []string{"load", "farm", "purchased", "sold", "mortality", "remaining", "unaccounted", "purchase_value", "sold_value", "profit_loss"}, "load_id", []int{60}),
 			}),
 		// FEED PURCHASES: the buying side of the feed chain (maintainer decision 2026-08-24,
 		// retiring the read-only half of migration 000174). One server-paged ledger table whose
@@ -2618,6 +2626,97 @@ func pageSpecificCopy(id string) map[string]string {
 			"required.hint.create": "Business name, record type, contact person, phone number, state, city and status are required.",
 			"disabled.write":       "Your current role can view vendors but not change them.",
 		}
+	case "sales-loads":
+		// Load by load -- the per-load reconciliation page under Sales (maintainer decision
+		// 2026-08-31). Farm language only, like every other page's copy.
+		return map[string]string{
+			"crumb": "Sales",
+
+			// The page's own copy. Two tabs, Purchased (loads) and Farm born (a shell until that
+			// view is built). All backend-owned; the client renders it verbatim.
+			"tab.purchased":                    "Purchased",
+			"tab.farm_born":                    "Farm born",
+			"section.loadwise.title":           "Load by load",
+			"page.tabs.aria":                   "Purchased or farm born",
+			"section.loadwise.aria":            "Load-wise reconciliation",
+			"section.loadwise.subtitle":        "Every purchased load reconciled: bought, sold, died, still on farm — and the money on each side.",
+			"section.loadwise.showing":         "Showing the newest loads",
+			"empty.loadwise":                   "No purchased loads yet. Loads appear here as source entry accepts them into the herd.",
+			"empty.farm_born":                  "Sales of farm-born animals will show here. This view is not built yet.",
+			"loadwise.kpi.purchased":           "Purchased",
+			"loadwise.kpi.sold":                "Sold",
+			"loadwise.kpi.mortality":           "Mortality",
+			"loadwise.kpi.remaining":           "Still on farm",
+			"loadwise.kpi.purchase_value":      "Purchase value",
+			"loadwise.kpi.purchase_value.hint": "recorded costs only",
+			"loadwise.kpi.sold_value":          "Sold value",
+			"loadwise.kpi.sold_value.hint":     "from sales with tagged animals",
+			"loadwise.kpi.profit":              "Profit / loss",
+			"loadwise.kpi.profit.hint":         "sales plus stock on farm, against what the loads cost",
+			"chart.loadwise_counts.title":      "Animals per load",
+			"chart.loadwise_counts.empty":      "No loads to chart yet.",
+			"chart.loadwise_value.title":       "Money per load",
+			"chart.loadwise_value.empty":       "No load has a recorded cost or a priced sale yet.",
+			"chart.series.purchased":           "Purchased",
+			"chart.series.sold_count":          "Sold",
+			"chart.series.mortality":           "Mortality",
+			"chart.series.remaining":           "Remaining",
+			"chart.series.purchase_value":      "Purchase value",
+			"chart.series.sold_value":          "Sold value",
+			"chart.series.profit_loss":         "Profit / loss",
+			"column.load":                      "Load",
+			"column.purchased":                 "Purchased",
+			"column.sold":                      "Sold",
+			"column.mortality":                 "Mortality",
+			// Kept as copy even though the table no longer carries a column for it: culled /
+			// transferred / lost are real exits, and the load-cost drawer still names them so the
+			// fact is never silently dropped from a load that has one.
+			"column.other_exits":    "Other exits",
+			"column.remaining":      "Remaining",
+			"column.unaccounted":    "Unaccounted",
+			"column.purchase_value": "Purchase value",
+			"column.sold_value":     "Sold value",
+			"column.profit_loss":    "Profit / loss",
+			// Still published: the drawer names the stock figure the profit is partly made of, and
+			// the table's profit cell explains an unrealised figure with it.
+			"column.remaining_value":  "Remaining stock value (est.)",
+			"value.profit_unrealised": "includes stock still on farm, not yet sold",
+			// The profit of a load that has sold nothing IS its stock valuation, so the number that
+			// produced it is shown beside it rather than hidden in a tooltip.
+			"value.profit_incl_stock":      "incl. stock",
+			"loadwise.stock_price_note":    "Animals not yet sold are valued at",
+			"loadwise.stock_price_each":    "each",
+			"loadwise.stock_price_unknown": "Animals not yet sold cannot be valued: nothing has sold yet to price them against.",
+			"value.profit_unavailable":     "No cost recorded, so profit cannot be worked out.",
+			"value.cost_missing":           "Cost not recorded",
+			"value.price_basis.load":       "at this load's own average sold price",
+			"value.price_basis.overall":    "at the overall average sold price",
+			// The third basis, and the one a fresh tenant hits FIRST: with no sale anywhere there is
+			// no price to value stock at. It must be published like the other two -- the renderer
+			// resolves this key from price_basis, so an unpublished value takes the page down.
+			"value.price_basis.none":         "no sale yet to price them against",
+			"value.sold_unpriced":            "sold without a tagged sale",
+			"loadwise.row_hint":              "click a load to record its cost",
+			"loadwise.prior.title":           "Before these records",
+			"loadwise.prior.sold":            "Sold earlier",
+			"loadwise.prior.died":            "Died earlier",
+			"loadwise.prior.animals":         "animals",
+			"drawer.load_cost.title":         "Record load cost",
+			"field.animal_cost":              "Animal cost",
+			"field.transport_cost":           "Transport cost",
+			"field.other_cost":               "Other cost",
+			"hint.load_cost":                 "What this load cost to buy and bring in. Animal cost is required; transport and other are optional.",
+			"action.record_load_cost.label":  "Record cost",
+			"action.load_cost_recorded":      "Load cost recorded.",
+			"action.load_cost_record_failed": "Could not record this cost. Check the fields and try again.",
+			"disabled.load_cost":             "Recording a load's cost needs the buying desk's access.",
+
+			// Shared chrome this page renders itself, no longer inherited from the board.
+			"value.none":   "Not recorded",
+			"error.load":   "This page could not be loaded. Try again in a moment.",
+			"action.close": "Close",
+		}
+
 	case "feed-purchases":
 		// Backend-owned copy for the feed purchase ledger. The client renders these verbatim; per
 		// the golden rule it must not hardcode a label, an empty state or a disabled reason of its
@@ -2843,84 +2942,6 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.deals.unset":      "No sales recorded yet. Record the first sale to start the ledger.",
 			"summary.count":          "deals",
 			"summary.buyers":         "buyers",
-
-			// Load-wise section (maintainer decision 2026-08-31): two tabs, Purchased (loads) and
-			// From the barn (farm-born, a shell until that view is built). All copy backend-owned.
-			"tab.purchased":                  "Purchased",
-			"tab.from_barn":                  "From the barn",
-			"section.loadwise.title":         "Load by load",
-			"section.loadwise.aria":          "Load-wise reconciliation",
-			"section.loadwise.subtitle":      "Every purchased load reconciled: bought, sold, died, still on farm — and the money on each side.",
-			"section.loadwise.showing":       "Showing the newest loads",
-			"empty.loadwise":                 "No purchased loads yet. Loads appear here as source entry accepts them into the herd.",
-			"empty.from_barn":                "Sales of farm-born animals will show here. This view is not built yet.",
-			"loadwise.kpi.purchased":         "Purchased",
-			"loadwise.kpi.sold":              "Sold",
-			"loadwise.kpi.mortality":         "Mortality",
-			"loadwise.kpi.remaining":         "Still on farm",
-			"loadwise.kpi.purchase_value":    "Purchase value",
-			"loadwise.kpi.purchase_value.hint": "recorded costs only",
-			"loadwise.kpi.sold_value":        "Sold value",
-			"loadwise.kpi.sold_value.hint":   "from sales with tagged animals",
-			"loadwise.kpi.profit":            "Profit / loss",
-			"loadwise.kpi.profit.hint":       "sales plus stock on farm, against what the loads cost",
-			"chart.loadwise_counts.title":    "Animals per load",
-			"chart.loadwise_counts.empty":    "No loads to chart yet.",
-			"chart.loadwise_value.title":     "Money per load",
-			"chart.loadwise_value.empty":     "No load has a recorded cost or a priced sale yet.",
-			"chart.series.purchased":         "Purchased",
-			"chart.series.sold_count":        "Sold",
-			"chart.series.mortality":         "Mortality",
-			"chart.series.remaining":         "Remaining",
-			"chart.series.purchase_value":    "Purchase value",
-			"chart.series.sold_value":        "Sold value",
-			"chart.series.profit_loss":       "Profit / loss",
-			"column.load":                    "Load",
-			"column.purchased":               "Purchased",
-			"column.sold":                    "Sold",
-			"column.mortality":               "Mortality",
-			// Kept as copy even though the table no longer carries a column for it: culled /
-			// transferred / lost are real exits, and the load-cost drawer still names them so the
-			// fact is never silently dropped from a load that has one.
-			"column.other_exits":             "Other exits",
-			"column.remaining":               "Remaining",
-			"column.unaccounted":             "Unaccounted",
-			"column.purchase_value":          "Purchase value",
-			"column.sold_value":              "Sold value",
-			"column.profit_loss":             "Profit / loss",
-			// Still published: the drawer names the stock figure the profit is partly made of, and
-			// the table's profit cell explains an unrealised figure with it.
-			"column.remaining_value":         "Remaining stock value (est.)",
-			"value.profit_unrealised":        "includes stock still on farm, not yet sold",
-			// The profit of a load that has sold nothing IS its stock valuation, so the number that
-			// produced it is shown beside it rather than hidden in a tooltip.
-			"value.profit_incl_stock":        "incl. stock",
-			"loadwise.stock_price_note":      "Animals not yet sold are valued at",
-			"loadwise.stock_price_each":      "each",
-			"loadwise.stock_price_unknown":   "Animals not yet sold cannot be valued: nothing has sold yet to price them against.",
-			"value.profit_unavailable":       "No cost recorded, so profit cannot be worked out.",
-			"value.cost_missing":             "Cost not recorded",
-			"value.price_basis.load":         "at this load's own average sold price",
-			"value.price_basis.overall":      "at the overall average sold price",
-			// The third basis, and the one a fresh tenant hits FIRST: with no sale anywhere there is
-			// no price to value stock at. It must be published like the other two -- the renderer
-			// resolves this key from price_basis, so an unpublished value takes the page down.
-			"value.price_basis.none":         "no sale yet to price them against",
-			"value.sold_unpriced":            "sold without a tagged sale",
-			"loadwise.row_hint":              "click a load to record its cost",
-			"loadwise.prior.title":           "Before these records",
-			"loadwise.prior.sold":            "Sold earlier",
-			"loadwise.prior.died":            "Died earlier",
-			"loadwise.prior.animals":         "animals",
-			"drawer.load_cost.title":         "Record load cost",
-			"field.animal_cost":              "Animal cost",
-			"field.transport_cost":           "Transport cost",
-			"field.other_cost":               "Other cost",
-			"hint.load_cost":                 "What this load cost to buy and bring in. Animal cost is required; transport and other are optional.",
-			"action.record_load_cost.label":  "Record cost",
-			"action.load_cost_recorded":      "Load cost recorded.",
-			"action.load_cost_record_failed": "Could not record this cost. Check the fields and try again.",
-			"disabled.load_cost":             "Recording a load's cost needs the buying desk's access.",
 
 			// "Tag animals to sale": pick the real animals a recorded sale is made of.
 			// The blockers' own sentences are composed by the identity module and rendered
@@ -5865,15 +5886,6 @@ func salesOptionGroups() []domain.OptionGroup {
 			},
 		},
 		{
-			// The load-wise section's two tabs. Purchased = procured loads; From the barn =
-			// farm-born animals (a shell until that view is built).
-			ID: "sales_views",
-			Options: []domain.Option{
-				option("purchased", "Purchased", "", ""),
-				option("from_barn", "From the barn", "", ""),
-			},
-		},
-		{
 			ID: "sales_farms",
 			Options: []domain.Option{
 				option("all", "All farms", "", ""),
@@ -6055,6 +6067,18 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		})
 	case "sales":
 		return withGenericOptionGroups(salesOptionGroups())
+	case "sales-loads":
+		return withGenericOptionGroups([]domain.OptionGroup{
+			{
+				// The page's two tabs, in the order shown: Purchased first, and it is the tab the
+				// page selects when the URL names none.
+				ID: "sales_views",
+				Options: []domain.Option{
+					option("purchased", "Purchased", "", ""),
+					option("farm_born", "Farm born", "", ""),
+				},
+			},
+		})
 	case "health-config":
 		return withGenericOptionGroups(healthConfigOptionGroups())
 	case "control-tower":

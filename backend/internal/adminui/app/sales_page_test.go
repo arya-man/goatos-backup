@@ -25,18 +25,8 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		t.Fatalf("sales must be a module surface, got %q", page.SurfaceKind)
 	}
 
-	if len(page.Tables) != 3 || page.Tables[0].ID != "sales-deals" || page.Tables[1].ID != "sales-buyers" ||
-		page.Tables[2].ID != "sales-loadwise" {
+	if len(page.Tables) != 2 || page.Tables[0].ID != "sales-deals" || page.Tables[1].ID != "sales-buyers" {
 		t.Fatalf("sales tables = %+v", page.Tables)
-	}
-	// The load-wise reconciliation table (maintainer decision 2026-08-31): served by the
-	// procurement read, row click opens the load-cost drawer keyed by the load id.
-	loadwise := page.Tables[2]
-	if loadwise.DataSource != "/procurement/loadwise-sales" {
-		t.Fatalf("loadwise table source = %q", loadwise.DataSource)
-	}
-	if loadwise.RowClick.Param != "load_id" {
-		t.Fatalf("loadwise row param = %q", loadwise.RowClick.Param)
 	}
 	deals := page.Tables[0]
 	// The buyer board is paged in the renderer off the overview response: the contract owns the
@@ -81,34 +71,6 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		"hint.vendor_truncated", "action.open_vendors", "hint.vendor_prefill", "error.vendors_unavailable",
 		"action.sale_recorded", "action.sale_record_failed",
 		"empty.deals", "error.load", "disabled.write",
-		// Load-wise section (maintainer decision 2026-08-31): tabs, summary tiles, charts,
-		// reconciliation columns and the load-cost drawer are all backend-owned copy.
-		"tab.purchased", "tab.from_barn",
-		"section.loadwise.title", "section.loadwise.subtitle", "empty.loadwise", "empty.from_barn",
-		"loadwise.kpi.purchased", "loadwise.kpi.sold", "loadwise.kpi.mortality",
-		"loadwise.kpi.remaining", "loadwise.kpi.purchase_value", "loadwise.kpi.sold_value",
-		"loadwise.kpi.profit", "loadwise.kpi.profit.hint",
-		"chart.loadwise_counts.title", "chart.loadwise_counts.empty",
-		"chart.loadwise_value.title", "chart.loadwise_value.empty",
-		"chart.series.purchased", "chart.series.sold_count", "chart.series.mortality",
-		"chart.series.remaining", "chart.series.purchase_value", "chart.series.sold_value",
-		"chart.series.profit_loss",
-		"column.load", "column.purchased", "column.sold", "column.mortality",
-		"column.other_exits", "column.remaining", "column.unaccounted",
-		"column.purchase_value", "column.sold_value", "column.profit_loss",
-		"column.remaining_value", "value.profit_unrealised", "value.profit_unavailable",
-		"value.profit_incl_stock", "loadwise.stock_price_note", "loadwise.stock_price_each",
-		"loadwise.stock_price_unknown",
-		"value.cost_missing", "value.price_basis.load", "value.price_basis.overall",
-		// All THREE bases must be published: the renderer resolves this key from the served
-		// price_basis, so an unpublished value throws and takes the whole page down. "none" is
-		// what a tenant with no sales yet returns, i.e. the very first state.
-		"value.price_basis.none",
-		"value.sold_unpriced",
-		"loadwise.prior.title", "loadwise.prior.sold", "loadwise.prior.died",
-		"drawer.load_cost.title", "field.animal_cost", "field.transport_cost", "field.other_cost",
-		"hint.load_cost", "action.record_load_cost.label", "action.load_cost_recorded",
-		"action.load_cost_record_failed", "disabled.load_cost",
 	} {
 		if page.Copy[key] == "" {
 			t.Fatalf("sales copy missing %q", key)
@@ -129,10 +91,7 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	if groups["sales_product_types"] != 3 {
 		t.Fatalf("sales_product_types options = %d", groups["sales_product_types"])
 	}
-	// The load-wise section's two tabs: Purchased and From the barn.
-	if groups["sales_views"] != 2 {
-		t.Fatalf("sales_views options = %d", groups["sales_views"])
-	}
+
 	for _, id := range []string{"sales_breeds_sheep", "sales_breeds_goat", "sales_breeds_manure"} {
 		if groups[id] == 0 {
 			t.Fatalf("option group %q missing", id)
@@ -164,7 +123,11 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 	if salesGroup.Icon != "banknote" {
 		t.Fatalf("sales group icon = %q, want banknote", salesGroup.Icon)
 	}
-	if len(salesGroup.Leaves) != 1 || salesGroup.Leaves[0].Href != "/sales" {
+	// Two leaves now: the board, and Purchase & barn beside it (maintainer decision 2026-08-31).
+	if len(salesGroup.Leaves) != 2 ||
+		salesGroup.Leaves[0].Href != "/sales" ||
+		salesGroup.Leaves[1].Href != "/sales/loads" ||
+		salesGroup.Leaves[1].Label != "Purchase & barn" {
 		t.Fatalf("sales group leaves = %+v", salesGroup.Leaves)
 	}
 
@@ -276,7 +239,7 @@ func TestRecordLoadCostControlIsCapabilityGated(t *testing.T) {
 					{Role: tc.role, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
 				},
 			})
-			control := controlByID(t, pageByRouteID(t, resp.Pages, "sales").Controls, "record_load_cost")
+			control := controlByID(t, pageByRouteID(t, resp.Pages, "sales-loads").Controls, "record_load_cost")
 			if control.Enabled != tc.enabled {
 				t.Fatalf("%s record_load_cost.enabled = %v want %v (%#v)", tc.name, control.Enabled, tc.enabled, control)
 			}
@@ -287,5 +250,91 @@ func TestRecordLoadCostControlIsCapabilityGated(t *testing.T) {
 				t.Fatalf("record_load_cost.action = %q want the load-cost write", control.Action)
 			}
 		})
+	}
+}
+
+// TestSalesLoadsPageContract pins the Purchase & barn page: its own route under Sales, the
+// load-wise table it serves, its two tabs with Purchased first, and the backend-owned copy the
+// client renders verbatim.
+//
+// It is a SEPARATE page from the sales board (maintainer decision 2026-08-31): the board answers
+// how sales are going, this answers how each batch of animals did.
+func TestSalesLoadsPageContract(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+	})
+
+	page := pageByRouteID(t, resp.Pages, "sales-loads")
+	if page.Href != "/sales/loads" || page.SurfaceKind != "module-surface" {
+		t.Fatalf("page href/kind = %q/%q", page.Href, page.SurfaceKind)
+	}
+	if page.Title != "Purchase & barn" {
+		t.Fatalf("page title = %q, want the maintainer-chosen name", page.Title)
+	}
+	if len(page.Tables) != 1 || page.Tables[0].ID != "sales-loadwise" {
+		t.Fatalf("tables = %+v", page.Tables)
+	}
+	if page.Tables[0].DataSource != "/procurement/loadwise-sales" {
+		t.Fatalf("table source = %q", page.Tables[0].DataSource)
+	}
+	if page.Tables[0].RowClick.Param != "load_id" {
+		t.Fatalf("row param = %q, want the load id the cost drawer opens on", page.Tables[0].RowClick.Param)
+	}
+
+	// The tabs, in order: Purchased is FIRST because the page selects it when the URL names none.
+	var views []domain.Option
+	for _, g := range page.OptionGroups {
+		if g.ID == "sales_views" {
+			views = g.Options
+		}
+	}
+	if len(views) != 2 || views[0].Key != "purchased" || views[1].Key != "farm_born" {
+		t.Fatalf("sales_views = %+v, want purchased then farm_born", views)
+	}
+
+	for _, key := range []string{
+		"crumb", "value.none", "error.load",
+		// Load-wise section (maintainer decision 2026-08-31): tabs, summary tiles, charts,
+		// reconciliation columns and the load-cost drawer are all backend-owned copy.
+		"tab.purchased", "tab.farm_born",
+		"section.loadwise.title", "section.loadwise.subtitle", "empty.loadwise", "empty.farm_born",
+		"loadwise.kpi.purchased", "loadwise.kpi.sold", "loadwise.kpi.mortality",
+		"loadwise.kpi.remaining", "loadwise.kpi.purchase_value", "loadwise.kpi.sold_value",
+		"loadwise.kpi.profit", "loadwise.kpi.profit.hint",
+		"chart.loadwise_counts.title", "chart.loadwise_counts.empty",
+		"chart.loadwise_value.title", "chart.loadwise_value.empty",
+		"chart.series.purchased", "chart.series.sold_count", "chart.series.mortality",
+		"chart.series.remaining", "chart.series.purchase_value", "chart.series.sold_value",
+		"chart.series.profit_loss",
+		"column.load", "column.purchased", "column.sold", "column.mortality",
+		"column.other_exits", "column.remaining", "column.unaccounted",
+		"column.purchase_value", "column.sold_value", "column.profit_loss",
+		"column.remaining_value", "value.profit_unrealised", "value.profit_unavailable",
+		"value.profit_incl_stock", "loadwise.stock_price_note", "loadwise.stock_price_each",
+		"loadwise.stock_price_unknown",
+		"value.cost_missing", "value.price_basis.load", "value.price_basis.overall",
+		// All THREE bases must be published: the renderer resolves this key from the served
+		// price_basis, so an unpublished value throws and takes the whole page down. "none" is
+		// what a tenant with no sales yet returns, i.e. the very first state.
+		"value.price_basis.none",
+		"value.sold_unpriced",
+		"loadwise.prior.title", "loadwise.prior.sold", "loadwise.prior.died",
+		"drawer.load_cost.title", "field.animal_cost", "field.transport_cost", "field.other_cost",
+		"hint.load_cost", "action.record_load_cost.label", "action.load_cost_recorded",
+		"action.load_cost_record_failed", "disabled.load_cost",
+	} {
+		if page.Copy[key] == "" {
+			t.Fatalf("sales-loads copy missing %q", key)
+		}
+	}
+}
+
+// TestSalesLoadsNavLeafRidesSalesRead pins that the new leaf is gated on the SALES permission and
+// not on ProcurementRead, which operators and park heads hold for the intake screens they work.
+func TestSalesLoadsNavLeafRidesSalesRead(t *testing.T) {
+	required := permissionsForNav("sales-loads")
+	if len(required) != 1 || required[0] != permissions.SalesRead {
+		t.Fatalf("permissionsForNav(sales-loads) = %v, want exactly SalesRead", required)
 	}
 }
