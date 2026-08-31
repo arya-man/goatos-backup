@@ -462,6 +462,18 @@ func detectInlineHotPathSQL(file *ast.File) []inlineSQLFinding {
 					// statement. Do not descend and report them again.
 					return false
 				}
+				// A mixed chain -- `head + where + tail`. Left-associative parsing means
+				// flattenStringConcat fails on the whole chain AND on its `head + where` subtree,
+				// so each literal is examined alone and a statement split across two sub-threshold
+				// halves around a variable slipped through. Sum the LITERAL operands across the
+				// whole chain before giving up on it.
+				if text, pos, ok := concatLiteralOperands(bin); ok && isInlineHotPathSQL(text) {
+					out = append(out, inlineSQLFinding{
+						pos: pos,
+						msg: "multi-line SQL declared inside " + fn.Name.Name + "() (assembled by concatenation around a variable): hoist it to a package-level named const (or SQLC) so a query-plan test and this guard can reach it",
+					})
+					return false
+				}
 				// An operand was NOT a literal -- `sqlText + where`. KEEP DESCENDING.
 				//
 				// Returning false here (as this rule originally did) meant a statement assembled
@@ -514,6 +526,42 @@ func isInlineHotPathSQL(text string) bool {
 // flattenStringConcat concatenates a `+` chain of string literals. It returns false as soon as any
 // operand is not a plain string literal, because a chain carrying a variable is a built query
 // rather than a statement this rule can read.
+// concatLiteralOperands walks a `+` chain and concatenates only its STRING LITERAL operands,
+// ignoring the rest. flattenStringConcat is all-or-nothing by design (it proves the final text); this
+// is the weaker question the guard actually needs: is there a multi-line statement's worth of SQL
+// sitting in the literal parts, regardless of what is interpolated between them.
+func concatLiteralOperands(expr ast.Expr) (string, token.Pos, bool) {
+	var parts []string
+	var pos token.Pos
+	var walk func(ast.Expr)
+	walk = func(e ast.Expr) {
+		switch v := e.(type) {
+		case *ast.BinaryExpr:
+			if v.Op == token.ADD {
+				walk(v.X)
+				walk(v.Y)
+			}
+		case *ast.BasicLit:
+			if v.Kind != token.STRING {
+				return
+			}
+			text, err := strconv.Unquote(v.Value)
+			if err != nil {
+				return
+			}
+			if pos == 0 {
+				pos = v.Pos()
+			}
+			parts = append(parts, text)
+		}
+	}
+	walk(expr)
+	if len(parts) == 0 {
+		return "", 0, false
+	}
+	return strings.Join(parts, "\n"), pos, true
+}
+
 func flattenStringConcat(expr ast.Expr) (string, token.Pos, bool) {
 	switch e := expr.(type) {
 	case *ast.BasicLit:

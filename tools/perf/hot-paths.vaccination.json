@@ -19,7 +19,9 @@
       "vaccination_shed_summary",
       "vaccination_command_board",
       "vaccination_command_drives",
-      "vaccination_command_closed_without_dose"
+      "vaccination_command_closed_without_dose",
+      "vaccination_command_cohort_matrix",
+      "vaccination_command_shed_dose_matrix"
     ],
     "evidence_boundaries": {
       "canonical_5k_50k_serving_reads": [
@@ -43,7 +45,9 @@
         "vaccination_execution",
         "vaccination_operations",
         "vaccination_command_drives",
-        "vaccination_command_closed_without_dose"
+        "vaccination_command_closed_without_dose",
+        "vaccination_command_cohort_matrix",
+        "vaccination_command_shed_dose_matrix"
       ]
     },
     "excluded": {

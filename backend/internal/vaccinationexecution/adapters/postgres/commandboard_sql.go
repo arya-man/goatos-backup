@@ -209,11 +209,15 @@ FROM per_animal
 // projection-review:
 // (a) PRODUCER unique column list: obligation_instances is unique on (obligation_id); the comp
 //
-//	CTE is pre-aggregated to exactly one row per obligation_id. Every bucket counts
-//	DISTINCT oi.obligation_id, so one obligation contributes at most 1 to at most one bucket.
-//	CONSUMER match/group column list: GROUP BY (park.location_id, park.name,
-//	g.management_stage, g.sex, pr.dose_code) — the identical key set for all three buckets and
-//	for animal_count; no bucket carries an extra or missing WHERE dimension.
+//	CTE is pre-aggregated to exactly one row per obligation_id. Each bucket is a
+//	COUNT(*) FILTER at obligation grain, SUMmed once through the intermediate fold, so one
+//	obligation contributes at most 1 to at most one bucket.
+//	CONSUMER match/group column list: TWO levels. narrowed folds on
+//	(oi.target_id, oi.scope_id, pr.dose_code); cell_totals and cell_animals then fold that on
+//	(park_id, management_stage, sex, dose_code). The first key is strictly FINER than the second
+//	— target_id determines management_stage and sex, scope_id determines park_id — so no narrowed
+//	group straddles two cells and the SUM is exact. park.name is NOT a group key: it is joined
+//	last, after the aggregation, purely for ordering and display.
 //
 // (b) Join multiplicity: comp is 1:1 on obligation_id (GROUP BY obligation_id in the CTE);
 //
@@ -264,9 +268,16 @@ const commandBoardCohortSQL = `
 --   GroupAggregate and STILL spilled (7.0 MB, 237ms of 265ms). Grouping on the park uuid instead of
 --   its name shaved 5ms. The width was the problem, not the key.
 --
---   This shape: the cell aggregates are computed DIRECTLY at cell grain, where there are a few
---   hundred groups, and the only figure that genuinely needs animal grain -- animal_count -- comes
---   from a DISTINCT over five narrow columns carrying no payload at all. Both hash in memory.
+--   This shape folds TWICE, and the distinction from the rejected fold above is the whole point:
+--   narrowed folds BEFORE the wide join, on obligation_instances -> protocol_rules -> comp only, so
+--   80,960 rows become 20,660 while each row is still narrow. The rejected fold ran AFTER the join,
+--   at ~70k groups already carrying two timestamps and three counters, which is what spilled. The
+--   cell aggregates then run over 20,660 narrow rows, and animal_count comes from a DISTINCT over
+--   five narrow columns carrying no payload. Everything hashes in memory.
+--
+--   Do not read the rejected entry above as forbidding this one. What was rejected is a fold at
+--   animal grain placed after the decoration; what is adopted is a fold at (animal, scope, dose)
+--   grain placed before it. Measured: 283ms -> 174ms.
 --
 -- The equalities are exact, not approximate. pending/submitted/verified summed over a per-animal
 -- fold equal COUNT(*) FILTER over the flat set, because every obligation belongs to exactly one
@@ -301,6 +312,13 @@ WITH comp AS (
 -- narrowed: it lives on goats, and pulling goats forward is exactly the join this shape exists to
 -- defer. Dead animals' rows are counted and then dropped, which costs a little arithmetic and saves
 -- a 4x wider join.
+--
+-- WHY THAT IS LEGAL, and the invariant that keeps it legal: target_id is a GROUPING KEY of
+-- narrowed, so every narrowed row belongs to exactly one goat. The JOIN goats therefore drops a
+-- dead or merged animal's counts as an INDIVISIBLE UNIT -- it can never zero out part of a group
+-- that also contains a live animal. If target_id is ever removed from narrowed's GROUP BY as a
+-- further "optimisation", this filter placement becomes silently wrong and the buckets start
+-- including animals the board must not count. Move the filter into narrowed in the same change.
 --
 -- REJECTED, both measured rather than assumed:
 --   * folding cell_totals and cell_animals into one pass per (cell, animal): 349ms.
@@ -372,7 +390,13 @@ cell_animals AS (
 SELECT
   COALESCE(t.park_id::text, '') AS park_id,
   COALESCE(park.name, '') AS park_name,
-  t.management_stage,
+  -- COALESCEd like park_id above, and for the same reason. goats.management_stage is NULLABLE with
+  -- no default, and the row scans into a plain Go string: an un-COALESCEd NULL made pgx fail with
+  -- "cannot scan NULL into *string" and 500ed the WHOLE cohort matrix for the tenant. The join below
+  -- keeps IS NOT DISTINCT FROM so the NULL-stage cell is still matched; this normalises it for the
+  -- wire so the cell is both surfaced AND renderable. Surfacing a row and then failing its scan is
+  -- not "loud over silent", it is just broken.
+  COALESCE(t.management_stage, '') AS management_stage,
   t.sex,
   t.dose_code,
   a.animal_count,
@@ -411,7 +435,9 @@ ORDER BY park.name, t.park_id, t.management_stage, t.sex, t.dose_code
 const commandBoardCohortHeadSQL = `
 SELECT
   COALESCE(park.location_id::text, '') as park_id,
-  g.management_stage,
+  -- COALESCEd for the same reason as the cell aggregate above: NULLABLE column, scanned into a
+  -- plain string. The head count must agree with the cell grain, so both normalise identically.
+  COALESCE(g.management_stage, '') as management_stage,
   g.sex,
   COUNT(*) as head_count
 FROM goats g

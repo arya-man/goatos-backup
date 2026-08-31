@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -77,13 +78,22 @@ type Repository struct {
 	// behaviour on a two-row fixture instead of seeding 200 drives, which would make the
 	// truncation test slow enough that nobody runs it.
 	driveOptionsLimit int
+	// commandBoardSlots bounds the connections ONE READER's command board can hold across ALL of
+	// its sections at once -- the board itself AND its lazy sections, which admin-web fires in
+	// parallel. See commandBoardConcurrencyBudget.
+	commandBoardSlots *semaphore.Weighted
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	if queryTimeout <= 0 {
 		queryTimeout = defaultQueryTimeout
 	}
-	return &Repository{pool: pool, timeout: queryTimeout, driveOptionsLimit: defaultDriveOptionsLimit}
+	return &Repository{
+		pool:              pool,
+		timeout:           queryTimeout,
+		driveOptionsLimit: defaultDriveOptionsLimit,
+		commandBoardSlots: semaphore.NewWeighted(commandBoardConcurrencyBudget),
+	}
 }
 
 var _ ports.Repository = (*Repository)(nil)
