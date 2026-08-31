@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -471,6 +472,71 @@ func TestSecondObservationSeesTheOpenCourse(t *testing.T) {
 	}
 	if containsStr(second.Proposal.New, "FEVER") {
 		t.Errorf("an open course must not read as new: %v", second.Proposal.New)
+	}
+}
+
+// The stored run is the observation EXACTLY as evaluated: the follow-up context
+// (day, improving, shed-similar, the server-derived open problems, ...) changes
+// what the engine proposes, so a run that dropped it could never explain a
+// close/extend or test-based proposal afterwards.
+func TestStoredRunKeepsTheEffectiveContext(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	seedHealthScope(t, ctx, pool)
+	publishCard(t, ctx, pool, feverCard())
+	svc, _ := diagnosisStack(t, ctx, pool)
+
+	first, err := svc.SubmitObservation(ctx, feverObservation("obs-ctx-day1"))
+	if err != nil {
+		t.Fatalf("submit day 1: %v", err)
+	}
+	if _, err := svc.ConfirmDiagnosis(ctx, domain.ConfirmDiagnosisInput{
+		TenantID: healthTenant, ActorID: healthActor, DiagnosisRunID: first.DiagnosisRunID,
+		ConfirmedProblems: []string{"FEVER"}, IdempotencyKey: "confirm-ctx-day1", RequestFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("confirm day 1: %v", err)
+	}
+
+	day := 3
+	shedSimilar := 2
+	followUp := feverObservation("obs-ctx-day3")
+	followUp.Context = diagnosis.Context{
+		Day:              &day,
+		ShedSimilar:      &shedSimilar,
+		CMTNegStreak:     1,
+		ProblemImproving: true,
+	}
+	submitted, err := svc.SubmitObservation(ctx, followUp)
+	if err != nil {
+		t.Fatalf("submit follow-up: %v", err)
+	}
+
+	var stored diagnosis.Context
+	var raw []byte
+	if err := pool.QueryRow(ctx, `
+SELECT context FROM health_diagnosis_runs
+WHERE tenant_id=$1::uuid AND health_diagnosis_run_id=$2::uuid`,
+		healthTenant, submitted.DiagnosisRunID).Scan(&raw); err != nil {
+		t.Fatalf("read stored context: %v", err)
+	}
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatalf("decode stored context: %v", err)
+	}
+	if stored.Day == nil || *stored.Day != day {
+		t.Errorf("stored context day = %v, want %d", stored.Day, day)
+	}
+	if stored.ShedSimilar == nil || *stored.ShedSimilar != shedSimilar {
+		t.Errorf("stored context shed_similar = %v, want %d", stored.ShedSimilar, shedSimilar)
+	}
+	if stored.CMTNegStreak != 1 || !stored.ProblemImproving {
+		t.Errorf("stored context = %+v, want cmt_neg_streak=1 problem_improving=true", stored)
+	}
+	// The EFFECTIVE context, open problems included: the reconcile decision hangs
+	// on Open, and the caller never supplies it, so a stored context without it
+	// could not explain why FEVER read as ongoing.
+	if !containsStr(stored.Open, "FEVER") {
+		t.Errorf("stored context must carry the server-derived open problems, got %v", stored.Open)
 	}
 }
 
