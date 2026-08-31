@@ -309,9 +309,15 @@ func TestDecliningEverythingStillDecidesTheRun(t *testing.T) {
 	if !containsStr(confirmed.Declined, "FEVER") {
 		t.Errorf("the declined diagnosis must be reported, got %v", confirmed.Declined)
 	}
+	// "Treat none of these" is a DECLINE, not an approval: the phone renders a
+	// confirmed run as "Treatment approved", and a decision that opened zero
+	// courses must never read back as that.
+	if confirmed.Status != "declined" {
+		t.Errorf("declining everything must decide the run as declined, got %q", confirmed.Status)
+	}
 	if got := countRows(t, ctx, pool, `
-SELECT count(*) FROM health_diagnosis_runs WHERE tenant_id=$1::uuid AND status='confirmed'`, healthTenant); got != 1 {
-		t.Error("the run is decided even when everything was declined")
+SELECT count(*) FROM health_diagnosis_runs WHERE tenant_id=$1::uuid AND status='declined'`, healthTenant); got != 1 {
+		t.Error("the run is decided as declined when everything was declined")
 	}
 
 	// A retried decline must read back the SAME decision, Declined included:

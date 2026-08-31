@@ -17,6 +17,11 @@ import (
 const (
 	DiagnosisStatusProposed   = "proposed"
 	DiagnosisStatusConfirmed  = "confirmed"
+	// DiagnosisStatusDeclined is the Director deciding to treat NONE of the
+	// proposed diagnoses. It is a terminal decision like confirmed -- who and
+	// when are recorded, the run leaves the queue -- but the phone renders it as
+	// "Assessment closed", never "Treatment approved": zero courses opened.
+	DiagnosisStatusDeclined   = "declined"
 	DiagnosisStatusSuperseded = "superseded"
 )
 
