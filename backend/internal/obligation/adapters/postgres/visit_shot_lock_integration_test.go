@@ -84,7 +84,7 @@ func TestAvailableVaccinationOperatorsCapacityOverrideOneToManyMultipleDimension
 	}
 }
 
-func TestAvailableVaccinationOperatorsForDriveReadsHRMSCapsAndLoadWithDockerPostgres(t *testing.T) {
+func TestAvailableVaccinationOperatorsForDriveOneToManyPaginationExecutionDateParkScopeStatusMatrixReadsSelectedOperatorsAndLoad(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -223,6 +223,28 @@ SET active_operators_per_day = EXCLUDED.active_operators_per_day,
 		t.Fatalf("operators with N=1/default config = %#v, want only default operator", got)
 	}
 
+	if _, err := pool.Exec(ctx, `
+UPDATE vaccination_operator_assignment_config
+SET selected_operator_ids = ARRAY[$3::uuid],
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid`, tenantID, parkID, opCustom); err != nil {
+		t.Fatalf("select custom operator: %v", err)
+	}
+	got, err = repo.AvailableVaccinationOperatorsForDrive(ctx, tenantID, parkID, planned, 200)
+	if err != nil {
+		t.Fatalf("AvailableVaccinationOperatorsForDrive with selected operator: %v", err)
+	}
+	if len(got) != 1 || got[0].OperatorID != opCustom || got[0].Cap != 48 {
+		t.Fatalf("operators with selected operator = %#v, want selected custom operator with remaining cap 48", got)
+	}
+
+	if _, err := pool.Exec(ctx, `
+UPDATE vaccination_operator_assignment_config
+SET selected_operator_ids = ARRAY[]::uuid[],
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND park_id = $2::uuid`, tenantID, parkID); err != nil {
+		t.Fatalf("clear selected operator: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 UPDATE vaccination_operator_assignment_config
 SET default_operator_id = $3::uuid,

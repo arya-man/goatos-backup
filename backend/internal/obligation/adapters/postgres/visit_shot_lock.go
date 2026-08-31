@@ -971,9 +971,16 @@ func (r *Repository) applyVaccinationOperatorAssignmentConfig(ctx context.Contex
 	}
 	var cfg vaccexecd.OperatorAssignmentConfig
 	err := r.pool.QueryRow(ctx, `
-SELECT park_id::text, active_operators_per_day, default_operator_id::text, row_version
+SELECT park_id::text,
+       active_operators_per_day,
+       default_operator_id::text,
+       ARRAY(
+         SELECT selected_operator_id::text
+         FROM unnest(COALESCE(selected_operator_ids, ARRAY[]::uuid[])) AS selected_operator_id
+       ) AS selected_operator_ids,
+       row_version
 FROM vaccination_operator_assignment_config
-WHERE tenant_id = $1 AND park_id = $2`, tenant, park).Scan(&cfg.ParkID, &cfg.ActiveOperatorsPerDay, &cfg.DefaultOperatorID, &cfg.RowVersion)
+WHERE tenant_id = $1 AND park_id = $2`, tenant, park).Scan(&cfg.ParkID, &cfg.ActiveOperatorsPerDay, &cfg.DefaultOperatorID, &cfg.SelectedOperatorIDs, &cfg.RowVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return operators, nil
 	}
