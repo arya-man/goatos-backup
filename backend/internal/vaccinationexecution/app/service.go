@@ -1525,6 +1525,11 @@ func (s *Service) CommandBoardCohortMatrix(ctx context.Context, q domain.Command
 	return s.repo.CommandBoardCohortMatrix(ctx, q)
 }
 
+// CommandBoardShedDoseMatrix serves the board's shed x dose grid as a lazy section.
+func (s *Service) CommandBoardShedDoseMatrix(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardShedDoseMatrixPage, error) {
+	return s.repo.CommandBoardShedDoseMatrix(ctx, q)
+}
+
 func (s *Service) CommandBoardClosedWithoutDoseAnimals(ctx context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardClosedWithoutDosePage, error) {
 	return s.repo.CommandBoardClosedWithoutDoseAnimals(ctx, q)
 }

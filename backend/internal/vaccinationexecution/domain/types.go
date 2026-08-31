@@ -1124,19 +1124,88 @@ type CommandBoardCohortAnimal struct {
 // definition; a cell that somehow has thousands must still return a bounded page.
 const CommandBoardCohortExceptionListCap = 25
 
-// ShedDoseMatrixCell represents state of a shed × dose rule combination.
+// ShedDoseMatrix is the first-paint shed x dose grid in INTERNED form.
+//
+// The flat []ShedDoseMatrixCell shape restated a shed's four identity strings on every one of its
+// dose cells. On the staging-scale tenant that was 113 distinct shed identities and 21 distinct
+// dose-rule labels spread across 1318 cells -- 408KB, 92% of the whole board payload, and ~114ms
+// of it was pure result transfer. Interning identity into Sheds/DoseRules and referring to them by
+// index carries the same information in roughly a third of the bytes.
+//
+// The four dates are BUSINESS DATES (YYYY-MM-DD in IST), not instants. Vaccination's grain is the
+// IST business day -- the same rule commandBoardKPISQL is built on -- so an RFC3339 instant here
+// was both 25 bytes where 10 will do AND an invitation to compare a due date against a wall clock.
+type ShedDoseMatrix struct {
+	Sheds     []ShedDoseMatrixShed `json:"sheds"`
+	DoseRules []string             `json:"doseRules"`
+	Cells     []ShedDoseMatrixCell `json:"cells"`
+}
+
+// ShedDoseMatrixShed is one shed x partition identity, referenced by index from ShedDoseMatrixCell.
+type ShedDoseMatrixShed struct {
+	ShedID          string `json:"shedId"`
+	ShedName        string `json:"shedName"`
+	PartitionLabel  string `json:"partitionLabel,omitempty"`
+	LocationDisplay string `json:"locationDisplay,omitempty"`
+}
+
+// ShedDoseMatrixCell represents state of a shed × dose rule combination. Shed and Dose are indexes
+// into the enclosing ShedDoseMatrix's Sheds and DoseRules.
 type ShedDoseMatrixCell struct {
-	ShedID                     string     `json:"shedId"`
-	ShedName                   string     `json:"shedName"`
-	PartitionLabel             string     `json:"partition_label,omitempty"`
-	OperationalLocationDisplay string     `json:"operational_location_display,omitempty"`
-	DoseRule                   string     `json:"doseRule"` // e.g. "et_tt_adult_w1", vaccine + position label
-	State                      string     `json:"state"`    // "verified", "awaiting", "overdue", "scheduled"
-	AnimalCount                int        `json:"animalCount"`
-	MinAdministeredDate        *time.Time `json:"minAdministeredDate,omitempty"` // for completed
-	MaxAdministeredDate        *time.Time `json:"maxAdministeredDate,omitempty"` // for completed
-	MinDueDate                 *time.Time `json:"minDueDate,omitempty"`          // for scheduled
-	MaxDueDate                 *time.Time `json:"maxDueDate,omitempty"`          // for scheduled
+	Shed        int    `json:"shed"`
+	Dose        int    `json:"dose"`
+	State       string `json:"state"` // "verified", "awaiting", "overdue", "scheduled"
+	AnimalCount int    `json:"count"`
+	// Business dates, YYYY-MM-DD in IST. Empty means absent.
+	MinAdministeredDate string `json:"adminFrom,omitempty"`
+	MaxAdministeredDate string `json:"adminTo,omitempty"`
+	MinDueDate          string `json:"dueFrom,omitempty"`
+	MaxDueDate          string `json:"dueTo,omitempty"`
+}
+
+// ShedDoseMatrixFlatCell is one shed x dose cell with its shed identity resolved. This is the shape
+// the board renders and the shape cross-surface parity assertions compare; the wire carries the
+// interned ShedDoseMatrix instead, and admin-web expands it with the same rule Flatten uses.
+type ShedDoseMatrixFlatCell struct {
+	ShedID              string
+	ShedName            string
+	PartitionLabel      string
+	LocationDisplay     string
+	DoseRule            string
+	State               string
+	AnimalCount         int
+	MinAdministeredDate string
+	MaxAdministeredDate string
+	MinDueDate          string
+	MaxDueDate          string
+}
+
+// Flatten resolves every cell's Shed/Dose index back to its identity. A cell whose index is out of
+// range is DROPPED rather than rendered against the wrong shed: an index that does not resolve is a
+// construction bug, and showing one shed's animal count under another shed's name is the kind of
+// error a CEO board must never make quietly.
+func (m ShedDoseMatrix) Flatten() []ShedDoseMatrixFlatCell {
+	out := make([]ShedDoseMatrixFlatCell, 0, len(m.Cells))
+	for _, cell := range m.Cells {
+		if cell.Shed < 0 || cell.Shed >= len(m.Sheds) || cell.Dose < 0 || cell.Dose >= len(m.DoseRules) {
+			continue
+		}
+		shed := m.Sheds[cell.Shed]
+		out = append(out, ShedDoseMatrixFlatCell{
+			ShedID:              shed.ShedID,
+			ShedName:            shed.ShedName,
+			PartitionLabel:      shed.PartitionLabel,
+			LocationDisplay:     shed.LocationDisplay,
+			DoseRule:            m.DoseRules[cell.Dose],
+			State:               cell.State,
+			AnimalCount:         cell.AnimalCount,
+			MinAdministeredDate: cell.MinAdministeredDate,
+			MaxAdministeredDate: cell.MaxAdministeredDate,
+			MinDueDate:          cell.MinDueDate,
+			MaxDueDate:          cell.MaxDueDate,
+		})
+	}
+	return out
 }
 
 // WeeklyGivenRow is one ISO week × vaccine × status aggregation.
@@ -1215,8 +1284,7 @@ type CommandBoardResponse struct {
 	// was indistinguishable from a drive that was never planned -- the reader goes looking, finds
 	// nothing, and concludes the work does not exist. Surfacing the overflow lets the UI say
 	// "more drives exist, narrow by park" instead of lying by omission.
-	DriveOptionsTruncated bool                 `json:"driveOptionsTruncated"`
-	ShedDoseMatrix        []ShedDoseMatrixCell `json:"shedDoseMatrix"`
+	DriveOptionsTruncated bool `json:"driveOptionsTruncated"`
 	// ShedVaccineMatrix is the dose-collapsed red/green companion to ShedDoseMatrix. Every shed in
 	// scope appears against every vaccine the tenant's protocol defines, including vaccines that
 	// generated no obligations, so "this column is missing" and "this column is clean" stay

@@ -34,6 +34,10 @@ func (r fakeRepo) CommandBoardCohortMatrix(_ context.Context, _ domain.CommandBo
 	return domain.CommandBoardCohortMatrixPage{}, nil
 }
 
+func (r fakeRepo) CommandBoardShedDoseMatrix(_ context.Context, _ domain.CommandBoardDrilldownQuery) (domain.CommandBoardShedDoseMatrixPage, error) {
+	return domain.CommandBoardShedDoseMatrixPage{}, nil
+}
+
 func (r fakeRepo) CommandBoardClosedWithoutDoseAnimals(_ context.Context, _ domain.CommandBoardDrilldownQuery) (domain.CommandBoardClosedWithoutDosePage, error) {
 	return domain.CommandBoardClosedWithoutDosePage{}, nil
 }

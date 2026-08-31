@@ -76,6 +76,11 @@ func (f *fakeReader) CommandBoardCohortMatrix(_ context.Context, q domain.Comman
 	return domain.CommandBoardCohortMatrixPage{Cells: []domain.CommandBoardCohortCell{}}, nil
 }
 
+func (f *fakeReader) CommandBoardShedDoseMatrix(_ context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardShedDoseMatrixPage, error) {
+	f.lastDrilldownQuery = q
+	return domain.CommandBoardShedDoseMatrixPage{}, nil
+}
+
 func (f *fakeReader) CommandBoardClosedWithoutDoseAnimals(_ context.Context, q domain.CommandBoardDrilldownQuery) (domain.CommandBoardClosedWithoutDosePage, error) {
 	f.lastDrilldownQuery = q
 	return domain.CommandBoardClosedWithoutDosePage{Animals: []domain.CommandBoardClosedWithoutDoseAnimal{}}, nil

@@ -83,7 +83,6 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 
 	resp := domain.CommandBoardResponse{
 		Source:            domain.SourceAPI,
-		ShedDoseMatrix:    []domain.ShedDoseMatrixCell{},
 		WeeklyGiven:       []domain.WeeklyGivenRow{},
 		VerificationQueue: []domain.VerificationQueueRow{},
 	}
@@ -109,13 +108,12 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 		mu          sync.Mutex
 		unavailable []string
 
-		shedDoseCells []domain.ShedDoseMatrixCell
-		shedVaccine   commandBoardShedVaccineResult
-		vaccineCodes  []string
-		weekly        []domain.WeeklyGivenRow
-		verifyQueue   []domain.VerificationQueueRow
-		driveOptions  []domain.CommandBoardDriveOption
-		driveTrunc    bool
+		shedVaccine  commandBoardShedVaccineResult
+		vaccineCodes []string
+		weekly       []domain.WeeklyGivenRow
+		verifyQueue  []domain.VerificationQueueRow
+		driveOptions []domain.CommandBoardDriveOption
+		driveTrunc   bool
 	)
 
 	// optional wraps a section whose failure must not blank the board. The error is recorded
@@ -159,15 +157,6 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 		return nil
 	})
 
-	group.Go(optional("shedDoseMatrix", func() error {
-		cells, err := r.commandBoardShedDoseCells(gctx, q.TenantID, asOf, q.DriveBatchID, parkID)
-		if err != nil {
-			return err
-		}
-		shedDoseCells = cells
-		return nil
-	}))
-
 	group.Go(optional("shedVaccineMatrix", func() error {
 		result, err := r.commandBoardShedVaccineCells(gctx, q.TenantID, asOf, q.DriveBatchID, parkID)
 		if err != nil {
@@ -210,7 +199,6 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 
 	resp.DriveOptions = driveOptions
 	resp.DriveOptionsTruncated = driveTrunc
-	resp.ShedDoseMatrix = append(resp.ShedDoseMatrix, shedDoseCells...)
 	resp.WeeklyGiven = append(resp.WeeklyGiven, weekly...)
 	resp.VerificationQueue = append(resp.VerificationQueue, verifyQueue...)
 	for _, code := range vaccineCodes {
@@ -383,48 +371,81 @@ func commandBoardFoldCohortCells(rows []commandBoardCohortRow, headCounts map[co
 	return cells
 }
 
-func (r *Repository) commandBoardShedDoseCells(ctx context.Context, tenantID string, asOf time.Time, batchID, parkID *string) ([]domain.ShedDoseMatrixCell, error) {
+func (r *Repository) commandBoardShedDoseCells(ctx context.Context, tenantID string, asOf time.Time, batchID, parkID *string) (domain.ShedDoseMatrix, error) {
+	matrix := domain.ShedDoseMatrix{
+		Sheds:     []domain.ShedDoseMatrixShed{},
+		DoseRules: []string{},
+		Cells:     []domain.ShedDoseMatrixCell{},
+	}
 	rows, err := r.pool.Query(ctx, commandBoardShedDoseSQL, tenantID, asOf, batchID, parkID)
 	if err != nil {
-		return nil, fmt.Errorf("vaccination command board: shed dose query: %w", err)
+		return matrix, fmt.Errorf("vaccination command board: shed dose query: %w", err)
 	}
 	defer rows.Close()
-	var cells []domain.ShedDoseMatrixCell
+
+	// Interning tables. A shed identity is (shedID, partitionLabel): two partitions of one shed are
+	// two rows on the board and must not collapse, which is the same key buildShedGrid uses.
+	shedIndex := map[commandBoardShedDoseIdentity]int{}
+	doseIndex := map[string]int{}
+
 	for rows.Next() {
 		var shedID, shedName, partitionLabel, doseCode, state string
 		var animalCount int
 		var minAdministeredAt, maxAdministeredAt, minDueAt, maxDueAt pgtype.Timestamptz
 		if err := rows.Scan(&shedID, &shedName, &partitionLabel, &doseCode, &state, &animalCount,
 			&minAdministeredAt, &maxAdministeredAt, &minDueAt, &maxDueAt); err != nil {
-			return nil, fmt.Errorf("vaccination command board: shed dose scan: %w", err)
+			return matrix, fmt.Errorf("vaccination command board: shed dose scan: %w", err)
 		}
-		cell := domain.ShedDoseMatrixCell{
-			ShedID:                     shedID,
-			ShedName:                   shedName,
-			PartitionLabel:             partitionLabel,
-			OperationalLocationDisplay: oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display(),
-			DoseRule:                   vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode),
-			State:                      state,
-			AnimalCount:                animalCount,
+
+		identity := commandBoardShedDoseIdentity{shedID: shedID, partitionLabel: partitionLabel}
+		shed, ok := shedIndex[identity]
+		if !ok {
+			shed = len(matrix.Sheds)
+			shedIndex[identity] = shed
+			matrix.Sheds = append(matrix.Sheds, domain.ShedDoseMatrixShed{
+				ShedID:          shedID,
+				ShedName:        shedName,
+				PartitionLabel:  partitionLabel,
+				LocationDisplay: oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display(),
+			})
 		}
-		if minAdministeredAt.Valid {
-			cell.MinAdministeredDate = &minAdministeredAt.Time
+
+		doseRule := vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode)
+		dose, ok := doseIndex[doseRule]
+		if !ok {
+			dose = len(matrix.DoseRules)
+			doseIndex[doseRule] = dose
+			matrix.DoseRules = append(matrix.DoseRules, doseRule)
 		}
-		if maxAdministeredAt.Valid {
-			cell.MaxAdministeredDate = &maxAdministeredAt.Time
-		}
-		if minDueAt.Valid {
-			cell.MinDueDate = &minDueAt.Time
-		}
-		if maxDueAt.Valid {
-			cell.MaxDueDate = &maxDueAt.Time
-		}
-		cells = append(cells, cell)
+
+		matrix.Cells = append(matrix.Cells, domain.ShedDoseMatrixCell{
+			Shed:                shed,
+			Dose:                dose,
+			State:               state,
+			AnimalCount:         animalCount,
+			MinAdministeredDate: commandBoardBusinessDate(minAdministeredAt),
+			MaxAdministeredDate: commandBoardBusinessDate(maxAdministeredAt),
+			MinDueDate:          commandBoardBusinessDate(minDueAt),
+			MaxDueDate:          commandBoardBusinessDate(maxDueAt),
+		})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("vaccination command board: shed dose rows: %w", err)
+		return matrix, fmt.Errorf("vaccination command board: shed dose rows: %w", err)
 	}
-	return cells, nil
+	return matrix, nil
+}
+
+// commandBoardShedDoseIdentity is the interning key for a shed row on the board.
+type commandBoardShedDoseIdentity struct{ shedID, partitionLabel string }
+
+// commandBoardBusinessDate renders a timestamptz as its IST business date, or "" when absent.
+// Vaccination's grain is the IST business DAY, so the board must not ship an instant that a reader
+// could compare against a wall clock in another zone.
+func commandBoardBusinessDate(ts pgtype.Timestamptz) string {
+	if !ts.Valid {
+		return ""
+	}
+	return ts.Time.In(biztime.DefaultLocation()).Format("2006-01-02")
 }
 
 type commandBoardShedVaccineKey struct{ shedID, partitionLabel, vaccine string }

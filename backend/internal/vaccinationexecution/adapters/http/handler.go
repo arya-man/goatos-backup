@@ -71,6 +71,9 @@ type Reader interface {
 	// CommandBoardCohortMatrix serves the cohort matrix as its own section; it left the board because
 	// its three statements alone exceeded the endpoint's latency budget.
 	CommandBoardCohortMatrix(ctx context.Context, q vaccexecd.CommandBoardDrilldownQuery) (vaccexecd.CommandBoardCohortMatrixPage, error)
+
+	// CommandBoardShedDoseMatrix serves the shed x dose grid as its own section.
+	CommandBoardShedDoseMatrix(ctx context.Context, q vaccexecd.CommandBoardDrilldownQuery) (vaccexecd.CommandBoardShedDoseMatrixPage, error)
 	CommandBoardClosedWithoutDoseAnimals(ctx context.Context, q vaccexecd.CommandBoardDrilldownQuery) (vaccexecd.CommandBoardClosedWithoutDosePage, error)
 	CommandBoardShedVaccineAnimals(ctx context.Context, q vaccexecd.CommandBoardShedVaccineAnimalsQuery) (vaccexecd.CommandBoardShedVaccineAnimalsPage, error)
 	CommandBoardCohortExceptions(ctx context.Context, q vaccexecd.CommandBoardCohortCellQuery) (vaccexecd.CommandBoardCohortExceptionsPage, error)
@@ -173,6 +176,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	// The command board's lazy drilldowns and its paginated drive picker. Each REQUIRES the cell it
 	// explains, which is what keeps them a drawer's work instead of the tenant's.
 	mux.HandleFunc("GET /vaccination/command/cohort-matrix", h.GetCommandBoardCohortMatrix)
+	mux.HandleFunc("GET /vaccination/command/shed-dose-matrix", h.GetCommandBoardShedDoseMatrix)
 	mux.HandleFunc("GET /vaccination/command/closed-without-dose", h.GetCommandBoardClosedWithoutDose)
 	mux.HandleFunc("GET /vaccination/command/shed-vaccine-animals", h.GetCommandBoardShedVaccineAnimals)
 	mux.HandleFunc("GET /vaccination/command/cohort-exceptions", h.GetCommandBoardCohortExceptions)
