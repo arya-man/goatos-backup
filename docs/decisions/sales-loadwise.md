@@ -14,11 +14,28 @@ value, remaining estimated value) with the counts readable beside them.
 
 ## Decisions locked
 
-1. **Counts reconcile per load, with an explicit Unaccounted column.** Purchased = animals
-   accepted at herd intake for the load. Outcomes are DISJOINT buckets over exactly those animals:
-   sold / mortality (died) / other exits (culled, transferred, lost — real outcomes, not
-   discrepancies) / remaining (alive + clinical states) / unaccounted (merged, inactive, data
-   gaps). Unaccounted renders red when non-zero.
+1. **Counts reconcile per load, with an explicit Unaccounted column.** Outcomes are DISJOINT
+   buckets over the load's accepted animals: sold / mortality (died) / other exits (culled,
+   transferred, lost — real outcomes, not discrepancies) / remaining (alive + clinical states).
+   **The DENOMINATOR is the load's own declared size** (`procurement_loads.expected_count`)
+   whenever it states one; only a load that declares nothing falls back to the animals attributed
+   to it. Unaccounted is the gap against that denominator — positive when the load declares
+   animals nothing accounts for, negative when more are attributed than declared — and renders
+   red either way, never clamped and never absorbed.
+
+   *Why the denominator matters (correction made the same day):* deriving Purchased from its own
+   parts made Unaccounted zero by construction, so the column could never fire — the exact
+   difference the maintainer asked to see was structurally invisible. Pinned by
+   `TestFinalizeLoadwiseUsesTheDeclaredCountAsTheDenominator`.
+
+1b. **Pre-GoatOS history is folded in, with its dates.** A legacy load was partly sold and partly
+   dead before its remaining animals were tracked here. `procurement_load_prior_outcomes`
+   (migration 000229) holds one aggregate row per (load, outcome): count, sold revenue where the
+   records carry it, and the date range the events span, each with its source. `FinalizeLoadwise`
+   folds those into sold / mortality / sold value before deriving Unaccounted; the raw blocks stay
+   on the row so the table tooltips and the cost drawer show the history with its dates. The load
+   NUMBER (`context->>'load_ref'`, e.g. 131) leads every row, chart axis and drawer header — the
+   same identity the Weights "Daily gain by load" card uses.
 2. **Purchase value is a RECORDED landed cost, entered in the app.** `procurement_loads` gains
    `animal_cost`, `transport_cost`, `other_cost` (migration 000229). Absent cost renders "Cost
    not recorded" — never a fabricated zero, and never a vendor-price estimate. Entry is the
@@ -37,10 +54,13 @@ value, remaining estimated value) with the counts readable beside them.
    priced sales; else the tenant-wide average across every tagged, positive-value sale (farm-born
    included — a realized price is a price); else NO estimate (`price_basis` = load / overall /
    none). A zero-value share never forms a basis.
-5. **App loads only.** Legacy sheet loads (the old dashboard's ~100–131) are not imported by this
-   feature. Where the legacy sheet carries details for loads that ALREADY exist in goatos (STG),
-   those details may be backfilled onto those existing loads only (follow-up, same 2026-08-31
-   thread).
+5. **Only the loads STG already tracks.** The eight loads on the Weights "Daily gain by load"
+   card (`weighing_shed_load_tags`: 100, 101, 113, 126, 128, 129, 130, 131) are seeded by
+   `tools/dev/seed-stg-loadwise-legacy-loads.sql` from the load sheet plus the legacy BigQuery
+   outcome history; every other sheet load waits for procurement source entry. Membership is each
+   load's still-alive residents of its tagged pen. Loads 100 and 101 share one tagged pen, so
+   neither claims it — their survivors surface as a red Unaccounted count (1 and 3), which is
+   exactly the `current_count` the legacy records carry for those loads.
 6. **From the barn is a shell** until the farm-born sales view is designed; its tab renders
    backend-owned copy saying so.
 
@@ -65,3 +85,17 @@ pointing the other way (opaque, no FK).
 - Sales page contract: `sales-loadwise` table, `sales_views` tab option group (purchased /
   from_barn), load-wise copy keys, `record_load_cost` control (pinned by
   `TestSalesPageContractAndNavigation` and `TestRecordLoadCostControlIsCapabilityGated`).
+
+## Rendered proof (2026-08-31)
+
+Verified in Chrome against a clone of STG (schema + herd/sales/location data), migration 000229
+applied and the seed run: eight loads render with their numbers, both charts, and a table where
+load 113 reconciles exactly (100 = 91 sold + 9 died + 0 remaining + 0 unaccounted). The cost
+drawer opens on a load, shows "Before these records" with the dated history, and recording a
+transport cost returns "Load cost recorded." with the audit row written.
+
+Two defects found in that rendered review and fixed in the same batch: the table shredded its own
+values (the global `.celllink { overflow-wrap: anywhere }` split "91" into "9"/"1" and stacked
+"CPT" a letter per line — fixed with the scoped three-property rule herd-register and people
+already carry), and the Farm column read "Not recorded" for a sold-out load, which now falls back
+to the farm the load itself records.
