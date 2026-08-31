@@ -2902,6 +2902,10 @@ func pageSpecificCopy(id string) map[string]string {
 			"value.cost_missing":             "Cost not recorded",
 			"value.price_basis.load":         "at this load's own average sold price",
 			"value.price_basis.overall":      "at the overall average sold price",
+			// The third basis, and the one a fresh tenant hits FIRST: with no sale anywhere there is
+			// no price to value stock at. It must be published like the other two -- the renderer
+			// resolves this key from price_basis, so an unpublished value takes the page down.
+			"value.price_basis.none":         "no sale yet to price them against",
 			"value.sold_unpriced":            "sold without a tagged sale",
 			"loadwise.row_hint":              "click a load to record its cost",
 			"loadwise.prior.title":           "Before these records",

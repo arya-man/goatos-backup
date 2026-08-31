@@ -100,6 +100,10 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		"value.profit_incl_stock", "loadwise.stock_price_note", "loadwise.stock_price_each",
 		"loadwise.stock_price_unknown",
 		"value.cost_missing", "value.price_basis.load", "value.price_basis.overall",
+		// All THREE bases must be published: the renderer resolves this key from the served
+		// price_basis, so an unpublished value throws and takes the whole page down. "none" is
+		// what a tenant with no sales yet returns, i.e. the very first state.
+		"value.price_basis.none",
 		"value.sold_unpriced",
 		"loadwise.prior.title", "loadwise.prior.sold", "loadwise.prior.died",
 		"drawer.load_cost.title", "field.animal_cost", "field.transport_cost", "field.other_cost",
