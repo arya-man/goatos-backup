@@ -14008,6 +14008,10 @@ components:
          unaccounted, sold_value, sold_priced, price_basis, row_version]
       properties:
         load_id: { type: string, format: uuid }
+        load_ref:
+          type: string
+          nullable: true
+          description: The farm's own load number ("131") where known. Display only, never a key.
         vendor_name: { type: string }
         purchase_date: { type: string, format: date, nullable: true }
         status: { type: string }
@@ -14044,7 +14048,27 @@ components:
           type: number
           nullable: true
           description: remaining x avg_sold_price. Absent when there is no price basis.
+        prior_sold:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/LoadwisePriorOutcome" }]
+          description: >-
+            Animals of this load ALREADY SOLD before its remaining animals were tracked here —
+            seeded history, already folded into `sold` / `purchased` / `sold_value`; shown with
+            the dates it spans.
+        prior_dead:
+          nullable: true
+          allOf: [{ $ref: "#/components/schemas/LoadwisePriorOutcome" }]
+          description: Animals already dead before tracking started; folded into `mortality` / `purchased`.
         row_version: { type: integer }
+    LoadwisePriorOutcome:
+      type: object
+      description: One pre-GoatOS outcome block for a load, with the date range the events span.
+      required: [count]
+      properties:
+        count: { type: integer }
+        value: { type: number, nullable: true, description: Recorded revenue (sold only). }
+        first_on: { type: string, format: date, nullable: true }
+        last_on: { type: string, format: date, nullable: true }
     LoadwiseSummary:
       type: object
       description: Aggregates over exactly the served rows -- no client re-derives its own totals.

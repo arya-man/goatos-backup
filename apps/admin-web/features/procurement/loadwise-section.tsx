@@ -10,6 +10,21 @@ import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/
 import type { LoadwiseLoad, LoadwiseSales } from "@/lib/api/procurement";
 import type { ApiResult } from "@/lib/api/server";
 import { humanDate, inr, inrCompact, num } from "./sales-format";
+import type { LoadwisePriorOutcome } from "@/lib/api/procurement";
+
+/**
+ * Tooltip line for a count that includes pre-GoatOS history: the copy's label, the count, and the
+ * date range the old records span (e.g. "Sold earlier: 69 · 30 Apr 2026 – 17 Aug 2026").
+ */
+function priorTitle(pageContract: AdminUiPageContract, key: string, prior: LoadwisePriorOutcome): string {
+  const dates =
+    prior.first_on && prior.last_on && prior.first_on !== prior.last_on
+      ? ` · ${humanDate(prior.first_on)} – ${humanDate(prior.last_on)}`
+      : prior.first_on
+        ? ` · ${humanDate(prior.first_on)}`
+        : "";
+  return `${copy(pageContract, key)}: ${num(prior.count)}${dates}`;
+}
 
 // The load-wise section of the sales board (maintainer decision 2026-08-31): two tabs — Purchased
 // (every procurement load reconciled) and From the barn (farm-born, a backend-owned shell until
@@ -24,9 +39,13 @@ function shortDate(date: string): string {
   return parts.length === 3 ? `${parts[0]} ${parts[1]}` : human;
 }
 
-/** One load's display identity: the vendor it was bought from and the purchase date. */
-function loadLabel(load: LoadwiseLoad, none: string): string {
+/**
+ * One load's display identity: its farm load NUMBER when known ("Load 131 · Krishnamorrthy"),
+ * else the vendor and purchase date. The number prefix arrives from the contract copy.
+ */
+function loadLabel(load: LoadwiseLoad, loadWord: string, none: string): string {
   const vendor = load.vendor_name.trim() === "" ? none : load.vendor_name;
+  if (load.load_ref) return `${loadWord} ${load.load_ref} · ${vendor}`;
   return load.purchase_date ? `${vendor} · ${humanDate(load.purchase_date)}` : vendor;
 }
 
@@ -51,6 +70,7 @@ export function LoadwiseSection({
   costHref: (loadId: string) => string;
 }) {
   const none = copy(pageContract, "value.none");
+  const loadWord = copy(pageContract, "column.load");
   const views = optionGroup(pageContract, "sales_views");
   const columns = tableLabels(pageContract, "sales-loadwise");
 
@@ -156,8 +176,8 @@ export function LoadwiseSection({
             emptyLabel={copy(pageContract, "chart.loadwise_counts.empty")}
             data={loads.map((load) => ({
               key: load.load_id,
-              axisLabel: load.purchase_date ? shortDate(load.purchase_date) : none,
-              label: loadLabel(load, none),
+              axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
+              label: loadLabel(load, loadWord, none),
               values: [load.purchased, load.sold, load.mortality, load.remaining],
               displays: [num(load.purchased), num(load.sold), num(load.mortality), num(load.remaining)],
               subLabel: load.vendor_name,
@@ -173,8 +193,8 @@ export function LoadwiseSection({
             emptyLabel={copy(pageContract, "chart.loadwise_value.empty")}
             data={loads.map((load) => ({
               key: load.load_id,
-              axisLabel: load.purchase_date ? shortDate(load.purchase_date) : none,
-              label: loadLabel(load, none),
+              axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
+              label: loadLabel(load, loadWord, none),
               values: [load.purchase_value ?? null, load.sold_value > 0 ? load.sold_value : null, load.remaining_value ?? null],
               displays: [
                 load.purchase_value == null ? copy(pageContract, "value.cost_missing") : inrCompact(load.purchase_value),
@@ -209,11 +229,29 @@ export function LoadwiseSection({
                     );
                   return (
                     <tr key={load.load_id}>
-                      {cell(<b>{loadLabel(load, none)}</b>)}
+                      {cell(<b>{loadLabel(load, loadWord, none)}</b>)}
                       {cell(load.farm ? load.farm : none)}
                       {cell(num(load.purchased), "num")}
-                      {cell(num(load.sold), "num")}
-                      {cell(num(load.mortality), "num")}
+                      {cell(
+                        load.prior_sold ? (
+                          <span title={priorTitle(pageContract, "loadwise.prior.sold", load.prior_sold)}>
+                            {num(load.sold)}
+                          </span>
+                        ) : (
+                          num(load.sold)
+                        ),
+                        "num",
+                      )}
+                      {cell(
+                        load.prior_dead ? (
+                          <span title={priorTitle(pageContract, "loadwise.prior.died", load.prior_dead)}>
+                            {num(load.mortality)}
+                          </span>
+                        ) : (
+                          num(load.mortality)
+                        ),
+                        "num",
+                      )}
                       {cell(num(load.other_exits), "num")}
                       {cell(num(load.remaining), "num")}
                       {cell(

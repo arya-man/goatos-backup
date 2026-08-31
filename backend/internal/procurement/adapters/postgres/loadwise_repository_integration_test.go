@@ -135,6 +135,16 @@ VALUES ($1, $2::uuid, $3::uuid, $4, $5,
 	tag(farmBornSold, "tagged", "lw-alloc-farm-born")
 	tag(soldNoDealA, "released", "lw-alloc-released")
 
+	// Load B's PRE-GOATOS history: 3 already sold for 30000 and 2 already dead before its
+	// remaining animals were tracked here. The read must fold both into the reconciliation.
+	if _, err := pool.Exec(ctx, `
+INSERT INTO procurement_load_prior_outcomes (tenant_id, load_id, outcome, animal_count, sales_value, first_on, last_on, source_ref)
+VALUES ($1, $2::uuid, 'sold', 3, 30000, '2026-04-30', '2026-05-20', 'test fixture'),
+       ($1, $2::uuid, 'died', 2, NULL, '2025-11-24', '2025-11-24', 'test fixture')`,
+		testTenant, fx.loadB); err != nil {
+		t.Fatalf("seed prior outcomes: %v", err)
+	}
+
 	return fx
 }
 
@@ -187,9 +197,16 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 			loadA.Remaining != 1 || loadA.Unaccounted != 1 {
 			t.Fatalf("load A counts = %+v", loadA)
 		}
-		// The dedupe (one goat, two accepted rows): the animal counts on load B, not load A.
-		if loadB.Purchased != 2 || loadB.Sold != 1 || loadB.Remaining != 1 || loadB.Unaccounted != 0 {
+		// The dedupe (one goat, two accepted rows): the animal counts on load B, not load A —
+		// plus load B's pre-GoatOS history folded in: 2 tracked + 3 already sold + 2 already dead.
+		if loadB.Purchased != 7 || loadB.Sold != 4 || loadB.Mortality != 2 || loadB.Remaining != 1 || loadB.Unaccounted != 0 {
 			t.Fatalf("load B counts = %+v", loadB)
+		}
+		if loadB.PriorSold.Count != 3 || loadB.PriorSold.FirstOn != "2026-04-30" || loadB.PriorSold.LastOn != "2026-05-20" {
+			t.Fatalf("load B prior sold = %+v, want the seeded dated history", loadB.PriorSold)
+		}
+		if loadB.PriorDead.Count != 2 || loadB.PriorDead.FirstOn != "2025-11-24" {
+			t.Fatalf("load B prior dead = %+v", loadB.PriorDead)
 		}
 	})
 
@@ -200,8 +217,9 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 		if math.Abs(loadA.SoldValue-10000) > 0.01 || loadA.SoldPriced != 1 {
 			t.Fatalf("load A sold value = %v priced %d, want 10000 over 1", loadA.SoldValue, loadA.SoldPriced)
 		}
-		if math.Abs(loadB.SoldValue-10000) > 0.01 || loadB.SoldPriced != 1 {
-			t.Fatalf("load B sold value = %v priced %d", loadB.SoldValue, loadB.SoldPriced)
+		// Load B: the live allocation share (10000) PLUS the prior revenue (30000).
+		if math.Abs(loadB.SoldValue-40000) > 0.01 || loadB.SoldPriced != 4 {
+			t.Fatalf("load B sold value = %v priced %d, want 40000 over 4", loadB.SoldValue, loadB.SoldPriced)
 		}
 		if loadA.PriceBasis != domain.LoadwisePriceBasisLoad || loadA.AvgSoldPrice == nil || math.Abs(*loadA.AvgSoldPrice-10000) > 0.01 {
 			t.Fatalf("load A price basis = %s avg %v, want its own 10000", loadA.PriceBasis, loadA.AvgSoldPrice)
@@ -232,8 +250,8 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 		if out.TotalLoads != 2 {
 			t.Fatalf("total loads = %d", out.TotalLoads)
 		}
-		// The summary sums exactly the served rows.
-		if out.Summary.Purchased != 7 || out.Summary.Sold != 3 || out.Summary.Mortality != 1 ||
+		// The summary sums exactly the served rows, prior history included.
+		if out.Summary.Purchased != 12 || out.Summary.Sold != 6 || out.Summary.Mortality != 3 ||
 			out.Summary.Remaining != 2 || out.Summary.Unaccounted != 1 {
 			t.Fatalf("summary = %+v", out.Summary)
 		}

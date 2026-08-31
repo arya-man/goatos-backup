@@ -98,6 +98,7 @@ func TestSalesPageContractAndNavigation(t *testing.T) {
 		"column.purchase_value", "column.sold_value", "column.remaining_value",
 		"value.cost_missing", "value.price_basis.load", "value.price_basis.overall",
 		"value.sold_unpriced",
+		"loadwise.prior.title", "loadwise.prior.sold", "loadwise.prior.died",
 		"drawer.load_cost.title", "field.animal_cost", "field.transport_cost", "field.other_cost",
 		"hint.load_cost", "action.record_load_cost.label", "action.load_cost_recorded",
 		"action.load_cost_record_failed", "disabled.load_cost",

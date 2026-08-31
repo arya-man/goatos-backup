@@ -99,6 +99,21 @@ outcomes AS (
         WHERE l.tenant_id = $1 AND l.location_id = g.park_id
     ) gp ON true
 ),
+prior AS (
+    -- Pre-GoatOS outcomes, one aggregate per load. The natural key is (tenant, load, outcome), so
+    -- this pre-aggregation is 1:1 with the load row it attaches to.
+    SELECT load_id,
+           COALESCE(sum(animal_count) FILTER (WHERE outcome = 'sold'), 0)::int AS prior_sold,
+           (sum(sales_value) FILTER (WHERE outcome = 'sold'))::float8 AS prior_sold_value,
+           min(first_on) FILTER (WHERE outcome = 'sold') AS prior_sold_first,
+           max(last_on) FILTER (WHERE outcome = 'sold') AS prior_sold_last,
+           COALESCE(sum(animal_count) FILTER (WHERE outcome = 'died'), 0)::int AS prior_dead,
+           min(first_on) FILTER (WHERE outcome = 'died') AS prior_dead_first,
+           max(last_on) FILTER (WHERE outcome = 'died') AS prior_dead_last
+    FROM public.procurement_load_prior_outcomes
+    WHERE tenant_id = $1
+    GROUP BY load_id
+),
 stats AS (
     SELECT o.load_id,
            count(*)::int AS purchased,
@@ -113,15 +128,18 @@ stats AS (
     FROM outcomes o
     GROUP BY o.load_id
 )
-SELECT pl.load_id::text, COALESCE(p.display_name, ''), pl.purchase_date, pl.status,
+SELECT pl.load_id::text, COALESCE(pl.context->>'load_ref', ''), COALESCE(p.display_name, ''), pl.purchase_date, pl.status,
        pl.animal_cost::float8, pl.transport_cost::float8, pl.other_cost::float8, pl.row_version,
        COALESCE(s.purchased, 0), COALESCE(s.sold, 0), COALESCE(s.mortality, 0),
        COALESCE(s.other_exits, 0), COALESCE(s.remaining, 0),
        COALESCE(s.sold_value, 0), COALESCE(s.sold_priced, 0),
-       CASE WHEN s.park_count = 1 THEN COALESCE(s.park_code, '') ELSE '' END
+       CASE WHEN s.park_count = 1 THEN COALESCE(s.park_code, '') ELSE '' END,
+       COALESCE(pr.prior_sold, 0), pr.prior_sold_value, pr.prior_sold_first, pr.prior_sold_last,
+       COALESCE(pr.prior_dead, 0), pr.prior_dead_first, pr.prior_dead_last
 FROM public.procurement_loads pl
 LEFT JOIN public.parties p ON p.party_id = pl.source_party_id
 LEFT JOIN stats s ON s.load_id = pl.load_id
+LEFT JOIN prior pr ON pr.load_id = pl.load_id
 WHERE pl.tenant_id = $1
 ORDER BY pl.purchase_date DESC NULLS LAST, pl.created_at DESC, pl.load_id
 LIMIT $2`
@@ -163,16 +181,22 @@ func (r *Repository) LoadwiseSales(ctx context.Context, tenantID string, maxLoad
 	loads := make([]domain.LoadwiseLoad, 0, maxLoads)
 	for rows.Next() {
 		var (
-			row          domain.LoadwiseLoad
-			purchaseDate *time.Time
+			row            domain.LoadwiseLoad
+			purchaseDate   *time.Time
+			priorSoldFirst *time.Time
+			priorSoldLast  *time.Time
+			priorDeadFirst *time.Time
+			priorDeadLast  *time.Time
 		)
 		if err := rows.Scan(
-			&row.LoadID, &row.VendorName, &purchaseDate, &row.Status,
+			&row.LoadID, &row.LoadRef, &row.VendorName, &purchaseDate, &row.Status,
 			&row.AnimalCost, &row.TransportCost, &row.OtherCost, &row.RowVersion,
 			&row.Purchased, &row.Sold, &row.Mortality,
 			&row.OtherExits, &row.Remaining,
 			&row.SoldValue, &row.SoldPriced,
 			&row.Farm,
+			&row.PriorSold.Count, &row.PriorSold.Value, &priorSoldFirst, &priorSoldLast,
+			&row.PriorDead.Count, &priorDeadFirst, &priorDeadLast,
 		); err != nil {
 			return domain.LoadwiseSales{}, fmt.Errorf("procurement: loadwise sales scan: %w", err)
 		}
@@ -180,7 +204,9 @@ func (r *Repository) LoadwiseSales(ctx context.Context, tenantID string, maxLoad
 			// A business DATE: formatted as its calendar day, never shifted through a timezone.
 			row.PurchaseDate = purchaseDate.Format("2006-01-02")
 		}
-		row.Unaccounted = row.Purchased - row.Sold - row.Mortality - row.OtherExits - row.Remaining
+		row.PriorSold.FirstOn, row.PriorSold.LastOn = bizDate(priorSoldFirst), bizDate(priorSoldLast)
+		row.PriorDead.FirstOn, row.PriorDead.LastOn = bizDate(priorDeadFirst), bizDate(priorDeadLast)
+		// Unaccounted is derived in the domain AFTER the prior outcomes fold in (FinalizeLoadwise).
 		loads = append(loads, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -207,6 +233,14 @@ func (r *Repository) LoadwiseSales(ctx context.Context, tenantID string, maxLoad
 	}
 
 	return domain.FinalizeLoadwise(loads, totalLoads, overall), nil
+}
+
+// bizDate renders an optional business DATE as its calendar day, never shifted through a timezone.
+func bizDate(v *time.Time) string {
+	if v == nil {
+		return ""
+	}
+	return v.Format("2006-01-02")
 }
 
 // SetLoadCost records (or clears) one load's landed cost.

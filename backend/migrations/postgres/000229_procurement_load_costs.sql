@@ -36,7 +36,52 @@ ALTER TABLE public.procurement_loads
     ADD CONSTRAINT procurement_loads_cost_requires_animal_cost
         CHECK (animal_cost IS NOT NULL OR (transport_cost IS NULL AND other_cost IS NULL));
 
+-- PRIOR OUTCOMES: what already happened to a load BEFORE its animals were tracked in GoatOS.
+--
+-- Same maintainer thread (2026-08-31): the legacy loads seeded from the load sheet arrive with
+-- only their still-on-farm animals attached, but some of each load was ALREADY sold or ALREADY
+-- died in the pre-GoatOS records. Those are real outcomes with dates, and hiding them would make
+-- a load's reconciliation read as if the missing animals never existed. One row per
+-- (load, outcome) carries the count, the sold revenue where known, and the date range the events
+-- span. The load-wise read ADDS these to the live per-animal reconciliation: purchased = tracked
+-- animals + prior outcomes, so the arithmetic still closes. Rows are SEED/import facts
+-- (source_ref names where each number came from), never written by an app screen today.
+CREATE TABLE public.procurement_load_prior_outcomes (
+    outcome_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    load_id uuid NOT NULL,
+    outcome text NOT NULL,
+    animal_count integer NOT NULL,
+    sales_value numeric(14, 2),
+    first_on date,
+    last_on date,
+    note text DEFAULT ''::text NOT NULL,
+    source_ref text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT procurement_load_prior_outcomes_pkey PRIMARY KEY (outcome_id),
+    CONSTRAINT procurement_load_prior_outcomes_load_fkey
+        FOREIGN KEY (load_id) REFERENCES public.procurement_loads (load_id),
+    CONSTRAINT procurement_load_prior_outcomes_outcome_check
+        CHECK (outcome IN ('sold', 'died')),
+    CONSTRAINT procurement_load_prior_outcomes_count_check CHECK (animal_count > 0),
+    CONSTRAINT procurement_load_prior_outcomes_value_check
+        CHECK (sales_value IS NULL OR sales_value >= 0),
+    -- Revenue belongs to a sale; a death carrying money is a data error, refused here.
+    CONSTRAINT procurement_load_prior_outcomes_value_on_sold
+        CHECK (outcome = 'sold' OR sales_value IS NULL),
+    CONSTRAINT procurement_load_prior_outcomes_dates_check
+        CHECK (first_on IS NULL OR last_on IS NULL OR last_on >= first_on),
+    -- One aggregate row per (load, outcome): a reseed updates in place rather than stacking.
+    CONSTRAINT procurement_load_prior_outcomes_natural_uq UNIQUE (tenant_id, load_id, outcome)
+);
+
+CREATE INDEX procurement_load_prior_outcomes_load_idx
+    ON public.procurement_load_prior_outcomes (tenant_id, load_id);
+
 -- +goose Down
+
+DROP TABLE IF EXISTS public.procurement_load_prior_outcomes;
+
 
 ALTER TABLE public.procurement_loads
     DROP CONSTRAINT IF EXISTS procurement_loads_cost_requires_animal_cost,

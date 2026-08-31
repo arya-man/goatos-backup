@@ -104,7 +104,15 @@ export function LoadCostDrawer({
           </span>
           <div>
             <div className="mt">{copy(pageContract, "crumb")}</div>
-            <h2>{load ? (load.vendor_name.trim() === "" ? title : load.vendor_name) : title}</h2>
+            <h2>
+              {load
+                ? load.load_ref
+                  ? `${copy(pageContract, "column.load")} ${load.load_ref} · ${load.vendor_name || copy(pageContract, "value.none")}`
+                  : load.vendor_name.trim() === ""
+                    ? title
+                    : load.vendor_name
+                : title}
+            </h2>
             {load?.purchase_date ? (
               <div className="muted small" style={{ marginTop: 3 }}>
                 {humanDate(load.purchase_date)}
@@ -147,6 +155,42 @@ export function LoadCostDrawer({
                   </div>
                 </div>
               </div>
+
+              {/* The load's pre-GoatOS history, with the dates the old records span. */}
+              {load.prior_sold || load.prior_dead ? (
+                <div style={{ marginTop: 10 }}>
+                  <div className="mt">{copy(pageContract, "loadwise.prior.title")}</div>
+                  {load.prior_sold ? (
+                    <div className="muted small">
+                      {copy(pageContract, "loadwise.prior.sold")}: <b>{num(load.prior_sold.count)}</b>{" "}
+                      {copy(pageContract, "loadwise.prior.animals")}
+                      {load.prior_sold.value ? <> · {inr(Math.round(load.prior_sold.value))}</> : null}
+                      {load.prior_sold.first_on ? (
+                        <>
+                          {" "}· {humanDate(load.prior_sold.first_on)}
+                          {load.prior_sold.last_on && load.prior_sold.last_on !== load.prior_sold.first_on
+                            ? ` – ${humanDate(load.prior_sold.last_on)}`
+                            : ""}
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {load.prior_dead ? (
+                    <div className="muted small">
+                      {copy(pageContract, "loadwise.prior.died")}: <b>{num(load.prior_dead.count)}</b>{" "}
+                      {copy(pageContract, "loadwise.prior.animals")}
+                      {load.prior_dead.first_on ? (
+                        <>
+                          {" "}· {humanDate(load.prior_dead.first_on)}
+                          {load.prior_dead.last_on && load.prior_dead.last_on !== load.prior_dead.first_on
+                            ? ` – ${humanDate(load.prior_dead.last_on)}`
+                            : ""}
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="note" style={{ marginTop: 10 }}>
                 {copy(pageContract, "hint.load_cost")}

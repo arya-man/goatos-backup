@@ -5760,6 +5760,8 @@ export interface components {
         LoadwiseLoad: {
             /** Format: uuid */
             load_id: string;
+            /** @description The farm's own load number ("131") where known. Display only, never a key. */
+            load_ref?: string | null;
             vendor_name: string;
             /** Format: date */
             purchase_date?: string | null;
@@ -5790,7 +5792,21 @@ export interface components {
             price_basis: "load" | "overall" | "none";
             /** @description remaining x avg_sold_price. Absent when there is no price basis. */
             remaining_value?: number | null;
+            /** @description Animals of this load ALREADY SOLD before its remaining animals were tracked here — seeded history, already folded into `sold` / `purchased` / `sold_value`; shown with the dates it spans. */
+            prior_sold?: components["schemas"]["LoadwisePriorOutcome"] | null;
+            /** @description Animals already dead before tracking started; folded into `mortality` / `purchased`. */
+            prior_dead?: components["schemas"]["LoadwisePriorOutcome"] | null;
             row_version: number;
+        };
+        /** @description One pre-GoatOS outcome block for a load, with the date range the events span. */
+        LoadwisePriorOutcome: {
+            count: number;
+            /** @description Recorded revenue (sold only). */
+            value?: number | null;
+            /** Format: date */
+            first_on?: string | null;
+            /** Format: date */
+            last_on?: string | null;
         };
         /** @description Aggregates over exactly the served rows -- no client re-derives its own totals. */
         LoadwiseSummary: {

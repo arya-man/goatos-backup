@@ -30,7 +30,11 @@ const (
 
 // LoadwiseLoad is one procurement load's reconciliation row.
 type LoadwiseLoad struct {
-	LoadID       string
+	LoadID string
+	// LoadRef is the farm's own load NUMBER ("131"), carried in procurement_loads.context ->
+	// 'load_ref' for loads seeded from the legacy load sheet; "" for loads the app created
+	// before a number convention exists. Display only, never a key.
+	LoadRef      string
 	VendorName   string
 	PurchaseDate string // YYYY-MM-DD business date, "" when the load has none
 	Status       string
@@ -62,7 +66,24 @@ type LoadwiseLoad struct {
 	PriceBasis     string
 	RemainingValue *float64
 
+	// PriorSold / PriorDead are the load's PRE-GOATOS outcomes (procurement_load_prior_outcomes):
+	// animals already sold or already dead before the load's remaining animals were tracked here,
+	// seeded from the legacy records with the dates they span. FinalizeLoadwise FOLDS them into
+	// Purchased/Sold/Mortality and the money, so the reconciliation covers the whole load; the
+	// raw blocks stay on the row so the screen can show the history and its dates.
+	PriorSold LoadwisePriorOutcome
+	PriorDead LoadwisePriorOutcome
+
 	RowVersion int
+}
+
+// LoadwisePriorOutcome is one pre-GoatOS outcome block: how many animals, the revenue where the
+// records carry it (sold only), and the date range the events span ("" when unknown).
+type LoadwisePriorOutcome struct {
+	Count   int
+	Value   *float64
+	FirstOn string
+	LastOn  string
 }
 
 // LoadwiseSummary aggregates the served rows — same grain, same predicate, summed once here so no
@@ -101,6 +122,17 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64)
 	out := LoadwiseSales{Loads: loads, TotalLoads: totalLoads, OverallAvgSoldPrice: overallAvg}
 	for i := range loads {
 		row := &loads[i]
+		// Fold the pre-GoatOS history in FIRST: those animals were purchased on this load and
+		// their outcome is known, so every count and the money must range over the WHOLE load.
+		row.Purchased += row.PriorSold.Count + row.PriorDead.Count
+		row.Sold += row.PriorSold.Count
+		row.Mortality += row.PriorDead.Count
+		if row.PriorSold.Value != nil {
+			row.SoldValue += *row.PriorSold.Value
+			row.SoldPriced += row.PriorSold.Count
+		}
+		// Unaccounted is the arithmetic gap over the folded counts — derived here, never counted.
+		row.Unaccounted = row.Purchased - row.Sold - row.Mortality - row.OtherExits - row.Remaining
 		row.PurchaseValue = loadPurchaseValue(row.AnimalCost, row.TransportCost, row.OtherCost)
 		row.AvgSoldPrice, row.PriceBasis = loadAvgSoldPrice(row.SoldValue, row.SoldPriced, overallAvg)
 		row.RemainingValue = remainingValue(row.Remaining, row.AvgSoldPrice)

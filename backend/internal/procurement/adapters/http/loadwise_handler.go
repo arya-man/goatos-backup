@@ -48,6 +48,7 @@ const maxLoadCostRequestBytes = 8 * 1024
 
 type loadwiseLoadPayload struct {
 	LoadID       string `json:"load_id"`
+	LoadRef      string `json:"load_ref,omitempty"`
 	VendorName   string `json:"vendor_name"`
 	PurchaseDate string `json:"purchase_date,omitempty"`
 	Status       string `json:"status"`
@@ -71,7 +72,26 @@ type loadwiseLoadPayload struct {
 	PriceBasis     string   `json:"price_basis"`
 	RemainingValue *float64 `json:"remaining_value,omitempty"`
 
+	// The pre-GoatOS history already folded into the counts above, exposed so the screen can say
+	// "already sold / already died before tracking started" with the dates it spans.
+	PriorSold *loadwisePriorPayload `json:"prior_sold,omitempty"`
+	PriorDead *loadwisePriorPayload `json:"prior_dead,omitempty"`
+
 	RowVersion int `json:"row_version"`
+}
+
+type loadwisePriorPayload struct {
+	Count   int      `json:"count"`
+	Value   *float64 `json:"value,omitempty"`
+	FirstOn string   `json:"first_on,omitempty"`
+	LastOn  string   `json:"last_on,omitempty"`
+}
+
+func toPriorPayload(p domain.LoadwisePriorOutcome) *loadwisePriorPayload {
+	if p.Count == 0 {
+		return nil
+	}
+	return &loadwisePriorPayload{Count: p.Count, Value: p.Value, FirstOn: p.FirstOn, LastOn: p.LastOn}
 }
 
 type loadwiseSummaryPayload struct {
@@ -106,6 +126,7 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 	for _, l := range out.Loads {
 		loads = append(loads, loadwiseLoadPayload{
 			LoadID:       l.LoadID,
+			LoadRef:      l.LoadRef,
 			VendorName:   l.VendorName,
 			PurchaseDate: l.PurchaseDate,
 			Status:       l.Status,
@@ -128,6 +149,9 @@ func (h *LoadwiseHandler) LoadwiseSales(w http.ResponseWriter, r *http.Request) 
 			AvgSoldPrice:   l.AvgSoldPrice,
 			PriceBasis:     l.PriceBasis,
 			RemainingValue: l.RemainingValue,
+
+			PriorSold: toPriorPayload(l.PriorSold),
+			PriorDead: toPriorPayload(l.PriorDead),
 
 			RowVersion: l.RowVersion,
 		})

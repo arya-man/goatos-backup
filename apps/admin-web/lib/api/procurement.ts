@@ -24,6 +24,7 @@ export type SalesDealWrite = AppApiComponents["schemas"]["SalesDealWrite"];
 export type LoadwiseSales = AppApiComponents["schemas"]["LoadwiseSales"];
 export type LoadwiseLoad = AppApiComponents["schemas"]["LoadwiseLoad"];
 export type LoadwiseSummary = AppApiComponents["schemas"]["LoadwiseSummary"];
+export type LoadwisePriorOutcome = AppApiComponents["schemas"]["LoadwisePriorOutcome"];
 export type LoadCostWrite = AppApiComponents["schemas"]["LoadCostWrite"];
 
 // Feed purchases — the buying side of the feed chain (/procurement/feed-purchases).
