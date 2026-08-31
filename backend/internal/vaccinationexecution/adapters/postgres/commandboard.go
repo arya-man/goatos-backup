@@ -62,7 +62,7 @@ const commandBoardSummaryConcurrency = 6
 //     commandboard_drilldown_sql.go. The board keeps every COUNT those lists sat under: the
 //     numbers are the board, the lists were never first paint.
 //
-//  2. WHAT REMAINS RUNS CONCURRENTLY. The nine summary sections share no state, so they are
+//  2. WHAT REMAINS RUNS CONCURRENTLY. The six summary sections share no state, so they are
 //     fanned out under commandBoardSummaryConcurrency and assembled deterministically after.
 //     Ordering of the response is computed from the results, never from completion order.
 //
@@ -410,12 +410,21 @@ func (r *Repository) commandBoardShedDoseCells(ctx context.Context, tenantID str
 			})
 		}
 
-		doseRule := vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode)
-		dose, ok := doseIndex[doseRule]
+		// Interned on the raw dose_code, NOT on its display label.
+		//
+		// DoseQualifiedDisplayLabel only qualifies _W1/_W2/_BOOSTER/_REVAC/_REPEAT/_FIRST, so
+		// et_tt_kid_4w and et_tt_kid_7w BOTH render "ET+TT" -- the same collision this file already
+		// de-duplicates for cohort exceptions. Keying the interner on the label merged two distinct
+		// dose codes onto one index and emitted two cells sharing a (shed, dose, state) triple,
+		// whose counts a grid consumer would silently drop one of. Keying on the code keeps the
+		// statement's own GROUP BY grain, so nothing is lost on the wire. Two entries in DoseRules
+		// may therefore carry the SAME label string; that is honest -- they are two real doses --
+		// and consumers must key on the INDEX, never on the label.
+		dose, ok := doseIndex[doseCode]
 		if !ok {
 			dose = len(matrix.DoseRules)
-			doseIndex[doseRule] = dose
-			matrix.DoseRules = append(matrix.DoseRules, doseRule)
+			doseIndex[doseCode] = dose
+			matrix.DoseRules = append(matrix.DoseRules, vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode))
 		}
 
 		matrix.Cells = append(matrix.Cells, domain.ShedDoseMatrixCell{

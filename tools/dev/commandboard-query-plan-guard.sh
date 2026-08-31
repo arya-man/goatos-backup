@@ -24,11 +24,20 @@ cd "$REPO_ROOT"
 
 admin_dsn="${GOATOS_PGTEST_ADMIN_DSN:-${GOATOS_SQLC_PLAN_ADMIN_DSN:-}}"
 
+# Resolution 3: an operator-named env file. GOATOS_OCI_DB_ENV / GOATOS_OCI_ENV_FILE are deliberate
+# exports, so naming one is consent. The well-known $HOME path is NOT: this harness CREATEs a
+# template database, pipes every migration through it, clones it per test and DROPs it on teardown,
+# and auto-discovering a shared dev server for that is not something an operator opted into by
+# having a file on disk. It requires GOATOS_PGTEST_ALLOW_EXTERNAL=1, said out loud.
 if [[ -z "$admin_dsn" ]]; then
+  default_env_file=""
+  if [[ "${GOATOS_PGTEST_ALLOW_EXTERNAL:-}" == "1" ]]; then
+    default_env_file="$HOME/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env"
+  fi
   for env_file in \
     "${GOATOS_OCI_DB_ENV:-}" \
     "${GOATOS_OCI_ENV_FILE:-}" \
-    "$HOME/mesha/local-data/goatos-stg-to-oci/oci-goatos-db.env"
+    "$default_env_file"
   do
     if [[ -n "$env_file" && -f "$env_file" ]]; then
       # shellcheck disable=SC1090
@@ -49,11 +58,36 @@ REQUIRED_TESTS=(
   TestCommandBoardPlanGuardRejectsTheTenantWideDrilldown
   TestCommandBoardTileAndDrilldownRangeOverTheSameAnimals
   TestCohortExceptionTileAndDrawerRangeOverTheSameAnimals
+  TestCommandBoardPlanGateCoversEverySQLConst
 )
 # Both predicate-drift tests are named explicitly rather than caught by one prefix: the cohort one
 # does not start with "TestCommandBoard", and relying on a prefix is how a test quietly stops being
 # part of the gate.
 TESTS='TestCommandBoard|TestCohortExceptionTileAndDrawer'
+# --self-test is the DB-FREE half of this gate, and it is what `make guardrails` runs.
+#
+# The full gate needs a PostgreSQL server, so it cannot live in the static guardrail sweep that runs
+# on every machine. Its WIRING can be checked without one: that every test this gate claims to
+# require actually exists, and that every command-board SQL statement is plan-covered. Without this,
+# deleting a row from the plan table left all the named tests passing and the gate satisfied.
+if [[ "${1:-}" == "--self-test" ]]; then
+  missing=()
+  for name in "${REQUIRED_TESTS[@]}"; do
+    if ! grep -qR "func ${name}(" backend/internal/vaccinationexecution/adapters/postgres/; then
+      missing+=("$name")
+    fi
+  done
+  if (( ${#missing[@]} > 0 )); then
+    echo "command-board query plans: REQUIRED_TESTS names tests that do not exist:" >&2
+    printf '  %s\n' "${missing[@]}" >&2
+    exit 1
+  fi
+  ( cd backend && go test ./internal/vaccinationexecution/adapters/postgres/ \
+      -run TestCommandBoardPlanGateCoversEverySQLConst -count=1 ) || exit 1
+  echo "command-board query plans: wiring self-test passed (${#REQUIRED_TESTS[@]} required tests exist; every statement plan-covered)."
+  exit 0
+fi
+
 LOG="$(mktemp -t commandboard-query-plan-guard)"
 trap 'rm -f "$LOG"' EXIT
 

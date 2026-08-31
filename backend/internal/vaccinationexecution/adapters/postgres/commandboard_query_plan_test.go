@@ -252,6 +252,36 @@ func TestCommandBoardQueryPlansAreBoundedByTheAnswerNotTheTenant(t *testing.T) {
 		},
 		{
 			limits: commandBoardPlanLimits{
+				label:                      "commandBoardShedDoseSQL",
+				maxScanRows:                obligations * 2,
+				maxPreLimitRows:            obligations * 2,
+				maxNodeTotalRows:           summaryNodeCeiling,
+				maxRowsRemovedByJoinFilter: summaryNodeCeiling,
+				hotTables:                  []string{"goat_shed_partitions"},
+			},
+			// The shed x dose grid is a tenant-wide fold, so obligation_instances is legitimately
+			// read once. Added because review found this statement had NEITHER a plan gate nor a
+			// working latency gate, despite this change giving it its own endpoint -- exactly the
+			// "escaped the guardrails" shape that caused the original incident.
+			sql:  commandBoardShedDoseSQL,
+			args: []any{f.tenantID, f.asOf, nil, nil},
+		},
+		{
+			limits: commandBoardPlanLimits{
+				label:                      "commandBoardKPISQL",
+				maxScanRows:                obligations * 2,
+				maxPreLimitRows:            obligations * 2,
+				maxNodeTotalRows:           summaryNodeCeiling,
+				maxRowsRemovedByJoinFilter: summaryNodeCeiling,
+				hotTables:                  []string{"goat_shed_partitions"},
+			},
+			// Every tile on the board comes from this one statement, so it is the single most
+			// load-bearing summary read on the endpoint.
+			sql:  commandBoardKPISQL,
+			args: []any{f.tenantID, f.asOf, nil, nil},
+		},
+		{
+			limits: commandBoardPlanLimits{
 				label:                      "commandBoardShedVaccineAnimalSQL",
 				maxScanRows:                drilldownScanCeiling,
 				maxPreLimitRows:            drilldownScanCeiling,

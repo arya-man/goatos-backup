@@ -202,3 +202,6 @@ backend/context/
 
 # Local media captured by the dev stack (proof uploads); never committed.
 .goatos-local-media/
+
+# Compiled scale-guard binary; the Makefile runs `go run .` from source.
+tools/scale-guard/scale-guard

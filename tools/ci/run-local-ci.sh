@@ -416,6 +416,7 @@ run_common() {
   current_job="common"
   step "git-identity-guard" make git-identity-guard
   step "guardrail-registration-guard" make guardrail-registration-guard
+  step "commandboard-query-plan-wiring-guard" make commandboard-query-plan-wiring-guard
   step "local-stack-service-guard" make local-stack-service-guard
   step "local-ci-evidence-guard"   make local-ci-evidence-guard
   step "domain-event-architecture-guard" make domain-event-architecture-guard

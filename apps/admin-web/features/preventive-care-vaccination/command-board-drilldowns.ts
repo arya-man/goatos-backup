@@ -191,6 +191,10 @@ export type ShedDoseMatrixWire = {
 };
 
 export type ShedDoseCellRow = {
+  // doseKey is the matrix's dose INDEX, stringified. It is the only safe grid key: two dose codes
+  // can share a display label (DoseQualifiedDisplayLabel leaves et_tt_kid_4w and et_tt_kid_7w both
+  // as "ET+TT"), so keying a grid on doseRule silently drops one of their animal counts.
+  doseKey: string;
   shedId: string;
   shedName: string;
   partition_label?: string | null;
@@ -220,6 +224,7 @@ export function expandShedDoseMatrix(matrix?: ShedDoseMatrixWire | null): ShedDo
     const doseRule = doseRules[cell.dose];
     if (!shed || doseRule === undefined) continue;
     out.push({
+      doseKey: String(cell.dose),
       shedId: shed.shedId,
       shedName: shed.shedName,
       partition_label: shed.partitionLabel ?? null,

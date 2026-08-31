@@ -133,8 +133,11 @@ Measured through the running API against the OCI clone, 20 samples per endpoint 
 **The board no longer 500s** — it returns 200 in every sample, down from 8,611ms of SQL and a
 timeout. The payload is inside its 512 KB budget with 15% headroom, where it was 753 KB before.
 
-**IT DOES NOT MEET THE 300ms p90 BUDGET, and that is stated rather than worked around.** 416ms is
-not the 200-300ms class the fix was asked for. Read §7 before concluding anything about it.
+**SUPERSEDED — this table is the FIRST pass and is kept only as the before/after record.** The
+board missed its budget at p90 416 here. After the work in §8 (the cohort matrix and the shed x
+dose grid moved to their own sections, the exception-count disk spill fixed, the fan-out widened)
+it measures **p90 255-290 at 49KB and PASSES**. See §8 for the current numbers, and read §8.5 for
+the one endpoint that is still over budget.
 
 ## 4. THE ANCHOR-DATE BOUNDARY — no command-board projection or backfill yet
 
@@ -233,7 +236,12 @@ change.
 
 ## 7. Residual risks and what is NOT proven
 
-**The board misses its own latency budget.** `GET /vaccination/command` measures p90 416ms against a
+**SUPERSEDED by §8 — the board now passes at p90 255-290.** What follows described the first pass,
+when `GET /vaccination/command` measured p90 416ms against a gate set at 300ms. The reasoning about
+the budget still stands and is why it was never relaxed; only the board's number changed. The one
+endpoint still over budget is `vaccination_command_cohort_matrix` (§8.5).
+
+The original note read: `GET /vaccination/command` measures p90 416ms against a
 gate set at 300ms, so the entry added to `tools/perf/hot-paths.vaccination.json` **fails today**. The
 budget was deliberately not relaxed: the policy in `tools/perf/api-latency-policy.mjs` hard-caps p90
 at 300ms and refuses any per-endpoint value above it, and lowering the bar would turn the one gate
@@ -385,3 +393,44 @@ Options that remain, none taken unilaterally: park-scope the grid so no single r
 tenant-wide; or revisit the projection ban in §4 for this one aggregate — which the anchor-date
 reasoning still argues against. Relaxing the budget is not an option; `tools/perf/
 api-latency-policy.mjs` hard-caps it and will not let anyone raise it.
+
+### 8.6 Which of these gates actually RUNS, and when
+
+Review found that "added to the manifest" and "enforced" are not the same sentence here, so this is
+written down rather than assumed.
+
+| gate | trigger | enforces on a PR? |
+|---|---|---|
+| `query-plans` job (`make ci-local JOB=query-plans`) | `needs.changes.outputs.query_plans == 'true'`, computed from changed paths | **YES.** `tools/ci/component-paths.json` carries `backend/internal/vaccinationexecution/adapters/postgres/`, and `ci-scope.mjs` has a self-test pinning that exact path. |
+| `commandboard-query-plan-wiring-guard` | `make guardrails` + `run-local-ci.sh` | **YES**, and needs no database. |
+| `live-api-latency` job (`hot-paths.vaccination.json`) | `needs.changes.outputs.postgres`, which `ci.yml:26` defines as `github.event_name == 'workflow_dispatch' && inputs.run_postgres_tests == true` | **NO.** Manual dispatch only. |
+
+The latency manifest therefore documents a contract; it does not currently enforce one on a PR.
+That trigger is pre-existing CI design and was not changed here, but it means the p90 300 entries —
+including the two this change adds — buy no automatic protection until that job runs on PRs. It is
+also why `vaccination_command_cohort_matrix` can be declared while measuring 323-330 (§8.5): the
+entry is a **stated, unresolved blocker**, deliberately not an accepted state and deliberately not
+relaxed. Anyone turning `live-api-latency` on for PRs must resolve §8.5 first, or that job goes red
+on its first run — which is the correct order of operations, not a surprise.
+
+### 8.7 Guard defects found by review of THIS change
+
+Both were live holes in guards this change itself introduced, and are recorded because "the guard
+existed" is not the same as "the guard worked".
+
+- **`hot-path-inline-sql` exempted its worst case.** The `*ast.BinaryExpr` branch returned `false`
+  (stop descending) even when `flattenStringConcat` FAILED, so ``query := `...multi-line SQL...` +
+  where`` produced zero findings while the identical statement without `+ where` was caught. A
+  statement whose final text is not knowable from source is the one a plan test can least reach —
+  exactly what the rule exists to forbid. Worse, a test asserted `want 0` for that shape, locking
+  the hole in as intended behaviour. The branch now keeps descending, and that test is inverted to
+  `want 1`. Re-deriving the baseline after the fix moved it from 974 to 1031 known offenders — all
+  pre-existing debt the rule had simply been blind to.
+- **The plan gate proved test NAMES, not coverage.** `REQUIRED_TESTS` verified that each named test
+  ran and passed, but deleting a row from the plan table left every named test green. Seven of
+  fifteen command-board statements were gated, and `commandBoardShedDoseSQL` — the statement this
+  change gave its own endpoint — was one of the eight that were not.
+  `TestCommandBoardPlanGateCoversEverySQLConst` now parses the SQL files and fails on any statement
+  with neither a plan-table entry nor an explicit MEASURED exemption; `commandBoardShedDoseSQL` and
+  `commandBoardKPISQL` were added to the table. The coverage test was itself mutation-checked by
+  removing a label and confirming it fails.

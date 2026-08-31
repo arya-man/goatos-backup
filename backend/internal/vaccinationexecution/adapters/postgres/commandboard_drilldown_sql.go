@@ -150,10 +150,19 @@ ORDER BY p.display_id, p.goat_id
 
 // commandBoardShedVaccineAnimalSQL lists the animals behind ONE shed-vaccine cell.
 //
-// The behind predicate is unchanged from the matrix aggregate it explains: no accepted completion,
-// AND (recorded-unverified OR 'missed' OR still open with an IST business due date already past).
-// The DECORATION is not unchanged: it is now joined to the page rather than to the candidate set,
-// and the park/shed name fallback below is called out where it happens.
+// SCOPE: this drawer serves the UNION of the cell's two counts, behind_animals AND
+// verifying_animals -- no accepted completion, AND (recorded-unverified OR 'missed' OR still open
+// with an IST business due date already past). It is deliberately BROADER than the matrix's
+// is_behind, which additionally requires NOT recorded-unverified; each row carries
+// awaiting_verification so the client splits the two groups it was handed.
+//
+// Said plainly because the comment here used to claim the predicate was "unchanged from the matrix
+// aggregate it explains" while spelling out the drawer's wider one. A reader clicking a cell
+// showing behind_animals = 3 can legitimately get more than three rows back, and nothing in the
+// code said so.
+//
+// The DECORATION is separately not unchanged: it is now joined to the page rather than to the
+// candidate set, and the park/shed name fallback below is called out where it happens.
 //
 // $5/$6/$7 (shed, vaccine, partition) are REQUIRED and are the whole point. The eager version
 // carried no cell predicate at all: it built every cell's list for the tenant, sorted an estimated

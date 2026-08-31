@@ -277,6 +277,7 @@ function buildCohortPivot(
 
 function buildShedGrid(
   matrix: Array<{
+    doseKey: string;
     shedId: string;
     shedName: string;
     partition_label?: string | null;
@@ -290,7 +291,7 @@ function buildShedGrid(
     maxDueDate?: string | null;
   }>
 ): {
-  byDose: string[];
+  byDose: Array<{ key: string; label: string }>;
   byShed: ShedGridRow[];
 } {
   const doseSet = new Set<string>();
@@ -299,8 +300,16 @@ function buildShedGrid(
   // with separate animal counts. Keying by shedName alone caused them to merge, silently summing counts.
   const shedMap = new Map<string, ShedGridRow>();
 
+  // Keyed on doseKey (the matrix's dose index), NOT on the display label. Two dose codes can share
+  // a label -- DoseQualifiedDisplayLabel leaves both et_tt_kid_4w and et_tt_kid_7w as "ET+TT" -- so
+  // keying on the label merged two real doses into one column and dropped one of their counts,
+  // exactly the way keying sheds by shedName used to merge two sheds. Two columns may therefore
+  // carry the same header until that labeller disambiguates those suffixes; showing the same label
+  // twice is a cosmetic wart, losing an animal count is a wrong number.
+  const doseLabels = new Map<string, string>();
   matrix.forEach((cell) => {
-    doseSet.add(cell.doseRule);
+    doseSet.add(cell.doseKey);
+    doseLabels.set(cell.doseKey, cell.doseRule);
     const shedKey = `${cell.shedId}|${cell.partition_label ?? ""}`;
     if (!shedMap.has(shedKey)) {
       shedMap.set(shedKey, {
@@ -311,7 +320,7 @@ function buildShedGrid(
         cells: {},
       });
     }
-    shedMap.get(shedKey)!.cells[cell.doseRule] = {
+    shedMap.get(shedKey)!.cells[cell.doseKey] = {
       doseRule: cell.doseRule,
       state: cell.state,
       animalCount: cell.animalCount,
@@ -323,7 +332,7 @@ function buildShedGrid(
   });
 
   return {
-    byDose: Array.from(doseSet),
+    byDose: Array.from(doseSet).map((key) => ({ key, label: doseLabels.get(key) ?? "" })),
     byShed: Array.from(shedMap.values()),
   };
 }
@@ -1109,7 +1118,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                     <tr>
                       <th className="cbm-rowh">{copy(pageContract, "command_board.shed_matrix.column.shed")}</th>
                       {grid.byDose.map((dose) => (
-                        <th key={dose}>{dose}</th>
+                        <th key={dose.key}>{dose.label}</th>
                       ))}
                     </tr>
                   </thead>
@@ -1125,9 +1134,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                         <tr key={shedKey}>
                           <th className="cbm-rowh">{shedLabel}</th>
                           {grid.byDose.map((dose) => {
-                            const cell = row.cells[dose];
+                            const cell = row.cells[dose.key];
                             if (!cell) {
-                              return <td key={dose} className="cbm-cell cbm-na">—</td>;
+                              return <td key={dose.key} className="cbm-cell cbm-na">—</td>;
                             }
                             // Completed cells show the operator's actual administration date. Verification
                             // can happen days later and must never replace the medical date. Scheduled and
@@ -1137,10 +1146,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                               : formatDateSpan(cell.minDueDate, cell.maxDueDate);
                             // An awaiting cell also carries how long it has been sitting with the
                             // verifier — the one fact the removed queue table added.
-                            const waiting = cell.state === "awaiting" ? queueAgeDays.get(`${shedKey}|${dose}`) : undefined;
+                            const waiting = cell.state === "awaiting" ? queueAgeDays.get(`${shedKey}|${dose.label}`) : undefined;
                             return (
                               <td
-                                key={dose}
+                                key={dose.key}
                                 className={`cbm-cell cbm-${cell.state}`}
                                 title={`${shedLabel} · ${cell.animalCount} animals${
                                   waiting !== undefined ? ` · ${waiting}${copy(pageContract, "command_board.shed_matrix.waiting_suffix")}` : ""
