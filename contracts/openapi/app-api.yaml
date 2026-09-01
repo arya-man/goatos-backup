@@ -14676,6 +14676,17 @@ components:
             The day the animals REACHED THE FARM. Not the purchase date: the farm warms animals up
             at the source, so a load is bought a day or more before it lands here, and the
             fattening clock starts on arrival.
+        days_on_farm_so_far:
+          type: integer
+          nullable: true
+          description: >-
+            The RUNNING fattening clock: whole days from arrived_on to today's Asia/Kolkata
+            business date, for a load that has NOT SOLD. Same start as fattening_days, which is
+            why the two may be shown on one axis -- but they are MUTUALLY EXCLUSIVE: a load that
+            has sold anything answers with its finished fattening_days alone, because its
+            stragglers would otherwise tell a few animals' story at the scale of the whole load.
+            Absent once anything has sold, once the load holds nothing, and when the arrival date
+            is unknown.
         days_since_purchase:
           type: integer
           nullable: true

@@ -86,8 +86,13 @@ export function LoadwiseSection({
     { key: "landed_price_per_kg", label: copy(pageContract, "chart.series.landing_price_per_kg"), tone: "info" },
     { key: "sale_price_per_kg", label: copy(pageContract, "chart.series.sale_price_per_kg"), tone: "ok" },
   ];
+  // Two clocks with the SAME start (arrival) and MUTUALLY EXCLUSIVE by decision: the finished
+  // span for a load that has sold, the days-so-far for one that has not. A load never shows both
+  // -- a part-sold load's stragglers can be hundreds of days older than the animals that went,
+  // and that bar would set the axis for every other load on the chart.
   const fatteningSeries: GroupedSeries[] = [
     { key: "fattening_days", label: copy(pageContract, "chart.series.fattening_days"), tone: "teal" },
+    { key: "days_on_farm_so_far", label: copy(pageContract, "chart.series.days_on_farm_so_far"), tone: "info" },
   ];
   const valueSeries: GroupedSeries[] = [
     { key: "purchase_value", label: copy(pageContract, "chart.series.purchase_value"), tone: "info" },
@@ -283,8 +288,10 @@ export function LoadwiseSection({
             }))}
           />
 
-          {/* Chart 5 — the fattening clock: arrival to sale, animal-weighted. Absent for a load
-              that has not sold, because there is no elapsed span to state yet. */}
+          {/* Chart 5 — the fattening clock from arrival, in whichever of its two states the load
+              is in: the finished arrival-to-sale span (animal-weighted) once it has sold, and
+              until then the days its animals have been here so far. Neither is the load's AGE —
+              that clock starts at purchase and is not on this axis. */}
           <div className="mt">{copy(pageContract, "chart.loadwise_fattening.title")}</div>
           <GroupedColumns
             series={fatteningSeries}
@@ -294,11 +301,19 @@ export function LoadwiseSection({
               key: load.load_id,
               axisLabel: load.load_ref ? load.load_ref : load.purchase_date ? shortDate(load.purchase_date) : none,
               label: loadLabel(load, loadWord, none),
-              values: [load.fattening_days ?? null],
+              values: [load.fattening_days ?? null, load.days_on_farm_so_far ?? null],
               displays: [
                 load.fattening_days == null
                   ? copy(pageContract, "value.not_sold_yet")
                   : `${num(load.fattening_days)} ${copy(pageContract, "value.days")}`,
+                // Absent means the load has sold, or holds nothing — either way its answer is
+                // the finished span above. The tooltip still states what is left in the shed, a
+                // fact rather than a claim about days, so the row is never simply blank.
+                load.days_on_farm_so_far == null
+                  ? `${num(load.remaining)} ${copy(pageContract, "value.still_on_farm")}`
+                  : `${num(load.days_on_farm_so_far)} ${copy(pageContract, "value.days")} · ${num(
+                      load.remaining,
+                    )} ${copy(pageContract, "value.still_on_farm")}`,
               ],
               // The clock starts on ARRIVAL, not purchase — stated on the bar so nobody reads it
               // against the purchase date in the row above.

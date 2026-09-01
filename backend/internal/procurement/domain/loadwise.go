@@ -95,6 +95,22 @@ type LoadwiseLoad struct {
 	ArrivedOn string
 	// FatteningDays is arrival to sale, animal-weighted across the load's sales.
 	FatteningDays *int
+	// DaysOnFarmSoFar is the SAME clock as FatteningDays -- it starts on ARRIVAL -- but it has not
+	// stopped: it is the days the animals of a load that has SOLD NOTHING have been on the farm,
+	// at the current business date.
+	//
+	// The two are MUTUALLY EXCLUSIVE by decision (maintainer, 2026-09-01): a load answers with its
+	// finished span or its running one, never both. A load that has begun selling already states
+	// how long its animals took, and its stragglers would answer a different question in the same
+	// bar -- load 101 sold 66 animals at 204 days and holds 3 that have been here 314, and that
+	// 314 is three animals' story told at the scale of the whole chart.
+	//
+	// It is deliberately NOT DaysSincePurchase. That clock starts when the money left the business
+	// and answers "how long has this capital been tied up"; this one starts when the animals
+	// landed and answers "how long have they been eating here", which is the only span comparable
+	// to a finished FatteningDays. Rendering the age clock beside a fattening bar would put two
+	// different start days on one axis.
+	DaysOnFarmSoFar *int
 
 	// AvgPurchaseWeightKg and AvgSaleWeightKg are how heavy one animal was coming in and going
 	// out. The pair is the farm's growth read on a load; each is absent rather than zero when its
@@ -203,24 +219,44 @@ const LoadAgeAlertDays = 90
 // about the load, it is a fact about a bad date, and rendering it as a bar would assert the
 // former.
 func DaysSincePurchase(purchaseDate, asOf string) *int {
-	if purchaseDate == "" || asOf == "" {
+	return elapsedBusinessDays(purchaseDate, asOf)
+}
+
+// elapsedBusinessDays is whole days from one business date to another, absent when either is
+// unknown/unparseable or when the span runs backwards.
+func elapsedBusinessDays(from, asOf string) *int {
+	if from == "" || asOf == "" {
 		return nil
 	}
-	bought, err := time.Parse("2006-01-02", purchaseDate)
+	start, err := time.Parse("2006-01-02", from)
 	if err != nil {
-		// exception:exempt invalid business-date input makes the derived age absent
+		// exception:exempt invalid business-date input makes the derived span absent
 		return nil
 	}
 	today, err := time.Parse("2006-01-02", asOf)
 	if err != nil {
-		// exception:exempt invalid business-date input makes the derived age absent
+		// exception:exempt invalid business-date input makes the derived span absent
 		return nil
 	}
-	days := int(today.Sub(bought).Hours() / 24)
+	days := int(today.Sub(start).Hours() / 24)
 	if days < 0 {
 		return nil
 	}
 	return &days
+}
+
+// DaysOnFarmSoFar is the running fattening clock for a load that has NOT SOLD: whole days from
+// ARRIVAL to asOf, both Asia/Kolkata business dates.
+//
+// Absent once ANY animal has sold, not merely once the load empties -- a load that has sold states
+// its finished FatteningDays, and that is the whole of its answer. Absent too when the load holds
+// nothing, when the arrival date is unknown, and when arrival lies in the future: a negative span
+// is a fact about a bad date, not about the load.
+func DaysOnFarmSoFar(arrivedOn, asOf string, remaining, sold int) *int {
+	if sold > 0 || remaining <= 0 {
+		return nil
+	}
+	return elapsedBusinessDays(arrivedOn, asOf)
 }
 
 // FinalizeLoadwise takes asOf as the current Asia/Kolkata business date so the age clock is
@@ -260,6 +296,9 @@ func FinalizeLoadwise(loads []LoadwiseLoad, totalLoads int, overallAvg *float64,
 		// range over one key set, or the ratio describes no real set of sales.
 		row.SalePricePerKg = landedPricePerKg(row.SoldWeighedValue, row.SoldWeightKg)
 		row.DaysSincePurchase = DaysSincePurchase(row.PurchaseDate, asOf)
+		// After Sold has absorbed the pre-GoatOS sales above, so a load whose only sales predate
+		// GoatOS still counts as having sold and keeps the running clock off the chart.
+		row.DaysOnFarmSoFar = DaysOnFarmSoFar(row.ArrivedOn, asOf, row.Remaining, row.Sold)
 		row.ProfitLoss = profitLoss(row.PurchaseValue, row.SoldValue, row.RemainingValue)
 
 		out.Summary.Purchased += row.Purchased

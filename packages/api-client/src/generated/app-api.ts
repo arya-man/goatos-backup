@@ -5981,6 +5981,8 @@ export interface components {
              * @description The day the animals REACHED THE FARM. Not the purchase date: the farm warms animals up at the source, so a load is bought a day or more before it lands here, and the fattening clock starts on arrival.
              */
             arrived_on?: string | null;
+            /** @description The RUNNING fattening clock: whole days from arrived_on to today's Asia/Kolkata business date, for a load that has NOT SOLD. Same start as fattening_days, which is why the two may be shown on one axis -- but they are MUTUALLY EXCLUSIVE: a load that has sold anything answers with its finished fattening_days alone, because its stragglers would otherwise tell a few animals' story at the scale of the whole load. Absent once anything has sold, once the load holds nothing, and when the arrival date is unknown. */
+            days_on_farm_so_far?: number | null;
             /** @description The load's AGE: whole days from its purchase date to today's Asia/Kolkata business date. A DIFFERENT clock from fattening_days -- that one starts on arrival and stops at sale, this one starts at purchase and keeps running while the load is open. A load past 90 days still holding animals raises the daily CXO alert. Absent when the purchase date is unknown. */
             days_since_purchase?: number | null;
             /** @description Days between arrival and sale, ANIMAL-WEIGHTED across the load's sales -- a load that leaves in four batches over four months has no single sale date, and weighting by how many animals left on each answers "how long was the average animal fattened". */

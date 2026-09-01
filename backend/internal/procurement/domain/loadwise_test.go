@@ -510,3 +510,89 @@ func TestUnsoldLoadHasNoSaleFiguresAtAll(t *testing.T) {
 		t.Fatal("the purchase side went absent along with the sale side")
 	}
 }
+
+// The running fattening clock. A load that has not sold used to report NOTHING about how long its
+// animals had been on the farm — the fattening chart's bar was simply blank — while the only
+// elapsed number the code derived was DaysSincePurchase, which starts on a different day and
+// feeds the CXO alert rather than any screen (maintainer decision 2026-09-01).
+func TestUnsoldLoadReportsTheDaysItsAnimalsHaveBeenOnFarm(t *testing.T) {
+	out := FinalizeLoadwise([]LoadwiseLoad{{
+		// Bought on the 1st, landed on the 4th: the two clocks are three days apart, which is
+		// what makes this fixture prove WHICH one the new figure follows.
+		LoadID: "load-131", DeclaredCount: 63, Purchased: 63, Remaining: 63,
+		PurchaseDate: "2026-06-01", ArrivedOn: "2026-06-04",
+	}}, 1, nil, testAsOf)
+
+	row := out.Loads[0]
+	if row.FatteningDays != nil {
+		t.Fatalf("a load that has sold nothing reported a finished fattening span of %v", *row.FatteningDays)
+	}
+	if row.DaysOnFarmSoFar == nil {
+		t.Fatal("a load still holding 63 animals reported no days-on-farm at all")
+	}
+	// 4 Jun -> 1 Sep is 89 days. From the PURCHASE date it would be 92, so a passing 92 here
+	// would mean the running clock had silently become the age clock.
+	if *row.DaysOnFarmSoFar != 89 {
+		t.Fatalf("days on farm = %d, want 89 (arrival 4 Jun to 1 Sep)", *row.DaysOnFarmSoFar)
+	}
+	if row.DaysSincePurchase == nil || *row.DaysSincePurchase != 92 {
+		t.Fatalf("the age clock moved with it: %v, want 92", row.DaysSincePurchase)
+	}
+}
+
+// The two clocks are MUTUALLY EXCLUSIVE (maintainer decision 2026-09-01): a load that has sold
+// answers with its finished span alone. Both the sold-out case and the PART-SOLD straggler case
+// are asserted here, because the second is the one that reopened the decision -- load 101 sold 66
+// animals at 204 days and still holds 3 that arrived 314 days ago, and putting that 314 on the
+// same axis tells three animals' story at the scale of the whole chart.
+func TestALoadThatHasSoldReportsOnlyItsFinishedSpan(t *testing.T) {
+	out := FinalizeLoadwise([]LoadwiseLoad{
+		{
+			LoadID: "load-113", DeclaredCount: 91, Purchased: 91, Sold: 91, Remaining: 0,
+			PurchaseDate: "2025-11-13", ArrivedOn: "2025-11-14", FatteningDays: lwInt(183),
+		},
+		{
+			// Part sold: 3 animals left, and they have been here far longer than the 66 that went.
+			LoadID: "load-101", DeclaredCount: 69, Purchased: 69, Sold: 66, Remaining: 3,
+			PurchaseDate: "2025-10-21", ArrivedOn: "2025-10-22", FatteningDays: lwInt(204),
+		},
+	}, 2, nil, testAsOf)
+
+	for _, row := range out.Loads {
+		if row.DaysOnFarmSoFar != nil {
+			t.Fatalf("%s has sold and still reported %d days on farm", row.LoadID, *row.DaysOnFarmSoFar)
+		}
+		if row.FatteningDays == nil {
+			t.Fatalf("%s lost its finished span", row.LoadID)
+		}
+	}
+}
+
+// The pre-GoatOS sales count as sales. A load whose only sales predate the system would otherwise
+// read as never sold and grow a running bar beside loads that genuinely have not sold one animal.
+func TestPreSystemSalesAlsoStopTheRunningClock(t *testing.T) {
+	value := 240000.0
+	out := FinalizeLoadwise([]LoadwiseLoad{{
+		LoadID: "load-legacy", DeclaredCount: 40, Purchased: 8, Sold: 0, Remaining: 8,
+		PurchaseDate: "2026-04-01", ArrivedOn: "2026-04-04",
+		PriorSold: LoadwisePriorOutcome{Count: 32, Value: &value, FirstOn: "2026-05-01", LastOn: "2026-06-01"},
+	}}, 1, nil, testAsOf)
+
+	if got := out.Loads[0].DaysOnFarmSoFar; got != nil {
+		t.Fatalf("a load with 32 pre-system sales reported %d days on farm", *got)
+	}
+}
+
+// Absence is stated, never guessed: a load whose arrival date nobody recorded cannot answer this
+// question, and defaulting it to the purchase date would put a made-up start on the axis.
+func TestRunningClockIsAbsentWithoutAnArrivalDate(t *testing.T) {
+	out := FinalizeLoadwise([]LoadwiseLoad{{
+		LoadID: "load-x", Purchased: 10, Remaining: 10, PurchaseDate: "2026-06-01",
+	}}, 1, nil, testAsOf)
+
+	if got := out.Loads[0].DaysOnFarmSoFar; got != nil {
+		t.Fatalf("a load with no arrival date reported %d days on farm", *got)
+	}
+}
+
+func lwInt(v int) *int { return &v }
