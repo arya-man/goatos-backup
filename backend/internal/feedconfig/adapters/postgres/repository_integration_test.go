@@ -1433,8 +1433,11 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
 }
 
 type experimentShedRow struct {
-	category  string
-	headCount int32
+	category string
+	// headCount is a POINTER because nothing writes the column any more: a pen enrolled through the
+	// app never had one (the count everything reads is the pen's live population), so NULL is the
+	// ordinary state and scanning it into an int32 is what turned this test red.
+	headCount *int32
 }
 
 func experimentShedMetadata(t *testing.T, ctx context.Context, pool *pgxpool.Pool) map[string]experimentShedRow {
@@ -1450,7 +1453,7 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid`, fcTen
 	out := map[string]experimentShedRow{}
 	for rows.Next() {
 		var label, category string
-		var headCount int32
+		var headCount *int32
 		if err := rows.Scan(&label, &category, &headCount); err != nil {
 			t.Fatalf("scan experiment shed metadata: %v", err)
 		}
