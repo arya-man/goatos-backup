@@ -922,6 +922,55 @@ VALUES
 	}
 }
 
+func TestDriveAssignmentsOneToManyPageBoundaryExecutionDateParkScopeStatusMatrixExcludesAssignmentsWhoseExactMembersAreAllCanceled(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	const (
+		staleBatch      = "70000000-0000-4000-8000-0000000000d1"
+		staleAssignment = "70000000-0000-4000-8000-0000000000d2"
+		staleGoat       = "70000000-0000-4000-8000-0000000000d3"
+		staleObligation = "70000000-0000-4000-8000-0000000000d4"
+	)
+	execProjectionSQL(t, ctx, pool, "stale assignment goat", `
+INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, shed_id, management_stage, health_status)
+VALUES ($1,$2,'alive','goat',$3,'female',$4,$5,$4,'Adult','healthy')`,
+		staleGoat, testTenant, testParty, testShed, testPark)
+	execProjectionSQL(t, ctx, pool, "stale assignment batch", `
+INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
+VALUES ($1,$2,$3,'shed',$4,'planned',DATE '2026-09-01',$5)`,
+		staleBatch, testTenant, testVersion, testShed, testOperator)
+	execProjectionSQL(t, ctx, pool, "stale canceled obligation", `
+INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+VALUES ($1,$2,$3,$4,$5,'goat',$6,'shed',$7,TIMESTAMPTZ '2026-09-01 00:00:00+00','canceled','stale-canceled-member',1)`,
+		staleObligation, testTenant, testVersion, testRule, staleBatch, staleGoat, testShed)
+	execProjectionSQL(t, ctx, pool, "stale assignment shell", `
+INSERT INTO vaccination_drive_assignments (assignment_id, tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, vaccine_rule_ids, total_doses)
+VALUES ($1,$2,$3,DATE '2026-09-01',$4,$5,$6,'Yashoda','Part 9',1,ARRAY[$7::uuid],1)`,
+		staleAssignment, testTenant, staleBatch, testOperator, testPark, testShed, testRule)
+	execProjectionSQL(t, ctx, pool, "stale exact member", `
+INSERT INTO vaccination_drive_assignment_members (tenant_id, assignment_id, obligation_id, goat_id)
+VALUES ($1,$2,$3,$4)`,
+		testTenant, staleAssignment, staleObligation, staleGoat)
+
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
+		TenantID:   testTenant,
+		ParkID:     strPtr(testPark),
+		MonthStart: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("DriveAssignments: %v", err)
+	}
+	if row := driveAssignmentRowFor(rows, "2026-09-01", "Yashoda"); row != nil {
+		t.Fatalf("canceled-only assignment shell should not appear: %#v", row)
+	}
+}
+
 func TestListVaccinationExecutionMultipleDimensionsOneToManyPageBoundaryExecutionDateParkScopeStatusMatrixUsesActiveVaccineDateOverrideForAssignmentDate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

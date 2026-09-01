@@ -522,7 +522,7 @@ WITH assignment_vaccines AS (
   LEFT JOIN obligation_batches batch
     ON batch.tenant_id = vda.tenant_id
    AND batch.batch_id = vda.batch_id
-  LEFT JOIN LATERAL (
+  JOIN LATERAL (
     SELECT member_rules.rule_id, member_rules.dose_count
     FROM (
       SELECT oi.rule_id, COUNT(DISTINCT m.obligation_id)::int AS dose_count
@@ -532,6 +532,7 @@ WITH assignment_vaccines AS (
        AND oi.obligation_id = m.obligation_id
       WHERE m.tenant_id = vda.tenant_id
         AND m.assignment_id = vda.assignment_id
+        AND oi.status NOT IN ('canceled', 'superseded', 'waived')
       GROUP BY oi.rule_id
     ) member_rules
     UNION ALL
