@@ -20,6 +20,10 @@ else
 fi
 cd "$repo_root"
 
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+fi
+
 if [[ -n "${COMMIT_SHA:-}" ]]; then
   commit_sha="$(printf '%s' "$COMMIT_SHA" | cut -c1-12)"
 else

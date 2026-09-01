@@ -154,6 +154,8 @@ steps:
   - id: stg-cloud-deploy-release
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:slim
     entrypoint: bash
+    secretEnv:
+      - GITHUB_TOKEN
     env:
       - PROJECT_ID=goatos-stg
       - PROJECT_NUMBER=514832198871
@@ -233,5 +235,10 @@ steps:
         apt-get update
         apt-get install -y --no-install-recommends ca-certificates curl git jq make openjdk-21-jdk openssl unzip
         tools/deploy/stg-mobile-distribution.sh
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/goatos-stg/secrets/goatos-github-pat/versions/latest
+      env: GITHUB_TOKEN
 
 timeout: 7200s
