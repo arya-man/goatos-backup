@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Scale } from "lucide-react";
 
+import { SegmentedLinks, type SegmentedOption } from "@/components/segmented-links";
+import { Tag } from "@/components/ui-primitives";
 import { WeightBars, type WeightBar } from "./weight-bars";
 
 type Metric = "adg" | "weight";
@@ -89,6 +91,32 @@ type ShedChartColumn = {
   rows: readonly WeightBar[];
 };
 
+export type ShedView = "chart" | "table";
+
+/** Column headings for the table view, already resolved from the page contract. */
+export type ShedTableColumns = {
+  park: string;
+  shed: string;
+  basis: string;
+  value: Record<Metric, string>;
+};
+
+/** Pager copy for the table view, already resolved from the page contract. */
+export type ShedTablePagerLabels = {
+  previous: string;
+  next: string;
+  page: string;
+  of: string;
+  /** Singular row noun; pluralised with an "s" the way the shared worklist pager does. */
+  noun: string;
+};
+
+/**
+ * 20 rows a page (maintainer request 2026-09-01). The farm has ~45 weighed pens across the two
+ * parks, so the unpaged table ran three screens deep and buried the cards under it.
+ */
+const SHED_TABLE_PAGE_SIZE = 20;
+
 type ShedSeries = MetricSeries & {
   columns: readonly ShedChartColumn[];
   domain: { lo: number; hi: number };
@@ -96,16 +124,133 @@ type ShedSeries = MetricSeries & {
   caption: string;
 };
 
+/**
+ * The same figures as the chart, read as exact numbers (maintainer request 2026-09-01).
+ *
+ * The rows come from the CHART's own park columns rather than a second data path, so the
+ * two views can never disagree about which sheds are in scope or what order they are in.
+ * A single park is split into two chart columns for layout; flattening them back restores
+ * one A-Z list, and the park cell is the column's own heading — the same string the chart
+ * puts above the bars.
+ *
+ * Values reuse the bar list's formatting exactly, unit included, so a reader switching
+ * views sees the same string move from the end of a bar into a cell.
+ */
+function ShedMetricTable({
+  active,
+  columns,
+  metric,
+  pager,
+}: {
+  active: ShedSeries;
+  columns: ShedTableColumns;
+  metric: Metric;
+  pager: ShedTablePagerLabels;
+}) {
+  // Page state is LOCAL, not a URL param: every row is already in the browser, so paging is a
+  // slice rather than a fetch, and a server round trip here would cost a page render and throw the
+  // reader back up the page for a purely visual step. The metric toggle remounts this component
+  // (`key={metric}`), which is what resets the reader to page 1 when the row set changes under
+  // them -- the gain view drops every shed without a second weigh, so page 3 of one metric is not
+  // page 3 of the other.
+  const [page, setPage] = useState(0);
+  const rows = active.columns.flatMap((col) => col.rows.map((row) => ({ park: col.heading, row })));
+  const pageCount = Math.max(1, Math.ceil(rows.length / SHED_TABLE_PAGE_SIZE));
+  const current = Math.min(page, pageCount - 1);
+  const start = current * SHED_TABLE_PAGE_SIZE;
+  const visible = rows.slice(start, start + SHED_TABLE_PAGE_SIZE);
+  if (rows.length === 0) {
+    return (
+      <div className="empty">
+        <span className="muted small">{active.emptyLabel}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="tablewrap">
+      {/* Fixed layout, and the shed cell is the only one allowed to wrap. A pen label carries its
+          whole breed/sex composition, which runs past a hundred characters on a mixed pen, so an
+          auto-layout table sized itself to that one cell and pushed the basis and the VALUE — the
+          column the card exists for — off the card's right edge behind a scrollbar. */}
+      <table className="tbl wsgtable" aria-label={active.chartLabel}>
+        <thead>
+          <tr>
+            <th className="wsg-park">{columns.park}</th>
+            <th>{columns.shed}</th>
+            <th className="wsg-basis">{columns.basis}</th>
+            <th className="num wsg-val">{columns.value[metric]}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {visible.map(({ park, row }) => (
+            <tr key={row.key}>
+              <td className="wsg-park">{park}</td>
+              <td className="wsg-shed">
+                <b>{row.label}</b>
+              </td>
+              <td className="wsg-basis">
+                {row.modeLabel ? <Tag tone={row.modeTone ?? "mut"}>{row.modeLabel}</Tag> : null}
+              </td>
+              <td className={`num wsg-val${row.value < 0 ? " neg" : ""}`}>
+                {row.valueLabel ??
+                  `${row.value.toLocaleString("en-IN", { maximumFractionDigits: 1 })} ${active.unit}`}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {/* The mock's pager footer: range and page on the left, the two steps on the right. Buttons
+          rather than links, because nothing navigates -- and the ends are disabled rather than
+          hidden, so the control does not change shape as the reader walks the pages. */}
+      {pageCount > 1 ? (
+        <div className="pager2">
+          <span className="small muted" style={{ marginRight: "auto" }}>
+            {`${start + 1}-${start + visible.length} ${rows.length === 1 ? pager.noun : `${pager.noun}s`} · ${pager.page} ${current + 1} ${pager.of} ${pageCount}`}
+          </span>
+          <button
+            className="btn sm"
+            type="button"
+            disabled={current === 0}
+            onClick={() => setPage(current - 1)}
+          >
+            {pager.previous}
+          </button>
+          <button
+            className="btn sm"
+            type="button"
+            disabled={current >= pageCount - 1}
+            onClick={() => setPage(current + 1)}
+          >
+            {pager.next}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ShedMetricChart({
   initialMetric,
   labels,
   title,
   series,
+  view,
+  viewOptions,
+  viewAriaLabel,
+  tableColumns,
+  tablePager,
 }: {
   initialMetric: Metric;
   labels: MetricLabels;
   title: MetricLabels;
   series: Record<Metric, ShedSeries>;
+  /** URL-driven, like every other toggle on this page, so it survives a reload and a shared link. */
+  view: ShedView;
+  viewOptions: readonly SegmentedOption[];
+  /** Already resolved from the page contract by the caller. */
+  viewAriaLabel: string;
+  tableColumns: ShedTableColumns;
+  tablePager: ShedTablePagerLabels;
 }) {
   const [metric, setMetric] = useState<Metric>(initialMetric);
   const active = series[metric];
@@ -114,9 +259,12 @@ export function ShedMetricChart({
       <h2 className="h">
         <Scale className="ic" size={15} aria-hidden /> {title[metric]}
         <MetricToggle current={metric} labels={labels} onChange={setMetric} />
+        <SegmentedLinks ariaLabel={viewAriaLabel} current={view} options={viewOptions} />
       </h2>
       <p className="muted small">{active.caption}</p>
-      {active.columns.length === 0 ? (
+      {view === "table" ? (
+        <ShedMetricTable key={metric} active={active} columns={tableColumns} metric={metric} pager={tablePager} />
+      ) : active.columns.length === 0 ? (
         <WeightBars
           data={[]}
           emptyLabel={active.emptyLabel}

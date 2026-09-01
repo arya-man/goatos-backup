@@ -64,6 +64,9 @@ const LATEST_LUMP_LOOKBACK_DAYS = 400;
 // Which view the gain-mark card is showing. Absent means the chart, so a shared link
 // that predates the toggle — or one copied from the default view — keeps meaning "chart".
 const GAIN_VIEW_PARAM = "gain_view";
+// Which view the shed daily-gain card is showing (maintainer request 2026-09-01). Absent
+// means the TABLE: the card was asked for as exact figures, and the bars stay one click away.
+const SHED_VIEW_PARAM = "shed_view";
 // Which kids the WHOLE PAGE counts (maintainer, 2026-08-26). Absent means all of them, so a link
 // that predates the Sex filter keeps meaning what it showed when it was written.
 const SEX_PARAM = "sex";
@@ -717,6 +720,9 @@ export async function WeighingWeightsPage({
   // figures answer that more slowly than six rows of bars. The exact counts are one
   // click away and the chart carries them on hover, so nothing is hidden by the default.
   const gainThresholdView = one(params, GAIN_VIEW_PARAM) === "table" ? "table" : "chart";
+  // Table first here, unlike the card above: the reader asked for the exact per-shed numbers,
+  // and with ~40 pens the bars answer "which pen" more slowly than a sorted list of figures.
+  const shedGainView = one(params, SHED_VIEW_PARAM) === "chart" ? "chart" : "table";
 
   // The download drawer's shed list: every shed the page knows about, at the same
   // location grain the backend filter takes. The park id travels with each shed so
@@ -937,6 +943,28 @@ export async function WeighingWeightsPage({
         labels={metricLabels}
         title={{ adg: copy(pageContract, "chart.gain.title"), weight: copy(pageContract, "chart.average.title") }}
         series={shedSeries}
+        view={shedGainView}
+        viewAriaLabel={copy(pageContract, "section.shed_gain.view_aria")}
+        viewOptions={[
+          { value: "table", label: copy(pageContract, "view.table"), href: hrefWith(params, { [SHED_VIEW_PARAM]: null }) },
+          { value: "chart", label: copy(pageContract, "view.chart"), href: hrefWith(params, { [SHED_VIEW_PARAM]: "chart" }) },
+        ]}
+        tablePager={{
+          previous: copy(pageContract, "action.previous"),
+          next: copy(pageContract, "action.next"),
+          page: copy(pageContract, "pager.page"),
+          of: copy(pageContract, "pager.of"),
+          noun: copy(pageContract, "pager.noun"),
+        }}
+        tableColumns={{
+          park: copy(pageContract, "table.shed_gain.park"),
+          shed: copy(pageContract, "table.shed_gain.shed"),
+          basis: copy(pageContract, "table.shed_gain.basis"),
+          value: {
+            adg: copy(pageContract, "table.shed_gain.gain"),
+            weight: copy(pageContract, "table.shed_gain.weight"),
+          },
+        }}
       />
 
       {/* Row 2b — kids clearing each daily gain mark, by breed. A breed median says where the
