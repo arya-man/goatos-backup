@@ -967,6 +967,9 @@ func anchorDueOverrides(plans []goatGenerationPlan, asOf time.Time) map[string]t
 			continue
 		}
 		for _, rule := range plan.rules {
+			if !configAnchorCanScheduleRule(rule) {
+				continue
+			}
 			ruleEligibility, ruleVaccine, err := ruleGenerationContext(rule, plan.eligibility, plan.vaccineProfile)
 			if err != nil {
 				continue
@@ -990,6 +993,15 @@ func anchorDueOverrides(plans []goatGenerationPlan, asOf time.Time) map[string]t
 		return nil
 	}
 	return out
+}
+
+func configAnchorCanScheduleRule(rule protodomain.Rule) bool {
+	switch strings.TrimSpace(rule.TriggerType) {
+	case "birth_age", "post_arrival", "calendar", "manual_campaign":
+		return true
+	default:
+		return false
+	}
 }
 
 type matchedConfigAnchor struct {

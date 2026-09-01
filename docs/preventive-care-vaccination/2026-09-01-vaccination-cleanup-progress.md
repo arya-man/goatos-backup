@@ -36,6 +36,7 @@ anchor rows must stay.
 
 - Never schedule an obligation in the past from a sweeper run.
 - No active duplicate same animal + vaccine + due date rows.
+- No assignment/card may mix unrelated vaccine lanes such as Z1+Z3 and ET+TT.
 - No wrong species rows.
 - No underage rows.
 - No active Sep 1 vaccination rows.
@@ -45,6 +46,8 @@ anchor rows must stay.
 - Deferred/sick/ICU animals must not appear in active scan cards, and must
   return to vaccination scheduling when healthy.
 - Operator packing cap is 200 distinct animals per operator/day.
+- Operator/admin cap config must reject values above 200; do not accept a
+  100000-style cap and rely on downstream cleanup.
 - Keep whole sheds/partitions together; avoid splitting sibling parent
   partitions such as Mandela 1 parts where the cap allows.
 
@@ -63,6 +66,15 @@ anchor rows must stay.
 - Generation must read active `vaccination_anchor_events`, including
   vaccine-level anchors where `dose_code IS NULL`. A `NULL` anchor dose code
   means "all doses for this vaccine family", not an unknown dose.
+- Config anchors schedule real base work only (`birth_age`, `post_arrival`,
+  `calendar`, `manual_campaign`). They must not create revac/follow-up rows
+  without accepted completion history.
+- Drive assignment identity must include the normalized vaccine-rule lane, so
+  same operator/date/shed/partition work for different vaccine lanes does not
+  collapse into one mixed card.
+- Sweeper drive planning must fail closed rather than emit active no-operator
+  vaccination cards. If no valid operator/cap exists, fix operator config or
+  move/reshape the date; do not create `operator_id IS NULL` work.
 
 ## Verification Before Main/STG
 
@@ -73,14 +85,28 @@ anchor rows must stay.
 3. Do not repeatedly dump all STG data into OCI. If STG has 1 million rows, do
    not copy 1 million rows for every retry. Use targeted delta repair, a scoped
    cohort, or cleanup of only the rows polluted by the failed test. Full
-   STG-to-OCI refresh requires explicit maintainer approval and is not the
-   default loop.
+   STG-to-OCI refresh requires explicit maintainer approval using the words
+   "full refresh" after being told the size and overwrite impact.
 4. Run the sweeper/generator on the OCI clone first, then rerun the same audit.
 5. Only after OCI is clean, push, merge to main, deploy STG, clean STG data if
    needed, and verify in Chrome.
 
 ## Current Verification Status
 
+- 2026-09-01 size check: STG `goatos` is about 2.9 GB. OCI already contains
+  multiple large DBs (`goatos` about 2.3 GB plus historical validation clones
+  around 2.1 GB, 2.0 GB, 799 MB, and several 678 MB DBs). This is why full
+  refresh loops are slow and expensive.
+- 2026-09-01 targeted OCI validation rule: use
+  `GOATOS_PGTEST_ADMIN_DSN=postgres://...@127.0.0.1:15432/postgres` so tests
+  create migrated throwaway OCI databases without copying STG data. Do not run
+  destructive proof/load scripts against the normal OCI `goatos` database.
+- 2026-09-01 focused OCI validation passed against migrated throwaway OCI DBs:
+  `go test -count=1 ./internal/obligation/adapters/postgres
+  ./internal/vaccination/adapters/postgres ./migrations/postgres`.
+- 2026-09-01 STG read-only safety audit passed: zero active Sep 1 rows, zero
+  pre-Sep8 PPR/FMD/HS rows, zero pre-Oct15 Z1+Z3 rows, zero duplicate active
+  animal/vaccine/date rows, zero wrong-species rows, and zero underage rows.
 - Focused backend tests passed on 2026-09-01 after the BT 19w, stale-row
   cancellation, direct-anchor guard, Z1+Z3 dose-code migration, and drive-date
   sync changes.

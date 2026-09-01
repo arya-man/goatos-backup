@@ -43,15 +43,15 @@ type CapacityConfig struct {
 var (
 	CapacityScopes    = []string{"tenant", "center", "shed"}
 	OverflowPolicies  = []string{"split_within_safe_window_last_safe_may_exceed_cap"}
-	MaxPerDayCeiling  = 100000 // guardrail: a daily cap above this is almost certainly a typo, not a real limit.
-	MaxBufferDaysCeil = 60     // guardrail: a safe window longer than this is not a business buffer.
+	MaxPerDayCeiling  = 200 // hard operator-day cap for vaccination drives.
+	MaxBufferDaysCeil = 60  // guardrail: a safe window longer than this is not a business buffer.
 )
 
 // Validate checks an admin-submitted capacity config against the same rules the DB enforces, so a bad
 // value returns a clean 400 instead of a raw constraint-violation 500. Returns a machine code + message.
 func (c CapacityConfig) Validate() (code, message string, ok bool) {
 	if c.MaxPerDay < 1 || c.MaxPerDay > MaxPerDayCeiling {
-		return "invalid_max_per_day", "max animals per operator per day must be between 1 and 100000", false
+		return "invalid_max_per_day", "max animals per operator per day must be between 1 and 200", false
 	}
 	if c.MaxBufferDays < 0 || c.MaxBufferDays > MaxBufferDaysCeil {
 		return "invalid_max_buffer_days", "max buffer days must be between 0 and 60", false

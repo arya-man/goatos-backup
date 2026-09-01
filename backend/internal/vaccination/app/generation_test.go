@@ -5097,18 +5097,26 @@ func TestConfigVaccineLevelAnchorMatchesEveryDoseForVaccine(t *testing.T) {
 			TriggerType: "manual_campaign", OffsetDays: 0,
 			EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"},"eligibility":{"species":["goat","sheep"]}}`),
 		},
+		{
+			RuleID: "rule-ppr-revac", DoseCode: "ppr_revac", Sequence: 20,
+			TriggerType: "after_previous_completion", OffsetDays: 1095, Repeat: "every_n_days",
+			EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"},"eligibility":{"species":["goat","sheep"]}}`),
+		},
 	}
 	plan := configAnchorPlanWithDose(rules[0], "", domain.EligibleGoat{GoatID: "eligible", LifecycleStatus: "alive", Species: "goat", DOB: &oldEnoughDOB, ParkID: "park-anchor"})
 	plan.rules = rules
 
 	overrides := anchorDueOverrides([]goatGenerationPlan{plan}, asOf)
 	if len(overrides) != 2 {
-		t.Fatalf("overrides=%#v, want vaccine-level anchor to match both PPR dose rows", overrides)
+		t.Fatalf("overrides=%#v, want vaccine-level anchor to match both base PPR dose rows only", overrides)
 	}
-	for _, rule := range rules {
+	for _, rule := range rules[:2] {
 		if _, ok := overrides[anchorDueGoatRuleKey("version-1", rule.RuleID, "eligible")]; !ok {
 			t.Fatalf("rule %s missing from vaccine-level anchor overrides: %#v", rule.RuleID, overrides)
 		}
+	}
+	if _, ok := overrides[anchorDueGoatRuleKey("version-1", "rule-ppr-revac", "eligible")]; ok {
+		t.Fatalf("revac rule got config anchor override without completion history: %#v", overrides)
 	}
 }
 

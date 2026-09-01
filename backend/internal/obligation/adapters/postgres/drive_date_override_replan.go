@@ -914,24 +914,13 @@ ON CONFLICT (
   COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
   physical_shed,
   partition_label,
-  COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid)
+  COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(vaccine_rule_ids, '{}'::uuid[])
 )
 DO UPDATE SET
-  vaccine_rule_ids = (
-    SELECT array_agg(DISTINCT rule_id ORDER BY rule_id)
-    FROM unnest(vaccination_drive_assignments.vaccine_rule_ids || EXCLUDED.vaccine_rule_ids) AS rule_ids(rule_id)
-  ),
-  -- PROVISIONAL, not the answer. On conflict the row's vaccine lane becomes the UNION of the
-  -- existing lane and the arriving one (above), so the two counters that describe that union cannot
-  -- be either side alone: EXCLUDED.animal_count silently deletes the pre-existing lane's animals
-  -- from a row that still plans them, and vda.animal_count + EXCLUDED.animal_count double-counts
-  -- every animal the two lanes SHARE (a goat due both vaccines is one cap unit, not two). Neither
-  -- number knows the overlap; only the merged row's own per-goat membership can. GREATEST is
-  -- therefore used purely as a NON-SHRINKING lower bound to carry the row into
-  -- syncVaccinationDriveAssignmentMembersTx (whose split window reads animal_count), and
-  -- reconcileDriveAssignmentCountersFromMembersTx sets the authoritative values right after.
-  animal_count = GREATEST(vaccination_drive_assignments.animal_count, EXCLUDED.animal_count),
-  total_doses = GREATEST(vaccination_drive_assignments.total_doses, EXCLUDED.total_doses),
+  vaccine_rule_ids = EXCLUDED.vaccine_rule_ids,
+  animal_count = EXCLUDED.animal_count,
+  total_doses = EXCLUDED.total_doses,
   capacity_status = EXCLUDED.capacity_status,
   warnings = EXCLUDED.warnings,
   updated_at = now()`,

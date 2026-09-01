@@ -5551,7 +5551,7 @@ type driveAssignmentRemovalDose struct {
 }
 
 // driveAssignmentNilShedSentinel mirrors the COALESCE sentinel in the
-// vaccination_drive_assignments_batch_shed_part_operator_uq unique index, so a park-scoped
+// vaccination_drive_assignments_batch_shed_part_operator_lane_uq unique index, so a park-scoped
 // (shed_id IS NULL) row matches by the same rule the planner writes it under.
 const driveAssignmentNilShedSentinel = "00000000-0000-0000-0000-000000000000"
 

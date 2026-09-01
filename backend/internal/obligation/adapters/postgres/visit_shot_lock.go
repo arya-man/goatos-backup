@@ -254,7 +254,8 @@ FROM unnest(
 	  COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
 	  physical_shed,
 	  partition_label,
-	  COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid)
+	  COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid),
+	  COALESCE(vaccine_rule_ids, '{}'::uuid[])
 	)
 	DO UPDATE SET
   operator_id = EXCLUDED.operator_id,

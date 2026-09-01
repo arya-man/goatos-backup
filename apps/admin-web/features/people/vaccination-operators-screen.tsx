@@ -529,8 +529,8 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
     if (!pos.position_id) return;
     const raw = (draftCaps[pos.position_id] ?? String(capForPosition(pos))).trim();
     const nextCap = Number(raw);
-    if (!Number.isInteger(nextCap) || nextCap < 1 || nextCap > 100000) {
-      setCapError('Cap must be a whole number between 1 and 100000 animals/day.');
+    if (!Number.isInteger(nextCap) || nextCap < 1 || nextCap > 200) {
+      setCapError('Cap must be a whole number between 1 and 200 animals/day.');
       return;
     }
     setSavingCap(pos.position_id);
@@ -904,7 +904,7 @@ export function VaccinationOperatorsScreen({ initialParkId }: VaccinationOperato
                           aria-label={`${shortName} animals/day cap`}
                           inputMode="numeric"
                           min={1}
-                          max={100000}
+                          max={200}
                           style={{ width: 92 }}
                           type="number"
                           value={draftCap}

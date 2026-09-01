@@ -661,6 +661,9 @@ func leastLoadedDriveOperator(operators []domain.DriveOperatorCapacity, loads ma
 
 func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.Time, capPerOperator int32, operators []domain.DriveOperatorCapacity, assignments []domain.DriveAssignment, session *SweepSession) ([]domain.DriveAssignment, error) {
 	if len(assignments) == 0 || len(operators) == 0 {
+		if len(assignments) > 0 {
+			return nil, fmt.Errorf("obligation: no vaccination operator available for park %s on %s", parkID, biztime.BusinessDate(plannedDate))
+		}
 		return assignments, nil
 	}
 	type assignmentBlock struct {
@@ -727,6 +730,9 @@ func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.T
 		// Cap is now remaining usable capacity (after persisted load from AvailableVaccinationOperatorsForDrive).
 		// Skip operators with no remaining capacity from database; don't fall back to capPerOperator.
 		capacity := int(operator.Cap)
+		if capacity > 200 {
+			capacity = 200
+		}
 		if capacity <= 0 {
 			continue
 		}
@@ -739,6 +745,9 @@ func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.T
 		if configuredCap <= 0 {
 			configuredCap = capacity
 		}
+		if configuredCap > 200 {
+			configuredCap = 200
+		}
 		ops = append(ops, vaccexecapp.DriveOperator{
 			ID:            operatorID,
 			Name:          operatorID,
@@ -748,7 +757,7 @@ func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.T
 		})
 	}
 	if len(ops) == 0 {
-		return assignments, nil
+		return nil, fmt.Errorf("obligation: no vaccination operator capacity for park %s on %s", parkID, biztime.BusinessDate(plannedDate))
 	}
 	plan, err := (vaccexecapp.OperatorDrivePlanner{}).Plan(vaccexecapp.DrivePlanRequest{
 		StartDate:             plannedDate,
@@ -807,14 +816,8 @@ func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.T
 		}
 	}
 	for _, block := range plan.Unassigned {
-		if bases, ok := byID[block.ID]; ok {
-			for _, base := range bases {
-				base.AnimalCount = int32(block.Animals)
-				base.OperatorID = nil
-				base.CapacityStatus = "capacity_action"
-				base.Warnings = append(base.Warnings, "no vaccination operator has capacity for the whole shed/partition under the configured animal cap")
-				out = append(out, base)
-			}
+		if _, ok := byID[block.ID]; ok {
+			return nil, fmt.Errorf("obligation: vaccination work for park %s shed %s partition %s on %s has no valid operator under cap", parkID, block.PhysicalShed, block.Partition, biztime.BusinessDate(plannedDate))
 		}
 	}
 	if len(out) == 0 {

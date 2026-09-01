@@ -724,5 +724,7 @@ export function updateManifestHashes(directory, manifest) {
 // loader contract so a validator or seeder cannot reinterpret booster rows as first-dose rows.
 // Coupling review 2026-08-30: vaccination same-day session cap is now 3 through runtime
 // planner defaults plus vaccination_capacity_config override migration. This library's raw
+// 2026-09-01 coupling note: assignment-lane identity and 200-cap DB constraints are runtime
+// scheduling safeguards only; they do not alter fixture parsing, row counts, or hashes.
 // HRMS/vaccination source bytes, counts, parser fields, SOP proof grain, and history dates
 // are unchanged; the manifest hash tracks the reviewed policy JSON only.

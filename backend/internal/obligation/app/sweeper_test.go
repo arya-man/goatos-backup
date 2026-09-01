@@ -157,35 +157,8 @@ func TestDistributeVaccinationDriveAssignmentsSplitsOversizedPartitionWithPlanne
 		ScopeID:     "park-1",
 		PlannedDate: &planned,
 	}, 50, assignments, NewSweepSession())
-	if err != nil {
-		t.Fatalf("distribute assignments: %v", err)
-	}
-	if len(got) != 3 {
-		t.Fatalf("assignments = %d, want two operator chunks plus residual capacity action for oversized partition: %#v", len(got), got)
-	}
-	totals := map[string]int32{}
-	residualSeen := false
-	for _, assignment := range got {
-		if assignment.OperatorID == nil {
-			if assignment.AnimalCount != 20 || assignment.CapacityStatus != "capacity_action" {
-				t.Fatalf("unassigned residual = %#v, want 20-animal capacity_action", assignment)
-			}
-			residualSeen = true
-			continue
-		}
-		if assignment.PhysicalShed != "Gandhi" || assignment.PartitionLabel != "1" {
-			t.Fatalf("assignment lost partition grain: %#v", assignment)
-		}
-		totals[*assignment.OperatorID] += assignment.AnimalCount
-		if !containsString(assignment.Warnings, "partition split because one partition exceeded available operator capacity") {
-			t.Fatalf("assignment missing split warning: %#v", assignment)
-		}
-	}
-	if totals["op-1"] != 50 || totals["op-2"] != 50 {
-		t.Fatalf("operator totals = %#v, want both operators at cap with no over-cap top-up", totals)
-	}
-	if !residualSeen {
-		t.Fatalf("expected a capacity-action residual for the oversized partition: %#v", got)
+	if err == nil {
+		t.Fatalf("distribute assignments succeeded with operatorless residual: %#v", got)
 	}
 }
 
@@ -212,26 +185,8 @@ func TestDistributeVaccinationDriveAssignmentsCarriesWholePartitionPastResidualO
 		ScopeID:     "park-1",
 		PlannedDate: &planned,
 	}, 200, assignments, NewSweepSession())
-	if err != nil {
-		t.Fatalf("distribute assignments: %v", err)
-	}
-	totals := map[string]int32{}
-	residualSeen := false
-	for _, assignment := range got {
-		if assignment.OperatorID == nil {
-			if assignment.AnimalCount != 4 || assignment.CapacityStatus != "capacity_action" {
-				t.Fatalf("unassigned partition = %#v, want intact 4-animal capacity_action", assignment)
-			}
-			residualSeen = true
-			continue
-		}
-		totals[*assignment.OperatorID] += assignment.AnimalCount
-	}
-	if totals["op-low"] != 0 || totals["op-high"] != 0 {
-		t.Fatalf("operator totals = %#v, want no residual-cap partition split", totals)
-	}
-	if !residualSeen {
-		t.Fatalf("expected intact unassigned partition for capacity action: %#v", got)
+	if err == nil {
+		t.Fatalf("distribute assignments succeeded with operatorless partition: %#v", got)
 	}
 }
 

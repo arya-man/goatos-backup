@@ -9,6 +9,8 @@
 // 2026-08-05: unchanged by the SOP rework-reopen work. Source validation covers the
 // IMPORT contract; task state transitions after import are the SOP module's own.
 // Used by seed scripts and referenced by ceo_ai reporting views (migrations 000024-000027).
+// 2026-09-01 coupling note: vaccination assignment lane identity and 200-cap constraints do
+// not add source columns, history dates, or validation inputs.
 // Coupling review 2026-08-22: migration 000187 adds nullable
 // workforce_members.first_name/last_name/email (People/HRMS directory + in-app
 // Add Person). Source validation is unchanged: the HRMS source registers carry

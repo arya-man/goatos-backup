@@ -2371,7 +2371,7 @@ CREATE TABLE public.workforce_positions (
     CONSTRAINT workforce_positions_scope_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'center'::text, 'shed'::text]))),
     CONSTRAINT workforce_positions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'ended'::text]))),
     CONSTRAINT workforce_positions_tier_check CHECK ((position_tier = ANY (ARRAY['assistant'::text, 'manager'::text, 'head'::text, 'director'::text, 'cxo'::text]))),
-    CONSTRAINT workforce_positions_vaccination_daily_animal_cap_check CHECK (((vaccination_daily_animal_cap IS NULL) OR ((vaccination_daily_animal_cap >= 1) AND (vaccination_daily_animal_cap <= 100000)))),
+    CONSTRAINT workforce_positions_vaccination_daily_animal_cap_check CHECK (((vaccination_daily_animal_cap IS NULL) OR ((vaccination_daily_animal_cap >= 1) AND (vaccination_daily_animal_cap <= 200)))),
     CONSTRAINT workforce_positions_week_off_check CHECK (((week_off_weekday IS NULL) OR (week_off_weekday = ANY (ARRAY['monday'::text, 'tuesday'::text, 'wednesday'::text, 'thursday'::text, 'friday'::text, 'saturday'::text, 'sunday'::text])))),
     CONSTRAINT workforce_positions_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
 );
@@ -13604,10 +13604,10 @@ CREATE INDEX vaccination_drive_assignment_members_tenant_goat_idx ON public.vacc
 
 
 --
--- Name: vaccination_drive_assignments_batch_shed_part_operator_uq; Type: INDEX; Schema: public; Owner: -
+-- Name: vaccination_drive_assignments_batch_shed_part_operator_lane_uq; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX vaccination_drive_assignments_batch_shed_part_operator_uq ON public.vaccination_drive_assignments USING btree (tenant_id, batch_id, planned_date, park_id, COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid), physical_shed, partition_label, COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid));
+CREATE UNIQUE INDEX vaccination_drive_assignments_batch_shed_part_operator_lane_uq ON public.vaccination_drive_assignments USING btree (tenant_id, batch_id, planned_date, park_id, COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid), physical_shed, partition_label, COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(vaccine_rule_ids, '{}'::uuid[]));
 
 
 --
