@@ -66,10 +66,6 @@ type Repository struct {
 	queries      *obligationdb.Queries
 	queryTimeout time.Duration
 
-	openVaccinationDoseMu     sync.Mutex
-	openVaccinationDoseTenant string
-	openVaccinationDoseKeys   map[string]struct{}
-
 	reconcileNoopMu     sync.Mutex
 	reconcileNoopTenant string
 	reconcileNoopKeys   map[string]domain.ObligationRef
@@ -87,10 +83,6 @@ var _ ports.Repository = (*Repository)(nil)
 
 func (r *Repository) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, r.queryTimeout)
-}
-
-func openVaccinationDoseKey(tenantID, goatID, doseCode string) string {
-	return strings.ToLower(strings.TrimSpace(tenantID)) + "|" + strings.ToLower(strings.TrimSpace(goatID)) + "|" + strings.ToLower(strings.TrimSpace(doseCode))
 }
 
 func reconcileNoopKey(in domain.NewObligation) string {
@@ -2028,15 +2020,6 @@ func (r *Repository) CancelOpenVaccinationObligationsForGoatDose(ctx context.Con
 		reason = "superseded"
 	}
 
-	key := openVaccinationDoseKey(tenantID, goatID, doseCode)
-	hasOpen, err := r.openVaccinationDoseCacheHas(ctx, tenantID, tenant, key)
-	if err != nil {
-		return 0, err
-	}
-	if !hasOpen {
-		return 0, nil
-	}
-
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: begin goat dose cancel tx: %w", err)
@@ -2087,70 +2070,7 @@ RETURNING oi.obligation_id::text, COALESCE(target.batch_id::text, '')`, tenantID
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("obligation: commit goat dose cancel: %w", err)
 	}
-	if count > 0 {
-		r.openVaccinationDoseCacheDelete(tenantID, key)
-	}
 	return count, nil
-}
-
-func (r *Repository) openVaccinationDoseCacheHas(ctx context.Context, tenantID string, tenant pgtype.UUID, key string) (bool, error) {
-	r.openVaccinationDoseMu.Lock()
-	if r.openVaccinationDoseKeys != nil && r.openVaccinationDoseTenant == tenantID {
-		_, ok := r.openVaccinationDoseKeys[key]
-		r.openVaccinationDoseMu.Unlock()
-		return ok, nil
-	}
-	r.openVaccinationDoseMu.Unlock()
-
-	rows, err := r.pool.Query(ctx, ` // scale-guard:ignore: run-scoped tenant cache replaces per-goat cancellation probes during vaccination generation
-SELECT oi.target_id::text, pr.dose_code
-FROM obligation_instances oi
-JOIN protocol_versions pv
-  ON pv.tenant_id = oi.tenant_id
- AND pv.protocol_version_id = oi.protocol_version_id
-JOIN protocol_definitions pd
-  ON pd.tenant_id = pv.tenant_id
- AND pd.protocol_id = pv.protocol_id
-JOIN protocol_rules pr
-  ON pr.tenant_id = oi.tenant_id
- AND pr.rule_id = oi.rule_id
-WHERE oi.tenant_id = $1
-  AND oi.target_type = 'goat'
-  AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred')
-  AND pd.category = 'vaccination'
-  AND COALESCE(pr.dose_code, '') <> ''`, tenant)
-	if err != nil {
-		return false, fmt.Errorf("obligation: read open vaccination dose cache: %w", err)
-	}
-	next := make(map[string]struct{})
-	for rows.Next() {
-		var goatID, doseCode string
-		if err := rows.Scan(&goatID, &doseCode); err != nil {
-			rows.Close()
-			return false, fmt.Errorf("obligation: scan open vaccination dose cache: %w", err)
-		}
-		next[openVaccinationDoseKey(tenantID, goatID, doseCode)] = struct{}{}
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return false, fmt.Errorf("obligation: open vaccination dose cache rows: %w", err)
-	}
-	rows.Close()
-
-	r.openVaccinationDoseMu.Lock()
-	r.openVaccinationDoseTenant = tenantID
-	r.openVaccinationDoseKeys = next
-	_, ok := next[key]
-	r.openVaccinationDoseMu.Unlock()
-	return ok, nil
-}
-
-func (r *Repository) openVaccinationDoseCacheDelete(tenantID, key string) {
-	r.openVaccinationDoseMu.Lock()
-	defer r.openVaccinationDoseMu.Unlock()
-	if r.openVaccinationDoseTenant == tenantID && r.openVaccinationDoseKeys != nil {
-		delete(r.openVaccinationDoseKeys, key)
-	}
 }
 
 // CancelOpenVaccinationObligationsForGoatExceptVersions cancels open vaccination work whose protocol
