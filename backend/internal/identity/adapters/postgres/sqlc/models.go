@@ -2624,6 +2624,7 @@ type ShedPartition struct {
 	Source          string
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	AliasLocationID pgtype.UUID
 }
 
 type ShedProfile struct {

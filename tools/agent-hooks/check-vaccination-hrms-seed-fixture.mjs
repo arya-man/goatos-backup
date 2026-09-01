@@ -197,6 +197,18 @@ function migrationCouplesToSeedContract(diff) {
       return created.has(dropped.replace(/^public\./i, "").toLowerCase());
     });
     if (onlyNewTableDdl) return false;
+
+    // `shed_partitions` is an operational location catalog, not a vaccination/HRMS
+    // source table. A marked migration may alter it while using `goats` only as a
+    // read-side safety guard in the backfill; that should not demand vaccination
+    // fixture companions. Keep this table-specific so the marker still cannot
+    // launder ALTERs of real seed tables such as `goats`.
+    const onlyShedPartitionDdl = addedDdl.every((line) => {
+      const altered = /\bALTER\s+TABLE\b(?:\s+IF\s+EXISTS)?\s+([\w.]+)/i.exec(line)?.[1];
+      if (!altered) return false;
+      return altered.replace(/^public\./i, "").toLowerCase() === "shed_partitions";
+    });
+    if (onlyShedPartitionDdl) return false;
   }
   return true;
 }
@@ -393,6 +405,15 @@ function runSelfTest() {
   ]]);
   if (couplingProblems(["backend/migrations/postgres/000994_launder.sql"], markerLaunderingSeedAlter).length !== REQUIRED_COMPANIONS.length) {
     throw new Error("contract coupling self-test let a marker launder an ALTER of a real seed table");
+  }
+  // A marked shed_partitions migration may read `goats` as a safety guard for a
+  // backfill, but the DDL itself is not on a vaccination/HRMS seed table.
+  const markedShedPartitionsAlterWithGoatsRead = new Map([[
+    "backend/migrations/postgres/000989_shed_partitions.sql",
+    "+-- seed-fixture-guard:ignore: operational partition alias catalog; no seed data contract\n+ALTER TABLE public.shed_partitions ADD COLUMN alias_location_id uuid;\n+UPDATE public.shed_partitions sp SET alias_location_id = l.location_id FROM public.locations l WHERE NOT EXISTS (SELECT 1 FROM public.goats g WHERE g.shed_id = l.location_id);\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000989_shed_partitions.sql"], markedShedPartitionsAlterWithGoatsRead).length !== 0) {
+    throw new Error("contract coupling self-test wrongly flagged a marked shed_partitions operational alter");
   }
   // A migration that ALTERs a canonical (public) seed table must still couple.
   const canonicalMigration = new Map([[

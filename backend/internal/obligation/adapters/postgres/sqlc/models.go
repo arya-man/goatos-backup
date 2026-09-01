@@ -2861,6 +2861,7 @@ type ShedPartition struct {
 	Source          string
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
+	AliasLocationID pgtype.UUID
 	AnimalStageID   pgtype.UUID
 }
 
