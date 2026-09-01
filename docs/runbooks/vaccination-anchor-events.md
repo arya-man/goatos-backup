@@ -34,3 +34,59 @@ The admin flow validates before insert:
 - Goat Pox: goat only, live, 16 weeks, revaccinate every 1 year.
 - Sheep Pox: sheep only, live, 16 weeks, revaccinate every 1 year.
 - Z1+Z3: goat and sheep, killed bacterial/toxoid, 4 weeks plus booster at 7 weeks, revaccinate every 6 months.
+
+## 2026-09-01 OCI Validation Snapshot
+
+This snapshot was taken from the targeted OCI validation database, not from a full staging dump.
+
+User-set anchors in effect:
+
+- PPR: 2026-09-08, tenant scope, suppress earlier open rows, chain future rows.
+- FMD: 2026-09-08, tenant scope, suppress earlier open rows, chain future rows.
+- HS: 2026-09-08, tenant scope, suppress earlier open rows, chain future rows.
+- Sheep Pox: 2026-09-04, Coimbatore park scope, adult sheep campaign.
+- Blue Tongue: 2026-09-22, Coimbatore park scope, adult sheep campaign.
+- Z1+Z3: 2026-10-15, tenant scope, suppress earlier open rows, chain boosters/repeats.
+
+OCI cleanup performed:
+
+- Moved 13 active 2026-09-01 DOB-rule rows to 2026-09-04: 5 Channapatna Sheep Pox and 8 Coimbatore Goat Pox.
+- Canceled 584 stale unbatched PPR/HS rows that were still open after the PPR/FMD/HS 2026-09-08 anchors.
+- Canceled 31 earlier noisy unbatched PPR/Blue Tongue rows before this snapshot.
+
+OCI invariant audit after cleanup:
+
+- Active 2026-09-01 vaccine rows: 0.
+- Duplicate same animal/vaccine/date rows: 0.
+- Z1+Z3 before 2026-10-15: 0.
+- PPR/FMD/HS before 2026-09-08: 0.
+- Wrong-species Blue Tongue, Goat Pox, Sheep Pox rows: 0.
+- Deferred September rows: 16. These are not active scan cards; inspect health/ICU state before rescheduling.
+
+Active September schedule after cleanup:
+
+| Date | Park | Vaccine | Dose code | Count | Age weeks | Sheds | Reason |
+| --- | --- | --- | --- | ---: | --- | --- | --- |
+| 2026-09-02 | Channapatna | Blue Tongue | `blue_tongue_adult_w2` | 84 | 110.4-137.9w | Gandhi | Booster from prior BT dose + 21 days |
+| 2026-09-02 | Coimbatore | Goat Pox | `goat_pox_adult_w1` | 154 | 16.6-133.9w | Godel 1, Godel 2, Mandela 1, Yashoda | Adult catch-up/campaign |
+| 2026-09-03 | Channapatna | Blue Tongue | `blue_tongue_adult_w2` | 145 | 16.7-138.0w | Godel 1, Mandela 2, Old Yashoda | Booster from prior BT dose + 21 days |
+| 2026-09-03 | Channapatna | Goat Pox | `goat_pox_kid_16w` | 1 | 16.7w | Mandela 1 | DOB rule: Goat Pox at 16 weeks |
+| 2026-09-04 | Channapatna | Goat Pox | `goat_pox_kid_16w` | 1 | 16.9w | Yashoda | DOB rule: Goat Pox at 16 weeks |
+| 2026-09-04 | Channapatna | Sheep Pox | `sheep_pox_kid_16w` | 5 | 16.9w | Mandela 1, Mandela 2 | DOB rule: Sheep Pox at 16 weeks |
+| 2026-09-04 | Coimbatore | Goat Pox | `goat_pox_kid_16w` | 8 | 16.9w | Godel 1, Yashoda | DOB rule: Goat Pox at 16 weeks |
+| 2026-09-04 | Coimbatore | Sheep Pox | `sheep_pox_adult_w1` | 22 | 16.9-64.1w | Godel 1, Godel 2, Mandela 1, Yashoda | CBE adult Sheep Pox anchor/campaign |
+| 2026-09-08 | Channapatna | FMD | `fmd_kid_12w` | 121 | 17.4w | Mandela 1, Mandela 2, Yashoda | Sep 8 FMD anchor/cohort |
+| 2026-09-08 | Channapatna | HS | `hs_kid_12w` | 121 | 17.4w | Mandela 1, Mandela 2, Yashoda | Sep 8 HS anchor/cohort |
+| 2026-09-08 | Channapatna | PPR | `ppr_kid_16w` | 161 | 17.4w | Mandela 1, Mandela 2, Yashoda | Sep 8 PPR anchor/cohort |
+| 2026-09-08 | Coimbatore | FMD | `fmd_kid_12w` | 47 | 17.4w | Godel 1, Godel 2, Yashoda | Sep 8 FMD anchor/cohort |
+| 2026-09-08 | Coimbatore | HS | `hs_kid_12w` | 47 | 17.4w | Godel 1, Godel 2, Yashoda | Sep 8 HS anchor/cohort |
+| 2026-09-08 | Coimbatore | PPR | `ppr_kid_16w` | 154 | 17.4w | Godel 1, Godel 2, Yashoda | Sep 8 PPR anchor/cohort |
+| 2026-09-22 | Coimbatore | Blue Tongue | `blue_tongue_adult_w1` | 169 | 19.4-23.1w | Castro, Godel 2, Yashoda | CBE adult BT anchor/campaign |
+| 2026-09-26 | Channapatna | FMD | `fmd_kid_12w` | 4 | 12.0w | Yashoda | DOB rule: FMD at 12 weeks |
+| 2026-09-26 | Channapatna | HS | `hs_kid_12w` | 4 | 12.0w | Yashoda | DOB rule: HS at 12 weeks |
+| 2026-09-26 | Coimbatore | FMD | `fmd_kid_12w` | 10 | 12.0w | Yashoda | DOB rule: FMD at 12 weeks |
+| 2026-09-26 | Coimbatore | HS | `hs_kid_12w` | 10 | 12.0w | Yashoda | DOB rule: HS at 12 weeks |
+| 2026-09-28 | Channapatna | Sheep Pox | `sheep_pox_kid_16w` | 48 | 20.3w | Castro, Godel 2 | DOB rule: Sheep Pox at 16 weeks |
+| 2026-09-29 | Channapatna | Goat Pox | `goat_pox_kid_16w` | 1 | 20.4w | Mandela 1 | DOB rule: Goat Pox at 16 weeks |
+| 2026-09-29 | Channapatna | Sheep Pox | `sheep_pox_kid_16w` | 90 | 20.4-24.0w | Castro, Godel 2, Mandela 1 | DOB rule: Sheep Pox at 16 weeks |
+| 2026-09-30 | Channapatna | Sheep Pox | `sheep_pox_kid_16w` | 20 | 24.1-24.3w | Godel 2 | DOB rule: Sheep Pox at 16 weeks |
