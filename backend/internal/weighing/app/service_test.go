@@ -806,16 +806,16 @@ func (r *fakeRepo) GetWeightHistory(_ context.Context, _ string, _ []string, _, 
 }
 
 // GetLeadershipGrowthADG is a stub implementation for test fakes.
-func (r *fakeRepo) GetLeadershipGrowthADG(_ context.Context, _ string, _ []string, _, _ time.Time, _ string) (domain.GrowthADG, error) {
+func (r *fakeRepo) GetLeadershipGrowthADG(_ context.Context, _ string, _ []string, _, _ time.Time, _, _ string) (domain.GrowthADG, error) {
 	return domain.GrowthADG{}, nil
 }
 
 // GetShedWeights is a stub implementation for test fakes.
-func (r *fakeRepo) GetShedWeights(_ context.Context, _ string, _ []string, _ string, _, _ time.Time, _ string) (domain.ShedWeights, error) {
+func (r *fakeRepo) GetShedWeights(_ context.Context, _ string, _ []string, _ string, _, _ time.Time, _, _ string) (domain.ShedWeights, error) {
 	return domain.ShedWeights{}, nil
 }
 
-func (r *fakeRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string) (domain.WeightDemographics, error) {
+func (r *fakeRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time, string, string) (domain.WeightDemographics, error) {
 	return domain.WeightDemographics{}, nil
 }
 

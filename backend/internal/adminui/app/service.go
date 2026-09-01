@@ -2726,8 +2726,15 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.series.landing_price_per_kg": "Landing price",
 			"chart.series.sale_price_per_kg":    "Sale price",
 			"chart.loadwise_fattening.title":    "Fattening days on farm",
-			"chart.loadwise_fattening.empty":    "No load has sold yet, so nothing has a fattening span.",
+			"chart.loadwise_fattening.empty":    "No load has sold, and none is still holding animals.",
 			"chart.series.fattening_days":       "Days from arrival to sale",
+			// The SAME clock still running. A load that has not sold had a blank bar here, which
+			// read as "nothing to say" about animals that have been eating on this farm for
+			// months; this states the elapsed span instead (maintainer decision 2026-09-01). It
+			// is arrival-to-today, NOT the purchase-date age clock, so both series on this axis
+			// start on the day the animals landed.
+			"chart.series.days_on_farm_so_far": "Days on farm so far",
+			"value.still_on_farm":              "still on farm",
 			// The load's AGE has no chart and no column -- the maintainer removed both -- but the
 			// 90-day clock still runs: it is what raises the daily CXO alert, from
 			// procurement/domain.LoadAgeAlertDays. Average sale weight likewise stays a CHART
@@ -3578,23 +3585,30 @@ func pageSpecificCopy(id string) map[string]string {
 			// Download drawer (maintainer request 2026-08-21): whole-window export in the
 			// operations Weight-check sheet's own shape, minus its video-link column. The
 			// drawer's calendar reuses the filter.period.* labels above.
-			"export.button":             "Download",
-			"export.eyebrow":            "Weights",
-			"export.title":              "Download weights",
-			"export.hint":               "Pick the days, park and sheds to include. The file follows the Weight check sheet, without the video column.",
-			"export.period.label":       "Period",
-			"export.park.label":         "Park",
-			"export.park.all":           "All parks",
-			"export.sheds.label":        "Sheds",
-			"export.sheds.all":          "All sheds",
-			"export.download":           "Download CSV",
-			"export.preparing":          "Preparing the file…",
-			"export.error":              "The file could not be prepared. Try again in a moment.",
-			"export.empty":              "Nothing was weighed for this selection. The file has only the header row.",
-			"kpi.kids.label":            "Kids weighed",
-			"kpi.kids.sub":              "in the selected period",
-			"kpi.kids.split.label":      "Individual · Lump-sum",
-			"kpi.kids.split.total_sub":  "total in the selected period",
+			"export.button":        "Download",
+			"export.eyebrow":       "Weights",
+			"export.title":         "Download weights",
+			"export.hint":          "Pick the days, park and sheds to include. The file follows the Weight check sheet, without the video column.",
+			"export.period.label":  "Period",
+			"export.park.label":    "Park",
+			"export.park.all":      "All parks",
+			"export.sheds.label":   "Sheds",
+			"export.sheds.all":     "All sheds",
+			"export.download":      "Download CSV",
+			"export.preparing":     "Preparing the file…",
+			"export.error":         "The file could not be prepared. Try again in a moment.",
+			"export.empty":         "Nothing was weighed for this selection. The file has only the header row.",
+			"kpi.kids.label":       "Kids weighed",
+			"kpi.kids.sub":         "in the selected period",
+			"kpi.kids.split.label": "Individual · Lump-sum",
+			// SAY WHICH KIDS. This strip counts only the kids with a SECOND weigh to compare
+			// against — it is the population every gain figure beside it is computed from — while
+			// Road to sale further down counts every kid weighed at all. The two therefore differ
+			// by the kids weighed once, and while this label read "total in the selected period"
+			// the screen showed two nearly identical sentences over two different denominators
+			// with nothing to tell them apart. The maintainer read them side by side and asked why
+			// they disagreed, which is exactly the question a label like that produces.
+			"kpi.kids.split.total_sub":  "weighed twice in the selected period",
 			"kpi.total.label":           "Total weight",
 			"kpi.total.sub":             "of the kids actually weighed",
 			"kpi.average.label":         "Average weight",
@@ -3714,6 +3728,14 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.sex.label": "Sex",
 			"view.sex.male":    "Male",
 			"view.sex.female":  "Female",
+			// And an ORIGIN filter beside it (maintainer, 2026-09-01), on exactly the same terms:
+			// the farm both breeds its own kids and buys them in loads, and the two grow
+			// differently enough that reading them together answers nothing. It is a fact about the
+			// PEN a load was put into, so a pen's whole-shed weighs and its scanned weighs always
+			// land on the same side of this filter.
+			"filter.origin.label":   "Origin",
+			"view.origin.farm_born": "Farm born",
+			"view.origin.purchased": "Purchased",
 			// One caption per grain, because the denominator sentence has to name the kids it
 			// actually counted. Reusing the combined caption under the male view would tell a
 			// reader the bands add up to the kids weighed twice when they add up to the MALE kids
@@ -3754,21 +3776,35 @@ func pageSpecificCopy(id string) map[string]string {
 			// page: farm language, honest denominators (every count is kids or
 			// scans actually seen — there is no expected roster, so nothing here
 			// may read "of expected"), estimates labelled as estimates.
-			"growth_director.section.title":        "Growth Director",
-			"growth_director.section.aria":         "Growth Director widgets",
-			"growth_director.error.title":          "Growth Director could not be loaded",
-			"growth_director.error.body":           "The rest of the page still works. Try again in a moment.",
-			"growth_director.period.note":          "Weighing weeks that overlap the period are counted in full; feed uses the exact days.",
-			"growth_director.road.title":           "Road to sale weight",
-			"growth_director.road.caption":         "Where every kid sits on the way to 30 kg, counted from each kid's latest weigh.",
-			"growth_director.road.identities.sub":  "tag identities weighed in this period",
-			"growth_director.road.matched.sub":     "matched to the herd register",
-			"growth_director.road.moved_up":        "moved up a band since their last weigh",
-			"growth_director.road.held":            "held their band",
-			"growth_director.road.moved_down":      "slipped back",
-			"growth_director.road.sale_marker":     "sale",
-			"growth_director.road.note.pairs":      "A kid has to be weighed twice before it can move a band.",
-			"growth_director.road.note.unmatched":  "Tags that match nothing in the herd register still count — a scale reading is a scale reading — and are shown as unmatched.",
+			"growth_director.section.title":       "Growth Director",
+			"growth_director.section.aria":        "Growth Director widgets",
+			"growth_director.error.title":         "Growth Director could not be loaded",
+			"growth_director.error.body":          "The rest of the page still works. Try again in a moment.",
+			"growth_director.period.note":         "Weighing weeks that overlap the period are counted in full; feed uses the exact days.",
+			"growth_director.road.title":          "Road to sale weight",
+			"growth_director.road.caption":        "Where every kid sits on the way to 30 kg, counted from each kid's latest weigh.",
+			"growth_director.road.identities.sub": "kids weighed in this period",
+			"growth_director.road.matched.sub":    "matched to the herd register",
+			// Whole-shed pens joined this board on 2026-09-01. The tile names the pens as well as
+			// the animals, because "379 weighed as whole pens" and "379 weighed one by one" are
+			// very different evidence and the reader is owed the difference at a glance.
+			"growth_director.road.lump.sub": "of them weighed as whole pens",
+			// THE DENOMINATOR OF THE THREE TILES AFTER IT. Band movement needs a previous weigh to
+			// compare against, so it counts a strictly smaller population than the head count two
+			// tiles left — and without this tile the three movement figures added up to a number the
+			// card never showed, which reads as an error. The maintainer checked the arithmetic and
+			// asked why (2026-09-01). Now moved up + held + slipped back equals this exactly.
+			"growth_director.road.pairs.sub":      "of them weighed twice, so able to move a band",
+			"growth_director.road.moved_up":       "moved up a band since their last weigh",
+			"growth_director.road.held":           "held their band",
+			"growth_director.road.moved_down":     "slipped back",
+			"growth_director.road.sale_marker":    "sale",
+			"growth_director.road.note.pairs":     "A kid has to be weighed twice before it can move a band.",
+			"growth_director.road.note.unmatched": "Tags that match nothing in the herd register still count — a scale reading is a scale reading — and are shown as unmatched.",
+			// The caption has to say what a penned kid's weight actually is, because the bars do not
+			// look any different for one. A pen gives one average for every animal in it, so those
+			// kids all sit in the same band and all move together.
+			"growth_director.road.note.lump":       "A shed weighed as one total gives every kid in it the same weight — the shed average — so those kids share a band and move bands together.",
 			"growth_director.fair_fight.title":     "Fair fight — same breed, same sex",
 			"growth_director.fair_fight.caption":   "Same breed, same sex, different sheds — a fairer comparison that points at shed-level causes.",
 			"growth_director.fair_fight.note":      "A cohort shows once the same kind of kid, weighed twice, lives in two sheds. Sex comes from the herd register, never from the shed name.",

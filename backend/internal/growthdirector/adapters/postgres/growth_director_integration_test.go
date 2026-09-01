@@ -168,17 +168,27 @@ func TestGrowthDirectorRoadToSaleBandsMovementAndTrust(t *testing.T) {
 	seedGoatWithTag(t, ctx, pool, "11111111-0000-4000-8000-000000000601", "0001", "TAG-A", "Sojat", "male")
 	seedGoatWithTag(t, ctx, pool, "11111111-0000-4000-8000-000000000602", "0002", "TAG-B", "Sojat", "male")
 
-	// Lump-sum: one live, one withdrawn. Only the live row may count.
+	// Lump-sum: one live, two withdrawn. Only the live row may count.
+	//
+	// The THIRD row is the adversarial one, and it is why this fixture proves the withdrawn_at
+	// predicate rather than merely containing it. Live-row uniqueness on this table is a PARTIAL
+	// index (000067), so a reopened bucket keeps its superseded rows — and a superseded row can be
+	// NEWER than the live one. A "newest capture wins" pick with no withdrawn_at filter therefore
+	// selects a weight the farm has already retracted: here it would move all 25 of this pen's
+	// animals out of 20-25 and into 25-30, reporting a whole pen as heavier than it is on evidence
+	// that was thrown away. The two older rows alone cannot catch that, because the newest-wins
+	// ordering already prefers the live one.
 	execGD(t, ctx, pool, `
 INSERT INTO weighing_shed_observations (tenant_id, campaign_id, campaign_shed_id, weight_kg, average_weight_kg, animal_count, proof_artifact_id, recorded_by, idempotency_key, accepted_at, withdrawn_at)
 VALUES
   ($1::uuid, $2::uuid, $3::uuid, 500.0, 20.0, 25, $4::uuid, $5::uuid, 'gd:lump:withdrawn', $6::timestamptz, $7::timestamptz),
-  ($1::uuid, $2::uuid, $3::uuid, 520.0, 20.8, 25, $4::uuid, $5::uuid, 'gd:lump:live', $7::timestamptz, NULL)`,
-		gdTenant, gdCampaignW2, gdBucketW2L, gdProof, gdOperator, day(14, 6), day(15, 6))
+  ($1::uuid, $2::uuid, $3::uuid, 520.0, 20.8, 25, $4::uuid, $5::uuid, 'gd:lump:live', $7::timestamptz, NULL),
+  ($1::uuid, $2::uuid, $3::uuid, 687.5, 27.5, 25, $4::uuid, $5::uuid, 'gd:lump:withdrawn-newer', $8::timestamptz, $8::timestamptz)`,
+		gdTenant, gdCampaignW2, gdBucketW2L, gdProof, gdOperator, day(14, 6), day(15, 6), day(16, 6))
 
 	from, to := gdWindow()
 	repo := NewRepository(pool, 5*time.Second)
-	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark}, from, to, "")
+	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark}, from, to, "", "")
 	if err != nil {
 		t.Fatalf("GetGrowthDirectorWeights: %v", err)
 	}
@@ -190,17 +200,39 @@ VALUES
 	if road.MatchedIdentities != 2 || road.UnmatchedIdentities != 2 {
 		t.Fatalf("matched/unmatched: want 2/2, got %d/%d", road.MatchedIdentities, road.UnmatchedIdentities)
 	}
-	wantBands := map[string]int{"<15": 0, "15-20": 2, "20-25": 1, "25-30": 0, "30-35": 0, "35+": 1}
+	// WHOLE-SHED PENS ARE IN THE BANDS (maintainer decision 2026-09-01). The live lump row is one
+	// pen of 25 animals averaging 20.8 kg, so all 25 sit in 20-25 beside the single scanned kid
+	// there. The WITHDRAWN row of the same pen must contribute nothing: live-row uniqueness on that
+	// table is a PARTIAL index (000067), so a reopened bucket keeps its superseded rows and a
+	// missing withdrawn_at predicate would count this pen twice — 50 animals from 25 real ones.
+	if road.LumpSumAnimals != 25 || road.LumpSumPens != 1 {
+		t.Fatalf("lump-sum: want 25 animals in 1 pen (neither withdrawn row may count), got %d in %d",
+			road.LumpSumAnimals, road.LumpSumPens)
+	}
+	// The bands add up to scanned identities PLUS pen animals, and the tile says so.
+	if road.TotalAnimals != 29 {
+		t.Fatalf("total animals: want 29 (4 scanned + 25 penned), got %d", road.TotalAnimals)
+	}
+	wantBands := map[string]int{"<15": 0, "15-20": 2, "20-25": 26, "25-30": 0, "30-35": 0, "35+": 1}
 	if len(road.Bands) != 6 {
 		t.Fatalf("bands must always list all six, got %d", len(road.Bands))
 	}
+	bandTotal := 0
 	for _, band := range road.Bands {
-		if band.IdentityCount != wantBands[band.Band] {
-			t.Errorf("band %s: want %d, got %d", band.Band, wantBands[band.Band], band.IdentityCount)
+		if band.AnimalCount != wantBands[band.Band] {
+			t.Errorf("band %s: want %d, got %d", band.Band, wantBands[band.Band], band.AnimalCount)
 		}
+		bandTotal += band.AnimalCount
 	}
-	if road.Movement.PairIdentities != 3 {
-		t.Fatalf("movement pairs: want 3 (two rounds each; TAG-D has one), got %d", road.Movement.PairIdentities)
+	// The headline must equal what the bars show. A tile that disagrees with the chart under it
+	// leaves the card with no true number on it.
+	if bandTotal != road.TotalAnimals {
+		t.Fatalf("the bands must add up to the headline: bands %d, total_animals %d", bandTotal, road.TotalAnimals)
+	}
+	// This pen was weighed in ONE round, so it contributes nothing to movement — a band move needs
+	// a previous weigh on both arms alike.
+	if road.Movement.PairAnimals != 3 {
+		t.Fatalf("movement pairs: want 3 (two rounds each; TAG-D has one, and the single-round pen cannot move), got %d", road.Movement.PairAnimals)
 	}
 	if road.Movement.MovedUp != 1 || road.Movement.Held != 1 || road.Movement.MovedDown != 1 {
 		t.Fatalf("movement up/held/down: want 1/1/1, got %d/%d/%d",
@@ -267,7 +299,7 @@ func TestGrowthDirectorFairFightAndSlowGrowthPairLogic(t *testing.T) {
 
 	from, to := gdWindow()
 	repo := NewRepository(pool, 5*time.Second)
-	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark}, from, to, "")
+	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark}, from, to, "", "")
 	if err != nil {
 		t.Fatalf("GetGrowthDirectorWeights: %v", err)
 	}
@@ -362,7 +394,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'CBE', $4::uuid, 'Gandhi 1 - Part 1', '', 
 
 	from, to := gdWindow()
 	repo := NewRepository(pool, 5*time.Second)
-	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark}, from, to, "")
+	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark}, from, to, "", "")
 	if err != nil {
 		t.Fatalf("GetGrowthDirectorWeights: %v", err)
 	}
@@ -552,7 +584,7 @@ VALUES
 
 	from, to := gdWindow()
 	repo := NewRepository(pool, 5*time.Second)
-	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark, gdPark2}, from, to, "")
+	out, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark, gdPark2}, from, to, "", "")
 	if err != nil {
 		t.Fatalf("GetGrowthDirectorWeights: %v", err)
 	}
@@ -680,7 +712,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'Gandhi 1')`, gdTenant, k.goatID, gdSh
 
 	repo := NewRepository(pool, 30*time.Second)
 	got, err := repo.GetGrowthDirectorWeights(ctx, gdTenant, []string{gdPark},
-		time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), "")
+		time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), "", "")
 	if err != nil {
 		t.Fatalf("GetGrowthDirectorWeights: %v", err)
 	}

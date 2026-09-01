@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
@@ -23,7 +24,7 @@ import (
 // than by_stage: a whole-shed weigh has no tags, so it reaches the stage rows via
 // its shed's cohort but never the breed or sex rows. The resolved / unresolved /
 // lump-sum counts are returned so that gap is legible rather than looking broken.
-func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex string) (domain.WeightDemographics, error) {
+func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin string) (domain.WeightDemographics, error) {
 	out := domain.WeightDemographics{
 		GainThresholdsByBreed: []domain.WeightGainThresholdBucket{},
 		ByBreed:               []domain.WeightDemographicBucket{},
@@ -41,6 +42,15 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 	sexFilter, sexErr := normalizeSexFilter(sex)
 	if sexErr != nil {
 		return domain.WeightDemographics{}, sexErr
+	}
+	// Origin, unlike Sex, is NOT applied natively here. It is a fact about the PEN a load was put
+	// in, not about the goat row this query has already joined, and its one implementation lives in
+	// origin_scope.go so that every card on the page agrees on which pens were bought. This read
+	// therefore consumes the same opaque tag list and lump-bucket list the other reads do.
+	originFiltered := strings.TrimSpace(origin) != ""
+	originScope, originErr := r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
+	if originErr != nil {
+		return domain.WeightDemographics{}, originErr
 	}
 
 	const q = ` -- scale-guard:ignore: bounded 28/84-day weighing leadership aggregate over tenant+authorized parks; current release envelope accepts this read-model query with repository integration coverage, and it does not touch obligation/kernel hot tables
@@ -60,6 +70,9 @@ latest AS (
     AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
     AND o.verification_status <> 'rejected'
     AND btrim(o.scanned_identifier) <> ''
+    -- Origin filter, individual half. $6 is FALSE for the unfiltered page, which therefore runs
+    -- this query exactly as it ran before the filter existed.
+    AND (NOT $6::bool OR lower(btrim(o.scanned_identifier)) = ANY($7::text[]))
   ORDER BY lower(btrim(o.scanned_identifier)), o.accepted_at DESC, o.observation_id DESC
 ),
 -- Consecutive-weigh pairs per tag, for the gain dimensions. A same-business-day
@@ -74,6 +87,7 @@ raw_obs AS (
   WHERE o.tenant_id = $1::uuid
     AND o.accepted_at >= ($3::timestamptz - interval '90 days') AND o.accepted_at < $4::timestamptz
     AND o.verification_status <> 'rejected' AND btrim(o.scanned_identifier) <> ''
+    AND (NOT $6::bool OR lower(btrim(o.scanned_identifier)) = ANY($7::text[]))
 ),
 obs AS (
   SELECT DISTINCT ON (tag, d) tag, weight_kg, accepted_at, d
@@ -162,6 +176,14 @@ shed_targets AS (
                                        '\s*(?:-\s*)?(?:Part\s*)?([0-9]+)$'))[1], ''),
                   '') AS resolved_partition_label
   FROM scoped s
+  -- Origin filter, whole-shed half. A lump-sum bucket is claimed by the pen it was weighed in,
+  -- which origin_scope.go has already decided; the alias spellings of one pen ("Godel 2 - Part 1"
+  -- the location vs "Godel 2" carrying label "Part 1") are reconciled there, so this predicate is
+  -- a plain membership test against the buckets it returned.
+  WHERE NOT $6::bool OR EXISTS (
+    SELECT 1 FROM unnest($8::uuid[], $9::text[]) AS b(loc, part)
+    WHERE b.loc = s.location_id AND b.part = s.partition_label
+  )
 ),
 -- Whole-shed weighs under a Sex filter follow the same rule as the rest of the page: a bucket is
 -- claimed only when its cohort is entirely the selected sex, so the sexes = 1 test below gains a
@@ -481,7 +503,8 @@ SELECT
 		gainThresholdBreedJSON                                      []byte
 		compositionJSON                                             []byte
 	)
-	if err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, sexFilter).Scan(
+	if err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd, sexFilter,
+		originFiltered, originScope.Tags, originScope.LocationIDs, originScope.PartitionLabels).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
 		&gainBreedJSON, &gainSexJSON, &gainStageJSON,

@@ -93,28 +93,61 @@ type GrowthDirectorWeights struct {
 // Unmatched identities stay in the bands — a scale reading is a scale reading —
 // but are counted separately.
 type RoadToSale struct {
-	TotalIdentities     int          `json:"total_identities"`
-	MatchedIdentities   int          `json:"matched_identities"`
-	UnmatchedIdentities int          `json:"unmatched_identities"`
-	Bands               []WeightBand `json:"bands"`
-	Movement            BandMovement `json:"movement"`
+	// The three identity counts are about SCANNED TAGS and keep that meaning exactly: they answer
+	// "did this tag resolve to an animal in the register", a question a whole-shed pen cannot be
+	// asked because it carries no tag at all. Widening them to include pen animals would report
+	// hundreds of kids as unmatched when nothing about them was ever unmatched.
+	TotalIdentities     int `json:"total_identities"`
+	MatchedIdentities   int `json:"matched_identities"`
+	UnmatchedIdentities int `json:"unmatched_identities"`
+	// WHOLE-SHED PENS ARE IN THIS WIDGET (maintainer decision 2026-09-01), the same ruling the
+	// daily-gain headline already carries: most of this farm's kids are weighed by the pen, so a
+	// board built from scanned tags alone answered "where is every kid" from a minority of them --
+	// 226 kids while 555 more sat in nine pens nobody could see here.
+	//
+	// A pen contributes its animals at ITS OWN AVERAGE: every kid in the pen sits in the band that
+	// average falls in. LumpSumAnimals and LumpSumPens disclose how much of the board is that
+	// coarser measure, so a reader can tell a scanned distribution from a penned one.
+	LumpSumAnimals int `json:"lump_sum_animals"`
+	LumpSumPens    int `json:"lump_sum_pens"`
+	// TotalAnimals is what the bands add up to: scanned identities PLUS pen animals. It is a
+	// separate field rather than a redefinition of TotalIdentities because the two answer different
+	// questions and a reader adding tag counts to animal counts would be adding two grains.
+	TotalAnimals int          `json:"total_animals"`
+	Bands        []WeightBand `json:"bands"`
+	Movement     BandMovement `json:"movement"`
 }
 
-// WeightBand is one weight band and the identities whose latest weight sits in it.
+// WeightBand is one weight band and the ANIMALS whose latest weight sits in it: one per scanned
+// identity, plus every animal of a whole-shed pen whose average weight falls in the band.
+//
+// The field is `animal_count`, not the `identity_count` it was called while this board counted
+// scanned tags only. Renaming was part of the change rather than tidying after it: a field named
+// for identities that returns animals is the same trap as `median_adg_g_per_day` returning a mean
+// (2026-08-26), and it is the reader of the NEXT change who pays for it.
 type WeightBand struct {
-	Band          string `json:"band"`
-	IdentityCount int    `json:"identity_count"`
+	Band        string `json:"band"`
+	AnimalCount int    `json:"animal_count"`
 }
 
-// BandMovement compares each pair-eligible identity's previous-round band to its
-// latest-round band. PairIdentities is the denominator: identities weighed in at
-// least two campaign rounds (two captures inside ONE round dedupe to one and are
-// not movement-eligible).
+// BandMovement compares a previous-round band to the latest-round band, counted in ANIMALS.
+// PairAnimals is the denominator: animals weighed in at least two campaign rounds (two captures
+// inside ONE round dedupe to one and are not movement-eligible).
+//
+// PENS COUNT HERE TOO (maintainer decision 2026-09-01), and the trade is worth stating because it
+// is real: a pen weighed twice contributes ALL its animals to the bucket its AVERAGE moved into,
+// so a pen creeping from 24.9 to 25.1 kg reports every one of its kids as having moved up a band,
+// and a pen's average also moves when animals enter or leave it. That is the same coarseness the
+// daily-gain headline already accepts, taken deliberately rather than describe the herd from the
+// third of it that is weighed one by one.
+//
+// Note this is deliberately NOT the same call as the losing-animals list, which stays scanned-only:
+// there the output NAMES individual animals, and a shed average cannot name one.
 type BandMovement struct {
-	PairIdentities int `json:"pair_identities"`
-	MovedUp        int `json:"moved_up"`
-	Held           int `json:"held"`
-	MovedDown      int `json:"moved_down"`
+	PairAnimals int `json:"pair_animals"`
+	MovedUp     int `json:"moved_up"`
+	Held        int `json:"held"`
+	MovedDown   int `json:"moved_down"`
 }
 
 // FairFight compares the SAME breed and sex across DIFFERENT sheds. A cohort

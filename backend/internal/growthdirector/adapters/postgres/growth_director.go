@@ -101,7 +101,7 @@ const breedSexJoin = `
 // GetGrowthDirectorWeights builds all six Growth Director widgets for one
 // half-open window. parkIDs must be non-empty and already authorization-checked
 // by the caller: this method does no scoping of its own.
-func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex string) (domain.GrowthDirectorWeights, error) {
+func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin string) (domain.GrowthDirectorWeights, error) {
 	loc := biztime.DefaultLocation()
 	out := domain.GrowthDirectorWeights{
 		Period: domain.Period{
@@ -136,7 +136,19 @@ func (r *Repository) GetGrowthDirectorWeights(ctx context.Context, tenantID stri
 	if scopeErr != nil {
 		return out, scopeErr
 	}
-	sexFiltered := strings.TrimSpace(sex) != ""
+	// Origin (farm born / purchased) is resolved by the SAME weighing-owned resolver the Weights
+	// page uses, for the same reason: these widgets and that page must agree on which pens were
+	// bought, or the Growth Director's screen describes a different herd from the one the CEO is
+	// reading. Both filters narrow the identical opaque scope, so the six widgets below did not
+	// change when the second one was added.
+	originScope, originErr := weighingpg.ResolveOriginScope(ctx, r.pool, tenantID, parkIDs, origin, periodStart, periodEnd)
+	if originErr != nil {
+		return out, originErr
+	}
+	sexApplied := strings.TrimSpace(sex) != ""
+	originApplied := strings.TrimSpace(origin) != ""
+	scope = weighingpg.IntersectScopes(scope, sexApplied, originScope, originApplied)
+	sexFiltered := sexApplied || originApplied
 
 	parks, err := r.parks(ctx, tenantID, parkIDs)
 	if err != nil {
@@ -173,15 +185,37 @@ func emptyBands() []domain.WeightBand {
 	return bands
 }
 
-// roadToSale places each identity's latest weight in a band and scores band
-// movement against the identity's previous campaign round.
+// roadToSale places every kid's latest weight in a band and scores band movement against the
+// previous campaign round.
 //
-// projection-review: membership=one row per weight band with identities in it;
-// group_key=band_idx over latest-per-identity rows; join_cardinality=prev is
-// 0..1 per tag_key (rn=2 of the same ranking), goat_identifiers is 0..1 by the
-// lifetime-unique (tenant_id, normalized_value) index, so no side multiplies;
-// pagination=NONE, at most six band rows; scope=tenant + park ANY + campaign
-// week overlap.
+// TWO ARMS, ONE BOARD (maintainer decision 2026-09-01). A scanned kid contributes ITSELF at its
+// own weight. A whole-shed pen contributes ALL ITS ANIMALS at the pen's average, because that is
+// the only weight the pen has. Before this the board read `weighing_observations` alone and so
+// answered "where is every kid" from a minority of them -- 226 scanned kids while 555 more sat in
+// nine pens it could not see. The pen arm is the same shape the daily-gain headline already uses.
+//
+// The two arms are DISJOINT by construction: `weighing_category` is fixed when a bucket is created
+// and the write path fills exactly one of the two tables, so no animal can be counted twice.
+//
+// projection-review: membership=one row per weight band with animals in it; group_key=band_idx
+// over the UNION of latest-per-identity and latest-per-pen rows; join_cardinality=individual prev
+// is 0..1 per tag_key (rn=2 of the same ranking) and lump prev is 0..1 per (location_id,
+// partition_label) (rn=2 of its own ranking), goat_identifiers is 0..1 by the lifetime-unique
+// (tenant_id, normalized_value) index, and the lump arm joins weighing_campaign_sheds on its
+// primary key -- so no side multiplies; pagination=NONE, at most six band rows; scope=tenant +
+// park ANY + campaign week overlap.
+//
+//	PRODUCER UNIQUENESS vs CONSUMER MATCH KEYS, side by side:
+//	  latest      unique on tag_key                        [ranked rn = 1]
+//	  lump_latest unique on (location_id, partition_label)  [lump_ranked rn = 1]
+//	  scored      one row per either of those, UNION ALL of two disjoint key spaces
+//	  final       groups on band_idx, summing ANIMALS
+//
+//	ROW MULTIPLICITY OF EVERY JOINED SIDE:
+//	  prev / lump_prev   0..1 per row, absent when weighed only once
+//	  goat_identifiers   0..1 per tag, by the lifetime-unique index
+//
+//	Ratio key sets: none -- every output is a count of animals, not a ratio.
 func (r *Repository) roadToSale(ctx context.Context, tenantID string, parkIDs []string, startDate, endDate string, sexFiltered bool, scope weighingpg.SexScope) (domain.RoadToSale, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
@@ -197,43 +231,118 @@ ranked AS (
 ),
 latest AS (SELECT * FROM ranked WHERE rn = 1),
 prev   AS (SELECT * FROM ranked WHERE rn = 2),
+-- THE PEN ARM. withdrawn_at IS NOT OPTIONAL: live-row uniqueness on this table is a PARTIAL index
+-- (000067), so a reopened-and-resubmitted bucket legitimately keeps its superseded rows and
+-- dropping the predicate fans one pen-week out into several.
+lump_obs AS (
+  SELECT cs.location_id,
+         COALESCE(cs.partition_label, '') AS partition_label,
+         c.campaign_id, c.period_start_date,
+         so.average_weight_kg, so.animal_count, so.accepted_at, so.shed_observation_id
+  FROM weighing_shed_observations so
+  JOIN weighing_campaign_sheds cs
+    ON cs.tenant_id = so.tenant_id AND cs.campaign_shed_id = so.campaign_shed_id
+  JOIN weighing_campaigns c
+    ON c.tenant_id = cs.tenant_id AND c.campaign_id = cs.campaign_id
+  WHERE so.tenant_id = $1::uuid
+    AND c.park_id = ANY($2::uuid[])
+    AND c.status <> 'canceled'
+    AND cs.status <> 'canceled'
+    AND c.period_end_date >= $3::date
+    AND c.period_start_date < $4::date
+    AND so.withdrawn_at IS NULL
+    -- Rework is excluded from all growth math, exactly as the scanned arm excludes it; pending is
+    -- included, because an unverified weight is still a measurement.
+    AND so.verification_status <> 'rework'
+    AND so.animal_count > 0
+    AND so.average_weight_kg IS NOT NULL
+    -- The page's cohort filters (Sex, and Origin since 2026-09-01) reach a pen through its BUCKET,
+    -- not through a tag it does not have. $5 is FALSE for the unfiltered page, which therefore runs
+    -- this arm unnarrowed.
+    AND (NOT $5::bool OR EXISTS (
+      SELECT 1 FROM unnest($7::uuid[], $8::text[]) AS b(loc, part)
+      WHERE b.loc = cs.location_id AND b.part = COALESCE(cs.partition_label, '')
+    ))
+),
+-- ONE WEIGH PER PEN PER CAMPAIGN WEEK, newest wins -- the same round grain round_latest applies to
+-- scanned tags, so a pen weighed twice in one week is one round on both arms.
+lump_round AS (
+  SELECT DISTINCT ON (location_id, partition_label, campaign_id)
+         location_id, partition_label, campaign_id, period_start_date,
+         average_weight_kg, animal_count, accepted_at, shed_observation_id
+  FROM lump_obs
+  ORDER BY location_id, partition_label, campaign_id, accepted_at DESC, shed_observation_id DESC
+),
+lump_ranked AS (
+  SELECT lr.*,
+         row_number() OVER (PARTITION BY location_id, partition_label
+                            ORDER BY period_start_date DESC, accepted_at DESC, shed_observation_id DESC) AS rn
+  FROM lump_round lr
+),
+lump_latest AS (SELECT * FROM lump_ranked WHERE rn = 1),
+lump_prev   AS (SELECT * FROM lump_ranked WHERE rn = 2),
+-- The two arms meet here, each row carrying the number of ANIMALS it speaks for: one for a scanned
+-- kid, the pen's whole head count for a pen. The is_scanned flag keeps the tag-matching counts below
+-- answerable -- they are about tags, and a pen has none.
 scored AS (
-  SELECT l.tag_key, l.weight_kg, l.weigh_rounds,
-         width_bucket(l.weight_kg, ARRAY[15,20,25,30,35]::numeric[]) AS band_idx,
+  SELECT width_bucket(l.weight_kg, ARRAY[15,20,25,30,35]::numeric[]) AS band_idx,
          CASE WHEN p.weight_kg IS NULL THEN NULL
               ELSE width_bucket(p.weight_kg, ARRAY[15,20,25,30,35]::numeric[]) END AS prev_band_idx,
-         (gi.goat_id IS NOT NULL) AS is_matched
+         1::int AS animals,
+         (gi.goat_id IS NOT NULL) AS is_matched,
+         TRUE AS is_scanned
   FROM latest l
   LEFT JOIN prev p USING (tag_key)
   LEFT JOIN goat_identifiers gi
     ON gi.tenant_id = $1::uuid AND gi.normalized_value = upper(l.tag_key)
+  UNION ALL
+  SELECT width_bucket(ll.average_weight_kg, ARRAY[15,20,25,30,35]::numeric[]),
+         CASE WHEN lp.average_weight_kg IS NULL THEN NULL
+              ELSE width_bucket(lp.average_weight_kg, ARRAY[15,20,25,30,35]::numeric[]) END,
+         ll.animal_count,
+         FALSE,
+         FALSE
+  FROM lump_latest ll
+  LEFT JOIN lump_prev lp
+    ON lp.location_id = ll.location_id AND lp.partition_label = ll.partition_label
 )
+-- COALESCE ON EVERY FILTERED sum: a filtered sum over no matching rows is NULL, not 0, and a band
+-- holding only scanned kids matches none of the pen filters. Without this the scan fails outright
+-- ("cannot scan NULL into *int") on the ordinary case of a farm that weighed nothing by the pen.
 SELECT band_idx,
-       count(*) AS identity_count,
-       count(*) FILTER (WHERE is_matched) AS matched_count,
-       count(*) FILTER (WHERE weigh_rounds >= 2) AS pair_count,
-       count(*) FILTER (WHERE prev_band_idx IS NOT NULL AND band_idx > prev_band_idx) AS moved_up,
-       count(*) FILTER (WHERE prev_band_idx IS NOT NULL AND band_idx = prev_band_idx) AS held,
-       count(*) FILTER (WHERE prev_band_idx IS NOT NULL AND band_idx < prev_band_idx) AS moved_down
+       COALESCE(sum(animals), 0)::int                         AS animal_count,
+       count(*) FILTER (WHERE is_scanned)::int                AS identity_count,
+       count(*) FILTER (WHERE is_scanned AND is_matched)::int AS matched_count,
+       COALESCE(sum(animals) FILTER (WHERE NOT is_scanned), 0)::int AS lump_animals,
+       count(*) FILTER (WHERE NOT is_scanned)::int            AS lump_pens,
+       COALESCE(sum(animals) FILTER (WHERE prev_band_idx IS NOT NULL), 0)::int AS pair_animals,
+       COALESCE(sum(animals) FILTER (WHERE prev_band_idx IS NOT NULL AND band_idx > prev_band_idx), 0)::int AS moved_up,
+       COALESCE(sum(animals) FILTER (WHERE prev_band_idx IS NOT NULL AND band_idx = prev_band_idx), 0)::int AS held,
+       COALESCE(sum(animals) FILTER (WHERE prev_band_idx IS NOT NULL AND band_idx < prev_band_idx), 0)::int AS moved_down
 FROM scored
 GROUP BY band_idx
 ORDER BY band_idx`
-	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags)
+	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs, startDate, endDate, sexFiltered, scope.Tags,
+		scope.LocationIDs, scope.PartitionLabels)
 	if err != nil {
 		return out, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var bandIdx, identityCount, matched, pairCount, movedUp, held, movedDown int
-		if err := rows.Scan(&bandIdx, &identityCount, &matched, &pairCount, &movedUp, &held, &movedDown); err != nil {
+		var bandIdx, animalCount, identityCount, matched, lumpAnimals, lumpPens, pairAnimals, movedUp, held, movedDown int
+		if err := rows.Scan(&bandIdx, &animalCount, &identityCount, &matched,
+			&lumpAnimals, &lumpPens, &pairAnimals, &movedUp, &held, &movedDown); err != nil {
 			return out, err
 		}
 		if bandIdx >= 0 && bandIdx < len(out.Bands) {
-			out.Bands[bandIdx].IdentityCount = identityCount
+			out.Bands[bandIdx].AnimalCount = animalCount
 		}
+		out.TotalAnimals += animalCount
 		out.TotalIdentities += identityCount
 		out.MatchedIdentities += matched
-		out.Movement.PairIdentities += pairCount
+		out.LumpSumAnimals += lumpAnimals
+		out.LumpSumPens += lumpPens
+		out.Movement.PairAnimals += pairAnimals
 		out.Movement.MovedUp += movedUp
 		out.Movement.Held += held
 		out.Movement.MovedDown += movedDown

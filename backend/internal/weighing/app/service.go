@@ -1369,7 +1369,7 @@ const growthDefaultPeriodDays = domain.ShedWeightsDefaultPeriodDays
 // Requires WeighingMonitor, park-scoped exactly like GetWeightHistory: a park-scoped monitor may
 // only request a park inside their own grant, and a tenant-wide monitor may request any park in
 // the tenant.
-func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.GrowthADG, error) {
+func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.GrowthADG, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.GrowthADG{}, ports.ErrForbidden
 	}
@@ -1431,7 +1431,7 @@ func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor
 		return domain.GrowthADG{}, scopeErr
 	}
 
-	return s.repo.GetLeadershipGrowthADG(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex)
+	return s.repo.GetLeadershipGrowthADG(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin)
 }
 
 // resolveMonitorParkScope turns an OPTIONAL park_id into the concrete park list a
@@ -1494,7 +1494,7 @@ func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Acto
 
 // GetWeightDemographics serves the breed / sex / stage breakdown on the Weights
 // screen. Same capability and scope rules as the other leadership reads.
-func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.WeightDemographics, error) {
+func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.WeightDemographics, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.WeightDemographics{}, ports.ErrForbidden
 	}
@@ -1506,7 +1506,7 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 	if scopeErr != nil {
 		return domain.WeightDemographics{}, scopeErr
 	}
-	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex)
+	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive, sex, origin)
 }
 
 // GetShedWeights serves the admin-web "Kids — Weights" screen: one row per shed
@@ -1514,7 +1514,7 @@ func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor,
 //
 // Same capability and scope rules as GetLeadershipGrowthADG — this is a leadership
 // read of the same estate, so it must not be reachable on a weaker check.
-func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex string) (domain.ShedWeights, error) {
+func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate, sex, origin string) (domain.ShedWeights, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.ShedWeights{}, ports.ErrForbidden
 	}
@@ -1535,7 +1535,7 @@ func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID
 	if windowErr != nil {
 		return domain.ShedWeights{}, windowErr
 	}
-	return s.shedWeightsFor(ctx, actor, parkID, periodStart, periodEndExclusive, sex)
+	return s.shedWeightsFor(ctx, actor, parkID, periodStart, periodEndExclusive, sex, origin)
 }
 
 // resolveWeighingWindow turns optional business dates into the half-open
@@ -1581,7 +1581,7 @@ func (s *Service) resolveWeighingWindow(fromBusinessDate, toBusinessDate string)
 	return periodStart, periodEndInclusive.AddDate(0, 0, 1), nil
 }
 
-func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID string, periodStart, periodEndExclusive time.Time, sex string) (domain.ShedWeights, error) {
+func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID string, periodStart, periodEndExclusive time.Time, sex, origin string) (domain.ShedWeights, error) {
 	// The SELECTION is authorization-checked through the same helper (it rejects a park the actor
 	// may not see), and the SCOPE is resolved separately with no filter. The park dropdown is built
 	// from the scope, so choosing CPT no longer removes CBE from the list.
@@ -1593,7 +1593,7 @@ func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID
 		return domain.ShedWeights{}, scopeErr
 	}
 
-	out, err := s.repo.GetShedWeights(ctx, actor.TenantID, scopeParkIDs, parkID, periodStart, periodEndExclusive, sex)
+	out, err := s.repo.GetShedWeights(ctx, actor.TenantID, scopeParkIDs, parkID, periodStart, periodEndExclusive, sex, origin)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}

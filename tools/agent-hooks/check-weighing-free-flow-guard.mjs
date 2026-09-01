@@ -269,25 +269,56 @@ function stripComments(text) {
 // when its cohort is provably one sex, never split across a mix.
 //
 // Adding a file here is a MAINTAINER decision, never a developer convenience.
+// The herd tables the three reporting/census exemptions share. Vaccination, clinical, protocol
+// and obligation tables stay banned everywhere.
+const HERD_JOIN_BASE_TABLES = ["goats", "goat_identifiers", "goat_shed_partitions"];
+
+// EXEMPTION IS PER FILE, AND SO IS THE TABLE LIST. Each entry names the tables THAT file may
+// resolve and nothing more, so widening one exemption cannot silently widen the others: when
+// origin_scope.go earned `procurement_load_goats` on 2026-09-01, a single shared table set would
+// have handed a procurement table to the census and demographics files too, neither of which has
+// any business asking where an animal was bought.
 const HERD_JOIN_EXEMPT_FILES = new Map([
   [
     "backend/internal/weighing/adapters/postgres/weight_demographics.go",
-    "maintainer decisions 2026-08-07/2026-08-19: average weight by breed/sex/stage and lump-sum shed/partition composition on the Weights screen",
+    {
+      reason:
+        "maintainer decisions 2026-08-07/2026-08-19: average weight by breed/sex/stage and lump-sum shed/partition composition on the Weights screen",
+      tables: HERD_JOIN_BASE_TABLES,
+    },
   ],
   [
     "backend/internal/weighing/adapters/postgres/sex_scope.go",
-    "maintainer decision 2026-08-26: resolves the Weights page's Sex filter to a tag list and a lump-sum bucket list, so the other weighing reads filter without naming a herd table",
+    {
+      reason:
+        "maintainer decision 2026-08-26: resolves the Weights page's Sex filter to a tag list and a lump-sum bucket list, so the other weighing reads filter without naming a herd table",
+      tables: HERD_JOIN_BASE_TABLES,
+    },
   ],
   [
     "backend/internal/weighing/adapters/postgres/lump_sum_census.go",
-    "maintainer decision 2026-08-24: lump-sum submit snapshots the bucket's resident head count from the herd register (frozen on the row; operator no longer types it)",
+    {
+      reason:
+        "maintainer decision 2026-08-24: lump-sum submit snapshots the bucket's resident head count from the herd register (frozen on the row; operator no longer types it)",
+      tables: HERD_JOIN_BASE_TABLES,
+    },
+  ],
+  [
+    "backend/internal/weighing/adapters/postgres/origin_scope.go",
+    {
+      // The Farm born / Purchased filter. It began pen-level and needed NO exception, reading only
+      // the weighing-owned load-tag mapping; that is correct for a pen whose every resident came
+      // off a load and wrong for a MIXED one (Mandela 1 - Part 1 is 4 bought of 13), which filed
+      // nine farm-born kids as purchased. A scanned weigh carries a tag and can be answered per
+      // ANIMAL, and procurement_load_goats is the only table that says which animal came off which
+      // load -- so the exception buys accuracy the pen-level rule cannot reach at any price.
+      // READ-ONLY and REPORTING-ONLY; no capture, submit, close or verdict path calls it.
+      reason:
+        "maintainer decision 2026-09-01: resolves the Weights page's Farm born / Purchased filter per ANIMAL for scanned weighs, so a pen holding both cohorts is not claimed whole",
+      tables: [...HERD_JOIN_BASE_TABLES, "procurement_load_goats"],
+    },
   ],
 ]);
-
-// The only herd tables an exempt file may resolve, and only for the reporting
-// facts above.
-// Vaccination, clinical, protocol and obligation tables stay banned everywhere.
-const HERD_JOIN_EXEMPT_TABLES = new Set(["goats", "goat_identifiers", "goat_shed_partitions"]);
 
 const WRITE_PATH_ALLOWED_TABLES = new Set([
   "weighing_campaigns",
@@ -497,7 +528,8 @@ export function anyPathTableFindings(rel, source) {
       "set", "select", "only", "unnest", "lateral", "values", "of",
       "with", "update", "skip", "nothing", "conflict", "returning", "where",
     ].includes(table)) continue;
-    if (HERD_JOIN_EXEMPT_FILES.has(rel) && HERD_JOIN_EXEMPT_TABLES.has(table)) continue;
+    const exemption = HERD_JOIN_EXEMPT_FILES.get(rel);
+    if (exemption && exemption.tables.includes(table)) continue;
     findings.push({
       rule: "weighing-reads-non-weighing-table",
       message: `${rel}: reads \`${table}\` — weighing is ISOLATED and may touch ONLY weighing-owned tables (plus proof/idempotency/audit/outbox), on READ paths as well as writes. Joining goats/goat_identifiers/vaccination/herd tables is banned outright, including from a report or read model (maintainer decision 2026-08-04). If weighing needs this fact, weighing must capture it itself.`,
@@ -1724,6 +1756,41 @@ func (r *Repository) lumpSumCensusCountTx(ctx context.Context) error {
       `self-test failed: mode 16 false positive on the lump-sum census snapshot exemption (maintainer decision 2026-08-24). got: ${JSON.stringify(exemptCensus)}`,
     );
   }
+  // Maintainer decision 2026-09-01: origin_scope.go is the FOURTH file-scoped exemption and the
+  // only one permitted `procurement_load_goats`. The two cases below are the whole point of
+  // keying the table list PER FILE: the same read is legal in that file and a finding in another
+  // exempt one. A single shared table set would pass BOTH, handing a procurement table to the
+  // census and demographics files by accident.
+  const boughtRead = `
+func (r *Repository) resolveOriginScope(ctx context.Context) error {
+  _, err := r.pool.Exec(ctx, ` + "`" + `
+    SELECT DISTINCT goat_id FROM procurement_load_goats WHERE tenant_id=$1
+  ` + "`" + `)
+  return err
+}
+`;
+  const exemptOrigin = anyPathTableFindings(
+    "backend/internal/weighing/adapters/postgres/origin_scope.go",
+    boughtRead,
+  );
+  if (exemptOrigin.length) {
+    throw new Error(
+      `self-test failed: mode 16 false positive on the origin-scope procurement exemption (maintainer decision 2026-09-01). got: ${JSON.stringify(exemptOrigin)}`,
+    );
+  }
+  // THE ADVERSARIAL HALF: another EXEMPT file reading the same table must still fail. This is the
+  // case a shared table set gets wrong, and it looks correct by name — sex_scope.go really is an
+  // allowlisted file.
+  const siblingExemptOrigin = anyPathTableFindings(
+    "backend/internal/weighing/adapters/postgres/sex_scope.go",
+    boughtRead,
+  );
+  if (!siblingExemptOrigin.some((f) => f.rule === "weighing-reads-non-weighing-table")) {
+    throw new Error(
+      "self-test failed: procurement_load_goats must be exempt for origin_scope.go ONLY — another exempt weighing file reading it is still a finding",
+    );
+  }
+
   const nonExemptCensus = anyPathTableFindings("fake.go", censusRead);
   if (!nonExemptCensus.some((f) => f.rule === "weighing-reads-non-weighing-table")) {
     throw new Error(

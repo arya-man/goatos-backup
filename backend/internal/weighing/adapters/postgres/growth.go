@@ -110,7 +110,7 @@ qualifying AS (
 //
 // periodStart/periodEnd are Asia/Kolkata business-day boundaries expressed as UTC instants by
 // the caller (the service layer), half-open [periodStart, periodEnd).
-func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex string) (domain.GrowthADG, error) {
+func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time, sex, origin string) (domain.GrowthADG, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 
@@ -120,11 +120,21 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 	// WithAllTime: this read carries sale readiness, which reports latest-EVER weights and therefore
 	// needs the unwindowed tag list. Every other read on the page uses the plain resolver, so the
 	// all-history scan is paid once, here, by the one caller that reads it.
-	scope, scopeErr := r.resolveSexScopeWithAllTime(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
+	sexScope, scopeErr := r.resolveSexScopeWithAllTime(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
 	if scopeErr != nil {
 		return domain.GrowthADG{}, scopeErr
 	}
-	sexFiltered := strings.TrimSpace(sex) != ""
+	// Origin resolves its all-time list too, for the same reason and by the same caller: sale
+	// readiness below reads AllTimeTags, and intersecting a resolved list against an unresolved
+	// (therefore empty) one would report zero sale-ready kids on every filtered page.
+	originScope, originErr := r.resolveOriginScopeWithAllTime(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
+	if originErr != nil {
+		return domain.GrowthADG{}, originErr
+	}
+	sexApplied := strings.TrimSpace(sex) != ""
+	originApplied := strings.TrimSpace(origin) != ""
+	scope := IntersectScopes(sexScope, sexApplied, originScope, originApplied)
+	sexFiltered := sexApplied || originApplied
 
 	periodLen := periodEnd.Sub(periodStart)
 	prevStart := periodStart.Add(-periodLen)

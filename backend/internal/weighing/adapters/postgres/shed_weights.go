@@ -64,7 +64,7 @@ import (
 // weighing_observations_campaign_scanned_identifier_idx rather than seq-scanning
 // once per bucket — the same fix measured in 000080 (3873ms -> 554ms at 400
 // buckets x 300 observations).
-func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex string) (domain.ShedWeights, error) {
+func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeParkIDs []string, selectedParkID string, periodStart, periodEnd time.Time, sex, origin string) (domain.ShedWeights, error) {
 	// The ROWS honour the selection; the VOCABULARY below is built from the whole scope. Keeping
 	// them separate is the fix for a dropdown that collapsed to the park already chosen.
 	parkIDs := scopeParkIDs
@@ -76,11 +76,22 @@ func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeP
 	// position and a reader can see that the male half covers fewer sheds. Resolving identity is
 	// sex_scope.go's job — nothing in THIS file knows what an animal is; it is handed a list of
 	// tag strings and a list of buckets.
-	scope, scopeErr := r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
+	sexScope, scopeErr := r.resolveSexScope(ctx, tenantID, parkIDs, sex, periodStart, periodEnd)
 	if scopeErr != nil {
 		return domain.ShedWeights{}, scopeErr
 	}
-	sexFiltered := strings.TrimSpace(sex) != ""
+	// Origin (farm born / purchased) narrows the SAME rows through the SAME opaque shape, so the
+	// two filters compose without this file learning what either of them means. Both selected at
+	// once means the rows in BOTH, which is what a reader picking "Female" and "Purchased" asks
+	// for; the unfiltered page resolves neither and runs the query it always ran.
+	originScope, originErr := r.resolveOriginScope(ctx, tenantID, parkIDs, origin, periodStart, periodEnd)
+	if originErr != nil {
+		return domain.ShedWeights{}, originErr
+	}
+	sexApplied := strings.TrimSpace(sex) != ""
+	originApplied := strings.TrimSpace(origin) != ""
+	scope := IntersectScopes(sexScope, sexApplied, originScope, originApplied)
+	sexFiltered := sexApplied || originApplied
 
 	out := domain.ShedWeights{
 		Rows:              []domain.ShedWeightsRow{},
