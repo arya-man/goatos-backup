@@ -446,12 +446,6 @@ lump_composition AS (
 shed_type AS (
   SELECT DISTINCT src.location_id, src.partition_label,
          CASE
-           WHEN lower(loc.name) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
-             OR lower(coalesce(parent_loc.name, '')) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
-             THEN 'ground'
-           WHEN lower(loc.name) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
-             OR lower(coalesce(parent_loc.name, '')) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
-             THEN 'elevated'
            WHEN lower(coalesce(loc.operational_notes, '') || ' ' || coalesce(parent_loc.operational_notes, '') || ' ' ||
                       coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
                       coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(elevated|elevate)\M'
@@ -460,6 +454,12 @@ shed_type AS (
                       coalesce(sp.notes, '') || ' ' || coalesce(sp.context::text, '') || ' ' ||
                       coalesce(parent_sp.notes, '') || ' ' || coalesce(parent_sp.context::text, '')) ~ '\m(crown|crowned|ground)\M'
              THEN 'ground'
+           WHEN lower(loc.name) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
+             OR lower(coalesce(parent_loc.name, '')) ~ '\m(gandhi|castro|ho chi minh|old yashoda|yashoda old)\M'
+             THEN 'ground'
+           WHEN lower(loc.name) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
+             OR lower(coalesce(parent_loc.name, '')) ~ '\m(mandela|godel|sumathi|new yashoda|yashoda new|yashoda)\M'
+             THEN 'elevated'
          END AS shed_type
   FROM shed_targets src
   JOIN locations loc ON loc.location_id = src.location_id AND loc.tenant_id = $1::uuid
