@@ -52,6 +52,8 @@ func TestShedWeightsOneToManyDeduplicatesRepeatScansPerTag(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 
 	day := time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC)
+	seedShedWeightScan(t, ctx, pool, "TAG-A", 10.0, day.AddDate(0, 0, -7))
+	seedShedWeightScan(t, ctx, pool, "TAG-B", 29.0, day.AddDate(0, 0, -7))
 	seedShedWeightScan(t, ctx, pool, "TAG-A", 11.0, day)
 	seedShedWeightScan(t, ctx, pool, "TAG-A", 15.0, day.Add(2*time.Hour))
 	seedShedWeightScan(t, ctx, pool, "TAG-A", 20.0, day.Add(4*time.Hour)) // latest wins
@@ -82,8 +84,62 @@ func TestShedWeightsOneToManyDeduplicatesRepeatScansPerTag(t *testing.T) {
 	if !found {
 		t.Fatal("expected an individual_animal row carrying the seeded scans")
 	}
-	if out.Summary.AnimalsWeighed != 2 {
-		t.Fatalf("summary animals must match the row grain: want 2, got %d", out.Summary.AnimalsWeighed)
+	if out.Summary.AnimalsWeighed != 2 || out.Summary.IndividualAnimalsWeighed != 2 {
+		t.Fatalf("summary animals must match the ADG basis: want 2, got individual=%d total=%d",
+			out.Summary.IndividualAnimalsWeighed, out.Summary.AnimalsWeighed)
+	}
+}
+
+func TestShedWeightsSummaryOneToManyPaginationParkScopeStatusMatrixUsesSameGainBasisAcrossSameShedBuckets(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		laterCampaign = "00000000-0000-4000-8000-00000000c001"
+		laterBucket   = "00000000-0000-4000-8000-00000000c101"
+	)
+	seedShedWeightsCampaign(t, ctx, pool, laterCampaign, "2026-08-31")
+	seedLoadBucket(t, ctx, pool, laterBucket, laterCampaign, repoExpectedShed, "individual_animal")
+
+	aug31 := time.Date(2026, 8, 31, 6, 0, 0, 0, time.UTC)
+	sep1 := time.Date(2026, 9, 1, 6, 0, 0, 0, time.UTC)
+	aug24 := aug31.AddDate(0, 0, -7)
+	seedShedWeightScan(t, ctx, pool, "WINDOW-OLD-A", 19.0, aug24)
+	seedShedWeightScan(t, ctx, pool, "WINDOW-OLD-B", 21.0, aug24.Add(time.Hour))
+	seedShedWeightScan(t, ctx, pool, "WINDOW-OLD-A", 20.0, aug31)
+	seedShedWeightScan(t, ctx, pool, "WINDOW-OLD-B", 22.0, aug31.Add(time.Hour))
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at, submitted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'WINDOW-NEW-A', 29.0, $4::uuid, $5::uuid, 'shedweights:later:window-new-a-prior', $6::timestamptz, $6::timestamptz),
+       ($1::uuid, $2::uuid, $3::uuid, 'WINDOW-NEW-A', 30.0, $4::uuid, $5::uuid, 'shedweights:later:window-new-a', $7::timestamptz, $7::timestamptz)`,
+		repoTenant, laterCampaign, laterBucket, repoAnimalProof, repoOperator, aug24, sep1)
+
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, "",
+		time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC), "")
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+
+	var snapshotAnimals int
+	for _, row := range out.Rows {
+		if row.LocationID == repoExpectedShed {
+			snapshotAnimals = row.AnimalsWeighed
+		}
+	}
+	if snapshotAnimals != 1 {
+		t.Fatalf("row stays latest-shed snapshot: want latest bucket's 1 animal, got %d", snapshotAnimals)
+	}
+	if out.Summary.IndividualAnimalsWeighed != 3 || out.Summary.AnimalsWeighed != 3 {
+		t.Fatalf("summary must count the same individual denominator as ADG, got individual=%d total=%d",
+			out.Summary.IndividualAnimalsWeighed, out.Summary.AnimalsWeighed)
+	}
+	if got := fmt.Sprintf("%.1f", out.Summary.TotalWeightKg); got != "72.0" {
+		t.Fatalf("summary total must use latest selected-window weight per tag: want 72.0, got %s", got)
 	}
 }
 
@@ -125,9 +181,9 @@ func TestShedWeightsStatusMatrixExcludesOnlyCanceledFromScope(t *testing.T) {
 }
 
 // PAGE BOUNDARY. The summary is a WHOLE-FILTER aggregate: it is computed over every shed in
-// scope and must not change with the row cap. This asserts the invariant the contract promises --
-// summing the returned rows reproduces the summary exactly -- so a future paging change that
-// starts computing the cards from the visible slice fails here.
+// scope and must not change with the row cap. In the simple one-bucket shape below, the row
+// snapshot and the ADG-basis summary happen to line up; a separate test covers the multi-bucket
+// shape where they deliberately differ.
 func TestShedWeightsPaginationSummaryMatchesAllReturnedRows(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -137,6 +193,8 @@ func TestShedWeightsPaginationSummaryMatchesAllReturnedRows(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 
 	day := time.Date(2026, 7, 12, 6, 0, 0, 0, time.UTC)
+	seedShedWeightScan(t, ctx, pool, "PAGE-1", 17.0, day.AddDate(0, 0, -7))
+	seedShedWeightScan(t, ctx, pool, "PAGE-2", 21.0, day.AddDate(0, 0, -7))
 	seedShedWeightScan(t, ctx, pool, "PAGE-1", 18.0, day)
 	seedShedWeightScan(t, ctx, pool, "PAGE-2", 22.0, day)
 

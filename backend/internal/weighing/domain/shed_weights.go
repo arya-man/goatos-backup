@@ -92,8 +92,11 @@ type ShedWeightsSummary struct {
 	// can say "20 of 27" without a second call.
 	ShedsWeighed int `json:"sheds_weighed"`
 	ShedsInScope int `json:"sheds_in_scope"`
-	// AnimalsWeighed and TotalWeightKg sum the same per-shed figures Rows carries, so
-	// the cards and the table always reconcile.
+	// AnimalsWeighed and TotalWeightKg use the same backend denominator as the
+	// daily-gain cards. Individual animals count when a tag has a prior weigh and a
+	// selected-window endpoint; lump-sum pens count when the pen has prior/latest
+	// points. Rows remain the latest shed snapshot, so clients must render this
+	// summary verbatim instead of re-summing rows.
 	AnimalsWeighed           int     `json:"animals_weighed"`
 	IndividualAnimalsWeighed int     `json:"individual_animals_weighed"`
 	LumpSumAnimalsWeighed    int     `json:"lump_sum_animals_weighed"`

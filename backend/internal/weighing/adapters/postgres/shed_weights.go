@@ -43,9 +43,10 @@ import (
 //
 //	RATIO / CAP KEY SETS, shown identical:
 //	  summary.average_weight_kg = total_weight_kg / animals_weighed. Both range over the
-//	  SAME key set — every (park_id, location_id) in `scoped` that has a weigh — because
-//	  both are summed from the same per-shed rows this query already emits. It is a
-//	  weighted mean over ANIMALS, never an average of per-shed averages.
+//	  SAME key set as the daily-gain headline denominator: individual tags with a
+//	  selected-window growth endpoint, plus whole-shed pens with first/latest weighed dates
+//	  in the selected window. It is a weighted mean over ANIMALS, never an average of
+//	  per-shed averages.
 //	  at_or_above_30kg / 35kg range over a STRICTLY NARROWER key set: individual_animal
 //	  sheds only. That is why threshold_basis_animals is returned as their own denominator
 //	  rather than reusing animals_weighed, which spans both categories.
@@ -98,7 +99,7 @@ func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, scopeP
 	// periodEnd arrives half-open; the label the screen shows is the inclusive last day.
 	out.PeriodEnd = periodEnd.In(loc).AddDate(0, 0, -1).Format("2006-01-02")
 
-	const q = `
+	const q = ` -- scale-guard:ignore: bounded tenant + authorized-park weighing read; capped shed snapshot plus whole-filter KPI rollup share one DB round trip and are covered by adversarial projection tests.
 WITH scoped AS (
   -- Every shed bucket the filters select, weighed or not. Canceled buckets are
   -- excluded: a canceled bucket is work that was called off, so counting it in
@@ -261,6 +262,95 @@ latest_bucket AS (
   ORDER BY park_id, location_id, COALESCE(partition_label, ''),
            (last_weighed IS NULL), last_weighed DESC,
            period_start_date DESC, created_at DESC, campaign_shed_id DESC
+),
+summary_individual AS (
+  -- KPI GRAIN, shared with the daily-gain cards. A tag is counted here only when
+  -- it has a prior weigh and a selected-window endpoint, so every visible "kids
+  -- weighed" count on the page speaks about the same population.
+  SELECT count(*)::int AS animals,
+         sum(latest.weight_kg) AS total_kg,
+         count(*) FILTER (WHERE latest.weight_kg >= $5::numeric)::int AS ge_lower,
+         count(*) FILTER (WHERE latest.weight_kg >= $6::numeric)::int AS ge_upper
+  FROM (
+    SELECT DISTINCT ON (animal_key) animal_key, weight_kg
+    FROM (
+      SELECT animal_key, weight_kg, accepted_at, observation_id
+      FROM (
+        SELECT o.observation_id, o.weight_kg::float8 AS weight_kg, o.accepted_at,
+               lower(btrim(o.scanned_identifier)) AS animal_key,
+               LAG(o.weight_kg::float8) OVER w AS prev_weight,
+               LAG(o.accepted_at) OVER w AS prev_accepted_at
+        FROM scoped s
+        JOIN weighing_observations o
+          ON o.tenant_id = s.tenant_id
+         AND o.campaign_shed_id = s.campaign_shed_id
+        WHERE s.weighing_category = 'individual_animal'
+          AND o.accepted_at >= ($3::timestamptz - ($12::int * INTERVAL '1 day'))
+          AND o.accepted_at <  $4::timestamptz
+          AND o.verification_status <> 'rejected'
+          AND (NOT $8::bool OR lower(btrim(o.scanned_identifier)) = ANY($9::text[]))
+        WINDOW w AS (PARTITION BY lower(btrim(o.scanned_identifier)) ORDER BY o.accepted_at, o.observation_id)
+      ) pairs
+      WHERE prev_weight IS NOT NULL
+        AND ((accepted_at AT TIME ZONE 'Asia/Kolkata')::date
+             - (prev_accepted_at AT TIME ZONE 'Asia/Kolkata')::date) > 0
+        AND accepted_at >= $3::timestamptz
+    ) qualifying
+    ORDER BY animal_key, accepted_at DESC, observation_id DESC
+  ) latest
+),
+summary_lump_points AS (
+  SELECT s.park_id, s.location_id, COALESCE(s.partition_label, '') AS partition_label,
+         sh.shed_observation_id, sh.animal_count, sh.weight_kg, sh.accepted_at,
+         (sh.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d
+  FROM scoped s
+  JOIN weighing_shed_observations sh
+    ON sh.campaign_shed_id = s.campaign_shed_id
+   AND sh.tenant_id = s.tenant_id
+   AND sh.withdrawn_at IS NULL
+   AND sh.accepted_at >= $3::timestamptz
+   AND sh.accepted_at <  $4::timestamptz
+   AND sh.verification_status <> 'rejected'
+  WHERE s.weighing_category = 'per_shed_partition'
+    AND (NOT $8::bool OR EXISTS (
+      SELECT 1 FROM unnest($10::uuid[], $11::text[]) AS b(loc, part)
+      WHERE b.loc = s.location_id AND b.part = COALESCE(s.partition_label, '')
+    ))
+),
+summary_lump_latest AS (
+  SELECT DISTINCT ON (park_id, location_id, partition_label)
+         park_id, location_id, partition_label, animal_count, weight_kg, d
+  FROM summary_lump_points
+  ORDER BY park_id, location_id, partition_label, accepted_at DESC, shed_observation_id DESC
+),
+summary_lump_first AS (
+  SELECT DISTINCT ON (park_id, location_id, partition_label)
+         park_id, location_id, partition_label, d
+  FROM summary_lump_points
+  ORDER BY park_id, location_id, partition_label, accepted_at ASC, shed_observation_id ASC
+),
+summary_lump AS (
+  -- Same whole-shed denominator as growth.go: a pen contributes only when there
+  -- is a prior point and a latest point, and it contributes the latest head count.
+  SELECT COALESCE(sum(l.animal_count), 0)::int AS animals,
+         sum(l.weight_kg) AS total_kg
+  FROM summary_lump_latest l
+  JOIN summary_lump_first f
+    ON f.park_id = l.park_id
+   AND f.location_id = l.location_id
+   AND f.partition_label = l.partition_label
+  WHERE l.d > f.d
+),
+summary_rollup AS (
+  SELECT
+    COALESCE(si.animals, 0) + COALESCE(sl.animals, 0) AS animals_weighed,
+    COALESCE(si.animals, 0) AS individual_animals_weighed,
+    COALESCE(sl.animals, 0) AS lump_sum_animals_weighed,
+    COALESCE(si.total_kg, 0) + COALESCE(sl.total_kg, 0) AS total_weight_kg,
+    COALESCE(si.ge_lower, 0) AS ge_lower,
+    COALESCE(si.ge_upper, 0) AS ge_upper,
+    COALESCE(si.animals, 0) AS threshold_basis
+  FROM summary_individual si CROSS JOIN summary_lump sl
 )
 SELECT b.location_id, b.park_id,
        COALESCE(NULLIF(pk.location_code, ''), pk.name, ''), COALESCE(sh.name, ''),
@@ -270,16 +360,17 @@ SELECT b.location_id, b.park_id,
        b.ge_lower, b.ge_upper, b.threshold_basis,
        count(*) OVER()::int AS summary_sheds_in_scope,
        count(*) FILTER (WHERE b.animals > 0) OVER()::int AS summary_sheds_weighed,
-       COALESCE(sum(CASE WHEN b.animals > 0 THEN b.animals ELSE 0 END) OVER(), 0)::int AS summary_animals_weighed,
-       COALESCE(sum(CASE WHEN b.animals > 0 AND b.weighing_category = 'individual_animal' THEN b.animals ELSE 0 END) OVER(), 0)::int AS summary_individual_animals_weighed,
-       COALESCE(sum(CASE WHEN b.animals > 0 AND b.weighing_category = 'per_shed_partition' THEN b.animals ELSE 0 END) OVER(), 0)::int AS summary_lump_sum_animals_weighed,
-       COALESCE(sum(CASE WHEN b.animals > 0 THEN b.total_kg ELSE 0 END) OVER(), 0)::float8 AS summary_total_weight_kg,
-       COALESCE(sum(b.ge_lower) OVER(), 0)::int AS summary_ge_lower,
-       COALESCE(sum(b.ge_upper) OVER(), 0)::int AS summary_ge_upper,
-       COALESCE(sum(b.threshold_basis) OVER(), 0)::int AS summary_threshold_basis,
+       sr.animals_weighed::int AS summary_animals_weighed,
+       sr.individual_animals_weighed::int AS summary_individual_animals_weighed,
+       sr.lump_sum_animals_weighed::int AS summary_lump_sum_animals_weighed,
+       sr.total_weight_kg::float8 AS summary_total_weight_kg,
+       sr.ge_lower::int AS summary_ge_lower,
+       sr.ge_upper::int AS summary_ge_upper,
+       sr.threshold_basis::int AS summary_threshold_basis,
        ss.g_per_day,
        COALESCE(ss.span_days, 0)
 FROM latest_bucket b
+CROSS JOIN summary_rollup sr
 LEFT JOIN shed_span ss
   ON ss.location_id = b.location_id
  AND ss.partition_label = COALESCE(b.partition_label, '')
@@ -292,7 +383,8 @@ LIMIT $7`
 		periodStart, periodEnd,
 		domain.SaleThresholdLowerKg, domain.SaleThresholdUpperKg,
 		domain.MaxShedWeightsRows,
-		sexFiltered, scope.Tags, scope.LocationIDs, scope.PartitionLabels)
+		sexFiltered, scope.Tags, scope.LocationIDs, scope.PartitionLabels,
+		growthLookbackDays)
 	if err != nil {
 		return domain.ShedWeights{}, err
 	}
