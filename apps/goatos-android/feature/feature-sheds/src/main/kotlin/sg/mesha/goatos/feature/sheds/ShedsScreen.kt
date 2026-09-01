@@ -742,16 +742,6 @@ private fun VaccineCarryCard(carry: DayCarry?) {
                     style = MeshaType.listTitle,
                 )
             }
-            Spacer(Modifier.height(4.dp))
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                carry.vaccines.forEach { v ->
-                    DoseInstructionChip(v.label)
-                }
-            }
             Spacer(Modifier.height(12.dp))
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
@@ -763,33 +753,6 @@ private fun VaccineCarryCard(carry: DayCarry?) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun DoseInstructionChip(label: String) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(BrandTint)
-            .border(1.dp, Brand.copy(alpha = 0.35f), RoundedCornerShape(999.dp))
-            .padding(horizontal = 9.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .size(6.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(Brand),
-        )
-        Text(
-            text = label,
-            color = BrandD,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.ExtraBold,
-            maxLines = 1,
-        )
     }
 }
 
