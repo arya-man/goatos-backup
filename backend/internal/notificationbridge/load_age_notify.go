@@ -44,13 +44,8 @@ const NotificationTypeLoadOverdue = "procurement_load_overdue"
 // of them here would be a second implementation of a business number that the Purchase & barn
 // screen also shows. The alert and the chart must never disagree about whether a load is overdue.
 type OverdueLoadReader interface {
-	LoadwiseSales(ctx context.Context, tenantID string, maxLoads int) (procurementdomain.LoadwiseSales, error)
+	OverdueLoadCandidates(ctx context.Context, tenantID, asOf string) ([]procurementdomain.OverdueLoad, error)
 }
-
-// loadAgeScanLimit bounds the read. The alert is about the farm's open loads, and the load-wise
-// read is newest-first, so this is the same window the screen serves rather than a herd-sized
-// scan.
-const loadAgeScanLimit = 200
 
 // LoadAgeNotifier queues the daily overdue-load alerts.
 type LoadAgeNotifier struct {
@@ -86,11 +81,11 @@ func (n *LoadAgeNotifier) NotifyOverdueLoads(ctx context.Context, tenantID strin
 		return fmt.Errorf("load overdue notification: tenant id is required")
 	}
 
-	read, err := n.loads.LoadwiseSales(ctx, tenantID, loadAgeScanLimit)
+	businessDate := biztime.BusinessDate(n.now())
+	overdue, err := n.loads.OverdueLoadCandidates(ctx, tenantID, businessDate)
 	if err != nil {
 		return fmt.Errorf("load overdue notification: read: %w", err)
 	}
-	overdue := procurementdomain.OverdueLoads(read.Loads)
 	if len(overdue) == 0 {
 		return nil
 	}
@@ -111,7 +106,6 @@ func (n *LoadAgeNotifier) NotifyOverdueLoads(ctx context.Context, tenantID strin
 		return nil
 	}
 
-	businessDate := biztime.BusinessDate(n.now())
 	for _, load := range overdue {
 		// The business date in the key IS the once-a-day property.
 		eventKey := fmt.Sprintf("procurement.load_overdue:%s:%s", businessDate, load.LoadID)
@@ -136,8 +130,8 @@ func (n *LoadAgeNotifier) NotifyOverdueLoads(ctx context.Context, tenantID strin
 			"group_key":           "procurement_load_overdue:" + tenantID,
 			"collapse_key":        "procurement_load_overdue:" + tenantID + ":" + load.LoadID,
 		}
-		// One write per OVERDUE load by design (see the header). Bounded by loadAgeScanLimit and
-		// in practice by how many loads the farm has open at once -- never herd-sized.
+		// One write per OVERDUE load by design (see the header). The candidate read is unpaged by
+		// design: an alert about old loads must not be clipped by the newest-first UI window.
 		//
 		// scale-guard:ignore: bounded per-load alert loop, see above.
 		if _, err := n.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{

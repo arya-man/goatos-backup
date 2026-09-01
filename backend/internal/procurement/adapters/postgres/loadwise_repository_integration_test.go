@@ -315,6 +315,27 @@ func TestLoadwiseSalesPostgresRead(t *testing.T) {
 		}
 	})
 
+	t.Run("OverdueCandidatesAreNotClippedByNewestPageWindow", func(t *testing.T) {
+		candidates, err := repo.OverdueLoadCandidates(ctx, testTenant, "2026-11-05")
+		if err != nil {
+			t.Fatalf("overdue candidates: %v", err)
+		}
+		if len(candidates) != 1 || candidates[0].LoadID != fx.loadA {
+			t.Fatalf("overdue candidates = %+v, want only older open load A", candidates)
+		}
+
+		windowed, err := repo.LoadwiseSales(ctx, testTenant, 1)
+		if err != nil {
+			t.Fatalf("windowed read: %v", err)
+		}
+		if len(windowed.Loads) != 1 || windowed.Loads[0].LoadID != fx.loadC {
+			t.Fatalf("windowed read = %+v, want newest load C", windowed.Loads)
+		}
+		if candidates[0].LoadID == windowed.Loads[0].LoadID {
+			t.Fatalf("overdue candidate unexpectedly came from the one-row newest page")
+		}
+	})
+
 	t.Run("DuplicateAcceptedRowsResolveToOneStableLoad", func(t *testing.T) {
 		// The dedupe must be a TOTAL order, not merely a business-preferred one. intake_accepted_at
 		// is nullable and AcceptIntake stamps one timestamp per BATCH, so two accepted rows for the

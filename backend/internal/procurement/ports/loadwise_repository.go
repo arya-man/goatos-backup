@@ -27,6 +27,10 @@ type LoadwiseRepository interface {
 	// sold value and recorded costs, plus the whole-tenant load count and the overall average sold
 	// price (the remaining-stock fallback basis).
 	LoadwiseSales(ctx context.Context, tenantID string, maxLoads int) (domain.LoadwiseSales, error)
+	// OverdueLoadCandidates returns every load candidate for the daily age alert. It is deliberately
+	// not clipped to the UI page window: an old load can sit behind hundreds of newer purchases and
+	// still need the CXO alert.
+	OverdueLoadCandidates(ctx context.Context, tenantID, asOf string) ([]domain.OverdueLoad, error)
 	// SetLoadCost records (or clears) one load's landed cost under the load's row lock. Naturally
 	// idempotent: writing the values the load already carries changes nothing and audits nothing.
 	SetLoadCost(ctx context.Context, tenantID, loadID string, edit domain.LoadCostEdit, actorID string) error

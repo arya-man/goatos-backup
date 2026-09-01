@@ -192,7 +192,7 @@ LEFT JOIN stats s ON s.load_id = pl.load_id
 LEFT JOIN prior pr ON pr.load_id = pl.load_id
 WHERE pl.tenant_id = $1
 ORDER BY pl.purchase_date DESC NULLS LAST, pl.created_at DESC, pl.load_id
-LIMIT $2`
+LIMIT NULLIF($2, 0)`
 
 // loadCostLinesSQL reads the itemisation for a whole page of loads at once. Ordered by the kind's
 // own position in domain.CostLineKinds, so the breakdown reads animal -> transport -> booking ->
@@ -280,12 +280,29 @@ WHERE a.tenant_id = $1 AND a.status = 'tagged'`
 // LoadwiseSales returns the newest maxLoads loads reconciled: counts, attributed sold value,
 // recorded costs, the whole-tenant load count and the overall average sold price.
 func (r *Repository) LoadwiseSales(ctx context.Context, tenantID string, maxLoads int) (domain.LoadwiseSales, error) {
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
-
 	if maxLoads <= 0 {
 		maxLoads = 60
 	}
+	return r.loadwiseSales(ctx, tenantID, maxLoads, biztime.BusinessDate(time.Now()))
+}
+
+// OverdueLoadCandidates returns every overdue-load candidate in the tenant, not just the newest UI
+// page. The alert is specifically about OLD loads, so applying the page's newest-first LIMIT before
+// filtering would hide the very rows this scan exists to find once a tenant has enough newer loads.
+func (r *Repository) OverdueLoadCandidates(ctx context.Context, tenantID, asOf string) ([]domain.OverdueLoad, error) {
+	if asOf == "" {
+		asOf = biztime.BusinessDate(time.Now())
+	}
+	read, err := r.loadwiseSales(ctx, tenantID, 0, asOf)
+	if err != nil {
+		return nil, err
+	}
+	return domain.OverdueLoads(read.Loads), nil
+}
+
+func (r *Repository) loadwiseSales(ctx context.Context, tenantID string, maxLoads int, asOf string) (domain.LoadwiseSales, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
 
 	rows, err := r.pool.Query(ctx, loadwiseSalesSQL, tenantID, maxLoads)
 	if err != nil {
@@ -362,10 +379,7 @@ func (r *Repository) LoadwiseSales(ctx context.Context, tenantID string, maxLoad
 		overall = &overallAvg
 	}
 
-	// The age clock reads against TODAY's Asia/Kolkata business date. A load is bought on a day,
-	// so its age is a whole number of business days -- never a UTC instant, which would flip the
-	// figure for five and a half hours every night.
-	return domain.FinalizeLoadwise(loads, totalLoads, overall, biztime.BusinessDate(time.Now())), nil
+	return domain.FinalizeLoadwise(loads, totalLoads, overall, asOf), nil
 }
 
 // bizDate renders an optional business DATE as its calendar day, never shifted through a timezone.

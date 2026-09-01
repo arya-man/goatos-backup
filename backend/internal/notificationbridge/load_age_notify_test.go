@@ -11,18 +11,16 @@ import (
 )
 
 type overdueLoadReaderFake struct {
-	sales     procurementdomain.LoadwiseSales
-	askedMax  int
+	overdue   []procurementdomain.OverdueLoad
+	askedAsOf string
 	callCount int
 }
 
-func (f *overdueLoadReaderFake) LoadwiseSales(_ context.Context, _ string, maxLoads int) (procurementdomain.LoadwiseSales, error) {
-	f.askedMax = maxLoads
+func (f *overdueLoadReaderFake) OverdueLoadCandidates(_ context.Context, _ string, asOf string) ([]procurementdomain.OverdueLoad, error) {
+	f.askedAsOf = asOf
 	f.callCount++
-	return f.sales, nil
+	return f.overdue, nil
 }
-
-func days(n int) *int { return &n }
 
 // The fixture holds four loads, and only ONE of them should alert:
 //
@@ -31,15 +29,9 @@ func days(n int) *int { return &n }
 //	113 292 days,  0 on farm   -- over but sold out, so it is history, not an alert
 //	100  90 days,  5 on farm   -- exactly AT the threshold, and "exceeds 90" means 91
 func newOverdueFixture() (*overdueLoadReaderFake, *missedRecipientsFake, *missedQueueFake, *LoadAgeNotifier) {
-	reader := &overdueLoadReaderFake{sales: procurementdomain.LoadwiseSales{Loads: []procurementdomain.LoadwiseLoad{
-		{LoadID: "l-131", LoadRef: "131", VendorName: "Krishnamorrthy", Farm: "CPT",
-			PurchaseDate: "2026-06-22", DaysSincePurchase: days(71), Remaining: 63},
-		{LoadID: "l-129", LoadRef: "129", VendorName: "Krishnamorrthy", Farm: "CPT",
-			PurchaseDate: "2026-06-01", DaysSincePurchase: days(92), Remaining: 77},
-		{LoadID: "l-113", LoadRef: "113", VendorName: "Nutriplus Foods Pvt Ltd.", Farm: "CBE",
-			PurchaseDate: "2025-11-13", DaysSincePurchase: days(292), Remaining: 0},
-		{LoadID: "l-100", LoadRef: "100", VendorName: "Green Fresh Farm", Farm: "CPT",
-			PurchaseDate: "2026-06-03", DaysSincePurchase: days(90), Remaining: 5},
+	reader := &overdueLoadReaderFake{overdue: []procurementdomain.OverdueLoad{{
+		LoadID: "l-129", LoadRef: "129", VendorName: "Krishnamorrthy", Farm: "CPT",
+		PurchaseDate: "2026-06-01", DaysSincePurchase: 92, Remaining: 77,
 	}}}
 	recipients := &missedRecipientsFake{byPosition: map[string][]workforcedomain.NotificationRecipient{
 		"tenant|" + missedTenant + "|ceo_internal": {{WorkforceMemberID: "m-ceo", DeviceID: "d-ceo", FCMToken: "fcm-ceo"}},
@@ -60,7 +52,7 @@ func newOverdueFixture() (*overdueLoadReaderFake, *missedRecipientsFake, *missed
 // The sold-out row is the one that matters: a load bought 292 days ago that has no animals left is
 // history, and alerting on it every morning forever would train the CXO to ignore the alert --
 // which costs more than the alert gains. The at-exactly-90 row pins "exceeds 90 days" as > 90.
-func TestOverdueLoadAlertFiresOnlyForOpenLoadsPastTheThreshold(t *testing.T) {
+func TestOverdueLoadAlertQueuesEveryCandidateTheRepositoryReturns(t *testing.T) {
 	_, _, queue, notifier := newOverdueFixture()
 	if err := notifier.NotifyOverdueLoads(context.Background(), missedTenant); err != nil {
 		t.Fatalf("NotifyOverdueLoads: %v", err)
@@ -158,10 +150,11 @@ func TestOverdueLoadAlertIsOncePerDayByIdempotencyKey(t *testing.T) {
 	}
 }
 
-// TestOverdueLoadAlertReadsTheSharedReadModelOnce: the alert and the Purchase & barn chart must
-// never disagree about whether a load is overdue, so the notifier consumes the FINISHED read model
-// rather than re-deriving the age clock. One read per run, not one per load.
-func TestOverdueLoadAlertReadsTheSharedReadModelOnce(t *testing.T) {
+// TestOverdueLoadAlertReadsUnpagedCandidatesOnce: the alert is about old loads, so it must not
+// read the newest-first UI page and then filter inside that clipped window. One read per run, not
+// one per load, and the business date is passed through so the repository and idempotency key use
+// the same day.
+func TestOverdueLoadAlertReadsUnpagedCandidatesOnce(t *testing.T) {
 	reader, _, _, notifier := newOverdueFixture()
 	if err := notifier.NotifyOverdueLoads(context.Background(), missedTenant); err != nil {
 		t.Fatalf("NotifyOverdueLoads: %v", err)
@@ -169,17 +162,15 @@ func TestOverdueLoadAlertReadsTheSharedReadModelOnce(t *testing.T) {
 	if reader.callCount != 1 {
 		t.Fatalf("read the load model %d times, want once for the whole run", reader.callCount)
 	}
-	if reader.askedMax != loadAgeScanLimit {
-		t.Fatalf("asked for %d loads, want the bounded scan limit %d", reader.askedMax, loadAgeScanLimit)
+	if reader.askedAsOf != "2026-09-01" {
+		t.Fatalf("asked as-of date %q, want the business date 2026-09-01", reader.askedAsOf)
 	}
 }
 
 // TestNoOverdueLoadsQueuesNothing: a quiet day must be silent, not an empty push.
 func TestNoOverdueLoadsQueuesNothing(t *testing.T) {
 	reader, _, queue, notifier := newOverdueFixture()
-	reader.sales = procurementdomain.LoadwiseSales{Loads: []procurementdomain.LoadwiseLoad{
-		{LoadID: "l-131", LoadRef: "131", DaysSincePurchase: days(71), Remaining: 63},
-	}}
+	reader.overdue = nil
 	if err := notifier.NotifyOverdueLoads(context.Background(), missedTenant); err != nil {
 		t.Fatalf("NotifyOverdueLoads: %v", err)
 	}
