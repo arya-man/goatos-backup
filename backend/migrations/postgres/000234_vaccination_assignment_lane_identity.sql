@@ -1,6 +1,7 @@
 -- seed-fixture-guard:ignore: runtime drive-assignment identity only; no seed input, fixture schema, or source data changes.
 -- seed-migration-guard:ignore owner=ravi issue=PR-140 reason=runtime-vaccination-drive-assignment-identity-and-cap-constraint-only expiry=2026-12-31
 -- +goose Up
+-- stg-zero-downtime: compatible because it only tightens STG operator planning invariants before the new runtime depends on them; existing services keep using the old index until this migration and code roll forward together.
 -- Keep distinct vaccine lanes separate when the same operator/date/shed/partition is planned.
 -- Without vaccine_rule_ids in the key, Z1+Z3 and ET+TT-like lanes can collapse into one card.
 

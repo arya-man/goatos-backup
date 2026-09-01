@@ -127,6 +127,11 @@ source shed.
    `audit_log`, and `obligation_status_events` will be rebuilt in place before
    seed closeout. After such a rehearsal, rerun migration validation and the
    FK/orphan checks before seeding.
+   The clean-slate baseline migration must stay aligned with the historical
+   schema that STG has already applied. Later vaccination planning constraints
+   are carried by forward migrations such as `000234`; correcting baseline
+   drift does not add a seed step, but the deployed artifact still must pass the
+   normal seed closeout checks below.
 7. Seed, in order:
    - founder/builder email grants;
    - reviewed roster/workforce from roster mapping, attendance/leave, and

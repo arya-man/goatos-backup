@@ -1,4 +1,5 @@
 -- +goose Up
+-- stg-zero-downtime: compatible because it adds optional procurement detail columns and a child table; new constraints allow NULL for existing rows, and old services ignore the added schema.
 
 -- PROCUREMENT LOAD COST LINES: what the three cost buckets on a load are MADE OF.
 --

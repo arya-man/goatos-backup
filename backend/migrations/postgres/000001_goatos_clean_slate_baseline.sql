@@ -4580,7 +4580,7 @@ CREATE TABLE public.vaccination_capacity_config (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT vaccination_capacity_config_buffer_check CHECK ((max_buffer_days >= 0)),
-    CONSTRAINT vaccination_capacity_config_max_per_day_check CHECK (((max_per_day >= 1) AND (max_per_day <= 200))),
+    CONSTRAINT vaccination_capacity_config_max_per_day_check CHECK ((max_per_day >= 1)),
     CONSTRAINT vaccination_capacity_config_overflow_check CHECK ((overflow_policy = 'split_within_safe_window_last_safe_may_exceed_cap'::text)),
     CONSTRAINT vaccination_capacity_config_scope_check CHECK ((capacity_scope = ANY (ARRAY['tenant'::text, 'center'::text, 'shed'::text])))
 );
@@ -14894,10 +14894,7 @@ WHERE sv.sop_version_id = rewritten.sop_version_id;
 -- -----------------------------------------------------------------------------
 DROP INDEX IF EXISTS public.vaccination_drive_assignments_batch_shed_part_uq;
 
-ALTER TABLE vaccination_drive_assignments
-  ADD COLUMN IF NOT EXISTS vaccine_rule_ids uuid[] NOT NULL DEFAULT '{}';
-
-CREATE UNIQUE INDEX IF NOT EXISTS vaccination_drive_assignments_batch_shed_part_operator_lane_uq
+CREATE UNIQUE INDEX IF NOT EXISTS vaccination_drive_assignments_batch_shed_part_operator_uq
   ON public.vaccination_drive_assignments (
     tenant_id,
     batch_id,
@@ -14906,8 +14903,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS vaccination_drive_assignments_batch_shed_part_
     COALESCE(shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
     physical_shed,
     partition_label,
-    COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid),
-    COALESCE(vaccine_rule_ids, '{}'::uuid[])
+    COALESCE(operator_id, '00000000-0000-0000-0000-000000000000'::uuid)
   );
 
 
@@ -16475,7 +16471,7 @@ ALTER TABLE public.workforce_positions
 ALTER TABLE public.workforce_positions
   DROP CONSTRAINT IF EXISTS workforce_positions_vaccination_daily_animal_cap_check,
   ADD CONSTRAINT workforce_positions_vaccination_daily_animal_cap_check
-    CHECK (vaccination_daily_animal_cap IS NULL OR vaccination_daily_animal_cap BETWEEN 1 AND 200);
+    CHECK (vaccination_daily_animal_cap IS NULL OR vaccination_daily_animal_cap BETWEEN 1 AND 100000);
 
 COMMENT ON COLUMN public.workforce_positions.vaccination_daily_animal_cap IS
   'Optional HRMS-authored vaccination animal capacity for this operator seat. Null means use vaccination_capacity_config.max_per_day.';

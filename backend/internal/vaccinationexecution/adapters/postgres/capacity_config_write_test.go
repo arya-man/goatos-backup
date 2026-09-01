@@ -116,6 +116,10 @@ func TestUpsertCapacityConfigRowVersionConflict(t *testing.T) {
 //     override is a scalar, not a ScheduledDate/ExecutionDate grain.
 //   - status (StatusMatrix): N/A -- capacity config has no status buckets; there is no EveryStatus /
 //     StatusBuckets matrix to fan over here (the downstream drive StatusMatrix is a separate read model).
+//   - stale-serving (ProjectionFreshness): N/A for this config write because
+//     `vaccination_eligibility_rollups` is a seed-closeout preview table; the
+//     production planning/write contract is this canonical row plus per-park
+//     capacity-change events, and existing projection tests own stale runtime serving.
 //
 // TestUpsertCapacityConfigEnqueuesCapacityChangedPerActivePark proves a tenant-wide capacity write
 // cascades to EVERY active park (capacity config has no park_id column -- it is tenant-scoped) by
