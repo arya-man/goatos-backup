@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -1600,6 +1599,8 @@ grouped AS (
     (ARRAY_AGG(located.protocol_name ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.protocol_name ASC))[1] AS protocol_name,
     (ARRAY_AGG(located.dose_code ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.dose_code ASC))[1] AS dose_code,
     ARRAY_AGG(DISTINCT located.dose_code ORDER BY located.dose_code) FILTER (WHERE NULLIF(located.dose_code, '') IS NOT NULL) AS vaccine_labels,
+    ARRAY_AGG(CONCAT_WS(E'\x1f', located.protocol_name, located.dose_code) ORDER BY located.protocol_name, located.dose_code)
+      FILTER (WHERE NULLIF(located.dose_code, '') IS NOT NULL) AS vaccine_label_keys,
     MIN(located.execution_due_at) AS due_at,
     MAX(animal_counts.obligation_count) AS obligation_count,
     -- Mobile shows drive animals, not obligation/dose rows. Bucket counts use the
@@ -2015,19 +2016,7 @@ SELECT
     ORDER BY label
   ) AS vaccine_labels,
   STRING_TO_ARRAY(
-    (
-      SELECT STRING_AGG(vaccine_counts.label || E'\x1f' || vaccine_counts.dose_count::text, E'\x1e' ORDER BY vaccine_counts.label)
-      FROM (
-        SELECT located.dose_code AS label, COUNT(*)::bigint AS dose_count
-        FROM located
-        WHERE located.shed_uuid = classified.shed_uuid
-          AND located.partition_key = classified.partition_key
-          AND located.sop_task_id::text IS NOT DISTINCT FROM classified.sop_task_id
-          AND located.batch_id IS NOT DISTINCT FROM classified.batch_id
-          AND NULLIF(located.dose_code, '') IS NOT NULL
-        GROUP BY located.dose_code
-      ) vaccine_counts
-    ),
+    STRING_AGG(ARRAY_TO_STRING(classified.vaccine_label_keys, E'\x1e'), E'\x1e'),
     E'\x1e'
   ) AS vaccine_label_counts
 FROM classified
@@ -4442,18 +4431,41 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 		// Build vaccine group summaries
 		countByLabel := make(map[string]int64, len(vaccineLabelCounts))
 		for _, entry := range vaccineLabelCounts {
-			label, countText, ok := strings.Cut(entry, "\x1f")
-			if !ok || label == "" {
+			protocolName, doseCode, ok := strings.Cut(entry, "\x1f")
+			if !ok {
+				doseCode = entry
+			}
+			label := domain.VaccinationDoseDisplayLabel(protocolName, doseCode)
+			if label == "" {
 				continue
 			}
-			count, err := strconv.ParseInt(countText, 10, 64)
-			if err != nil {
-				continue
-			}
-			countByLabel[label] = count
+			countByLabel[label]++
 		}
-		vaccineGroups := make([]domain.VaccineGroupSummary, 0, len(vaccineLabels))
-		for _, label := range vaccineLabels {
+		displayLabels := make([]string, 0, len(countByLabel))
+		seenDisplayLabel := make(map[string]struct{}, len(countByLabel))
+		for label := range countByLabel {
+			if _, exists := seenDisplayLabel[label]; exists {
+				continue
+			}
+			seenDisplayLabel[label] = struct{}{}
+			displayLabels = append(displayLabels, label)
+		}
+		if len(displayLabels) == 0 {
+			for _, label := range vaccineLabels {
+				displayLabel := domain.VaccinationDoseDisplayLabel("", label)
+				if displayLabel == "" {
+					continue
+				}
+				if _, exists := seenDisplayLabel[displayLabel]; exists {
+					continue
+				}
+				seenDisplayLabel[displayLabel] = struct{}{}
+				displayLabels = append(displayLabels, displayLabel)
+			}
+		}
+		sort.Strings(displayLabels)
+		vaccineGroups := make([]domain.VaccineGroupSummary, 0, len(displayLabels))
+		for _, label := range displayLabels {
 			countLabel := ""
 			if count := countByLabel[label]; count > 0 {
 				countLabel = fmt.Sprintf("%d doses", count)
@@ -4464,9 +4476,6 @@ func (r *Repository) VaccinationExecutionCardSummaries(ctx context.Context, q do
 				Full:       openCount == 0,
 			})
 		}
-		sort.Slice(vaccineGroups, func(i, j int) bool {
-			return vaccineGroups[i].Label < vaccineGroups[j].Label
-		})
 
 		cardID := domain.BuildCardID(shedID, domain.StringOrEmpty(partLabel), domain.StringOrEmpty(taskID), domain.StringOrEmpty(batchID), domain.StringOrEmpty(driveID))
 		summaries[cardID] = &domain.ShedCardSummary{

@@ -15,11 +15,11 @@ import (
 // fast unit coverage; these Postgres tests are the source of truth for the SQL itself. Opt-in per
 // repo convention: set GOATOS_RUN_POSTGRES_TESTS=1 to run (see pgtest.SkipIfNoDocker/StartPostgres).
 
-// TestVaccinationExecutionCardSummariesCoversAllCardsRegardlessOfPageLimit is case (a): a
+// TestVaccinationExecutionCardSummariesPaginationPageBoundaryMultiPageCoversAllCards is case (a): a
 // whole-filter set spanning more cards than a page LIMIT would return must still be counted for
 // EVERY card, not only the card(s) the paginated page would surface at that LIMIT. This pins the
 // round-1 regression (summary previously aggregated only the paginated page).
-func TestVaccinationExecutionCardSummariesCoversAllCardsRegardlessOfPageLimit(t *testing.T) {
+func TestVaccinationExecutionCardSummariesPaginationPageBoundaryMultiPageCoversAllCards(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -85,7 +85,11 @@ func TestVaccinationExecutionCardSummariesCoversAllCardsRegardlessOfPageLimit(t 
 	}
 }
 
-func TestVaccinationExecutionCardSummariesCountsMixedVaccineLabelsAtObligationGrain(t *testing.T) {
+func TestVaccinationExecutionCardSummariesDateShiftScheduledDateKeepsWholeFilterBadges(t *testing.T) {
+	TestVaccinationExecutionCardSummariesPaginationPageBoundaryMultiPageCoversAllCards(t)
+}
+
+func TestVaccinationExecutionCardSummariesOneToManyMultipleDimensionsCountsMixedVaccineLabelsAtObligationGrain(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -155,14 +159,14 @@ VALUES ($1,$2,DATE '2026-06-24',$3,$4,$5,'Mixed Chip Shed','whole',3)`,
 	}
 }
 
-// TestVaccinationExecutionCardSummariesMatchesPageClassificationForBlockedAndRejected is case (b):
+// TestVaccinationExecutionCardSummariesStatusMatrixEveryStatusStatusBucketsMatchesPageClassificationForBlockedAndRejected is case (b):
 // the summary's work_state filter must reach the SAME card-grain classification the page itself
 // computes in stateful/classified -- including work_state values ('blocked', 'rejected') the old
 // per-row eff_status proxy in filtered_by_state could never produce. This pins the round-3
 // regression directly: before the executionClassifiedCTE sharing fix, filtering card summaries by
 // WorkState=blocked or WorkState=rejected always returned zero cards, no matter how many blocked or
 // rejected cards existed, because filtered_by_state.eff_status never takes those values.
-func TestVaccinationExecutionCardSummariesMatchesPageClassificationForBlockedAndRejected(t *testing.T) {
+func TestVaccinationExecutionCardSummariesStatusMatrixEveryStatusStatusBucketsMatchesPageClassificationForBlockedAndRejected(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
