@@ -381,7 +381,7 @@ export async function WeighingWeightsPage({
         rangeSeparator: copy(pageContract, "filter.period.range_separator"),
         markerHint: copy(pageContract, "filter.period.lump_marker_hint"),
       },
-      markerFetchPath: `/api/weighing/lump-markers${parkFilter ? `?park_id=${encodeURIComponent(parkFilter)}` : ""}`,
+      markerFetchPath: `/api/weighing/lump-markers?sex=${encodeURIComponent(sexChoice)}${parkFilter ? `&park_id=${encodeURIComponent(parkFilter)}` : ""}`,
     },
     {
       // allowAll:false because this vocabulary ALREADY carries its own "All" (`weighing_mode`

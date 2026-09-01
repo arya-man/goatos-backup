@@ -293,6 +293,8 @@ test("lump marker proxy reads a calendar window independently of the report rang
   );
   assert.match(route, /url\.searchParams\.get\("from"\)/);
   assert.match(route, /url\.searchParams\.get\("to"\)/);
+  assert.match(route, /url\.searchParams\.get\("sex"\)/);
   assert.match(route, /getWeighingDates\(\{\s*\n\s*park_id: parkID \|\| undefined,\s*\n\s*from,\s*\n\s*to,/);
+  assert.match(route, /sex: sex === "male" \|\| sex === "female" \? sex : undefined,/);
   assert.match(route, /dates: result\.data\.lump_weighing_dates/);
 });

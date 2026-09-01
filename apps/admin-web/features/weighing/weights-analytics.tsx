@@ -254,7 +254,7 @@ export async function WeighingWeightsAnalyticsPage({
         rangeSeparator: copy(pageContract, "filter.period.range_separator"),
         markerHint: copy(pageContract, "filter.period.lump_marker_hint"),
       },
-      markerFetchPath: `/api/weighing/lump-markers${parkFilter ? `?park_id=${encodeURIComponent(parkFilter)}` : ""}`,
+      markerFetchPath: `/api/weighing/lump-markers?sex=${encodeURIComponent(sexChoice)}${parkFilter ? `&park_id=${encodeURIComponent(parkFilter)}` : ""}`,
     },
     // WEIGHING IS OFFERED ONLY WHERE IT ACTUALLY NARROWS SOMETHING at the API boundary
     // (maintainer decision, review of PR 162). It selects a capture MODE -- kids scanned one at a

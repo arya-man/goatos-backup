@@ -11,6 +11,7 @@ export async function GET(request: Request) {
   const from = url.searchParams.get("from")?.trim() ?? "";
   const to = url.searchParams.get("to")?.trim() ?? "";
   const parkID = url.searchParams.get("park_id")?.trim() ?? "";
+  const sex = url.searchParams.get("sex")?.trim() ?? "";
 
   if (!BUSINESS_DAY.test(from) || !BUSINESS_DAY.test(to) || from > to) {
     return NextResponse.json(
@@ -26,6 +27,7 @@ export async function GET(request: Request) {
     park_id: parkID || undefined,
     from,
     to,
+    sex: sex === "male" || sex === "female" ? sex : undefined,
   });
   if (!result.ok) {
     return NextResponse.json(
