@@ -357,6 +357,13 @@ func isKidCourseRule(rule protodomain.Rule) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(rule.DoseCode)), "_kid_")
 }
 
+// seed-fixture-guard:ignore: runtime booster gating only; reads no HRMS seed source and changes no fixture input/schema contract.
+func birthAgeKidRuleRequiresPriorPrimary(rule protodomain.Rule) bool {
+	return strings.EqualFold(strings.TrimSpace(rule.TriggerType), "birth_age") &&
+		isKidCourseRule(rule) &&
+		rule.MinGapDays > 0
+}
+
 func warmingEntryAt(g domain.EligibleGoat) *time.Time {
 	if g.WarmingEntryAt != nil {
 		return g.WarmingEntryAt
